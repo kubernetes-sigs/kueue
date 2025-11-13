@@ -18269,50 +18269,54 @@ spec:
                             the total bytesize for very large number of domains; see
                             examples below):\n  - When all node selector values (at
                             a given topology level, in a given slice)\n    share a
-                            common prefix and/or suffix, these may be stored in dedicated
-                            `prefix`/`suffix` fields.\n    If so, the array of `roots`
-                            will only store the remaining parts of these strings.\n
-                            \ - When all node selector values (at a given topology
-                            level, in a given slice)\n    are identical, this may
-                            be represented by `universalValue`.\n  - When all pod
-                            counts (in a given slice) are identical,\n    this may
-                            be represented by `universalPodCount`.\n\nExample 1:\n\nThe
-                            following represents an assignment in which:\n* 4 Pods
+                            common prefix and/or suffix, these may be stored\n    in
+                            dedicated `commonPrefix`/`commonSuffix` fields.\n    If
+                            so, the array of `roots` will only store the remaining
+                            parts of these strings.\n  - When all node selector values
+                            (at a given topology level, in a given slice)\n    are
+                            identical, this may be represented by `universal` value.\n
+                            \ - When all pod counts (in a given slice) are identical,\n
+                            \   this may be represented by `universal` pod count.\n\nExample
+                            1:\n\nThe following represents an assignment in which:\n*
+                            4 Pods are to be scheduled on nodes matching the node
+                            selector:\n  - cloud.provider.com/topology-block: block-1\n
+                            \ - cloud.provider.com/topology-rack: rack-1\n* 2 Pods
                             are to be scheduled on nodes matching the node selector:\n
                             \ - cloud.provider.com/topology-block: block-1\n  - cloud.provider.com/topology-rack:
-                            rack-1\n* 2 Pods are to be scheduled on nodes matching
-                            the node selector:\n  - cloud.provider.com/topology-block:
-                            block-1\n  - cloud.provider.com/topology-rack: rack-2\n\ntopologyAssignment:\n
+                            rack-2\n\ntopologyAssignment:\n  levels:\n  - cloud.provider.com/topology-block\n
+                            \ - cloud.provider.com/topology-rack\n  slices:\n  - domainCount:
+                            2\n    valuesPerLevel:\n    - individual:\n        roots:
+                            [block-1, block-1]\n    - individual:\n        roots:
+                            [rack-1, rack-2]\n    podCounts:\n      individual: [4,
+                            2]\n\nExample 2:\n\nThe following is equivalent to Example
+                            1 - but using extracted prefix and universalValue.\n\ntopologyAssignment:\n
                             \ levels:\n  - cloud.provider.com/topology-block\n  -
                             cloud.provider.com/topology-rack\n  slices:\n  - domainCount:
-                            2\n    valuesPerLevel:\n    - roots: [block-1, block-1]\n
-                            \   - roots: [rack-1, rack-2]\n    podCounts: [4, 2]\n\nExample
-                            2:\n\nThe following is equivalent to Example 1 - but using
-                            extracted prefix and universalValue.\n\ntopologyAssignment:\n
-                            \ levels:\n  - cloud.provider.com/topology-block\n  -
-                            cloud.provider.com/topology-rack\n  slices:\n  - domainCount:
-                            2\n    valuesPerLevel:\n    - universalValue: block-1\n
-                            \   - prefix: rack-\n\t\t roots: [1, 2]\n    podCounts:
-                            [4, 2]\n\nExample 3:\n\nNow suppose that:\n- the Topology
-                            object defines kubernetes.io/hostname as the lowest level\n
-                            \ (and hence, in the topologyAssignment, we omit all other
-                            levels\n  since the hostname label suffices to explicitly
-                            identify a proper node),\n- we assign 1 Pod per each node,\n-
-                            the node naming scheme is `block-{blockId}-rack-{rackId}-node-{nodeId}`.\nThen,
+                            2\n    valuesPerLevel:\n    - universal: block-1\n    -
+                            individual:\n        prefix: rack-\n\t\t   roots: [1,
+                            2]\n    podCounts:\n      individual: [4, 2]\n\nExample
+                            3:\n\nNow suppose that:\n- the Topology object defines
+                            kubernetes.io/hostname as the lowest level\n  (and hence,
+                            in the topologyAssignment, we omit all other levels\n
+                            \ since the hostname label suffices to explicitly identify
+                            a proper node),\n- we assign 1 Pod per each node,\n- the
+                            node naming scheme is `block-{blockId}-rack-{rackId}-node-{nodeId}`.\nThen,
                             using the \"extraction of commons\", the assignment from
                             Examples 1-2 would look as follows:\n\ntopologyAssignment:\n
                             \ levels:\n  - kubernetes.io/hostname\n  slices:\n  -
-                            domainCount: 6\n    valuesPerLevel:\n    - prefix: block-1-rack-\n\t\t
-                            roots: [1-node-1, 1-node-2, 1-node-3, 1-node-4, 2-node-1,
-                            2-node-2]\n    universalPodCount: 1\n\nExample 4:\n\nBy
-                            using multiple slices, we can afford even longer common
-                            prefixes.\nThe assignment from Example 3 can be alternatively
-                            represented as follows:\n\ntopologyAssignment:\n  levels:\n
-                            \ - kubernetes.io/hostname\n  slices:\n  - domainCount:
-                            4\n    valuesPerLevel:\n    - prefix: block-1-rack-1-node-\n\t\t
-                            roots: [1, 2, 3, 4]\n    universalPodCount: 1\n  - domainCount:
-                            2\n    valuesPerLevel:\n    - prefix: block-1-rack-2-node-\n\t\t
-                            roots: [1, 2]\n    universalPodCount: 1"
+                            domainCount: 6\n    valuesPerLevel:\n    - individual:\n
+                            \       prefix: block-1-rack-\n\t\t   roots: [1-node-1,
+                            1-node-2, 1-node-3, 1-node-4, 2-node-1, 2-node-2]\n    podCounts:\n
+                            \     universal: 1\n\nExample 4:\n\nBy using multiple
+                            slices, we can afford even longer common prefixes.\nThe
+                            assignment from Example 3 can be alternatively represented
+                            as follows:\n\ntopologyAssignment:\n  levels:\n  - kubernetes.io/hostname\n
+                            \ slices:\n  - domainCount: 4\n    valuesPerLevel:\n    -
+                            individual:\n        prefix: block-1-rack-1-node-\n\t\t
+                            \  roots: [1, 2, 3, 4]\n    podCounts:\n      universal:
+                            1\n  - domainCount: 2\n    valuesPerLevel:\n    - individual:\n
+                            \       prefix: block-1-rack-2-node-\n\t\t   roots: [1,
+                            2]\n    podCounts:\n      universal: 1"
                           properties:
                             levels:
                               description: |-
@@ -18339,91 +18343,104 @@ spec:
                                     minimum: 1
                                     type: integer
                                   podCounts:
-                                    description: |-
-                                      podCounts specifies the number of pods allocated per each domain.
-                                      May be omitted if all values are identical; if so, UniversalCount is used instead.
-                                      If set, its length must be equal to the "domainCount" field.
-                                      Exactly one of podCounts, universalCount must be set.
-                                    items:
-                                      format: int32
-                                      type: integer
-                                    maxItems: 100000
-                                    minItems: 1
-                                    type: array
-                                    x-kubernetes-list-type: atomic
-                                  universalPodCount:
-                                    description: |-
-                                      universalPodCount - if set - specifies the number of pods allocated in every domain in this slice.
-                                      Exactly one of podCounts, universalPodCount must be set.
-                                    format: int32
-                                    type: integer
+                                    description: podCounts specifies the number of
+                                      pods allocated per each domain.
+                                    properties:
+                                      podCounts:
+                                        description: |-
+                                          individual, if set, specifies the number of pods allocated in each domain in this slice.
+                                          If set, its length must be equal to the "domainCount" field of the TopologyAssignmentSlice.
+                                          Exactly one of universal, individual must be set.
+                                        items:
+                                          format: int32
+                                          minimum: 1
+                                          type: integer
+                                        maxItems: 100000
+                                        minItems: 1
+                                        type: array
+                                        x-kubernetes-list-type: atomic
+                                      universal:
+                                        description: |-
+                                          universal, if set, specifies the number of pods allocated in every domain in this slice.
+                                          Exactly one of universal, individual must be set.
+                                        format: int32
+                                        minimum: 1
+                                        type: integer
+                                    type: object
+                                    x-kubernetes-validations:
+                                    - message: exactly one of the fields in [universal
+                                        individual] must be set
+                                      rule: '[has(self.universal),has(self.individual)].filter(x,x==true).size()
+                                        == 1'
                                   valuesPerLevel:
                                     description: |-
                                       valuesPerLevel has one entry for each of the Levels specified in the TopologyAssignment.
                                       The entry corresponding to a particular level specifies the placement of pods at that level.
                                     items:
                                       properties:
-                                        prefix:
+                                        individual:
                                           description: |-
-                                            prefix specifies a common prefix for all values in this slice assignment.
-                                            It must be either nil pointer or a non-empty string.
-                                          maxLength: 63
-                                          minLength: 1
-                                          type: string
-                                        roots:
+                                            individual, if set, specifies multiple topology placement values (at a particular topology level)
+                                            that apply to the pods in the current TopologyAssignmentSlice.
+                                            Exactly one of universal, individual must be set.
+                                          properties:
+                                            commonPrefix:
+                                              description: |-
+                                                commonPrefix specifies a common prefix for all values in this slice assignment.
+                                                It must be either nil pointer or a non-empty string.
+                                              maxLength: 63
+                                              type: string
+                                            commonSuffix:
+                                              description: |-
+                                                commonSuffix specifies a common suffix for all values in this slice assignment.
+                                                It must be either nil pointer or a non-empty string.
+                                              maxLength: 63
+                                              type: string
+                                            roots:
+                                              description: |-
+                                                roots specifies the values in this assignment (excluding commonPrefix and commonSuffix, if non-empty).
+                                                Its length must be equal to the "domainCount" field of the TopologyAssignmentSlice.
+                                              items:
+                                                maxLength: 63
+                                                type: string
+                                              maxItems: 100000
+                                              minItems: 1
+                                              type: array
+                                              x-kubernetes-list-type: atomic
+                                          required:
+                                          - roots
+                                          type: object
+                                        universal:
                                           description: |-
-                                            roots specifies the values in this assignment (excluding prefix and suffix, if non-empty).
-                                            May be omitted if all values are identical; if so, UniversalValue is used instead.
-                                            If set, its length must be equal to the "domainCount" field of the TopologyAssignmentSlice.
-                                          items:
-                                            maxLength: 63
-                                            type: string
-                                          maxItems: 100000
-                                          minItems: 1
-                                          type: array
-                                          x-kubernetes-list-type: atomic
-                                        suffix:
-                                          description: |-
-                                            suffix specifies a common suffix for all values in this slice assignment.
-                                            It must be either nil pointer or a non-empty string.
-                                          maxLength: 63
-                                          minLength: 1
-                                          type: string
-                                        universalValue:
-                                          description: |-
-                                            universalValue - if set - specifies the topology assignment value (on the current topology level)
-                                            that applies to every domain in the current slice.
-                                            Mutually exclusive with roots, prefix and suffix.
-                                          maxLength: 63
+                                            universal, if set, specifies a single topology placement value (at a particular topology level)
+                                            that applies to all pods in the current TopologyAssignmentSlice.
+                                            Exactly one of universal, individual must be set.
                                           type: string
                                       type: object
                                       x-kubernetes-validations:
-                                      - message: Exactly one of roots, universalValue
-                                          must be set
-                                        rule: has(self.roots) != has(self.universalValue)
-                                      - message: universalValue cannot be set together
-                                          with prefix or suffix
-                                        rule: '!(has(self.universalValue) && (has(self.prefix)
-                                          || has(self.suffix)))'
+                                      - message: exactly one of the fields in [universal
+                                          individual] must be set
+                                        rule: '[has(self.universal),has(self.individual)].filter(x,x==true).size()
+                                          == 1'
                                     maxItems: 16
                                     minItems: 1
                                     type: array
                                     x-kubernetes-list-type: atomic
                                 required:
                                 - domainCount
+                                - podCounts
                                 - valuesPerLevel
                                 type: object
                                 x-kubernetes-validations:
-                                - message: podCounts must have length equal to domainCount
-                                  rule: '!has(self.podCounts) || size(self.podCounts)
+                                - message: podCounts.individual must have length equal
+                                    to domainCount
+                                  rule: '!has(self.podCounts.individual) || size(self.podCounts.individual)
                                     == self.domainCount'
-                                - message: Exactly one of podCounts, universalPodCount
-                                    must be set
-                                  rule: has(self.podCounts) != has(self.universalPodCount)
-                                - message: roots, if set, must have length equal to
-                                    domainCount of this TopologyAssignmentSlice
-                                  rule: self.valuesPerLevel.all(x, !has(x.roots) ||
-                                    size(x.roots) == self.domainCount)
+                                - message: valuesPerLevel.individual, if set, must
+                                    have roots of length equal to domainCount of this
+                                    TopologyAssignmentSlice
+                                  rule: self.valuesPerLevel.all(x, !has(x.individual.roots)
+                                    || size(x.individual.roots) == self.domainCount)
                               maxItems: 1000
                               type: array
                               x-kubernetes-list-type: atomic

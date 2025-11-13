@@ -20,10 +20,8 @@ package v1beta2
 // TopologyAssignmentSliceLevelValuesApplyConfiguration represents a declarative configuration of the TopologyAssignmentSliceLevelValues type for use
 // with apply.
 type TopologyAssignmentSliceLevelValuesApplyConfiguration struct {
-	Prefix         *string  `json:"prefix,omitempty"`
-	Suffix         *string  `json:"suffix,omitempty"`
-	Roots          []string `json:"roots,omitempty"`
-	UniversalValue *string  `json:"universalValue,omitempty"`
+	Universal  *string                                                         `json:"universal,omitempty"`
+	Individual *TopologyAssignmentSliceLevelIndividualValuesApplyConfiguration `json:"individual,omitempty"`
 }
 
 // TopologyAssignmentSliceLevelValuesApplyConfiguration constructs a declarative configuration of the TopologyAssignmentSliceLevelValues type for use with
@@ -32,36 +30,18 @@ func TopologyAssignmentSliceLevelValues() *TopologyAssignmentSliceLevelValuesApp
 	return &TopologyAssignmentSliceLevelValuesApplyConfiguration{}
 }
 
-// WithPrefix sets the Prefix field in the declarative configuration to the given value
+// WithUniversal sets the Universal field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Prefix field is set to the value of the last call.
-func (b *TopologyAssignmentSliceLevelValuesApplyConfiguration) WithPrefix(value string) *TopologyAssignmentSliceLevelValuesApplyConfiguration {
-	b.Prefix = &value
+// If called multiple times, the Universal field is set to the value of the last call.
+func (b *TopologyAssignmentSliceLevelValuesApplyConfiguration) WithUniversal(value string) *TopologyAssignmentSliceLevelValuesApplyConfiguration {
+	b.Universal = &value
 	return b
 }
 
-// WithSuffix sets the Suffix field in the declarative configuration to the given value
+// WithIndividual sets the Individual field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Suffix field is set to the value of the last call.
-func (b *TopologyAssignmentSliceLevelValuesApplyConfiguration) WithSuffix(value string) *TopologyAssignmentSliceLevelValuesApplyConfiguration {
-	b.Suffix = &value
-	return b
-}
-
-// WithRoots adds the given value to the Roots field in the declarative configuration
-// and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the Roots field.
-func (b *TopologyAssignmentSliceLevelValuesApplyConfiguration) WithRoots(values ...string) *TopologyAssignmentSliceLevelValuesApplyConfiguration {
-	for i := range values {
-		b.Roots = append(b.Roots, values[i])
-	}
-	return b
-}
-
-// WithUniversalValue sets the UniversalValue field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the UniversalValue field is set to the value of the last call.
-func (b *TopologyAssignmentSliceLevelValuesApplyConfiguration) WithUniversalValue(value string) *TopologyAssignmentSliceLevelValuesApplyConfiguration {
-	b.UniversalValue = &value
+// If called multiple times, the Individual field is set to the value of the last call.
+func (b *TopologyAssignmentSliceLevelValuesApplyConfiguration) WithIndividual(value *TopologyAssignmentSliceLevelIndividualValuesApplyConfiguration) *TopologyAssignmentSliceLevelValuesApplyConfiguration {
+	b.Individual = value
 	return b
 }

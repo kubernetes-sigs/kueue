@@ -20,10 +20,9 @@ package v1beta2
 // TopologyAssignmentSliceApplyConfiguration represents a declarative configuration of the TopologyAssignmentSlice type for use
 // with apply.
 type TopologyAssignmentSliceApplyConfiguration struct {
-	DomainCount       *int32                                                 `json:"domainCount,omitempty"`
-	ValuesPerLevel    []TopologyAssignmentSliceLevelValuesApplyConfiguration `json:"valuesPerLevel,omitempty"`
-	PodCounts         []int32                                                `json:"podCounts,omitempty"`
-	UniversalPodCount *int32                                                 `json:"universalPodCount,omitempty"`
+	DomainCount    *int32                                                 `json:"domainCount,omitempty"`
+	ValuesPerLevel []TopologyAssignmentSliceLevelValuesApplyConfiguration `json:"valuesPerLevel,omitempty"`
+	PodCounts      *TopologyAssignmentSlicePodCountsApplyConfiguration    `json:"podCounts,omitempty"`
 }
 
 // TopologyAssignmentSliceApplyConfiguration constructs a declarative configuration of the TopologyAssignmentSlice type for use with
@@ -53,20 +52,10 @@ func (b *TopologyAssignmentSliceApplyConfiguration) WithValuesPerLevel(values ..
 	return b
 }
 
-// WithPodCounts adds the given value to the PodCounts field in the declarative configuration
-// and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the PodCounts field.
-func (b *TopologyAssignmentSliceApplyConfiguration) WithPodCounts(values ...int32) *TopologyAssignmentSliceApplyConfiguration {
-	for i := range values {
-		b.PodCounts = append(b.PodCounts, values[i])
-	}
-	return b
-}
-
-// WithUniversalPodCount sets the UniversalPodCount field in the declarative configuration to the given value
+// WithPodCounts sets the PodCounts field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the UniversalPodCount field is set to the value of the last call.
-func (b *TopologyAssignmentSliceApplyConfiguration) WithUniversalPodCount(value int32) *TopologyAssignmentSliceApplyConfiguration {
-	b.UniversalPodCount = &value
+// If called multiple times, the PodCounts field is set to the value of the last call.
+func (b *TopologyAssignmentSliceApplyConfiguration) WithPodCounts(value *TopologyAssignmentSlicePodCountsApplyConfiguration) *TopologyAssignmentSliceApplyConfiguration {
+	b.PodCounts = value
 	return b
 }

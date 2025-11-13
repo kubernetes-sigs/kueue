@@ -36,19 +36,20 @@ type TopologyDomainAssignment struct {
 }
 
 func valueAtIndex(values kueue.TopologyAssignmentSliceLevelValues, idx int) string {
-	if values.Roots == nil {
-		return *values.UniversalValue
+	if univ := values.Universal; univ != nil {
+		return *univ
 	}
-	prefix := ptr.Deref(values.Prefix, "")
-	suffix := ptr.Deref(values.Suffix, "")
-	return prefix + values.Roots[idx] + suffix
+	ind := values.Individual
+	prefix := ptr.Deref(ind.CommonPrefix, "")
+	suffix := ptr.Deref(ind.CommonSuffix, "")
+	return prefix + ind.Roots[idx] + suffix
 }
 
 func countAtIndex(slice kueue.TopologyAssignmentSlice, idx int) int32 {
-	if slice.PodCounts == nil {
-		return *slice.UniversalPodCount
+	if univ := slice.PodCounts.Universal; univ != nil {
+		return *univ
 	}
-	return slice.PodCounts[idx]
+	return slice.PodCounts.Individual[idx]
 }
 
 func ValuesAtLevel(ta *kueue.TopologyAssignment, levelIdx int) iter.Seq[string] {
@@ -171,7 +172,7 @@ func fillSingleCompactSliceValues(
 
 	// All strings equal
 	if len(prefix) == maxLen {
-		values.UniversalValue = &prefix
+		values.Universal = &prefix
 		return
 	}
 
@@ -181,15 +182,17 @@ func fillSingleCompactSliceValues(
 		prefix = prefix[:minLen-len(suffix)]
 	}
 
+	ind := &kueue.TopologyAssignmentSliceLevelIndividualValues{}
+	values.Individual = ind
 	if len(prefix) > 0 {
-		values.Prefix = &prefix
+		ind.CommonPrefix = &prefix
 	}
 	if len(suffix) > 0 {
-		values.Suffix = &suffix
+		ind.CommonSuffix = &suffix
 	}
-	values.Roots = make([]string, 0, count)
+	values.Individual.Roots = make([]string, 0, count)
 	for s := range inputProvider() {
-		values.Roots = append(values.Roots, s[len(prefix):len(s)-len(suffix)])
+		ind.Roots = append(ind.Roots, s[len(prefix):len(s)-len(suffix)])
 	}
 }
 
@@ -230,9 +233,9 @@ func singleCompactSliceEncoding(ta *TopologyAssignment) *kueue.TopologyAssignmen
 		}
 	}
 	if samePodCounts {
-		slice.UniversalPodCount = &podCounts[0]
+		slice.PodCounts.Universal = &podCounts[0]
 	} else {
-		slice.PodCounts = podCounts
+		slice.PodCounts.Individual = podCounts
 	}
 	return &kueue.TopologyAssignment{
 		Levels: ta.Levels,

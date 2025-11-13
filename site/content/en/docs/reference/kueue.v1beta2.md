@@ -1932,12 +1932,13 @@ and omit higher levels in the topology.</li>
 (aimed to optimize the total bytesize for very large number of domains; see examples below):
 <ul>
 <li>When all node selector values (at a given topology level, in a given slice)
-share a common prefix and/or suffix, these may be stored in dedicated <code>prefix</code>/<code>suffix</code> fields.
+share a common prefix and/or suffix, these may be stored
+in dedicated <code>commonPrefix</code>/<code>commonSuffix</code> fields.
 If so, the array of <code>roots</code> will only store the remaining parts of these strings.</li>
 <li>When all node selector values (at a given topology level, in a given slice)
-are identical, this may be represented by <code>universalValue</code>.</li>
+are identical, this may be represented by <code>universal</code> value.</li>
 <li>When all pod counts (in a given slice) are identical,
-this may be represented by <code>universalPodCount</code>.</li>
+this may be represented by <code>universal</code> pod count.</li>
 </ul>
 </li>
 </ul>
@@ -1966,9 +1967,12 @@ slices:</li>
 <li>domainCount: 2
 valuesPerLevel:
 <ul>
-<li>roots: [block-1, block-1]</li>
-<li>roots: [rack-1, rack-2]
-podCounts: [4, 2]</li>
+<li>individual:
+roots: [block-1, block-1]</li>
+<li>individual:
+roots: [rack-1, rack-2]
+podCounts:
+individual: [4, 2]</li>
 </ul>
 </li>
 </ul>
@@ -1983,10 +1987,12 @@ slices:</li>
 <li>domainCount: 2
 valuesPerLevel:
 <ul>
-<li>universalValue: block-1</li>
-<li>prefix: rack-
+<li>universal: block-1</li>
+<li>individual:
+prefix: rack-
 roots: [1, 2]
-podCounts: [4, 2]</li>
+podCounts:
+individual: [4, 2]</li>
 </ul>
 </li>
 </ul>
@@ -2008,9 +2014,11 @@ slices:</li>
 <li>domainCount: 6
 valuesPerLevel:
 <ul>
-<li>prefix: block-1-rack-
+<li>individual:
+prefix: block-1-rack-
 roots: [1-node-1, 1-node-2, 1-node-3, 1-node-4, 2-node-1, 2-node-2]
-universalPodCount: 1</li>
+podCounts:
+universal: 1</li>
 </ul>
 </li>
 </ul>
@@ -2025,17 +2033,21 @@ slices:</li>
 <li>domainCount: 4
 valuesPerLevel:
 <ul>
-<li>prefix: block-1-rack-1-node-
+<li>individual:
+prefix: block-1-rack-1-node-
 roots: [1, 2, 3, 4]
-universalPodCount: 1</li>
+podCounts:
+universal: 1</li>
 </ul>
 </li>
 <li>domainCount: 2
 valuesPerLevel:
 <ul>
-<li>prefix: block-1-rack-2-node-
+<li>individual:
+prefix: block-1-rack-2-node-
 roots: [1, 2]
-universalPodCount: 1</li>
+podCounts:
+universal: 1</li>
 </ul>
 </li>
 </ul>
@@ -2985,22 +2997,52 @@ The full assignment is obtained as a union of all slices.</p>
 The entry corresponding to a particular level specifies the placement of pods at that level.</p>
 </td>
 </tr>
-<tr><td><code>podCounts</code><br/>
-<code>[]int32</code>
+<tr><td><code>podCounts</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta2-TopologyAssignmentSlicePodCounts"><code>TopologyAssignmentSlicePodCounts</code></a>
 </td>
 <td>
-   <p>podCounts specifies the number of pods allocated per each domain.
-May be omitted if all values are identical; if so, UniversalCount is used instead.
-If set, its length must be equal to the &quot;domainCount&quot; field.
-Exactly one of podCounts, universalCount must be set.</p>
+   <p>podCounts specifies the number of pods allocated per each domain.</p>
 </td>
 </tr>
-<tr><td><code>universalPodCount</code><br/>
-<code>int32</code>
+</tbody>
+</table>
+
+## `TopologyAssignmentSliceLevelIndividualValues`     {#kueue-x-k8s-io-v1beta2-TopologyAssignmentSliceLevelIndividualValues}
+    
+
+**Appears in:**
+
+- [TopologyAssignmentSliceLevelValues](#kueue-x-k8s-io-v1beta2-TopologyAssignmentSliceLevelValues)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>commonPrefix</code><br/>
+<code>string</code>
 </td>
 <td>
-   <p>universalPodCount - if set - specifies the number of pods allocated in every domain in this slice.
-Exactly one of podCounts, universalPodCount must be set.</p>
+   <p>commonPrefix specifies a common prefix for all values in this slice assignment.
+It must be either nil pointer or a non-empty string.</p>
+</td>
+</tr>
+<tr><td><code>commonSuffix</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>commonSuffix specifies a common suffix for all values in this slice assignment.
+It must be either nil pointer or a non-empty string.</p>
+</td>
+</tr>
+<tr><td><code>roots</code> <B>[Required]</B><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>roots specifies the values in this assignment (excluding commonPrefix and commonSuffix, if non-empty).
+Its length must be equal to the &quot;domainCount&quot; field of the TopologyAssignmentSlice.</p>
 </td>
 </tr>
 </tbody>
@@ -3020,38 +3062,56 @@ Exactly one of podCounts, universalPodCount must be set.</p>
 <tbody>
     
   
-<tr><td><code>prefix</code><br/>
+<tr><td><code>universal</code><br/>
 <code>string</code>
 </td>
 <td>
-   <p>prefix specifies a common prefix for all values in this slice assignment.
-It must be either nil pointer or a non-empty string.</p>
+   <p>universal, if set, specifies a single topology placement value (at a particular topology level)
+that applies to all pods in the current TopologyAssignmentSlice.
+Exactly one of universal, individual must be set.</p>
 </td>
 </tr>
-<tr><td><code>suffix</code><br/>
-<code>string</code>
+<tr><td><code>individual</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-TopologyAssignmentSliceLevelIndividualValues"><code>TopologyAssignmentSliceLevelIndividualValues</code></a>
 </td>
 <td>
-   <p>suffix specifies a common suffix for all values in this slice assignment.
-It must be either nil pointer or a non-empty string.</p>
+   <p>individual, if set, specifies multiple topology placement values (at a particular topology level)
+that apply to the pods in the current TopologyAssignmentSlice.
+Exactly one of universal, individual must be set.</p>
 </td>
 </tr>
-<tr><td><code>roots</code><br/>
-<code>[]string</code>
+</tbody>
+</table>
+
+## `TopologyAssignmentSlicePodCounts`     {#kueue-x-k8s-io-v1beta2-TopologyAssignmentSlicePodCounts}
+    
+
+**Appears in:**
+
+- [TopologyAssignmentSlice](#kueue-x-k8s-io-v1beta2-TopologyAssignmentSlice)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>universal</code><br/>
+<code>int32</code>
 </td>
 <td>
-   <p>roots specifies the values in this assignment (excluding prefix and suffix, if non-empty).
-May be omitted if all values are identical; if so, UniversalValue is used instead.
-If set, its length must be equal to the &quot;domainCount&quot; field of the TopologyAssignmentSlice.</p>
+   <p>universal, if set, specifies the number of pods allocated in every domain in this slice.
+Exactly one of universal, individual must be set.</p>
 </td>
 </tr>
-<tr><td><code>universalValue</code><br/>
-<code>string</code>
+<tr><td><code>podCounts</code><br/>
+<code>[]int32</code>
 </td>
 <td>
-   <p>universalValue - if set - specifies the topology assignment value (on the current topology level)
-that applies to every domain in the current slice.
-Mutually exclusive with roots, prefix and suffix.</p>
+   <p>individual, if set, specifies the number of pods allocated in each domain in this slice.
+If set, its length must be equal to the &quot;domainCount&quot; field of the TopologyAssignmentSlice.
+Exactly one of universal, individual must be set.</p>
 </td>
 </tr>
 </tbody>
