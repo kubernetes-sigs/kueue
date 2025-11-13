@@ -198,7 +198,6 @@ const (
 	MultiKueueAllowInsecureKubeconfigs featuregate.Feature = "MultiKueueAllowInsecureKubeconfigs"
 
 	// owner: @j-skiba
-	// kep: <TODO>
 	//
 	// Enables automatic creation of default LocalQueues
 	AutoLocalQueue featuregate.Feature = "AutoLocalQueue"
