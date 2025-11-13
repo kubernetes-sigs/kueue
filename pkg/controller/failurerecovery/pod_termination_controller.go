@@ -35,7 +35,7 @@ import (
 )
 
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=pods/status,verbs=update;patch
+// +kubebuilder:rbac:groups="",resources=pods/status,verbs=get;patch
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 
 var (
@@ -144,8 +144,9 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{RequeueAfter: gracePeriodLeft}, nil
 	}
 
-	pod.Status.Phase = corev1.PodFailed
-	if err := r.client.Status().Update(ctx, pod); err != nil {
+	podPatch := pod.DeepCopy()
+	podPatch.Status.Phase = corev1.PodFailed
+	if err := r.client.Status().Patch(ctx, podPatch, client.MergeFrom(pod)); err != nil {
 		return ctrl.Result{}, err
 	}
 
