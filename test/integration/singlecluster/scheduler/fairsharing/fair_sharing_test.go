@@ -1223,12 +1223,11 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 
 		ginkgo.It("Guaranteed workloads cause preemption of a single best effort workload", func() {
 			ginkgo.By("Creating two best effort workloads in each best effort CQ")
-			wlBestEffortA := createWorkload("best-effort-a", "4")
-			util.WaitForNextSecondAfterCreation(wlBestEffortA)
+			wlBestEffortA := createWorkloadWithPriority("best-effort-a", "4", 2)
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlBestEffortA)
 			util.ExpectAdmittedWorkloadsTotalMetric(bestEffortCQA, "", 1)
 			util.ExpectReservingActiveWorkloadsMetric(bestEffortCQA, 1)
-			wlBestEffortB := createWorkload("best-effort-b", "4")
+			wlBestEffortB := createWorkloadWithPriority("best-effort-b", "4", 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(bestEffortCQB, "", 1)
 			util.ExpectReservingActiveWorkloadsMetric(bestEffortCQB, 1)
 
