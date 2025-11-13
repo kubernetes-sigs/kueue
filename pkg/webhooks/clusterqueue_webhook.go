@@ -118,8 +118,8 @@ func (w *ClusterQueueWebhook) validateClusterQueue(ctx context.Context, cq *kueu
 	allErrs = append(allErrs, validateTotalFlavors(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
 	allErrs = append(allErrs, validateTotalCoveredResources(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
 	allErrs = append(allErrs, validateFlavorResourceCombinations(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
-	if features.Enabled(features.AutoLocalQueue) && cq.Spec.AutoLocalQueue != nil {
-		allErrs = append(allErrs, validateAutoLocalQueueName(cq.Spec.AutoLocalQueue, path.Child("autoLocalQueue"))...)
+	if features.Enabled(features.DefaultLocalQueue) && cq.Spec.DefaultLocalQueue != nil {
+		allErrs = append(allErrs, validateDefaultLocalQueueName(cq.Spec.DefaultLocalQueue, path.Child("autoLocalQueue"))...)
 		allErrs = append(allErrs, w.validateExistingLocalQueues(ctx, cq, path)...)
 	}
 	return allErrs
@@ -142,7 +142,7 @@ func (w *ClusterQueueWebhook) validateExistingLocalQueues(ctx context.Context, c
 	}
 
 	var lqList kueue.LocalQueueList
-	if err := w.client.List(ctx, &lqList, client.MatchingFields{"metadata.name": cq.Spec.AutoLocalQueue.Name}); err != nil {
+	if err := w.client.List(ctx, &lqList, client.MatchingFields{"metadata.name": cq.Spec.DefaultLocalQueue.Name}); err != nil {
 		allErrs = append(allErrs, field.InternalError(path, err))
 		return allErrs
 	}
@@ -168,7 +168,7 @@ func (w *ClusterQueueWebhook) validateExistingLocalQueues(ctx context.Context, c
 			continue
 		}
 		if selector.Matches(labels.Set(ns.Labels)) {
-			allErrs = append(allErrs, field.Invalid(path.Child("autoLocalQueue").Child("name"), cq.Spec.AutoLocalQueue.Name, fmt.Sprintf("a LocalQueue with this name already exists in namespace %q", ns.Name)))
+			allErrs = append(allErrs, field.Invalid(path.Child("autoLocalQueue").Child("name"), cq.Spec.DefaultLocalQueue.Name, fmt.Sprintf("a LocalQueue with this name already exists in namespace %q", ns.Name)))
 		}
 	}
 	return allErrs
@@ -178,7 +178,7 @@ func (w *ClusterQueueWebhook) validateClusterQueueUpdate(ctx context.Context, ne
 	return w.validateClusterQueue(ctx, newObj)
 }
 
-func validateAutoLocalQueueName(autoLq *kueue.AutoLocalQueue, path *field.Path) field.ErrorList {
+func validateDefaultLocalQueueName(autoLq *kueue.DefaultLocalQueue, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 	if errs := validation.IsDNS1123Subdomain(autoLq.Name); len(errs) > 0 {
 		allErrs = append(allErrs, field.Invalid(path.Child("name"), autoLq.Name, "must be a valid DNS subdomain name"))

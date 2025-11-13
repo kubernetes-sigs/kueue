@@ -920,10 +920,10 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		})
 	})
-	ginkgo.When("AutoLocalQueue feature is enabled", func() {
+	ginkgo.When("DefaultLocalQueue feature is enabled", func() {
 		ginkgo.BeforeEach(func() {
 			fwk.StopManager(ctx)
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AutoLocalQueue, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DefaultLocalQueue, true)
 			fwk.StartManager(ctx, cfg, managerSetup)
 		})
 
@@ -932,7 +932,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 				NamespaceSelector(&metav1.LabelSelector{
 					MatchLabels: map[string]string{"dep": "eng"},
 				}).
-				AutoLocalQueue(&kueue.AutoLocalQueue{Name: "default-lq"}).
+				DefaultLocalQueue(&kueue.DefaultLocalQueue{Name: "default-lq"}).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
 			defer func() {
@@ -954,10 +954,10 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			gomega.Eventually(func(g gomega.Gomega) {
 				var createdCq kueue.ClusterQueue
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &createdCq)).To(gomega.Succeed())
-				g.Expect(createdCq.Spec.AutoLocalQueue).NotTo(gomega.BeNil())
+				g.Expect(createdCq.Spec.DefaultLocalQueue).NotTo(gomega.BeNil())
 
 				var createdLq kueue.LocalQueue
-				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: createdCq.Spec.AutoLocalQueue.Name, Namespace: ns.Name}, &createdLq)).To(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: createdCq.Spec.DefaultLocalQueue.Name, Namespace: ns.Name}, &createdLq)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -983,7 +983,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 						"foo": "bar",
 					},
 				}).
-				AutoLocalQueue(&kueue.AutoLocalQueue{
+				DefaultLocalQueue(&kueue.DefaultLocalQueue{
 					Name: "new-default-lq",
 				}).
 				Obj()
@@ -996,10 +996,10 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			gomega.Eventually(func(g gomega.Gomega) {
 				var createdCq kueue.ClusterQueue
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &createdCq)).To(gomega.Succeed())
-				g.Expect(createdCq.Spec.AutoLocalQueue).NotTo(gomega.BeNil())
+				g.Expect(createdCq.Spec.DefaultLocalQueue).NotTo(gomega.BeNil())
 
 				var createdLq kueue.LocalQueue
-				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: createdCq.Spec.AutoLocalQueue.Name, Namespace: ns.Name}, &createdLq)).To(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: createdCq.Spec.DefaultLocalQueue.Name, Namespace: ns.Name}, &createdLq)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})

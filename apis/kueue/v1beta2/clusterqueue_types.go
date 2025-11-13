@@ -146,15 +146,15 @@ type ClusterQueueSpec struct {
 
 	// autoLocalQueue specifies the configuration for automatically creating LocalQueues
 	// in namespaces that match the ClusterQueue's namespaceSelector. This feature is
-	// controlled by the `AutoLocalQueue` feature gate.
+	// controlled by the `DefaultLocalQueue` feature gate.
 	// If this field is set, a LocalQueue with the specified name will be created in
 	// each matching namespace. The LocalQueue will reference this ClusterQueue.
 	// +optional
-	AutoLocalQueue *AutoLocalQueue `json:"autoLocalQueue,omitempty"`
+	DefaultLocalQueue *DefaultLocalQueue `json:"autoLocalQueue,omitempty"`
 }
 
-// AutoLocalQueue defines the configuration for automatically created LocalQueues.
-type AutoLocalQueue struct {
+// DefaultLocalQueue defines the configuration for automatically created LocalQueues.
+type DefaultLocalQueue struct {
 	// name is the name of the LocalQueue to be created in matching namespaces.
 	// This name must be a valid DNS subdomain name.
 	// +kubebuilder:validation:MaxLength=253

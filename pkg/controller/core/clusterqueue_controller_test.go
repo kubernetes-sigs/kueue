@@ -528,7 +528,7 @@ func TestCQNamespaceHandlerUpdate(t *testing.T) {
 		NamespaceSelector(&metav1.LabelSelector{
 			MatchLabels: map[string]string{"dep": "eng"},
 		}).
-		AutoLocalQueue(&kueue.AutoLocalQueue{Name: autoLqName}).
+		DefaultLocalQueue(&kueue.DefaultLocalQueue{Name: autoLqName}).
 		Obj()
 
 	testcases := map[string]struct {
@@ -596,7 +596,7 @@ func TestCQNamespaceHandlerUpdate(t *testing.T) {
 	}
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.AutoLocalQueue, tc.featureGateEnabled)
+			features.SetFeatureGateDuringTest(t, features.DefaultLocalQueue, tc.featureGateEnabled)
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 			client := utiltesting.NewClientBuilder().WithObjects(tc.cq, tc.newNs).Build()
@@ -648,7 +648,7 @@ func TestCQNamespaceHandlerCreate(t *testing.T) {
 		NamespaceSelector(&metav1.LabelSelector{
 			MatchLabels: map[string]string{"dep": "eng"},
 		}).
-		AutoLocalQueue(&kueue.AutoLocalQueue{Name: autoLqName}).
+		DefaultLocalQueue(&kueue.DefaultLocalQueue{Name: autoLqName}).
 		Obj()
 
 	testcases := map[string]struct {
@@ -718,7 +718,7 @@ func TestCQNamespaceHandlerCreate(t *testing.T) {
 	}
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.AutoLocalQueue, tc.featureGateEnabled)
+			features.SetFeatureGateDuringTest(t, features.DefaultLocalQueue, tc.featureGateEnabled)
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder().WithObjects(tc.cq, tc.ns)
@@ -769,7 +769,7 @@ func TestClusterQueueReconcilerCreate(t *testing.T) {
 		NamespaceSelector(&metav1.LabelSelector{
 			MatchLabels: map[string]string{"dep": "eng"},
 		}).
-		AutoLocalQueue(&kueue.AutoLocalQueue{Name: autoLqName}).
+		DefaultLocalQueue(&kueue.DefaultLocalQueue{Name: autoLqName}).
 		Obj()
 
 	matchingNs := &corev1.Namespace{
@@ -857,7 +857,7 @@ func TestClusterQueueReconcilerCreate(t *testing.T) {
 		"with namespace selector on manager; localqueue is created only in matching": {
 			cq: utiltestingapi.MakeClusterQueue(cqName).
 				NamespaceSelector(&metav1.LabelSelector{}).
-				AutoLocalQueue(&kueue.AutoLocalQueue{Name: autoLqName}).
+				DefaultLocalQueue(&kueue.DefaultLocalQueue{Name: autoLqName}).
 				Obj(),
 			namespaces:         []*corev1.Namespace{matchingNs, nonMatchingNs},
 			featureGateEnabled: true,
@@ -872,7 +872,7 @@ func TestClusterQueueReconcilerCreate(t *testing.T) {
 	}
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.AutoLocalQueue, tc.featureGateEnabled)
+			features.SetFeatureGateDuringTest(t, features.DefaultLocalQueue, tc.featureGateEnabled)
 
 			ctx, log := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder()

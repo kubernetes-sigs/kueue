@@ -200,7 +200,7 @@ const (
 	// owner: @j-skiba
 	//
 	// Enables automatic creation of default LocalQueues
-	AutoLocalQueue featuregate.Feature = "AutoLocalQueue"
+	DefaultLocalQueue featuregate.Feature = "DefaultLocalQueue"
 )
 
 func init() {
@@ -312,7 +312,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	MultiKueueAllowInsecureKubeconfigs: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
-	AutoLocalQueue: {
+	DefaultLocalQueue: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
