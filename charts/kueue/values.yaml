@@ -120,7 +120,6 @@ managerConfig:
       burst: 100
     #pprofBindAddress: :8083
     #waitForPodsReady:
-    #  enable: false
     #  timeout: 5m
     #  recoveryTimeout: 3m
     #  blockAdmission: false

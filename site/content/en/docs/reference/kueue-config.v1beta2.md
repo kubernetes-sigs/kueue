@@ -828,14 +828,6 @@ which is used to ensure that all Pods are ready within the specified time.</p>
 <tbody>
     
   
-<tr><td><code>enable</code> <B>[Required]</B><br/>
-<code>bool</code>
-</td>
-<td>
-   <p>Enable indicates whether to enable wait for pods ready feature.
-Defaults to false.</p>
-</td>
-</tr>
 <tr><td><code>timeout</code><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
 </td>
@@ -846,13 +838,14 @@ evicted and requeued in the same cluster queue.
 Defaults to 5min.</p>
 </td>
 </tr>
-<tr><td><code>blockAdmission</code> <B>[Required]</B><br/>
+<tr><td><code>blockAdmission</code><br/>
 <code>bool</code>
 </td>
 <td>
    <p>BlockAdmission when true, cluster queue will block admissions for all
 subsequent jobs until the jobs reach the PodsReady=true condition.
-This setting is only honored when <code>Enable</code> is set to true.</p>
+This setting is only honored when <code>Enable</code> is set to true.
+Defaults to true.</p>
 </td>
 </tr>
 <tr><td><code>requeuingStrategy</code><br/>

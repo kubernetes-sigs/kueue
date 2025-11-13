@@ -53,7 +53,6 @@ It contains the following optional fields:
       afterFinished: "1m"
       afterDeactivatedByKueue: "1m"
   waitForPodsReady:
-    enable: true
     timeout: 2m
     recoveryTimeout: 1m
     blockAdmission: true

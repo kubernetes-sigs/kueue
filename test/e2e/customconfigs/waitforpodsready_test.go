@@ -78,7 +78,6 @@ var _ = ginkgo.Describe("WaitForPodsReady with tiny Timeout and no RecoveryTimeo
 
 		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.WaitForPodsReady = &configapi.WaitForPodsReady{
-				Enable:          true,
 				BlockAdmission:  ptr.To(true),
 				Timeout:         &metav1.Duration{Duration: util.TinyTimeout},
 				RecoveryTimeout: nil,
@@ -235,7 +234,6 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 
 		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.WaitForPodsReady = &configapi.WaitForPodsReady{
-				Enable:          true,
 				BlockAdmission:  ptr.To(true),
 				RecoveryTimeout: &metav1.Duration{Duration: util.TinyTimeout},
 				RequeuingStrategy: &configapi.RequeuingStrategy{
@@ -380,7 +378,6 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 
 		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.WaitForPodsReady = &configapi.WaitForPodsReady{
-				Enable:          true,
 				BlockAdmission:  ptr.To(true),
 				RecoveryTimeout: &metav1.Duration{Duration: util.LongTimeout},
 				RequeuingStrategy: &configapi.RequeuingStrategy{

@@ -667,7 +667,7 @@ func TestProcessOptions(t *testing.T) {
 		"all options are passed": {
 			inputOpts: []Option{
 				WithManageJobsWithoutQueueName(true),
-				WithWaitForPodsReady(&configapi.WaitForPodsReady{Enable: true}),
+				WithWaitForPodsReady(&configapi.WaitForPodsReady{}),
 				WithKubeServerVersion(&kubeversion.ServerVersionFetcher{}),
 				WithLabelKeysToCopy([]string{"toCopyKey"}),
 				WithClock(t, fakeClock),
@@ -831,9 +831,7 @@ func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
 			fakeClock := testingclock.NewFakeClock(testStartTime)
 			options := []Option{
 				WithClock(nil, fakeClock),
-				WithWaitForPodsReady(&configapi.WaitForPodsReady{
-					Enable: true,
-				}),
+				WithWaitForPodsReady(&configapi.WaitForPodsReady{}),
 			}
 			recorder := &utiltesting.EventRecorder{}
 			r := NewReconciler(cl, recorder, options...)
