@@ -984,45 +984,63 @@ type TopologyAssignmentSlice struct {
   ValuesPerLevel []TopologyAssignmentSliceLevelValues `json:"valuesPerLevel,omitempty"`
 
   // podCounts specifies the number of pods allocated per each domain.
-  // May be omitted if all values are identical; if so, UniversalCount is used instead.
-  // If set, its length must be equal to the "domainCount" field.
-  // Exactly one of count, universalCount must be set.
-  // +optional
+  // +required
   // +listType=atomic
-  // +kubebuilder:validation:MinItems=1
-  // +kubebuilder:validation:MaxItems=100000
-  PodCounts []int32 `json:"podCounts,omitempty"`
-
-  // universalPodCount, if set, specifies the number of pods allocated in every domain in this slice.
-  // Exactly one of count, universalPodCount must be set.
-  // +optional
-  UniversalPodCount *int32 `json:"universalPodCount,omitempty"`
+  PodCounts TopologyAssignmentSlicePodCounts `json:"podCounts,omitempty"`
 }
 
 type TopologyAssignmentSliceLevelValues struct {
-  // prefix specifies a common prefix for all values in this slice assignment.
-  // It must be either nil pointer or a non-empty string.
+  // universal, if set, specifies a single topology placement value (at a particular topology level)
+  // that applies to all pods in the current TopologyAssignmentSlice.
+  // Exactly one of universal, individual must be set.
   // +optional
-  Prefix *string `json:"prefix,omitempty"`
-  // suffix specifies a common suffix for all values in this slice assignment.
-  // It must be either nil pointer or a non-empty string.
-  // +optional
-  Suffix *string `json:"suffix,omitempty"`
+  Universal *string `json:"universal,omitempty"`
 
-  // roots specifies the values in this assignment (excluding prefix and suffix, if non-empty).
-  // May be omitted if all values are identical; if so, UniversalValue is used instead.
+  // individual, if set, specifies multiple topology placement values (at a particular topology level)
+  // that apply to the pods in the current TopologyAssignmentSlice.
+  // Exactly one of universal, individual must be set.
+  // +optional
+  Individual *TopologyAssignmentSliceLevelIndividualValues `json:"individual,omitempty"`
+}
+
+type TopologyAssignmentSliceLevelIndividualValues struct {
+  // commonPrefix specifies a common prefix for all values in this slice assignment.
+  // It must be either nil pointer or a non-empty string.
+  // +optional
+  // +kubebuilder:validation:items:MaxLength=63
+  CommonPrefix *string `json:"commonPrefix,omitempty"`
+  // commonSuffix specifies a common suffix for all values in this slice assignment.
+  // It must be either nil pointer or a non-empty string.
+  // +optional
+  // +kubebuilder:validation:items:MaxLength=63
+  CommonSuffix *string `json:"commonSuffix,omitempty"`
+
+  // roots specifies the values in this assignment (excluding commonPrefix and commonSuffix, if non-empty).
+  // Its length must be equal to the "domainCount" field of the TopologyAssignmentSlice.
+  // +required
+  // +listType=atomic
+  // +kubebuilder:validation:MinItems=1
+  // +kubebuilder:validation:MaxItems=100000
+  // +kubebuilder:validation:items:MaxLength=63
+  Roots []string `json:"roots,omitempty"`
+}
+
+type TopologyAssignmentSlicePodCounts struct {
+  // universal, if set, specifies the number of pods allocated in every domain in this slice.
+  // Exactly one of universal, individual must be set.
+  // +optional
+  // +kubebuilder:validation:Minimum=1
+  Universal *int32 `json:"universal,omitempty"`
+
+  // individual, if set, specifies the number of pods allocated in each domain in this slice.
   // If set, its length must be equal to the "domainCount" field of the TopologyAssignmentSlice.
+  // Exactly one of universal, individual must be set.
   // +optional
   // +listType=atomic
   // +kubebuilder:validation:MinItems=1
   // +kubebuilder:validation:MaxItems=100000
-  Roots []string `json:"roots,omitempty"`
-
-  // universalValue, if set, specifies the topology assignment value (on the current topology level)
-  // that applies to every domain in the current slice.
-  // Mutually exclusive with roots, prefix and suffix.
-  // +optional
-  UniversalValue *string `json:"universalValue,omitempty"`
+  // +kubebuilder:validation:items:Minimum=1
+  Individual []int32 `json:"podCounts,omitempty"`
 }
 ```
 
@@ -1038,10 +1056,12 @@ topologyAssignment:
   slices:
   - domainCount: 2
     valuesPerLevel:
-    - universalValue: block-1
-    - prefix: rack-
-      roots: [1, 2]
-    podCounts: [4, 2]
+    - universal: block-1
+    - individual:
+        commonPrefix: rack-
+        roots: [1, 2]
+    podCounts:
+      individual: [4, 2]
 ```
 
 The above example has one slice, specifying 2 domains on 2 topology levels. On the block level, all domains take the same value (`block-1`), which allows using `universalValue`. On the rack level, the values diverge (`rack-1`) vs. (`rack-2`) but they still share a relatively long common prefix. The new representation allows deduplicating characters between these.
@@ -1054,14 +1074,18 @@ topologyAssignment:
   slices:
   - domainCount: 5
     valuesPerLevel:
-    - prefix: pool-1-node-
-      roots: [1, 2, 3, 4, 5]
-    universalPodCount: 1
+    - individual:
+        commonPrefix: pool-1-node-
+        roots: [1, 2, 3, 4, 5]
+    podCounts:
+      universal: 1
   - domainCount: 7
     valuesPerLevel:
-    - prefix: pool-2-node-
-      roots: [1, 2, 3, 4, 5, 6, 7]
-    universalPodCount: 1
+    - individual:
+        commonPrefix: pool-2-node-
+        roots: [1, 2, 3, 4, 5, 6, 7]
+    podCounts:
+      universal: 1
 ```
 
 The main motivation behind the new format is the etcd size limit of 1.5MiB per single resource, which currently restricts the number of nodes that can participate in the assignment for a single workload. (For the v1beta1 format, and the real-life node naming schemes of main K8s vendors, the limit is around 20-30k). The new format helps addressing this problem in 2 time perspectives:
