@@ -18439,7 +18439,7 @@ spec:
                                 - message: valuesPerLevel.individual, if set, must
                                     have roots of length equal to domainCount of this
                                     TopologyAssignmentSlice
-                                  rule: self.valuesPerLevel.all(x, !has(x.individual.roots)
+                                  rule: self.valuesPerLevel.all(x, !has(x.individual)
                                     || size(x.individual.roots) == self.domainCount)
                               maxItems: 1000
                               type: array

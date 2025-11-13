@@ -436,7 +436,7 @@ type TopologyAssignment struct {
 }
 
 // +kubebuilder:validation:XValidation:rule="!has(self.podCounts.individual) || size(self.podCounts.individual) == self.domainCount", message="podCounts.individual must have length equal to domainCount"
-// +kubebuilder:validation:XValidation:rule="self.valuesPerLevel.all(x, !has(x.individual.roots) || size(x.individual.roots) == self.domainCount)", message="valuesPerLevel.individual, if set, must have roots of length equal to domainCount of this TopologyAssignmentSlice"
+// +kubebuilder:validation:XValidation:rule="self.valuesPerLevel.all(x, !has(x.individual) || size(x.individual.roots) == self.domainCount)", message="valuesPerLevel.individual, if set, must have roots of length equal to domainCount of this TopologyAssignmentSlice"
 type TopologyAssignmentSlice struct {
 	// domainCount is the number of domains covered by this slice.
 	// +required
@@ -453,7 +453,7 @@ type TopologyAssignmentSlice struct {
 
 	// podCounts specifies the number of pods allocated per each domain.
 	// +required
-	PodCounts TopologyAssignmentSlicePodCounts `json:"podCounts,omitempty"`
+	PodCounts TopologyAssignmentSlicePodCounts `json:"podCounts"`
 }
 
 // +kubebuilder:validation:ExactlyOneOf=universal;individual
