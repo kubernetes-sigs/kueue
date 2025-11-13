@@ -23,6 +23,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"maps"
 	"os"
 	"regexp"
 	"slices"
@@ -30,24 +31,25 @@ import (
 )
 
 type Metric struct {
-	FullName string
-	Type     string
-	Help     string
-	Labels   []string
-	Group    string
+	FullName  string
+	Type      string
+	Help      string
+	Labels    []string
+	Group     string
+	LabelDocs map[string]string
 }
 
 var (
-	inFile  string
-	outFile string
+	inPackagePath string
+	outFile       string
 )
 
 func main() {
-	flag.StringVar(&inFile, "metrics-file", "pkg/metrics/metrics.go", "path to metrics.go")
+	flag.StringVar(&inPackagePath, "metrics-package", "pkg/metrics", "path to the metrics package directory (preferred)")
 	flag.StringVar(&outFile, "out", "site/content/en/docs/reference/metrics.md", "output markdown file to update in-place")
 	flag.Parse()
 
-	metrics, err := extractMetrics(inFile)
+	metrics, err := extractMetricsFromPackage(inPackagePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "extract: %v\n", err)
 		os.Exit(1)
@@ -76,75 +78,94 @@ func main() {
 	}
 }
 
-func extractMetrics(path string) ([]Metric, error) {
+func extractMetricsFromPackage(dir string) ([]Metric, error) {
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+	pkgs, err := parser.ParseDir(fset, dir, nil, parser.ParseComments)
 	if err != nil {
 		return nil, err
 	}
-	var result []Metric
-	ast.Inspect(f, func(n ast.Node) bool {
-		vs, ok := n.(*ast.ValueSpec)
-		if !ok || len(vs.Values) != 1 {
-			return true
+	var all []Metric
+	var missingGroups []string
+	for _, pkg := range pkgs {
+		for _, f := range pkg.Files {
+			ast.Inspect(f, func(n ast.Node) bool {
+				vs, ok := n.(*ast.ValueSpec)
+				if !ok || len(vs.Values) != 1 {
+					return true
+				}
+				groupFromComment, labelDocs := parseMarkers(vs)
+				call, ok := vs.Values[0].(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				sel, ok := call.Fun.(*ast.SelectorExpr)
+				if !ok {
+					return true
+				}
+				pkgIdent, ok := sel.X.(*ast.Ident)
+				if !ok || pkgIdent.Name != "prometheus" {
+					return true
+				}
+				fun := sel.Sel.Name
+				if fun != "NewCounterVec" && fun != "NewGaugeVec" && fun != "NewHistogramVec" {
+					return true
+				}
+				if len(call.Args) < 2 {
+					return true
+				}
+				opts, ok := call.Args[0].(*ast.CompositeLit)
+				if !ok {
+					return true
+				}
+				var name, help string
+				for _, elt := range opts.Elts {
+					kv, ok := elt.(*ast.KeyValueExpr)
+					if !ok {
+						continue
+					}
+					var keyName string
+					switch k := kv.Key.(type) {
+					case *ast.Ident:
+						keyName = k.Name
+					case *ast.SelectorExpr:
+						keyName = k.Sel.Name
+					default:
+						keyName = exprToString(kv.Key)
+					}
+					switch keyName {
+					case "Name":
+						name = stringLiteral(kv.Value)
+					case "Help":
+						help = stringLiteral(kv.Value)
+					}
+				}
+				labels := parseLabels(call.Args[1])
+				m := Metric{
+					FullName:  "kueue_" + name,
+					Type:      map[string]string{"NewCounterVec": "Counter", "NewGaugeVec": "Gauge", "NewHistogramVec": "Histogram"}[fun],
+					Help:      normalizeHelp(help),
+					Labels:    labels,
+					LabelDocs: labelDocs,
+				}
+				if groupFromComment == "" {
+					varName := ""
+					if len(vs.Names) > 0 && vs.Names[0] != nil {
+						varName = vs.Names[0].Name
+					}
+					missingGroups = append(missingGroups, varName)
+					return true
+				}
+				m.Group = groupFromComment
+				all = append(all, m)
+				return true
+			})
 		}
-		call, ok := vs.Values[0].(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok {
-			return true
-		}
-		pkgIdent, ok := sel.X.(*ast.Ident)
-		if !ok || pkgIdent.Name != "prometheus" {
-			return true
-		}
-		fun := sel.Sel.Name
-		if fun != "NewCounterVec" && fun != "NewGaugeVec" && fun != "NewHistogramVec" {
-			return true
-		}
-		if len(call.Args) < 2 {
-			return true
-		}
-		opts, ok := call.Args[0].(*ast.CompositeLit)
-		if !ok {
-			return true
-		}
-		var name, help string
-		for _, elt := range opts.Elts {
-			kv, ok := elt.(*ast.KeyValueExpr)
-			if !ok {
-				continue
-			}
-			var keyName string
-			switch k := kv.Key.(type) {
-			case *ast.Ident:
-				keyName = k.Name
-			case *ast.SelectorExpr:
-				keyName = k.Sel.Name
-			default:
-				keyName = exprToString(kv.Key)
-			}
-			switch keyName {
-			case "Name":
-				name = stringLiteral(kv.Value)
-			case "Help":
-				help = stringLiteral(kv.Value)
-			}
-		}
-		labels := parseLabels(call.Args[1])
-		m := Metric{
-			FullName: "kueue_" + name,
-			Type:     map[string]string{"NewCounterVec": "Counter", "NewGaugeVec": "Gauge", "NewHistogramVec": "Histogram"}[fun],
-			Help:     normalizeHelp(help),
-			Labels:   labels,
-		}
-		m.Group = groupFor(m)
-		result = append(result, m)
-		return true
-	})
-	return result, nil
+	}
+	if len(missingGroups) > 0 {
+		return nil, fmt.Errorf("missing metricsdoc:group marker on metrics: %s", strings.Join(missingGroups, ", "))
+	}
+	// stable sort within package groups is applied later in render
+	return all, nil
 }
 
 func parseLabels(arg ast.Expr) []string {
@@ -180,35 +201,6 @@ func exprToString(e ast.Expr) string {
 	return buf.String()
 }
 
-func groupFor(m Metric) string {
-	name := strings.TrimPrefix(m.FullName, "kueue_")
-	lbls := toSet(m.Labels)
-
-	if strings.HasPrefix(name, "cluster_queue_resource_") ||
-		name == "cluster_queue_nominal_quota" ||
-		name == "cluster_queue_borrowing_limit" ||
-		name == "cluster_queue_lending_limit" ||
-		name == "cluster_queue_weighted_share" {
-		return "optional_clusterqueue_resources"
-	}
-	if name == "ready_wait_time_seconds" ||
-		name == "admitted_until_ready_wait_time_seconds" ||
-		name == "local_queue_ready_wait_time_seconds" ||
-		name == "local_queue_admitted_until_ready_wait_time_seconds" {
-		return "optional_wait_for_pods_ready"
-	}
-	if lbls["result"] {
-		return "health"
-	}
-	if lbls["name"] && lbls["namespace"] {
-		return "localqueue"
-	}
-	if lbls["cohort"] {
-		return "cohort"
-	}
-	return "clusterqueue"
-}
-
 func renderTables(ms []Metric) map[string]string {
 	by := map[string][]Metric{}
 	for _, m := range ms {
@@ -230,7 +222,7 @@ func renderTables(ms []Metric) map[string]string {
 		writeHeader(&b)
 		for _, m := range list {
 			desc := sanitizeForTable(m.Help)
-			labels := formatLabels(m.Labels)
+			labels := formatLabels(m.Labels, m.LabelDocs)
 			fmt.Fprintf(&b, "| `%s` | %s | %s | %s |\n", m.FullName, m.Type, desc, labels)
 		}
 		out[key] = b.String()
@@ -251,58 +243,139 @@ func sanitizeForTable(s string) string {
 }
 
 func normalizeHelp(s string) string { return strings.TrimSpace(s) }
-func formatLabels(labels []string) string {
+
+func formatLabels(labels []string, docs map[string]string) string {
 	if len(labels) == 0 {
 		return ""
 	}
 	var parts []string
 	for _, l := range labels {
-		if d := labelDoc(l); d != "" {
-			parts = append(parts, fmt.Sprintf("`%s`: %s", l, d))
-		} else {
-			parts = append(parts, fmt.Sprintf("`%s`", l))
+		if docs != nil {
+			if desc, ok := docs[l]; ok && desc != "" {
+				parts = append(parts, fmt.Sprintf("`%s`: %s", l, desc))
+				continue
+			}
 		}
+		parts = append(parts, fmt.Sprintf("`%s`", l))
 	}
 	return strings.Join(parts, "<br> ")
 }
-func labelDoc(l string) string {
-	switch l {
-	case "result":
-		return "possible values are `success` or `inadmissible`"
-	case "cluster_queue":
-		return "the name of the ClusterQueue"
-	case "status":
-		return "status label (varies by metric)"
-	case "priority_class":
-		return "the priority class name"
-	case "reason":
-		return "eviction or preemption reason"
-	case "underlying_cause":
-		return "root cause for eviction"
-	case "detailed_reason":
-		return "finer-grained eviction cause"
-	case "preempting_cluster_queue":
-		return "the ClusterQueue executing preemption"
-	case "name":
-		return "the name of the LocalQueue"
-	case "namespace":
-		return "the namespace of the LocalQueue"
-	case "active":
-		return "one of `True`, `False`, or `Unknown`"
-	case "flavor":
-		return "the resource flavor name"
-	case "resource":
-		return "the resource name"
-	case "cohort":
-		return "the name of the Cohort"
-	default:
-		return ""
+
+var (
+	groupMarker = regexp.MustCompile(`(?i)\+\s*metricsdoc:group\s*=\s*([a-z_]+)`)
+	labelMarker = regexp.MustCompile(`(?i)\+\s*metricsdoc:labels\s*=\s*([^\n\r]*)`)
+)
+
+func parseMarkers(vs *ast.ValueSpec) (string, map[string]string) {
+	var group string
+	labelDocs := map[string]string{}
+	for _, text := range commentTexts(vs) {
+		if group == "" {
+			if m := groupMarker.FindStringSubmatch(text); len(m) == 2 {
+				group = strings.ToLower(m[1])
+			}
+		}
+		matches := labelMarker.FindAllStringSubmatch(text, -1)
+		for _, match := range matches {
+			if len(match) != 2 {
+				continue
+			}
+			maps.Copy(labelDocs, parseLabelAnnotations(match[1]))
+		}
 	}
+	if len(labelDocs) == 0 {
+		return group, nil
+	}
+	return group, labelDocs
 }
-func toSet(ss []string) map[string]bool {
-	m := map[string]bool{}
-	for _, s := range ss {
-		m[s] = true
+
+func commentTexts(vs *ast.ValueSpec) []string {
+	var out []string
+	if vs.Doc != nil {
+		for _, c := range vs.Doc.List {
+			if c != nil {
+				out = append(out, c.Text)
+			}
+		}
 	}
-	return m
+	if vs.Comment != nil {
+		for _, c := range vs.Comment.List {
+			if c != nil {
+				out = append(out, c.Text)
+			}
+		}
+	}
+	return out
+}
+
+func parseLabelAnnotations(body string) map[string]string {
+	body = strings.TrimSpace(body)
+	body = strings.TrimSuffix(body, "*/")
+	body = strings.TrimSpace(body)
+	out := map[string]string{}
+	for _, pair := range splitLabelPairs(body) {
+		if pair == "" {
+			continue
+		}
+		kv := strings.SplitN(pair, "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		key := stripQuotes(strings.TrimSpace(kv[0]))
+		val := stripQuotes(strings.TrimSpace(kv[1]))
+		if key == "" || val == "" {
+			continue
+		}
+		out[key] = val
+	}
+	return out
+}
+
+func splitLabelPairs(body string) []string {
+	var parts []string
+	var current strings.Builder
+	var quote rune
+	for _, r := range body {
+		switch r {
+		case '"', '\'', '`':
+			switch quote {
+			case 0:
+				quote = r
+			case r:
+				quote = 0
+			}
+			current.WriteRune(r)
+		case ',':
+			if quote != 0 {
+				current.WriteRune(r)
+				continue
+			}
+			part := strings.TrimSpace(current.String())
+			if part != "" {
+				parts = append(parts, part)
+			}
+			current.Reset()
+		default:
+			current.WriteRune(r)
+		}
+	}
+	if current.Len() > 0 {
+		part := strings.TrimSpace(current.String())
+		if part != "" {
+			parts = append(parts, part)
+		}
+	}
+	return parts
+}
+
+func stripQuotes(s string) string {
+	if len(s) < 2 {
+		return s
+	}
+	first := s[0]
+	last := s[len(s)-1]
+	if (first == last) && (first == '"' || first == '\'' || first == '`') {
+		return s[1 : len(s)-1]
+	}
+	return s
 }

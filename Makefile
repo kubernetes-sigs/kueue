@@ -513,7 +513,7 @@ generate-helm-docs: helm-docs
 
 .PHONY: generate-metrics-tables
 generate-metrics-tables: metricsdoc
-	$(BIN_DIR)/metricsdoc --metrics-file=pkg/metrics/metrics.go --out=site/content/en/docs/reference/metrics.md
+	$(BIN_DIR)/metricsdoc --metrics-package=pkg/metrics --out=site/content/en/docs/reference/metrics.md
 
 # Build the ray-project-mini image
 .PHONY: ray-project-mini-image-build
