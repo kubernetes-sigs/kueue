@@ -79,7 +79,7 @@ func New(
 	cl client.Client,
 	workloadOrdering workload.Ordering,
 	recorder record.EventRecorder,
-	fs config.FairSharing,
+	fs *config.FairSharing,
 	enabledAfs bool,
 	clock clock.Clock,
 ) *Preemptor {
@@ -88,8 +88,8 @@ func New(
 		client:            cl,
 		recorder:          recorder,
 		workloadOrdering:  workloadOrdering,
-		enableFairSharing: fs.Enable,
-		fsStrategies:      parseStrategies(fs.PreemptionStrategies),
+		enableFairSharing: fairsharing.Enabled(fs),
+		fsStrategies:      parseStrategies(fs),
 		enabledAfs:        enabledAfs,
 	}
 	return p
@@ -283,12 +283,12 @@ func restoreSnapshot(snapshot *schdcache.Snapshot, targets []*Target) {
 // parseStrategies converts an array of strategies into the functions to the used by the algorithm.
 // This function takes advantage of the properties of the preemption algorithm and the strategies.
 // The number of functions returned might not match the input slice.
-func parseStrategies(s []config.PreemptionStrategy) []fairsharing.Strategy {
-	if len(s) == 0 {
+func parseStrategies(fs *config.FairSharing) []fairsharing.Strategy {
+	if fs == nil || len(fs.PreemptionStrategies) == 0 {
 		return []fairsharing.Strategy{fairsharing.LessThanOrEqualToFinalShare, fairsharing.LessThanInitialShare}
 	}
-	strategies := make([]fairsharing.Strategy, len(s))
-	for i, strategy := range s {
+	strategies := make([]fairsharing.Strategy, len(fs.PreemptionStrategies))
+	for i, strategy := range fs.PreemptionStrategies {
 		switch strategy {
 		case config.LessThanOrEqualToFinalShare:
 			strategies[i] = fairsharing.LessThanOrEqualToFinalShare

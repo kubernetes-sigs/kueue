@@ -373,14 +373,6 @@ The total length of each name must not exceed 253 characters.</p>
 <tbody>
     
   
-<tr><td><code>enable</code> <B>[Required]</B><br/>
-<code>bool</code>
-</td>
-<td>
-   <p>enable indicates whether to enable Fair Sharing for all cohorts.
-Defaults to false.</p>
-</td>
-</tr>
 <tr><td><code>preemptionStrategies</code> <B>[Required]</B><br/>
 <a href="#config-kueue-x-k8s-io-v1beta2-PreemptionStrategy"><code>[]PreemptionStrategy</code></a>
 </td>

@@ -917,8 +917,7 @@ func TestFairPreemptions(t *testing.T) {
 			broadcaster := record.NewBroadcaster()
 			scheme := runtime.NewScheme()
 			recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
-			preemptor := New(cl, workload.Ordering{}, recorder, config.FairSharing{
-				Enable:               true,
+			preemptor := New(cl, workload.Ordering{}, recorder, &config.FairSharing{
 				PreemptionStrategies: tc.strategies,
 			}, false, clocktesting.NewFakeClock(now))
 
