@@ -179,7 +179,7 @@ the failed nodes.
 
 The controller has to **ignore** updates to pods that:
 1. Are not terminating.
-    * `pod.DeletionTimestamp == nil || pod.DeletionGracePeriodSeconds == nil`
+    * `pod.DeletionTimestamp == nil`
 1. Are in a terminal phase.
     * `pod.Status.Phase != corev1.PodRunning && pod.Status.Phase != corev1.PodPending`
 1. Are not managed by Kueue.
