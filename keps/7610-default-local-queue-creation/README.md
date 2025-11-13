@@ -132,7 +132,7 @@ The "Design Details" section below is for the real
 nitty-gritty.
 -->
 
-This proposal introduces a new, optional field `autoLocalQueue` to the
+This proposal introduces a new, optional field `defaultLocalQueue` to the
 `ClusterQueue` API specification. When this field is present, it signals the
 controller to enable the automatic creation of `LocalQueue`s. This field will be
 an object containing the configuration for the `LocalQueue` to be created,
@@ -147,7 +147,7 @@ specified name in that namespace.
 To prevent conflicts where two `ClusterQueue`s might try to create a `LocalQueue`
 with the same name in the same namespace, a validating admission webhook will be
 added. This webhook will reject the creation or update of a `ClusterQueue` if
-its `namespaceSelector` (with `autoLocalQueue` enabled) overlaps with an
+its `namespaceSelector` (with `defaultLocalQueue` enabled) overlaps with an
 existing `ClusterQueue` that also has the feature enabled.
 
 
@@ -209,24 +209,24 @@ proposal will be implemented, this is the place to discuss them.
 
 ### API Proposal
 
-This proposal adds a new `autoLocalQueue` field to the `ClusterQueueSpec`.
+This proposal adds a new `defaultLocalQueue` field to the `ClusterQueueSpec`.
 
 ```go
 // ClusterQueueSpec defines the desired state of ClusterQueue
 type ClusterQueueSpec struct {
     // ... existing fields
 
-	// autoLocalQueue specifies the configuration for automatically creating
+	// defaultLocalQueue specifies the configuration for automatically creating
 	// LocalQueues in namespaces that match the ClusterQueue's namespaceSelector.
 	// This feature is controlled by the `DefaultLocalQueue` feature gate.
 	// If this field is set, a LocalQueue with the specified name will be created
 	// in each matching namespace. The LocalQueue will reference this ClusterQueue.
 	// +optional
-	AutoLocalQueue *AutoLocalQueue `json:"autoLocalQueue,omitempty"`
+	DefaultLocalQueue *DefaultLocalQueue `json:"defaultLocalQueue,omitempty"`
 }
 
-// AutoLocalQueue defines the configuration for automatically created LocalQueues.
-type AutoLocalQueue struct {
+// DefaultLocalQueue defines the configuration for automatically created LocalQueues.
+type DefaultLocalQueue struct {
 	// name is the name of the LocalQueue to be created in matching namespaces.
 	// This name must be a valid DNS subdomain name.
 	// +kubebuilder:validation:MaxLength=63
@@ -251,11 +251,11 @@ reconciliation logic:
 1. The controller will watch for events on both `ClusterQueue` and `Namespace`
    resources.
 2. On a change, it will iterate through `ClusterQueue`s that have
-   `spec.autoLocalQueue` enabled.
+   `spec.defaultLocalQueue` enabled.
 3. For each such `ClusterQueue`, it will list all `Namespace`s that match its
    `spec.namespaceSelector`.
 4. For each matching `Namespace`, it will check if a `LocalQueue` with the name
-   from `spec.autoLocalQueue.name` already exists.
+   from `spec.defaultLocalQueue.name` already exists.
 5. If the `LocalQueue` does not exist, the controller will create it. The new
    `LocalQueue` will reference the current `ClusterQueue` (via
    `spec.clusterQueue` field) and will include the identifying labels and
@@ -268,11 +268,11 @@ A new validating admission webhook for `ClusterQueue`s will be implemented to
 prevent selector overlap.
 
 1. The webhook triggers on `CREATE` and `UPDATE` of `ClusterQueue` resources.
-2. If `spec.autoLocalQueue` is not set, the validation is skipped.
+2. If `spec.defaultLocalQueue` is not set, the validation is skipped.
 3. If set, the webhook lists all other `ClusterQueue`s in the cluster.
 4. It compares the `namespaceSelector` of the incoming `ClusterQueue` with every
-   other `ClusterQueue` that also has `autoLocalQueue` enabled.
-5. If a selector overlap is detected and the `autoLocalQueue.name` is the same,
+   other `ClusterQueue` that also has `defaultLocalQueue` enabled.
+5. If a selector overlap is detected and the `defaultLocalQueue.name` is the same,
    the request is rejected with an error detailing the conflict. This prevents
    two `ClusterQueues` from attempting to manage the same `LocalQueue` resource.
 
