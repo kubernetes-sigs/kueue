@@ -509,7 +509,7 @@ type TopologyAssignmentSlicePodCounts struct {
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=100000
 	// +kubebuilder:validation:items:Minimum=1
-	Individual []int32 `json:"podCounts,omitempty"`
+	Individual []int32 `json:"individual,omitempty"`
 }
 
 // +kubebuilder:validation:XValidation:rule="has(self.minCount) ? self.minCount <= self.count : true", message="minCount should be positive and less or equal to count"
