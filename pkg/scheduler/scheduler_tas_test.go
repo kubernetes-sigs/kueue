@@ -274,6 +274,8 @@ func TestScheduleForTAS(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "FlavorAttempts", corev1.EventTypeNormal).
+					Message("Considered: launcher: tas-default(Fit) | worker: tas-default(Fit)").Obj(),
 			},
 		},
 		"workload in CQ with ProvisioningRequest; second pass; baseline scenario": {
@@ -384,6 +386,8 @@ func TestScheduleForTAS(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "FlavorAttempts", corev1.EventTypeNormal).
+					Message("Considered: one: tas-reservation(Fit)").Obj(),
 			},
 		},
 		"workload with unhealthyNode annotation; second pass; baseline scenario": {
@@ -1444,6 +1448,8 @@ func TestScheduleForTAS(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "FlavorAttempts", corev1.EventTypeNormal).
+					Message("Considered: one: tas-default(Fit)").Obj(),
 			},
 		},
 		"workload requiring TAS skips the non-TAS flavor": {
@@ -1482,6 +1488,8 @@ func TestScheduleForTAS(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "FlavorAttempts", corev1.EventTypeNormal).
+					Message(`Considered: one: default(NoFit;Flavor "default" does not support TopologyAwareScheduling), tas-default(Fit)`).Obj(),
 			},
 		},
 		"workload which does not need TAS skips the TAS flavor": {
@@ -1516,6 +1524,8 @@ func TestScheduleForTAS(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "FlavorAttempts", corev1.EventTypeNormal).
+					Message(`Considered: one: default(Fit), tas-default(NoFit;Flavor "tas-default" supports only TopologyAwareScheduling)`).Obj(),
 			},
 		},
 		"workload with mixed PodSets (requiring TAS and not)": {
@@ -1563,6 +1573,8 @@ func TestScheduleForTAS(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "FlavorAttempts", corev1.EventTypeNormal).
+					Message(`Considered: launcher: default(Fit), tas-default(NoFit;Flavor "tas-default" supports only TopologyAwareScheduling) | worker: tas-default(Fit)`).Obj(),
 			},
 		},
 		"workload required TAS gets scheduled": {
@@ -1593,6 +1605,8 @@ func TestScheduleForTAS(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "FlavorAttempts", corev1.EventTypeNormal).
+					Message("Considered: one: tas-default(Fit)").Obj(),
 			},
 		},
 		"workload requests topology level which is not present in topology": {
@@ -1673,6 +1687,8 @@ func TestScheduleForTAS(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "FlavorAttempts", corev1.EventTypeNormal).
+					Message(`Considered: one: tas-custom-flavor(Fit), tas-default(NoFit;Flavor "tas-default" does not contain the requested level)`).Obj(),
 			},
 		},
 		"workload does not get scheduled as it does not fit within the node capacity": {
@@ -1822,6 +1838,8 @@ func TestScheduleForTAS(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "FlavorAttempts", corev1.EventTypeNormal).
+					Message("Considered: one: tas-default(Fit)").Obj(),
 			},
 		},
 		"workload gets admitted next to already admitted workload, multiple resources used": {
@@ -1874,6 +1892,8 @@ func TestScheduleForTAS(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "FlavorAttempts", corev1.EventTypeNormal).
+					Message("Considered: one: tas-default(Fit)").Obj(),
 			},
 		},
 		"workload with multiple PodSets requesting the same TAS flavor; multiple levels": {
@@ -2001,6 +2021,8 @@ func TestScheduleForTAS(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "FlavorAttempts", corev1.EventTypeNormal).
+					Message("Considered: launcher: tas-default(Fit) | worker: tas-default(Fit)").Obj(),
 			},
 		},
 		"scheduling workload with multiple PodSets requesting higher level topology": {
@@ -2073,6 +2095,8 @@ func TestScheduleForTAS(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "FlavorAttempts", corev1.EventTypeNormal).
+					Message("Considered: launcher: tas-default(Fit) | worker: tas-default(Fit)").Obj(),
 			},
 		},
 		"scheduling workload when the node for another admitted workload is deleted": {
@@ -2142,6 +2166,8 @@ func TestScheduleForTAS(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "FlavorAttempts", corev1.EventTypeNormal).
+					Message("Considered: one: tas-default(Fit)").Obj(),
 			},
 		},
 		"scheduling workload on a tainted node when the toleration is on ResourceFlavor": {
@@ -2204,6 +2230,8 @@ func TestScheduleForTAS(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "FlavorAttempts", corev1.EventTypeNormal).
+					Message("Considered: one: tas-default(Fit)").Obj(),
 			},
 		},
 		"TAS workload gets scheduled as trimmed by partial admission": {
@@ -2235,6 +2263,8 @@ func TestScheduleForTAS(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "FlavorAttempts", corev1.EventTypeNormal).
+					Message("Considered: one: tas-default(Fit)").Obj(),
 			},
 		},
 		"workload does not get scheduled as the node capacity (.status.allocatable['pods']) is already used by non-TAS and TAS workloads": {
@@ -2325,6 +2355,8 @@ func TestScheduleForTAS(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "FlavorAttempts", corev1.EventTypeNormal).
+					Message("Considered: one: tas-default(Fit)").Obj(),
 			},
 		},
 		"workload with unhealthyNode annotation; second pass; preferred; no fit when using slices; FailFast": {
@@ -3622,6 +3654,8 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "a1", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "a1", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "a1", "FlavorAttempts", corev1.EventTypeNormal).
+					Message("abc").Obj(),
 			},
 		},
 		"reclaim within cohort; single borrowing workload gets preempted": {
@@ -4440,8 +4474,12 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "b1", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "b1", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "b1", "FlavorAttempts", corev1.EventTypeNormal).
+					Message("abc").Obj(),
 				utiltesting.MakeEventRecord("default", "a1", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "a1", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "a1", "FlavorAttempts", corev1.EventTypeNormal).
+					Message("abc").Obj(),
 			},
 		},
 		"two small workloads considered; both get scheduled on the same node": {
@@ -4558,8 +4596,12 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "b1", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "b1", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "b1", "FlavorAttempts", corev1.EventTypeNormal).
+					Message("abc").Obj(),
 				utiltesting.MakeEventRecord("default", "a1", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "a1", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "a1", "FlavorAttempts", corev1.EventTypeNormal).
+					Message("abc").Obj(),
 			},
 		},
 		"two small workloads considered; there is only space for one of them on the initial node": {
@@ -4659,6 +4701,8 @@ func TestScheduleForTASCohorts(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
 				utiltesting.MakeEventRecord("default", "a1", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "a1", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "a1", "FlavorAttempts", corev1.EventTypeNormal).
+					Message("abc").Obj(),
 			},
 		},
 		"two workloads considered; there is enough space only for the first": {
@@ -4759,6 +4803,8 @@ func TestScheduleForTASCohorts(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
 				utiltesting.MakeEventRecord("default", "a1", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "a1", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "a1", "FlavorAttempts", corev1.EventTypeNormal).
+					Message("abc").Obj(),
 			},
 		},
 		"two workloads considered; both overlapping in the initial flavor assignment": {
@@ -4859,6 +4905,8 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "a1", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "a1", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "a1", "FlavorAttempts", corev1.EventTypeNormal).
+					Message("abc").Obj(),
 				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
 			},
 		},
@@ -5278,6 +5326,8 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "b1", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "b1", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "b1", "FlavorAttempts", corev1.EventTypeNormal).
+					Message("abc").Obj(),
 				utiltesting.MakeEventRecord("default", "a2", "Pending", "Warning").
 					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" allows to fit only 3 out of 4 pod(s)`).
 					Obj(),

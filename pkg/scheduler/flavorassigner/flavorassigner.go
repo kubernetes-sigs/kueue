@@ -242,6 +242,17 @@ type PodSetAssignment struct {
 
 	TopologyAssignment     *tas.TopologyAssignment
 	DelayedTopologyRequest *kueue.DelayedTopologyRequestState
+
+	Considered []FlavorAttempt
+}
+
+// FlavorAttempt captures one attempted flavor and its worst-case outcome
+// across the requested resources.
+type FlavorAttempt struct {
+	Flavor  kueue.ResourceFlavorReference
+	Mode    FlavorAssignmentMode
+	Borrow  int
+	Reasons []string
 }
 
 // RepresentativeMode calculates the representative mode for this assignment as
@@ -547,10 +558,11 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 		}
 
 		psAssignment := PodSetAssignment{
-			Name:     podSet.Name,
-			Flavors:  make(ResourceAssignment, len(podSet.Requests)),
-			Requests: podSet.Requests.ToResourceList(),
-			Count:    podSet.Count,
+			Name:       podSet.Name,
+			Flavors:    make(ResourceAssignment, len(podSet.Requests)),
+			Requests:   podSet.Requests.ToResourceList(),
+			Count:      podSet.Count,
+			Considered: make([]FlavorAttempt, 0),
 		}
 
 		if features.Enabled(features.TopologyAwareScheduling) {
@@ -586,6 +598,8 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 			requests.Add(podset.podSet.Requests)
 		}
 
+		considerAcc := make(map[kueue.ResourceFlavorReference]FlavorAttempt)
+
 		groupFlavors := make(ResourceAssignment)
 		for _, ips := range podSets {
 			for resName := range ips.podSetAssignment.Flavors {
@@ -600,8 +614,10 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 				// No need to compute again.
 				continue
 			}
-			flavors, status := a.findFlavorForPodSets(log, psIDs, requests, resName, assignment.Usage.Quota)
-			if status.IsError() || len(flavors) == 0 {
+
+			flavors, status, considered := a.findFlavorForPodSets(log, psIDs, requests, resName, assignment.Usage.Quota)
+			a.mergeFlavorAttemptsForResource(considerAcc, considered, resName)
+			if status.IsError() || (len(flavors) == 0 && len(requests) > 0) {
 				groupFlavors = nil
 				groupStatus = *status
 				break
@@ -611,12 +627,22 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 				groupStatus.reasons = append(groupStatus.reasons, status.reasons...)
 			}
 		}
+
+		finalConsidered := make([]FlavorAttempt, 0, len(considerAcc))
+		for _, v := range considerAcc {
+			finalConsidered = append(finalConsidered, v)
+		}
+		slices.SortFunc(finalConsidered, func(a, b FlavorAttempt) int {
+			return strings.Compare(string(a.Flavor), string(b.Flavor))
+		})
+
 		atLeastOnePodsAssignmentFailed := false
 		for _, podSet := range podSets {
 			podSetFlavors := utilmaps.FilterKeys(groupFlavors, slices.Collect(maps.Keys(podSet.podSet.Requests)))
 
 			podSet.podSetAssignment.Flavors = podSetFlavors
 			podSet.podSetAssignment.Status = groupStatus
+			podSet.podSetAssignment.Considered = finalConsidered
 
 			assignment.append(podSet.podSet.Requests, podSet.podSetAssignment)
 			if podSet.podSetAssignment.Status.IsError() || (len(podSet.podSet.Requests) > 0 && len(podSet.podSetAssignment.Flavors) == 0) {
@@ -682,16 +708,17 @@ func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAss
 // Returns the chosen flavor, along with the information about resources that need to be borrowed.
 // If the flavor cannot be immediately assigned, it returns a status with
 // reasons or failure.
+// It also returns the list of Flavors tried.
 func (a *FlavorAssigner) findFlavorForPodSets(
 	log logr.Logger,
 	psIDs []int,
 	requests resources.Requests,
 	resName corev1.ResourceName,
 	assignmentUsage resources.FlavorResourceQuantities,
-) (ResourceAssignment, *Status) {
+) (ResourceAssignment, *Status, []FlavorAttempt) {
 	resourceGroup := a.cq.RGByResource(resName)
 	if resourceGroup == nil {
-		return nil, NewStatus(fmt.Sprintf("resource %s unavailable in ClusterQueue", resName))
+		return nil, NewStatus(fmt.Sprintf("resource %s unavailable in ClusterQueue", resName)), nil
 	}
 
 	status := NewStatus()
@@ -709,6 +736,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 
 	var bestAssignment ResourceAssignment
 	bestAssignmentMode := worstGranularMode()
+	considered := make([]FlavorAttempt, 0, len(resourceGroup.Flavors))
 
 	// We will only check against the flavors' labels for the resource.
 	attemptedFlavorIdx := -1
@@ -717,16 +745,29 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 		attemptedFlavorIdx = idx
 		fName := resourceGroup.Flavors[idx]
 
-		if fit, err := a.checkFlavorForPodSets(log, fName, psIDs, podSets, selectors, status); !fit {
+		ft := FlavorAttempt{Flavor: fName}
+		flavorStatus := NewStatus()
+
+		if fit, err := a.checkFlavorForPodSets(log, fName, psIDs, podSets, selectors, flavorStatus); !fit {
+			ft.Mode = NoFit
+			if flavorStatus != nil {
+				ft.Reasons = append(ft.Reasons, flavorStatus.reasons...)
+				status.reasons = append(status.reasons, flavorStatus.reasons...)
+			}
+			considered = append(considered, ft)
 			if err != nil {
 				status.err = err
-				return nil, status
+				return nil, status, considered
 			}
 			continue
 		}
+
 		assignments := make(ResourceAssignment, len(requests))
 		// Calculate representativeMode for this assignment as the worst mode among all requests.
 		representativeMode := bestGranularMode()
+		maxBorrow := 0
+		var flavorQuotaReasons []string
+
 		for rName, val := range requests {
 			// Ensure the same resource flavor is used for the workload slice as in the original admitted slice.
 			if features.Enabled(features.ElasticJobsViaWorkloadSlices) && a.replaceWorkloadSlice != nil {
@@ -737,7 +778,9 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 					if originalFlavor := preemptWorkloadRequests.Flavors[rName]; originalFlavor != fName {
 						// Flavor mismatch. Skip further checks for this resource.
 						representativeMode = worstGranularMode()
-						status.reasons = append(status.reasons, fmt.Sprintf("could not assign %s flavor since the original workload is assigned: %s", fName, originalFlavor))
+						msg := fmt.Sprintf("could not assign %s flavor since the original workload is assigned: %s", fName, originalFlavor)
+						status.reasons = append(status.reasons, msg)
+						flavorQuotaReasons = append(flavorQuotaReasons, msg)
 						break
 					}
 
@@ -752,8 +795,10 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 
 			preemptionMode, borrow, s := a.fitsResourceQuota(log, fr, assignmentUsage[fr], val, resQuota)
 			if s != nil {
+				flavorQuotaReasons = append(flavorQuotaReasons, s.reasons...)
 				status.reasons = append(status.reasons, s.reasons...)
 			}
+			maxBorrow = max(maxBorrow, borrow)
 			mode := granularMode{preemptionMode, borrowingLevel(borrow)}
 			if isPreferred(representativeMode, mode, a.cq.FlavorFungibility) {
 				representativeMode = mode
@@ -769,6 +814,15 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 				borrow: borrow,
 			}
 		}
+
+		ft.Mode = representativeMode.preemptionMode.flavorAssignmentMode()
+		ft.Borrow = maxBorrow
+		if len(flavorQuotaReasons) > 0 {
+			sort.Strings(flavorQuotaReasons)
+			ft.Reasons = append(ft.Reasons, flavorQuotaReasons...)
+		}
+		considered = append(considered, ft)
+
 		if features.Enabled(features.FlavorFungibility) {
 			if !shouldTryNextFlavor(representativeMode, a.cq.FlavorFungibility) {
 				bestAssignment = assignments
@@ -784,7 +838,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 			bestAssignmentMode = representativeMode
 			if bestAssignmentMode.preemptionMode == fit {
 				// All the resources fit in the cohort, no need to check more flavors.
-				return bestAssignment, nil
+				return bestAssignment, nil, considered
 			}
 		}
 	}
@@ -799,10 +853,10 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 			}
 		}
 		if bestAssignmentMode.preemptionMode == fit {
-			return bestAssignment, nil
+			return bestAssignment, nil, considered
 		}
 	}
-	return bestAssignment, status
+	return bestAssignment, status, considered
 }
 
 func (a *FlavorAssigner) checkFlavorForPodSets(
@@ -966,4 +1020,86 @@ func filterRequestedResources(req resources.Requests, allowList sets.Set[corev1.
 		}
 	}
 	return filtered
+}
+
+func (a *FlavorAssigner) mergeFlavorAttemptsForResource(
+	dst map[kueue.ResourceFlavorReference]FlavorAttempt,
+	src []FlavorAttempt,
+	resName corev1.ResourceName,
+) {
+	mergeFlavorAttempts(dst, src)
+
+	if len(src) > 0 {
+		rg := a.cq.RGByResource(resName)
+		rgFlavorSet := sets.New(rg.Flavors...)
+
+		present := make(map[kueue.ResourceFlavorReference]struct{}, len(src))
+		for _, c := range src {
+			present[c.Flavor] = struct{}{}
+		}
+
+		for flv, at := range dst {
+			if !rgFlavorSet.Has(flv) {
+				continue
+			}
+			if _, ok := present[flv]; !ok {
+				msg := fmt.Sprintf("flavor %s does not provide resource %s", flv, resName)
+				if at.Mode != NoFit {
+					at.Mode = NoFit
+				}
+				at.Reasons = mergeUnique(at.Reasons, []string{msg})
+				sort.Strings(at.Reasons)
+				dst[flv] = at
+			}
+		}
+	}
+}
+
+func mergeFlavorAttempts(dst map[kueue.ResourceFlavorReference]FlavorAttempt, src []FlavorAttempt) {
+	for _, at := range src {
+		if existing, ok := dst[at.Flavor]; ok {
+			worst := existing.Mode
+			worst = min(at.Mode, worst)
+
+			maxBorrow := existing.Borrow
+			maxBorrow = max(at.Borrow, maxBorrow)
+
+			reasons := mergeUnique(existing.Reasons, at.Reasons)
+			sort.Strings(reasons)
+			dst[at.Flavor] = FlavorAttempt{
+				Flavor:  at.Flavor,
+				Mode:    worst,
+				Borrow:  maxBorrow,
+				Reasons: reasons,
+			}
+			continue
+		}
+
+		cp := FlavorAttempt{
+			Flavor:  at.Flavor,
+			Mode:    at.Mode,
+			Borrow:  at.Borrow,
+			Reasons: mergeUnique(nil, at.Reasons),
+		}
+		sort.Strings(cp.Reasons)
+		dst[at.Flavor] = cp
+	}
+}
+
+func mergeUnique(a, b []string) []string {
+	if len(a) == 0 && len(b) == 0 {
+		return nil
+	}
+	set := make(map[string]struct{}, len(a)+len(b))
+	for _, s := range a {
+		set[s] = struct{}{}
+	}
+	for _, s := range b {
+		set[s] = struct{}{}
+	}
+	out := make([]string, 0, len(set))
+	for s := range set {
+		out = append(out, s)
+	}
+	return out
 }

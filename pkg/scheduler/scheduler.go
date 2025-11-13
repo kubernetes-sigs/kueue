@@ -22,6 +22,7 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -617,6 +618,8 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 		PodSetAssignments: e.assignment.ToAPI(),
 	}
 
+	consideredStr := formatConsideredForEvent(e.assignment)
+
 	if err := s.assumeWorkload(log, e, cq, admission); err != nil {
 		return err
 	}
@@ -633,7 +636,8 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 		}, workload.WithLooseOnApply())
 		if err == nil {
 			// Record metrics and events for quota reservation and admission
-			s.recordWorkloadAdmissionMetrics(newWorkload, e.Obj, admission)
+			s.recordWorkloadAdmissionMetrics(newWorkload, e.Obj, admission, consideredStr)
+
 			log.V(2).Info("Workload successfully admitted and assigned flavors", "assignments", admission.PodSetAssignments)
 			return
 		}
@@ -803,11 +807,11 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 }
 
 // recordWorkloadAdmissionMetrics records metrics and events for workload admission process
-func (s *Scheduler) recordWorkloadAdmissionMetrics(newWorkload, originalWorkload *kueue.Workload, admission *kueue.Admission) {
+func (s *Scheduler) recordWorkloadAdmissionMetrics(newWorkload, originalWorkload *kueue.Workload, admission *kueue.Admission, considered string) {
 	waitTime := workload.QueuedWaitTime(newWorkload, s.clock)
 
 	s.recordQuotaReservationMetrics(newWorkload, originalWorkload, admission, waitTime)
-	s.recordWorkloadAdmissionEvents(newWorkload, originalWorkload, admission, waitTime)
+	s.recordWorkloadAdmissionEvents(newWorkload, originalWorkload, admission, waitTime, considered)
 }
 
 // recordQuotaReservationMetrics records metrics and events for quota reservation
@@ -826,12 +830,16 @@ func (s *Scheduler) recordQuotaReservationMetrics(newWorkload, originalWorkload 
 }
 
 // recordWorkloadAdmissionEvents records metrics and events for workload admission
-func (s *Scheduler) recordWorkloadAdmissionEvents(newWorkload, originalWorkload *kueue.Workload, admission *kueue.Admission, waitTime time.Duration) {
+func (s *Scheduler) recordWorkloadAdmissionEvents(newWorkload, originalWorkload *kueue.Workload, admission *kueue.Admission, waitTime time.Duration, considered string) {
 	if !workload.IsAdmitted(newWorkload) || workload.HasUnhealthyNodes(originalWorkload) {
 		return
 	}
 
 	s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was 0s", admission.ClusterQueue)
+
+	if considered != "" {
+		s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "FlavorAttempts", api.TruncateEventMessage("Considered: "+considered))
+	}
 
 	priorityClassName := workload.PriorityClassName(newWorkload)
 	metrics.AdmittedWorkload(admission.ClusterQueue, priorityClassName, waitTime)
@@ -898,4 +906,38 @@ func (s *Scheduler) updateEntryPenalty(log logr.Logger, e *entry, op usageOp) {
 		s.queues.SubEntryPenalty(lqKey, penalty)
 		log.V(3).Info("Entry penalty subtracted from localQueue", "localQueue", lqObjRef, "penalty", penalty)
 	}
+}
+
+func formatConsideredForEvent(a flavorassigner.Assignment) string {
+	if len(a.PodSets) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, ps := range a.PodSets {
+		if len(ps.Considered) == 0 {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteString(" | ")
+		}
+		b.WriteString(string(ps.Name))
+		b.WriteString(": ")
+		for j, att := range ps.Considered {
+			if j > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(string(att.Flavor))
+			b.WriteString("(")
+			b.WriteString(att.Mode.String())
+			if att.Borrow > 0 {
+				b.WriteString(fmt.Sprintf(";borrow=%d", att.Borrow))
+			}
+			if len(att.Reasons) > 0 {
+				b.WriteString(";")
+				b.WriteString(strings.Join(att.Reasons, ";"))
+			}
+			b.WriteString(")")
+		}
+	}
+	return b.String()
 }
