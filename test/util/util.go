@@ -431,11 +431,8 @@ func ExpectWorkloadsToBePreempted(ctx context.Context, k8sClient client.Client, 
 		var updatedWorkload kueue.Workload
 		for _, wl := range wls {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
-			cond := apimeta.FindStatusCondition(updatedWorkload.Status.Conditions, kueue.WorkloadEvicted)
-			if cond == nil {
-				continue
-			}
-			if cond.Status == metav1.ConditionTrue {
+			if cond := apimeta.FindStatusCondition(updatedWorkload.Status.Conditions, kueue.WorkloadEvicted); cond != nil &&
+				cond.Status == metav1.ConditionTrue && cond.Reason == kueue.WorkloadPreempted {
 				preempted++
 			}
 		}
