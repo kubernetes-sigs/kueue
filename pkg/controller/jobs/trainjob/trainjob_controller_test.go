@@ -32,7 +32,7 @@ import (
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -97,8 +97,8 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 						"test-annotation": "test",
 					},
 					Labels: map[string]string{
-						controllerconsts.PodSetLabel: "node",
-						"test-label":                 "label",
+						constants.PodSetLabel: "node",
+						"test-label":          "label",
 					},
 					NodeSelector:    map[string]string{"disktype": "ssd"},
 					Tolerations:     []corev1.Toleration{*toleration1.DeepCopy()},
@@ -116,8 +116,8 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 								"test-annotation": "test",
 							},
 							Labels: map[string]string{
-								controllerconsts.PodSetLabel: "node",
-								"test-label":                 "label",
+								constants.PodSetLabel: "node",
+								"test-label":          "label",
 							},
 						},
 						Spec: &kftrainerapi.PodTemplateSpecOverride{
@@ -152,8 +152,8 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 						"test-annotation": "test",
 					},
 					Labels: map[string]string{
-						controllerconsts.PodSetLabel: "node",
-						"test-label":                 "label",
+						constants.PodSetLabel: "node",
+						"test-label":          "label",
 					},
 					NodeSelector:    map[string]string{"gpu": "nvidia"},
 					Tolerations:     []corev1.Toleration{*toleration2.DeepCopy()},
@@ -181,8 +181,8 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 								"test-annotation": "test",
 							},
 							Labels: map[string]string{
-								controllerconsts.PodSetLabel: "node",
-								"test-label":                 "label",
+								constants.PodSetLabel: "node",
+								"test-label":          "label",
 							},
 						},
 						Spec: &kftrainerapi.PodTemplateSpecOverride{
@@ -288,7 +288,7 @@ func TestRestorePodSetsInfo(t *testing.T) {
 						},
 						Metadata: &metav1.ObjectMeta{
 							Labels: map[string]string{
-								controllerconsts.PodSetLabel: "kueue-provided-1",
+								constants.PodSetLabel: "kueue-provided-1",
 							},
 						},
 						Spec: &kftrainerapi.PodTemplateSpecOverride{
@@ -301,7 +301,7 @@ func TestRestorePodSetsInfo(t *testing.T) {
 						},
 						Metadata: &metav1.ObjectMeta{
 							Labels: map[string]string{
-								controllerconsts.PodSetLabel: "kueue-provided-2",
+								constants.PodSetLabel: "kueue-provided-2",
 							},
 						},
 						Spec: &kftrainerapi.PodTemplateSpecOverride{
