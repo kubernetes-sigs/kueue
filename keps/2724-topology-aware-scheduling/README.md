@@ -985,7 +985,6 @@ type TopologyAssignmentSlice struct {
 
   // podCounts specifies the number of pods allocated per each domain.
   // +required
-  // +listType=atomic
   PodCounts TopologyAssignmentSlicePodCounts `json:"podCounts,omitempty"`
 }
 
@@ -1007,12 +1006,12 @@ type TopologyAssignmentSliceLevelIndividualValues struct {
   // commonPrefix specifies a common prefix for all values in this slice assignment.
   // It must be either nil pointer or a non-empty string.
   // +optional
-  // +kubebuilder:validation:items:MaxLength=63
+  // +kubebuilder:validation:MaxLength=63
   CommonPrefix *string `json:"commonPrefix,omitempty"`
   // commonSuffix specifies a common suffix for all values in this slice assignment.
   // It must be either nil pointer or a non-empty string.
   // +optional
-  // +kubebuilder:validation:items:MaxLength=63
+  // +kubebuilder:validation:MaxLength=63
   CommonSuffix *string `json:"commonSuffix,omitempty"`
 
   // roots specifies the values in this assignment (excluding commonPrefix and commonSuffix, if non-empty).
