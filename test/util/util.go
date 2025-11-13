@@ -1207,6 +1207,7 @@ func FindDeploymentCondition(deployment *appsv1.Deployment, deploymentType appsv
 }
 
 func GetListOptsFromLabel(label string) *client.ListOptions {
+	ginkgo.GinkgoHelper()
 	selector, err := labels.Parse(label)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return &client.ListOptions{
@@ -1263,6 +1264,7 @@ func SetNodeCondition(ctx context.Context, k8sClient client.Client, node *corev1
 }
 
 func ExpectLocalQueueFairSharingUsageToBe(ctx context.Context, k8sClient client.Client, lqKey client.ObjectKey, comparator string, compareTo any) {
+	ginkgo.GinkgoHelper()
 	lq := &kueue.LocalQueue{}
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, lqKey, lq)).Should(gomega.Succeed())
@@ -1286,6 +1288,7 @@ func ExpectLocalQueueFairSharingUsageToBe(ctx context.Context, k8sClient client.
 //
 //	The slice of Workloads present in the namespace when the expectation is met.
 func ExpectWorkloadsInNamespace(ctx context.Context, k8sClient client.Client, namespace string, count int) []kueue.Workload {
+	ginkgo.GinkgoHelper()
 	list := &kueue.WorkloadList{}
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.List(ctx, list, client.InNamespace(namespace))).To(gomega.Succeed())
@@ -1308,6 +1311,7 @@ func ExpectWorkloadsInNamespace(ctx context.Context, k8sClient client.Client, na
 //   - newWorkload: A pointer to the discovered replacement Workload. Guaranteed
 //     non-nil if the function succeeds; otherwise, the test fails before returning.
 func ExpectNewWorkloadSlice(ctx context.Context, k8sClient client.Client, oldWorkload *kueue.Workload) (newWorkload *kueue.Workload) {
+	ginkgo.GinkgoHelper()
 	gomega.Eventually(func(g gomega.Gomega) {
 		wlList := &kueue.WorkloadList{}
 		g.Expect(k8sClient.List(ctx, wlList, client.InNamespace(oldWorkload.Namespace))).To(gomega.Succeed())
