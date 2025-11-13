@@ -136,7 +136,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-				_, err = dispatcher.SetupControllers(mgr, configuration, config.MultiKueueDispatcherModeAllAtOnce)
+				_, err = dispatcher.SetupControllers(mgr, configuration)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			})
 		})
