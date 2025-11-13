@@ -196,6 +196,11 @@ func fillSingleCompactSliceValues(
 	}
 }
 
+// singleCompactSliceEncoding translates a v1beta1 TopologyAssignment
+// to a v1beta2 counterpart consisting of a single slice,
+// in which the "compressing options" (CommonPrefix, CommonSuffix,
+// Universal values for placement labels as well as Pod counts)
+// are used as much as possible.
 func singleCompactSliceEncoding(ta *TopologyAssignment) *kueue.TopologyAssignment {
 	n := len(ta.Domains)
 	if n == 0 {
@@ -243,6 +248,9 @@ func singleCompactSliceEncoding(ta *TopologyAssignment) *kueue.TopologyAssignmen
 	}
 }
 
+// V1Beta2From translates a v1beta1 TopologyAssignment into the v1beta2 format.
+// The choice of a specific v1beta2 representation is an implementation detail,
+// which may change in the future. (See KEP-2724).
 func V1Beta2From(ta *TopologyAssignment) *kueue.TopologyAssignment {
 	if ta == nil {
 		return nil
