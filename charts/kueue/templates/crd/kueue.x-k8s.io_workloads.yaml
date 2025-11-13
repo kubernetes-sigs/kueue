@@ -17279,7 +17279,7 @@ spec:
                                     podCounts:
                                       description: podCounts specifies the number of pods allocated per each domain.
                                       properties:
-                                        podCounts:
+                                        individual:
                                           description: |-
                                             individual, if set, specifies the number of pods allocated in each domain in this slice.
                                             If set, its length must be equal to the "domainCount" field of the TopologyAssignmentSlice.

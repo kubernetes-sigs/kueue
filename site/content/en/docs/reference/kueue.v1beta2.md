@@ -3105,7 +3105,7 @@ Exactly one of universal, individual must be set.</p>
 Exactly one of universal, individual must be set.</p>
 </td>
 </tr>
-<tr><td><code>podCounts</code><br/>
+<tr><td><code>individual</code><br/>
 <code>[]int32</code>
 </td>
 <td>

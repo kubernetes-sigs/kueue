@@ -21,7 +21,7 @@ package v1beta2
 // with apply.
 type TopologyAssignmentSlicePodCountsApplyConfiguration struct {
 	Universal  *int32  `json:"universal,omitempty"`
-	Individual []int32 `json:"podCounts,omitempty"`
+	Individual []int32 `json:"individual,omitempty"`
 }
 
 // TopologyAssignmentSlicePodCountsApplyConfiguration constructs a declarative configuration of the TopologyAssignmentSlicePodCounts type for use with
