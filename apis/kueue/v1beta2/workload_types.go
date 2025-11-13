@@ -453,7 +453,7 @@ type TopologyAssignmentSlice struct {
 
 	// podCounts specifies the number of pods allocated per each domain.
 	// +required
-	PodCounts TopologyAssignmentSlicePodCounts `json:"podCounts"`
+	PodCounts TopologyAssignmentSlicePodCounts `json:"podCounts,omitempty"`
 }
 
 // +kubebuilder:validation:ExactlyOneOf=universal;individual
@@ -462,6 +462,7 @@ type TopologyAssignmentSliceLevelValues struct {
 	// that applies to all pods in the current TopologyAssignmentSlice.
 	// Exactly one of universal, individual must be set.
 	// +optional
+	// +kubebuilder:validation:MaxLength=63
 	Universal *string `json:"universal,omitempty"`
 
 	// individual - if set - specifies multiple topology placement values (at a particular topology level)
