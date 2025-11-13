@@ -2828,9 +2828,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					"example.com/gpu": 1,
 				},
 				count: 25,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count:  13,
 							Values: []string{"x1"},
@@ -2893,9 +2893,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					"example.com/gpu": 1,
 				},
 				count: 23,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count:  12,
 							Values: []string{"x1"},
@@ -2961,9 +2961,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					"example.com/gpu": 1,
 				},
 				count: 25,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count:  15,
 							Values: []string{"x2"},
@@ -3037,9 +3037,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					"example.com/gpu": 1,
 				},
 				count: 22,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count:  11,
 							Values: []string{"x3"},
@@ -3113,9 +3113,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					"example.com/gpu": 1,
 				},
 				count: 25,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count:  14,
 							Values: []string{"x1"},
@@ -3191,9 +3191,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					"example.com/gpu": 1,
 				},
 				count: 25,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count:  15,
 							Values: []string{"x3"},
@@ -3286,9 +3286,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					"example.com/gpu": 1,
 				},
 				count: 20,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: []string{corev1.LabelHostname},
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count:  10,
 							Values: []string{"x3"},
@@ -3384,9 +3384,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					"example.com/gpu": 1,
 				},
 				count: 20,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: []string{corev1.LabelHostname},
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count:  10,
 							Values: []string{"x3"},
@@ -3472,9 +3472,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					"example.com/gpu": 1,
 				},
 				count: 20,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: []string{tasBlockLabel, tasSubBlockLabel, tasRackLabel},
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count:  10,
 							Values: []string{"b1", "sb2", "r3"},
@@ -3560,9 +3560,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					"example.com/gpu": 1,
 				},
 				count: 22,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count:  12,
 							Values: []string{"x2"},
@@ -3645,9 +3645,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					"example.com/gpu": 1,
 				},
 				count: 22,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count:  11,
 							Values: []string{"x3"},
@@ -3716,9 +3716,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 					podSetGroupName: ptr.To("sameGroup"),
 					count:           1,
-					wantAssignment: &kueue.TopologyAssignment{
+					wantAssignment: &tas.TopologyAssignment{
 						Levels: defaultOneLevel,
-						Domains: []kueue.TopologyDomainAssignment{
+						Domains: []tas.TopologyDomainAssignment{
 							{
 								Count:  1,
 								Values: []string{"x3"},
@@ -3738,9 +3738,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 					podSetGroupName: ptr.To("sameGroup"),
 					count:           25,
-					wantAssignment: &kueue.TopologyAssignment{
+					wantAssignment: &tas.TopologyAssignment{
 						Levels: defaultOneLevel,
-						Domains: []kueue.TopologyDomainAssignment{
+						Domains: []tas.TopologyDomainAssignment{
 							{
 								Count:  15,
 								Values: []string{"x2"},
@@ -3824,9 +3824,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					"example.com/gpu": 1,
 				},
 				count: 15,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count:  5,
 							Values: []string{"x3"},
@@ -3913,9 +3913,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					"example.com/gpu": 1,
 				},
 				count: 24,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count:  8,
 							Values: []string{"x1"},
@@ -3995,9 +3995,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					"example.com/gpu": 1,
 				},
 				count: 23,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count:  12,
 							Values: []string{"x1"},
@@ -4130,9 +4130,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					"example.com/gpu": 1,
 				},
 				count: 20,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count:  5,
 							Values: []string{"x1"},
@@ -4198,9 +4198,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 					podSetGroupName: ptr.To("sameGroup"),
 					count:           1,
-					wantAssignment: &kueue.TopologyAssignment{
+					wantAssignment: &tas.TopologyAssignment{
 						Levels: defaultOneLevel,
-						Domains: []kueue.TopologyDomainAssignment{
+						Domains: []tas.TopologyDomainAssignment{
 							{
 								Count:  1,
 								Values: []string{"x1"},
@@ -4218,9 +4218,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 					podSetGroupName: ptr.To("sameGroup"),
 					count:           10,
-					wantAssignment: &kueue.TopologyAssignment{
+					wantAssignment: &tas.TopologyAssignment{
 						Levels: defaultOneLevel,
-						Domains: []kueue.TopologyDomainAssignment{
+						Domains: []tas.TopologyDomainAssignment{
 							{
 								Count:  5,
 								Values: []string{"x1"},
