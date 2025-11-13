@@ -26,6 +26,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"sigs.k8s.io/kueue/pkg/constants"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
@@ -250,6 +251,52 @@ func TestIsTerminated(t *testing.T) {
 			got := IsTerminated(tc.pod)
 			if tc.wantTerminated != got {
 				t.Errorf("Unexpected Pod terminal\nwant: %v\ngot: %v\n", tc.wantTerminated, got)
+			}
+		})
+	}
+}
+
+func TestIsManagedByKueue(t *testing.T) {
+	basePod := testingpod.MakePod("", "")
+
+	cases := map[string]struct {
+		pod         *corev1.Pod
+		wantManaged bool
+	}{
+		"pod has managed label": {
+			pod: basePod.Clone().
+				Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
+				Obj(),
+			wantManaged: true,
+		},
+		"pod has managed label with value other than true": {
+			pod: basePod.Clone().
+				Label(constants.ManagedByKueueLabelKey, "false").
+				Obj(),
+			wantManaged: false,
+		},
+		"pod has podset label": {
+			pod: basePod.Clone().
+				Label(constants.PodSetLabel, "podset-name").
+				Obj(),
+			wantManaged: true,
+		},
+		"pod has other label": {
+			pod: basePod.Clone().
+				Label("some-label", "some-value").
+				Obj(),
+			wantManaged: false,
+		},
+		"pod has no labels": {
+			pod:         basePod.Clone().Obj(),
+			wantManaged: false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := IsManagedByKueue(tc.pod)
+			if tc.wantManaged != got {
+				t.Errorf("Unexpected Pod managed by Kueue\nwant: %v\ngot: %v\n", tc.wantManaged, got)
 			}
 		})
 	}

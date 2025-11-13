@@ -28,6 +28,8 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"sigs.k8s.io/kueue/pkg/constants"
 )
 
 // HasGate checks if the pod has a scheduling gate with a specified name.
@@ -157,4 +159,10 @@ func ContainersShape(containers []corev1.Container) (result []map[string]any) {
 
 func IsTerminated(p *corev1.Pod) bool {
 	return p.Status.Phase == corev1.PodFailed || p.Status.Phase == corev1.PodSucceeded
+}
+
+func IsManagedByKueue(p *corev1.Pod) bool {
+	_, hasPodSetLabel := p.Labels[constants.PodSetLabel]
+	isManagedByPodIntegration := p.Labels[constants.ManagedByKueueLabelKey] == constants.ManagedByKueueLabelValue
+	return isManagedByPodIntegration || hasPodSetLabel
 }
