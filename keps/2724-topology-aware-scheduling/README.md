@@ -1064,7 +1064,7 @@ topologyAssignment:
       individual: [4, 2]
 ```
 
-The above example has one slice, specifying 2 domains on 2 topology levels. On the block level, all domains take the same value (`block-1`), which allows using `universalValue`. On the rack level, the values diverge (`rack-1`) vs. (`rack-2`) but they still share a relatively long common prefix. The new representation allows deduplicating characters between these.
+The above example has one slice, specifying 2 domains on 2 topology levels. On the block level, all domains take the same value (`block-1`), which allows using `universal`. On the rack level, the values diverge (`rack-1`) vs. (`rack-2`) but they still share a relatively long common prefix. The new representation allows deduplicating characters between these.
 
 Multiple slices may be used e.g. for a host-level assignment when the nodes being assigned are split into multiple "node pools". The following example illustrates this for an assignment of 12 pods on 12 nodes (1 per 1), where the nodes come from 2 pools (of size 5 and 7 respectively), with node names looking like `pool-X-node-Y`:
 
