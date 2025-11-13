@@ -52,10 +52,7 @@ func countAtIndex(slice kueue.TopologyAssignmentSlice, idx int) int32 {
 	return slice.PodCounts.Individual[idx]
 }
 
-func ValuesAtLevel(ta *kueue.TopologyAssignment, levelIdx int) iter.Seq[string] {
-	if ta == nil {
-		return nil
-	}
+func valuesAtLevel(ta *kueue.TopologyAssignment, levelIdx int) iter.Seq[string] {
 	return func(yield func(string) bool) {
 		for _, slice := range ta.Slices {
 			values := slice.ValuesPerLevel[levelIdx]
@@ -66,6 +63,13 @@ func ValuesAtLevel(ta *kueue.TopologyAssignment, levelIdx int) iter.Seq[string] 
 			}
 		}
 	}
+}
+
+func LowestLevelValues(ta *kueue.TopologyAssignment) iter.Seq[string] {
+	if ta == nil {
+		return nil
+	}
+	return valuesAtLevel(ta, len(ta.Levels)-1)
 }
 
 func PodCounts(ta *kueue.TopologyAssignment) iter.Seq[int32] {
@@ -132,23 +136,17 @@ func fillSingleCompactSliceValues(
 ) {
 	var prefix, suffix string
 	var maxLen, minLen, count int
-	start := true
 	for s := range inputProvider() {
 		count++
-		if start {
+		if count == 1 {
 			prefix = s
 			suffix = s
 			maxLen = len(s)
 			minLen = len(s)
-			start = false
 		} else {
 			n := len(s)
-			if n < minLen {
-				minLen = n
-			}
-			if n > maxLen {
-				maxLen = n
-			}
+			minLen = min(minLen, n)
+			maxLen = max(maxLen, n)
 			if n < len(prefix) {
 				prefix = prefix[:n]
 			}

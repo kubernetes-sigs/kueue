@@ -27,7 +27,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
-type TestCase struct {
+type testCase struct {
 	name             string
 	internal         *TopologyAssignment
 	v1beta2          *kueue.TopologyAssignment
@@ -36,7 +36,7 @@ type TestCase struct {
 }
 
 // bothWaysTestCases expect that internal <-> v1beta2 maps in both ways.
-var bothWaysTestCases = []TestCase{
+var bothWaysTestCases = []testCase{
 	{
 		name: "empty",
 		internal: &TopologyAssignment{
@@ -421,7 +421,7 @@ var bothWaysTestCases = []TestCase{
 
 // oneWayTestCases expect that v1beta2 -> internal (via InternalFrom).
 // (these v1beta2 values cannot be produced by V1Beta2From as of now - though this may change in the future)
-var oneWayTestCases = []TestCase{
+var oneWayTestCases = []testCase{
 	{
 		name: "multiple slices, no prefixes/suffixes or universal values",
 		internal: &TopologyAssignment{
@@ -655,7 +655,7 @@ func TestInternalSeqFromV1Beta2_forNil(t *testing.T) {
 	}
 }
 
-func TestInternalSeqFrmV1Beta2_iteratorStops(t *testing.T) {
+func TestInternalSeqFromV1Beta2_iteratorStops(t *testing.T) {
 	for range InternalSeqFrom(twoDomains) {
 		// Break the loop prematurely.
 		// If the iterator isn't smart enough to stop, this will panic.
@@ -709,7 +709,7 @@ func TestTotalDomainCount_forNil(t *testing.T) {
 	}
 }
 
-func TestValuesAtLevel(t *testing.T) {
+func TestLowestLevel(t *testing.T) {
 	v1beta2 := &kueue.TopologyAssignment{
 		Levels: []string{"a", "b"},
 		Slices: []kueue.TopologyAssignmentSlice{
@@ -767,42 +767,23 @@ func TestValuesAtLevel(t *testing.T) {
 			},
 		},
 	}
-	testCases := []struct {
-		name     string
-		levelIdx int
-		want     []string
-	}{
-		{
-			name:     "at level 0",
-			levelIdx: 0,
-			want:     []string{"a1", "a1", "a2", "a3", "a4", "a10", "a10"},
-		},
-		{
-			name:     "at level 1",
-			levelIdx: 1,
-			want:     []string{"b1-s", "b2-s", "x-t", "y-t", "z-t", "b10", "b10"},
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			seq := ValuesAtLevel(v1beta2, tc.levelIdx)
-			got := slices.Collect(seq)
-			if diff := cmp.Diff(tc.want, got, cmpopts.EquateEmpty()); diff != "" {
-				t.Errorf("unexpected result (-want,+got):\n%s", diff)
-			}
-		})
+	want := []string{"b1-s", "b2-s", "x-t", "y-t", "z-t", "b10", "b10"}
+	seq := LowestLevelValues(v1beta2)
+	got := slices.Collect(seq)
+	if diff := cmp.Diff(want, got, cmpopts.EquateEmpty()); diff != "" {
+		t.Errorf("unexpected result (-want,+got):\n%s", diff)
 	}
 }
 
-func TestValuesAtLevel_forNil(t *testing.T) {
-	got := ValuesAtLevel(nil, 0)
+func TestLowestLevelValues_forNil(t *testing.T) {
+	got := LowestLevelValues(nil)
 	if got != nil {
 		t.Errorf("unexpected result for nil: %+v", got)
 	}
 }
 
-func TestValuesAtLevel_iteratorStops(t *testing.T) {
-	for range ValuesAtLevel(twoDomains, 0) {
+func TestLowestLevelValues_iteratorStops(t *testing.T) {
+	for range LowestLevelValues(twoDomains) {
 		// Break the loop prematurely.
 		// If the iterator isn't smart enough to stop, this will panic.
 		break

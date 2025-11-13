@@ -2488,7 +2488,7 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 		ginkgo.By("verify the workload is admitted", func() {
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 			gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-			nodeNames := slices.Collect(tas.ValuesAtLevel(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment, 0))
+			nodeNames := slices.Collect(tas.LowestLevelValues(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment))
 			gomega.Expect(nodeNames).To(gomega.HaveLen(1))
 			nodeName = nodeNames[0]
 			gomega.Expect(nodeName).To(gomega.Or(gomega.Equal("x1"), gomega.Equal("x3")))
@@ -2534,7 +2534,7 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 		ginkgo.By("verify the workload is assigned a new node", func() {
 			gomega.Eventually(func(g gomega.Gomega) string {
 				gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-				nodeNames := slices.Collect(tas.ValuesAtLevel(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment, 0))
+				nodeNames := slices.Collect(tas.LowestLevelValues(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment))
 				gomega.Expect(nodeNames).To(gomega.HaveLen(1))
 				return nodeNames[0]
 			}, util.Timeout, util.Interval).ShouldNot(gomega.Equal(nodeName))
@@ -2572,7 +2572,7 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 		ginkgo.By("verify the workload is admitted", func() {
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 			gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-			nodeNames := slices.Collect(tas.ValuesAtLevel(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment, 0))
+			nodeNames := slices.Collect(tas.LowestLevelValues(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment))
 			gomega.Expect(nodeNames).To(gomega.HaveLen(1))
 			nodeName = nodeNames[0]
 			gomega.Expect(nodeName).To(gomega.Or(gomega.Equal("x1"), gomega.Equal("x3")))
@@ -2618,7 +2618,7 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 		ginkgo.By("verify the workload is assigned a new node", func() {
 			gomega.Eventually(func(g gomega.Gomega) string {
 				gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-				nodeNames := slices.Collect(tas.ValuesAtLevel(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment, 0))
+				nodeNames := slices.Collect(tas.LowestLevelValues(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment))
 				gomega.Expect(nodeNames).To(gomega.HaveLen(1))
 				return nodeNames[0]
 			}, util.Timeout, util.Interval).ShouldNot(gomega.Equal(nodeName))

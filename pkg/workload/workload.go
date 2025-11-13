@@ -1183,7 +1183,7 @@ func HasTopologyAssignmentWithUnhealthyNode(w *kueue.Workload) bool {
 		if psa.TopologyAssignment == nil {
 			continue
 		}
-		for value := range tas.ValuesAtLevel(psa.TopologyAssignment, len(psa.TopologyAssignment.Levels)-1) {
+		for value := range tas.LowestLevelValues(psa.TopologyAssignment) {
 			if HasUnhealthyNode(w, value) {
 				return true
 			}
