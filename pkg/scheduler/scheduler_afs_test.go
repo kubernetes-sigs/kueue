@@ -538,10 +538,7 @@ func TestScheduleForAFS(t *testing.T) {
 					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 				cl := clientBuilder.Build()
 
-				fairSharing := &config.FairSharing{
-					Enable: tc.enableFairSharing,
-				}
-				cqCache := schdcache.New(cl, schdcache.WithFairSharing(fairSharing.Enable), schdcache.WithAdmissionFairSharing(afsConfig))
+				cqCache := schdcache.New(cl, schdcache.WithFairSharing(tc.enableFairSharing), schdcache.WithAdmissionFairSharing(afsConfig))
 				qManager := qcache.NewManager(cl, cqCache, qcache.WithAdmissionFairSharing(afsConfig))
 
 				ctx, log := utiltesting.ContextWithLog(t)
@@ -562,8 +559,12 @@ func TestScheduleForAFS(t *testing.T) {
 					}
 				}
 				recorder := &utiltesting.EventRecorder{}
+				var preemptionFairSharing *config.FairSharing
+				if tc.enableFairSharing {
+					preemptionFairSharing = &config.FairSharing{}
+				}
 				scheduler := New(qManager, cqCache, cl, recorder,
-					WithFairSharing(fairSharing),
+					WithFairSharing(preemptionFairSharing),
 					WithAdmissionFairSharing(afsConfig),
 					WithClock(t, fakeClock))
 				wg := sync.WaitGroup{}

@@ -47,6 +47,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/priority"
@@ -75,7 +76,7 @@ type Scheduler struct {
 	admissionRoutineWrapper routine.Wrapper
 	preemptor               *preemption.Preemptor
 	workloadOrdering        workload.Ordering
-	fairSharing             config.FairSharing
+	fairSharing             *config.FairSharing
 	admissionFairSharing    *config.AdmissionFairSharing
 	clock                   clock.Clock
 
@@ -86,7 +87,7 @@ type Scheduler struct {
 
 type options struct {
 	podsReadyRequeuingTimestamp config.RequeuingTimestamp
-	fairSharing                 config.FairSharing
+	fairSharing                 *config.FairSharing
 	admissionFairSharing        *config.AdmissionFairSharing
 	clock                       clock.Clock
 }
@@ -110,7 +111,7 @@ func WithPodsReadyRequeuingTimestamp(ts config.RequeuingTimestamp) Option {
 func WithFairSharing(fs *config.FairSharing) Option {
 	return func(o *options) {
 		if fs != nil {
-			o.fairSharing = *fs
+			o.fairSharing = fs
 		}
 	}
 }
@@ -214,7 +215,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	entries, inadmissibleEntries := s.nominate(ctx, headWorkloads, snapshot)
 
 	// 4. Create iterator which returns ordered entries.
-	iterator := makeIterator(ctx, entries, s.workloadOrdering, s.fairSharing.Enable)
+	iterator := makeIterator(ctx, entries, s.workloadOrdering, fairsharing.Enabled(s.fairSharing))
 
 	// 5. Admit entries, ensuring that no more than one workload gets
 	// admitted by a cohort (if borrowing).
@@ -533,7 +534,7 @@ func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, sn
 
 	preemptionTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
 
-	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, s.fairSharing.Enable, preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice)
+	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing), preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice)
 	fullAssignment := flvAssigner.Assign(log, nil)
 
 	arm := fullAssignment.RepresentativeMode()

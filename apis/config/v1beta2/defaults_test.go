@@ -565,9 +565,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				InternalCertManagement: &InternalCertManagement{
 					Enable: ptr.To(false),
 				},
-				FairSharing: &FairSharing{
-					Enable: true,
-				},
+				FairSharing: &FairSharing{},
 			},
 			want: &Configuration{
 				Namespace:         ptr.To(DefaultNamespace),
@@ -580,7 +578,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				FairSharing: &FairSharing{
-					Enable:               true,
 					PreemptionStrategies: []PreemptionStrategy{LessThanOrEqualToFinalShare, LessThanInitialShare},
 				},
 				WaitForPodsReady: &WaitForPodsReady{},
