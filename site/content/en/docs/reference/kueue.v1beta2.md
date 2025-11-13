@@ -3066,7 +3066,7 @@ Its length must be equal to the &quot;domainCount&quot; field of the TopologyAss
 <code>string</code>
 </td>
 <td>
-   <p>universal, if set, specifies a single topology placement value (at a particular topology level)
+   <p>universal - if set - specifies a single topology placement value (at a particular topology level)
 that applies to all pods in the current TopologyAssignmentSlice.
 Exactly one of universal, individual must be set.</p>
 </td>
@@ -3075,7 +3075,7 @@ Exactly one of universal, individual must be set.</p>
 <a href="#kueue-x-k8s-io-v1beta2-TopologyAssignmentSliceLevelIndividualValues"><code>TopologyAssignmentSliceLevelIndividualValues</code></a>
 </td>
 <td>
-   <p>individual, if set, specifies multiple topology placement values (at a particular topology level)
+   <p>individual - if set - specifies multiple topology placement values (at a particular topology level)
 that apply to the pods in the current TopologyAssignmentSlice.
 Exactly one of universal, individual must be set.</p>
 </td>
@@ -3101,7 +3101,7 @@ Exactly one of universal, individual must be set.</p>
 <code>int32</code>
 </td>
 <td>
-   <p>universal, if set, specifies the number of pods allocated in every domain in this slice.
+   <p>universal - if set - specifies the number of pods allocated in every domain in this slice.
 Exactly one of universal, individual must be set.</p>
 </td>
 </tr>
@@ -3109,7 +3109,7 @@ Exactly one of universal, individual must be set.</p>
 <code>[]int32</code>
 </td>
 <td>
-   <p>individual, if set, specifies the number of pods allocated in each domain in this slice.
+   <p>individual - if set - specifies the number of pods allocated in each domain in this slice.
 If set, its length must be equal to the &quot;domainCount&quot; field of the TopologyAssignmentSlice.
 Exactly one of universal, individual must be set.</p>
 </td>

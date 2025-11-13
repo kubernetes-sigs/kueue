@@ -17281,7 +17281,7 @@ spec:
                                       properties:
                                         individual:
                                           description: |-
-                                            individual, if set, specifies the number of pods allocated in each domain in this slice.
+                                            individual - if set - specifies the number of pods allocated in each domain in this slice.
                                             If set, its length must be equal to the "domainCount" field of the TopologyAssignmentSlice.
                                             Exactly one of universal, individual must be set.
                                           items:
@@ -17294,7 +17294,7 @@ spec:
                                           x-kubernetes-list-type: atomic
                                         universal:
                                           description: |-
-                                            universal, if set, specifies the number of pods allocated in every domain in this slice.
+                                            universal - if set - specifies the number of pods allocated in every domain in this slice.
                                             Exactly one of universal, individual must be set.
                                           format: int32
                                           minimum: 1
@@ -17311,7 +17311,7 @@ spec:
                                         properties:
                                           individual:
                                             description: |-
-                                              individual, if set, specifies multiple topology placement values (at a particular topology level)
+                                              individual - if set - specifies multiple topology placement values (at a particular topology level)
                                               that apply to the pods in the current TopologyAssignmentSlice.
                                               Exactly one of universal, individual must be set.
                                             properties:
@@ -17343,7 +17343,7 @@ spec:
                                             type: object
                                           universal:
                                             description: |-
-                                              universal, if set, specifies a single topology placement value (at a particular topology level)
+                                              universal - if set - specifies a single topology placement value (at a particular topology level)
                                               that applies to all pods in the current TopologyAssignmentSlice.
                                               Exactly one of universal, individual must be set.
                                             type: string
