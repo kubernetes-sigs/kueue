@@ -746,8 +746,8 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	var useBalancedPlacement bool
 	if features.Enabled(features.TASBalancedPlacement) && !required && !unconstrained {
 		var bestThreshold int32
-		currFitDomain, bestThreshold, useBalancedPlacement = findBestDomainsForBalancedPlacement(s, levelIdx, sliceLevelIdx, count, leaderCount, sliceSize)
-
+		currFitDomain, bestThreshold = findBestDomainsForBalancedPlacement(s, levelIdx, sliceLevelIdx, count, leaderCount, sliceSize)
+		useBalancedPlacement = bestThreshold > 0
 		if useBalancedPlacement {
 			currFitDomain, reason = applyBalancedPlacementAlgorithm(s, levelIdx, sliceLevelIdx, count, leaderCount, sliceSize, bestThreshold, unconstrained, currFitDomain)
 			if len(reason) > 0 {
@@ -1430,33 +1430,6 @@ func (s *TASFlavorSnapshot) notFitMessage(slicesFitCount, totalRequestsSlicesCou
 		return fmt.Sprintf("topology %q doesn't allow to fit any of %d slice(s)", s.topologyName, totalRequestsSlicesCount)
 	}
 	return fmt.Sprintf("topology %q allows to fit only %d out of %d slice(s)", s.topologyName, slicesFitCount, totalRequestsSlicesCount)
-}
-
-func clearState(d *domain) {
-	d.state = int32(0)
-	d.sliceState = int32(0)
-	d.stateWithLeader = int32(0)
-	d.sliceStateWithLeader = int32(0)
-	d.leaderState = int32(0)
-	for _, child := range d.children {
-		clearState(child)
-	}
-}
-
-func (s *TASFlavorSnapshot) pruneDomainsBelowThreshold(domains []*domain, threshold int32, sliceSize int32, sliceLevelIdx int, level int) {
-	for _, d := range domains {
-		for _, c := range d.children {
-			if c.sliceStateWithLeader < threshold {
-				clearState(c)
-			}
-		}
-	}
-	for _, d := range domains {
-		d.state, d.sliceState, d.stateWithLeader, d.sliceStateWithLeader, d.leaderState = s.fillInCountsHelper(d, sliceSize, sliceLevelIdx, level)
-		if d.sliceStateWithLeader < threshold {
-			clearState(d)
-		}
-	}
 }
 
 func slicesRequested(tr *kueue.PodSetTopologyRequest) bool {

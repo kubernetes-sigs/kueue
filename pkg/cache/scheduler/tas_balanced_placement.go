@@ -237,7 +237,7 @@ func sortDomainsByCapacityAndEntropy(domains []*domain) {
 
 // findBestDomainsForBalancedPlacement evaluates domains for balanced placement.
 // It returns the best set of domains, the balance threshold, and whether a balanced placement is possible.
-func findBestDomainsForBalancedPlacement(s *TASFlavorSnapshot, levelIdx, sliceLevelIdx int, count, leaderCount, sliceSize int32) ([]*domain, int32, bool) {
+func findBestDomainsForBalancedPlacement(s *TASFlavorSnapshot, levelIdx, sliceLevelIdx int, count, leaderCount, sliceSize int32) ([]*domain, int32) {
 	// check if balanced placement is possible: look one level above the preferred level
 	// see if any (single) domain on that level fits the request and compute for each of
 	// them the balance threshold value
@@ -254,7 +254,6 @@ func findBestDomainsForBalancedPlacement(s *TASFlavorSnapshot, levelIdx, sliceLe
 	var bestThreshold int32
 	var bestDomainCountOnRequestedLevel int32
 	var currFitDomain []*domain
-	useBalancedPlacement := false
 
 	for _, requestedLevelSiblingDomains := range requestedLevelDomainsToConsider {
 		lowerLevelDomains := getLowerLevelDomains(s, requestedLevelSiblingDomains, levelIdx, sliceLevelIdx)
@@ -270,11 +269,10 @@ func findBestDomainsForBalancedPlacement(s *TASFlavorSnapshot, levelIdx, sliceLe
 				bestThreshold = threshold
 				bestDomainCountOnRequestedLevel = requestedLevelDomainCount
 				currFitDomain = requestedLevelSiblingDomains
-				useBalancedPlacement = true
 			}
 		}
 	}
-	return currFitDomain, bestThreshold, useBalancedPlacement
+	return currFitDomain, bestThreshold
 }
 
 // applyBalancedPlacementAlgorithm applies the balanced placement algorithm to determine domain assignments.
@@ -317,4 +315,31 @@ func getLowerLevelDomains(s *TASFlavorSnapshot, domains []*domain, levelIdx, sli
 		return s.lowerLevelDomains(domains)
 	}
 	return domains
+}
+
+func clearState(d *domain) {
+	d.state = int32(0)
+	d.sliceState = int32(0)
+	d.stateWithLeader = int32(0)
+	d.sliceStateWithLeader = int32(0)
+	d.leaderState = int32(0)
+	for _, child := range d.children {
+		clearState(child)
+	}
+}
+
+func (s *TASFlavorSnapshot) pruneDomainsBelowThreshold(domains []*domain, threshold int32, sliceSize int32, sliceLevelIdx int, level int) {
+	for _, d := range domains {
+		for _, c := range d.children {
+			if c.sliceStateWithLeader < threshold {
+				clearState(c)
+			}
+		}
+	}
+	for _, d := range domains {
+		d.state, d.sliceState, d.stateWithLeader, d.sliceStateWithLeader, d.leaderState = s.fillInCountsHelper(d, sliceSize, sliceLevelIdx, level)
+		if d.sliceStateWithLeader < threshold {
+			clearState(d)
+		}
+	}
 }
