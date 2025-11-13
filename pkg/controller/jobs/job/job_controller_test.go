@@ -38,6 +38,7 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -927,7 +928,7 @@ func TestReconciler(t *testing.T) {
 			job: *baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
-				PodLabel(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 				PodAnnotation(kueue.WorkloadAnnotation, "wl").
 				Obj(),
 			workloads: []kueue.Workload{
@@ -1022,7 +1023,7 @@ func TestReconciler(t *testing.T) {
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
 				PodLabel("ac-key", "ac-value").
-				PodLabel(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -2327,7 +2328,7 @@ func TestReconciler(t *testing.T) {
 				PodAnnotation("annotation-key1", "common-value").
 				PodAnnotation("annotation-key2", "only-in-check1").
 				PodLabel("label-key1", "common-value").
-				PodLabel(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 				NodeSelector("node-selector-key1", "common-value").
 				NodeSelector("node-selector-key2", "only-in-check2").
 				Obj(),
@@ -2434,7 +2435,7 @@ func TestReconciler(t *testing.T) {
 			job: *baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
-				PodLabel(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -2521,7 +2522,7 @@ func TestReconciler(t *testing.T) {
 				SetAnnotation(JobMinParallelismAnnotation, "5").
 				Suspend(false).
 				Parallelism(8).
-				PodLabel(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 				Obj(),
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("a", "ns").

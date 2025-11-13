@@ -43,7 +43,6 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
-	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
@@ -281,7 +280,7 @@ func (r *topologyUngater) Generic(event.TypedGenericEvent[*kueue.Workload]) bool
 func (r *topologyUngater) podsForPodSet(ctx context.Context, ns, wlName string, psName kueue.PodSetReference) ([]*corev1.Pod, error) {
 	var pods corev1.PodList
 	if err := r.client.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{
-		controllerconsts.PodSetLabel: string(psName),
+		constants.PodSetLabel: string(psName),
 	}, client.MatchingFields{
 		indexer.WorkloadNameKey: wlName,
 	}); err != nil {
