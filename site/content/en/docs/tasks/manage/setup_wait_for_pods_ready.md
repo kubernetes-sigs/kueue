@@ -43,7 +43,7 @@ fields:
     waitForPodsReady:
       timeout: 10m
       recoveryTimeout: 3m
-      blockAdmission: true
+      blockAdmission: false
       requeuingStrategy:
         timestamp: Eviction | Creation
         backoffLimitCount: 5
