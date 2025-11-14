@@ -981,6 +981,12 @@ func TestReconcile(t *testing.T) {
 					Reason:  "AdmissionCheck",
 					Message: "At least one admission check is false",
 				}).
+				Condition(metav1.Condition{
+					Type:    "Requeued",
+					Status:  "False",
+					Reason:  "AdmissionCheck",
+					Message: "Evicted due to admission check retry",
+				}).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
 						Reason: kueue.WorkloadEvictedByAdmissionCheck,
