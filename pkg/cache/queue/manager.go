@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -338,7 +339,7 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 	return nil
 }
 
-func (m *Manager) UpdateLocalQueue(q *kueue.LocalQueue) error {
+func (m *Manager) UpdateLocalQueue(log logr.Logger, q *kueue.LocalQueue) error {
 	m.Lock()
 	defer m.Unlock()
 	qImpl, ok := m.localQueues[queue.Key(q)]
@@ -348,7 +349,7 @@ func (m *Manager) UpdateLocalQueue(q *kueue.LocalQueue) error {
 	if qImpl.ClusterQueue != q.Spec.ClusterQueue {
 		oldCQ := m.hm.ClusterQueue(qImpl.ClusterQueue)
 		if oldCQ != nil {
-			oldCQ.DeleteFromLocalQueue(qImpl)
+			oldCQ.DeleteFromLocalQueue(log, qImpl)
 			oldCQ.deleteLocalQueue(queue.Key(q))
 		}
 		newCQ := m.hm.ClusterQueue(q.Spec.ClusterQueue)
@@ -362,7 +363,7 @@ func (m *Manager) UpdateLocalQueue(q *kueue.LocalQueue) error {
 	return nil
 }
 
-func (m *Manager) DeleteLocalQueue(q *kueue.LocalQueue) {
+func (m *Manager) DeleteLocalQueue(log logr.Logger, q *kueue.LocalQueue) {
 	m.Lock()
 	defer m.Unlock()
 	key := queue.Key(q)
@@ -372,7 +373,7 @@ func (m *Manager) DeleteLocalQueue(q *kueue.LocalQueue) {
 	}
 	cq := m.hm.ClusterQueue(qImpl.ClusterQueue)
 	if cq != nil {
-		cq.DeleteFromLocalQueue(qImpl)
+		cq.DeleteFromLocalQueue(log, qImpl)
 		cq.deleteLocalQueue(key)
 	}
 	if features.Enabled(features.LocalQueueMetrics) {
@@ -497,14 +498,14 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	return added
 }
 
-func (m *Manager) DeleteWorkload(w *kueue.Workload) {
+func (m *Manager) DeleteWorkload(log logr.Logger, w *kueue.Workload) {
 	m.Lock()
 	defer m.Unlock()
-	m.deleteWorkloadFromQueueAndClusterQueue(w, queue.KeyFromWorkload(w))
+	m.deleteWorkloadFromQueueAndClusterQueue(log, w, queue.KeyFromWorkload(w))
 	m.DeleteSecondPassWithoutLock(w)
 }
 
-func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(w *kueue.Workload, qKey queue.LocalQueueReference) {
+func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(log logr.Logger, w *kueue.Workload, qKey queue.LocalQueueReference) {
 	q := m.localQueues[qKey]
 	if q == nil {
 		return
@@ -512,7 +513,7 @@ func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(w *kueue.Workload, qKey
 	delete(q.items, workload.Key(w))
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq != nil {
-		cq.Delete(w)
+		cq.Delete(log, w)
 		m.reportPendingWorkloads(q.ClusterQueue, cq)
 	}
 	if features.Enabled(features.LocalQueueMetrics) {
@@ -627,11 +628,11 @@ func requeueWorkloadsCohortSubtree(ctx context.Context, m *Manager, cohort *coho
 
 // UpdateWorkload updates the workload to the corresponding queue or adds it if
 // it didn't exist. Returns whether the queue existed.
-func (m *Manager) UpdateWorkload(oldW, w *kueue.Workload, opts ...workload.InfoOption) error {
+func (m *Manager) UpdateWorkload(log logr.Logger, oldW, w *kueue.Workload, opts ...workload.InfoOption) error {
 	m.Lock()
 	defer m.Unlock()
 	if oldW.Spec.QueueName != w.Spec.QueueName {
-		m.deleteWorkloadFromQueueAndClusterQueue(w, queue.KeyFromWorkload(oldW))
+		m.deleteWorkloadFromQueueAndClusterQueue(log, w, queue.KeyFromWorkload(oldW))
 	}
 	return m.AddOrUpdateWorkloadWithoutLock(w, opts...)
 }
