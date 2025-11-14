@@ -4144,12 +4144,15 @@ func TestPreemption(t *testing.T) {
 			wlInfo := workload.NewInfo(tc.incoming)
 			wlInfo.ClusterQueue = tc.targetCQ
 			targets := preemptor.GetTargets(log, *wlInfo, tc.assignment, snapshotWorkingCopy)
-			preempted, err := preemptor.IssuePreemptions(ctx, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))
+			preempted, failed, err := preemptor.IssuePreemptions(ctx, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))
 			if err != nil {
 				t.Fatalf("Failed doing preemption")
 			}
 			if preempted != tc.wantPreempted {
 				t.Errorf("Reported %d preemptions, want %d", preempted, tc.wantPreempted)
+			}
+			if failed != 0 {
+				t.Errorf("Reported %d failed preemptions, want 0", failed)
 			}
 
 			workloads := &kueue.WorkloadList{}
