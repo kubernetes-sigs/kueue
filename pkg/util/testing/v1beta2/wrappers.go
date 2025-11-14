@@ -953,7 +953,7 @@ func (c *ClusterQueueWrapper) NamespaceSelector(s *metav1.LabelSelector) *Cluste
 	return c
 }
 
-// DefaultLocalQueue sets the autoLocalQueue field.
+// DefaultLocalQueue sets the defaultLocalQueue field.
 func (c *ClusterQueueWrapper) DefaultLocalQueue(s *kueue.DefaultLocalQueue) *ClusterQueueWrapper {
 	c.Spec.DefaultLocalQueue = s
 	return c

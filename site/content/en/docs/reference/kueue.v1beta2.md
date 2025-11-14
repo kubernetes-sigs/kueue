@@ -1031,11 +1031,11 @@ if FairSharing is enabled in the Kueue configuration.</p>
    <p>admissionScope indicates whether ClusterQueue uses the Admission Fair Sharing</p>
 </td>
 </tr>
-<tr><td><code>autoLocalQueue</code><br/>
+<tr><td><code>defaultLocalQueue</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-DefaultLocalQueue"><code>DefaultLocalQueue</code></a>
 </td>
 <td>
-   <p>autoLocalQueue specifies the configuration for automatically creating LocalQueues
+   <p>defaultLocalQueue specifies the configuration for automatically creating LocalQueues
 in namespaces that match the ClusterQueue's namespaceSelector. This feature is
 controlled by the <code>DefaultLocalQueue</code> feature gate.
 If this field is set, a LocalQueue with the specified name will be created in

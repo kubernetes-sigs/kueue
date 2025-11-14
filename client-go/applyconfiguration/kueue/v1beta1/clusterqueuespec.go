@@ -36,7 +36,7 @@ type ClusterQueueSpecApplyConfiguration struct {
 	StopPolicy              *kueuev1beta1.StopPolicy                   `json:"stopPolicy,omitempty"`
 	FairSharing             *FairSharingApplyConfiguration             `json:"fairSharing,omitempty"`
 	AdmissionScope          *AdmissionScopeApplyConfiguration          `json:"admissionScope,omitempty"`
-	DefaultLocalQueue       *DefaultLocalQueueApplyConfiguration       `json:"autoLocalQueue,omitempty"`
+	DefaultLocalQueue       *DefaultLocalQueueApplyConfiguration       `json:"defaultLocalQueue,omitempty"`
 }
 
 // ClusterQueueSpecApplyConfiguration constructs a declarative configuration of the ClusterQueueSpec type for use with

@@ -119,7 +119,7 @@ func (w *ClusterQueueWebhook) validateClusterQueue(ctx context.Context, cq *kueu
 	allErrs = append(allErrs, validateTotalCoveredResources(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
 	allErrs = append(allErrs, validateFlavorResourceCombinations(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
 	if features.Enabled(features.DefaultLocalQueue) && cq.Spec.DefaultLocalQueue != nil {
-		allErrs = append(allErrs, validateDefaultLocalQueueName(cq.Spec.DefaultLocalQueue, path.Child("autoLocalQueue"))...)
+		allErrs = append(allErrs, validateDefaultLocalQueueName(cq.Spec.DefaultLocalQueue, path.Child("defaultLocalQueue"))...)
 		allErrs = append(allErrs, w.validateExistingLocalQueues(ctx, cq, path)...)
 	}
 	return allErrs
@@ -168,7 +168,7 @@ func (w *ClusterQueueWebhook) validateExistingLocalQueues(ctx context.Context, c
 			continue
 		}
 		if selector.Matches(labels.Set(ns.Labels)) {
-			allErrs = append(allErrs, field.Invalid(path.Child("autoLocalQueue").Child("name"), cq.Spec.DefaultLocalQueue.Name, fmt.Sprintf("a LocalQueue with this name already exists in namespace %q", ns.Name)))
+			allErrs = append(allErrs, field.Invalid(path.Child("defaultLocalQueue").Child("name"), cq.Spec.DefaultLocalQueue.Name, fmt.Sprintf("a LocalQueue with this name already exists in namespace %q", ns.Name)))
 		}
 	}
 	return allErrs
