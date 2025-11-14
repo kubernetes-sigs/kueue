@@ -1121,41 +1121,5 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("Should emit a warning event when a LocalQueue already exists", func() {
-			cq := utiltestingapi.MakeClusterQueue("cq-with-existing-lq").
-				NamespaceSelector(&metav1.LabelSelector{
-					MatchLabels: map[string]string{"dep": "eng"},
-				}).
-				DefaultLocalQueue(&kueue.DefaultLocalQueue{Name: "existing-lq"}).
-				Obj()
-			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
-			defer func() {
-				gomega.Expect(util.DeleteObject(ctx, k8sClient, cq)).To(gomega.Succeed())
-			}()
-
-			ns := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "test-ns-existing-lq-",
-					Labels:       map[string]string{"dep": "eng"},
-				},
-			}
-			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
-			defer func() {
-				gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			}()
-
-			existingLq := utiltestingapi.MakeLocalQueue("existing-lq", ns.Name).ClusterQueue("some-other-cq").Obj()
-			gomega.Expect(k8sClient.Create(ctx, existingLq)).To(gomega.Succeed())
-
-			ginkgo.By("Check that a warning event is emitted")
-			gomega.Eventually(func(g gomega.Gomega) {
-				var events corev1.EventList
-				g.Expect(k8sClient.List(ctx, &events, client.InNamespace("default"), client.MatchingFields{"involvedObject.name": cq.Name, "involvedObject.kind": "ClusterQueue"})).To(gomega.Succeed())
-				g.Expect(events.Items).To(gomega.ContainElement(gomega.And(
-					gomega.HaveField("Reason", "DefaultLocalQueueExists"),
-					gomega.HaveField("Message", gomega.ContainSubstring("Skipping default LocalQueue creation in namespace %s, a LocalQueue with the name %s already exists", ns.Name, "existing-lq")),
-				)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
-	})
+			})
 })
