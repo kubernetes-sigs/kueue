@@ -212,16 +212,13 @@ func rolloutOperatorDeployment(ctx context.Context, k8sClient client.Client, key
 
 	deployment := &appsv1.Deployment{}
 	var deploymentCondition *appsv1.DeploymentCondition
-	expectedDeploymentCondition := &appsv1.DeploymentCondition{
-		Type:   appsv1.DeploymentProgressing,
-		Status: corev1.ConditionTrue,
-		Reason: "NewReplicaSetAvailable",
-	}
 
 	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, key, deployment)).To(gomega.Succeed())
 		deploymentCondition = FindDeploymentCondition(deployment, appsv1.DeploymentProgressing)
-		g.Expect(deploymentCondition).To(gomega.BeComparableTo(expectedDeploymentCondition, IgnoreDeploymentConditionTimestampsAndMessage))
+		g.Expect(deploymentCondition).NotTo(gomega.BeNil())
+		g.Expect(deploymentCondition.Status).To(gomega.Equal(corev1.ConditionTrue))
+		g.Expect(deploymentCondition.Reason).To(gomega.BeElementOf("NewReplicaSetAvailable", "ReplicaSetUpdated"))
 	}, Timeout, Interval).Should(gomega.Succeed())
 	beforeUpdateTime := deploymentCondition.LastUpdateTime
 
@@ -233,7 +230,9 @@ func rolloutOperatorDeployment(ctx context.Context, k8sClient client.Client, key
 	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, key, deployment)).To(gomega.Succeed())
 		deploymentCondition := FindDeploymentCondition(deployment, appsv1.DeploymentProgressing)
-		g.Expect(deploymentCondition).To(gomega.BeComparableTo(expectedDeploymentCondition, IgnoreDeploymentConditionTimestampsAndMessage))
+		g.Expect(deploymentCondition).NotTo(gomega.BeNil())
+		g.Expect(deploymentCondition.Status).To(gomega.Equal(corev1.ConditionTrue))
+		g.Expect(deploymentCondition.Reason).To(gomega.Equal("NewReplicaSetAvailable"))
 		afterUpdateTime := deploymentCondition.LastUpdateTime
 		g.Expect(afterUpdateTime).NotTo(gomega.Equal(beforeUpdateTime))
 	}, StartUpTimeout, Interval).Should(gomega.Succeed())
@@ -365,6 +364,7 @@ func RestartKueueController(ctx context.Context, k8sClient client.Client, kindCl
 	kueueNS := GetKueueNamespace()
 	kcmKey := types.NamespacedName{Namespace: kueueNS, Name: "kueue-controller-manager"}
 	rolloutOperatorDeployment(ctx, k8sClient, kcmKey, kindClusterName)
+	WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
 }
 
 func WaitForActivePodsAndTerminate(ctx context.Context, k8sClient client.Client, restClient *rest.RESTClient, cfg *rest.Config, namespace string, activePodsCount, exitCode int, opts ...client.ListOption) {
@@ -414,49 +414,35 @@ func WaitForKubeSystemControllersAvailability(ctx context.Context, k8sClient cli
 	ginkgo.By(fmt.Sprintf("Waiting for deployment %q to be available", deployKey.Name))
 	waitForDeploymentAvailability(ctx, k8sClient, deployKey)
 
-	for _, ds := range []string{
-		"kindnet",
-		"kube-proxy",
-	} {
-		dsKey := types.NamespacedName{Namespace: ns, Name: ds}
-		ginkgo.By(fmt.Sprintf("Waiting for daemonset %q to be available", ds))
-		waitForDaemonSetAvailability(ctx, k8sClient, dsKey)
-	}
-
-	for _, pod := range []string{
-		"etcd",
-		"kube-controller-manager",
-		"kube-apiserver",
-		"kube-scheduler",
-	} {
-		ginkgo.By(fmt.Sprintf("Waiting for %s to be available", pod))
-		podKey := types.NamespacedName{Namespace: ns, Name: fmt.Sprintf("%s-%s", pod, clusterName)}
-		waitForPodAvailability(ctx, k8sClient, podKey)
-	}
-}
-
-func waitForPodAvailability(ctx context.Context, k8sClient client.Client, key types.NamespacedName) {
-	pod := &corev1.Pod{}
-	waitForAvailableStart := time.Now()
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		g.Expect(k8sClient.Get(ctx, key, pod)).To(gomega.Succeed())
-		g.Expect(pod.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(corev1.PodCondition{
-			Type:   corev1.PodReady,
-			Status: corev1.ConditionTrue,
-		}, cmpopts.IgnoreFields(corev1.PodCondition{}, "Reason", "LastTransitionTime", "LastProbeTime"))))
-	}, StartUpTimeout, Interval).Should(gomega.Succeed())
-	ginkgo.GinkgoLogr.Info("Pod available in the cluster", "pod", key, "waitingTime", time.Since(waitForAvailableStart))
-}
+		// we wait for all the DaemonSets and Pods in kube-system to be available at the same time
+		for _, dsName := range []string{
+			"kindnet",
+			"kube-proxy",
+		} {
+			ginkgo.GinkgoLogr.Info(fmt.Sprintf("Checking if daemonset %q to be available", dsName))
+			dsKey := types.NamespacedName{Namespace: ns, Name: dsName}
+			daemonset := &appsv1.DaemonSet{}
+			g.Expect(k8sClient.Get(ctx, dsKey, daemonset)).To(gomega.Succeed())
+			g.Expect(daemonset.Status.DesiredNumberScheduled).To(gomega.Equal(daemonset.Status.NumberAvailable))
+		}
 
-func waitForDaemonSetAvailability(ctx context.Context, k8sClient client.Client, key types.NamespacedName) {
-	daemonset := &appsv1.DaemonSet{}
-	waitForAvailableStart := time.Now()
-	ginkgo.By(fmt.Sprintf("Waiting for availability of deployment: %q", key))
-	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
-		g.Expect(k8sClient.Get(ctx, key, daemonset)).To(gomega.Succeed())
-		g.Expect(daemonset.Status.DesiredNumberScheduled).To(gomega.Equal(daemonset.Status.NumberAvailable))
+		for _, podName := range []string{
+			"etcd",
+			"kube-controller-manager",
+			"kube-apiserver",
+			"kube-scheduler",
+		} {
+			ginkgo.GinkgoLogr.Info(fmt.Sprintf("Checking if pod %q to be available", podName))
+			pod := &corev1.Pod{}
+			podKey := types.NamespacedName{Namespace: ns, Name: fmt.Sprintf("%s-%s", podName, clusterName)}
+			g.Expect(k8sClient.Get(ctx, podKey, pod)).To(gomega.Succeed())
+			g.Expect(pod.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(corev1.PodCondition{
+				Type:   corev1.PodReady,
+				Status: corev1.ConditionTrue,
+			}, cmpopts.IgnoreFields(corev1.PodCondition{}, "Reason", "LastTransitionTime", "LastProbeTime"))))
+		}
 	}, StartUpTimeout, Interval).Should(gomega.Succeed())
-	ginkgo.GinkgoLogr.Info("Deployment is available in the cluster", "deployment", key, "waitingTime", time.Since(waitForAvailableStart))
 }
 
 func GetKuberayTestImage() string {
