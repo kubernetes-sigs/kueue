@@ -81,16 +81,28 @@ function kueue_deploy {
     )
 }
 
-trap cleanup EXIT
-startup 
-prepare_docker_images
-wait # for clusters creation
-kind_load "$MANAGER_KIND_CLUSTER_NAME" "$MANAGER_KUBECONFIG" &
-kind_load "$WORKER1_KIND_CLUSTER_NAME" "$WORKER1_KUBECONFIG" &
-kind_load "$WORKER2_KIND_CLUSTER_NAME" "$WORKER2_KUBECONFIG" &
-wait # for libraries installation
-# Merge kubeconfigs to one file to be used in tests now
-export KUBECONFIG="$MANAGER_KUBECONFIG:$WORKER1_KUBECONFIG:$WORKER2_KUBECONFIG"
+if [[ "${E2E_RUN_ONLY_KUEUE}" != 'true' ]]; then
+    trap cleanup EXIT
+    startup
+    prepare_docker_images
+    wait # for clusters creation
+fi
+
+cluster_kind_load "$MANAGER_KIND_CLUSTER_NAME" &
+cluster_kind_load "$WORKER1_KIND_CLUSTER_NAME" &
+cluster_kind_load "$WORKER2_KIND_CLUSTER_NAME" &
+wait
+
+if [[ "${E2E_RUN_ONLY_KUEUE}" != 'true' ]]; then
+    kind_load "$MANAGER_KIND_CLUSTER_NAME" "$MANAGER_KUBECONFIG" &
+    kind_load "$WORKER1_KIND_CLUSTER_NAME" "$WORKER1_KUBECONFIG" &
+    kind_load "$WORKER2_KIND_CLUSTER_NAME" "$WORKER2_KUBECONFIG" &
+    wait # for libraries installation
+
+    # Merge kubeconfigs to one file to be used in tests now
+    export KUBECONFIG="$MANAGER_KUBECONFIG:$WORKER1_KUBECONFIG:$WORKER2_KUBECONFIG"
+fi
+
 kueue_deploy
 
 if [ "$E2E_RUN_ONLY_ENV" = "true" ]; then
@@ -105,6 +117,8 @@ if [ "$E2E_RUN_ONLY_ENV" = "true" ]; then
   exit 0
 fi
 
-# shellcheck disable=SC2086
-$GINKGO $GINKGO_ARGS --junit-report=junit.xml --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/multikueue/...
-"$ROOT_DIR/bin/ginkgo-top" -i "$ARTIFACTS/e2e.json" > "$ARTIFACTS/e2e-top.yaml"
+if [[ "${E2E_RUN_ONLY_KUEUE}" != 'true' ]]; then
+    # shellcheck disable=SC2086
+    $GINKGO $GINKGO_ARGS --junit-report=junit.xml --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/multikueue/...
+    "$ROOT_DIR/bin/ginkgo-top" -i "$ARTIFACTS/e2e.json" > "$ARTIFACTS/e2e-top.yaml"
+fi
