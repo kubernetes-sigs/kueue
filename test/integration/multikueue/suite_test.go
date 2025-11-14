@@ -370,9 +370,13 @@ func managerAndMultiKueueSetup(
 	)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	configuration := &config.Configuration{}
+	configuration := &config.Configuration{
+		MultiKueue: &config.MultiKueue{
+			DispatcherName: &dispatcherName,
+		},
+	}
 	mgr.GetScheme().Default(configuration)
-	_, err = dispatcher.SetupControllers(mgr, configuration, dispatcherName)
+	_, err = dispatcher.SetupControllers(mgr, configuration)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
