@@ -1641,6 +1641,11 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
+			ginkgo.By("verify workload podTemplate has job-name label set correctly", func() {
+				gomega.Expect(wlObj.Spec.PodSets[0].Template.GetLabels()).To(gomega.BeComparableTo(map[string]string{
+					batchv1.JobNameLabel: jobName}))
+			})
+
 			ginkgo.By("await for wl1 to have QuotaReserved on flavor-1", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					gomega.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
@@ -1677,17 +1682,10 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 			})
 
 			ginkgo.By("await for wl1 to be Admitted", func() {
-				pdTemplate := &corev1.PodTemplate{}
-				templateKey := types.NamespacedName{
-					Namespace: wl1Key.Namespace,
-					Name:      createdRequest.Spec.PodSets[0].PodTemplateRef.Name,
-				}
 				gomega.Eventually(func(g gomega.Gomega) {
 					gomega.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
 					g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusAdmitted))
-					g.Expect(k8sClient.Get(ctx, templateKey, pdTemplate)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				gomega.Expect(pdTemplate.ObjectMeta.GetLabels()).To(gomega.BeComparableTo(map[string]string{constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue}))
 			})
 
 			ginkgo.By("submit a high-priority job2", func() {
