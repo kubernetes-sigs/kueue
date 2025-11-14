@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -119,7 +118,6 @@ func (w *ClusterQueueWebhook) validateClusterQueue(ctx context.Context, cq *kueu
 	allErrs = append(allErrs, validateTotalCoveredResources(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
 	allErrs = append(allErrs, validateFlavorResourceCombinations(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
 	if features.Enabled(features.DefaultLocalQueue) && cq.Spec.DefaultLocalQueue != nil {
-		allErrs = append(allErrs, validateDefaultLocalQueueName(cq.Spec.DefaultLocalQueue, path.Child("defaultLocalQueue"))...)
 		allErrs = append(allErrs, w.validateExistingLocalQueues(ctx, cq, path)...)
 	}
 	return allErrs
@@ -178,13 +176,6 @@ func (w *ClusterQueueWebhook) validateClusterQueueUpdate(ctx context.Context, ne
 	return w.validateClusterQueue(ctx, newObj)
 }
 
-func validateDefaultLocalQueueName(autoLq *kueue.DefaultLocalQueue, path *field.Path) field.ErrorList {
-	var allErrs field.ErrorList
-	if errs := validation.IsDNS1123Subdomain(autoLq.Name); len(errs) > 0 {
-		allErrs = append(allErrs, field.Invalid(path.Child("name"), autoLq.Name, "must be a valid DNS subdomain name"))
-	}
-	return allErrs
-}
 
 func validateTotalFlavors(resourceGroups []kueue.ResourceGroup, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList

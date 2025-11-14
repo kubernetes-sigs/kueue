@@ -78,15 +78,21 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 		}
 	)
 
-	ginkgo.BeforeEach(func() {
+	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
+	})
+
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-clusterqueue-")
 	})
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("Reconciling clusterQueue usage status", func() {
