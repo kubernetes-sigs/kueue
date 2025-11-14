@@ -380,25 +380,39 @@ func isPreferred(a, b granularMode, fungibilityConfig kueue.FlavorFungibility) b
 		return true
 	}
 
-	if !features.Enabled(features.FlavorFungibilityImplicitPreferenceDefault) {
-		if a.preemptionMode != b.preemptionMode {
-			return a.preemptionMode > b.preemptionMode
-		} else {
-			return a.borrowingLevel.betterThan(b.borrowingLevel)
-		}
-	}
-
-	if fungibilityConfig.WhenCanBorrow == kueue.TryNextFlavor {
-		if a.borrowingLevel != b.borrowingLevel {
-			return a.borrowingLevel.betterThan(b.borrowingLevel)
-		}
-		return a.preemptionMode > b.preemptionMode
-	} else {
+	borrowingOverPreemption := func() bool {
 		if a.preemptionMode != b.preemptionMode {
 			return a.preemptionMode > b.preemptionMode
 		}
 		return a.borrowingLevel.betterThan(b.borrowingLevel)
 	}
+	preemptionOverBorrowing := func() bool {
+		if a.borrowingLevel != b.borrowingLevel {
+			return a.borrowingLevel.betterThan(b.borrowingLevel)
+		}
+		return a.preemptionMode > b.preemptionMode
+	}
+
+	if fungibilityConfig.Preference != nil {
+		switch *fungibilityConfig.Preference {
+		case kueue.BorrowingOverPreemption:
+			return preemptionOverBorrowing()
+		case kueue.PreemptionOverBorrowing:
+			return borrowingOverPreemption()
+		}
+	}
+
+	// BorrowingOverPreemption preference
+	if !features.Enabled(features.FlavorFungibilityImplicitPreferenceDefault) {
+		return borrowingOverPreemption()
+	}
+
+	// PreemptionOverBorrowing preference
+	if fungibilityConfig.WhenCanBorrow == kueue.TryNextFlavor {
+		return preemptionOverBorrowing()
+	}
+	// BorrowingOverPreemption preference
+	return borrowingOverPreemption()
 }
 
 func fromPreemptionPossibility(preemptionPossibility preemptioncommon.PreemptionPossibility) preemptionMode {

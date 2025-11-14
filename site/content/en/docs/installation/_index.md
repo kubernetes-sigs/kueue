@@ -313,7 +313,7 @@ spec:
 | `ElasticJobsViaWorkloadSlices`                | `false` | Alpha | 0.13  |       |
 | `ManagedJobsNamespaceSelectorAlwaysRespected` | `false` | Alpha | 0.13  | 0.15  |
 | `ManagedJobsNamespaceSelectorAlwaysRespected` | `true`  | Beta  | 0.15  |       |
-| `FlavorFungibilityImplicitPreferenceDefault`  | `false` | Alpha | 0.13  |       |
+| `FlavorFungibilityImplicitPreferenceDefault`  | `false` | Alpha | 0.13  | 0.16  |
 | `WorkloadRequestUseMergePatch`                | `false` | Alpha | 0.14  |       |
 | `SanitizePodSets`                             | `true`  | Beta  | 0.13  |       |
 | `MultiKueueAllowInsecureKubeconfigs`          | `false` | Alpha | 0.13  |       |
