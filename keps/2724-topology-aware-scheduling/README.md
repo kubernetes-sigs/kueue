@@ -32,6 +32,9 @@
   - [Validation](#validation)
     - [PodSet Slice size validation](#podset-slice-size-validation)
   - [Internal APIs](#internal-apis)
+    - [Topology assignment representation](#topology-assignment-representation)
+      - [Until v1beta1](#until-v1beta1)
+      - [Since v1beta2](#since-v1beta2)
     - [Node failures](#node-failures)
       - [Until v0.13](#until-v013)
       - [Since v0.14](#since-v014)
@@ -72,6 +75,7 @@
   - [Drop dedicated TAS label](#drop-dedicated-tas-label)
   - [MostFreeCapacity algorithm](#mostfreecapacity-algorithm)
     - [Example](#example-3)
+  - [TopologyAssignmentSlices as separate CRD instances](#topologyassignmentslices-as-separate-crd-instances)
 <!-- /toc -->
 
 ## Summary
@@ -819,55 +823,49 @@ at each topology level to the specific subset of nodes.
 type PodSetAssignment struct {
   ...
 
-  // topologyAssignment indicates the topology assignment divided into
-  // topology domains corresponding to the lowest level of the topology.
-  // The assignment specifies the number of Pods to be scheduled per topology
-  // domain and specifies the node selectors for each topology domain, in the
-  // following way: the node selector keys are specified by the levels field
-  // (same for all domains), and the corresponding node selector value is
-  // specified by the domains.values subfield. If the TopologySpec.Levels field contains
-  // "kubernetes.io/hostname" label, topologyAssignment will contain data only for
-  // this label, and omit higher levels in the topology
-  //
-  // Example:
-  //
-  // topologyAssignment:
-  //   levels:
-  //   - cloud.provider.com/topology-block
-  //   - cloud.provider.com/topology-rack
-  //   domains:
-  //   - values: [block-1, rack-1]
-  //     count: 4
-  //   - values: [block-1, rack-2]
-  //     count: 2
-  //
-  // Here:
-  // - 4 Pods are to be scheduled on nodes matching the node selector:
-  //   cloud.provider.com/topology-block: block-1
-  //   cloud.provider.com/topology-rack: rack-1
-  // - 2 Pods are to be scheduled on nodes matching the node selector:
-  //   cloud.provider.com/topology-block: block-1
-  //   cloud.provider.com/topology-rack: rack-2
-  //
-  // Example:
-	// Below there is an equivalent of the above example assuming, Topology
-	// object defines kubernetes.io/hostname as the lowest level in topology.
-	// Hence we omit higher level of topologies, since the hostname label
-	// is sufficient to explicitly identify a proper node.
-  //
-  // topologyAssignment:
-  //   levels:
-  //   - kubernetes.io/hostname
-  //   domains:
-  //   - values: [hostname-1]
-  //     count: 4
-  //   - values: [hostname-2]
-  //     count: 2
-  //
   // +optional
   TopologyAssignment *TopologyAssignment `json:"topologyAssignment,omitempty"`
-}
+```
 
+The format of `TopologyAssignment` depends on the API version; see details [below](#topology-assignment-representation).
+
+Kueue uses the `kueue.x-k8s.io/topology` scheduling gate to delay the
+`nodeSelector` assignment, because different pods in the same PodSet may have
+different values:
+
+```golang
+const (
+  // TopologySchedulingGate is used to delay scheduling of a Pod until the
+  // nodeSelectors corresponding to the assigned topology domain are injected
+  // into the Pod.
+  TopologySchedulingGate = "kueue.x-k8s.io/topology"
+
+  // WorkloadAnnotation is an annotation set on the Job's PodTemplate to
+  // indicate the name of the admitted Workload corresponding to the Job. The
+  // annotation is set when starting the Job, and removed on stopping the Job.
+  WorkloadAnnotation = "kueue.x-k8s.io/workload"
+
+  // TASLabel is a label set on the Job's PodTemplate to indicate that the
+  // PodSet is admitted using TopologyAwareScheduling, and all Pods created
+  // from the Job's PodTemplate also have the label.
+  TASLabel = "kueue.x-k8s.io/tas"
+)
+```
+
+#### Topology assignment representation
+
+`TopologyAssignment` indicates the topology assignment divided into topology domains corresponding to the lowest level of the topology. The assignment specifies the number of Pods to be scheduled per topology domain and the node selectors for each topology domain, in the following way:
+
+- the node selector keys are specified by the `Levels` field (same for all domains),
+- the corresponding node selector values - and the Pod counts - are specified by the other field (`Domains` until v1beta1 or `Slices` since v1beta2).
+
+If the `Levels` field contains `kubernetes.io/hostname` label, the `TopologyAssignment` will contain data only for this label, and omit higher levels in the topology.
+
+##### Until v1beta1
+
+In the older format, each domain assignment is represented by a single entry in the `Domains` list. 
+
+```golang
 type TopologyAssignment struct {
   // levels is an ordered list of keys denoting the levels of the assigned
   // topology (i.e. node label keys), from the highest to the lowest level of
@@ -906,28 +904,203 @@ type TopologyDomainAssignment struct {
 }
 ```
 
-Kueue uses the `kueue.x-k8s.io/topology` scheduling gate to delay the
-`nodeSelector` assignment, because different pods in the same PodSet may have
-different values:
+Example:
+
+```yaml
+topologyAssignment:
+  levels:
+  - cloud.provider.com/topology-block
+  - cloud.provider.com/topology-rack
+  domains:
+  - values: [block-1, rack-1]
+    count: 4
+  - values: [block-1, rack-2]
+    count: 2
+```
+
+Here:
+- 4 Pods are to be scheduled on nodes matching the node selector:
+  ```
+  cloud.provider.com/topology-block: block-1
+  cloud.provider.com/topology-rack: rack-1
+  ```
+- 2 Pods are to be scheduled on nodes matching the node selector:
+  ```
+  cloud.provider.com/topology-block: block-1
+  cloud.provider.com/topology-rack: rack-2
+  ```
+
+Below there is an equivalent of the above example, assuming that the Topology
+object defines `kubernetes.io/hostname` as the lowest level in topology.
+Hence we omit higher topology levels, since the hostname label
+is sufficient to uniquely identify a particular node.
+
+```yaml
+topologyAssignment:
+  levels:
+  - kubernetes.io/hostname
+  domains:
+  - values: [hostname-1]
+    count: 4
+  - values: [hostname-2]
+    count: 2
+```
+
+##### Since v1beta2
+
+In v1beta2, the data format is reshaped, with the main goal of improving handling of huge workloads. The 3 main ideas here are:
+
+- splitting the whole assignment structure into slices,
+- broader use of "parallel lists" which should be "zipped together" to produce their meaning \
+  (just like a _single_ list `Levels` in the old format specified the topology levels used in _every_ domain of the assignment),
+- extracting common prefixes and suffixes of node names.
 
 ```golang
-const (
-  // TopologySchedulingGate is used to delay scheduling of a Pod until the
-  // nodeSelectors corresponding to the assigned topology domain are injected
-  // into the Pod.
-  TopologySchedulingGate = "kueue.x-k8s.io/topology"
+type TopologyAssignment struct {
+  // (same role & comments as in v1beta1)
+  Levels []string `json:"levels,omitempty"`
 
-  // WorkloadAnnotation is an annotation set on the Job's PodTemplate to
-  // indicate the name of the admitted Workload corresponding to the Job. The
-  // annotation is set when starting the Job, and removed on stopping the Job.
-  WorkloadAnnotation = "kueue.x-k8s.io/workload"
+  // slices represent topology assignments for subsets of pods of a workload.
+  // The full assignment is obtained as a union of all slices.
+  // +required
+  // +listType=atomic
+  // +kubebuilder:validation:MaxItems=1000
+  Slices []TopologyAssignmentSlice `json:"slices,omitempty"`
+}
 
-  // TASLabel is a label set on the Job's PodTemplate to indicate that the
-  // PodSet is admitted using TopologyAwareScheduling, and all Pods created
-  // from the Job's PodTemplate also have the label.
-  TASLabel = "kueue.x-k8s.io/tas"
-)
+// TopologyAssignmentSlice fully specifies the topology assignment for a subset of pods of a workload.
+type TopologyAssignmentSlice struct {
+  // domainCount is the number of domains covered by this slice.
+  // +required
+  // +kubebuilder:validation:Minimum=1
+  DomainCount int32 `json:"domainCount,omitempty"`
+
+  // valuesPerLevel has one entry for each of the Levels specified in the TopologyAssignment.
+  // The entry corresponding to a particular level specifies the placement of pods at that level.
+  // +required
+  // +listType=atomic
+  // +kubebuilder:validation:MinItems=1
+  // +kubebuilder:validation:MaxItems=16
+  ValuesPerLevel []TopologyAssignmentSliceLevelValues `json:"valuesPerLevel,omitempty"`
+
+  // podCounts specifies the number of pods allocated per each domain.
+  // +required
+  PodCounts TopologyAssignmentSlicePodCounts `json:"podCounts,omitempty"`
+}
+
+type TopologyAssignmentSliceLevelValues struct {
+  // universal, if set, specifies a single topology placement value (at a particular topology level)
+  // that applies to all pods in the current TopologyAssignmentSlice.
+  // Exactly one of universal, individual must be set.
+  // +optional
+  Universal *string `json:"universal,omitempty"`
+
+  // individual, if set, specifies multiple topology placement values (at a particular topology level)
+  // that apply to the pods in the current TopologyAssignmentSlice.
+  // Exactly one of universal, individual must be set.
+  // +optional
+  Individual *TopologyAssignmentSliceLevelIndividualValues `json:"individual,omitempty"`
+}
+
+type TopologyAssignmentSliceLevelIndividualValues struct {
+  // commonPrefix specifies a common prefix for all values in this slice assignment.
+  // It must be either nil pointer or a non-empty string.
+  // +optional
+  // +kubebuilder:validation:MaxLength=63
+  CommonPrefix *string `json:"commonPrefix,omitempty"`
+  // commonSuffix specifies a common suffix for all values in this slice assignment.
+  // It must be either nil pointer or a non-empty string.
+  // +optional
+  // +kubebuilder:validation:MaxLength=63
+  CommonSuffix *string `json:"commonSuffix,omitempty"`
+
+  // roots specifies the values in this assignment (excluding commonPrefix and commonSuffix, if non-empty).
+  // Its length must be equal to the "domainCount" field of the TopologyAssignmentSlice.
+  // +required
+  // +listType=atomic
+  // +kubebuilder:validation:MinItems=1
+  // +kubebuilder:validation:MaxItems=100000
+  // +kubebuilder:validation:items:MaxLength=63
+  Roots []string `json:"roots,omitempty"`
+}
+
+type TopologyAssignmentSlicePodCounts struct {
+  // universal, if set, specifies the number of pods allocated in every domain in this slice.
+  // Exactly one of universal, individual must be set.
+  // +optional
+  // +kubebuilder:validation:Minimum=1
+  Universal *int32 `json:"universal,omitempty"`
+
+  // individual, if set, specifies the number of pods allocated in each domain in this slice.
+  // If set, its length must be equal to the "domainCount" field of the TopologyAssignmentSlice.
+  // Exactly one of universal, individual must be set.
+  // +optional
+  // +listType=atomic
+  // +kubebuilder:validation:MinItems=1
+  // +kubebuilder:validation:MaxItems=100000
+  // +kubebuilder:validation:items:Minimum=1
+  Individual []int32 `json:"podCounts,omitempty"`
+}
 ```
+
+The above mentioned cross-validity rules (mutually exclusive fields, equal lengths, etc.) will be all expressed as `kubebuilder:validation:XValidation` rules on the respective "smallest common container types".
+
+Example (representing the same assignment as in the first example for the [old format](#until-v1beta1)):
+
+```yaml
+topologyAssignment:
+  levels:
+  - cloud.provider.com/topology-block
+  - cloud.provider.com/topology-rack
+  slices:
+  - domainCount: 2
+    valuesPerLevel:
+    - universal: block-1
+    - individual:
+        commonPrefix: rack-
+        roots: [1, 2]
+    podCounts:
+      individual: [4, 2]
+```
+
+The above example has one slice, specifying 2 domains on 2 topology levels. On the block level, all domains take the same value (`block-1`), which allows using `universal`. On the rack level, the values diverge (`rack-1`) vs. (`rack-2`) but they still share a relatively long common prefix. The new representation allows deduplicating characters between these.
+
+Multiple slices may be used e.g. for a host-level assignment when the nodes being assigned are split into multiple "node pools". The following example illustrates this for an assignment of 12 pods on 12 nodes (1 per 1), where the nodes come from 2 pools (of size 5 and 7 respectively), with node names looking like `pool-X-node-Y`:
+
+```yaml
+topologyAssignment:
+  levels: [kubernetes.io/hostname]
+  slices:
+  - domainCount: 5
+    valuesPerLevel:
+    - individual:
+        commonPrefix: pool-1-node-
+        roots: [1, 2, 3, 4, 5]
+    podCounts:
+      universal: 1
+  - domainCount: 7
+    valuesPerLevel:
+    - individual:
+        commonPrefix: pool-2-node-
+        roots: [1, 2, 3, 4, 5, 6, 7]
+    podCounts:
+      universal: 1
+```
+
+The main motivation behind the new format is the etcd size limit of 1.5MiB per single resource, which currently restricts the number of nodes that can participate in the assignment for a single workload. (For the v1beta1 format, and the real-life node naming schemes of main K8s vendors, the limit is around 20-30k). The new format helps addressing this problem in 2 time perspectives:
+
+- In the short term, it increases the number of nodes which can fit into 1 etcd entry.
+
+  - By just using a single slice, with extracting common prefix and suffix of all node names, our simulations (for some real-life node naming schemes) suggested a limit of around 60k nodes.
+  
+  - Multiple slices allow optimizing even further, if desired. \
+    Our simulations of more complex algorithms (e.g. heuristic pruning of prefix tree) allowed fitting over 100k nodes. \
+    (However, at that point we reached a tradeoff between bytesize, encoding time, and conceptual simplicity. Resolving that tradeoff is out of scope of this design; the important thing is that the proposed data format supports various specific algorithms).
+
+- In the long term, as the number of nodes grows, at some point we'll inevitably hit the 1.5MiB limit anyway. \
+  When this happens, we foresee a need to store the slices as separate CRD instances (see [description](#topologyassignmentslices-as-separate-crd-instances) in the "Alternatives" section). \
+  While the v1beta2 format does not yet do that, by introducing `Slices` we come much closer to this. \
+  Once there is a need, we can promote (some of) `Slices` to instances of a standalone CRD - but the appropriate type system is already there.
 
 #### Node failures
 
@@ -1566,3 +1739,17 @@ becomes apparent:
 **Reasons for discarding/deferring**
 Due to code simplicity concerns and a lack of use cases for the algorithm,
 the decision was made to remove it in favor of `BestFit`.
+
+### TopologyAssignmentSlices as separate CRD instances
+
+In the [v1beta2 format](#since-v1beta2) for TopologyAssignment, we introduce TopologyAssignmentSlices embedded in the WorkloadStatus. This helps fitting larger workloads within a single etcd entry, but still hits a scalability limit.
+
+One way of going beyond that limit would be to extract the slices into separate instances of a dedicated CRD (analogously to how [EndpointSlice](https://github.com/kubernetes/kubernetes/blob/3b632270e9b866ee8bf62e89377ae95987671b49/pkg/apis/discovery/types.go#L24-L29) has been introduced in K8s core). This would, in practice, allow storing arbitrarily many nodes, though at some cost. (See "Reasons for deferring" below).
+
+For these reasons, if we choose to do it, we would likely extract only "excess" slices, so that the TAS assignment for smaller workloads can be still kept inside WorkloadStatus.
+
+**Reasons for discarding/deferring**
+
+- Decreased UX of the API (some info delegated to other objects).
+- Decreased performance of Kueue scheduler (need to do more etcd reads and writes). \
+  (In particular, even when we end up using slices in separate CRDs, the "compression capabilities" introduced in v1beta2 are going to improve performance by reducing the necessary number of such slices).
