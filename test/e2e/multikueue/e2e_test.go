@@ -975,71 +975,73 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 	})
 
 	ginkgo.When("The connection to a worker cluster is unreliable", func() {
-		ginkgo.It("Should update the cluster status to reflect the connection state", func() {
-			worker1Cq2 := utiltestingapi.MakeClusterQueue("q2").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas(worker1Flavor.Name).
-						Resource(corev1.ResourceCPU, "2").
-						Resource(corev1.ResourceMemory, "1G").
-						Obj(),
-				).
-				Obj()
-			util.MustCreate(ctx, k8sWorker1Client, worker1Cq2)
+		for i := 0; i < 30; i++ {
+			ginkgo.FIt(fmt.Sprintf("Should update the cluster status to reflect the connection state %d", i), func() {
+				worker1Cq2 := utiltestingapi.MakeClusterQueue("q2").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(worker1Flavor.Name).
+							Resource(corev1.ResourceCPU, "2").
+							Resource(corev1.ResourceMemory, "1G").
+							Obj(),
+					).
+					Obj()
+				util.MustCreate(ctx, k8sWorker1Client, worker1Cq2)
 
-			worker1Container := fmt.Sprintf("%s-control-plane", worker1ClusterName)
-			worker1ClusterKey := client.ObjectKeyFromObject(workerCluster1)
-			ginkgo.By("Disconnecting worker1 node's APIServer", func() {
-				sedCommand := `sed -i '/^[[:space:]]*- kube-apiserver/a\    - --bind-address=127.0.0.1' /etc/kubernetes/manifests/kube-apiserver.yaml`
-				cmd := exec.Command("docker", "exec", worker1Container, "sh", "-c", sedCommand)
-				output, err := cmd.CombinedOutput()
-				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+				worker1Container := fmt.Sprintf("%s-control-plane", worker1ClusterName)
+				worker1ClusterKey := client.ObjectKeyFromObject(workerCluster1)
+				ginkgo.By("Disconnecting worker1 node's APIServer", func() {
+					sedCommand := `sed -i '/^[[:space:]]*- kube-apiserver/a\    - --bind-address=127.0.0.1' /etc/kubernetes/manifests/kube-apiserver.yaml`
+					cmd := exec.Command("docker", "exec", worker1Container, "sh", "-c", sedCommand)
+					output, err := cmd.CombinedOutput()
+					gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 
-				podList := &corev1.PodList{}
-				podListOptions := client.InNamespace(kueueNS)
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sWorker1Client.List(ctx, podList, podListOptions)).Should(gomega.Succeed())
-				}, util.LongTimeout, util.Interval).ShouldNot(gomega.Succeed())
+					podList := &corev1.PodList{}
+					podListOptions := client.InNamespace(kueueNS)
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sWorker1Client.List(ctx, podList, podListOptions)).Should(gomega.Succeed())
+					}, util.LongTimeout, util.Interval).ShouldNot(gomega.Succeed())
+				})
+
+				ginkgo.By("Waiting for the cluster to become inactive", func() {
+					readClient := &kueue.MultiKueueCluster{}
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sManagerClient.Get(ctx, worker1ClusterKey, readClient)).To(gomega.Succeed())
+						g.Expect(readClient.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(kueue.MultiKueueClusterActive, "ClientConnectionFailed"))
+					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Reconnecting worker1 node's APIServer", func() {
+					sedCommand := `sed -i '/^[[:space:]]*- --bind-address=127.0.0.1/d' /etc/kubernetes/manifests/kube-apiserver.yaml`
+					cmd := exec.Command("docker", "exec", worker1Container, "sh", "-c", sedCommand)
+					output, err := cmd.CombinedOutput()
+					gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+				})
+
+				ginkgo.By("Waiting for the cluster to become active", func() {
+					readClient := &kueue.MultiKueueCluster{}
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sManagerClient.Get(ctx, worker1ClusterKey, readClient)).To(gomega.Succeed())
+						g.Expect(readClient.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
+							metav1.Condition{
+								Type:    kueue.MultiKueueClusterActive,
+								Status:  metav1.ConditionTrue,
+								Reason:  "Active",
+								Message: "Connected",
+							},
+							util.IgnoreConditionTimestampsAndObservedGeneration)))
+					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Waiting for Kueue and kube-system pods to become active again", func() {
+					util.WaitForKubeSystemControllersAvailability(ctx, k8sWorker1Client, worker1Container)
+					util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sWorker1Client)
+				})
+
+				ginkgo.By("Checking that the Kueue is operational after reconnection", func() {
+					util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Cq2, true, util.StartUpTimeout)
+				})
 			})
-
-			ginkgo.By("Waiting for the cluster to become inactive", func() {
-				readClient := &kueue.MultiKueueCluster{}
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sManagerClient.Get(ctx, worker1ClusterKey, readClient)).To(gomega.Succeed())
-					g.Expect(readClient.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(kueue.MultiKueueClusterActive, "ClientConnectionFailed"))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Reconnecting worker1 node's APIServer", func() {
-				sedCommand := `sed -i '/^[[:space:]]*- --bind-address=127.0.0.1/d' /etc/kubernetes/manifests/kube-apiserver.yaml`
-				cmd := exec.Command("docker", "exec", worker1Container, "sh", "-c", sedCommand)
-				output, err := cmd.CombinedOutput()
-				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
-			})
-
-			ginkgo.By("Waiting for the cluster to become active", func() {
-				readClient := &kueue.MultiKueueCluster{}
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sManagerClient.Get(ctx, worker1ClusterKey, readClient)).To(gomega.Succeed())
-					g.Expect(readClient.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
-						metav1.Condition{
-							Type:    kueue.MultiKueueClusterActive,
-							Status:  metav1.ConditionTrue,
-							Reason:  "Active",
-							Message: "Connected",
-						},
-						util.IgnoreConditionTimestampsAndObservedGeneration)))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Waiting for Kueue and kube-system pods to become active again", func() {
-				util.WaitForKubeSystemControllersAvailability(ctx, k8sWorker1Client, worker1Container)
-				util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sWorker1Client)
-			})
-
-			ginkgo.By("Checking that the Kueue is operational after reconnection", func() {
-				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Cq2, true, util.StartUpTimeout)
-			})
-		})
+		}
 	})
 })
 
