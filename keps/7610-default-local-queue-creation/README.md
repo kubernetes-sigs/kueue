@@ -262,19 +262,6 @@ reconciliation logic:
    annotations.
 6. If a `LocalQueue` already exists, do nothing and emit a warning event.
 
-### Admission Webhook
-
-Add new validation admission logic to the existing `ClusterQueue` webhook to
-prevent selector overlap.
-
-1. The webhook triggers on `CREATE` and `UPDATE` of `ClusterQueue` resources.
-2. If `spec.defaultLocalQueue` is not set, the validation is skipped.
-3. If set, the webhook lists all other `ClusterQueue`s in the cluster.
-4. It compares the `namespaceSelector` of the incoming `ClusterQueue` with every
-   other `ClusterQueue` that also has `defaultLocalQueue` enabled.
-5. If a selector overlap is detected and the `defaultLocalQueue.name` is the same,
-   the request is rejected with an error detailing the conflict. This prevents
-   two `ClusterQueues` from attempting to manage the same `LocalQueue` resource.
 
 ### Test Plan
 
@@ -347,6 +334,16 @@ milestones with these graduation criteria:
 [deprecation-policy]: https://kubernetes.io/docs/reference/using-api/deprecation-policy/
 -->
 
+Alpha:
+
+- feature disabled by default
+- creation of the `LocalQueue` which matches the `namespaceSelector`
+
+Beta:
+
+- feature enabled by default
+- re-evaluate the strategies for conflict prevention
+
 ## Implementation History
 
 <!--
@@ -381,9 +378,16 @@ not need to be as detailed as the proposal, but should include enough
 information to express the idea and why it was not acceptable.
 -->
 
-- Controller without Webhook: Implement the controller logic but only emit
-  warning events on conflicting `ClusterQueue`s instead of blocking them. This is
-  less safe, as it allows administrators to create ambiguous configurations that
-  might not behave as expected. The immediate feedback from a webhook gives
-  better user experience.
+### Improvements for future versions
 
+Add new validation admission logic to the existing `ClusterQueue` webhook to
+prevent selector overlap.
+
+1. The webhook triggers on `CREATE` and `UPDATE` of `ClusterQueue` resources.
+2. If `spec.defaultLocalQueue` is not set, the validation is skipped.
+3. If set, the webhook lists all other `ClusterQueue`s in the cluster.
+4. It compares the `namespaceSelector` of the incoming `ClusterQueue` with every
+   other `ClusterQueue` that also has `defaultLocalQueue` enabled.
+5. If a selector overlap is detected and the `defaultLocalQueue.name` is the same,
+   the request is rejected with an error detailing the conflict. This prevents
+   two `ClusterQueues` from attempting to manage the same `LocalQueue` resource.
