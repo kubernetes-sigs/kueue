@@ -26,7 +26,6 @@ tags, and then generate with `hack/update-toc.sh`.
 - [Design Details](#design-details)
   - [API Proposal](#api-proposal)
   - [Controller Logic](#controller-logic)
-  - [Admission Webhook](#admission-webhook)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
@@ -35,6 +34,7 @@ tags, and then generate with `hack/update-toc.sh`.
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
+  - [Improvements for future versions](#improvements-for-future-versions)
 <!-- /toc -->
 
 ## Summary
