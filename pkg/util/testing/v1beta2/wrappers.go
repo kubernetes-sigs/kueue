@@ -32,6 +32,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -1196,29 +1197,29 @@ func (t *TopologyWrapper) Obj() *kueue.Topology {
 }
 
 type TopologyDomainAssignmentWrapper struct {
-	kueue.TopologyDomainAssignment
+	tas.TopologyDomainAssignment
 }
 
 func MakeTopologyDomainAssignment(values []string, count int32) *TopologyDomainAssignmentWrapper {
 	return &TopologyDomainAssignmentWrapper{
-		TopologyDomainAssignment: kueue.TopologyDomainAssignment{
+		TopologyDomainAssignment: tas.TopologyDomainAssignment{
 			Values: values,
 			Count:  count,
 		},
 	}
 }
 
-func (t *TopologyDomainAssignmentWrapper) Obj() kueue.TopologyDomainAssignment {
+func (t *TopologyDomainAssignmentWrapper) Obj() tas.TopologyDomainAssignment {
 	return t.TopologyDomainAssignment
 }
 
 type TopologyAssignmentWrapper struct {
-	kueue.TopologyAssignment
+	tas.TopologyAssignment
 }
 
 func MakeTopologyAssignment(levels []string) *TopologyAssignmentWrapper {
 	return &TopologyAssignmentWrapper{
-		TopologyAssignment: kueue.TopologyAssignment{
+		TopologyAssignment: tas.TopologyAssignment{
 			Levels: levels,
 		},
 	}
@@ -1229,18 +1230,18 @@ func (t *TopologyAssignmentWrapper) Levels(levels ...string) *TopologyAssignment
 	return t
 }
 
-func (t *TopologyAssignmentWrapper) Domains(domains ...kueue.TopologyDomainAssignment) *TopologyAssignmentWrapper {
+func (t *TopologyAssignmentWrapper) Domains(domains ...tas.TopologyDomainAssignment) *TopologyAssignmentWrapper {
 	t.TopologyAssignment.Domains = domains
 	return t
 }
 
-func (t *TopologyAssignmentWrapper) Domain(domain kueue.TopologyDomainAssignment) *TopologyAssignmentWrapper {
+func (t *TopologyAssignmentWrapper) Domain(domain tas.TopologyDomainAssignment) *TopologyAssignmentWrapper {
 	t.TopologyAssignment.Domains = append(t.TopologyAssignment.Domains, domain)
 	return t
 }
 
 func (t *TopologyAssignmentWrapper) Obj() *kueue.TopologyAssignment {
-	return &t.TopologyAssignment
+	return tas.V1Beta2From(&t.TopologyAssignment)
 }
 
 type PodSetAssignmentWrapper struct {

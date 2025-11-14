@@ -278,46 +278,113 @@ type PodSetAssignment struct {
 	// topology domains corresponding to the lowest level of the topology.
 	// The assignment specifies the number of Pods to be scheduled per topology
 	// domain and specifies the node selectors for each topology domain, in the
-	// following way: the node selector keys are specified by the levels field
-	// (same for all domains), and the corresponding node selector value is
-	// specified by the domains.values subfield. If the TopologySpec.Levels field contains
-	// "kubernetes.io/hostname" label, topologyAssignment will contain data only for
-	// this label, and omit higher levels in the topology
+	// following way:
+	// * `levels` specifies the node selector keys (same for all domains).
+	//   - If the TopologySpec.Levels field contains "kubernetes.io/hostname" label,
+	//     topologyAssignment will contain data only for this label,
+	//     and omit higher levels in the topology.
+	// * `slices` specifies the node selector values and pod counts for all domains
+	//   (which may be partitioned into separate slices).
+	//   - The node selector values are arranged first by topology level, only then by domain.
+	//     (This allows "optimizing" similar values; see below).
+	// * The format of `slices` supports the following variations
+	//   (aimed to optimize the total bytesize for very large number of domains; see examples below):
+	//   - When all node selector values (at a given topology level, in a given slice)
+	//     share a common prefix and/or suffix, these may be stored
+	//     in dedicated `commonPrefix`/`commonSuffix` fields.
+	//     If so, the array of `roots` will only store the remaining parts of these strings.
+	//   - When all node selector values (at a given topology level, in a given slice)
+	//     are identical, this may be represented by `universal` value.
+	//   - When all pod counts (in a given slice) are identical,
+	//     this may be represented by `universal` pod count.
 	//
-	// Example:
+	// Example 1:
+	//
+	// The following represents an assignment in which:
+	// * 4 Pods are to be scheduled on nodes matching the node selector:
+	//   - cloud.provider.com/topology-block: block-1
+	//   - cloud.provider.com/topology-rack: rack-1
+	// * 2 Pods are to be scheduled on nodes matching the node selector:
+	//   - cloud.provider.com/topology-block: block-1
+	//   - cloud.provider.com/topology-rack: rack-2
 	//
 	// topologyAssignment:
 	//   levels:
 	//   - cloud.provider.com/topology-block
 	//   - cloud.provider.com/topology-rack
-	//   domains:
-	//   - values: [block-1, rack-1]
-	//     count: 4
-	//   - values: [block-1, rack-2]
-	//     count: 2
+	//   slices:
+	//   - domainCount: 2
+	//     valuesPerLevel:
+	//     - individual:
+	//         roots: [block-1, block-1]
+	//     - individual:
+	//         roots: [rack-1, rack-2]
+	//     podCounts:
+	//       individual: [4, 2]
 	//
-	// Here:
-	// - 4 Pods are to be scheduled on nodes matching the node selector:
-	//   cloud.provider.com/topology-block: block-1
-	//   cloud.provider.com/topology-rack: rack-1
-	// - 2 Pods are to be scheduled on nodes matching the node selector:
-	//   cloud.provider.com/topology-block: block-1
-	//   cloud.provider.com/topology-rack: rack-2
+	// Example 2:
 	//
-	// Example:
-	// Below there is an equivalent of the above example assuming, Topology
-	// object defines kubernetes.io/hostname as the lowest level in topology.
-	// Hence we omit higher level of topologies, since the hostname label
-	// is sufficient to explicitly identify a proper node.
+	// The following is equivalent to Example 1 - but using extracted prefix and universalValue.
+	//
+	// topologyAssignment:
+	//   levels:
+	//   - cloud.provider.com/topology-block
+	//   - cloud.provider.com/topology-rack
+	//   slices:
+	//   - domainCount: 2
+	//     valuesPerLevel:
+	//     - universal: block-1
+	//     - individual:
+	//         prefix: rack-
+	// 		   roots: [1, 2]
+	//     podCounts:
+	//       individual: [4, 2]
+	//
+	// Example 3:
+	//
+	// Now suppose that:
+	// - the Topology object defines kubernetes.io/hostname as the lowest level
+	//   (and hence, in the topologyAssignment, we omit all other levels
+	//   since the hostname label suffices to explicitly identify a proper node),
+	// - we assign 1 Pod per each node,
+	// - the node naming scheme is `block-{blockId}-rack-{rackId}-node-{nodeId}`.
+	// Then, using the "extraction of commons", the assignment from Examples 1-2 would look as follows:
 	//
 	// topologyAssignment:
 	//   levels:
 	//   - kubernetes.io/hostname
-	//   domains:
-	//   - values: [hostname-1]
-	//     count: 4
-	//   - values: [hostname-2]
-	//     count: 2
+	//   slices:
+	//   - domainCount: 6
+	//     valuesPerLevel:
+	//     - individual:
+	//         prefix: block-1-rack-
+	// 		   roots: [1-node-1, 1-node-2, 1-node-3, 1-node-4, 2-node-1, 2-node-2]
+	//     podCounts:
+	//       universal: 1
+	//
+	// Example 4:
+	//
+	// By using multiple slices, we can afford even longer common prefixes.
+	// The assignment from Example 3 can be alternatively represented as follows:
+	//
+	// topologyAssignment:
+	//   levels:
+	//   - kubernetes.io/hostname
+	//   slices:
+	//   - domainCount: 4
+	//     valuesPerLevel:
+	//     - individual:
+	//         prefix: block-1-rack-1-node-
+	// 		   roots: [1, 2, 3, 4]
+	//     podCounts:
+	//       universal: 1
+	//   - domainCount: 2
+	//     valuesPerLevel:
+	//     - individual:
+	//         prefix: block-1-rack-2-node-
+	// 		   roots: [1, 2]
+	//     podCounts:
+	//       universal: 1
 	//
 	// +optional
 	TopologyAssignment *TopologyAssignment `json:"topologyAssignment,omitempty"`
@@ -347,6 +414,7 @@ const (
 	DelayedTopologyRequestStateReady DelayedTopologyRequestState = "Ready"
 )
 
+// +kubebuilder:validation:XValidation:rule="self.slices.all(x, size(x.valuesPerLevel) == size(self.levels))", message="valuesPerLevel must have the same length as the number of levels in this TopologyAssignment"
 type TopologyAssignment struct {
 	// levels is an ordered list of keys denoting the levels of the assigned
 	// topology (i.e. node label keys), from the highest to the lowest level of
@@ -359,33 +427,90 @@ type TopologyAssignment struct {
 	// +kubebuilder:validation:items:MaxLength=317
 	Levels []string `json:"levels,omitempty"`
 
-	// domains is a list of topology assignments split by topology domains at
-	// the lowest level of the topology.
-	//
+	// slices represent topology assignments for subsets of pods of a workload.
+	// The full assignment is obtained as a union of all slices.
 	// +required
 	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=100000
-	Domains []TopologyDomainAssignment `json:"domains,omitempty"`
+	// +kubebuilder:validation:MaxItems=1000
+	Slices []TopologyAssignmentSlice `json:"slices,omitempty"`
 }
 
-type TopologyDomainAssignment struct {
-	// values is an ordered list of node selector values describing a topology
-	// domain. The values correspond to the consecutive topology levels, from
-	// the highest to the lowest.
-	//
+// +kubebuilder:validation:XValidation:rule="!has(self.podCounts.individual) || size(self.podCounts.individual) == self.domainCount", message="podCounts.individual must have length equal to domainCount"
+// +kubebuilder:validation:XValidation:rule="self.valuesPerLevel.all(x, !has(x.individual) || size(x.individual.roots) == self.domainCount)", message="valuesPerLevel.individual, if set, must have roots of length equal to domainCount of this TopologyAssignmentSlice"
+type TopologyAssignmentSlice struct {
+	// domainCount is the number of domains covered by this slice.
+	// +required
+	// +kubebuilder:validation:Minimum=1
+	DomainCount int32 `json:"domainCount,omitempty"`
+
+	// valuesPerLevel has one entry for each of the Levels specified in the TopologyAssignment.
+	// The entry corresponding to a particular level specifies the placement of pods at that level.
 	// +required
 	// +listType=atomic
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=16
-	// +kubebuilder:validation:items:MaxLength=63
-	Values []string `json:"values,omitempty"`
+	ValuesPerLevel []TopologyAssignmentSliceLevelValues `json:"valuesPerLevel,omitempty"`
 
-	// count indicates the number of Pods to be scheduled in the topology
-	// domain indicated by the values field.
-	//
+	// podCounts specifies the number of pods allocated per each domain.
 	// +required
+	PodCounts TopologyAssignmentSlicePodCounts `json:"podCounts,omitempty"`
+}
+
+// +kubebuilder:validation:ExactlyOneOf=universal;individual
+type TopologyAssignmentSliceLevelValues struct {
+	// universal - if set - specifies a single topology placement value (at a particular topology level)
+	// that applies to all pods in the current TopologyAssignmentSlice.
+	// Exactly one of universal, individual must be set.
+	// +optional
+	// +kubebuilder:validation:MaxLength=63
+	Universal *string `json:"universal,omitempty"`
+
+	// individual - if set - specifies multiple topology placement values (at a particular topology level)
+	// that apply to the pods in the current TopologyAssignmentSlice.
+	// Exactly one of universal, individual must be set.
+	// +optional
+	Individual *TopologyAssignmentSliceLevelIndividualValues `json:"individual,omitempty"`
+}
+
+type TopologyAssignmentSliceLevelIndividualValues struct {
+	// commonPrefix specifies a common prefix for all values in this slice assignment.
+	// It must be either nil pointer or a non-empty string.
+	// +optional
+	// +kubebuilder:validation:MaxLength=63
+	CommonPrefix *string `json:"commonPrefix,omitempty"`
+	// commonSuffix specifies a common suffix for all values in this slice assignment.
+	// It must be either nil pointer or a non-empty string.
+	// +optional
+	// +kubebuilder:validation:MaxLength=63
+	CommonSuffix *string `json:"commonSuffix,omitempty"`
+
+	// roots specifies the values in this assignment (excluding commonPrefix and commonSuffix, if non-empty).
+	// Its length must be equal to the "domainCount" field of the TopologyAssignmentSlice.
+	// +required
+	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=100000
+	// +kubebuilder:validation:items:MaxLength=63
+	Roots []string `json:"roots,omitempty"`
+}
+
+// +kubebuilder:validation:ExactlyOneOf=universal;individual
+type TopologyAssignmentSlicePodCounts struct {
+	// universal - if set - specifies the number of pods allocated in every domain in this slice.
+	// Exactly one of universal, individual must be set.
+	// +optional
 	// +kubebuilder:validation:Minimum=1
-	Count int32 `json:"count,omitempty"`
+	Universal *int32 `json:"universal,omitempty"`
+
+	// individual - if set - specifies the number of pods allocated in each domain in this slice.
+	// If set, its length must be equal to the "domainCount" field of the TopologyAssignmentSlice.
+	// Exactly one of universal, individual must be set.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=100000
+	// +kubebuilder:validation:items:Minimum=1
+	Individual []int32 `json:"individual,omitempty"`
 }
 
 // +kubebuilder:validation:XValidation:rule="has(self.minCount) ? self.minCount <= self.count : true", message="minCount should be positive and less or equal to count"
