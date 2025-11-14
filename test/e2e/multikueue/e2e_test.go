@@ -1010,6 +1010,20 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				})
 
+				ginkgo.By("Waiting for Kueue deployment to become not Available", func() {
+					deployment := &appsv1.Deployment{}
+					kueueNS := util.GetKueueNamespace()
+					kcmKey := types.NamespacedName{Namespace: kueueNS, Name: "kueue-controller-manager"}
+					ginkgo.By(fmt.Sprintf("Waiting for unavailble of deployment: %q", kcmKey))
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sWorker1Client.Get(ctx, kcmKey, deployment)).To(gomega.Succeed())
+						g.Expect(deployment.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
+							appsv1.DeploymentCondition{Type: appsv1.DeploymentAvailable, Status: corev1.ConditionFalse},
+							cmpopts.IgnoreFields(appsv1.DeploymentCondition{}, "Reason", "Message", "LastUpdateTime", "LastTransitionTime")),
+						))
+					}, util.StartUpTimeout, util.Interval).Should(gomega.Succeed())
+				})
+
 				ginkgo.By("Reconnecting worker1 node's APIServer", func() {
 					sedCommand := `sed -i '/^[[:space:]]*- --bind-address=127.0.0.1/d' /etc/kubernetes/manifests/kube-apiserver.yaml`
 					cmd := exec.Command("docker", "exec", worker1Container, "sh", "-c", sedCommand)
@@ -1035,7 +1049,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				ginkgo.By("Waiting for Kueue and kube-system pods to become active again", func() {
 					util.WaitForKubeSystemControllersAvailability(ctx, k8sWorker1Client, worker1Container)
 					util.RestartKueueController(ctx, k8sWorker1Client, worker1ClusterName)
-					// util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sWorker1Client)
+					util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sWorker1Client)
 				})
 
 				ginkgo.By("Checking that the Kueue is operational after reconnection", func() {
