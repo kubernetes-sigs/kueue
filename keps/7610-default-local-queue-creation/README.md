@@ -72,32 +72,22 @@ controller to enable the automatic creation of `LocalQueue`s. This field will be
 an object containing the configuration for the `LocalQueue` to be created,
 starting with a required `name` field.
 
-The existing `clusterqueue-controller` will be extended to manage this logic. It
-will watch `Namespace`s in addition to `ClusterQueue`s. When a namespace is
+A new `defaultlocalqueue-controller` will be created to manage this logic. It
+will watch `Namespace`s and `ClusterQueue`s. When a namespace is
 created or updated to match the `namespaceSelector` of a `ClusterQueue` with
 this feature enabled, the controller will create a `LocalQueue` with the
-specified name in that namespace.
-
-To prevent conflicts where two `ClusterQueue`s might try to create a `LocalQueue`
-with the same name in the same namespace, new logic to the existing `ClusterQueue`
-admission webhook will be added. This webhook will reject the creation or update
-of a `ClusterQueue` if its `namespaceSelector` (with `defaultLocalQueue` enabled)
-overlaps with an existing `ClusterQueue` that also has the feature enabled.
-
-
+specified name in that namespace. Also when a `ClusterQueue` is created or its
+`namespaceSelector` is updated then it will create required `LocalQueue`s.
 
 ### Risks and Mitigations
 
-Risk: Race Conditions and Existing `LocalQueue`s
+Risk: Existing `LocalQueue`s
 
 A `LocalQueue` with the configured name might already exist in a target
 namespace, either created manually or by another process.
 
-- Mitigation 1: The admission webhook will reject a `ClusterQueue` if a
-  `LocalQueue` with the target name already exists in a namespace matched by the
-  selector at the time of `ClusterQueue` creation/update.
 
-- Mitigation 2: The `clusterqueue-controller`'s runtime logic will be written
+- Mitigation 1: The `defaultlocalqueue-controller`'s runtime logic will be written
   defensively to handle cases where a `LocalQueue` already exists. If the
   controller identifies a namespace that should receive a default `LocalQueue`
   named `<lq-default>`, its reconciliation process will be as follows:
@@ -115,10 +105,6 @@ namespace, either created manually or by another process.
      event message will clearly state that the creation of the default
      `LocalQueue` was skipped in a specific namespace because a `LocalQueue` with
      that name already exists.
-
-  4. Continue Reconciliation: The controller will then proceed with its
-     reconciliation loop without being blocked, handling other namespaces or
-     tasks as needed. The `ClusterQueue` itself remains fully operational.
 
 ## Design Details
 
@@ -160,22 +146,25 @@ annotations:
 
 ### Controller Logic
 
-The existing `clusterqueue-controller` will be extended with the following
-reconciliation logic:
+The new `defaultlocalqueue-controller` will have reconciliation logic that handles four distinct scenarios, based on events for `ClusterQueue` and `Namespace` resources:
 
-1. The controller will watch for events on both `ClusterQueue` and `Namespace`
-   resources.
-2. On a change, it will iterate through `ClusterQueue`s that have
-   `spec.defaultLocalQueue` enabled.
-3. For each such `ClusterQueue`, it will list all `Namespace`s that match its
-   `spec.namespaceSelector`.
-4. For each matching `Namespace`, it will check if a `LocalQueue` with the name
-   from `spec.defaultLocalQueue.name` already exists.
-5. If the `LocalQueue` does not exist, the controller will create it. The new
-   `LocalQueue` will reference the current `ClusterQueue` (via
-   `spec.clusterQueue` field) and will include the identifying labels and
-   annotations.
-6. If a `LocalQueue` already exists, do nothing and emit a warning event.
+1.  **`ClusterQueue` Creation**:
+    *   When a new `ClusterQueue` is created with `spec.defaultLocalQueue` enabled, the controller lists all existing `Namespace`s.
+    *   For each `Namespace` that matches the `ClusterQueue`'s `spec.namespaceSelector`, it creates the default `LocalQueue` if it doesn't already exist.
+
+2.  **`ClusterQueue` Update**:
+    *   When a `ClusterQueue` is updated, and its `spec.namespaceSelector` has changed, the controller identifies the new set of matching `Namespace`s.
+    *   It then creates the default `LocalQueue` in any of these newly matched `Namespace`s where it doesn't already exist.
+
+3.  **`Namespace` Creation**:
+    *   When a new `Namespace` is created, the controller iterates through all `ClusterQueue`s that have `spec.defaultLocalQueue` enabled.
+    *   If the new `Namespace`'s labels match a `ClusterQueue`'s `spec.namespaceSelector`, the controller creates the default `LocalQueue` in that `Namespace`.
+
+4.  **`Namespace` Update**:
+    *   When a `Namespace`'s labels are updated, the controller re-evaluates which `ClusterQueue`s it matches.
+    *   If the `Namespace` now matches a `ClusterQueue` it didn't before, the controller creates the default `LocalQueue` in that `Namespace`.
+
+In all cases, if a `LocalQueue` with the target name already exists in the namespace, the controller will take no action and emit a warning event on the `ClusterQueue` to avoid overwriting existing resources. The created `LocalQueue` will reference the corresponding `ClusterQueue` and include identifying labels and annotations.
 
 
 ### Test Plan
@@ -206,12 +195,9 @@ Beta:
 
 ## Drawbacks
 
-The primary drawback is the added complexity to the existing
-`clusterqueue-controller` and webhook logic. A misconfiguration, though
-mitigated, could still have unintended consequences. It also introduces a
-"magical" behavior where resources are created automatically, which might be
-surprising to users not familiar with the feature. Clear documentation and
-events will be crucial.
+It introduces a "magical" behavior where resources are created automatically,
+which might be surprising to users not familiar with the feature. Clear documentation
+and events will be crucial.
 
 ## Alternatives
 
