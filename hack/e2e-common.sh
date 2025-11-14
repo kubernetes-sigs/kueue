@@ -145,9 +145,11 @@ function prepare_docker_images {
 
 # $1 cluster
 function cluster_kind_load {
-    cluster_kind_load_image "$1" "${E2E_TEST_AGNHOST_IMAGE_OLD}"
-    cluster_kind_load_image "$1" "${E2E_TEST_AGNHOST_IMAGE}"
-    cluster_kind_load_image "$1" "$IMAGE_TAG"
+    if [ "$CREATE_KIND_CLUSTER" == 'true' ]; then
+        cluster_kind_load_image "$1" "${E2E_TEST_AGNHOST_IMAGE_OLD}"
+        cluster_kind_load_image "$1" "${E2E_TEST_AGNHOST_IMAGE}"
+        cluster_kind_load_image "$1" "$IMAGE_TAG"
+    fi
 }
 
 # $1 cluster
@@ -155,9 +157,6 @@ function cluster_kind_load {
 function kind_load {
     kubectl config --kubeconfig="$2" use-context "kind-$1"
 
-    if [ "$CREATE_KIND_CLUSTER" == 'true' ]; then
-	    cluster_kind_load "$1"
-    fi
     if [[ -n ${APPWRAPPER_VERSION:-} ]]; then
         install_appwrapper "$1" "$2"
     fi
@@ -253,6 +252,10 @@ function cluster_kueue_deploy {
         helm_install "$1" "${ROOT_DIR}/test/e2e/config/default/values.yaml"
     else
         build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/default"
+    fi
+
+    if [[ "${E2E_RUN_ONLY_KUEUE}" == 'true' ]]; then
+        kubectl rollout restart deploy kueue-controller-manager -n kueue-system
     fi
 }
 
