@@ -22,7 +22,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/gomega"
-	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -599,6 +598,7 @@ func TestCQNamespaceHandlerUpdate(t *testing.T) {
 	}
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
+			g := gomega.NewGomegaWithT(t)
 			features.SetFeatureGateDuringTest(t, features.DefaultLocalQueue, tc.featureGateEnabled)
 
 			ctx, _ := utiltesting.ContextWithLog(t)
@@ -723,6 +723,7 @@ func TestCQNamespaceHandlerCreate(t *testing.T) {
 	}
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
+			g := gomega.NewGomegaWithT(t)
 			features.SetFeatureGateDuringTest(t, features.DefaultLocalQueue, tc.featureGateEnabled)
 
 			ctx, _ := utiltesting.ContextWithLog(t)
@@ -880,7 +881,7 @@ func TestClusterQueueReconcilerCreate(t *testing.T) {
 	}
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
-			g := NewGomegaWithT(t)
+			g := gomega.NewGomegaWithT(t)
 			features.SetFeatureGateDuringTest(t, features.DefaultLocalQueue, tc.featureGateEnabled)
 
 			ctx, log := utiltesting.ContextWithLog(t)
@@ -921,7 +922,7 @@ func TestClusterQueueReconcilerCreate(t *testing.T) {
 			reconciler.Create(event)
 
 			if tc.wantEvent != nil {
-				g.Expect(recorder.Events).Should(Receive(ContainSubstring(*tc.wantEvent)))
+				g.Expect(recorder.Events).Should(gomega.Receive(gomega.ContainSubstring(*tc.wantEvent)))
 			}
 
 			for nsName, wantLq := range tc.wantLqInNs {
