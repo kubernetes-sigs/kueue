@@ -18,7 +18,12 @@ package handlers
 
 import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+type Client interface {
+	client.Reader
+}
 
 // ClusterQueuesGVR defines the GroupVersionResource for ClusterQueues
 func ClusterQueuesGVR() schema.GroupVersionResource {
