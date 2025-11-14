@@ -175,7 +175,6 @@ func (w *ClusterQueueWebhook) validateClusterQueueUpdate(ctx context.Context, ne
 	return w.validateClusterQueue(ctx, newObj)
 }
 
-
 func validateTotalFlavors(resourceGroups []kueue.ResourceGroup, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 	total := 0

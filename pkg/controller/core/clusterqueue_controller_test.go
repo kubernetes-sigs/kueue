@@ -21,6 +21,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/onsi/gomega"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -603,7 +604,7 @@ func TestCQNamespaceHandlerUpdate(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			client := utiltesting.NewClientBuilder().WithObjects(tc.cq, tc.newNs).Build()
 			cqCache := schdcache.New(client)
-			cqCache.AddClusterQueue(ctx, tc.cq)
+			g.Expect(cqCache.AddClusterQueue(ctx, tc.cq)).To(gomega.Succeed())
 			qManager := qcache.NewManager(client, cqCache)
 
 			recorder := record.NewFakeRecorder(1)
@@ -729,18 +730,18 @@ func TestCQNamespaceHandlerCreate(t *testing.T) {
 			if tc.existingLq != nil {
 				clientBuilder.WithObjects(tc.existingLq)
 			}
-			            recorder := record.NewFakeRecorder(1)
-			            client := clientBuilder.Build()
-			            cqCache := schdcache.New(client)
-			            cqCache.AddClusterQueue(ctx, tc.cq)
-			            qManager := qcache.NewManager(client, cqCache)
-			
-			            handler := cqNamespaceHandler{
-			                client:   client,
-			                qManager: qManager,
-			                cache:    cqCache,
-			                recorder: recorder,
-			            }
+			recorder := record.NewFakeRecorder(1)
+			client := clientBuilder.Build()
+			cqCache := schdcache.New(client)
+			g.Expect(cqCache.AddClusterQueue(ctx, tc.cq)).To(gomega.Succeed())
+			qManager := qcache.NewManager(client, cqCache)
+
+			handler := cqNamespaceHandler{
+				client:   client,
+				qManager: qManager,
+				cache:    cqCache,
+				recorder: recorder,
+			}
 			event := event.CreateEvent{
 				Object: tc.ns,
 			}
