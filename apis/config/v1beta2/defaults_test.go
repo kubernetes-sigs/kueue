@@ -118,7 +118,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				WaitForPodsReady:             &WaitForPodsReady{},
 			},
 		},
 		"defaulting ControllerManager": {
@@ -161,7 +160,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				WaitForPodsReady:             &WaitForPodsReady{},
 			},
 		},
 		"should not default ControllerManager": {
@@ -220,7 +218,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				WaitForPodsReady:             &WaitForPodsReady{},
 			},
 		},
 		"should not set LeaderElectionID": {
@@ -263,7 +260,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				WaitForPodsReady:             &WaitForPodsReady{},
 			},
 		},
 		"defaulting InternalCertManagement": {
@@ -282,7 +278,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				Integrations:                 overwriteNamespaceIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: overwriteNamespaceSelector,
-				WaitForPodsReady:             &WaitForPodsReady{},
 			},
 		},
 		"should not default InternalCertManagement": {
@@ -302,7 +297,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				Integrations:                 overwriteNamespaceIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: overwriteNamespaceSelector,
-				WaitForPodsReady:             &WaitForPodsReady{},
 			},
 		},
 		"should not default values in custom ClientConnection": {
@@ -329,7 +323,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				Integrations:                 overwriteNamespaceIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: overwriteNamespaceSelector,
-				WaitForPodsReady:             &WaitForPodsReady{},
 			},
 		},
 		"should default empty custom ClientConnection": {
@@ -350,21 +343,17 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				Integrations:                 overwriteNamespaceIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: overwriteNamespaceSelector,
-				WaitForPodsReady:             &WaitForPodsReady{},
 			},
 		},
 		"defaulting waitForPodsReady values": {
 			original: &Configuration{
-				WaitForPodsReady: &WaitForPodsReady{
-					Enable: true,
-				},
+				WaitForPodsReady: &WaitForPodsReady{},
 				InternalCertManagement: &InternalCertManagement{
 					Enable: ptr.To(false),
 				},
 			},
 			want: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
-					Enable:          true,
 					BlockAdmission:  ptr.To(true),
 					Timeout:         &podsReadyTimeout,
 					RecoveryTimeout: nil,
@@ -385,34 +374,9 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 			},
 		},
-		"set waitForPodsReady.blockAdmission to false, and waitForPodsReady.recoveryTimeout to nil when enable is false": {
-			original: &Configuration{
-				WaitForPodsReady: &WaitForPodsReady{
-					Enable: false,
-				},
-				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
-				},
-			},
-			want: &Configuration{
-				WaitForPodsReady: &WaitForPodsReady{
-					Enable: false,
-				},
-				Namespace:         ptr.To(DefaultNamespace),
-				ControllerManager: defaultCtrlManagerConfigurationSpec,
-				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
-				},
-				ClientConnection:             defaultClientConnection,
-				Integrations:                 defaultIntegrations,
-				MultiKueue:                   defaultMultiKueue,
-				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-			},
-		},
 		"respecting provided waitForPodsReady values": {
 			original: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
-					Enable:  true,
 					Timeout: &podsReadyTimeoutOverwrite,
 					RequeuingStrategy: &RequeuingStrategy{
 						Timestamp:          ptr.To(CreationTimestamp),
@@ -427,7 +391,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 			want: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
-					Enable:          true,
 					BlockAdmission:  ptr.To(true),
 					Timeout:         &podsReadyTimeoutOverwrite,
 					RecoveryTimeout: &metav1.Duration{Duration: time.Minute},
@@ -469,7 +432,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				WaitForPodsReady:             &WaitForPodsReady{},
 			},
 		},
 		"multiKueue": {
@@ -499,7 +461,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					DispatcherName:    ptr.To(MultiKueueDispatcherModeIncremental),
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				WaitForPodsReady:             &WaitForPodsReady{},
 			},
 		},
 		"multiKueue origin is an empty value": {
@@ -529,7 +490,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					DispatcherName:    defaultMultiKueue.DispatcherName,
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				WaitForPodsReady:             &WaitForPodsReady{},
 			},
 		},
 		"multiKueue GCInterval 0": {
@@ -557,7 +517,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					DispatcherName:    defaultMultiKueue.DispatcherName,
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				WaitForPodsReady:             &WaitForPodsReady{},
 			},
 		},
 		"add default fair sharing configuration when enabled": {
@@ -580,7 +539,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				FairSharing: &FairSharing{
 					PreemptionStrategies: []PreemptionStrategy{LessThanOrEqualToFinalShare, LessThanInitialShare},
 				},
-				WaitForPodsReady: &WaitForPodsReady{},
 			},
 		},
 		"set object retention policy for workloads": {
@@ -611,7 +569,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 						AfterDeactivatedByKueue: &metav1.Duration{Duration: 30 * time.Minute},
 					},
 				},
-				WaitForPodsReady: &WaitForPodsReady{},
 			},
 		},
 		"resources.transformations strategy": {
@@ -644,7 +601,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 						{Input: corev1.ResourceEphemeralStorage, Strategy: ptr.To(DefaultResourceTransformationStrategy)},
 					},
 				},
-				WaitForPodsReady: &WaitForPodsReady{},
 			},
 		},
 	}

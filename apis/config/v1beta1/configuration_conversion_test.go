@@ -57,6 +57,26 @@ func TestConfigurationQueueConvertTo(t *testing.T) {
 				FairSharing: nil,
 			},
 		},
+		"with WaitForPodsReady": {
+			input: &Configuration{
+				WaitForPodsReady: &WaitForPodsReady{
+					Enable: true,
+				},
+			},
+			expected: &v1beta2.Configuration{
+				WaitForPodsReady: &v1beta2.WaitForPodsReady{},
+			},
+		},
+		"with WaitForPodsReady disabled": {
+			input: &Configuration{
+				WaitForPodsReady: &WaitForPodsReady{
+					Enable: false,
+				},
+			},
+			expected: &v1beta2.Configuration{
+				WaitForPodsReady: nil,
+			},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -94,6 +114,16 @@ func TestConfigurationQueueConvertFrom(t *testing.T) {
 				},
 			},
 		},
+		"with WaitForPodsReady": {
+			input: &v1beta2.Configuration{
+				WaitForPodsReady: &v1beta2.WaitForPodsReady{},
+			},
+			expected: &Configuration{
+				WaitForPodsReady: &WaitForPodsReady{
+					Enable: true,
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -121,6 +151,13 @@ func TestConfigurationQueueConversion_RoundTrip(t *testing.T) {
 				FairSharing: &FairSharing{
 					Enable:               true,
 					PreemptionStrategies: []PreemptionStrategy{LessThanOrEqualToFinalShare, LessThanInitialShare},
+				},
+			},
+		},
+		"with WaitForPodsReady": {
+			v1beta1Obj: &Configuration{
+				WaitForPodsReady: &WaitForPodsReady{
+					Enable: true,
 				},
 			},
 		},

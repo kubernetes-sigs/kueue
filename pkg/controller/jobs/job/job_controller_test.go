@@ -585,7 +585,7 @@ func TestReconciler(t *testing.T) {
 
 	testNamespace := utiltesting.MakeNamespaceWrapper("ns").Label(corev1.LabelMetadataName, "ns").Obj()
 
-	baseWaitForPodsReadyConf := &configapi.WaitForPodsReady{Enable: true}
+	baseWaitForPodsReadyConf := &configapi.WaitForPodsReady{}
 
 	cases := map[string]struct {
 		enableObjectRetentionPolicies                     bool

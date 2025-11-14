@@ -1,4 +1,4 @@
-apiVersion: config.kueue.x-k8s.io/v1beta2
+apiVersion: config.kueue.x-k8s.io/v1beta1
 kind: Configuration
 metrics:
   enableClusterQueueResources: true
@@ -12,7 +12,10 @@ controller:
     LocalQueue.kueue.x-k8s.io: 1
     ClusterQueue.kueue.x-k8s.io: 1
     ResourceFlavor.kueue.x-k8s.io: 1
-fairSharing: {}
+fairSharing:
+  enable: false
+waitForPodsReady:
+  enable: false
 internalCertManagement:
   enable: false
 clientConnection:

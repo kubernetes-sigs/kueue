@@ -29,7 +29,7 @@ controllerManager:
 kubernetesClusterDomain: cluster.local
 managerConfig:
   controllerManagerConfigYaml: |-
-    apiVersion: config.kueue.x-k8s.io/v1beta1
+    apiVersion: config.kueue.x-k8s.io/v1beta2
     kind: Configuration
     metrics:
       enableClusterQueueResources: true
@@ -43,8 +43,7 @@ managerConfig:
         LocalQueue.kueue.x-k8s.io: 1
         ClusterQueue.kueue.x-k8s.io: 1
         ResourceFlavor.kueue.x-k8s.io: 1
-    fairSharing:
-      enable: true
+    fairSharing: {}
     clientConnection:
       qps: 50
       burst: 100

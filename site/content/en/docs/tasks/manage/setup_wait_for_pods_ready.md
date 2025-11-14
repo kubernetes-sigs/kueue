@@ -41,7 +41,6 @@ fields:
 
 ```yaml
     waitForPodsReady:
-      enable: true
       timeout: 10m
       recoveryTimeout: 3m
       blockAdmission: true

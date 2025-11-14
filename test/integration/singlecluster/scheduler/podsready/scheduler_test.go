@@ -68,7 +68,6 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 	ginkgo.JustBeforeEach(func() {
 		configuration := &config.Configuration{
 			WaitForPodsReady: &config.WaitForPodsReady{
-				Enable:         true,
 				BlockAdmission: ptr.To(true),
 				Timeout:        &metav1.Duration{Duration: podsReadyTimeout},
 				RequeuingStrategy: &config.RequeuingStrategy{
@@ -603,7 +602,6 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 	ginkgo.JustBeforeEach(func() {
 		configuration := &config.Configuration{
 			WaitForPodsReady: &config.WaitForPodsReady{
-				Enable:         true,
 				BlockAdmission: ptr.To(false),
 				Timeout:        &metav1.Duration{Duration: podsReadyTimeout},
 				RequeuingStrategy: &config.RequeuingStrategy{

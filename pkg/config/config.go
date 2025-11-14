@@ -201,7 +201,3 @@ func Load(scheme *runtime.Scheme, configFile string) (ctrl.Options, configapi.Co
 	addTo(&options, &cfg)
 	return options, cfg, err
 }
-
-func WaitForPodsReadyIsEnabled(cfg *configapi.Configuration) bool {
-	return cfg.WaitForPodsReady != nil && cfg.WaitForPodsReady.Enable
-}
