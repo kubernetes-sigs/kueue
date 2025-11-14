@@ -74,7 +74,6 @@ func NewIncrementalDispatcherReconciler(c client.Client, helper *admissioncheck.
 }
 func (r *IncrementalDispatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
-	log.V(3).Info("Nominate Worker Clusters with Incremental Dispatcher")
 
 	if r.dispatcherName != kueueconfig.MultiKueueDispatcherModeIncremental {
 		log.V(3).Info("Not a Incremental Dispatcher, skip the reconciliation", "dispatcherName", r.dispatcherName)
@@ -126,6 +125,7 @@ func (r *IncrementalDispatcherReconciler) Reconcile(ctx context.Context, req ctr
 		return reconcile.Result{}, nil
 	}
 
+	log.V(3).Info("Nominate Worker Clusters with Incremental Dispatcher")
 	return r.nominateWorkers(ctx, wl, remoteClusters, log)
 }
 

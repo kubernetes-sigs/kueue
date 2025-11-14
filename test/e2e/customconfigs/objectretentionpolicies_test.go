@@ -30,7 +30,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util"
@@ -86,6 +86,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Ordered, ginkgo.Contin
 
 		job := testingjob.MakeJob("job", ns.Name).
 			Queue(kueue.LocalQueueName(lq.Name)).
+			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 			RequestAndLimit(corev1.ResourceCPU, "1").
 			Obj()
 		ginkgo.By("Creating a Job", func() {
@@ -120,13 +121,13 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Ordered, ginkgo.Contin
 		ginkgo.By("Checking that the Job is deleted", func() {
 			createdJob := &batchv1.Job{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(testing.BeNotFoundError())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(utiltesting.BeNotFoundError())
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Checking that the Workload is deleted", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(testing.BeNotFoundError())
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(utiltesting.BeNotFoundError())
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
@@ -202,7 +203,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Order
 
 			ginkgo.By("Checking that the Workload is deleted after it is finished", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(testing.BeNotFoundError())
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(utiltesting.BeNotFoundError())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -318,6 +319,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout and RequeuingL
 	ginkgo.It("should delete Job", func() {
 		job := testingjob.MakeJob("job", ns.Name).
 			Queue(kueue.LocalQueueName(lq.Name)).
+			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 			RequestAndLimit(corev1.ResourceCPU, "1").
 			Obj()
 		ginkgo.By("Creating a Job", func() {
@@ -335,7 +337,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout and RequeuingL
 			}
 			wl := &kueue.Workload{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(testing.BeNotFoundError())
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(utiltesting.BeNotFoundError())
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})

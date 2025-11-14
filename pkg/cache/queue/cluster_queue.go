@@ -21,6 +21,7 @@ import (
 	"slices"
 	"sync"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -237,26 +238,29 @@ func (c *ClusterQueue) backoffWaitingTimeExpired(wInfo *workload.Info) bool {
 }
 
 // Delete removes the workload from ClusterQueue.
-func (c *ClusterQueue) Delete(w *kueue.Workload) {
+func (c *ClusterQueue) Delete(log logr.Logger, w *kueue.Workload) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
-	c.delete(w)
+	c.delete(log, w)
 }
 
 // delete removes the workload from ClusterQueue without lock.
-func (c *ClusterQueue) delete(w *kueue.Workload) {
+func (c *ClusterQueue) delete(log logr.Logger, w *kueue.Workload) {
 	key := workload.Key(w)
 	delete(c.inadmissibleWorkloads, key)
 	c.heap.Delete(key)
 	c.forgetInflightByKey(key)
 	if c.sw.matches(key) {
+		if logV := log.V(5); logV.Enabled() {
+			logV.Info("Clearing sticky workload due to deletion", "clusterQueue", c.name, "workload", key)
+		}
 		c.sw.clear()
 	}
 }
 
 // DeleteFromLocalQueue removes all workloads belonging to this queue from
 // the ClusterQueue.
-func (c *ClusterQueue) DeleteFromLocalQueue(q *LocalQueue) {
+func (c *ClusterQueue) DeleteFromLocalQueue(log logr.Logger, q *LocalQueue) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	for _, w := range q.items {
@@ -266,7 +270,7 @@ func (c *ClusterQueue) DeleteFromLocalQueue(q *LocalQueue) {
 		}
 	}
 	for _, w := range q.items {
-		c.delete(w.Obj)
+		c.delete(log, w.Obj)
 	}
 }
 
@@ -336,16 +340,22 @@ func (c *ClusterQueue) QueueInadmissibleWorkloads(ctx context.Context, client cl
 	return moved
 }
 
-// Pending returns the total number of pending workloads.
-func (c *ClusterQueue) Pending() int {
-	c.rwm.RLock()
-	defer c.rwm.RUnlock()
-	return c.PendingActive() + c.PendingInadmissible()
+// PendingTotal returns the total number of pending workloads.
+func (c *ClusterQueue) PendingTotal() int {
+	active, inadmissible := c.Pending()
+	return active + inadmissible
 }
 
-// PendingActive returns the number of active pending workloads,
+// Pending returns the number of active and inadmissible pending workloads.
+func (c *ClusterQueue) Pending() (int, int) {
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
+	return c.pendingActive(), c.pendingInadmissible()
+}
+
+// pendingActive returns the number of active pending workloads,
 // workloads that are in the admission queue.
-func (c *ClusterQueue) PendingActive() int {
+func (c *ClusterQueue) pendingActive() int {
 	result := c.heap.Len()
 	if c.inflight != nil {
 		result++
@@ -353,11 +363,46 @@ func (c *ClusterQueue) PendingActive() int {
 	return result
 }
 
-// PendingInadmissible returns the number of inadmissible pending workloads,
+// pendingInadmissible returns the number of inadmissible pending workloads,
 // workloads that were already tried and are waiting for cluster conditions
 // to change to potentially become admissible.
-func (c *ClusterQueue) PendingInadmissible() int {
+func (c *ClusterQueue) pendingInadmissible() int {
 	return len(c.inadmissibleWorkloads)
+}
+
+// PendingInLocalQueue returns the number of active and inadmissible pending workloads in LocalQueue.
+func (c *ClusterQueue) PendingInLocalQueue(lqRef utilqueue.LocalQueueReference) (int, int) {
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
+	return c.pendingActiveInLocalQueue(lqRef), c.pendingInadmissibleInLocalQueue(lqRef)
+}
+
+// pendingActiveInLocalQueue returns the number of active pending workloads in LocalQueue,
+// workloads that are in the admission queue.
+func (c *ClusterQueue) pendingActiveInLocalQueue(lqRef utilqueue.LocalQueueReference) (active int) {
+	for _, wl := range c.heap.List() {
+		wlLqKey := utilqueue.KeyFromWorkload(wl.Obj)
+		if wlLqKey == lqRef {
+			active++
+		}
+	}
+	if c.inflight != nil && string(workloadKey(c.inflight)) == string(lqRef) {
+		active++
+	}
+	return
+}
+
+// pendingInadmissibleInLocalQueue returns the number of inadmissible pending workloads in LocalQueue,
+// workloads that were already tried and are waiting for cluster conditions
+// to change to potentially become admissible.
+func (c *ClusterQueue) pendingInadmissibleInLocalQueue(lqRef utilqueue.LocalQueueReference) (inadmissible int) {
+	for _, wl := range c.inadmissibleWorkloads {
+		wlLqKey := utilqueue.KeyFromWorkload(wl.Obj)
+		if wlLqKey == lqRef {
+			inadmissible++
+		}
+	}
+	return
 }
 
 // Pop removes the head of the queue and returns it. It returns nil if the

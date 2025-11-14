@@ -741,33 +741,50 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 
 	// phase 2a: determine the level at which the assignment is done along with
 	// the domains which can accommodate all pods/slices
-	fitLevelIdx, currFitDomain, reason := s.findLevelWithFitDomains(levelIdx, required, count, leaderCount, sliceSize, unconstrained)
-	if len(reason) > 0 {
-		return nil, reason
+	var currFitDomain []*domain
+	var fitLevelIdx int
+	var useBalancedPlacement bool
+	if features.Enabled(features.TASBalancedPlacement) && !required && !unconstrained {
+		var bestThreshold int32
+		currFitDomain, bestThreshold = findBestDomainsForBalancedPlacement(s, levelIdx, sliceLevelIdx, count, leaderCount, sliceSize)
+		useBalancedPlacement = bestThreshold > 0
+		if useBalancedPlacement {
+			currFitDomain, reason = applyBalancedPlacementAlgorithm(s, levelIdx, sliceLevelIdx, count, leaderCount, sliceSize, bestThreshold, unconstrained, currFitDomain)
+			if len(reason) > 0 {
+				return nil, reason
+			}
+		}
 	}
 
-	// phase 2b: traverse the tree down level-by-level optimizing the number of
-	// topology domains at each level
-	// if unconstrained is set, we'll only do it once
-	currFitDomain = s.updateCountsToMinimumGeneric(currFitDomain, count, leaderCount, sliceSize, unconstrained, true)
-	for levelIdx := fitLevelIdx; levelIdx+1 < len(s.domainsPerLevel); levelIdx++ {
-		if levelIdx < sliceLevelIdx {
-			// If we are "above" the requested slice topology level, we're greedily assigning pods/slices to
-			// all domains without checking what we've assigned to parent domains.
-			sortedLowerDomains := s.sortedDomains(s.lowerLevelDomains(currFitDomain), unconstrained)
-			currFitDomain = s.updateCountsToMinimumGeneric(sortedLowerDomains, count, leaderCount, sliceSize, unconstrained, true)
-		} else {
-			// If we are "at" or "below" the requested slice topology level, we have to carefully assign pods
-			// to domains based on what we've assigned to parent domains, that's why we're iterating through
-			// each parent domain and assigning `domain.state` amount of pods its child domains.
-			newCurrFitDomain := make([]*domain, 0)
-			for _, domain := range currFitDomain {
-				sortedLowerDomains := s.sortedDomains(domain.children, unconstrained)
+	if !useBalancedPlacement {
+		fitLevelIdx, currFitDomain, reason = s.findLevelWithFitDomains(levelIdx, required, count, leaderCount, sliceSize, unconstrained)
+		if len(reason) > 0 {
+			return nil, reason
+		}
+		// phase 2b: traverse the tree down level-by-level optimizing the number of
+		// topology domains at each level
+		// if unconstrained is set, we'll only do it once
+		currFitDomain = s.updateCountsToMinimumGeneric(currFitDomain, count, leaderCount, sliceSize, unconstrained, true)
 
-				addCurrFitDomain := s.updateCountsToMinimumGeneric(sortedLowerDomains, domain.state, domain.leaderState, 1, unconstrained, false)
-				newCurrFitDomain = append(newCurrFitDomain, addCurrFitDomain...)
+		for levelIdx := fitLevelIdx; levelIdx+1 < len(s.domainsPerLevel); levelIdx++ {
+			if levelIdx < sliceLevelIdx {
+				// If we are "above" the requested slice topology level, we're greedily assigning pods/slices to
+				// all domains without checking what we've assigned to parent domains.
+				sortedLowerDomains := s.sortedDomains(s.lowerLevelDomains(currFitDomain), unconstrained)
+				currFitDomain = s.updateCountsToMinimumGeneric(sortedLowerDomains, count, leaderCount, sliceSize, unconstrained, true)
+			} else {
+				// If we are "at" or "below" the requested slice topology level, we have to carefully assign pods
+				// to domains based on what we've assigned to parent domains, that's why we're iterating through
+				// each parent domain and assigning `domain.state` amount of pods its child domains.
+				newCurrFitDomain := make([]*domain, 0)
+				for _, domain := range currFitDomain {
+					sortedLowerDomains := s.sortedDomains(domain.children, unconstrained)
+
+					addCurrFitDomain := s.updateCountsToMinimumGeneric(sortedLowerDomains, domain.state, domain.leaderState, 1, unconstrained, false)
+					newCurrFitDomain = append(newCurrFitDomain, addCurrFitDomain...)
+				}
+				currFitDomain = newCurrFitDomain
 			}
-			currFitDomain = newCurrFitDomain
 		}
 	}
 

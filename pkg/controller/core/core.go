@@ -27,6 +27,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 )
 
 const (
@@ -50,14 +51,11 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		return "LocalQueue", err
 	}
 
-	var fairSharingEnabled bool
-	if cfg.FairSharing != nil {
-		fairSharingEnabled = cfg.FairSharing.Enable
-	}
-
+	fairSharingEnabled := fairsharing.Enabled(cfg.FairSharing)
 	watchers := []ClusterQueueUpdateWatcher{rfRec, acRec}
 	if features.Enabled(features.HierarchicalCohorts) {
-		cohortRec := NewCohortReconciler(mgr.GetClient(), cc, qManager, CohortReconcilerWithFairSharing(fairSharingEnabled))
+		cohortRec := NewCohortReconciler(mgr.GetClient(), cc, qManager,
+			CohortReconcilerWithFairSharing(fairSharingEnabled))
 		if err := cohortRec.SetupWithManager(mgr, cfg); err != nil {
 			return "Cohort", err
 		}

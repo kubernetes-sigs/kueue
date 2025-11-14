@@ -35,7 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -328,8 +328,8 @@ func TestReconciler(t *testing.T) {
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
 				NodeSelectorHeadGroup(corev1.LabelArchStable, "arm64").
-				NodeLabel(rayv1.HeadNode, controllerconsts.PodSetLabel, "head").
-				NodeLabel(rayv1.WorkerNode, controllerconsts.PodSetLabel, "workers-group-0").
+				NodeLabel(rayv1.HeadNode, constants.PodSetLabel, "head").
+				NodeLabel(rayv1.WorkerNode, constants.PodSetLabel, "workers-group-0").
 				NodeAnnotation(rayv1.HeadNode, kueue.WorkloadAnnotation, "test").
 				NodeAnnotation(rayv1.WorkerNode, kueue.WorkloadAnnotation, "test").
 				Obj(),
@@ -399,7 +399,7 @@ func TestReconciler(t *testing.T) {
 										Obj(),
 								},
 							}).
-							Labels(map[string]string{controllerconsts.PodSetLabel: "head"}).
+							Labels(map[string]string{constants.PodSetLabel: "head"}).
 							Obj(),
 						*utiltestingapi.MakePodSet("workers-group-0", 1).
 							PodSpec(corev1.PodSpec{
@@ -410,7 +410,7 @@ func TestReconciler(t *testing.T) {
 										Obj(),
 								},
 							}).
-							Labels(map[string]string{controllerconsts.PodSetLabel: "workers-group-0"}).
+							Labels(map[string]string{constants.PodSetLabel: "workers-group-0"}).
 							Obj(),
 					).
 					ReserveQuota(
@@ -560,8 +560,8 @@ func TestReconciler(t *testing.T) {
 				Suspend(false).
 				NodeSelectorHeadGroup(corev1.LabelArchStable, "arm64").
 				WithNumOfHosts("workers-group-0", 2).
-				NodeLabel(rayv1.HeadNode, controllerconsts.PodSetLabel, "head").
-				NodeLabel(rayv1.WorkerNode, controllerconsts.PodSetLabel, "workers-group-0").
+				NodeLabel(rayv1.HeadNode, constants.PodSetLabel, "head").
+				NodeLabel(rayv1.WorkerNode, constants.PodSetLabel, "workers-group-0").
 				NodeAnnotation(rayv1.HeadNode, kueue.WorkloadAnnotation, "test").
 				NodeAnnotation(rayv1.WorkerNode, kueue.WorkloadAnnotation, "test").
 				Obj(),

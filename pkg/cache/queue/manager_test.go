@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -307,7 +308,7 @@ func TestClusterQueueToActive(t *testing.T) {
 // TestUpdateLocalQueue tests that workloads are transferred between clusterQueues
 // when the queue points to a different clusterQueue.
 func TestUpdateLocalQueue(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	clusterQueues := []*kueue.ClusterQueue{
 		utiltestingapi.MakeClusterQueue("cq1").Obj(),
 		utiltestingapi.MakeClusterQueue("cq2").Obj(),
@@ -340,7 +341,7 @@ func TestUpdateLocalQueue(t *testing.T) {
 
 	// Update cluster queue of first queue.
 	queues[0].Spec.ClusterQueue = "cq2"
-	if err := manager.UpdateLocalQueue(queues[0]); err != nil {
+	if err := manager.UpdateLocalQueue(log, queues[0]); err != nil {
 		t.Fatalf("Failed updating queue: %v", err)
 	}
 
@@ -361,7 +362,7 @@ func TestUpdateLocalQueue(t *testing.T) {
 // TestDeleteLocalQueue tests that when a LocalQueue is deleted, all its
 // workloads are not listed in the ClusterQueue.
 func TestDeleteLocalQueue(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
 	q := utiltestingapi.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj()
 	wl := utiltestingapi.MakeWorkload("a", "").Queue("foo").Obj()
@@ -383,7 +384,7 @@ func TestDeleteLocalQueue(t *testing.T) {
 		t.Errorf("Unexpected workloads after setup (-want,+got):\n%s", diff)
 	}
 
-	manager.DeleteLocalQueue(q)
+	manager.DeleteLocalQueue(log, q)
 	wantActiveWorkloads = nil
 	if diff := cmp.Diff(wantActiveWorkloads, manager.Dump(), cmpDump...); diff != "" {
 		t.Errorf("Unexpected workloads after deleting LocalQueue (-want,+got):\n%s", diff)
@@ -777,7 +778,7 @@ func TestUpdateWorkload(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 			manager := NewManager(utiltesting.NewFakeClient(), nil)
 			for _, cq := range tc.clusterQueues {
 				if err := manager.AddClusterQueue(ctx, cq); err != nil {
@@ -794,7 +795,7 @@ func TestUpdateWorkload(t *testing.T) {
 			}
 			wl := tc.workloads[0].DeepCopy()
 			tc.update(wl)
-			err := manager.UpdateWorkload(tc.workloads[0], wl)
+			err := manager.UpdateWorkload(log, tc.workloads[0], wl)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Errorf("Unexpected UpdatedWorkload returned error (-want,+got):\n%s", diff)
 			}
@@ -1032,7 +1033,8 @@ func TestHeadsAsync(t *testing.T) {
 				go func() {
 					wlCopy := wl.DeepCopy()
 					wlCopy.ResourceVersion = "old"
-					if err := mgr.UpdateWorkload(wlCopy, &wl); err != nil {
+					log := logr.FromContextOrDiscard(ctx)
+					if err := mgr.UpdateWorkload(log, wlCopy, &wl); err != nil {
 						t.Errorf("Failed to add or update workload: %v", err)
 					}
 				}()

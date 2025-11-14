@@ -28,7 +28,7 @@ import (
 	"k8s.io/utils/set"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -121,7 +121,7 @@ var _ = ginkgo.Describe("Kueuectl Pass-through", ginkgo.Ordered, ginkgo.Continue
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%q", string(out))
 
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, key, obj)).Should(testing.BeNotFoundError())
+					g.Expect(k8sClient.Get(ctx, key, obj)).Should(utiltesting.BeNotFoundError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		},

@@ -452,12 +452,12 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// 2. handle job is finished.
 	if message, success, finished := job.Finished(ctx); finished {
 		log.V(3).Info("The workload is already finished")
-		if wl != nil && !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
+		if wl != nil && !workload.IsFinished(wl) {
 			reason := kueue.WorkloadFinishedReasonSucceeded
 			if !success {
 				reason = kueue.WorkloadFinishedReasonFailed
 			}
-			err := workload.UpdateStatus(ctx, r.client, wl, kueue.WorkloadFinished, metav1.ConditionTrue, reason, message, constants.JobControllerName, r.clock)
+			err := workload.Finish(ctx, r.client, wl, reason, message, constants.JobControllerName, r.clock)
 			if err != nil && !apierrors.IsNotFound(err) {
 				return ctrl.Result{}, err
 			}
@@ -522,18 +522,20 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			err := workload.UpdateStatus(ctx, r.client, wl, condition.Type, condition.Status, condition.Reason, condition.Message, constants.JobControllerName, r.clock)
 			if err != nil {
 				log.Error(err, "Updating workload status")
+				return ctrl.Result{}, client.IgnoreNotFound(err)
 			}
 			// update the metrics only when PodsReady condition status is true
 			if condition.Status == metav1.ConditionTrue {
 				cqName := wl.Status.Admission.ClusterQueue
+				priorityClassName := workload.PriorityClassName(wl)
 				queuedUntilReadyWaitTime := workload.QueuedWaitTime(wl, r.clock)
-				metrics.ReadyWaitTime(cqName, wl.Spec.PriorityClassName, queuedUntilReadyWaitTime)
+				metrics.ReadyWaitTime(cqName, priorityClassName, queuedUntilReadyWaitTime)
 				admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
 				admittedUntilReadyWaitTime := condition.LastTransitionTime.Sub(admittedCond.LastTransitionTime.Time)
-				metrics.ReportAdmittedUntilReadyWaitTime(cqName, wl.Spec.PriorityClassName, admittedUntilReadyWaitTime)
+				metrics.ReportAdmittedUntilReadyWaitTime(cqName, priorityClassName, admittedUntilReadyWaitTime)
 				if features.Enabled(features.LocalQueueMetrics) {
-					metrics.LocalQueueReadyWaitTime(metrics.LQRefFromWorkload(wl), wl.Spec.PriorityClassName, queuedUntilReadyWaitTime)
-					metrics.ReportLocalQueueAdmittedUntilReadyWaitTime(metrics.LQRefFromWorkload(wl), wl.Spec.PriorityClassName, admittedUntilReadyWaitTime)
+					metrics.LocalQueueReadyWaitTime(metrics.LQRefFromWorkload(wl), priorityClassName, queuedUntilReadyWaitTime)
+					metrics.ReportLocalQueueAdmittedUntilReadyWaitTime(metrics.LQRefFromWorkload(wl), priorityClassName, admittedUntilReadyWaitTime)
 				}
 			}
 			return ctrl.Result{}, nil
@@ -582,7 +584,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				log.Error(err, "Unsuspending job")
 				if podset.IsPermanent(err) {
 					// Mark the workload as finished with failure since the is no point to retry.
-					errUpdateStatus := workload.UpdateStatus(ctx, r.client, wl, kueue.WorkloadFinished, metav1.ConditionTrue, FailedToStartFinishedReason, err.Error(), constants.JobControllerName, r.clock)
+					errUpdateStatus := workload.Finish(ctx, r.client, wl, FailedToStartFinishedReason, err.Error(), constants.JobControllerName, r.clock)
 					if errUpdateStatus != nil {
 						log.Error(errUpdateStatus, "Updating workload status, on start failure", "err", err)
 					}
@@ -944,7 +946,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 
 // UpdateWorkloadPriority updates workload priority if object's kueue.x-k8s.io/priority-class label changed.
 func UpdateWorkloadPriority(ctx context.Context, c client.Client, r record.EventRecorder, obj client.Object, wl *kueue.Workload, customPriorityClassFunc func() string) error {
-	if wl.Spec.PriorityClassSource == constants.WorkloadPriorityClassSource && WorkloadPriorityClassName(obj) != wl.Spec.PriorityClassName {
+	if workload.IsWorkloadPriorityClass(wl) && WorkloadPriorityClassName(obj) != workload.PriorityClassName(wl) {
 		if err := PrepareWorkloadPriority(ctx, c, obj, wl, customPriorityClassFunc); err != nil {
 			return fmt.Errorf("prepare workload priority: %w", err)
 		}
@@ -1020,13 +1022,8 @@ func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *ku
 			return false, err
 		}
 		// mark the workload as finished
-		err := workload.UpdateStatus(ctx, r.client, wl,
-			kueue.WorkloadFinished,
-			metav1.ConditionTrue,
-			kueue.WorkloadFinishedReasonOutOfSync,
-			"The prebuilt workload is out of sync with its user job",
-			constants.JobControllerName, r.clock)
-		return false, err
+		msg := "The prebuilt workload is out of sync with its user job"
+		return false, workload.Finish(ctx, r.client, wl, kueue.WorkloadFinishedReasonOutOfSync, msg, constants.JobControllerName, r.clock)
 	}
 	return true, nil
 }
@@ -1293,14 +1290,13 @@ func getCustomPriorityClassFuncFromJob(job GenericJob) func() string {
 }
 
 func PrepareWorkloadPriority(ctx context.Context, c client.Client, obj client.Object, wl *kueue.Workload, customPriorityClassFunc func() string) error {
-	priorityClassName, source, p, err := ExtractPriority(ctx, c, obj, wl.Spec.PodSets, customPriorityClassFunc)
+	priorityClassRef, priority, err := ExtractPriority(ctx, c, obj, wl.Spec.PodSets, customPriorityClassFunc)
 	if err != nil {
 		return err
 	}
 
-	wl.Spec.PriorityClassName = priorityClassName
-	wl.Spec.Priority = &p
-	wl.Spec.PriorityClassSource = source
+	wl.Spec.PriorityClassRef = priorityClassRef
+	wl.Spec.Priority = &priority
 
 	return nil
 }
@@ -1319,7 +1315,7 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 	return nil
 }
 
-func ExtractPriority(ctx context.Context, c client.Client, obj client.Object, podSets []kueue.PodSet, customPriorityClassFunc func() string) (string, string, int32, error) {
+func ExtractPriority(ctx context.Context, c client.Client, obj client.Object, podSets []kueue.PodSet, customPriorityClassFunc func() string) (*kueue.PriorityClassRef, int32, error) {
 	if workloadPriorityClass := WorkloadPriorityClassName(obj); len(workloadPriorityClass) > 0 {
 		return utilpriority.GetPriorityFromWorkloadPriorityClass(ctx, c, workloadPriorityClass)
 	}
@@ -1356,7 +1352,7 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 			info.Annotations[kueue.WorkloadAnnotation] = w.Name
 		}
 
-		info.Labels[controllerconsts.PodSetLabel] = string(psAssignment.Name)
+		info.Labels[constants.PodSetLabel] = string(psAssignment.Name)
 
 		for _, admissionCheck := range w.Status.AdmissionChecks {
 			for _, podSetUpdate := range admissionCheck.PodSetUpdates {

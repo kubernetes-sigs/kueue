@@ -171,7 +171,7 @@ type ProvisioningRequestConfig struct {
 
 	// spec is the specification of the ProvisioningRequestConfig.
 	// +optional
-	Spec ProvisioningRequestConfigSpec `json:"spec"` //nolint:kubeapilinter // should not be a pointer
+	Spec ProvisioningRequestConfigSpec `json:"spec"`
 }
 
 // +kubebuilder:object:root=true

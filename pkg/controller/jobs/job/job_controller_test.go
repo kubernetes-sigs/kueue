@@ -928,7 +928,7 @@ func TestReconciler(t *testing.T) {
 			job: *baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
-				PodLabel(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 				PodAnnotation(kueue.WorkloadAnnotation, "wl").
 				Obj(),
 			workloads: []kueue.Workload{
@@ -1023,7 +1023,7 @@ func TestReconciler(t *testing.T) {
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
 				PodLabel("ac-key", "ac-value").
-				PodLabel(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -2328,7 +2328,7 @@ func TestReconciler(t *testing.T) {
 				PodAnnotation("annotation-key1", "common-value").
 				PodAnnotation("annotation-key2", "only-in-check1").
 				PodLabel("label-key1", "common-value").
-				PodLabel(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 				NodeSelector("node-selector-key1", "common-value").
 				NodeSelector("node-selector-key2", "only-in-check2").
 				Obj(),
@@ -2435,7 +2435,7 @@ func TestReconciler(t *testing.T) {
 			job: *baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
-				PodLabel(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -2522,7 +2522,7 @@ func TestReconciler(t *testing.T) {
 				SetAnnotation(JobMinParallelismAnnotation, "5").
 				Suspend(false).
 				Parallelism(8).
-				PodLabel(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 				Obj(),
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("a", "ns").
@@ -2689,8 +2689,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("foo").
 					Priority(baseWPCWrapper.Value).
-					PriorityClassSource(constants.WorkloadPriorityClassSource).
-					PriorityClass(baseWPCWrapper.Name).
+					WorkloadPriorityClassRef(baseWPCWrapper.Name).
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
@@ -2702,8 +2701,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("foo").
 					Priority(highWPCWrapper.Value).
-					PriorityClassSource(constants.WorkloadPriorityClassSource).
-					PriorityClass(highWPCWrapper.Name).
+					WorkloadPriorityClassRef(highWPCWrapper.Name).
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
@@ -2739,8 +2737,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).PriorityClass(basePCWrapper.Name).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("foo").
 					Priority(basePCWrapper.Value).
-					PriorityClassSource(constants.PodPriorityClassSource).
-					PriorityClass(basePCWrapper.Name).
+					PodPriorityClassRef(basePCWrapper.Name).
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
@@ -2752,8 +2749,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).PriorityClass(basePCWrapper.Name).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("foo").
 					Priority(basePCWrapper.Value).
-					PriorityClassSource(constants.PodPriorityClassSource).
-					PriorityClass(basePCWrapper.Name).
+					PodPriorityClassRef(basePCWrapper.Name).
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
@@ -3185,9 +3181,8 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue").
-					PriorityClass("test-wpc").
+					WorkloadPriorityClassRef("test-wpc").
 					Priority(100).
-					PriorityClassSource(constants.WorkloadPriorityClassSource).
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
@@ -3230,9 +3225,8 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
 					Queue("test-queue").
-					PriorityClass("test-pc").
+					PodPriorityClassRef("test-pc").
 					Priority(200).
-					PriorityClassSource(constants.PodPriorityClassSource).
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
@@ -3277,9 +3271,8 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
 					Queue("test-queue").
-					PriorityClass("test-wpc").
+					WorkloadPriorityClassRef("test-wpc").
 					Priority(100).
-					PriorityClassSource(constants.WorkloadPriorityClassSource).
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
@@ -3349,9 +3342,8 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
 					Queue("test-queue").
-					PriorityClass("test-wpc").
+					WorkloadPriorityClassRef("test-wpc").
 					Priority(100).
-					PriorityClassSource(constants.WorkloadPriorityClassSource).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -3359,9 +3351,8 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
 					Queue("test-queue").
-					PriorityClass("test-wpc").
+					WorkloadPriorityClassRef("test-wpc").
 					Priority(100).
-					PriorityClassSource(constants.WorkloadPriorityClassSource).
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
@@ -3394,9 +3385,8 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
 					Queue("test-queue").
-					PriorityClass("test-wpc").
+					WorkloadPriorityClassRef("test-wpc").
 					Priority(100).
-					PriorityClassSource(constants.WorkloadPriorityClassSource).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "other-job", "other-uid").
 					Obj(),
 			},
@@ -3405,9 +3395,8 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
 					Queue("test-queue").
-					PriorityClass("test-wpc").
+					WorkloadPriorityClassRef("test-wpc").
 					Priority(100).
-					PriorityClassSource(constants.WorkloadPriorityClassSource).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "other-job", "other-uid").
 					Obj(),
 			},
@@ -3438,9 +3427,8 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
 					Queue("test-queue").
-					PriorityClass("test-wpc").
+					WorkloadPriorityClassRef("test-wpc").
 					Priority(100).
-					PriorityClassSource(constants.WorkloadPriorityClassSource).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -3448,9 +3436,8 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
 					Queue("test-queue").
-					PriorityClass("test-wpc").
+					WorkloadPriorityClassRef("test-wpc").
 					Priority(100).
-					PriorityClassSource(constants.WorkloadPriorityClassSource).
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).

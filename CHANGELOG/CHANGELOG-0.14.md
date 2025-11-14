@@ -1,3 +1,20 @@
+## v0.14.4
+
+Changes since `v0.14.3`:
+
+## Changes by Kind
+
+### Feature
+
+- `ReclaimablePods` feature gate is introduced to enable users switching on and off the reclaimable Pods feature (#7537, @PBundyra)
+
+### Bug or Regression
+
+- Fix eviction of jobs with memory requests in decimal format (#7556, @brejman)
+- Fix the bug for the StatefulSet integration that the scale up could get stuck if
+  triggered immediately after scale down to zero. (#7500, @IrvingMg)
+- MultiKueue: Remove remoteClient from clusterReconciler when kubeconfig is detected as invalid or insecure, preventing workloads from being admitted to misconfigured clusters. (#7517, @mszadkow)
+
 ## v0.14.3
 
 Changes since `v0.14.2`:

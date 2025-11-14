@@ -28,10 +28,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	statefulsettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 	"sigs.k8s.io/kueue/test/util"
@@ -482,12 +481,15 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 				Name:      statefulset.GetWorkloadName(lowPrioritySTS.Name),
 				Namespace: ns.Name,
 			}
+
+			ginkgo.By("Verify the low-priority Workload created with workload priority class", func() {
+				util.ExpectWorkloadsWithWorkloadPriority(ctx, k8sClient, lowPriorityWPC.Name, lowPriorityWPC.Value, lowPriorityWlKey)
+			})
+
 			ginkgo.By("Check the low-priority Workload is created and admitted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, lowPriorityWlKey, createdLowPriorityWl)).To(gomega.Succeed())
-					g.Expect(createdLowPriorityWl.Spec.PriorityClassSource).To(gomega.Equal(constants.WorkloadPriorityClassSource))
-					g.Expect(createdLowPriorityWl.Spec.PriorityClassName).To(gomega.Equal(lowPriorityWPC.Name))
-					g.Expect(createdLowPriorityWl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+					g.Expect(createdLowPriorityWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -525,12 +527,14 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 				Name:      statefulset.GetWorkloadName(highPrioritySTS.Name),
 				Namespace: ns.Name,
 			}
+			ginkgo.By("Verify the high-priority Workload created with workload priority class", func() {
+				util.ExpectWorkloadsWithWorkloadPriority(ctx, k8sClient, highPriorityWPC.Name, highPriorityWPC.Value, highPriorityWlKey)
+			})
+
 			ginkgo.By("Await for the high-priority Workload to be admitted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, highPriorityWlKey, createdHighPriorityWl)).To(gomega.Succeed())
-					g.Expect(createdHighPriorityWl.Spec.PriorityClassSource).To(gomega.Equal(constants.WorkloadPriorityClassSource))
-					g.Expect(createdHighPriorityWl.Spec.PriorityClassName).To(gomega.Equal(highPriorityWPC.Name))
-					g.Expect(createdHighPriorityWl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+					g.Expect(createdHighPriorityWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})

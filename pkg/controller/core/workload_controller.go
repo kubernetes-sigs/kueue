@@ -52,7 +52,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -388,17 +387,18 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			quotaReservedCondition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 			quotaReservedWaitTime := r.clock.Since(quotaReservedCondition.LastTransitionTime.Time)
 			r.recorder.Eventf(&wl, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was %.0fs", wl.Status.Admission.ClusterQueue, quotaReservedWaitTime.Seconds())
-			metrics.AdmittedWorkload(cqName, wl.Spec.PriorityClassName, queuedWaitTime)
-			metrics.ReportAdmissionChecksWaitTime(cqName, wl.Spec.PriorityClassName, quotaReservedWaitTime)
+			priorityClassName := workload.PriorityClassName(&wl)
+			metrics.AdmittedWorkload(cqName, priorityClassName, queuedWaitTime)
+			metrics.ReportAdmissionChecksWaitTime(cqName, priorityClassName, quotaReservedWaitTime)
 			if features.Enabled(features.LocalQueueMetrics) {
 				metrics.LocalQueueAdmittedWorkload(
 					metrics.LQRefFromWorkload(&wl),
-					wl.Spec.PriorityClassName,
+					priorityClassName,
 					queuedWaitTime,
 				)
 				metrics.ReportLocalQueueAdmissionChecksWaitTime(
 					metrics.LQRefFromWorkload(&wl),
-					wl.Spec.PriorityClassName,
+					priorityClassName,
 					quotaReservedWaitTime,
 				)
 			}
@@ -785,7 +785,7 @@ func (r *WorkloadReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) b
 
 	// Even if the state is unknown, the last cached state tells us whether the
 	// workload was in the queues and should be cleared from them.
-	r.queues.DeleteWorkload(e.Object)
+	r.queues.DeleteWorkload(log, e.Object)
 
 	return true
 }
@@ -824,7 +824,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			log.V(2).Info("Workload will not be queued because the workload is not active")
 		}
 		// The workload could have been in the queues if we missed an event.
-		r.queues.DeleteWorkload(e.ObjectNew)
+		r.queues.DeleteWorkload(log, e.ObjectNew)
 
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, e.ObjectNew, func() {
@@ -841,13 +841,13 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(e.ObjectNew) {
 			log.V(2).Info("Skipping queue update for DRA workload - handled in Reconcile")
 		} else {
-			err := r.queues.UpdateWorkload(e.ObjectOld, wlCopy)
+			err := r.queues.UpdateWorkload(log, e.ObjectOld, wlCopy)
 			if err != nil {
 				log.V(2).Info("ignored an error for now", "error", err)
 			}
 		}
 	case prevStatus == workload.StatusPending && (status == workload.StatusQuotaReserved || status == workload.StatusAdmitted):
-		r.queues.DeleteWorkload(e.ObjectOld)
+		r.queues.DeleteWorkload(log, e.ObjectOld)
 		if !r.cache.AddOrUpdateWorkload(log, wlCopy) {
 			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 		}
@@ -924,10 +924,9 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 }
 
 func workloadPriorityClassChanged(old, new *kueue.Workload) bool {
-	return old.Spec.PriorityClassSource == constants.WorkloadPriorityClassSource &&
-		new.Spec.PriorityClassSource == constants.WorkloadPriorityClassSource &&
-		old.Spec.PriorityClassName != "" && new.Spec.PriorityClassName != "" &&
-		old.Spec.PriorityClassName != new.Spec.PriorityClassName
+	return workload.IsWorkloadPriorityClass(old) && workload.IsWorkloadPriorityClass(new) &&
+		workload.PriorityClassName(old) != "" && workload.PriorityClassName(new) != "" &&
+		workload.PriorityClassName(old) != workload.PriorityClassName(new)
 }
 
 func (r *WorkloadReconciler) Generic(e event.TypedGenericEvent[*kueue.Workload]) bool {
@@ -1113,7 +1112,6 @@ func (w *workloadQueueHandler) Update(ctx context.Context, ev event.UpdateEvent,
 		log.V(5).Info("Workload cluster queue update event")
 
 		if !newCq.DeletionTimestamp.IsZero() ||
-			!utilslices.CmpNoOrder(oldCq.Spec.AdmissionChecks, newCq.Spec.AdmissionChecks) ||
 			!gocmp.Equal(oldCq.Spec.AdmissionChecksStrategy, newCq.Spec.AdmissionChecksStrategy) ||
 			!ptr.Equal(oldCq.Spec.StopPolicy, newCq.Spec.StopPolicy) {
 			w.queueReconcileForWorkloadsOfClusterQueue(ctx, newCq.Name, wq)

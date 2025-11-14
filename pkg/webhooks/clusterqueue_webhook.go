@@ -24,7 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	apimachineryvalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -108,8 +108,7 @@ func (w *ClusterQueueWebhook) validateClusterQueue(ctx context.Context, cq *kueu
 	}
 	allErrs = append(allErrs, validateResourceGroups(cq.Spec.ResourceGroups, config, path.Child("resourceGroups"), false)...)
 	allErrs = append(allErrs,
-		metav1validation.ValidateLabelSelector(cq.Spec.NamespaceSelector, metav1validation.LabelSelectorValidationOptions{}, path.Child("namespaceSelector"))...)
-	allErrs = append(allErrs, validateCQAdmissionChecks(&cq.Spec, path)...)
+		validation.ValidateLabelSelector(cq.Spec.NamespaceSelector, validation.LabelSelectorValidationOptions{}, path.Child("namespaceSelector"))...)
 	if cq.Spec.Preemption != nil {
 		allErrs = append(allErrs, validatePreemption(cq.Spec.Preemption, path.Child("preemption"))...)
 	}
@@ -228,15 +227,6 @@ func validatePreemption(preemption *kueue.ClusterQueuePreemption, path *field.Pa
 		preemption.BorrowWithinCohort.Policy != kueue.BorrowWithinCohortPolicyNever {
 		allErrs = append(allErrs, field.Invalid(path, preemption, "reclaimWithinCohort=Never and borrowWithinCohort.Policy!=Never"))
 	}
-	return allErrs
-}
-
-func validateCQAdmissionChecks(spec *kueue.ClusterQueueSpec, path *field.Path) field.ErrorList {
-	var allErrs field.ErrorList
-	if spec.AdmissionChecksStrategy != nil && len(spec.AdmissionChecks) != 0 {
-		allErrs = append(allErrs, field.Invalid(path, spec, "Either AdmissionChecks or AdmissionCheckStrategy can be set, but not both"))
-	}
-
 	return allErrs
 }
 

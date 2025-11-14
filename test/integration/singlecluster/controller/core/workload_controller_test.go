@@ -25,17 +25,15 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/slices"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
@@ -52,7 +50,6 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 		clusterQueue                 *kueue.ClusterQueue
 		workloadPriorityClass        *kueue.WorkloadPriorityClass
 		updatedWorkloadPriorityClass *kueue.WorkloadPriorityClass
-		realClock                    = clock.RealClock{}
 	)
 
 	ginkgo.BeforeAll(func() {
@@ -227,12 +224,12 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 						Name:    "check1",
 						State:   kueue.CheckStateReady,
 						Message: "check successfully passed",
-					}, realClock)
+					}, util.RealClock)
 					workload.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:    "check2",
 						State:   kueue.CheckStateRetry,
 						Message: "check rejected",
-					}, realClock)
+					}, util.RealClock)
 					g.Expect(k8sClient.Status().Update(ctx, &createdWl)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -246,7 +243,12 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				queueKey := client.ObjectKeyFromObject(clusterQueue)
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, queueKey, &createdQueue)).To(gomega.Succeed())
-					createdQueue.Spec.AdmissionChecks = []kueue.AdmissionCheckReference{"check2", "check3"}
+					createdQueue.Spec.AdmissionChecksStrategy = &kueue.AdmissionChecksStrategy{
+						AdmissionChecks: []kueue.AdmissionCheckStrategyRule{
+							{Name: "check2"},
+							{Name: "check3"},
+						},
+					}
 					g.Expect(k8sClient.Update(ctx, &createdQueue)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -288,7 +290,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 						Name:    "check1",
 						State:   kueue.CheckStateRejected,
 						Message: "check rejected",
-					}, realClock)
+					}, util.RealClock)
 					g.Expect(k8sClient.Status().Update(ctx, &createdWl)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -298,7 +300,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
 					g.Expect(workload.IsActive(updatedWl)).To(gomega.BeFalse())
-					ok, err := testing.HasEventAppeared(ctx, k8sClient, corev1.Event{
+					ok, err := utiltesting.HasEventAppeared(ctx, k8sClient, corev1.Event{
 						Reason:  "AdmissionCheckRejected",
 						Type:    corev1.EventTypeWarning,
 						Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: %s", "check1", "check rejected"),
@@ -340,12 +342,12 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 						Name:    "check1",
 						State:   kueue.CheckStateReady,
 						Message: "check ready",
-					}, realClock)
+					}, util.RealClock)
 					workload.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:    "check2",
 						State:   kueue.CheckStateReady,
 						Message: "check ready",
-					}, realClock)
+					}, util.RealClock)
 					g.Expect(k8sClient.Status().Update(ctx, &createdWl)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -369,7 +371,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 						Name:    "check1",
 						State:   kueue.CheckStateRejected,
 						Message: "check rejected",
-					}, realClock)
+					}, util.RealClock)
 					g.Expect(k8sClient.Status().Update(ctx, &createdWl)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -379,7 +381,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
 					g.Expect(workload.IsActive(updatedWl)).To(gomega.BeFalse())
-					ok, err := testing.HasEventAppeared(ctx, k8sClient, corev1.Event{
+					ok, err := utiltesting.HasEventAppeared(ctx, k8sClient, corev1.Event{
 						Reason:  "AdmissionCheckRejected",
 						Type:    corev1.EventTypeWarning,
 						Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: %s", "check1", "check rejected"),
@@ -411,7 +413,9 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 		ginkgo.It("case of WorkloadPriorityClass", func() {
 			ginkgo.By("creating workload")
 			wl = utiltestingapi.MakeWorkload("wl", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
-				PriorityClass("workload-priority-class").PriorityClassSource(constants.WorkloadPriorityClassSource).Priority(200).Obj()
+				WorkloadPriorityClassRef("workload-priority-class").
+				Priority(200).
+				Obj()
 			util.MustCreate(ctx, k8sClient, wl)
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
@@ -501,8 +505,8 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 			ginkgo.By("evicting the workload, the accumulated admission time is updated", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
-					g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, wl, realClock, func() (*kueue.Workload, bool, error) {
-						return wl, workload.SetEvictedCondition(wl, realClock.Now(), "ByTest", "by test"), nil
+					g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, wl, util.RealClock, func() (*kueue.Workload, bool, error) {
+						return wl, workload.SetEvictedCondition(wl, util.RealClock.Now(), "ByTest", "by test"), nil
 					})).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				util.FinishEvictionForWorkloads(ctx, k8sClient, wl)

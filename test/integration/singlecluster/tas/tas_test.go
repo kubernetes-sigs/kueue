@@ -40,7 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -212,57 +212,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 		})
 	})
 
-	ginkgo.When("Negative scenarios for ClusterQueue configuration", func() {
-		var (
-			topology       *kueue.Topology
-			tasFlavor      *kueue.ResourceFlavor
-			clusterQueue   *kueue.ClusterQueue
-			admissionCheck *kueue.AdmissionCheck
-		)
-
-		ginkgo.BeforeEach(func() {
-			topology = utiltestingapi.MakeDefaultTwoLevelTopology("default")
-			util.MustCreate(ctx, k8sClient, topology)
-
-			tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
-				NodeLabel("node-group", "tas").
-				TopologyName("default").Obj()
-			util.MustCreate(ctx, k8sClient, tasFlavor)
-		})
-
-		ginkgo.AfterEach(func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, admissionCheck, true)
-		})
-
-		ginkgo.It("should mark TAS ClusterQueue as inactive if used with MultiKueue", func() {
-			admissionCheck = utiltestingapi.MakeAdmissionCheck("multikueue").ControllerName(kueue.MultiKueueControllerName).Obj()
-			util.MustCreate(ctx, k8sClient, admissionCheck)
-			util.SetAdmissionCheckActive(ctx, k8sClient, admissionCheck, metav1.ConditionTrue)
-
-			clusterQueue = utiltestingapi.MakeClusterQueue("cq").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj(),
-				).AdmissionChecks(kueue.AdmissionCheckReference(admissionCheck.Name)).Obj()
-			util.MustCreate(ctx, k8sClient, clusterQueue)
-
-			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedCq kueue.ClusterQueue
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
-				g.Expect(updatedCq.Status.Conditions).Should(gomega.BeComparableTo([]metav1.Condition{
-					{
-						Type:    kueue.ClusterQueueActive,
-						Status:  metav1.ConditionFalse,
-						Reason:  "NotSupportedWithTopologyAwareScheduling",
-						Message: `Can't admit new workloads: TAS is not supported with MultiKueue admission check.`,
-					},
-				}, util.IgnoreConditionTimestampsAndObservedGeneration))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
-	})
-
 	ginkgo.When("Single TAS Resource Flavor", func() {
 		var (
 			tasFlavor    *kueue.ResourceFlavor
@@ -280,8 +229,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				nodes = []corev1.Node{
 					*testingnode.MakeNode("b1-r1").
 						Label("node-group", "tas").
-						Label(testing.DefaultBlockTopologyLevel, "b1").
-						Label(testing.DefaultRackTopologyLevel, "r1").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+						Label(utiltesting.DefaultRackTopologyLevel, "r1").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
 							corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -291,8 +240,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Obj(),
 					*testingnode.MakeNode("b1-r2").
 						Label("node-group", "tas").
-						Label(testing.DefaultBlockTopologyLevel, "b1").
-						Label(testing.DefaultRackTopologyLevel, "r2").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+						Label(utiltesting.DefaultRackTopologyLevel, "r2").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
 							corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -302,8 +251,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Obj(),
 					*testingnode.MakeNode("b2-r1").
 						Label("node-group", "tas").
-						Label(testing.DefaultBlockTopologyLevel, "b2").
-						Label(testing.DefaultRackTopologyLevel, "r1").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b2").
+						Label(utiltesting.DefaultRackTopologyLevel, "r1").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
 							corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -313,8 +262,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Obj(),
 					*testingnode.MakeNode("b2-r2").
 						Label("node-group", "tas").
-						Label(testing.DefaultBlockTopologyLevel, "b2").
-						Label(testing.DefaultRackTopologyLevel, "r2").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b2").
+						Label(utiltesting.DefaultRackTopologyLevel, "r2").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
 							corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -360,7 +309,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					wl1 := utiltestingapi.MakeWorkload("wl1-inadmissible", ns.Name).
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 					wl1.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
-						Required: ptr.To(testing.DefaultRackTopologyLevel),
+						Required: ptr.To(utiltesting.DefaultRackTopologyLevel),
 					}
 					util.MustCreate(ctx, k8sClient, wl1)
 				})
@@ -377,7 +326,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
 					wl1.Spec.PodSets[0].Count = 2
 					wl1.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
-						Required: ptr.To(testing.DefaultBlockTopologyLevel),
+						Required: ptr.To(utiltesting.DefaultBlockTopologyLevel),
 					}
 					util.MustCreate(ctx, k8sClient, wl1)
 				})
@@ -392,8 +341,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
 						&kueue.TopologyAssignment{
 							Levels: []string{
-								testing.DefaultBlockTopologyLevel,
-								testing.DefaultRackTopologyLevel,
+								utiltesting.DefaultBlockTopologyLevel,
+								utiltesting.DefaultRackTopologyLevel,
 							},
 							Domains: []kueue.TopologyDomainAssignment{
 								{
@@ -419,7 +368,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					wl2 = utiltestingapi.MakeWorkload("wl2", ns.Name).
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
 					wl2.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
-						Required: ptr.To(testing.DefaultRackTopologyLevel),
+						Required: ptr.To(utiltesting.DefaultRackTopologyLevel),
 					}
 					util.MustCreate(ctx, k8sClient, wl2)
 				})
@@ -434,8 +383,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Expect(wl2.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
 						&kueue.TopologyAssignment{
 							Levels: []string{
-								testing.DefaultBlockTopologyLevel,
-								testing.DefaultRackTopologyLevel,
+								utiltesting.DefaultBlockTopologyLevel,
+								utiltesting.DefaultRackTopologyLevel,
 							},
 							Domains: []kueue.TopologyDomainAssignment{
 								{
@@ -454,7 +403,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					wl3 = utiltestingapi.MakeWorkload("wl3", ns.Name).
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
 					wl3.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
-						Required: ptr.To(testing.DefaultRackTopologyLevel),
+						Required: ptr.To(utiltesting.DefaultRackTopologyLevel),
 					}
 					util.MustCreate(ctx, k8sClient, wl3)
 				})
@@ -469,8 +418,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Expect(wl3.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
 						&kueue.TopologyAssignment{
 							Levels: []string{
-								testing.DefaultBlockTopologyLevel,
-								testing.DefaultRackTopologyLevel,
+								utiltesting.DefaultBlockTopologyLevel,
+								utiltesting.DefaultRackTopologyLevel,
 							},
 							Domains: []kueue.TopologyDomainAssignment{
 								{
@@ -489,7 +438,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					wl4 = utiltestingapi.MakeWorkload("wl4", ns.Name).
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
 					wl4.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
-						Required: ptr.To(testing.DefaultRackTopologyLevel),
+						Required: ptr.To(utiltesting.DefaultRackTopologyLevel),
 					}
 					util.MustCreate(ctx, k8sClient, wl4)
 					util.ExpectWorkloadsToBePending(ctx, k8sClient, wl4)
@@ -510,8 +459,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Expect(wl4.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
 						&kueue.TopologyAssignment{
 							Levels: []string{
-								testing.DefaultBlockTopologyLevel,
-								testing.DefaultRackTopologyLevel,
+								utiltesting.DefaultBlockTopologyLevel,
+								utiltesting.DefaultRackTopologyLevel,
 							},
 							Domains: []kueue.TopologyDomainAssignment{
 								{
@@ -534,7 +483,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
 					wl1.Spec.PodSets[0].Count = 4
 					wl1.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
-						Preferred: ptr.To(testing.DefaultBlockTopologyLevel),
+						Preferred: ptr.To(utiltesting.DefaultBlockTopologyLevel),
 					}
 					util.MustCreate(ctx, k8sClient, wl1)
 				})
@@ -548,7 +497,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					wl2 = utiltestingapi.MakeWorkload("wl2", ns.Name).
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
 					wl2.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
-						Required: ptr.To(testing.DefaultRackTopologyLevel),
+						Required: ptr.To(utiltesting.DefaultRackTopologyLevel),
 					}
 					util.MustCreate(ctx, k8sClient, wl2)
 				})
@@ -577,7 +526,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					wl3 = utiltestingapi.MakeWorkload("wl3", ns.Name).
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
 					wl3.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
-						Preferred: ptr.To(testing.DefaultRackTopologyLevel),
+						Preferred: ptr.To(utiltesting.DefaultRackTopologyLevel),
 					}
 					util.MustCreate(ctx, k8sClient, wl3)
 				})
@@ -632,7 +581,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				ginkgo.By("creating a workload which requires block and can fit", func() {
 					wl = utiltestingapi.MakeWorkload("wl", ns.Name).
 						Queue(kueue.LocalQueueName(localQueue.Name)).PodSets(*utiltestingapi.MakePodSet("worker", 2).
-						RequiredTopologyRequest(testing.DefaultBlockTopologyLevel).
+						RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
 						Obj()).Request(corev1.ResourceCPU, "1").Obj()
 					util.MustCreate(ctx, k8sClient, wl)
 				})
@@ -656,7 +605,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 					gomega.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
 						&kueue.TopologyAssignment{
-							Levels: []string{testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel},
+							Levels: []string{utiltesting.DefaultBlockTopologyLevel, utiltesting.DefaultRackTopologyLevel},
 							Domains: []kueue.TopologyDomainAssignment{
 								{Count: 1, Values: []string{"b1", "r1"}},
 								{Count: 1, Values: []string{"b1", "r2"}},
@@ -699,7 +648,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				ginkgo.By("creating a workload which requires block and can fit", func() {
 					wl = utiltestingapi.MakeWorkload("wl", ns.Name).
 						Queue(kueue.LocalQueueName(localQueue.Name)).PodSets(*utiltestingapi.MakePodSet("worker", 2).
-						RequiredTopologyRequest(testing.DefaultBlockTopologyLevel).
+						RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
 						Obj()).Request(corev1.ResourceCPU, "1").Obj()
 					util.MustCreate(ctx, k8sClient, wl)
 				})
@@ -725,7 +674,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 					gomega.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
 						&kueue.TopologyAssignment{
-							Levels: []string{testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel},
+							Levels: []string{utiltesting.DefaultBlockTopologyLevel, utiltesting.DefaultRackTopologyLevel},
 							Domains: []kueue.TopologyDomainAssignment{
 								{Count: 1, Values: []string{"b1", "r1"}},
 								{Count: 1, Values: []string{"b1", "r2"}},
@@ -749,8 +698,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				nodes = []corev1.Node{
 					*testingnode.MakeNode("x3").
 						Label("node-group", "tas").
-						Label(testing.DefaultBlockTopologyLevel, "b1").
-						Label(testing.DefaultRackTopologyLevel, "r1").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+						Label(utiltesting.DefaultRackTopologyLevel, "r1").
 						Label(corev1.LabelHostname, "x3").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
@@ -761,8 +710,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Obj(),
 					*testingnode.MakeNode("x1").
 						Label("node-group", "tas").
-						Label(testing.DefaultBlockTopologyLevel, "b1").
-						Label(testing.DefaultRackTopologyLevel, "r2").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+						Label(utiltesting.DefaultRackTopologyLevel, "r2").
 						Label(corev1.LabelHostname, "x1").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
@@ -773,8 +722,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Obj(),
 					*testingnode.MakeNode("x4").
 						Label("node-group", "tas").
-						Label(testing.DefaultBlockTopologyLevel, "b2").
-						Label(testing.DefaultRackTopologyLevel, "r1").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b2").
+						Label(utiltesting.DefaultRackTopologyLevel, "r1").
 						Label(corev1.LabelHostname, "x4").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
@@ -785,8 +734,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Obj(),
 					*testingnode.MakeNode("x2").
 						Label("node-group", "tas").
-						Label(testing.DefaultBlockTopologyLevel, "b2").
-						Label(testing.DefaultRackTopologyLevel, "r2").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b2").
+						Label(utiltesting.DefaultRackTopologyLevel, "r2").
 						Label(corev1.LabelHostname, "x2").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
@@ -832,7 +781,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				ginkgo.By("creating a workload which requires rack, but does not fit in any", func() {
 					wl1 := utiltestingapi.MakeWorkload("wl1-inadmissible", ns.Name).
 						PodSets(*utiltestingapi.MakePodSet("worker", 4).
-							PreferredTopologyRequest(testing.DefaultRackTopologyLevel).
+							PreferredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
 							Obj()).
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 					util.MustCreate(ctx, k8sClient, wl1)
@@ -848,7 +797,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				ginkgo.By("creating a workload which can fit", func() {
 					wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
 						PodSets(*utiltestingapi.MakePodSet("worker", 1).
-							PreferredTopologyRequest(testing.DefaultBlockTopologyLevel).
+							PreferredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
 							Obj()).
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
 					util.MustCreate(ctx, k8sClient, wl1)
@@ -862,7 +811,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				ginkgo.By("creating second a workload which cannot fit", func() {
 					wl2 = utiltestingapi.MakeWorkload("wl2", ns.Name).
 						PodSets(*utiltestingapi.MakePodSet("worker-2", 4).
-							PreferredTopologyRequest(testing.DefaultBlockTopologyLevel).
+							PreferredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
 							Obj()).
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
 					util.MustCreate(ctx, k8sClient, wl2)
@@ -923,7 +872,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				ginkgo.By("creating a workload", func() {
 					wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
 						PodSets(*utiltestingapi.MakePodSet("worker", 2).
-							PreferredTopologyRequest(testing.DefaultBlockTopologyLevel).
+							PreferredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
 							Obj()).
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
 					util.MustCreate(ctx, k8sClient, wl1)
@@ -972,7 +921,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				ginkgo.By("creating a workload", func() {
 					wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
 						PodSets(*utiltestingapi.MakePodSet("worker", 2).
-							PreferredTopologyRequest(testing.DefaultBlockTopologyLevel).
+							PreferredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
 							Obj()).
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
 					util.MustCreate(ctx, k8sClient, wl1)
@@ -1027,7 +976,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
 						PodSets(*utiltestingapi.MakePodSet("worker", 2).
 							// requiring the same block makes sure that no replacement is possible
-							RequiredTopologyRequest(testing.DefaultBlockTopologyLevel).
+							RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
 							Obj()).
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
 					util.MustCreate(ctx, k8sClient, wl1)
@@ -1091,7 +1040,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				ginkgo.By("creating a workload", func() {
 					wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
 						PodSets(*utiltestingapi.MakePodSet("worker", 2).
-							RequiredTopologyRequest(testing.DefaultBlockTopologyLevel).
+							RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
 							Obj()).
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
 					util.MustCreate(ctx, k8sClient, wl1)
@@ -1145,7 +1094,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				ginkgo.By("creating a workload", func() {
 					wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
 						PodSets(*utiltestingapi.MakePodSet("worker", 2).
-							PreferredTopologyRequest(testing.DefaultBlockTopologyLevel).
+							PreferredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
 							Obj()).
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
 					util.MustCreate(ctx, k8sClient, wl1)
@@ -1168,7 +1117,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				ginkgo.By("creating a second workload", func() {
 					wl2 = utiltestingapi.MakeWorkload("wl2", ns.Name).
 						PodSets(*utiltestingapi.MakePodSet("worker", 2).
-							PreferredTopologyRequest(testing.DefaultBlockTopologyLevel).
+							PreferredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
 							Obj()).
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
 					util.MustCreate(ctx, k8sClient, wl2)
@@ -1242,8 +1191,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				ginkgo.By("creating a workload", func() {
 					wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
 						PodSets(*utiltestingapi.MakePodSet("worker", 2).
-							NodeSelector(map[string]string{testing.DefaultBlockTopologyLevel: "b1"}).
-							PreferredTopologyRequest(testing.DefaultBlockTopologyLevel).
+							NodeSelector(map[string]string{utiltesting.DefaultBlockTopologyLevel: "b1"}).
+							PreferredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
 							Obj()).
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
 					util.MustCreate(ctx, k8sClient, wl1)
@@ -1293,7 +1242,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				ginkgo.By("creating a workload", func() {
 					wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
 						PodSets(*utiltestingapi.MakePodSet("worker", 2).
-							PreferredTopologyRequest(testing.DefaultBlockTopologyLevel).
+							PreferredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
 							Obj()).
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
 					util.MustCreate(ctx, k8sClient, wl1)
@@ -1356,8 +1305,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				nodes = []corev1.Node{
 					*testingnode.MakeNode("x3").
 						Label("node-group", "tas").
-						Label(testing.DefaultBlockTopologyLevel, "b1").
-						Label(testing.DefaultRackTopologyLevel, "r1").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+						Label(utiltesting.DefaultRackTopologyLevel, "r1").
 						Label(corev1.LabelHostname, "x3").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
@@ -1368,8 +1317,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Obj(),
 					*testingnode.MakeNode("x1").
 						Label("node-group", "tas").
-						Label(testing.DefaultBlockTopologyLevel, "b1").
-						Label(testing.DefaultRackTopologyLevel, "r1").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+						Label(utiltesting.DefaultRackTopologyLevel, "r1").
 						Label(corev1.LabelHostname, "x1").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
@@ -1380,8 +1329,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Obj(),
 					*testingnode.MakeNode("x4").
 						Label("node-group", "tas").
-						Label(testing.DefaultBlockTopologyLevel, "b1").
-						Label(testing.DefaultRackTopologyLevel, "r2").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+						Label(utiltesting.DefaultRackTopologyLevel, "r2").
 						Label(corev1.LabelHostname, "x4").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
@@ -1392,8 +1341,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Obj(),
 					*testingnode.MakeNode("x2").
 						Label("node-group", "tas").
-						Label(testing.DefaultBlockTopologyLevel, "b1").
-						Label(testing.DefaultRackTopologyLevel, "r2").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+						Label(utiltesting.DefaultRackTopologyLevel, "r2").
 						Label(corev1.LabelHostname, "x2").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
@@ -1442,7 +1391,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				ginkgo.By("creating a workload", func() {
 					wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
 						PodSets(*utiltestingapi.MakePodSet("worker", 2).
-							RequiredTopologyRequest(testing.DefaultRackTopologyLevel).
+							RequiredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
 							Obj()).
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
 					util.MustCreate(ctx, k8sClient, wl1)
@@ -1498,7 +1447,176 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 			})
 		})
+		ginkgo.When("TASBalancePlacement is enabled", func() {
+			var (
+				nodes []corev1.Node
+			)
+			ginkgo.BeforeEach(func() {
+				nodes = []corev1.Node{
+					*testingnode.MakeNode("x1").
+						Label("node-group", "tas").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+						Label(utiltesting.DefaultRackTopologyLevel, "r1").
+						Label(corev1.LabelHostname, "x1").
+						StatusAllocatable(corev1.ResourceList{
+							"nvidia.com/gpu":      resource.MustParse("12"),
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+							corev1.ResourcePods:   resource.MustParse("20"),
+						}).
+						Ready().
+						Obj(),
+					*testingnode.MakeNode("x2").
+						Label("node-group", "tas").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+						Label(utiltesting.DefaultRackTopologyLevel, "r1").
+						Label(corev1.LabelHostname, "x2").
+						StatusAllocatable(corev1.ResourceList{
+							"nvidia.com/gpu":      resource.MustParse("12"),
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+							corev1.ResourcePods:   resource.MustParse("20"),
+						}).
+						Ready().
+						Obj(),
+					*testingnode.MakeNode("x3").
+						Label("node-group", "tas").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+						Label(utiltesting.DefaultRackTopologyLevel, "r2").
+						Label(corev1.LabelHostname, "x3").
+						StatusAllocatable(corev1.ResourceList{
+							"nvidia.com/gpu":      resource.MustParse("14"),
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+							corev1.ResourcePods:   resource.MustParse("20"),
+						}).
+						Ready().
+						Obj(),
+					*testingnode.MakeNode("x4").
+						Label("node-group", "tas").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+						Label(utiltesting.DefaultRackTopologyLevel, "r2").
+						Label(corev1.LabelHostname, "x4").
+						StatusAllocatable(corev1.ResourceList{
+							"nvidia.com/gpu":      resource.MustParse("6"),
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+							corev1.ResourcePods:   resource.MustParse("20"),
+						}).
+						Ready().
+						Obj(),
+				}
+				util.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
+				topology = utiltestingapi.MakeDefaultThreeLevelTopology("default")
+				util.MustCreate(ctx, k8sClient, topology)
+
+				tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
+					NodeLabel("node-group", "tas").
+					TopologyName("default").Obj()
+				util.MustCreate(ctx, k8sClient, tasFlavor)
+
+				clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).Resource("nvidia.com/gpu", "40").Obj()).
+					Obj()
+				util.MustCreate(ctx, k8sClient, clusterQueue)
+				util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+
+				localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+				util.MustCreate(ctx, k8sClient, localQueue)
+
+				_ = features.SetEnable(features.TASBalancedPlacement, true)
+			})
+
+			ginkgo.AfterEach(func() {
+				gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+				gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+				gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+				for _, node := range nodes {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
+				}
+
+				_ = features.SetEnable(features.TASBalancedPlacement, false)
+			})
+
+			ginkgo.It("place the workers evenly on selected nodes", func() {
+				var wl1 *kueue.Workload
+
+				ginkgo.By("creating a workload", func() {
+					wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
+						PodSets(*utiltestingapi.MakePodSet("worker", 16).
+							PreferredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
+							SliceRequiredTopologyRequest(corev1.LabelHostname).
+							SliceSizeTopologyRequest(4).
+							Obj()).
+						Queue(kueue.LocalQueueName(localQueue.Name)).Request("nvidia.com/gpu", "1").Obj()
+					util.MustCreate(ctx, k8sClient, wl1)
+				})
+
+				ginkgo.By("verify the workload is admitted", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+					gomega.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+						&kueue.TopologyAssignment{
+							Levels: []string{corev1.LabelHostname},
+							Domains: []kueue.TopologyDomainAssignment{
+								{Count: 8, Values: []string{"x1"}},
+								{Count: 8, Values: []string{"x2"}},
+							},
+						},
+					))
+				})
+			})
+			ginkgo.It("place the leader and workers evenly on selected nodes", func() {
+				var wl1 *kueue.Workload
+
+				ginkgo.By("creating a workload", func() {
+					wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
+						PodSets(
+							*utiltestingapi.MakePodSet("leader", 1).
+								PodSetGroup("group").
+								PreferredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
+								SliceRequiredTopologyRequest(corev1.LabelHostname).
+								Request("nvidia.com/gpu", "1").
+								Obj(),
+							*utiltestingapi.MakePodSet("worker", 30).
+								PodSetGroup("group").
+								PreferredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
+								SliceRequiredTopologyRequest(corev1.LabelHostname).
+								SliceSizeTopologyRequest(5).
+								Request("nvidia.com/gpu", "1").
+								Obj()).
+						Queue(kueue.LocalQueueName(localQueue.Name)).Obj()
+					util.MustCreate(ctx, k8sClient, wl1)
+				})
+
+				ginkgo.By("verify the workload is admitted", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+					gomega.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+						&kueue.TopologyAssignment{
+							Levels: []string{corev1.LabelHostname},
+							Domains: []kueue.TopologyDomainAssignment{
+								{Count: 1, Values: []string{"x1"}},
+							},
+						},
+					))
+					gomega.Expect(wl1.Status.Admission.PodSetAssignments[1].TopologyAssignment).Should(gomega.BeComparableTo(
+						&kueue.TopologyAssignment{
+							Levels: []string{corev1.LabelHostname},
+							Domains: []kueue.TopologyDomainAssignment{
+								{Count: 10, Values: []string{"x1"}},
+								{Count: 10, Values: []string{"x2"}},
+								{Count: 10, Values: []string{"x3"}},
+							},
+						},
+					))
+				})
+			})
+		})
 		ginkgo.When("Preemption is enabled within ClusterQueue", func() {
 			var (
 				nodes []corev1.Node
@@ -1512,8 +1630,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				nodes = []corev1.Node{
 					*testingnode.MakeNode("x2").
 						Label("node-group", "tas").
-						Label(testing.DefaultBlockTopologyLevel, "b1").
-						Label(testing.DefaultRackTopologyLevel, "r1").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+						Label(utiltesting.DefaultRackTopologyLevel, "r1").
 						Label(corev1.LabelHostname, "x2").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("5"),
@@ -1524,8 +1642,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Obj(),
 					*testingnode.MakeNode("x1").
 						Label("node-group", "tas").
-						Label(testing.DefaultBlockTopologyLevel, "b1").
-						Label(testing.DefaultRackTopologyLevel, "r2").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+						Label(utiltesting.DefaultRackTopologyLevel, "r2").
 						Label(corev1.LabelHostname, "x1").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("5"),
@@ -1580,7 +1698,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
 						Priority(1).
 						PodSets(*utiltestingapi.MakePodSet("worker", 1).
-							PreferredTopologyRequest(testing.DefaultBlockTopologyLevel).
+							PreferredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
 							Obj()).
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "5").Obj()
 					util.MustCreate(ctx, k8sClient, wl1)
@@ -1595,7 +1713,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					wl2 = utiltestingapi.MakeWorkload("wl2", ns.Name).
 						Priority(2).
 						PodSets(*utiltestingapi.MakePodSet("worker", 1).
-							PreferredTopologyRequest(testing.DefaultBlockTopologyLevel).
+							PreferredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
 							Obj()).
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "5").Obj()
 					util.MustCreate(ctx, k8sClient, wl2)
@@ -1610,7 +1728,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					wl3 = utiltestingapi.MakeWorkload("wl3", ns.Name).
 						Priority(3).
 						PodSets(*utiltestingapi.MakePodSet("worker", 2).
-							PreferredTopologyRequest(testing.DefaultBlockTopologyLevel).
+							PreferredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
 							Obj()).
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "5").Obj()
 					util.MustCreate(ctx, k8sClient, wl3)
@@ -1640,8 +1758,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				nodes = []corev1.Node{
 					*testingnode.MakeNode("x2").
 						Label("node-group", "tas").
-						Label(testing.DefaultBlockTopologyLevel, "b1").
-						Label(testing.DefaultRackTopologyLevel, "r1").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+						Label(utiltesting.DefaultRackTopologyLevel, "r1").
 						Label(corev1.LabelHostname, "x2").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("5"),
@@ -1652,8 +1770,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Obj(),
 					*testingnode.MakeNode("x1").
 						Label("node-group", "tas").
-						Label(testing.DefaultBlockTopologyLevel, "b1").
-						Label(testing.DefaultRackTopologyLevel, "r2").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+						Label(utiltesting.DefaultRackTopologyLevel, "r2").
 						Label(corev1.LabelHostname, "x1").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("5"),
@@ -1726,7 +1844,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				ginkgo.By("creating a workload which can fit only when borrowing quota", func() {
 					wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
 						PodSets(*utiltestingapi.MakePodSet("worker", 2).
-							PreferredTopologyRequest(testing.DefaultBlockTopologyLevel).
+							PreferredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
 							Obj()).
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "4").Obj()
 					util.MustCreate(ctx, k8sClient, wl1)
@@ -1745,7 +1863,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					wl2 = utiltestingapi.MakeWorkload("wl2", ns.Name).
 						Priority(2).
 						PodSets(*utiltestingapi.MakePodSet("worker", 1).
-							PreferredTopologyRequest(testing.DefaultBlockTopologyLevel).
+							PreferredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
 							Obj()).
 						Queue(kueue.LocalQueueName(localQueueB.Name)).Request(corev1.ResourceCPU, "2").Obj()
 					util.MustCreate(ctx, k8sClient, wl2)
@@ -1806,7 +1924,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
 					wl1.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
-						Required: ptr.To(testing.DefaultRackTopologyLevel),
+						Required: ptr.To(utiltesting.DefaultRackTopologyLevel),
 					}
 					util.MustCreate(ctx, k8sClient, wl1)
 				})
@@ -1819,8 +1937,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					nodes = []corev1.Node{
 						*testingnode.MakeNode("b1-r1").
 							Label("node-group", "tas").
-							Label(testing.DefaultBlockTopologyLevel, "b1").
-							Label(testing.DefaultRackTopologyLevel, "r1").
+							Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+							Label(utiltesting.DefaultRackTopologyLevel, "r1").
 							StatusAllocatable(corev1.ResourceList{
 								corev1.ResourceCPU:    resource.MustParse("1"),
 								corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -1886,8 +2004,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					nodes = []corev1.Node{
 						*testingnode.MakeNode("b1-r1-x1").
 							Label("node-group", "tas").
-							Label(testing.DefaultBlockTopologyLevel, "b1").
-							Label(testing.DefaultRackTopologyLevel, "r1").
+							Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+							Label(utiltesting.DefaultRackTopologyLevel, "r1").
 							Label(corev1.LabelHostname, "b1-r1-x1").
 							StatusAllocatable(corev1.ResourceList{
 								corev1.ResourceCPU:    resource.MustParse("1"),
@@ -1909,7 +2027,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
 					wl1.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
-						Required: ptr.To(testing.DefaultRackTopologyLevel),
+						Required: ptr.To(utiltesting.DefaultRackTopologyLevel),
 					}
 					util.MustCreate(ctx, k8sClient, wl1)
 				})
@@ -1944,8 +2062,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					nodes = []corev1.Node{
 						*testingnode.MakeNode("node-missing-label").
 							Label("node-group", "tas").
-							Label(testing.DefaultBlockTopologyLevel, "b1").
-							Label(testing.DefaultRackTopologyLevel, "r1").
+							Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+							Label(utiltesting.DefaultRackTopologyLevel, "r1").
 							Label(corev1.LabelHostname, "node-missing-label").
 							StatusAllocatable(corev1.ResourceList{
 								corev1.ResourceCPU:    resource.MustParse("1"),
@@ -2076,7 +2194,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
 					wl1.Spec.PodSets[0] = *utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 						Request(corev1.ResourceCPU, "1").
-						PreferredTopologyRequest(testing.DefaultRackTopologyLevel).
+						PreferredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
 						Image("image").
 						Obj()
 					util.MustCreate(ctx, k8sClient, wl1)
@@ -2109,8 +2227,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					nodes = []corev1.Node{
 						*testingnode.MakeNode("x1").
 							Label("node-group", "tas").
-							Label(testing.DefaultBlockTopologyLevel, "b1").
-							Label(testing.DefaultRackTopologyLevel, "r1").
+							Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+							Label(utiltesting.DefaultRackTopologyLevel, "r1").
 							Label(corev1.LabelHostname, "x1").
 							StatusAllocatable(corev1.ResourceList{
 								corev1.ResourceCPU:    resource.MustParse("1"),
@@ -2206,7 +2324,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
 					wl1.Spec.PodSets[0] = *utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 						Request(corev1.ResourceCPU, "1").
-						PreferredTopologyRequest(testing.DefaultRackTopologyLevel).
+						PreferredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
 						Image("image").
 						Obj()
 					util.MustCreate(ctx, k8sClient, wl1)
@@ -2245,8 +2363,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						*testingnode.MakeNode("x2").
 							Label("node-group", "tas").
 							Label("dedicated-selector-key", "dedicated-selector-value-abc").
-							Label(testing.DefaultBlockTopologyLevel, "b1").
-							Label(testing.DefaultRackTopologyLevel, "r1").
+							Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+							Label(utiltesting.DefaultRackTopologyLevel, "r1").
 							Label(corev1.LabelHostname, "x2").
 							StatusAllocatable(corev1.ResourceList{
 								corev1.ResourceCPU:    resource.MustParse("1"),
@@ -2258,8 +2376,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						*testingnode.MakeNode("x1").
 							Label("node-group", "tas").
 							Label("dedicated-selector-key", "dedicated-selector-value-xyz").
-							Label(testing.DefaultBlockTopologyLevel, "b1").
-							Label(testing.DefaultRackTopologyLevel, "r2").
+							Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+							Label(utiltesting.DefaultRackTopologyLevel, "r2").
 							Label(corev1.LabelHostname, "x1").
 							StatusAllocatable(corev1.ResourceList{
 								corev1.ResourceCPU:    resource.MustParse("2"),
@@ -2326,7 +2444,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
 					wl1.Spec.PodSets[0] = *utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 						Request(corev1.ResourceCPU, "1").
-						PreferredTopologyRequest(testing.DefaultRackTopologyLevel).
+						PreferredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
 						Image("image").
 						Obj()
 					util.MustCreate(ctx, k8sClient, wl1)
@@ -2383,8 +2501,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					nodes = []corev1.Node{
 						*testingnode.MakeNode("x1").
 							Label("node-group", "tas").
-							Label(testing.DefaultBlockTopologyLevel, "b1").
-							Label(testing.DefaultRackTopologyLevel, "r1").
+							Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+							Label(utiltesting.DefaultRackTopologyLevel, "r1").
 							Label(corev1.LabelHostname, "x1").
 							StatusAllocatable(corev1.ResourceList{
 								corev1.ResourceCPU:    resource.MustParse("1"),
@@ -2474,7 +2592,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
 					wl1.Spec.PodSets[0] = *utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 						Request(corev1.ResourceCPU, "1").
-						PreferredTopologyRequest(testing.DefaultRackTopologyLevel).
+						PreferredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
 						Image("image").
 						Obj()
 					util.MustCreate(ctx, k8sClient, wl1)
@@ -2502,8 +2620,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					nodes = []corev1.Node{
 						*testingnode.MakeNode("x1").
 							Label("node-group", "tas").
-							Label(testing.DefaultBlockTopologyLevel, "b1").
-							Label(testing.DefaultRackTopologyLevel, "r1").
+							Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+							Label(utiltesting.DefaultRackTopologyLevel, "r1").
 							Label(corev1.LabelHostname, "x1").
 							StatusAllocatable(corev1.ResourceList{
 								corev1.ResourceCPU:    resource.MustParse("1"),
@@ -2582,7 +2700,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							Request(corev1.ResourceCPU, "1").
-							PreferredTopologyRequest(testing.DefaultRackTopologyLevel).
+							PreferredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
 							Image("image").
 							Obj(),
 						).Obj()
@@ -2616,8 +2734,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					nodes = []corev1.Node{
 						*testingnode.MakeNode("x1").
 							Label("node-group", "tas").
-							Label(testing.DefaultBlockTopologyLevel, "b1").
-							Label(testing.DefaultRackTopologyLevel, "r1").
+							Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+							Label(utiltesting.DefaultRackTopologyLevel, "r1").
 							Label(corev1.LabelHostname, "x1").
 							StatusAllocatable(corev1.ResourceList{
 								corev1.ResourceCPU:    resource.MustParse("1"),
@@ -2731,7 +2849,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				nodes = []corev1.Node{
 					*testingnode.MakeNode("cpu-node").
 						Label(corev1.LabelInstanceTypeStable, "cpu-node").
-						Label(testing.DefaultRackTopologyLevel, "cpu-rack").
+						Label(utiltesting.DefaultRackTopologyLevel, "cpu-rack").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:  resource.MustParse("5"),
 							corev1.ResourcePods: resource.MustParse("10"),
@@ -2740,7 +2858,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Obj(),
 					*testingnode.MakeNode("gpu-node").
 						Label(corev1.LabelInstanceTypeStable, "gpu-node").
-						Label(testing.DefaultRackTopologyLevel, "gpu-rack").
+						Label(utiltesting.DefaultRackTopologyLevel, "gpu-rack").
 						StatusAllocatable(corev1.ResourceList{
 							gpuResName:          resource.MustParse("4"),
 							corev1.ResourcePods: resource.MustParse("10"),
@@ -2751,7 +2869,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				util.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 				topology = utiltestingapi.MakeTopology("default").Levels(
-					testing.DefaultRackTopologyLevel,
+					utiltesting.DefaultRackTopologyLevel,
 				).Obj()
 				util.MustCreate(ctx, k8sClient, topology)
 
@@ -2800,13 +2918,13 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						map[string]string{corev1.LabelInstanceTypeStable: "cpu-node"},
 					).Request(corev1.ResourceCPU, "5").Obj()
 					ps1.TopologyRequest = &kueue.PodSetTopologyRequest{
-						Required: ptr.To(testing.DefaultRackTopologyLevel),
+						Required: ptr.To(utiltesting.DefaultRackTopologyLevel),
 					}
 					ps2 := *utiltestingapi.MakePodSet("worker", 2).NodeSelector(
 						map[string]string{corev1.LabelInstanceTypeStable: "gpu-node"},
 					).Request(gpuResName, "2").Obj()
 					ps2.TopologyRequest = &kueue.PodSetTopologyRequest{
-						Required: ptr.To(testing.DefaultRackTopologyLevel),
+						Required: ptr.To(utiltesting.DefaultRackTopologyLevel),
 					}
 					wl1.Spec.PodSets = []kueue.PodSet{ps1, ps2}
 					util.MustCreate(ctx, k8sClient, wl1)
@@ -2822,7 +2940,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
 						&kueue.TopologyAssignment{
 							Levels: []string{
-								testing.DefaultRackTopologyLevel,
+								utiltesting.DefaultRackTopologyLevel,
 							},
 							Domains: []kueue.TopologyDomainAssignment{
 								{
@@ -2837,7 +2955,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Expect(wl1.Status.Admission.PodSetAssignments[1].TopologyAssignment).Should(gomega.BeComparableTo(
 						&kueue.TopologyAssignment{
 							Levels: []string{
-								testing.DefaultRackTopologyLevel,
+								utiltesting.DefaultRackTopologyLevel,
 							},
 							Domains: []kueue.TopologyDomainAssignment{
 								{
@@ -3350,21 +3468,21 @@ var _ = ginkgo.Describe("Topology validations", func() {
 				gomega.Succeed()),
 			ginkgo.Entry("no levels",
 				utiltestingapi.MakeTopology("no-levels").Obj(),
-				testing.BeInvalidError()),
+				utiltesting.BeInvalidError()),
 			ginkgo.Entry("invalid levels",
 				utiltestingapi.MakeTopology("invalid-level").Levels("@invalid").Obj(),
-				testing.BeInvalidError()),
+				utiltesting.BeInvalidError()),
 			ginkgo.Entry("non-unique levels",
-				utiltestingapi.MakeTopology("default").Levels(testing.DefaultBlockTopologyLevel, testing.DefaultBlockTopologyLevel).Obj(),
-				testing.BeInvalidError()),
+				utiltestingapi.MakeTopology("default").Levels(utiltesting.DefaultBlockTopologyLevel, utiltesting.DefaultBlockTopologyLevel).Obj(),
+				utiltesting.BeInvalidError()),
 			ginkgo.Entry("kubernetes.io/hostname first",
-				utiltestingapi.MakeTopology("default").Levels(corev1.LabelHostname, testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel).Obj(),
-				testing.BeInvalidError()),
+				utiltestingapi.MakeTopology("default").Levels(corev1.LabelHostname, utiltesting.DefaultBlockTopologyLevel, utiltesting.DefaultRackTopologyLevel).Obj(),
+				utiltesting.BeInvalidError()),
 			ginkgo.Entry("kubernetes.io/hostname middle",
-				utiltestingapi.MakeTopology("default").Levels(testing.DefaultBlockTopologyLevel, corev1.LabelHostname, testing.DefaultRackTopologyLevel).Obj(),
-				testing.BeInvalidError()),
+				utiltestingapi.MakeTopology("default").Levels(utiltesting.DefaultBlockTopologyLevel, corev1.LabelHostname, utiltesting.DefaultRackTopologyLevel).Obj(),
+				utiltesting.BeInvalidError()),
 			ginkgo.Entry("kubernetes.io/hostname last",
-				utiltestingapi.MakeTopology("default").Levels(testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel, corev1.LabelHostname).Obj(),
+				utiltestingapi.MakeTopology("default").Levels(utiltesting.DefaultBlockTopologyLevel, utiltesting.DefaultRackTopologyLevel, corev1.LabelHostname).Obj(),
 				gomega.Succeed()),
 		)
 	})
@@ -3394,13 +3512,13 @@ var _ = ginkgo.Describe("Topology validations", func() {
 						NodeLabel: "added",
 					})
 				},
-				testing.BeInvalidError()),
+				utiltesting.BeInvalidError()),
 			ginkgo.Entry("updating levels order is prohibited",
 				utiltestingapi.MakeDefaultThreeLevelTopology("default"),
 				func(topology *kueue.Topology) {
 					topology.Spec.Levels[0], topology.Spec.Levels[1] = topology.Spec.Levels[1], topology.Spec.Levels[0]
 				},
-				testing.BeInvalidError()),
+				utiltesting.BeInvalidError()),
 		)
 	})
 })

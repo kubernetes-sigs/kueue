@@ -31,7 +31,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -408,8 +407,9 @@ func TestReconciler(t *testing.T) {
 						*utiltestingapi.MakePodSet("worker", 2).
 							PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
 							Obj(),
-					).PriorityClass("test-wpc").Priority(100).
-					PriorityClassSource(constants.WorkloadPriorityClassSource).
+					).
+					WorkloadPriorityClassRef("test-wpc").
+					Priority(100).
 					Obj(),
 			},
 		},
@@ -432,8 +432,9 @@ func TestReconciler(t *testing.T) {
 						*utiltestingapi.MakePodSet("worker", 2).
 							PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
 							Obj(),
-					).PriorityClass("test-pc").Priority(200).
-					PriorityClassSource(constants.PodPriorityClassSource).
+					).
+					PodPriorityClassRef("test-pc").
+					Priority(200).
 					Obj(),
 			},
 		},
@@ -458,8 +459,9 @@ func TestReconciler(t *testing.T) {
 						*utiltestingapi.MakePodSet("worker", 2).
 							PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
 							Obj(),
-					).PriorityClass("test-wpc").Priority(100).
-					PriorityClassSource(constants.WorkloadPriorityClassSource).
+					).
+					WorkloadPriorityClassRef("test-wpc").
+					Priority(100).
 					Obj(),
 			},
 		},

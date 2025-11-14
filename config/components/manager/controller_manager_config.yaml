@@ -64,7 +64,6 @@ integrations:
 #  externalFrameworks:
 #  - "Foo.v1.example.com"
 #fairSharing:
-#  enable: true
 #  preemptionStrategies: [LessThanOrEqualToFinalShare, LessThanInitialShare]
 #admissionFairSharing:
 #  usageHalfLifeTime: "168h" # 7 days

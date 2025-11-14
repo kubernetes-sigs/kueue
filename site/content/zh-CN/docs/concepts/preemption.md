@@ -104,7 +104,6 @@ Kueue 提供了两种抢占算法。它们的主要区别在于：当抢占 Clus
 apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 fairSharing:
-  enable: true
   preemptionStrategies: [LessThanOrEqualToFinalShare, LessThanInitialShare]
 ```
 

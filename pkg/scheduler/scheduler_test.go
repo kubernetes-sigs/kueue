@@ -6872,6 +6872,7 @@ func TestSchedule(t *testing.T) {
 						Status:             metav1.ConditionTrue,
 						Reason:             kueue.WorkloadSliceReplaced,
 						Message:            "Replaced to accommodate a workload (UID: , JobUID: ) due to workload slice aggregation",
+						ObservedGeneration: 1,
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Obj(),
@@ -7453,7 +7454,12 @@ func TestSchedule(t *testing.T) {
 					}
 				}
 
-				scheduler := New(qManager, cqCache, cl, recorder, WithFairSharing(&config.FairSharing{Enable: tc.enableFairSharing}), WithClock(t, fakeClock))
+				var fairSharing *config.FairSharing
+				if tc.enableFairSharing {
+					fairSharing = &config.FairSharing{}
+				}
+				scheduler := New(qManager, cqCache, cl, recorder,
+					WithFairSharing(fairSharing), WithClock(t, fakeClock))
 				wg := sync.WaitGroup{}
 				scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
 					func() { wg.Add(1) },

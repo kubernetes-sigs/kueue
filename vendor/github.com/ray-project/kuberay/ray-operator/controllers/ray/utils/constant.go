@@ -27,14 +27,28 @@ const (
 	NumWorkerGroupsKey                       = "ray.io/num-worker-groups"
 	KubeRayVersion                           = "ray.io/kuberay-version"
 
+	// Labels for feature RayMultihostIndexing
+	//
+	// RayWorkerReplicaNameKey label is the unique name for the replica in a specific worker group. It is made up
+	// of the worker group name and a unique identifier (e.g. multi-host-worker-group-xh3hf). This label is unique
+	// across RayClusters.
+	RayWorkerReplicaNameKey = "ray.io/worker-group-replica-name"
+
+	// RayWorkerReplicaIndexKey label is the integer index for the replica in it's worker group (0 to replicas-1).
+	// The value for this label is unique within its worker group, but not across worker groups or RayClusters.
+	RayWorkerReplicaIndexKey = "ray.io/worker-group-replica-index"
+
+	// RayHostIndexKey label represents the index of the host within the replica group.
+	RayHostIndexKey = "ray.io/replica-host-index"
+
 	// In KubeRay, the Ray container must be the first application container in a head or worker Pod.
 	RayContainerIndex = 0
 
 	// Batch scheduling labels
 	// TODO(tgaddair): consider making these part of the CRD
-	RaySchedulerName                = "ray.io/scheduler-name"
-	RayPriorityClassName            = "ray.io/priority-class-name"
-	RayClusterGangSchedulingEnabled = "ray.io/gang-scheduling-enabled"
+	RaySchedulerName         = "ray.io/scheduler-name"
+	RayPriorityClassName     = "ray.io/priority-class-name"
+	RayGangSchedulingEnabled = "ray.io/gang-scheduling-enabled"
 
 	// Ray GCS FT related annotations
 	RayFTEnabledAnnotationKey         = "ray.io/ft-enabled"
@@ -44,6 +58,22 @@ const (
 	// However, the generated `ray start` command will still be stored in the container's environment variable
 	// `KUBERAY_GEN_RAY_START_CMD`.
 	RayOverwriteContainerCmdAnnotationKey = "ray.io/overwrite-container-cmd"
+
+	// RayServiceInitializingTimeoutAnnotation specifies the timeout for RayService initialization.
+	// Accepts Go duration format (e.g., "30m", "1h") or integer seconds.
+	//
+	// Behavior when timeout is exceeded:
+	//   - RayServiceReady condition is set to False with reason InitializingTimeout
+	//   - RayService enters a terminal failure state (cannot be recovered by spec updates)
+	//   - Cluster names are cleared, triggering cleanup of RayCluster resources
+	//   - A Warning event is emitted with timeout details
+	//
+	// Recovery after timeout:
+	//   The RayService must be deleted and recreated. Updating the spec will NOT retry initialization.
+	RayServiceInitializingTimeoutAnnotation = "ray.io/initializing-timeout"
+
+	// RayJob default cluster selector key
+	RayJobClusterSelectorKey = "ray.io/cluster"
 
 	// Finalizers for GCS fault tolerance
 	GCSFaultToleranceRedisCleanupFinalizer = "ray.io/gcs-ft-redis-cleanup-finalizer"
@@ -75,6 +105,10 @@ const (
 	DashboardPortName = "dashboard"
 	MetricsPortName   = "metrics"
 	ServingPortName   = "serve"
+
+	// Gateway defaults for HTTP protocol
+	GatewayListenerPortName    = "http"
+	DefaultGatewayListenerPort = 80
 
 	// The default AppProtocol for Kubernetes service
 	DefaultServiceAppProtocol = "tcp"
@@ -164,6 +198,9 @@ const (
 	// by default starting with v1.4.0.
 	ENABLE_LOGIN_SHELL = "ENABLE_LOGIN_SHELL"
 
+	// If set to true, we will use deterministic name for head pod. Otherwise, the non-deterministic name is used.
+	ENABLE_DETERMINISTIC_HEAD_POD_NAME = "ENABLE_DETERMINISTIC_HEAD_POD_NAME"
+
 	// Ray core default configurations
 	DefaultWorkerRayGcsReconnectTimeoutS = "600"
 
@@ -201,13 +238,17 @@ const (
 	RayJobStopJobFinalizer = "ray.io/rayjob-finalizer"
 
 	// RayNodeHeadGroupLabelValue is the value for the RayNodeGroupLabelKey label on a head node
-	RayNodeHeadGroupLabelValue = "headgroup"
+	RayNodeHeadGroupLabelValue      = "headgroup"
+	RayNodeSubmitterGroupLabelValue = "submittergroup"
+
+	// SubmitterContainerName is the default name of the job submit container injected into the head Pod in SidecarMode.
+	SubmitterContainerName = "ray-job-submitter"
 
 	// KUBERAY_VERSION is the build version of KubeRay.
 	// The version is included in the RAY_USAGE_STATS_EXTRA_TAGS environment variable
 	// as well as the user-agent. This constant is updated before release.
 	// TODO: Update KUBERAY_VERSION to be a build-time variable.
-	KUBERAY_VERSION = "v1.4.2"
+	KUBERAY_VERSION = "v1.5.0"
 
 	// KubeRayController represents the value of the default job controller
 	KubeRayController = "ray.io/kuberay-operator"
@@ -303,14 +344,26 @@ const (
 	FailedToCreateRayCluster      K8sEventType = "FailedToCreateRayCluster"
 	FailedToDeleteRayCluster      K8sEventType = "FailedToDeleteRayCluster"
 	FailedToUpdateRayCluster      K8sEventType = "FailedToUpdateRayCluster"
+	RayClusterNotFound            K8sEventType = "RayClusterNotFound"
 
 	// RayService event list
+	CreatedGateway                  K8sEventType = "CreatedGateway"
+	CreatedHTTPRoute                K8sEventType = "CreatedHTTPRoute"
 	InvalidRayServiceSpec           K8sEventType = "InvalidRayServiceSpec"
 	InvalidRayServiceMetadata       K8sEventType = "InvalidRayServiceMetadata"
+	RayServiceInitializingTimeout   K8sEventType = "RayServiceInitializingTimeout"
 	UpdatedHeadPodServeLabel        K8sEventType = "UpdatedHeadPodServeLabel"
+	UpdatedGateway                  K8sEventType = "UpdatedGateway"
+	UpdatedHTTPRoute                K8sEventType = "UpdatedHTTPRoute"
 	UpdatedServeApplications        K8sEventType = "UpdatedServeApplications"
+	UpdatedServeTargetCapacity      K8sEventType = "UpdatedServeTargetCapacity"
 	FailedToUpdateHeadPodServeLabel K8sEventType = "FailedToUpdateHeadPodServeLabel"
 	FailedToUpdateServeApplications K8sEventType = "FailedToUpdateServeApplications"
+	FailedToUpdateTargetCapacity    K8sEventType = "FailedToUpdateTargetCapacity"
+	FailedToCreateGateway           K8sEventType = "FailedToCreateGateway"
+	FailedToUpdateGateway           K8sEventType = "FailedToUpdateGateway"
+	FailedToCreateHTTPRoute         K8sEventType = "FailedToCreateHTTPRoute"
+	FailedToUpdateHTTPRoute         K8sEventType = "FailedToUpdateHTTPRoute"
 
 	// Generic Pod event list
 	DeletedPod                  K8sEventType = "DeletedPod"

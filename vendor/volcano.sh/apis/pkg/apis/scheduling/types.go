@@ -359,8 +359,6 @@ type QueueSpec struct {
 	Weight     int32
 	Capability v1.ResourceList
 
-	// Depreicated: replaced by status.State
-	State QueueState
 	// Reclaimable indicate whether the queue can be reclaimed by other queue
 	Reclaimable *bool
 

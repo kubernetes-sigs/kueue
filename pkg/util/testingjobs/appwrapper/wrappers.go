@@ -29,7 +29,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 // AppWrapperWrapper wraps an AppWrapper.
@@ -98,7 +98,7 @@ func (aw *AppWrapperWrapper) UID(uid string) *AppWrapperWrapper {
 
 // OwnerReference adds a ownerReference to the default container.
 func (aw *AppWrapperWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *AppWrapperWrapper {
-	testing.AppendOwnerReference(&aw.AppWrapper, ownerGVK, ownerName, ownerName, ptr.To(true), ptr.To(true))
+	utiltesting.AppendOwnerReference(&aw.AppWrapper, ownerGVK, ownerName, ownerName, ptr.To(true), ptr.To(true))
 	return aw
 }
 

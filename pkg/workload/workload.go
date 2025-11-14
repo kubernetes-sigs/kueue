@@ -819,6 +819,18 @@ func SetEvictedCondition(w *kueue.Workload, now time.Time, reason string, messag
 	return apimeta.SetStatusCondition(&w.Status.Conditions, condition)
 }
 
+func SetFinishedCondition(w *kueue.Workload, now time.Time, reason string, message string) bool {
+	condition := metav1.Condition{
+		Type:               kueue.WorkloadFinished,
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.NewTime(now),
+		Reason:             reason,
+		Message:            api.TruncateConditionMessage(message),
+		ObservedGeneration: w.Generation,
+	}
+	return apimeta.SetStatusCondition(&w.Status.Conditions, condition)
+}
+
 // PropagateResourceRequests synchronizes w.Status.ResourceRequests to
 // with info.TotalRequests if the feature gate is enabled and returns true if w was updated
 func PropagateResourceRequests(w *kueue.Workload, info *Info) bool {
@@ -1296,9 +1308,36 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 	}
 	reportEvictedWorkload(recorder, wl, wl.Status.Admission.ClusterQueue, reason, msg, underlyingCause)
 	if reportWorkloadEvictedOnce {
-		metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, reason, string(underlyingCause), wl.Spec.PriorityClassName)
+		metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, reason, string(underlyingCause), PriorityClassName(wl))
 	}
 	return nil
+}
+
+func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, msg, managerPrefix string, clock clock.Clock) error {
+	if features.Enabled(features.WorkloadRequestUseMergePatch) {
+		return clientutil.PatchStatus(ctx, c, wl, func() (client.Object, bool, error) {
+			update := SetFinishedCondition(wl, clock.Now(), reason, msg)
+			return wl, update, nil
+		})
+	} else {
+		newWl := BaseSSAWorkload(wl, true)
+		SetFinishedCondition(newWl, clock.Now(), reason, msg)
+		fieldOwner := client.FieldOwner(managerPrefix + "-" + kueue.WorkloadFinished)
+		return c.Status().Patch(ctx, newWl, client.Apply, fieldOwner, client.ForceOwnership)
+	}
+}
+
+func PriorityClassName(wl *kueue.Workload) string {
+	if wl.Spec.PriorityClassRef != nil {
+		return wl.Spec.PriorityClassRef.Name
+	}
+	return ""
+}
+
+func IsWorkloadPriorityClass(wl *kueue.Workload) bool {
+	return wl.Spec.PriorityClassRef != nil &&
+		wl.Spec.PriorityClassRef.Kind == kueue.WorkloadPriorityClassKind &&
+		wl.Spec.PriorityClassRef.Group == kueue.WorkloadPriorityClassGroup
 }
 
 func prepareForEviction(w *kueue.Workload, now time.Time, reason, message string) {
@@ -1318,7 +1357,8 @@ func resetUnhealthyNodes(w *kueue.Workload) {
 }
 
 func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, message string, underlyingCause kueue.EvictionUnderlyingCause) {
-	metrics.ReportEvictedWorkloads(cqName, reason, string(underlyingCause), wl.Spec.PriorityClassName)
+	priorityClassName := PriorityClassName(wl)
+	metrics.ReportEvictedWorkloads(cqName, reason, string(underlyingCause), priorityClassName)
 	if podsReadyToEvictionTime := workloadsWithPodsReadyToEvictedTime(wl); podsReadyToEvictionTime != nil {
 		metrics.PodsReadyToEvictedTimeSeconds.WithLabelValues(string(cqName), reason, string(underlyingCause)).Observe(podsReadyToEvictionTime.Seconds())
 	}
@@ -1327,7 +1367,7 @@ func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cq
 			metrics.LQRefFromWorkload(wl),
 			reason,
 			string(underlyingCause),
-			wl.Spec.PriorityClassName,
+			priorityClassName,
 		)
 	}
 	eventReason := ReasonWithCause(kueue.WorkloadEvicted, reason)

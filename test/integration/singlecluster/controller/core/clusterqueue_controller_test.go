@@ -29,7 +29,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -800,7 +800,6 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			gomega.Eventually(func(g gomega.Gomega) {
 				updatedCq := &kueue.ClusterQueue{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), updatedCq)).Should(gomega.Succeed())
-				updatedCq.Spec.AdmissionChecks = nil
 				updatedCq.Spec.AdmissionChecksStrategy = &kueue.AdmissionChecksStrategy{
 					AdmissionChecks: []kueue.AdmissionCheckStrategyRule{
 						*utiltestingapi.MakeAdmissionCheckStrategyRule("check1", flavorCPUArchA).Obj(),
@@ -832,8 +831,11 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			gomega.Eventually(func(g gomega.Gomega) {
 				var updatedCq kueue.ClusterQueue
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)).Should(gomega.Succeed())
-				updatedCq.Spec.AdmissionChecks = []kueue.AdmissionCheckReference{"check1"}
-				updatedCq.Spec.AdmissionChecksStrategy = nil
+				updatedCq.Spec.AdmissionChecksStrategy = &kueue.AdmissionChecksStrategy{
+					AdmissionChecks: []kueue.AdmissionCheckStrategyRule{
+						{Name: "check1"},
+					},
+				}
 				g.Expect(k8sClient.Update(ctx, &updatedCq)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -1001,7 +1003,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			gomega.Eventually(func(g gomega.Gomega) {
 				updatedWl := &kueue.Workload{}
 				g.Expect(k8sClient.Get(ctx, key, updatedWl)).To(gomega.Succeed())
-				g.Expect(updatedWl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+				g.Expect(updatedWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Delete clusterQueue")

@@ -47,6 +47,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/priority"
@@ -75,7 +76,7 @@ type Scheduler struct {
 	admissionRoutineWrapper routine.Wrapper
 	preemptor               *preemption.Preemptor
 	workloadOrdering        workload.Ordering
-	fairSharing             config.FairSharing
+	fairSharing             *config.FairSharing
 	admissionFairSharing    *config.AdmissionFairSharing
 	clock                   clock.Clock
 
@@ -86,7 +87,7 @@ type Scheduler struct {
 
 type options struct {
 	podsReadyRequeuingTimestamp config.RequeuingTimestamp
-	fairSharing                 config.FairSharing
+	fairSharing                 *config.FairSharing
 	admissionFairSharing        *config.AdmissionFairSharing
 	clock                       clock.Clock
 }
@@ -110,7 +111,7 @@ func WithPodsReadyRequeuingTimestamp(ts config.RequeuingTimestamp) Option {
 func WithFairSharing(fs *config.FairSharing) Option {
 	return func(o *options) {
 		if fs != nil {
-			o.fairSharing = *fs
+			o.fairSharing = fs
 		}
 	}
 }
@@ -214,7 +215,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	entries, inadmissibleEntries := s.nominate(ctx, headWorkloads, snapshot)
 
 	// 4. Create iterator which returns ordered entries.
-	iterator := makeIterator(ctx, entries, s.workloadOrdering, s.fairSharing.Enable)
+	iterator := makeIterator(ctx, entries, s.workloadOrdering, fairsharing.Enabled(s.fairSharing))
 
 	// 5. Admit entries, ensuring that no more than one workload gets
 	// admitted by a cohort (if borrowing).
@@ -533,7 +534,7 @@ func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, sn
 
 	preemptionTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
 
-	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, s.fairSharing.Enable, preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice)
+	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing), preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice)
 	fullAssignment := flvAssigner.Assign(log, nil)
 
 	arm := fullAssignment.RepresentativeMode()
@@ -807,9 +808,10 @@ func (s *Scheduler) recordQuotaReservationMetrics(newWorkload, originalWorkload 
 
 	s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "QuotaReserved", "Quota reserved in ClusterQueue %v, wait time since queued was %.0fs", admission.ClusterQueue, waitTime.Seconds())
 
-	metrics.QuotaReservedWorkload(admission.ClusterQueue, newWorkload.Spec.PriorityClassName, waitTime)
+	priorityClassName := workload.PriorityClassName(newWorkload)
+	metrics.QuotaReservedWorkload(admission.ClusterQueue, priorityClassName, waitTime)
 	if features.Enabled(features.LocalQueueMetrics) {
-		metrics.LocalQueueQuotaReservedWorkload(metrics.LQRefFromWorkload(newWorkload), newWorkload.Spec.PriorityClassName, waitTime)
+		metrics.LocalQueueQuotaReservedWorkload(metrics.LQRefFromWorkload(newWorkload), priorityClassName, waitTime)
 	}
 }
 
@@ -820,20 +822,17 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(newWorkload, originalWorkload 
 	}
 
 	s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was 0s", admission.ClusterQueue)
-	metrics.AdmittedWorkload(admission.ClusterQueue, newWorkload.Spec.PriorityClassName, waitTime)
 
+	priorityClassName := workload.PriorityClassName(newWorkload)
+	metrics.AdmittedWorkload(admission.ClusterQueue, priorityClassName, waitTime)
 	if features.Enabled(features.LocalQueueMetrics) {
-		metrics.LocalQueueAdmittedWorkload(
-			metrics.LQRefFromWorkload(newWorkload),
-			newWorkload.Spec.PriorityClassName,
-			waitTime,
-		)
+		metrics.LocalQueueAdmittedWorkload(metrics.LQRefFromWorkload(newWorkload), priorityClassName, waitTime)
 	}
 
 	if len(newWorkload.Status.AdmissionChecks) > 0 {
-		metrics.ReportAdmissionChecksWaitTime(admission.ClusterQueue, newWorkload.Spec.PriorityClassName, 0)
+		metrics.ReportAdmissionChecksWaitTime(admission.ClusterQueue, priorityClassName, 0)
 		if features.Enabled(features.LocalQueueMetrics) {
-			metrics.ReportLocalQueueAdmissionChecksWaitTime(metrics.LQRefFromWorkload(newWorkload), newWorkload.Spec.PriorityClassName, 0)
+			metrics.ReportLocalQueueAdmissionChecksWaitTime(metrics.LQRefFromWorkload(newWorkload), priorityClassName, 0)
 		}
 	}
 }

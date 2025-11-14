@@ -25,7 +25,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -62,7 +61,6 @@ var _ = ginkgo.Describe("MultiKueue no GC", ginkgo.Ordered, ginkgo.ContinueOnFai
 
 		worker2Cq *kueue.ClusterQueue
 		worker2Lq *kueue.LocalQueue
-		realClock clock.RealClock
 	)
 
 	ginkgo.BeforeAll(func() {
@@ -258,7 +256,7 @@ var _ = ginkgo.Describe("MultiKueue no GC", ginkgo.Ordered, ginkgo.ContinueOnFai
 				workload.SetAdmissionCheckState(&createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckState{
 					Name:  kueue.AdmissionCheckReference(multiKueueAC.Name),
 					State: kueue.CheckStateRejected,
-				}, realClock)
+				}, util.RealClock)
 				g.Expect(managerTestCluster.client.Status().Update(managerTestCluster.ctx, createdWorkload)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})

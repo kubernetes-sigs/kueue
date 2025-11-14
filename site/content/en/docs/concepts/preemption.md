@@ -138,7 +138,6 @@ To enable Fair Sharing, [use a Kueue Configuration](/docs/installation#install-a
 apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 fairSharing:
-  enable: true
   preemptionStrategies: [LessThanOrEqualToFinalShare, LessThanInitialShare]
 ```
 

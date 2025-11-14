@@ -34,7 +34,7 @@ type LocalQueueSpec struct {
 	// clusterQueue is a reference to a clusterQueue that backs this localQueue.
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="field is immutable"
 	// +optional
-	ClusterQueue ClusterQueueReference `json:"clusterQueue,omitempty"` //nolint:kubeapilinter // should not be a pointer
+	ClusterQueue ClusterQueueReference `json:"clusterQueue,omitempty"`
 
 	// stopPolicy - if set to a value different from None, the LocalQueue is considered Inactive,
 	// no new reservation being made.
@@ -61,7 +61,7 @@ type TopologyInfo struct {
 	// name is the name of the topology.
 	//
 	// +required
-	Name TopologyReference `json:"name"` //nolint:kubeapilinter // should not be a pointer
+	Name TopologyReference `json:"name"`
 
 	// levels define the levels of topology.
 	//
@@ -88,17 +88,17 @@ type LocalQueueStatus struct {
 
 	// pendingWorkloads is the number of Workloads in the LocalQueue not yet admitted to a ClusterQueue
 	// +optional
-	PendingWorkloads int32 `json:"pendingWorkloads"` //nolint:kubeapilinter // should not be a pointer
+	PendingWorkloads int32 `json:"pendingWorkloads"`
 
 	// reservingWorkloads is the number of workloads in this LocalQueue
 	// reserving quota in a ClusterQueue and that haven't finished yet.
 	// +optional
-	ReservingWorkloads int32 `json:"reservingWorkloads"` //nolint:kubeapilinter // should not be a pointer
+	ReservingWorkloads int32 `json:"reservingWorkloads"`
 
 	// admittedWorkloads is the number of workloads in this LocalQueue
 	// admitted to a ClusterQueue and that haven't finished yet.
 	// +optional
-	AdmittedWorkloads int32 `json:"admittedWorkloads"` //nolint:kubeapilinter // should not be a pointer
+	AdmittedWorkloads int32 `json:"admittedWorkloads"`
 
 	// flavorsReservation are the reserved quotas, by flavor currently in use by the
 	// workloads assigned to this LocalQueue.
@@ -130,7 +130,7 @@ const (
 type LocalQueueFlavorUsage struct {
 	// name of the flavor.
 	// +required
-	Name ResourceFlavorReference `json:"name"` //nolint:kubeapilinter // should not be a pointer
+	Name ResourceFlavorReference `json:"name"`
 
 	// resources lists the quota usage for the resources in this flavor.
 	// +listType=map
@@ -147,7 +147,7 @@ type LocalQueueResourceUsage struct {
 
 	// total is the total quantity of used quota.
 	// +optional
-	Total resource.Quantity `json:"total,omitempty"` //nolint:kubeapilinter // should not be a pointer
+	Total resource.Quantity `json:"total,omitempty"`
 }
 
 // +genclient
@@ -167,10 +167,10 @@ type LocalQueue struct {
 
 	// spec is the specification of the LocalQueue.
 	// +optional
-	Spec LocalQueueSpec `json:"spec"` //nolint:kubeapilinter // should not be a pointer
+	Spec LocalQueueSpec `json:"spec"`
 	// status is the status of the LocalQueue.
 	// +optional
-	Status LocalQueueStatus `json:"status,omitempty"` //nolint:kubeapilinter // should not be a pointer
+	Status LocalQueueStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
