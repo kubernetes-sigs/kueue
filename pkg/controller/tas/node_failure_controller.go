@@ -179,6 +179,7 @@ func (r *nodeFailureReconciler) getWorkloadsOnNode(ctx context.Context, nodeName
 		return nil, fmt.Errorf("failed to list workloads: %w", err)
 	}
 	tasWorkloadsOnNode := sets.New[types.NamespacedName]()
+loopThroughWorkloads:
 	for _, wl := range allWorkloads.Items {
 		if !isAdmittedByTAS(&wl) {
 			continue
@@ -194,6 +195,7 @@ func (r *nodeFailureReconciler) getWorkloadsOnNode(ctx context.Context, nodeName
 			for value := range utiltas.LowestLevelValues(topologyAssignment) {
 				if value == nodeName {
 					tasWorkloadsOnNode.Insert(types.NamespacedName{Name: wl.Name, Namespace: wl.Namespace})
+					continue loopThroughWorkloads
 				}
 			}
 		}
