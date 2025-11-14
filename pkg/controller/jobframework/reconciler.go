@@ -312,10 +312,17 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	if features.Enabled(features.ManagedJobsNamespaceSelectorAlwaysRespected) {
 		ns := corev1.Namespace{}
 		if err := r.client.Get(ctx, client.ObjectKey{Name: req.Namespace}, &ns); err != nil {
+			if apierrors.IsNotFound(err) {
+				log.V(2).Info("Namespace not found; skipping selector check", "namespace", req.Namespace)
+				return ctrl.Result{}, nil
+			}
 			log.Error(err, "failed to get namespace for selector check")
 			return ctrl.Result{}, err
 		}
-		if !r.managedJobsNamespaceSelector.Matches(labels.Set(ns.GetLabels())) {
+
+		if r.managedJobsNamespaceSelector == nil {
+			log.V(2).Info("ManagedJobsNamespaceSelector is nil; skipping selector enforcement")
+		} else if !r.managedJobsNamespaceSelector.Matches(labels.Set(ns.GetLabels())) {
 			log.V(2).Info("Namespace not opted in for Kueue management", "namespace", ns.Name)
 			return ctrl.Result{}, nil
 		}
@@ -485,8 +492,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	// 4. update reclaimable counts if implemented by the job
-	if jobRecl, implementsReclaimable := job.(JobWithReclaimablePods); implementsReclaimable {
-		log.V(3).Info("update reclaimable counts if implemented by the job")
+	if jobRecl, implementsReclaimable := job.(JobWithReclaimablePods); implementsReclaimable && features.Enabled(features.ReclaimablePods) {
 		reclPods, err := jobRecl.ReclaimablePods(ctx)
 		if err != nil {
 			log.Error(err, "Getting reclaimable pods")
@@ -499,8 +505,10 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				log.Error(err, "Updating reclaimable pods")
 				return ctrl.Result{}, err
 			}
+			log.V(3).Info("updated reclaimable pods")
 			return ctrl.Result{}, nil
 		}
+		log.V(3).Info("reclaimable pods are up-to-date")
 	}
 
 	// 5. handle WaitForPodsReady only for a standalone job.

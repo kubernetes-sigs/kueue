@@ -197,6 +197,11 @@ const (
 	// Deprecated: planned to be removed in 0.17
 	MultiKueueAllowInsecureKubeconfigs featuregate.Feature = "MultiKueueAllowInsecureKubeconfigs"
 
+	// owner: @pbundyra
+	//
+	// Enables reclaimable pods counting towards quota.
+	ReclaimablePods featuregate.Feature = "ReclaimablePods"
+
 	// owner: @j-skiba
 	//
 	// Enables automatic creation of default LocalQueues
@@ -263,7 +268,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	TASProfileMixed: {
 		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("0.11"), Default: false, PreRelease: featuregate.Deprecated},
+		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
 	HierarchicalCohorts: {
 		{Version: version.MustParse("0.11"), Default: true, PreRelease: featuregate.Beta},
@@ -293,6 +298,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	ManagedJobsNamespaceSelectorAlwaysRespected: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
 	FlavorFungibilityImplicitPreferenceDefault: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
@@ -311,6 +317,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	MultiKueueAllowInsecureKubeconfigs: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	ReclaimablePods: {
+		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
 	DefaultLocalQueue: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},

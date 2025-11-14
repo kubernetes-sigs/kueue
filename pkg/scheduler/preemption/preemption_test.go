@@ -367,14 +367,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /standalone; preemptee path: /standalone",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /standalone; preemptee path: /standalone",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -471,14 +471,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /standalone; preemptee path: /standalone",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /standalone; preemptee path: /standalone",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -497,14 +497,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /standalone; preemptee path: /standalone",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /standalone; preemptee path: /standalone",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -717,14 +717,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /standalone; preemptee path: /standalone",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /standalone; preemptee path: /standalone",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -832,14 +832,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /standalone; preemptee path: /standalone",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /standalone; preemptee path: /standalone",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -941,14 +941,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /standalone; preemptee path: /standalone",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /standalone; preemptee path: /standalone",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -1045,14 +1045,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /cohort/c1; preemptee path: /cohort/c2",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /cohort/c1; preemptee path: /cohort/c2",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -1114,14 +1114,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /cohort/c1; preemptee path: /cohort/c2",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /cohort/c1; preemptee path: /cohort/c2",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -1357,14 +1357,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /cohort/c1; preemptee path: /cohort/c1",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /cohort/c1; preemptee path: /cohort/c1",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -1463,14 +1463,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /cohort/c1; preemptee path: /cohort/c1",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /cohort/c1; preemptee path: /cohort/c1",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -1569,14 +1569,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /cohort-no-limits/d1; preemptee path: /cohort-no-limits/d1",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /cohort-no-limits/d1; preemptee path: /cohort-no-limits/d1",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -1692,14 +1692,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /cohort/c1; preemptee path: /cohort/c1",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /cohort/c1; preemptee path: /cohort/c1",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -1810,14 +1810,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /legion/l1; preemptee path: /legion/l1",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /legion/l1; preemptee path: /legion/l1",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -1971,14 +1971,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /cohort/c2; preemptee path: /cohort/c1",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /cohort/c2; preemptee path: /cohort/c1",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -2085,14 +2085,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /cohort/c1; preemptee path: /cohort/c1",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /cohort/c1; preemptee path: /cohort/c1",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -2123,14 +2123,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /cohort/c1; preemptee path: /cohort/c2",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /cohort/c1; preemptee path: /cohort/c2",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -2268,14 +2268,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /standalone; preemptee path: /standalone",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /standalone; preemptee path: /standalone",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -2295,14 +2295,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /standalone; preemptee path: /standalone",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /standalone; preemptee path: /standalone",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -2403,14 +2403,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /preventStarvation; preemptee path: /preventStarvation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /preventStarvation; preemptee path: /preventStarvation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -2485,14 +2485,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort while borrowing",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort while borrowing; preemptor path: /with_shared_cq/a_standard; preemptee path: /with_shared_cq/a_best_effort",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclaimWhileBorrowing",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort while borrowing",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort while borrowing; preemptor path: /with_shared_cq/a_standard; preemptee path: /with_shared_cq/a_best_effort",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -2600,14 +2600,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /with_shared_cq/a_standard; preemptee path: /with_shared_cq/b_standard",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /with_shared_cq/a_standard; preemptee path: /with_shared_cq/b_standard",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -2760,14 +2760,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /with_shared_cq/b_standard; preemptee path: /with_shared_cq/b_standard",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /with_shared_cq/b_standard; preemptee path: /with_shared_cq/b_standard",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -2878,14 +2878,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort while borrowing",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort while borrowing; preemptor path: /with_shared_cq/b_standard; preemptee path: /with_shared_cq/a_best_effort",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclaimWhileBorrowing",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort while borrowing",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort while borrowing; preemptor path: /with_shared_cq/b_standard; preemptee path: /with_shared_cq/a_best_effort",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -2917,14 +2917,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /with_shared_cq/b_standard; preemptee path: /with_shared_cq/b_standard",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /with_shared_cq/b_standard; preemptee path: /with_shared_cq/b_standard",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -3021,14 +3021,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /cohort-lend/lend1; preemptee path: /cohort-lend/lend2",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /cohort-lend/lend1; preemptee path: /cohort-lend/lend2",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -3112,14 +3112,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /cohort-lend/lend1; preemptee path: /cohort-lend/lend1",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /cohort-lend/lend1; preemptee path: /cohort-lend/lend1",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -3150,14 +3150,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /cohort-lend/lend1; preemptee path: /cohort-lend/lend2",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /cohort-lend/lend1; preemptee path: /cohort-lend/lend2",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -3320,14 +3320,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /cohort-three/a; preemptee path: /cohort-three/a",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /cohort-three/a; preemptee path: /cohort-three/a",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -3347,14 +3347,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /cohort-three/a; preemptee path: /cohort-three/a",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /cohort-three/a; preemptee path: /cohort-three/a",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -3532,14 +3532,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /cohort-three/a; preemptee path: /cohort-three/a",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /cohort-three/a; preemptee path: /cohort-three/a",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -3561,14 +3561,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /cohort-three/a; preemptee path: /cohort-three/a",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /cohort-three/a; preemptee path: /cohort-three/a",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -3740,14 +3740,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /cohort-three/a; preemptee path: /cohort-three/a",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /cohort-three/a; preemptee path: /cohort-three/a",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -3767,14 +3767,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /cohort-three/a; preemptee path: /cohort-three/a",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /cohort-three/a; preemptee path: /cohort-three/a",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -3932,14 +3932,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /cohort-three/a; preemptee path: /cohort-three/a",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /cohort-three/a; preemptee path: /cohort-three/a",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -4007,14 +4007,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /cohort-three/a; preemptee path: /cohort-three/b",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /cohort-three/a; preemptee path: /cohort-three/b",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -4083,14 +4083,14 @@ func TestPreemption(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /root/cohort-left/cq-left; preemptee path: /root/cohort-right/cq-right",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
-						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /root/cohort-left/cq-left; preemptee path: /root/cohort-right/cq-right",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
@@ -4145,7 +4145,7 @@ func TestPreemption(t *testing.T) {
 			wlInfo := workload.NewInfo(tc.incoming)
 			wlInfo.ClusterQueue = tc.targetCQ
 			targets := preemptor.GetTargets(log, *wlInfo, tc.assignment, snapshotWorkingCopy)
-			preempted, err := preemptor.IssuePreemptions(ctx, wlInfo, targets)
+			preempted, err := preemptor.IssuePreemptions(ctx, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))
 			if err != nil {
 				t.Fatalf("Failed doing preemption")
 			}
@@ -4308,30 +4308,34 @@ func singlePodSetAssignment(assignments flavorassigner.ResourceAssignment) flavo
 
 func TestPreemptionMessage(t *testing.T) {
 	cases := []struct {
-		preemptor *kueue.Workload
-		reason    string
-		want      string
+		preemptor     *kueue.Workload
+		reason        string
+		preemptorPath string
+		preempteePath string
+		want          string
 	}{
 		{
 			preemptor: &kueue.Workload{},
-			want:      "Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to UNKNOWN",
+			want:      "Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to UNKNOWN; preemptor path: UNKNOWN; preemptee path: UNKNOWN",
 		},
 		{
 			preemptor: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{UID: "uid"}},
-			want:      "Preempted to accommodate a workload (UID: uid, JobUID: UNKNOWN) due to UNKNOWN",
+			want:      "Preempted to accommodate a workload (UID: uid, JobUID: UNKNOWN) due to UNKNOWN; preemptor path: UNKNOWN; preemptee path: UNKNOWN",
 		},
 		{
 			preemptor: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{UID: "uid", Labels: map[string]string{controllerconstants.JobUIDLabel: "juid"}}},
-			want:      "Preempted to accommodate a workload (UID: uid, JobUID: juid) due to UNKNOWN",
+			want:      "Preempted to accommodate a workload (UID: uid, JobUID: juid) due to UNKNOWN; preemptor path: UNKNOWN; preemptee path: UNKNOWN",
 		},
 		{
-			preemptor: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{UID: "uid", Labels: map[string]string{controllerconstants.JobUIDLabel: "juid"}}},
-			reason:    kueue.InClusterQueueReason,
-			want:      "Preempted to accommodate a workload (UID: uid, JobUID: juid) due to prioritization in the ClusterQueue",
+			preemptor:     &kueue.Workload{ObjectMeta: metav1.ObjectMeta{UID: "uid", Labels: map[string]string{controllerconstants.JobUIDLabel: "juid"}}},
+			reason:        kueue.InClusterQueueReason,
+			preemptorPath: "/a",
+			preempteePath: "/b",
+			want:          "Preempted to accommodate a workload (UID: uid, JobUID: juid) due to prioritization in the ClusterQueue; preemptor path: /a; preemptee path: /b",
 		},
 	}
 	for _, tc := range cases {
-		got := preemptionMessage(tc.preemptor, tc.reason)
+		got := preemptionMessage(tc.preemptor, tc.reason, tc.preemptorPath, tc.preempteePath)
 		if got != tc.want {
 			t.Errorf("preemptionMessage(preemptor=kueue.Workload{UID:%v, Labels:%v}, reason=%q) returned %q, want %q", tc.preemptor.UID, tc.preemptor.Labels, tc.reason, got, tc.want)
 		}

@@ -208,6 +208,7 @@ spec:
                         If LocationType is Secret then Location is the name of the secret inside the namespace in
                         which the kueue controller manager is running. The config should be stored in the "kubeconfig" key.
                       maxLength: 256
+                      minLength: 1
                       type: string
                     locationType:
                       default: Secret
@@ -218,7 +219,6 @@ spec:
                       type: string
                   required:
                     - location
-                    - locationType
                   type: object
               required:
                 - kubeConfig

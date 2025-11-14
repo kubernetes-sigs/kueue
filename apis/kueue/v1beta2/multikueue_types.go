@@ -50,18 +50,22 @@ type KubeConfig struct {
 	// If LocationType is Secret then Location is the name of the secret inside the namespace in
 	// which the kueue controller manager is running. The config should be stored in the "kubeconfig" key.
 	// +kubebuilder:validation:MaxLength=256
-	Location string `json:"location"`
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Location string `json:"location,omitempty"`
 
 	// locationType of the KubeConfig.
 	//
 	// +kubebuilder:default=Secret
+	// +optional
 	// +kubebuilder:validation:Enum=Secret;Path
-	LocationType LocationType `json:"locationType"`
+	LocationType LocationType `json:"locationType"` //nolint:kubeapilinter // should not be a pointer
 }
 
 type MultiKueueClusterSpec struct {
 	// kubeConfig is information on how to connect to the cluster.
-	KubeConfig KubeConfig `json:"kubeConfig"`
+	// +required
+	KubeConfig KubeConfig `json:"kubeConfig,omitempty,omitzero"`
 }
 
 type MultiKueueClusterStatus struct {
@@ -89,13 +93,16 @@ type MultiKueueClusterStatus struct {
 type MultiKueueCluster struct {
 	metav1.TypeMeta `json:",inline"`
 	// metadata is the metadata of the MultiKueueCluster.
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// spec is the specification of the MultiKueueCluster.
-	Spec MultiKueueClusterSpec `json:"spec,omitempty"`
+	// +optional
+	Spec MultiKueueClusterSpec `json:"spec,omitempty,omitzero"` //nolint:kubeapilinter // spec should not be a pointer
 
 	// status is the status of the MultiKueueCluster.
-	Status MultiKueueClusterStatus `json:"status,omitempty"`
+	// +optional
+	Status MultiKueueClusterStatus `json:"status,omitempty"` //nolint:kubeapilinter // status should not be a pointer
 }
 
 // +kubebuilder:object:root=true
@@ -115,7 +122,8 @@ type MultiKueueConfigSpec struct {
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=10
 	// +kubebuilder:validation:items:MaxLength=256
-	Clusters []string `json:"clusters"`
+	// +required
+	Clusters []string `json:"clusters,omitempty,omitzero"`
 }
 
 // +genclient
@@ -127,10 +135,12 @@ type MultiKueueConfigSpec struct {
 type MultiKueueConfig struct {
 	metav1.TypeMeta `json:",inline"`
 	// metadata is the metadata of the MultiKueueConfig.
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// spec is the specification of the MultiKueueConfig.
-	Spec MultiKueueConfigSpec `json:"spec,omitempty"`
+	// +optional
+	Spec MultiKueueConfigSpec `json:"spec,omitempty"` //nolint:kubeapilinter // spec should not be a pointer
 }
 
 // +kubebuilder:object:root=true

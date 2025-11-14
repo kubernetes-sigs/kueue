@@ -77,7 +77,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var defaultEnabledIntegrations sets.Set[string] = sets.New(
+var defaultEnabledIntegrations = sets.New(
 	"batch/job", "kubeflow.org/mpijob", "ray.io/rayjob", "ray.io/raycluster",
 	"jobset.x-k8s.io/jobset", "kubeflow.org/paddlejob",
 	"kubeflow.org/pytorchjob", "kubeflow.org/tfjob", "kubeflow.org/xgboostjob", "kubeflow.org/jaxjob",
@@ -1664,7 +1664,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 		ginkgo.By("observe: the job is created in the manager cluster", func() {
 			getJob(manager.ctx, manager.client, job)
-			gomega.Expect(job.Spec.Suspend).To(gomega.BeEquivalentTo(ptr.To(true)))
+			gomega.Expect(job.Spec.Suspend).To(gomega.Equal(ptr.To(true)))
 		})
 
 		ginkgo.By("observe: a new workload is created in the manager cluster")
@@ -1709,7 +1709,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			gomega.Eventually(func(g gomega.Gomega) {
 				remoteJob := job.DeepCopy()
 				getJob(worker1.ctx, worker1.client, remoteJob)
-				g.Expect(remoteJob.Spec.Suspend).To(gomega.BeEquivalentTo(ptr.To(false)))
+				g.Expect(remoteJob.Spec.Suspend).To(gomega.Equal(ptr.To(false)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -1725,8 +1725,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		})
 
 		ginkgo.By("observe: job is no longer suspended in the manager cluster", func() {
-			getJob(manager.ctx, manager.client, job)
-			gomega.Expect(job.Spec.Suspend).To(gomega.BeEquivalentTo(ptr.To(false)))
+			gomega.Eventually(func(g gomega.Gomega) {
+				getJob(manager.ctx, manager.client, job)
+				g.Expect(job.Spec.Suspend).To(gomega.Equal(ptr.To(false)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		/*
@@ -1792,7 +1794,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		ginkgo.By("observe: the remote job is still active and has old parallelism count", func() {
 			remoteJob := job.DeepCopy()
 			getJob(worker1.ctx, worker1.client, remoteJob)
-			gomega.Expect(remoteJob.Spec.Suspend).To(gomega.BeEquivalentTo(ptr.To(false)))
+			gomega.Expect(remoteJob.Spec.Suspend).To(gomega.Equal(ptr.To(false)))
 			gomega.Expect(remoteJob.Spec.Parallelism).To(gomega.BeEquivalentTo(ptr.To(int32(1))))
 		})
 
@@ -1824,7 +1826,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			gomega.Eventually(func(g gomega.Gomega) {
 				remoteJob := job.DeepCopy()
 				getJob(worker1.ctx, worker1.client, remoteJob)
-				g.Expect(remoteJob.Spec.Suspend).To(gomega.BeEquivalentTo(ptr.To(false)))
+				g.Expect(remoteJob.Spec.Suspend).To(gomega.Equal(ptr.To(false)))
 				g.Expect(remoteJob.Spec.Parallelism).To(gomega.BeEquivalentTo(ptr.To(int32(1))))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})

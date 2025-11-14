@@ -41,14 +41,14 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1beta2.
 <tr><td><code>kind</code><br/>string</td><td><code>AdmissionCheck</code></td></tr>
     
   
-<tr><td><code>spec</code> <B>[Required]</B><br/>
+<tr><td><code>spec</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-AdmissionCheckSpec"><code>AdmissionCheckSpec</code></a>
 </td>
 <td>
    <p>spec is the specification of the AdmissionCheck.</p>
 </td>
 </tr>
-<tr><td><code>status</code> <B>[Required]</B><br/>
+<tr><td><code>status</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-AdmissionCheckStatus"><code>AdmissionCheckStatus</code></a>
 </td>
 <td>
@@ -76,14 +76,14 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1beta2.
 <tr><td><code>kind</code><br/>string</td><td><code>ClusterQueue</code></td></tr>
     
   
-<tr><td><code>spec</code> <B>[Required]</B><br/>
+<tr><td><code>spec</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-ClusterQueueSpec"><code>ClusterQueueSpec</code></a>
 </td>
 <td>
    <p>spec is the specification of the ClusterQueue.</p>
 </td>
 </tr>
-<tr><td><code>status</code> <B>[Required]</B><br/>
+<tr><td><code>status</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-ClusterQueueStatus"><code>ClusterQueueStatus</code></a>
 </td>
 <td>
@@ -114,14 +114,14 @@ V0.9 and V0.10 is unsupported, and results in undefined behavior.</p>
 <tr><td><code>kind</code><br/>string</td><td><code>Cohort</code></td></tr>
     
   
-<tr><td><code>spec</code> <B>[Required]</B><br/>
+<tr><td><code>spec</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-CohortSpec"><code>CohortSpec</code></a>
 </td>
 <td>
    <p>spec is the specification of the Cohort.</p>
 </td>
 </tr>
-<tr><td><code>status</code> <B>[Required]</B><br/>
+<tr><td><code>status</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-CohortStatus"><code>CohortStatus</code></a>
 </td>
 <td>
@@ -149,14 +149,14 @@ V0.9 and V0.10 is unsupported, and results in undefined behavior.</p>
 <tr><td><code>kind</code><br/>string</td><td><code>LocalQueue</code></td></tr>
     
   
-<tr><td><code>spec</code> <B>[Required]</B><br/>
+<tr><td><code>spec</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-LocalQueueSpec"><code>LocalQueueSpec</code></a>
 </td>
 <td>
    <p>spec is the specification of the LocalQueue.</p>
 </td>
 </tr>
-<tr><td><code>status</code> <B>[Required]</B><br/>
+<tr><td><code>status</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-LocalQueueStatus"><code>LocalQueueStatus</code></a>
 </td>
 <td>
@@ -184,14 +184,14 @@ V0.9 and V0.10 is unsupported, and results in undefined behavior.</p>
 <tr><td><code>kind</code><br/>string</td><td><code>MultiKueueCluster</code></td></tr>
     
   
-<tr><td><code>spec</code> <B>[Required]</B><br/>
+<tr><td><code>spec,omitempty,omitzero</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-MultiKueueClusterSpec"><code>MultiKueueClusterSpec</code></a>
 </td>
 <td>
    <p>spec is the specification of the MultiKueueCluster.</p>
 </td>
 </tr>
-<tr><td><code>status</code> <B>[Required]</B><br/>
+<tr><td><code>status</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-MultiKueueClusterStatus"><code>MultiKueueClusterStatus</code></a>
 </td>
 <td>
@@ -219,7 +219,7 @@ V0.9 and V0.10 is unsupported, and results in undefined behavior.</p>
 <tr><td><code>kind</code><br/>string</td><td><code>MultiKueueConfig</code></td></tr>
     
   
-<tr><td><code>spec</code> <B>[Required]</B><br/>
+<tr><td><code>spec</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-MultiKueueConfigSpec"><code>MultiKueueConfigSpec</code></a>
 </td>
 <td>
@@ -247,7 +247,7 @@ V0.9 and V0.10 is unsupported, and results in undefined behavior.</p>
 <tr><td><code>kind</code><br/>string</td><td><code>ProvisioningRequestConfig</code></td></tr>
     
   
-<tr><td><code>spec</code> <B>[Required]</B><br/>
+<tr><td><code>spec</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-ProvisioningRequestConfigSpec"><code>ProvisioningRequestConfigSpec</code></a>
 </td>
 <td>
@@ -275,7 +275,7 @@ V0.9 and V0.10 is unsupported, and results in undefined behavior.</p>
 <tr><td><code>kind</code><br/>string</td><td><code>ResourceFlavor</code></td></tr>
     
   
-<tr><td><code>spec</code> <B>[Required]</B><br/>
+<tr><td><code>spec</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-ResourceFlavorSpec"><code>ResourceFlavorSpec</code></a>
 </td>
 <td>
@@ -303,7 +303,7 @@ V0.9 and V0.10 is unsupported, and results in undefined behavior.</p>
 <tr><td><code>kind</code><br/>string</td><td><code>Topology</code></td></tr>
     
   
-<tr><td><code>spec</code> <B>[Required]</B><br/>
+<tr><td><code>spec</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-TopologySpec"><code>TopologySpec</code></a>
 </td>
 <td>
@@ -331,14 +331,14 @@ V0.9 and V0.10 is unsupported, and results in undefined behavior.</p>
 <tr><td><code>kind</code><br/>string</td><td><code>Workload</code></td></tr>
     
   
-<tr><td><code>spec</code> <B>[Required]</B><br/>
+<tr><td><code>spec</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-WorkloadSpec"><code>WorkloadSpec</code></a>
 </td>
 <td>
    <p>spec is the specification of the Workload.</p>
 </td>
 </tr>
-<tr><td><code>status</code> <B>[Required]</B><br/>
+<tr><td><code>status</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-WorkloadStatus"><code>WorkloadStatus</code></a>
 </td>
 <td>
@@ -401,14 +401,14 @@ The description is limited to a maximum of 2048 characters.</p>
 <tbody>
     
   
-<tr><td><code>clusterQueue</code> <B>[Required]</B><br/>
+<tr><td><code>clusterQueue</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-ClusterQueueReference"><code>ClusterQueueReference</code></a>
 </td>
 <td>
    <p>clusterQueue is the name of the ClusterQueue that admitted this workload.</p>
 </td>
 </tr>
-<tr><td><code>podSetAssignments</code> <B>[Required]</B><br/>
+<tr><td><code>podSetAssignments</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-PodSetAssignment"><code>[]PodSetAssignment</code></a>
 </td>
 <td>
@@ -537,7 +537,7 @@ check.</p>
    <p>state of the admissionCheck, one of Pending, Ready, Retry, Rejected</p>
 </td>
 </tr>
-<tr><td><code>lastTransitionTime</code> <B>[Required]</B><br/>
+<tr><td><code>lastTransitionTime,omitempty,omitzero</code> <B>[Required]</B><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Time</code></a>
 </td>
 <td>
@@ -743,7 +743,7 @@ within cohort while borrowing. It only works with Classical Preemption,
 <tbody>
     
   
-<tr><td><code>policy</code> <B>[Required]</B><br/>
+<tr><td><code>policy</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-BorrowWithinCohortPolicy"><code>BorrowWithinCohortPolicy</code></a>
 </td>
 <td>
@@ -830,7 +830,7 @@ lower priority first.</p>
 <tbody>
     
   
-<tr><td><code>reclaimWithinCohort</code> <B>[Required]</B><br/>
+<tr><td><code>reclaimWithinCohort</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-PreemptionPolicy"><code>PreemptionPolicy</code></a>
 </td>
 <td>
@@ -852,7 +852,7 @@ in the cohort that satisfy the Fair Sharing preemptionStrategies.</li>
 </ul>
 </td>
 </tr>
-<tr><td><code>borrowWithinCohort</code> <B>[Required]</B><br/>
+<tr><td><code>borrowWithinCohort</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-BorrowWithinCohort"><code>BorrowWithinCohort</code></a>
 </td>
 <td>
@@ -861,7 +861,7 @@ Workloads from other ClusterQueues in the cohort if the workload requires borrow
 May only be configured with Classical Preemption, and <strong>not</strong> with Fair Sharing.</p>
 </td>
 </tr>
-<tr><td><code>withinClusterQueue</code> <B>[Required]</B><br/>
+<tr><td><code>withinClusterQueue</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-PreemptionPolicy"><code>PreemptionPolicy</code></a>
 </td>
 <td>
@@ -914,7 +914,7 @@ It must be a DNS (RFC 1123) and has the maximum length of 253 characters.</p>
 <tbody>
     
   
-<tr><td><code>resourceGroups</code> <B>[Required]</B><br/>
+<tr><td><code>resourceGroups</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-ResourceGroup"><code>[]ResourceGroup</code></a>
 </td>
 <td>
@@ -925,7 +925,7 @@ Each resource and each flavor can only form part of one resource group.
 resourceGroups can be up to 16, with a max of 256 total flavors across all groups.</p>
 </td>
 </tr>
-<tr><td><code>cohortName</code> <B>[Required]</B><br/>
+<tr><td><code>cohortName</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-CohortReference"><code>CohortReference</code></a>
 </td>
 <td>
@@ -941,7 +941,7 @@ vice versa.</p>
 object.</p>
 </td>
 </tr>
-<tr><td><code>queueingStrategy</code> <B>[Required]</B><br/>
+<tr><td><code>queueingStrategy</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-QueueingStrategy"><code>QueueingStrategy</code></a>
 </td>
 <td>
@@ -958,7 +958,7 @@ admitting newer workloads that fit existing quota.</li>
 </ul>
 </td>
 </tr>
-<tr><td><code>namespaceSelector</code> <B>[Required]</B><br/>
+<tr><td><code>namespaceSelector</code><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#labelselector-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector</code></a>
 </td>
 <td>
@@ -969,7 +969,7 @@ Defaults to null which is a nothing selector (no namespaces eligible).
 If set to an empty selector <code>{}</code>, then all namespaces are eligible.</p>
 </td>
 </tr>
-<tr><td><code>flavorFungibility</code> <B>[Required]</B><br/>
+<tr><td><code>flavorFungibility</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-FlavorFungibility"><code>FlavorFungibility</code></a>
 </td>
 <td>
@@ -977,7 +977,7 @@ If set to an empty selector <code>{}</code>, then all namespaces are eligible.</
 before borrowing or preempting in the flavor being evaluated.</p>
 </td>
 </tr>
-<tr><td><code>preemption</code> <B>[Required]</B><br/>
+<tr><td><code>preemption</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-ClusterQueuePreemption"><code>ClusterQueuePreemption</code></a>
 </td>
 <td>
@@ -1157,7 +1157,7 @@ subdomain in DNS (RFC 1123).</p>
 <tbody>
     
   
-<tr><td><code>parentName</code> <B>[Required]</B><br/>
+<tr><td><code>parentName</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-CohortReference"><code>CohortReference</code></a>
 </td>
 <td>
@@ -1174,7 +1174,7 @@ removed.  We prevent further admission while the cycle
 exists.</p>
 </td>
 </tr>
-<tr><td><code>resourceGroups</code> <B>[Required]</B><br/>
+<tr><td><code>resourceGroups</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-ResourceGroup"><code>[]ResourceGroup</code></a>
 </td>
 <td>
@@ -1318,7 +1318,7 @@ V0.9 and V0.10 is unsupported, and results in undefined behavior.</p>
 <tbody>
     
   
-<tr><td><code>weight</code> <B>[Required]</B><br/>
+<tr><td><code>weight</code><br/>
 <a href="https://pkg.go.dev/k8s.io/apimachinery/pkg/api/resource#Quantity"><code>k8s.io/apimachinery/pkg/api/resource.Quantity</code></a>
 </td>
 <td>
@@ -1398,7 +1398,7 @@ before borrowing or preempting in current flavor.</p>
 <tbody>
     
   
-<tr><td><code>whenCanBorrow</code> <B>[Required]</B><br/>
+<tr><td><code>whenCanBorrow</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-FlavorFungibilityPolicy"><code>FlavorFungibilityPolicy</code></a>
 </td>
 <td>
@@ -1408,11 +1408,10 @@ before borrowing in current flavor. The possible values are:</p>
 <li><code>MayStopSearch</code> (default): stop the search for candidate flavors if workload
 fits or requires borrowing to fit.</li>
 <li><code>TryNextFlavor</code>: try next flavor if workload requires borrowing to fit.</li>
-<li><code>Borrow</code> (deprecated): old name for <code>MayStopSearch</code>; please use new name.</li>
 </ul>
 </td>
 </tr>
-<tr><td><code>whenCanPreempt</code> <B>[Required]</B><br/>
+<tr><td><code>whenCanPreempt</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-FlavorFungibilityPolicy"><code>FlavorFungibilityPolicy</code></a>
 </td>
 <td>
@@ -1423,7 +1422,6 @@ before borrowing in current flavor. The possible values are:</p>
 preemption to fit.</li>
 <li><code>TryNextFlavor</code> (default): try next flavor if workload requires preemption
 to fit in current flavor.</li>
-<li><code>Preempt</code> (deprecated): old name for <code>MayStopSearch</code>; please use new name.</li>
 </ul>
 </td>
 </tr>
@@ -1530,7 +1528,7 @@ There could be up to 64 resources.</p>
 which the kueue controller manager is running. The config should be stored in the &quot;kubeconfig&quot; key.</p>
 </td>
 </tr>
-<tr><td><code>locationType</code> <B>[Required]</B><br/>
+<tr><td><code>locationType</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-LocationType"><code>LocationType</code></a>
 </td>
 <td>
@@ -1607,7 +1605,7 @@ It must be a DNS (RFC 1123) and has the maximum length of 253 characters.</p>
    <p>name of the resource.</p>
 </td>
 </tr>
-<tr><td><code>total</code> <B>[Required]</B><br/>
+<tr><td><code>total</code><br/>
 <a href="https://pkg.go.dev/k8s.io/apimachinery/pkg/api/resource#Quantity"><code>k8s.io/apimachinery/pkg/api/resource.Quantity</code></a>
 </td>
 <td>
@@ -1633,7 +1631,7 @@ It must be a DNS (RFC 1123) and has the maximum length of 253 characters.</p>
 <tbody>
     
   
-<tr><td><code>clusterQueue</code> <B>[Required]</B><br/>
+<tr><td><code>clusterQueue</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-ClusterQueueReference"><code>ClusterQueueReference</code></a>
 </td>
 <td>
@@ -1766,7 +1764,7 @@ workloads assigned to this LocalQueue.</p>
 <tbody>
     
   
-<tr><td><code>kubeConfig</code> <B>[Required]</B><br/>
+<tr><td><code>kubeConfig,omitempty,omitzero</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta2-KubeConfig"><code>KubeConfig</code></a>
 </td>
 <td>
@@ -1818,7 +1816,7 @@ conditions are limited to 16 elements.</p>
 <tbody>
     
   
-<tr><td><code>clusters</code> <B>[Required]</B><br/>
+<tr><td><code>clusters,omitempty,omitzero</code> <B>[Required]</B><br/>
 <code>[]string</code>
 </td>
 <td>
@@ -1856,7 +1854,7 @@ conditions are limited to 16 elements.</p>
 <tbody>
     
   
-<tr><td><code>name</code> <B>[Required]</B><br/>
+<tr><td><code>name</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-PodSetReference"><code>PodSetReference</code></a>
 </td>
 <td>
@@ -1879,7 +1877,7 @@ Workload are used to filter the ResourceFlavors that can be assigned to
 this podSet.</p>
 </td>
 </tr>
-<tr><td><code>count</code> <B>[Required]</B><br/>
+<tr><td><code>count</code><br/>
 <code>int32</code>
 </td>
 <td>
@@ -1922,21 +1920,21 @@ enabled.</p>
 <tbody>
     
   
-<tr><td><code>name</code> <B>[Required]</B><br/>
+<tr><td><code>name</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-PodSetReference"><code>PodSetReference</code></a>
 </td>
 <td>
    <p>name is the name of the podSet. It should match one of the names in .spec.podSets.</p>
 </td>
 </tr>
-<tr><td><code>flavors</code> <B>[Required]</B><br/>
+<tr><td><code>flavors</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-ResourceFlavorReference"><code>map[ResourceName]ResourceFlavorReference</code></a>
 </td>
 <td>
    <p>flavors are the flavors assigned to the workload for each resource.</p>
 </td>
 </tr>
-<tr><td><code>resourceUsage</code> <B>[Required]</B><br/>
+<tr><td><code>resourceUsage</code><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcelist-v1-core"><code>k8s.io/api/core/v1.ResourceList</code></a>
 </td>
 <td>
@@ -2123,7 +2121,7 @@ the entire available capacity, without constraints on the compactness of the pla
 This is indicated by the <code>kueue.x-k8s.io/podset-unconstrained-topology</code> PodSet annotation.</p>
 </td>
 </tr>
-<tr><td><code>podIndexLabel</code> <B>[Required]</B><br/>
+<tr><td><code>podIndexLabel</code><br/>
 <code>string</code>
 </td>
 <td>
@@ -2137,7 +2135,7 @@ This is limited to 317 characters.</li>
 </ul>
 </td>
 </tr>
-<tr><td><code>subGroupIndexLabel</code> <B>[Required]</B><br/>
+<tr><td><code>subGroupIndexLabel</code><br/>
 <code>string</code>
 </td>
 <td>
@@ -2146,7 +2144,7 @@ within a PodSet. For example, in the context of JobSet this is jobset.sigs.k8s.i
 This is limited to 317 characters.</p>
 </td>
 </tr>
-<tr><td><code>subGroupCount</code> <B>[Required]</B><br/>
+<tr><td><code>subGroupCount</code><br/>
 <code>int32</code>
 </td>
 <td>
@@ -2755,7 +2753,7 @@ This field is in beta stage and is enabled by default.</p>
    <p>name of the resource</p>
 </td>
 </tr>
-<tr><td><code>total</code> <B>[Required]</B><br/>
+<tr><td><code>total</code><br/>
 <a href="https://pkg.go.dev/k8s.io/apimachinery/pkg/api/resource#Quantity"><code>k8s.io/apimachinery/pkg/api/resource.Quantity</code></a>
 </td>
 <td>
@@ -2763,7 +2761,7 @@ This field is in beta stage and is enabled by default.</p>
 from the cohort.</p>
 </td>
 </tr>
-<tr><td><code>borrowed</code> <B>[Required]</B><br/>
+<tr><td><code>borrowed</code><br/>
 <a href="https://pkg.go.dev/k8s.io/apimachinery/pkg/api/resource#Quantity"><code>k8s.io/apimachinery/pkg/api/resource.Quantity</code></a>
 </td>
 <td>
@@ -3032,7 +3030,7 @@ This may be an empty string.</p>
 <tbody>
     
   
-<tr><td><code>podSets</code> <B>[Required]</B><br/>
+<tr><td><code>podSets</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-PodSet"><code>[]PodSet</code></a>
 </td>
 <td>
@@ -3042,7 +3040,7 @@ There must be at least one element and at most 8.
 podSets cannot be changed.</p>
 </td>
 </tr>
-<tr><td><code>queueName</code> <B>[Required]</B><br/>
+<tr><td><code>queueName</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-LocalQueueName"><code>LocalQueueName</code></a>
 </td>
 <td>
@@ -3050,7 +3048,7 @@ podSets cannot be changed.</p>
 queueName cannot be changed while .status.admission is not null.</p>
 </td>
 </tr>
-<tr><td><code>priorityClassName</code> <B>[Required]</B><br/>
+<tr><td><code>priorityClassName</code><br/>
 <code>string</code>
 </td>
 <td>
@@ -3063,7 +3061,7 @@ PriorityClass object with that name. If not specified, the workload
 priority will be default or zero if there is no default.</p>
 </td>
 </tr>
-<tr><td><code>priority</code> <B>[Required]</B><br/>
+<tr><td><code>priority</code><br/>
 <code>int32</code>
 </td>
 <td>
@@ -3074,7 +3072,7 @@ The higher the value, the higher the priority.
 If priorityClassName is specified, priority must not be null.</p>
 </td>
 </tr>
-<tr><td><code>priorityClassSource</code> <B>[Required]</B><br/>
+<tr><td><code>priorityClassSource</code><br/>
 <code>string</code>
 </td>
 <td>

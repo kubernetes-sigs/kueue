@@ -850,6 +850,7 @@ spec:
                 items:
                   description: AdmissionCheckReference is the name of an AdmissionCheck.
                   maxLength: 316
+                  minLength: 1
                   type: string
                 type: array
               admissionChecksStrategy:
@@ -866,6 +867,7 @@ spec:
                         name:
                           description: name is an AdmissionCheck's name.
                           maxLength: 316
+                          minLength: 1
                           type: string
                         onFlavors:
                           description: |-
@@ -884,10 +886,13 @@ spec:
                       - name
                       type: object
                     maxItems: 64
+                    minItems: 1
                     type: array
                     x-kubernetes-list-map-keys:
                     - name
                     x-kubernetes-list-type: map
+                required:
+                - admissionChecks
                 type: object
               admissionScope:
                 description: admissionScope indicates whether ClusterQueue uses the
@@ -983,11 +988,9 @@ spec:
                       - `MayStopSearch` (default): stop the search for candidate flavors if workload
                         fits or requires borrowing to fit.
                       - `TryNextFlavor`: try next flavor if workload requires borrowing to fit.
-                      - `Borrow` (deprecated): old name for `MayStopSearch`; please use new name.
                     enum:
                     - MayStopSearch
                     - TryNextFlavor
-                    - Borrow
                     type: string
                   whenCanPreempt:
                     default: TryNextFlavor
@@ -999,11 +1002,9 @@ spec:
                         preemption to fit.
                       - `TryNextFlavor` (default): try next flavor if workload requires preemption
                         to fit in current flavor.
-                      - `Preempt` (deprecated): old name for `MayStopSearch`; please use new name.
                     enum:
                     - MayStopSearch
                     - TryNextFlavor
-                    - Preempt
                     type: string
                 type: object
               namespaceSelector:

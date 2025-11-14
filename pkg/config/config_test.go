@@ -282,28 +282,6 @@ integrations:
 		t.Fatal(err)
 	}
 
-	podIntegrationOptionsConfig := filepath.Join(tmpDir, "podIntegrationOptions.yaml")
-	if err := os.WriteFile(podIntegrationOptionsConfig, []byte(`
-apiVersion: config.kueue.x-k8s.io/v1beta2
-kind: Configuration
-integrations:
-  frameworks:
-  - pod
-  podOptions:
-    namespaceSelector:
-      matchExpressions:
-      - key: kubernetes.io/metadata.name
-        operator: NotIn
-        values: [ kube-system, kueue-system, prohibited-namespace ]
-    podSelector:
-      matchExpressions:
-      - key: kueue-job
-        operator: In
-        values: [ "true", "True", "yes" ]
-`), os.FileMode(0600)); err != nil {
-		t.Fatal(err)
-	}
-
 	multiKueueConfig := filepath.Join(tmpDir, "multiKueue.yaml")
 	if err := os.WriteFile(multiKueueConfig, []byte(`
 apiVersion: config.kueue.x-k8s.io/v1beta2
@@ -804,68 +782,7 @@ objectRetentionPolicies:
 				},
 			},
 		},
-		{
-			name:       "pod integration options config",
-			configFile: podIntegrationOptionsConfig,
-			wantConfiguration: configapi.Configuration{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.GroupVersion.String(),
-					Kind:       "Configuration",
-				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
-				ManageJobsWithoutQueueName: false,
-				InternalCertManagement:     enableDefaultInternalCertManagement,
-				ClientConnection:           defaultClientConnection,
-				Integrations: &configapi.Integrations{
-					Frameworks: []string{
-						"pod",
-					},
-					PodOptions: &configapi.PodIntegrationOptions{
-						NamespaceSelector: &metav1.LabelSelector{
-							MatchExpressions: []metav1.LabelSelectorRequirement{
-								{
-									Key:      corev1.LabelMetadataName,
-									Operator: metav1.LabelSelectorOpNotIn,
-									Values:   []string{"kube-system", "kueue-system", "prohibited-namespace"},
-								},
-							},
-						},
-						PodSelector: &metav1.LabelSelector{
-							MatchExpressions: []metav1.LabelSelectorRequirement{
-								{
-									Key:      "kueue-job",
-									Operator: metav1.LabelSelectorOpIn,
-									Values:   []string{"true", "True", "yes"},
-								},
-							},
-						},
-					},
-				},
-				MultiKueue:                   defaultMultiKueue,
-				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				WaitForPodsReady:             defaultWaitForPodsReady,
-			},
-			wantOptions: ctrl.Options{
-				Cache:                  defaultControlCacheOptions(configapi.DefaultNamespace),
-				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
-				Metrics: metricsserver.Options{
-					BindAddress: configapi.DefaultMetricsBindAddress,
-				},
-				LeaderElection:                true,
-				LeaderElectionID:              configapi.DefaultLeaderElectionID,
-				LeaderElectionResourceLock:    resourcelock.LeasesResourceLock,
-				LeaderElectionReleaseOnCancel: true,
-				LeaseDuration:                 ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
-				RenewDeadline:                 ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
-				RetryPeriod:                   ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
-				WebhookServer: &webhook.DefaultServer{
-					Options: webhook.Options{
-						Port:    configapi.DefaultWebhookPort,
-						CertDir: configapi.DefaultWebhookCertDir,
-					},
-				},
-			},
-		},
+
 		{
 			name:       "multiKueue config",
 			configFile: multiKueueConfig,
@@ -1074,7 +991,7 @@ func TestEncode(t *testing.T) {
 					"gcInterval":        "1m0s",
 					"origin":            "multikueue",
 					"workerLostTimeout": "15m0s",
-					"dispatcherName":    string(configapi.MultiKueueDispatcherModeAllAtOnce),
+					"dispatcherName":    configapi.MultiKueueDispatcherModeAllAtOnce,
 				},
 				"waitForPodsReady": map[string]any{},
 			},

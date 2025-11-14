@@ -17,9 +17,11 @@ limitations under the License.
 package preemption
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"sync/atomic"
 
 	"github.com/go-logr/logr"
@@ -96,6 +98,7 @@ func New(
 type Target struct {
 	WorkloadInfo *workload.Info
 	Reason       string
+	WorkloadCq   *schdcache.ClusterQueueSnapshot
 }
 
 // ensures that Target implements ObjectRefProvider interface at compile time
@@ -141,25 +144,17 @@ var HumanReadablePreemptionReasons = map[string]string{
 	"": "UNKNOWN",
 }
 
-func preemptionMessage(preemptor *kueue.Workload, reason string) string {
-	var wUID, jUID string
-	if preemptor.UID == "" {
-		wUID = "UNKNOWN"
-	} else {
-		wUID = string(preemptor.UID)
-	}
+func preemptionMessage(preemptor *kueue.Workload, reason, preemptorPath, preempteePath string) string {
+	wUID := cmp.Or(string(preemptor.UID), "UNKNOWN")
 	uid := preemptor.Labels[constants.JobUIDLabel]
-	if uid == "" {
-		jUID = "UNKNOWN"
-	} else {
-		jUID = uid
-	}
-
-	return fmt.Sprintf("Preempted to accommodate a workload (UID: %s, JobUID: %s) due to %s", wUID, jUID, HumanReadablePreemptionReasons[reason])
+	jUID := cmp.Or(uid, "UNKNOWN")
+	preemptorMsgPath := cmp.Or(preemptorPath, "UNKNOWN")
+	preempteeMsgPath := cmp.Or(preempteePath, "UNKNOWN")
+	return fmt.Sprintf("Preempted to accommodate a workload (UID: %s, JobUID: %s) due to %s; preemptor path: %s; preemptee path: %s", wUID, jUID, HumanReadablePreemptionReasons[reason], preemptorMsgPath, preempteeMsgPath)
 }
 
 // IssuePreemptions marks the target workloads as evicted.
-func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.Info, targets []*Target) (int, error) {
+func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.Info, targets []*Target, snap *schdcache.ClusterQueueSnapshot) (int, error) {
 	log := ctrl.LoggerFrom(ctx)
 	errCh := routine.NewErrorChannel()
 	ctx, cancel := context.WithCancel(ctx)
@@ -168,7 +163,10 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 	workqueue.ParallelizeUntil(ctx, parallelPreemptions, len(targets), func(i int) {
 		target := targets[i]
 		if !meta.IsStatusConditionTrue(target.WorkloadInfo.Obj.Status.Conditions, kueue.WorkloadEvicted) {
-			message := preemptionMessage(preemptor.Obj, target.Reason)
+			preemptorPath := buildCQPath(string(preemptor.ClusterQueue), snap)
+			preempteePath := buildCQPath(string(target.WorkloadInfo.ClusterQueue), target.WorkloadCq)
+
+			message := preemptionMessage(preemptor.Obj, target.Reason, preemptorPath, preempteePath)
 			wlCopy := target.WorkloadInfo.Obj.DeepCopy()
 			err := workload.Evict(ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, "", p.clock, workload.WithCustomPrepare(func() (*kueue.Workload, error) {
 				workload.SetPreemptedCondition(wlCopy, p.clock.Now(), target.Reason, message)
@@ -179,7 +177,9 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 				return
 			}
 
-			log.V(3).Info("Preempted", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj), "preemptorUID", string(preemptor.Obj.UID), "preemptorJobUID", preemptor.Obj.Labels[constants.JobUIDLabel], "reason", target.Reason, "message", message, "targetClusterQueue", klog.KRef("", string(target.WorkloadInfo.ClusterQueue)))
+			log.V(3).Info("Preempted", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj), "preemptorUID", string(preemptor.Obj.UID),
+				"preemptorJobUID", preemptor.Obj.Labels[constants.JobUIDLabel], "reason", target.Reason, "message", message, "targetClusterQueue", klog.KRef("", string(target.WorkloadInfo.ClusterQueue)),
+				"preemptorPath", preemptorPath, "preempteePath", preempteePath)
 			p.recorder.Eventf(target.WorkloadInfo.Obj, corev1.EventTypeNormal, "Preempted", message)
 			workload.ReportPreemption(preemptor.ClusterQueue, target.Reason, target.WorkloadInfo.ClusterQueue)
 		} else {
@@ -246,6 +246,7 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 			targets = append(targets, &Target{
 				WorkloadInfo: candidate,
 				Reason:       reason,
+				WorkloadCq:   preemptionCtx.snapshot.ClusterQueue(candidate.ClusterQueue),
 			})
 			if workloadFits(preemptionCtx, attemptOpts.borrowing) {
 				targets = fillBackWorkloads(preemptionCtx, targets, attemptOpts.borrowing)
@@ -313,6 +314,7 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 			targets = append(targets, &Target{
 				WorkloadInfo: candWl,
 				Reason:       kueue.InClusterQueueReason,
+				WorkloadCq:   candCQ.GetTargetCq(),
 			})
 			if workloadFitsForFairSharing(preemptionCtx) {
 				return true, targets, nil
@@ -331,6 +333,7 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 				targets = append(targets, &Target{
 					WorkloadInfo: candWl,
 					Reason:       reason,
+					WorkloadCq:   candCQ.GetTargetCq(),
 				})
 				if workloadFitsForFairSharing(preemptionCtx) {
 					return true, targets, nil
@@ -360,6 +363,7 @@ func runSecondFsStrategy(retryCandidates []*workload.Info, preemptionCtx *preemp
 			targets = append(targets, &Target{
 				WorkloadInfo: candWl,
 				Reason:       kueue.InCohortFairSharingReason,
+				WorkloadCq:   candCQ.GetTargetCq(),
 			})
 			if workloadFitsForFairSharing(preemptionCtx) {
 				return true, targets
@@ -520,4 +524,15 @@ func queueUnderNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx)
 		}
 	}
 	return true
+}
+
+// buildCQPath constructs a path like "/parent/.../cq" for a given ClusterQueue snapshot.
+func buildCQPath(cqName string, cqSnap *schdcache.ClusterQueueSnapshot) string {
+	parts := []string{cqName}
+	for ancestor := range cqSnap.PathParentToRoot() {
+		parts = append(parts, string(ancestor.GetName()))
+	}
+	// Reverse the slice since we want parent first
+	slices.Reverse(parts)
+	return "/" + strings.Join(parts, "/")
 }

@@ -35,11 +35,13 @@ type WorkloadSpec struct {
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=8
 	// +kubebuilder:validation:MinItems=1
-	PodSets []PodSet `json:"podSets"`
+	// +optional
+	PodSets []PodSet `json:"podSets"` //nolint:kubeapilinter // do not add omitempty tag
 
 	// queueName is the name of the LocalQueue the Workload is associated with.
 	// queueName cannot be changed while .status.admission is not null.
-	QueueName LocalQueueName `json:"queueName,omitempty"`
+	// +optional
+	QueueName LocalQueueName `json:"queueName,omitempty"` //nolint:kubeapilinter // should not be a pointer
 
 	// priorityClassName is the name of the PriorityClass the Workload is associated with.
 	// If specified, indicates the workload's priority.
@@ -49,14 +51,17 @@ type WorkloadSpec struct {
 	// PriorityClass object with that name. If not specified, the workload
 	// priority will be default or zero if there is no default.
 	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
-	PriorityClassName string `json:"priorityClassName,omitempty"`
+	// +optional
+	PriorityClassName string `json:"priorityClassName,omitempty"` //nolint:kubeapilinter // should not be a pointer
 
 	// priority determines the order of access to the resources managed by the
 	// ClusterQueue where the workload is queued.
 	// The priority value is populated from PriorityClassName.
 	// The higher the value, the higher the priority.
 	// If priorityClassName is specified, priority must not be null.
+	// +optional
 	Priority *int32 `json:"priority,omitempty"`
 
 	// priorityClassSource determines whether the priorityClass field refers to a pod PriorityClass or kueue.x-k8s.io/workloadpriorityclass.
@@ -64,7 +69,8 @@ type WorkloadSpec struct {
 	// When using pod PriorityClass, a priorityClassSource field has the scheduling.k8s.io/priorityclass value.
 	// +kubebuilder:default=""
 	// +kubebuilder:validation:Enum=kueue.x-k8s.io/workloadpriorityclass;scheduling.k8s.io/priorityclass;""
-	PriorityClassSource string `json:"priorityClassSource,omitempty"`
+	// +optional
+	PriorityClassSource string `json:"priorityClassSource,omitempty"` //nolint:kubeapilinter // should not be a pointer
 
 	// active determines if a workload can be admitted into a queue.
 	// Changing active from true to false will evict any running workloads.
@@ -122,16 +128,19 @@ type PodSetTopologyRequest struct {
 	// - Kubeflow: training.kubeflow.org/replica-index
 	// 	This is limited to 317 characters.
 	// +kubebuilder:validation:MaxLength=317
+	// +optional
 	PodIndexLabel *string `json:"podIndexLabel,omitempty"`
 
 	// subGroupIndexLabel indicates the name of the label indexing the instances of replicated Jobs (groups)
 	// within a PodSet. For example, in the context of JobSet this is jobset.sigs.k8s.io/job-index.
 	// 	This is limited to 317 characters.
 	// +kubebuilder:validation:MaxLength=317
+	// +optional
 	SubGroupIndexLabel *string `json:"subGroupIndexLabel,omitempty"`
 
 	// subGroupCount indicates the count of replicated Jobs (groups) within a PodSet.
 	// For example, in the context of JobSet this value is read from jobset.sigs.k8s.io/replicatedjob-replicas.
+	// +optional
 	SubGroupCount *int32 `json:"subGroupCount,omitempty"`
 
 	// podSetGroupName indicates the name of the group of PodSets to which this PodSet belongs to.
@@ -159,13 +168,15 @@ type PodSetTopologyRequest struct {
 
 type Admission struct {
 	// clusterQueue is the name of the ClusterQueue that admitted this workload.
-	ClusterQueue ClusterQueueReference `json:"clusterQueue"`
+	// +optional
+	ClusterQueue ClusterQueueReference `json:"clusterQueue"` //nolint:kubeapilinter // should not be a pointer
 
 	// podSetAssignments hold the admission results for each of the .spec.podSets entries.
 	// +listType=map
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=8
-	PodSetAssignments []PodSetAssignment `json:"podSetAssignments"`
+	// +optional
+	PodSetAssignments []PodSetAssignment `json:"podSetAssignments"` //nolint:kubeapilinter // do not add omitempty
 }
 
 // PodSetReference is the name of a PodSet.
@@ -180,9 +191,11 @@ func NewPodSetReference(name string) PodSetReference {
 type PodSetAssignment struct {
 	// name is the name of the podSet. It should match one of the names in .spec.podSets.
 	// +kubebuilder:default=main
-	Name PodSetReference `json:"name"`
+	// +optional
+	Name PodSetReference `json:"name"` //nolint:kubeapilinter // should not be a pointer
 
 	// flavors are the flavors assigned to the workload for each resource.
+	// +optional
 	Flavors map[corev1.ResourceName]ResourceFlavorReference `json:"flavors,omitempty"`
 
 	// resourceUsage keeps track of the total resources all the pods in the podset need to run.
@@ -190,6 +203,7 @@ type PodSetAssignment struct {
 	// Beside what is provided in podSet's specs, this calculation takes into account
 	// the LimitRange defaults and RuntimeClass overheads at the moment of admission.
 	// This field will not change in case of quota reclaim.
+	// +optional
 	ResourceUsage corev1.ResourceList `json:"resourceUsage,omitempty"` //nolint:kubeapilinter // map type is required for standard Kubernetes ResourceList
 
 	// count is the number of pods taken into account at admission time.
@@ -284,7 +298,7 @@ type TopologyAssignment struct {
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=16
 	// +kubebuilder:validation:items:MaxLength=317
-	Levels []string `json:"levels"`
+	Levels []string `json:"levels,omitempty"`
 
 	// domains is a list of topology assignments split by topology domains at
 	// the lowest level of the topology.
@@ -292,7 +306,7 @@ type TopologyAssignment struct {
 	// +required
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=100000
-	Domains []TopologyDomainAssignment `json:"domains"`
+	Domains []TopologyDomainAssignment `json:"domains,omitempty"`
 }
 
 type TopologyDomainAssignment struct {
@@ -305,21 +319,22 @@ type TopologyDomainAssignment struct {
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=16
 	// +kubebuilder:validation:items:MaxLength=63
-	Values []string `json:"values"`
+	Values []string `json:"values,omitempty"`
 
 	// count indicates the number of Pods to be scheduled in the topology
 	// domain indicated by the values field.
 	//
 	// +required
 	// +kubebuilder:validation:Minimum=1
-	Count int32 `json:"count"`
+	Count int32 `json:"count,omitempty"`
 }
 
 // +kubebuilder:validation:XValidation:rule="has(self.minCount) ? self.minCount <= self.count : true", message="minCount should be positive and less or equal to count"
 type PodSet struct {
 	// name is the PodSet name.
 	// +kubebuilder:default=main
-	Name PodSetReference `json:"name,omitempty"`
+	// +optional
+	Name PodSetReference `json:"name,omitempty"` //nolint:kubeapilinter // should not be a pointer
 
 	// template is the Pod template.
 	//
@@ -334,12 +349,14 @@ type PodSet struct {
 	// the keys in the nodeLabels from the ResourceFlavors considered for this
 	// Workload are used to filter the ResourceFlavors that can be assigned to
 	// this podSet.
-	Template corev1.PodTemplateSpec `json:"template"`
+	// +required
+	Template corev1.PodTemplateSpec `json:"template,omitempty"`
 
 	// count is the number of pods for the spec.
 	// +kubebuilder:default=1
 	// +kubebuilder:validation:Minimum=0
-	Count int32 `json:"count"`
+	// +optional
+	Count int32 `json:"count"` //nolint:kubeapilinter // should not be a pointer
 
 	// minCount is the minimum number of pods for the spec acceptable
 	// if the workload supports partial admission.
@@ -491,32 +508,28 @@ type WorkloadSchedulingStatsEviction struct {
 	// reason specifies the programmatic identifier for the eviction cause.
 	//
 	// +required
-	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MaxLength=316
-	Reason string `json:"reason"`
+	Reason string `json:"reason"` //nolint:kubeapilinter // should not be a pointer
 
 	// underlyingCause specifies a finer-grained explanation that complements the eviction reason.
 	// This may be an empty string.
 	//
 	// +required
-	// +kubebuilder:validation:Required
-	UnderlyingCause EvictionUnderlyingCause `json:"underlyingCause"`
+	UnderlyingCause EvictionUnderlyingCause `json:"underlyingCause"` //nolint:kubeapilinter // should not be a pointer
 
 	// count tracks the number of evictions for this reason and detailed reason.
 	//
 	// +required
-	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Minimum=0
-	Count int32 `json:"count"`
+	Count int32 `json:"count"` //nolint:kubeapilinter // should not be a pointer
 }
 
 type UnhealthyNode struct {
 	// name is the name of the unhealthy node.
 	//
 	// +required
-	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MaxLength=63
-	Name string `json:"name"`
+	Name string `json:"name"` //nolint:kubeapilinter // should not be a pointer
 }
 
 type RequeueState struct {
@@ -538,31 +551,28 @@ type RequeueState struct {
 
 // AdmissionCheckReference is the name of an AdmissionCheck.
 // +kubebuilder:validation:MaxLength=316
+// +kubebuilder:validation:MinLength=1
 type AdmissionCheckReference string
 
 type AdmissionCheckState struct {
 	// name identifies the admission check.
 	// +required
-	// +kubebuilder:validation:Required
-	Name AdmissionCheckReference `json:"name"`
+	Name AdmissionCheckReference `json:"name,omitempty"`
 	// state of the admissionCheck, one of Pending, Ready, Retry, Rejected
 	// +required
-	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Enum=Pending;Ready;Retry;Rejected
-	State CheckState `json:"state"`
+	State CheckState `json:"state,omitempty"`
 	// lastTransitionTime is the last time the condition transitioned from one status to another.
 	// This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
 	// +required
-	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Format=date-time
-	LastTransitionTime metav1.Time `json:"lastTransitionTime"`
+	LastTransitionTime metav1.Time `json:"lastTransitionTime,omitempty,omitzero"`
 	// message is a human readable message indicating details about the transition.
 	// This may be an empty string.
 	// +required
-	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MaxLength=32768
-	Message string `json:"message" protobuf:"bytes,6,opt,name=message"`
+	Message string `json:"message" protobuf:"bytes,6,opt,name=message"` //nolint:kubeapilinter // disable should be a pointer rule
 
 	// podSetUpdates contains a list of pod set modifications suggested by AdmissionChecks.
 	// +optional
@@ -578,8 +588,7 @@ type AdmissionCheckState struct {
 type PodSetUpdate struct {
 	// name of the PodSet to modify. Should match to one of the Workload's PodSets.
 	// +required
-	// +kubebuilder:validation:Required
-	Name PodSetReference `json:"name"`
+	Name PodSetReference `json:"name"` //nolint:kubeapilinter // duplicatemarkers seems to say these are duplicates
 
 	// labels of the PodSet to modify.
 	// +optional
@@ -608,18 +617,18 @@ type PodSetUpdate struct {
 type ReclaimablePod struct {
 	// name is the PodSet name.
 	// +required
-	Name PodSetReference `json:"name"`
+	Name PodSetReference `json:"name"` //nolint:kubeapilinter // duplicatemarkers seems to say these are duplicates
 
 	// count is the number of pods for which the requested resources are no longer needed.
 	// +kubebuilder:validation:Minimum=0
-	Count int32 `json:"count"`
+	// +required
+	Count int32 `json:"count"` //nolint:kubeapilinter // should not be a pointer
 }
 
 type PodSetRequest struct {
 	// name is the name of the podSet. It should match one of the names in .spec.podSets.
-	// +kubebuilder:validation:Required
 	// +required
-	Name PodSetReference `json:"name"`
+	Name PodSetReference `json:"name"` //nolint:kubeapilinter // duplicatemarkers seems to say these are duplicates
 
 	// resources is the total resources all the pods in the podset need to run.
 	//
@@ -798,12 +807,15 @@ const (
 type Workload struct {
 	metav1.TypeMeta `json:",inline"`
 	// metadata is the metadata of the Workload.
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// spec is the specification of the Workload.
-	Spec WorkloadSpec `json:"spec,omitempty"`
+	// +optional
+	Spec WorkloadSpec `json:"spec"` //nolint:kubeapilinter // spec should not be a pointer
 	// status is the status of the Workload.
-	Status WorkloadStatus `json:"status,omitempty"`
+	// +optional
+	Status WorkloadStatus `json:"status,omitempty"` //nolint:kubeapilinter // status should not be a pointer
 }
 
 // +kubebuilder:object:root=true
