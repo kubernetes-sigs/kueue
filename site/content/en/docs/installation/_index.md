@@ -237,7 +237,25 @@ To install and configure Kueue with [Helm](https://helm.sh/), follow the [instru
 
 Kueue uses a similar mechanism to configure features as described in [Kubernetes Feature Gates](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates).
 
-In order to change the default of a feature, you need to edit the `kueue-controller-manager` deployment within the kueue installation namespace and change the `manager` container arguments to include
+You can edit the `kueue-manager-config` `ConfigMap` and add the feature gate you would like to manage, for example:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+  name: kueue-manager-config
+  namespace: kueue-system
+data:
+  controller_manager_config.yaml: |
+    apiVersion: config.kueue.x-k8s.io/v1beta1
+    kind: Configuration
+    featureGates:
+      ManagedJobsNamespaceSelectorAlwaysRespected: true
+  ...
+```
+
+After changing the `ConfigMap`, you need to restart the `kueue-controller-manager` deployment to have the change enforced, for example using: `kubectl rollout restart deploy kueue-controller-manager -n kueue-system`.
+
+Alternatively, you can edit the `kueue-controller-manager` deployment within the kueue installation namespace and change the `manager` container arguments to include
 
 ```
 --feature-gates=...,<FeatureName>=<true|false>
