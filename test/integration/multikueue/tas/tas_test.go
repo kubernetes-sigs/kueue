@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -350,10 +351,10 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
 					g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
 					g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
-						&kueue.TopologyAssignment{
+						tas.V1Beta2From(&tas.TopologyAssignment{
 							Levels:  []string{corev1.LabelHostname},
-							Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"host-1"}}},
-						},
+							Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"host-1"}}},
+						}),
 					))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -575,11 +576,11 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
 					g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
 					g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
-						&kueue.TopologyAssignment{
+						tas.V1Beta2From(&tas.TopologyAssignment{
 							Levels: []string{
 								corev1.LabelHostname,
 							},
-							Domains: []kueue.TopologyDomainAssignment{
+							Domains: []tas.TopologyDomainAssignment{
 								{
 									Count: 1,
 									Values: []string{
@@ -587,7 +588,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 									},
 								},
 							},
-						},
+						}),
 					))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})

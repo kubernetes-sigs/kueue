@@ -34,6 +34,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -259,7 +260,7 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 					g.Expect(workerWl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
 					g.Expect(workerWl.Status.Admission.PodSetAssignments[0].TopologyAssignment).NotTo(gomega.BeNil())
 					g.Expect(workerWl.Status.Admission.PodSetAssignments[0].TopologyAssignment.Levels).To(gomega.Equal([]string{corev1.LabelHostname}))
-					g.Expect(workerWl.Status.Admission.PodSetAssignments[0].TopologyAssignment.Domains).NotTo(gomega.BeEmpty())
+					g.Expect(tas.TotalDomainCount(workerWl.Status.Admission.PodSetAssignments[0].TopologyAssignment)).NotTo(gomega.BeZero())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 

@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -292,9 +293,9 @@ func expectWorkloadTopologyAssignment(ctx context.Context, k8sClient client.Clie
 		topologyAssignment := wl.Status.Admission.PodSetAssignments[0].TopologyAssignment
 		g.Expect(topologyAssignment).NotTo(gomega.BeNil())
 		g.Expect(topologyAssignment.Levels).To(gomega.BeEquivalentTo([]string{corev1.LabelHostname}))
-		g.Expect(topologyAssignment.Domains).To(gomega.HaveLen(numPods))
+		g.Expect(tas.TotalDomainCount(topologyAssignment)).To(gomega.Equal(numPods))
 		chosenNodes := []string{}
-		for _, domain := range topologyAssignment.Domains {
+		for domain := range tas.InternalSeqFrom(topologyAssignment) {
 			g.Expect(domain.Count).To(gomega.Equal(int32(1)))
 			chosenNodes = append(chosenNodes, domain.Values...)
 		}

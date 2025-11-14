@@ -148,6 +148,65 @@ func TestWorkloadConvertTo(t *testing.T) {
 				},
 			},
 		},
+		"with TopologyAssignment": {
+			input: &Workload{
+				ObjectMeta: defaultObjectMeta,
+				Status: WorkloadStatus{
+					Admission: &Admission{
+						PodSetAssignments: []PodSetAssignment{
+							{
+								TopologyAssignment: &TopologyAssignment{
+									Levels: []string{"a", "b"},
+									Domains: []TopologyDomainAssignment{
+										{
+											Values: []string{"a1", "b1"},
+											Count:  10,
+										},
+										{
+											Values: []string{"a1", "b2"},
+											Count:  20,
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: &v1beta2.Workload{
+				ObjectMeta: defaultObjectMeta,
+				Status: v1beta2.WorkloadStatus{
+					Admission: &v1beta2.Admission{
+						PodSetAssignments: []v1beta2.PodSetAssignment{
+							{
+								TopologyAssignment: &v1beta2.TopologyAssignment{
+									Levels: []string{"a", "b"},
+									Slices: []v1beta2.TopologyAssignmentSlice{
+										{
+											DomainCount: 2,
+											ValuesPerLevel: []v1beta2.TopologyAssignmentSliceLevelValues{
+												{
+													Universal: ptr.To("a1"),
+												},
+												{
+													Individual: &v1beta2.TopologyAssignmentSliceLevelIndividualValues{
+														CommonPrefix: ptr.To("b"),
+														Roots:        []string{"1", "2"},
+													},
+												},
+											},
+											PodCounts: v1beta2.TopologyAssignmentSlicePodCounts{
+												Individual: []int32{10, 20},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -285,6 +344,149 @@ func TestWorkloadConvertFrom(t *testing.T) {
 				},
 			},
 		},
+		"with TopologyAssignment": {
+			input: &v1beta2.Workload{
+				ObjectMeta: defaultObjectMeta,
+				Status: v1beta2.WorkloadStatus{
+					Admission: &v1beta2.Admission{
+						PodSetAssignments: []v1beta2.PodSetAssignment{
+							{
+								TopologyAssignment: &v1beta2.TopologyAssignment{
+									Levels: []string{"a", "b"},
+									Slices: []v1beta2.TopologyAssignmentSlice{
+										{
+											DomainCount: 2,
+											ValuesPerLevel: []v1beta2.TopologyAssignmentSliceLevelValues{
+												{
+													Universal: ptr.To("a1"),
+												},
+												{
+													Individual: &v1beta2.TopologyAssignmentSliceLevelIndividualValues{
+														CommonPrefix: ptr.To("b"),
+														Roots:        []string{"1", "2"},
+													},
+												},
+											},
+											PodCounts: v1beta2.TopologyAssignmentSlicePodCounts{
+												Individual: []int32{10, 20},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: &Workload{
+				ObjectMeta: defaultObjectMeta,
+				Status: WorkloadStatus{
+					Admission: &Admission{
+						PodSetAssignments: []PodSetAssignment{
+							{
+								TopologyAssignment: &TopologyAssignment{
+									Levels: []string{"a", "b"},
+									Domains: []TopologyDomainAssignment{
+										{
+											Values: []string{"a1", "b1"},
+											Count:  10,
+										},
+										{
+											Values: []string{"a1", "b2"},
+											Count:  20,
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		"with TopologyAssignment, multiple slices": {
+			input: &v1beta2.Workload{
+				ObjectMeta: defaultObjectMeta,
+				Status: v1beta2.WorkloadStatus{
+					Admission: &v1beta2.Admission{
+						PodSetAssignments: []v1beta2.PodSetAssignment{
+							{
+								TopologyAssignment: &v1beta2.TopologyAssignment{
+									Levels: []string{"a", "b"},
+									Slices: []v1beta2.TopologyAssignmentSlice{
+										{
+											DomainCount: 2,
+											ValuesPerLevel: []v1beta2.TopologyAssignmentSliceLevelValues{
+												{
+													Universal: ptr.To("a1"),
+												},
+												{
+													Individual: &v1beta2.TopologyAssignmentSliceLevelIndividualValues{
+														CommonPrefix: ptr.To("b"),
+														Roots:        []string{"1", "2"},
+													},
+												},
+											},
+											PodCounts: v1beta2.TopologyAssignmentSlicePodCounts{
+												Individual: []int32{10, 20},
+											},
+										},
+										{
+											DomainCount: 2,
+											ValuesPerLevel: []v1beta2.TopologyAssignmentSliceLevelValues{
+												{
+													Universal: ptr.To("a2"),
+												},
+												{
+													Individual: &v1beta2.TopologyAssignmentSliceLevelIndividualValues{
+														Roots:        []string{"first", "second"},
+														CommonSuffix: ptr.To("-in-a2"),
+													},
+												},
+											},
+											PodCounts: v1beta2.TopologyAssignmentSlicePodCounts{
+												Universal: ptr.To(int32(50)),
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: &Workload{
+				ObjectMeta: defaultObjectMeta,
+				Status: WorkloadStatus{
+					Admission: &Admission{
+						PodSetAssignments: []PodSetAssignment{
+							{
+								TopologyAssignment: &TopologyAssignment{
+									Levels: []string{"a", "b"},
+									Domains: []TopologyDomainAssignment{
+										{
+											Values: []string{"a1", "b1"},
+											Count:  10,
+										},
+										{
+											Values: []string{"a1", "b2"},
+											Count:  20,
+										},
+										{
+											Values: []string{"a2", "first-in-a2"},
+											Count:  50,
+										},
+										{
+											Values: []string{"a2", "second-in-a2"},
+											Count:  50,
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -357,6 +559,32 @@ func TestWorkloadConversion_RoundTrip(t *testing.T) {
 					Priority:            ptr.To[int32](100),
 					PriorityClassSource: WorkloadPriorityClassSource,
 					PriorityClassName:   "low",
+				},
+			},
+		},
+		"Workload with TopologyAssignment": {
+			v1beta1Obj: &Workload{
+				ObjectMeta: defaultObjectMeta,
+				Status: WorkloadStatus{
+					Admission: &Admission{
+						PodSetAssignments: []PodSetAssignment{
+							{
+								TopologyAssignment: &TopologyAssignment{
+									Levels: []string{"a", "b"},
+									Domains: []TopologyDomainAssignment{
+										{
+											Values: []string{"a1", "b1"},
+											Count:  10,
+										},
+										{
+											Values: []string{"a1", "b2"},
+											Count:  20,
+										},
+									},
+								},
+							},
+						},
+					},
 				},
 			},
 		},

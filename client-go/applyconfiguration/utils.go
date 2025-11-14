@@ -283,8 +283,14 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta2.TopologyApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("TopologyAssignment"):
 		return &kueuev1beta2.TopologyAssignmentApplyConfiguration{}
-	case v1beta2.SchemeGroupVersion.WithKind("TopologyDomainAssignment"):
-		return &kueuev1beta2.TopologyDomainAssignmentApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("TopologyAssignmentSlice"):
+		return &kueuev1beta2.TopologyAssignmentSliceApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("TopologyAssignmentSliceLevelIndividualValues"):
+		return &kueuev1beta2.TopologyAssignmentSliceLevelIndividualValuesApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("TopologyAssignmentSliceLevelValues"):
+		return &kueuev1beta2.TopologyAssignmentSliceLevelValuesApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("TopologyAssignmentSlicePodCounts"):
+		return &kueuev1beta2.TopologyAssignmentSlicePodCountsApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("TopologyLevel"):
 		return &kueuev1beta2.TopologyLevelApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("TopologySpec"):

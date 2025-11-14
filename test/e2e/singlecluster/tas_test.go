@@ -34,6 +34,7 @@ import (
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	workloadtrainjob "sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
+	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -119,11 +120,11 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
-					&kueue.TopologyAssignment{
+					tas.V1Beta2From(&tas.TopologyAssignment{
 						Levels: []string{
 							corev1.LabelHostname,
 						},
-						Domains: []kueue.TopologyDomainAssignment{
+						Domains: []tas.TopologyDomainAssignment{
 							{
 								Count: 1,
 								Values: []string{
@@ -131,7 +132,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 								},
 							},
 						},
-					},
+					}),
 				))
 			})
 
@@ -251,22 +252,22 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				gomega.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(2))
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
-					&kueue.TopologyAssignment{
+					tas.V1Beta2From(&tas.TopologyAssignment{
 						Levels: []string{corev1.LabelHostname},
-						Domains: []kueue.TopologyDomainAssignment{{
+						Domains: []tas.TopologyDomainAssignment{{
 							Count:  1,
 							Values: []string{"kind-worker"},
 						}},
-					},
+					}),
 				))
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[1].TopologyAssignment).Should(gomega.BeComparableTo(
-					&kueue.TopologyAssignment{
+					tas.V1Beta2From(&tas.TopologyAssignment{
 						Levels: []string{corev1.LabelHostname},
-						Domains: []kueue.TopologyDomainAssignment{{
+						Domains: []tas.TopologyDomainAssignment{{
 							Count:  1,
 							Values: []string{"kind-worker"},
 						}},
-					},
+					}),
 				))
 			})
 
@@ -361,13 +362,13 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				gomega.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
-					&kueue.TopologyAssignment{
+					tas.V1Beta2From(&tas.TopologyAssignment{
 						Levels: []string{corev1.LabelHostname},
-						Domains: []kueue.TopologyDomainAssignment{{
+						Domains: []tas.TopologyDomainAssignment{{
 							Count:  1,
 							Values: []string{"kind-worker"},
 						}},
-					},
+					}),
 				))
 			})
 
@@ -425,13 +426,13 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				gomega.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
-					&kueue.TopologyAssignment{
+					tas.V1Beta2From(&tas.TopologyAssignment{
 						Levels: []string{corev1.LabelHostname},
-						Domains: []kueue.TopologyDomainAssignment{{
+						Domains: []tas.TopologyDomainAssignment{{
 							Count:  2,
 							Values: []string{"kind-worker"},
 						}},
-					},
+					}),
 				))
 			})
 
@@ -539,13 +540,13 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				gomega.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
-					&kueue.TopologyAssignment{
+					tas.V1Beta2From(&tas.TopologyAssignment{
 						Levels: []string{corev1.LabelHostname},
-						Domains: []kueue.TopologyDomainAssignment{{
+						Domains: []tas.TopologyDomainAssignment{{
 							Count:  1,
 							Values: []string{"kind-worker"},
 						}},
-					},
+					}),
 				))
 			})
 

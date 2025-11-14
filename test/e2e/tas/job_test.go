@@ -30,6 +30,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -133,27 +134,24 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 					g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
-				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment.Levels).Should(gomega.BeComparableTo(
-					[]string{
-						corev1.LabelHostname,
-					},
-				))
-				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment.Domains).Should(gomega.BeComparableTo(
-					[]kueue.TopologyDomainAssignment{
-						{
-							Values: []string{"kind-worker"},
-							Count:  1,
+				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+					tas.V1Beta2From(&tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{
+							{
+								Values: []string{"kind-worker"},
+								Count:  1,
+							},
+							{
+								Values: []string{"kind-worker2"},
+								Count:  1,
+							},
+							{
+								Values: []string{"kind-worker3"},
+								Count:  1,
+							},
 						},
-						{
-							Values: []string{"kind-worker2"},
-							Count:  1,
-						},
-						{
-							Values: []string{"kind-worker3"},
-							Count:  1,
-						},
-					},
-				))
+					})))
 			})
 			ginkgo.By(fmt.Sprintf("verify the workload %q gets finished", wlLookupKey), func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -183,27 +181,23 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 					g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
-				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment.Levels).Should(gomega.BeComparableTo(
-					[]string{
-						corev1.LabelHostname,
-					},
-				))
-				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment.Domains).Should(gomega.BeComparableTo(
-					[]kueue.TopologyDomainAssignment{
-						{
-							Values: []string{"kind-worker"},
-							Count:  1,
-						},
-						{
-							Values: []string{"kind-worker2"},
-							Count:  1,
-						},
-						{
-							Values: []string{"kind-worker3"},
-							Count:  1,
-						},
-					},
-				))
+				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+					tas.V1Beta2From(&tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{
+							{
+								Values: []string{"kind-worker"},
+								Count:  1,
+							},
+							{
+								Values: []string{"kind-worker2"},
+								Count:  1,
+							},
+							{
+								Values: []string{"kind-worker3"},
+								Count:  1,
+							},
+						}})))
 			})
 
 			ginkgo.By(fmt.Sprintf("verify the workload %q gets finished", wlLookupKey), func() {

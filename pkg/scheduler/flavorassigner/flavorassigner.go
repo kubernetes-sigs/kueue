@@ -41,6 +41,7 @@ import (
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
+	"sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -239,7 +240,7 @@ type PodSetAssignment struct {
 	Requests corev1.ResourceList
 	Count    int32
 
-	TopologyAssignment     *kueue.TopologyAssignment
+	TopologyAssignment     *tas.TopologyAssignment
 	DelayedTopologyRequest *kueue.DelayedTopologyRequestState
 }
 
@@ -287,7 +288,7 @@ func (psa *PodSetAssignment) toAPI() kueue.PodSetAssignment {
 		Flavors:                flavors,
 		ResourceUsage:          psa.Requests,
 		Count:                  ptr.To(psa.Count),
-		TopologyAssignment:     psa.TopologyAssignment.DeepCopy(),
+		TopologyAssignment:     tas.V1Beta2From(psa.TopologyAssignment),
 		DelayedTopologyRequest: psa.DelayedTopologyRequest,
 	}
 }
@@ -551,7 +552,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 				psAssignment.DelayedTopologyRequest = ptr.To(*podSet.DelayedTopologyRequest)
 			}
 			if podSet.TopologyRequest != nil {
-				psAssignment.TopologyAssignment = a.wl.Obj.Status.Admission.PodSetAssignments[i].TopologyAssignment
+				psAssignment.TopologyAssignment = tas.InternalFrom(a.wl.Obj.Status.Admission.PodSetAssignments[i].TopologyAssignment)
 			}
 		}
 

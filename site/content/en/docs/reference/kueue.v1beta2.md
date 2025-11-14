@@ -1912,46 +1912,144 @@ in that case spec.podSets[*].count value will be used.</p>
 topology domains corresponding to the lowest level of the topology.
 The assignment specifies the number of Pods to be scheduled per topology
 domain and specifies the node selectors for each topology domain, in the
-following way: the node selector keys are specified by the levels field
-(same for all domains), and the corresponding node selector value is
-specified by the domains.values subfield. If the TopologySpec.Levels field contains
-&quot;kubernetes.io/hostname&quot; label, topologyAssignment will contain data only for
-this label, and omit higher levels in the topology</p>
-<p>Example:</p>
+following way:</p>
+<ul>
+<li><code>levels</code> specifies the node selector keys (same for all domains).
+<ul>
+<li>If the TopologySpec.Levels field contains &quot;kubernetes.io/hostname&quot; label,
+topologyAssignment will contain data only for this label,
+and omit higher levels in the topology.</li>
+</ul>
+</li>
+<li><code>slices</code> specifies the node selector values and pod counts for all domains
+(which may be partitioned into separate slices).
+<ul>
+<li>The node selector values are arranged first by topology level, only then by domain.
+(This allows &quot;optimizing&quot; similar values; see below).</li>
+</ul>
+</li>
+<li>The format of <code>slices</code> supports the following variations
+(aimed to optimize the total bytesize for very large number of domains; see examples below):
+<ul>
+<li>When all node selector values (at a given topology level, in a given slice)
+share a common prefix and/or suffix, these may be stored
+in dedicated <code>commonPrefix</code>/<code>commonSuffix</code> fields.
+If so, the array of <code>roots</code> will only store the remaining parts of these strings.</li>
+<li>When all node selector values (at a given topology level, in a given slice)
+are identical, this may be represented by <code>universal</code> value.</li>
+<li>When all pod counts (in a given slice) are identical,
+this may be represented by <code>universal</code> pod count.</li>
+</ul>
+</li>
+</ul>
+<p>Example 1:</p>
+<p>The following represents an assignment in which:</p>
+<ul>
+<li>4 Pods are to be scheduled on nodes matching the node selector:
+<ul>
+<li>cloud.provider.com/topology-block: block-1</li>
+<li>cloud.provider.com/topology-rack: rack-1</li>
+</ul>
+</li>
+<li>2 Pods are to be scheduled on nodes matching the node selector:
+<ul>
+<li>cloud.provider.com/topology-block: block-1</li>
+<li>cloud.provider.com/topology-rack: rack-2</li>
+</ul>
+</li>
+</ul>
 <p>topologyAssignment:
 levels:</p>
 <ul>
 <li>cloud.provider.com/topology-block</li>
 <li>cloud.provider.com/topology-rack
-domains:</li>
-<li>values: [block-1, rack-1]
-count: 4</li>
-<li>values: [block-1, rack-2]
-count: 2</li>
-</ul>
-<p>Here:</p>
+slices:</li>
+<li>domainCount: 2
+valuesPerLevel:
 <ul>
-<li>4 Pods are to be scheduled on nodes matching the node selector:
-cloud.provider.com/topology-block: block-1
-cloud.provider.com/topology-rack: rack-1</li>
-<li>2 Pods are to be scheduled on nodes matching the node selector:
-cloud.provider.com/topology-block: block-1
-cloud.provider.com/topology-rack: rack-2</li>
+<li>individual:
+roots: [block-1, block-1]</li>
+<li>individual:
+roots: [rack-1, rack-2]
+podCounts:
+individual: [4, 2]</li>
 </ul>
-<p>Example:
-Below there is an equivalent of the above example assuming, Topology
-object defines kubernetes.io/hostname as the lowest level in topology.
-Hence we omit higher level of topologies, since the hostname label
-is sufficient to explicitly identify a proper node.</p>
+</li>
+</ul>
+<p>Example 2:</p>
+<p>The following is equivalent to Example 1 - but using extracted prefix and universalValue.</p>
+<p>topologyAssignment:
+levels:</p>
+<ul>
+<li>cloud.provider.com/topology-block</li>
+<li>cloud.provider.com/topology-rack
+slices:</li>
+<li>domainCount: 2
+valuesPerLevel:
+<ul>
+<li>universal: block-1</li>
+<li>individual:
+prefix: rack-
+roots: [1, 2]
+podCounts:
+individual: [4, 2]</li>
+</ul>
+</li>
+</ul>
+<p>Example 3:</p>
+<p>Now suppose that:</p>
+<ul>
+<li>the Topology object defines kubernetes.io/hostname as the lowest level
+(and hence, in the topologyAssignment, we omit all other levels
+since the hostname label suffices to explicitly identify a proper node),</li>
+<li>we assign 1 Pod per each node,</li>
+<li>the node naming scheme is <code>block-{blockId}-rack-{rackId}-node-{nodeId}</code>.
+Then, using the &quot;extraction of commons&quot;, the assignment from Examples 1-2 would look as follows:</li>
+</ul>
 <p>topologyAssignment:
 levels:</p>
 <ul>
 <li>kubernetes.io/hostname
-domains:</li>
-<li>values: [hostname-1]
-count: 4</li>
-<li>values: [hostname-2]
-count: 2</li>
+slices:</li>
+<li>domainCount: 6
+valuesPerLevel:
+<ul>
+<li>individual:
+prefix: block-1-rack-
+roots: [1-node-1, 1-node-2, 1-node-3, 1-node-4, 2-node-1, 2-node-2]
+podCounts:
+universal: 1</li>
+</ul>
+</li>
+</ul>
+<p>Example 4:</p>
+<p>By using multiple slices, we can afford even longer common prefixes.
+The assignment from Example 3 can be alternatively represented as follows:</p>
+<p>topologyAssignment:
+levels:</p>
+<ul>
+<li>kubernetes.io/hostname
+slices:</li>
+<li>domainCount: 4
+valuesPerLevel:
+<ul>
+<li>individual:
+prefix: block-1-rack-1-node-
+roots: [1, 2, 3, 4]
+podCounts:
+universal: 1</li>
+</ul>
+</li>
+<li>domainCount: 2
+valuesPerLevel:
+<ul>
+<li>individual:
+prefix: block-1-rack-2-node-
+roots: [1, 2]
+podCounts:
+universal: 1</li>
+</ul>
+</li>
 </ul>
 </td>
 </tr>
@@ -2859,18 +2957,18 @@ topology (i.e. node label keys), from the highest to the lowest level of
 the topology.</p>
 </td>
 </tr>
-<tr><td><code>domains</code> <B>[Required]</B><br/>
-<a href="#kueue-x-k8s-io-v1beta2-TopologyDomainAssignment"><code>[]TopologyDomainAssignment</code></a>
+<tr><td><code>slices</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta2-TopologyAssignmentSlice"><code>[]TopologyAssignmentSlice</code></a>
 </td>
 <td>
-   <p>domains is a list of topology assignments split by topology domains at
-the lowest level of the topology.</p>
+   <p>slices represent topology assignments for subsets of pods of a workload.
+The full assignment is obtained as a union of all slices.</p>
 </td>
 </tr>
 </tbody>
 </table>
 
-## `TopologyDomainAssignment`     {#kueue-x-k8s-io-v1beta2-TopologyDomainAssignment}
+## `TopologyAssignmentSlice`     {#kueue-x-k8s-io-v1beta2-TopologyAssignmentSlice}
     
 
 **Appears in:**
@@ -2884,21 +2982,136 @@ the lowest level of the topology.</p>
 <tbody>
     
   
-<tr><td><code>values</code> <B>[Required]</B><br/>
-<code>[]string</code>
-</td>
-<td>
-   <p>values is an ordered list of node selector values describing a topology
-domain. The values correspond to the consecutive topology levels, from
-the highest to the lowest.</p>
-</td>
-</tr>
-<tr><td><code>count</code> <B>[Required]</B><br/>
+<tr><td><code>domainCount</code> <B>[Required]</B><br/>
 <code>int32</code>
 </td>
 <td>
-   <p>count indicates the number of Pods to be scheduled in the topology
-domain indicated by the values field.</p>
+   <p>domainCount is the number of domains covered by this slice.</p>
+</td>
+</tr>
+<tr><td><code>valuesPerLevel</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta2-TopologyAssignmentSliceLevelValues"><code>[]TopologyAssignmentSliceLevelValues</code></a>
+</td>
+<td>
+   <p>valuesPerLevel has one entry for each of the Levels specified in the TopologyAssignment.
+The entry corresponding to a particular level specifies the placement of pods at that level.</p>
+</td>
+</tr>
+<tr><td><code>podCounts</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta2-TopologyAssignmentSlicePodCounts"><code>TopologyAssignmentSlicePodCounts</code></a>
+</td>
+<td>
+   <p>podCounts specifies the number of pods allocated per each domain.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `TopologyAssignmentSliceLevelIndividualValues`     {#kueue-x-k8s-io-v1beta2-TopologyAssignmentSliceLevelIndividualValues}
+    
+
+**Appears in:**
+
+- [TopologyAssignmentSliceLevelValues](#kueue-x-k8s-io-v1beta2-TopologyAssignmentSliceLevelValues)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>commonPrefix</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>commonPrefix specifies a common prefix for all values in this slice assignment.
+It must be either nil pointer or a non-empty string.</p>
+</td>
+</tr>
+<tr><td><code>commonSuffix</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>commonSuffix specifies a common suffix for all values in this slice assignment.
+It must be either nil pointer or a non-empty string.</p>
+</td>
+</tr>
+<tr><td><code>roots</code> <B>[Required]</B><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>roots specifies the values in this assignment (excluding commonPrefix and commonSuffix, if non-empty).
+Its length must be equal to the &quot;domainCount&quot; field of the TopologyAssignmentSlice.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `TopologyAssignmentSliceLevelValues`     {#kueue-x-k8s-io-v1beta2-TopologyAssignmentSliceLevelValues}
+    
+
+**Appears in:**
+
+- [TopologyAssignmentSlice](#kueue-x-k8s-io-v1beta2-TopologyAssignmentSlice)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>universal</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>universal - if set - specifies a single topology placement value (at a particular topology level)
+that applies to all pods in the current TopologyAssignmentSlice.
+Exactly one of universal, individual must be set.</p>
+</td>
+</tr>
+<tr><td><code>individual</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-TopologyAssignmentSliceLevelIndividualValues"><code>TopologyAssignmentSliceLevelIndividualValues</code></a>
+</td>
+<td>
+   <p>individual - if set - specifies multiple topology placement values (at a particular topology level)
+that apply to the pods in the current TopologyAssignmentSlice.
+Exactly one of universal, individual must be set.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `TopologyAssignmentSlicePodCounts`     {#kueue-x-k8s-io-v1beta2-TopologyAssignmentSlicePodCounts}
+    
+
+**Appears in:**
+
+- [TopologyAssignmentSlice](#kueue-x-k8s-io-v1beta2-TopologyAssignmentSlice)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>universal</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>universal - if set - specifies the number of pods allocated in every domain in this slice.
+Exactly one of universal, individual must be set.</p>
+</td>
+</tr>
+<tr><td><code>individual</code><br/>
+<code>[]int32</code>
+</td>
+<td>
+   <p>individual - if set - specifies the number of pods allocated in each domain in this slice.
+If set, its length must be equal to the &quot;domainCount&quot; field of the TopologyAssignmentSlice.
+Exactly one of universal, individual must be set.</p>
 </td>
 </tr>
 </tbody>

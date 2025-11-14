@@ -26,6 +26,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 )
@@ -80,14 +81,14 @@ func TestMergeTopologyAssignments(t *testing.T) {
 	levels := []string{"level-1", "level-2"}
 
 	cases := map[string]struct {
-		a    *kueue.TopologyAssignment
-		b    *kueue.TopologyAssignment
-		want kueue.TopologyAssignment
+		a    *tas.TopologyAssignment
+		b    *tas.TopologyAssignment
+		want tas.TopologyAssignment
 	}{
 		"topologies with different domains, all a before b": {
-			a: &kueue.TopologyAssignment{
+			a: &tas.TopologyAssignment{
 				Levels: []string{"level-1", "level-2"},
-				Domains: []kueue.TopologyDomainAssignment{
+				Domains: []tas.TopologyDomainAssignment{
 					{
 						Values: []string{"a", "b"},
 						Count:  1,
@@ -98,9 +99,9 @@ func TestMergeTopologyAssignments(t *testing.T) {
 					},
 				},
 			},
-			b: &kueue.TopologyAssignment{
+			b: &tas.TopologyAssignment{
 				Levels: []string{"level-1", "level-2"},
-				Domains: []kueue.TopologyDomainAssignment{
+				Domains: []tas.TopologyDomainAssignment{
 					{
 						Values: []string{"d", "e"},
 						Count:  1,
@@ -111,9 +112,9 @@ func TestMergeTopologyAssignments(t *testing.T) {
 					},
 				},
 			},
-			want: kueue.TopologyAssignment{
+			want: tas.TopologyAssignment{
 				Levels: []string{"level-1", "level-2"},
-				Domains: []kueue.TopologyDomainAssignment{
+				Domains: []tas.TopologyDomainAssignment{
 					{
 						Values: []string{"a", "b"},
 						Count:  1,
@@ -134,9 +135,9 @@ func TestMergeTopologyAssignments(t *testing.T) {
 			},
 		},
 		"topologies with different domains, all b before a": {
-			a: &kueue.TopologyAssignment{
+			a: &tas.TopologyAssignment{
 				Levels: []string{"level-1", "level-2"},
-				Domains: []kueue.TopologyDomainAssignment{
+				Domains: []tas.TopologyDomainAssignment{
 					{
 						Values: []string{"d", "e"},
 						Count:  1,
@@ -147,9 +148,9 @@ func TestMergeTopologyAssignments(t *testing.T) {
 					},
 				},
 			},
-			b: &kueue.TopologyAssignment{
+			b: &tas.TopologyAssignment{
 				Levels: []string{"level-1", "level-2"},
-				Domains: []kueue.TopologyDomainAssignment{
+				Domains: []tas.TopologyDomainAssignment{
 					{
 						Values: []string{"a", "b"},
 						Count:  1,
@@ -160,9 +161,9 @@ func TestMergeTopologyAssignments(t *testing.T) {
 					},
 				},
 			},
-			want: kueue.TopologyAssignment{
+			want: tas.TopologyAssignment{
 				Levels: []string{"level-1", "level-2"},
-				Domains: []kueue.TopologyDomainAssignment{
+				Domains: []tas.TopologyDomainAssignment{
 					{
 						Values: []string{"a", "b"},
 						Count:  1,
@@ -183,9 +184,9 @@ func TestMergeTopologyAssignments(t *testing.T) {
 			},
 		},
 		"topologies with different domains, mixed order": {
-			a: &kueue.TopologyAssignment{
+			a: &tas.TopologyAssignment{
 				Levels: []string{"level-1", "level-2"},
-				Domains: []kueue.TopologyDomainAssignment{
+				Domains: []tas.TopologyDomainAssignment{
 					{
 						Values: []string{"a", "c"},
 						Count:  1,
@@ -196,9 +197,9 @@ func TestMergeTopologyAssignments(t *testing.T) {
 					},
 				},
 			},
-			b: &kueue.TopologyAssignment{
+			b: &tas.TopologyAssignment{
 				Levels: []string{"level-1", "level-2"},
-				Domains: []kueue.TopologyDomainAssignment{
+				Domains: []tas.TopologyDomainAssignment{
 					{
 						Values: []string{"a", "b"},
 						Count:  1,
@@ -209,9 +210,9 @@ func TestMergeTopologyAssignments(t *testing.T) {
 					},
 				},
 			},
-			want: kueue.TopologyAssignment{
+			want: tas.TopologyAssignment{
 				Levels: []string{"level-1", "level-2"},
-				Domains: []kueue.TopologyDomainAssignment{
+				Domains: []tas.TopologyDomainAssignment{
 					{
 						Values: []string{"a", "b"},
 						Count:  1,
@@ -232,9 +233,9 @@ func TestMergeTopologyAssignments(t *testing.T) {
 			},
 		},
 		"topologies with different and the same domains, mixed order": {
-			a: &kueue.TopologyAssignment{
+			a: &tas.TopologyAssignment{
 				Levels: []string{"level-1", "level-2"},
-				Domains: []kueue.TopologyDomainAssignment{
+				Domains: []tas.TopologyDomainAssignment{
 					{
 						Values: []string{"a", "c"},
 						Count:  1,
@@ -245,9 +246,9 @@ func TestMergeTopologyAssignments(t *testing.T) {
 					},
 				},
 			},
-			b: &kueue.TopologyAssignment{
+			b: &tas.TopologyAssignment{
 				Levels: []string{"level-1", "level-2"},
-				Domains: []kueue.TopologyDomainAssignment{
+				Domains: []tas.TopologyDomainAssignment{
 					{
 						Values: []string{"a", "b"},
 						Count:  1,
@@ -258,9 +259,9 @@ func TestMergeTopologyAssignments(t *testing.T) {
 					},
 				},
 			},
-			want: kueue.TopologyAssignment{
+			want: tas.TopologyAssignment{
 				Levels: []string{"level-1", "level-2"},
-				Domains: []kueue.TopologyDomainAssignment{
+				Domains: []tas.TopologyDomainAssignment{
 					{
 						Values: []string{"a", "b"},
 						Count:  1,
@@ -277,13 +278,13 @@ func TestMergeTopologyAssignments(t *testing.T) {
 			},
 		},
 		"topology a with empty domains": {
-			a: &kueue.TopologyAssignment{
+			a: &tas.TopologyAssignment{
 				Levels:  []string{"level-1", "level-2"},
-				Domains: []kueue.TopologyDomainAssignment{},
+				Domains: []tas.TopologyDomainAssignment{},
 			},
-			b: &kueue.TopologyAssignment{
+			b: &tas.TopologyAssignment{
 				Levels: []string{"level-1", "level-2"},
-				Domains: []kueue.TopologyDomainAssignment{
+				Domains: []tas.TopologyDomainAssignment{
 					{
 						Values: []string{"a", "b"},
 						Count:  1,
@@ -294,9 +295,9 @@ func TestMergeTopologyAssignments(t *testing.T) {
 					},
 				},
 			},
-			want: kueue.TopologyAssignment{
+			want: tas.TopologyAssignment{
 				Levels: []string{"level-1", "level-2"},
-				Domains: []kueue.TopologyDomainAssignment{
+				Domains: []tas.TopologyDomainAssignment{
 					{
 						Values: []string{"a", "b"},
 						Count:  1,
@@ -309,9 +310,9 @@ func TestMergeTopologyAssignments(t *testing.T) {
 			},
 		},
 		"topology b with empty domain": {
-			a: &kueue.TopologyAssignment{
+			a: &tas.TopologyAssignment{
 				Levels: []string{"level-1", "level-2"},
-				Domains: []kueue.TopologyDomainAssignment{
+				Domains: []tas.TopologyDomainAssignment{
 					{
 						Values: []string{"a", "c"},
 						Count:  1,
@@ -322,13 +323,13 @@ func TestMergeTopologyAssignments(t *testing.T) {
 					},
 				},
 			},
-			b: &kueue.TopologyAssignment{
+			b: &tas.TopologyAssignment{
 				Levels:  []string{"level-1", "level-2"},
-				Domains: []kueue.TopologyDomainAssignment{},
+				Domains: []tas.TopologyDomainAssignment{},
 			},
-			want: kueue.TopologyAssignment{
+			want: tas.TopologyAssignment{
 				Levels: []string{"level-1", "level-2"},
-				Domains: []kueue.TopologyDomainAssignment{
+				Domains: []tas.TopologyDomainAssignment{
 					{
 						Values: []string{"a", "c"},
 						Count:  1,
