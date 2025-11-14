@@ -543,7 +543,11 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 	}
 	// at this point we know a Workload has at least one Retry AdmissionCheck
 	message := "At least one admission check is false"
-	if err := workload.Evict(ctx, r.client, r.recorder, wl, kueue.WorkloadEvictedByAdmissionCheck, message, "", r.clock); err != nil {
+	if err := workload.Evict(ctx, r.client, r.recorder, wl, kueue.WorkloadEvictedByAdmissionCheck, message, "", r.clock, workload.WithCustomPrepare(func() (*kueue.Workload, error) {
+		// Set Requeued=false to track eviction, matching jobframework behavior
+		workload.SetRequeuedCondition(wl, kueue.WorkloadEvictedByAdmissionCheck, "Evicted due to admission check retry", false)
+		return wl, nil
+	})); err != nil {
 		return false, err
 	}
 	return true, nil
