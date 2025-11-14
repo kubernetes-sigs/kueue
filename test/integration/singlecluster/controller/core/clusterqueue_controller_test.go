@@ -1120,6 +1120,5 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: createdCq.Spec.DefaultLocalQueue.Name, Namespace: ns.Name}, &createdLq)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
-
-			})
+	})
 })
