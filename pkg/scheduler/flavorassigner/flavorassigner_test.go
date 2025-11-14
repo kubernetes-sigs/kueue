@@ -3404,6 +3404,93 @@ func TestHierarchical(t *testing.T) {
 	}
 }
 
+func TestIsPreferred(t *testing.T) {
+	makePref := func(p kueue.FlavorFungibilityPreference) *kueue.FlavorFungibilityPreference {
+		return &p
+	}
+
+	cases := map[string]struct {
+		enableGate    bool
+		a             granularMode
+		b             granularMode
+		config        kueue.FlavorFungibility
+		wantPreferred bool
+	}{
+		"feature gate disabled prioritises preemption": {
+			a: granularMode{preemptionMode: fit, borrowingLevel: 0},
+			b: granularMode{preemptionMode: preempt, borrowingLevel: 0},
+			config: kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.TryNextFlavor,
+				WhenCanPreempt: kueue.TryNextFlavor,
+			},
+			wantPreferred: true,
+		},
+		"both policies try default to borrowing preference": {
+			enableGate: true,
+			a:          granularMode{preemptionMode: preempt, borrowingLevel: 1},
+			b:          granularMode{preemptionMode: fit, borrowingLevel: 2},
+			config: kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.TryNextFlavor,
+				WhenCanPreempt: kueue.TryNextFlavor,
+			},
+			wantPreferred: true,
+		},
+		"mismatched policies default to preemption preference": {
+			enableGate: true,
+			a:          granularMode{preemptionMode: preempt, borrowingLevel: 0},
+			b:          granularMode{preemptionMode: fit, borrowingLevel: 1},
+			config: kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.MayStopSearch,
+				WhenCanPreempt: kueue.TryNextFlavor,
+			},
+			wantPreferred: false,
+		},
+		"explicit BorrowingOverPreemption prioritises borrowing distance": {
+			enableGate: false,
+			a:          granularMode{preemptionMode: preempt, borrowingLevel: 1},
+			b:          granularMode{preemptionMode: fit, borrowingLevel: 2},
+			config: kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.TryNextFlavor,
+				WhenCanPreempt: kueue.TryNextFlavor,
+				Preference:     makePref(kueue.BorrowingOverPreemption),
+			},
+			wantPreferred: true,
+		},
+		"explicit PreemptionOverBorrowing prioritises lower preemption": {
+			enableGate: false,
+			a:          granularMode{preemptionMode: preempt, borrowingLevel: 1},
+			b:          granularMode{preemptionMode: fit, borrowingLevel: 2},
+			config: kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.TryNextFlavor,
+				WhenCanPreempt: kueue.TryNextFlavor,
+				Preference:     makePref(kueue.PreemptionOverBorrowing),
+			},
+			wantPreferred: false,
+		},
+		"explicit PreemptionOverBorrowing breaks borrowing ties with preemption": {
+			enableGate: false,
+			a:          granularMode{preemptionMode: preempt, borrowingLevel: 1},
+			b:          granularMode{preemptionMode: fit, borrowingLevel: 1},
+			config: kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.TryNextFlavor,
+				WhenCanPreempt: kueue.TryNextFlavor,
+				Preference:     makePref(kueue.PreemptionOverBorrowing),
+			},
+			wantPreferred: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.FlavorFungibilityImplicitPreferenceDefault, tc.enableGate)
+
+			if got := isPreferred(tc.a, tc.b, tc.config); got != tc.wantPreferred {
+				t.Fatalf("isPreferred(%+v, %+v, %+v)=%t, want %t", tc.a, tc.b, tc.config, got, tc.wantPreferred)
+			}
+		})
+	}
+}
+
 func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 	cases := map[string]struct {
 		cq         schdcache.ClusterQueueSnapshot

@@ -1471,10 +1471,40 @@ to fit in current flavor.</li>
 </ul>
 </td>
 </tr>
+<tr><td><code>preference</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-FlavorFungibilityPreference"><code>FlavorFungibilityPreference</code></a>
+</td>
+<td>
+   <p>preference guides the choosing of the flavor for admission in case all candidate flavors
+require either preemption, borrowing, or both. The possible values are:</p>
+<ul>
+<li><code>BorrowingOverPreemption</code> (default): prefer to use borrowing rather than preemption
+when such a choice is possible. More technically it minimizes the borrowing distance
+in the cohort tree, and solves tie-breaks by preferring better preemption mode
+(reclaim over preemption within ClusterQueue).</li>
+<li><code>PreemptionOverBorrowing</code>: prefer to use preemption rather than borrowing
+when such a choice is possible.  More technically it optimizes the preemption mode
+(reclaim over preemption within ClusterQueue), and solves tie-breaks by minimizing
+the borrowing distance in the cohort tree.</li>
+</ul>
+</td>
+</tr>
 </tbody>
 </table>
 
 ## `FlavorFungibilityPolicy`     {#kueue-x-k8s-io-v1beta1-FlavorFungibilityPolicy}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [FlavorFungibility](#kueue-x-k8s-io-v1beta1-FlavorFungibility)
+
+
+
+
+
+## `FlavorFungibilityPreference`     {#kueue-x-k8s-io-v1beta1-FlavorFungibilityPreference}
     
 (Alias of `string`)
 

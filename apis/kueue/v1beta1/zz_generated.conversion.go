@@ -1391,6 +1391,7 @@ func Convert_v1beta2_FairSharingStatus_To_v1beta1_FairSharingStatus(in *v1beta2.
 func autoConvert_v1beta1_FlavorFungibility_To_v1beta2_FlavorFungibility(in *FlavorFungibility, out *v1beta2.FlavorFungibility, s conversion.Scope) error {
 	out.WhenCanBorrow = v1beta2.FlavorFungibilityPolicy(in.WhenCanBorrow)
 	out.WhenCanPreempt = v1beta2.FlavorFungibilityPolicy(in.WhenCanPreempt)
+	out.Preference = (*v1beta2.FlavorFungibilityPreference)(unsafe.Pointer(in.Preference))
 	return nil
 }
 
@@ -1402,6 +1403,7 @@ func Convert_v1beta1_FlavorFungibility_To_v1beta2_FlavorFungibility(in *FlavorFu
 func autoConvert_v1beta2_FlavorFungibility_To_v1beta1_FlavorFungibility(in *v1beta2.FlavorFungibility, out *FlavorFungibility, s conversion.Scope) error {
 	out.WhenCanBorrow = FlavorFungibilityPolicy(in.WhenCanBorrow)
 	out.WhenCanPreempt = FlavorFungibilityPolicy(in.WhenCanPreempt)
+	out.Preference = (*FlavorFungibilityPreference)(unsafe.Pointer(in.Preference))
 	return nil
 }
 
