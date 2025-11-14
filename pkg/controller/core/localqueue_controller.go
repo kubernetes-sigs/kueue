@@ -217,8 +217,9 @@ func (r *LocalQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.LocalQueue
 		metrics.ClearLocalQueueResourceMetrics(localQueueReferenceFromLocalQueue(e.Object))
 	}
 
-	r.log.V(2).Info("LocalQueue delete event", "localQueue", klog.KObj(e.Object))
-	r.queues.DeleteLocalQueue(e.Object)
+	log := r.log.WithValues("localQueue", klog.KObj(e.Object))
+	log.V(2).Info("LocalQueue delete event")
+	r.queues.DeleteLocalQueue(log, e.Object)
 	r.cache.DeleteLocalQueue(e.Object)
 	return true
 }
@@ -236,7 +237,7 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 
 	if newStopPolicy == oldStopPolicy {
 		if newStopPolicy == kueue.None {
-			if err := r.queues.UpdateLocalQueue(e.ObjectNew); err != nil {
+			if err := r.queues.UpdateLocalQueue(log, e.ObjectNew); err != nil {
 				log.Error(err, "Failed to update queue in the queueing system")
 			}
 		}
@@ -254,7 +255,7 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 		return true
 	}
 
-	r.queues.DeleteLocalQueue(e.ObjectOld)
+	r.queues.DeleteLocalQueue(log, e.ObjectOld)
 
 	return true
 }

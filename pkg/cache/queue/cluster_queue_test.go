@@ -210,7 +210,7 @@ func Test_Pop(t *testing.T) {
 }
 
 func Test_Delete(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()), nil, false, nil)
 	wl1 := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).Obj()
 	wl2 := utiltestingapi.MakeWorkload("workload-2", defaultNamespace).Obj()
@@ -219,13 +219,13 @@ func Test_Delete(t *testing.T) {
 	if cq.PendingTotal() != 2 {
 		t.Error("ClusterQueue should have two workload")
 	}
-	cq.Delete(wl1)
+	cq.Delete(log, wl1)
 	if cq.PendingTotal() != 1 {
 		t.Error("ClusterQueue should have only one workload")
 	}
 	// Change workload item, ClusterQueue.Delete should only care about the namespace and name.
 	wl2.Spec = kueue.WorkloadSpec{QueueName: "default"}
-	cq.Delete(wl2)
+	cq.Delete(log, wl2)
 	if cq.PendingTotal() != 0 {
 		t.Error("ClusterQueue should have be empty")
 	}
@@ -245,7 +245,7 @@ func Test_Info(t *testing.T) {
 }
 
 func Test_AddFromLocalQueue(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()), nil, false, nil)
 	wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).Obj()
 	queue := &LocalQueue{
@@ -257,14 +257,14 @@ func Test_AddFromLocalQueue(t *testing.T) {
 	if added := cq.AddFromLocalQueue(queue); added {
 		t.Error("expected workload not to be added")
 	}
-	cq.Delete(wl)
+	cq.Delete(log, wl)
 	if added := cq.AddFromLocalQueue(queue); !added {
 		t.Error("workload should be added to the ClusterQueue")
 	}
 }
 
 func Test_DeleteFromLocalQueue(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()), nil, false, nil)
 	q := utiltestingapi.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj()
 	qImpl := newLocalQueue(q)
@@ -295,7 +295,7 @@ func Test_DeleteFromLocalQueue(t *testing.T) {
 		t.Errorf("clusterQueue's workload number in inadmissibleWorkloads not right, want %v, got %v", len(inadmissibleWorkloads), len(cq.inadmissibleWorkloads))
 	}
 
-	cq.DeleteFromLocalQueue(qImpl)
+	cq.DeleteFromLocalQueue(log, qImpl)
 	if cq.PendingTotal() != 0 {
 		t.Error("clusterQueue should be empty")
 	}
@@ -420,7 +420,7 @@ func TestClusterQueueImpl(t *testing.T) {
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, fakeClock, nil, false, nil)
 			err := cq.Update(utiltestingapi.MakeClusterQueue("cq").
 				NamespaceSelector(&metav1.LabelSelector{
@@ -452,7 +452,7 @@ func TestClusterQueueImpl(t *testing.T) {
 			}
 
 			for _, w := range test.workloadsToDelete {
-				cq.Delete(w)
+				cq.Delete(log, w)
 			}
 
 			if test.queueInadmissibleWorkloads {
@@ -645,7 +645,7 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 }
 
 func TestFIFOClusterQueue(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	q, err := newClusterQueue(ctx, nil,
 		&kueue.ClusterQueue{
 			Spec: kueue.ClusterQueueSpec{
@@ -704,7 +704,7 @@ func TestFIFOClusterQueue(t *testing.T) {
 		t.Errorf("Popped workload %q want %q", got.Obj.Name, "after")
 	}
 
-	q.Delete(&kueue.Workload{
+	q.Delete(log, &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{Name: "now"},
 	})
 	got = q.Pop()
