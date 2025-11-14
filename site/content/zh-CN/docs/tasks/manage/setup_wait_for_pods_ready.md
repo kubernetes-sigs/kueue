@@ -38,7 +38,7 @@ description: 基于超时的全有或全无调度实现
       enable: true
       timeout: 10m
       recoveryTimeout: 3m
-      blockAdmission: false
+      blockAdmission: true
       requeuingStrategy:
         timestamp: Eviction | Creation
         backoffLimitCount: 5
