@@ -72,6 +72,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		mgr.GetClient(),
 		qManager,
 		cc,
+		mgr.GetEventRecorderFor(constants.AdmissionName),
 		WithReportResourceMetrics(cfg.Metrics.EnableClusterQueueResources),
 		WithFairSharing(fairSharingEnabled),
 		WithNamespaceSelector(selector),

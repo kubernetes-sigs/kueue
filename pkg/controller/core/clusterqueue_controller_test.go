@@ -21,11 +21,13 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -604,10 +606,12 @@ func TestCQNamespaceHandlerUpdate(t *testing.T) {
 			cqCache.AddClusterQueue(ctx, tc.cq)
 			qManager := qcache.NewManager(client, cqCache)
 
+			recorder := record.NewFakeRecorder(1)
 			handler := cqNamespaceHandler{
 				client:   client,
 				qManager: qManager,
 				cache:    cqCache,
+				recorder: recorder,
 			}
 
 			event := event.UpdateEvent{
@@ -725,17 +729,18 @@ func TestCQNamespaceHandlerCreate(t *testing.T) {
 			if tc.existingLq != nil {
 				clientBuilder.WithObjects(tc.existingLq)
 			}
-			client := clientBuilder.Build()
-			cqCache := schdcache.New(client)
-			cqCache.AddClusterQueue(ctx, tc.cq)
-			qManager := qcache.NewManager(client, cqCache)
-
-			handler := cqNamespaceHandler{
-				client:   client,
-				qManager: qManager,
-				cache:    cqCache,
-			}
-
+			            recorder := record.NewFakeRecorder(1)
+			            client := clientBuilder.Build()
+			            cqCache := schdcache.New(client)
+			            cqCache.AddClusterQueue(ctx, tc.cq)
+			            qManager := qcache.NewManager(client, cqCache)
+			
+			            handler := cqNamespaceHandler{
+			                client:   client,
+			                qManager: qManager,
+			                cache:    cqCache,
+			                recorder: recorder,
+			            }
 			event := event.CreateEvent{
 				Object: tc.ns,
 			}
@@ -801,6 +806,7 @@ func TestClusterQueueReconcilerCreate(t *testing.T) {
 		featureGateEnabled bool
 		managerNsSelector  *metav1.LabelSelector
 		wantLqInNs         map[string]bool // map of namespace name to wantLocalQueue
+		wantEvent          *string
 	}{
 		"gate disabled; noop": {
 			cq:         baseCQ.DeepCopy(),
@@ -845,7 +851,7 @@ func TestClusterQueueReconcilerCreate(t *testing.T) {
 				nsMatchingName: false,
 			},
 		},
-		"localqueue already exists; noop": {
+		"localqueue already exists; emit event": {
 			cq:                 baseCQ.DeepCopy(),
 			namespaces:         []*corev1.Namespace{existingLqNs},
 			existingLqs:        []*kueue.LocalQueue{existingLq},
@@ -853,6 +859,7 @@ func TestClusterQueueReconcilerCreate(t *testing.T) {
 			wantLqInNs: map[string]bool{
 				nsExistingLqName: true, // it should exist, but not be created by the reconciler
 			},
+			wantEvent: ptr.To("Warning DefaultLocalQueueExists Skipping default LocalQueue creation in namespace test-namespace-existing-lq, a LocalQueue with the name auto-lq already exists"),
 		},
 		"with namespace selector on manager; localqueue is created only in matching": {
 			cq: utiltestingapi.MakeClusterQueue(cqName).
@@ -872,6 +879,7 @@ func TestClusterQueueReconcilerCreate(t *testing.T) {
 	}
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
+			g := NewGomegaWithT(t)
 			features.SetFeatureGateDuringTest(t, features.DefaultLocalQueue, tc.featureGateEnabled)
 
 			ctx, log := utiltesting.ContextWithLog(t)
@@ -888,12 +896,14 @@ func TestClusterQueueReconcilerCreate(t *testing.T) {
 			client := clientBuilder.Build()
 			cqCache := schdcache.New(client)
 			qManager := qcache.NewManager(client, cqCache)
+			recorder := record.NewFakeRecorder(1)
 
 			reconciler := &ClusterQueueReconciler{
 				client:   client,
 				log:      log,
 				cache:    cqCache,
 				qManager: qManager,
+				recorder: recorder,
 			}
 			if tc.managerNsSelector != nil {
 				var err error
@@ -908,6 +918,10 @@ func TestClusterQueueReconcilerCreate(t *testing.T) {
 			}
 
 			reconciler.Create(event)
+
+			if tc.wantEvent != nil {
+				g.Expect(recorder.Events).Should(Receive(ContainSubstring(*tc.wantEvent)))
+			}
 
 			for nsName, wantLq := range tc.wantLqInNs {
 				var lq kueue.LocalQueue
