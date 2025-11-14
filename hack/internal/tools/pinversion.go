@@ -28,7 +28,7 @@ import (
 	_ "github.com/onsi/ginkgo/v2/ginkgo"
 	_ "go.uber.org/mock/mockgen"
 	_ "gotest.tools/gotestsum"
-	_ "helm.sh/helm/v3/cmd/helm"
+	_ "helm.sh/helm/v4/cmd/helm"
 	_ "k8s.io/code-generator"
 	_ "sigs.k8s.io/controller-runtime/tools/setup-envtest"
 	_ "sigs.k8s.io/controller-tools/cmd/controller-gen"
