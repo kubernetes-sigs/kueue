@@ -623,8 +623,31 @@ func UpdateRequeueState(wl *kueue.Workload, backoffBaseSeconds int32, backoffMax
 	backoff := wait.NewBackoff(time.Duration(backoffBaseSeconds)*time.Second, time.Duration(backoffMaxSeconds)*time.Second, 2, 0.0001)
 	waitDuration := backoff.WaitTime(int(requeuingCount))
 
-	wl.Status.RequeueState.RequeueAt = ptr.To(metav1.NewTime(clock.Now().Add(waitDuration)))
-	wl.Status.RequeueState.Count = &requeuingCount
+	_ = SetRequeueState(wl, metav1.NewTime(clock.Now().Add(waitDuration)), true)
+}
+
+// SetRequeueState sets the status.requeueState field with the given timeout
+// if it's greater than the existing value.
+// It will return true if the workload was mutated.
+func SetRequeueState(wl *kueue.Workload, waitUntil metav1.Time, incrementCount bool) bool {
+	if wl.Status.RequeueState == nil {
+		wl.Status.RequeueState = &kueue.RequeueState{}
+	}
+
+	// The requeue state is shared between multiple components,
+	// so we have to ensure that we don't overwrite a future requeue.
+	var updated bool
+	currentRequeueAt := ptr.Deref(wl.Status.RequeueState.RequeueAt, metav1.NewTime(time.Time{}))
+	if currentRequeueAt.Before(&waitUntil) && !currentRequeueAt.Equal(&waitUntil) {
+		wl.Status.RequeueState.RequeueAt = &waitUntil
+		updated = true
+	}
+	if incrementCount {
+		requeuingCount := ptr.Deref(wl.Status.RequeueState.Count, 0) + 1
+		wl.Status.RequeueState.Count = &requeuingCount
+		updated = true
+	}
+	return updated
 }
 
 // SetRequeuedCondition sets the WorkloadRequeued condition to true
@@ -1442,4 +1465,25 @@ func ReasonWithCause(reason, underlyingCause string) string {
 // it returns an empty string.
 func ClusterName(wl *kueue.Workload) string {
 	return ptr.Deref(wl.Status.ClusterName, "")
+}
+
+// ResetRequeue resets the requeue state of the workload as well as all admission checks
+// It returns true if the workload was modified.
+func ResetRequeue(wl *kueue.Workload) bool {
+	var updated bool
+
+	if wl.Status.RequeueState != nil {
+		wl.Status.RequeueState = nil
+		updated = true
+	}
+	for i := range wl.Status.AdmissionChecks {
+		if wl.Status.AdmissionChecks[i].RequeueAfterSeconds == nil || wl.Status.AdmissionChecks[i].RetryCount == nil {
+			continue
+		}
+		wl.Status.AdmissionChecks[i].RequeueAfterSeconds = nil
+		wl.Status.AdmissionChecks[i].RetryCount = nil
+		updated = true
+	}
+
+	return updated
 }

@@ -194,6 +194,17 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, nil
 	}
 
+	if requeueAt := workload.NeedsRequeueAtUpdate(&wl, r.clock); requeueAt != nil {
+		err := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func() (*kueue.Workload, bool, error) {
+			if wl.Status.RequeueState == nil {
+				wl.Status.RequeueState = &kueue.RequeueState{}
+			}
+			log.V(2).Info("At least one admission check set a retry time", "requeueAt", requeueAt, "current", wl.Status.RequeueState.RequeueAt)
+			workload.SetRequeueState(&wl, *requeueAt, false)
+			return &wl, true, nil
+		})
+		return reconcile.Result{}, client.IgnoreNotFound(err)
+	}
 	if features.Enabled(features.DynamicResourceAllocation) && workload.Status(&wl) == workload.StatusPending &&
 		workload.HasDRA(&wl) {
 		workload.AdjustResources(ctx, r.client, &wl)
@@ -262,6 +273,37 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			wl.Spec.Active = ptr.To(false)
 			err := r.client.Update(ctx, &wl)
 			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+
+		if wl.Status.RequeueState != nil && wl.Status.RequeueState.RequeueAt != nil {
+			requeueAfter := ptr.To(wl.Status.RequeueState.RequeueAt.Sub(r.clock.Now()))
+			if requeueAfter != nil && *requeueAfter > 0 {
+				log.V(3).Info("Waiting for backoff to finish", "backoff", *requeueAfter)
+				return reconcile.Result{RequeueAfter: *requeueAfter}, nil
+			}
+
+			if workload.Status(&wl) == workload.StatusPending {
+				log.V(3).Info("Pending workload requeued after backoff")
+
+				// Clear RequeueAt since backoff has elapsed
+				err := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func() (*kueue.Workload, bool, error) {
+					if wl.Status.RequeueState != nil {
+						wl.Status.RequeueState.RequeueAt = nil
+					}
+					return &wl, true, nil
+				})
+				if err != nil {
+					return ctrl.Result{}, client.IgnoreNotFound(err)
+				}
+
+				if err := r.queues.AddOrUpdateWorkload(wl.DeepCopy()); err != nil {
+					log.V(2).Info("failed to put the workload back into queue", "error", err)
+					return ctrl.Result{}, err
+				}
+
+				log.V(3).Info("Workload requeued after backoff")
+				return ctrl.Result{}, nil
+			}
 		}
 
 		var updated bool
@@ -857,6 +899,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			backoff = time.Until(e.ObjectNew.Status.RequeueState.RequeueAt.Time)
 		}
 		immediate := backoff <= 0
+		log.V(3).Info("Workload transitioned back to pending", "backoff", backoff, "immediate", immediate)
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, e.ObjectNew, func() {
 			// Delete the workload from cache while holding the queues lock
@@ -865,8 +908,11 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			if err := r.cache.DeleteWorkload(log, e.ObjectNew); err != nil {
 				log.Error(err, "Failed to delete workload from cache")
 			}
-			// Here we don't take the lock as it is already taken by the wrapping
-			// function.
+			// Here we don't take the lock as it is already taken by the wrapping function.
+			// The delayed requeue is done in the Reconcile function, but we need to
+			// keep the immediate retry here because it will ensure that
+			// AddOrUpdateWorkload is only called once. When moving it to the main
+			// reconciler, we would execute it on every run, which might mess up the state.
 			if immediate {
 				// Skip queue operations for DRA workloads - they are handled in Reconcile loop
 				if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(e.ObjectNew) {
@@ -879,26 +925,6 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 				}
 			}
 		})
-
-		if !immediate {
-			log.V(3).Info("Workload to be requeued after backoff", "backoff", backoff, "requeueAt", e.ObjectNew.Status.RequeueState.RequeueAt.Time)
-			// Skip delayed requeue for DRA workloads - they are handled in Reconcile loop
-			if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(e.ObjectNew) {
-				log.V(3).Info("Skipping delayed requeue for DRA workload - handled in Reconcile")
-			} else {
-				time.AfterFunc(backoff, func() {
-					updatedWl := kueue.Workload{}
-					err := r.client.Get(ctx, client.ObjectKeyFromObject(e.ObjectNew), &updatedWl)
-					if err == nil && workload.Status(&updatedWl) == workload.StatusPending {
-						if err = r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
-							log.V(2).Info("ignored an error for now", "error", err)
-						} else {
-							log.V(3).Info("Workload requeued after backoff")
-						}
-					}
-				})
-			}
-		}
 	case prevStatus == workload.StatusAdmitted && status == workload.StatusAdmitted && !equality.Semantic.DeepEqual(e.ObjectOld.Status.ReclaimablePods, e.ObjectNew.Status.ReclaimablePods),
 		features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(e.ObjectOld), workload.ExtractPodSetCountsFromWorkload(e.ObjectNew)),
 		workloadPriorityClassChanged(e.ObjectOld, e.ObjectNew):
@@ -969,7 +995,7 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 // and calculates the remaining timeout duration.
 //
 // It returns two values:
-//  1. A underlyingCause that complements informarion carried by kueue.WorkloadEvictedByPodsReadyTimeout
+//  1. A underlyingCause that complements information carried by kueue.WorkloadEvictedByPodsReadyTimeout
 //
 // (e.g., WaitForStart, WaitForRecovery, or empty if not applicable).
 //
