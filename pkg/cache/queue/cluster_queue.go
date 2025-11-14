@@ -518,13 +518,7 @@ func (c *ClusterQueue) Active() bool {
 }
 
 // RequeueIfNotPresent inserts a workload that was not
-// admitted back into the ClusterQueue. If the boolean is true,
-// the workloads should be put back in the queue immediately,
-// because we couldn't determine if the workload was admissible
-// in the last cycle. If the boolean is false, the implementation might
-// choose to keep it in temporary placeholder stage where it doesn't
-// compete with other workloads, until cluster events free up quota.
-// The workload should not be reinserted if it's already in the ClusterQueue.
+// admitted back into the ClusterQueue.
 // Returns true if the workload was inserted.
 func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.Info, reason RequeueReason) bool {
 	// when preemptions are in-progress, we keep attempting to
