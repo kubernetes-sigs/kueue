@@ -23,13 +23,17 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 )
 
-func SetupControllers(mgr ctrl.Manager, cfg *configapi.Configuration, dispatcherName string) (string, error) {
+func SetupControllers(mgr ctrl.Manager, cfg *configapi.Configuration) (string, error) {
+	if *cfg.MultiKueue.DispatcherName != configapi.MultiKueueDispatcherModeIncremental {
+		return "", nil
+	}
+
 	helper, err := admissioncheck.NewMultiKueueStoreHelper(mgr.GetClient())
 	if err != nil {
 		return "", err
 	}
 
-	idRec := NewIncrementalDispatcherReconciler(mgr.GetClient(), helper, dispatcherName)
+	idRec := NewIncrementalDispatcherReconciler(mgr.GetClient(), helper)
 	err = idRec.SetupWithManager(mgr, cfg)
 	if err != nil {
 		return "multikueue-incremental-dispatcher", err

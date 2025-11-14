@@ -49,7 +49,6 @@ type IncrementalDispatcherReconciler struct {
 	client          client.Client
 	helper          *admissioncheck.MultiKueueStoreHelper
 	clock           clock.Clock
-	dispatcherName  string
 	roundStartTimes *utilmaps.SyncMap[types.NamespacedName, time.Time]
 }
 
@@ -63,23 +62,16 @@ func (r *IncrementalDispatcherReconciler) SetupWithManager(mgr ctrl.Manager, cfg
 		Complete(core.WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
 }
 
-func NewIncrementalDispatcherReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelper, dispatcherName string) *IncrementalDispatcherReconciler {
+func NewIncrementalDispatcherReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelper) *IncrementalDispatcherReconciler {
 	return &IncrementalDispatcherReconciler{
 		client:          c,
 		helper:          helper,
 		clock:           realClock,
-		dispatcherName:  dispatcherName,
 		roundStartTimes: utilmaps.NewSyncMap[types.NamespacedName, time.Time](0),
 	}
 }
 func (r *IncrementalDispatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
-
-	if r.dispatcherName != kueueconfig.MultiKueueDispatcherModeIncremental {
-		log.V(3).Info("Not a Incremental Dispatcher, skip the reconciliation", "dispatcherName", r.dispatcherName)
-		return reconcile.Result{}, nil
-	}
-
 	wl := &kueue.Workload{}
 	err := r.client.Get(ctx, req.NamespacedName, wl)
 	if err != nil {
