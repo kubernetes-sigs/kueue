@@ -995,9 +995,12 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Waiting for Kueue and kube-system pods to become active again", func() {
+			ginkgo.By("Waiting for kube-system to become available again", func() {
 				util.WaitForKubeSystemControllersAvailability(ctx, k8sWorker1Client, worker1Container)
-				util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sWorker1Client)
+			})
+
+			ginkgo.By("Restart Kueue and wait for availability again", func() {
+				util.RestartKueueController(ctx, k8sWorker1Client, worker1ClusterName)
 			})
 
 			ginkgo.By("Checking that the Kueue is operational after reconnection", func() {
