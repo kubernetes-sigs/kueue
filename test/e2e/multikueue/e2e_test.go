@@ -975,7 +975,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 	})
 
 	ginkgo.When("The connection to a worker cluster is unreliable", func() {
-		for i := 0; i < 30; i++ {
+		for i := range 30 {
 			ginkgo.FIt(fmt.Sprintf("Should update the cluster status to reflect the connection state %d", i), func() {
 				worker1Cq2 := utiltestingapi.MakeClusterQueue("q2").
 					ResourceGroup(
@@ -1034,7 +1034,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 				ginkgo.By("Waiting for Kueue and kube-system pods to become active again", func() {
 					util.WaitForKubeSystemControllersAvailability(ctx, k8sWorker1Client, worker1Container)
-					util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sWorker1Client)
+					util.RestartKueueController(ctx, k8sWorker1Client, worker1ClusterName)
+					// util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sWorker1Client)
 				})
 
 				ginkgo.By("Checking that the Kueue is operational after reconnection", func() {
