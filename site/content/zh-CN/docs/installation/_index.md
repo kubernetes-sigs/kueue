@@ -155,7 +155,6 @@ data:
       webhookServiceName: kueue-webhook-service
       webhookSecretName: kueue-webhook-server-cert
     waitForPodsReady:
-      enable: true
       timeout: 10m
     integrations:
       frameworks:

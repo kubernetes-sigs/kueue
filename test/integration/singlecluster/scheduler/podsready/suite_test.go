@@ -83,9 +83,7 @@ func managerAndSchedulerSetup(configuration *config.Configuration) framework.Man
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if configuration.WaitForPodsReady != nil {
-			podsReadyTracking := configuration.WaitForPodsReady.Enable &&
-				configuration.WaitForPodsReady.BlockAdmission != nil &&
-				*configuration.WaitForPodsReady.BlockAdmission
+			podsReadyTracking := configuration.WaitForPodsReady.BlockAdmission != nil && *configuration.WaitForPodsReady.BlockAdmission
 			cacheOpts = append(cacheOpts, schdcache.WithPodsReadyTracking(podsReadyTracking))
 
 			if configuration.WaitForPodsReady.RequeuingStrategy != nil && configuration.WaitForPodsReady.RequeuingStrategy.Timestamp != nil {

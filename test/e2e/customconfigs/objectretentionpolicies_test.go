@@ -67,7 +67,6 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Ordered, ginkgo.Contin
 
 	ginkgo.It("should delete the Workload after enabling the ObjectRetentionPolicies feature gate", func() {
 		waitForPodsReady := &configapi.WaitForPodsReady{
-			Enable:          true,
 			BlockAdmission:  ptr.To(true),
 			Timeout:         &metav1.Duration{Duration: util.TinyTimeout},
 			RecoveryTimeout: nil,
@@ -282,7 +281,6 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout and RequeuingL
 				},
 			}
 			cfg.WaitForPodsReady = &configapi.WaitForPodsReady{
-				Enable:          true,
 				BlockAdmission:  ptr.To(true),
 				Timeout:         &metav1.Duration{Duration: util.TinyTimeout},
 				RecoveryTimeout: nil,

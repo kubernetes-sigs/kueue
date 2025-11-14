@@ -58,6 +58,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/slices"
+	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -137,9 +138,9 @@ func WithManagedJobsNamespaceSelector(ls labels.Selector) Option {
 // WithWaitForPodsReady indicates if the controller should add the PodsReady
 // condition to the workload when the corresponding job has all pods ready
 // or succeeded.
-func WithWaitForPodsReady(w *configapi.WaitForPodsReady) Option {
+func WithWaitForPodsReady(cfg *configapi.WaitForPodsReady) Option {
 	return func(o *Options) {
-		o.WaitForPodsReady = w != nil && w.Enable
+		o.WaitForPodsReady = waitforpodsready.Enabled(cfg)
 	}
 }
 

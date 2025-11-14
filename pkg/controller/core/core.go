@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
+	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 )
 
 const (
@@ -94,7 +95,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 }
 
 func waitForPodsReady(cfg *configapi.WaitForPodsReady) *waitForPodsReadyConfig {
-	if cfg == nil || !cfg.Enable {
+	if !waitforpodsready.Enabled(cfg) {
 		return nil
 	}
 	result := waitForPodsReadyConfig{

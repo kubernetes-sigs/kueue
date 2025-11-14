@@ -233,7 +233,6 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
-					Enable: true,
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						Timestamp: ptr.To[configapi.RequeuingTimestamp]("NoSupported"),
 					},
@@ -250,7 +249,6 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
-					Enable: true,
 					Timeout: &metav1.Duration{
 						Duration: -1,
 					},
@@ -267,7 +265,6 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
-					Enable: true,
 					RecoveryTimeout: &metav1.Duration{
 						Duration: -1,
 					},
@@ -284,7 +281,6 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
-					Enable: true,
 					Timeout: &metav1.Duration{
 						Duration: 50,
 					},
@@ -305,7 +301,6 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
-					Enable: true,
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						BackoffLimitCount: ptr.To[int32](-1),
 					},
@@ -322,7 +317,6 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
-					Enable: true,
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						BackoffBaseSeconds: ptr.To[int32](-1),
 					},
@@ -339,7 +333,6 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
-					Enable: true,
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						BackoffMaxSeconds: ptr.To[int32](-1),
 					},
