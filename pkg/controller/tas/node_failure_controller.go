@@ -180,25 +180,32 @@ func (r *nodeFailureReconciler) getWorkloadsOnNode(ctx context.Context, nodeName
 	}
 	tasWorkloadsOnNode := sets.New[types.NamespacedName]()
 	for _, wl := range allWorkloads.Items {
-		if !isAdmittedByTAS(&wl) {
-			continue
-		}
-		for _, podSetAssignment := range wl.Status.Admission.PodSetAssignments {
-			topologyAssignment := podSetAssignment.TopologyAssignment
-			if topologyAssignment == nil {
-				continue
-			}
-			if !utiltas.IsLowestLevelHostname(topologyAssignment.Levels) {
-				continue
-			}
-			for value := range utiltas.LowestLevelValues(topologyAssignment) {
-				if value == nodeName {
-					tasWorkloadsOnNode.Insert(types.NamespacedName{Name: wl.Name, Namespace: wl.Namespace})
-				}
-			}
+		if hasTASAssignmentOnNode(&wl, nodeName) {
+			tasWorkloadsOnNode.Insert(types.NamespacedName{Name: wl.Name, Namespace: wl.Namespace})
 		}
 	}
 	return tasWorkloadsOnNode, nil
+}
+
+func hasTASAssignmentOnNode(wl *kueue.Workload, nodeName string) bool {
+	if !isAdmittedByTAS(wl) {
+		return false
+	}
+	for _, podSetAssignment := range wl.Status.Admission.PodSetAssignments {
+		topologyAssignment := podSetAssignment.TopologyAssignment
+		if topologyAssignment == nil {
+			continue
+		}
+		if !utiltas.IsLowestLevelHostname(topologyAssignment.Levels) {
+			continue
+		}
+		for value := range utiltas.LowestLevelValues(topologyAssignment) {
+			if value == nodeName {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (r *nodeFailureReconciler) getWorkloadsForImmediateReplacement(ctx context.Context, nodeName string) (sets.Set[types.NamespacedName], error) {
