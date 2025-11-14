@@ -55,7 +55,7 @@ It contains the following optional fields:
   waitForPodsReady:
     timeout: 2m
     recoveryTimeout: 1m
-    blockAdmission: true
+    blockAdmission: false
     requeuingStrategy:
       backoffLimitCount: 0
 ```
