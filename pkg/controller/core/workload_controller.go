@@ -357,7 +357,14 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadDeactivationTarget)
 		}
 		if wl.Status.RequeueState != nil {
-			wl.Status.RequeueState = nil
+			if features.Enabled(features.WorkloadRequestUseMergePatch) {
+				// When using merge patch, we can set the entire RequeueState to nil.
+				wl.Status.RequeueState = nil
+			} else {
+				// When using SSA, we must clear individual fields instead of setting to nil.
+				wl.Status.RequeueState.Count = nil
+				wl.Status.RequeueState.RequeueAt = nil
+			}
 			updated = true
 		}
 		if updated {
