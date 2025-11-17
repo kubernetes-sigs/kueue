@@ -233,11 +233,15 @@ var (
 	// the legacy names are no longer defined in the api, only in k/2/apis/batch
 	legacyJobNameLabel       = "job-name"
 	legacyControllerUIDLabel = "controller-uid"
-	ManagedLabels            = []string{legacyJobNameLabel, legacyControllerUIDLabel, batchv1.JobNameLabel, batchv1.ControllerUidLabel}
+	managedLabels            = []string{legacyJobNameLabel, legacyControllerUIDLabel, batchv1.JobNameLabel, batchv1.ControllerUidLabel}
 )
 
-func cleanManagedLabels(pt *corev1.PodTemplateSpec) *corev1.PodTemplateSpec {
-	for _, managedLabel := range ManagedLabels {
+// Clean labels that are managed by the job controller except job-name label.
+func cleanLabels(pt *corev1.PodTemplateSpec) *corev1.PodTemplateSpec {
+	for _, managedLabel := range managedLabels {
+		if features.Enabled(features.PropagateBatchJobLabelsToWorkload) && managedLabel == batchv1.JobNameLabel {
+			continue
+		}
 		delete(pt.Labels, managedLabel)
 	}
 	return pt
@@ -246,7 +250,7 @@ func cleanManagedLabels(pt *corev1.PodTemplateSpec) *corev1.PodTemplateSpec {
 func (j *Job) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	podSet := kueue.PodSet{
 		Name:     kueue.DefaultPodSetName,
-		Template: *cleanManagedLabels(j.Spec.Template.DeepCopy()),
+		Template: *cleanLabels(j.Spec.Template.DeepCopy()),
 		Count:    j.podsCount(),
 		MinCount: j.minPodsCount(),
 	}
@@ -296,7 +300,7 @@ func (j *Job) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 		}
 	}
 	info := podSetsInfo[0]
-	for _, managedLabel := range ManagedLabels {
+	for _, managedLabel := range managedLabels {
 		if v, found := j.Spec.Template.Labels[managedLabel]; found {
 			info.AddOrUpdateLabel(managedLabel, v)
 		}
