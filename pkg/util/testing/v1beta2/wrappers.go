@@ -714,10 +714,22 @@ func (q *LocalQueueWrapper) Creation(t time.Time) *LocalQueueWrapper {
 
 // Label sets the label on the LocalQueue.
 func (q *LocalQueueWrapper) Label(k, v string) *LocalQueueWrapper {
-	if q.Labels == nil {
-		q.Labels = make(map[string]string)
+	if q.ObjectMeta.Labels == nil {
+		q.ObjectMeta.Labels = make(map[string]string)
 	}
-	q.Labels[k] = v
+	q.ObjectMeta.Labels[k] = v
+	return q
+}
+
+// Labels sets the labels on the LocalQueue.
+func (q *LocalQueueWrapper) Labels(l map[string]string) *LocalQueueWrapper {
+	q.ObjectMeta.Labels = l
+	return q
+}
+
+// Annotations sets the annotations on the LocalQueue.
+func (q *LocalQueueWrapper) Annotations(a map[string]string) *LocalQueueWrapper {
+	q.ObjectMeta.Annotations = a
 	return q
 }
 

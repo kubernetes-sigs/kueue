@@ -52,4 +52,8 @@ const (
 	// of the PodSet of the admitted Workload corresponding to the PodTemplate.
 	// The label is set when starting the Job, and removed on stopping the Job.
 	PodSetLabel = "kueue.x-k8s.io/podset"
+
+	// DefaultLocalQueueControllerName is a name of a controller that handles
+	// creation of default LocalQueues for ClusterQueues.
+	DefaultLocalQueueControllerName = "default-localqueue-controller"
 )

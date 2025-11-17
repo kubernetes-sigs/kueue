@@ -19,7 +19,6 @@ package core
 import (
 	"time"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -51,6 +50,13 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		return "LocalQueue", err
 	}
 
+	if features.Enabled(features.DefaultLocalQueueCreation) {
+		dlqRec := NewDefaultLocalQueueReconciler(mgr.GetClient(), qManager, cc, mgr.GetEventRecorderFor(constants.DefaultLocalQueueControllerName))
+		if err := dlqRec.SetupWithManager(mgr, cfg); err != nil {
+			return "DefaultLocalQueue", err
+		}
+	}
+
 	fairSharingEnabled := fairsharing.Enabled(cfg.FairSharing)
 	watchers := []ClusterQueueUpdateWatcher{rfRec, acRec}
 	if features.Enabled(features.HierarchicalCohorts) {
@@ -62,18 +68,12 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		watchers = append(watchers, cohortRec)
 	}
 
-	selector, err := metav1.LabelSelectorAsSelector(cfg.ManagedJobsNamespaceSelector)
-	if err != nil {
-		return "ClusterQueue", err
-	}
 	cqRec := NewClusterQueueReconciler(
 		mgr.GetClient(),
 		qManager,
 		cc,
-		mgr.GetEventRecorderFor(constants.AdmissionName),
 		WithReportResourceMetrics(cfg.Metrics.EnableClusterQueueResources),
 		WithFairSharing(fairSharingEnabled),
-		WithNamespaceSelector(selector),
 		WithWatchers(watchers...),
 	)
 	rfRec.AddUpdateWatcher(cqRec)
