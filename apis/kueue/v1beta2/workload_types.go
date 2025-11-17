@@ -291,7 +291,7 @@ type PodSetAssignment struct {
 	//   (aimed to optimize the total bytesize for very large number of domains; see examples below):
 	//   - When all node selector values (at a given topology level, in a given slice)
 	//     share a common prefix and/or suffix, these may be stored
-	//     in dedicated `commonPrefix`/`commonSuffix` fields.
+	//     in dedicated `prefix`/`suffix` fields.
 	//     If so, the array of `roots` will only store the remaining parts of these strings.
 	//   - When all node selector values (at a given topology level, in a given slice)
 	//     are identical, this may be represented by `universal` value.
@@ -473,18 +473,18 @@ type TopologyAssignmentSliceLevelValues struct {
 }
 
 type TopologyAssignmentSliceLevelIndividualValues struct {
-	// commonPrefix specifies a common prefix for all values in this slice assignment.
+	// prefix specifies a common prefix for all values in this slice assignment.
 	// It must be either nil pointer or a non-empty string.
 	// +optional
 	// +kubebuilder:validation:MaxLength=63
-	CommonPrefix *string `json:"commonPrefix,omitempty"`
-	// commonSuffix specifies a common suffix for all values in this slice assignment.
+	Prefix *string `json:"prefix,omitempty"`
+	// suffix specifies a common suffix for all values in this slice assignment.
 	// It must be either nil pointer or a non-empty string.
 	// +optional
 	// +kubebuilder:validation:MaxLength=63
-	CommonSuffix *string `json:"commonSuffix,omitempty"`
+	Suffix *string `json:"suffix,omitempty"`
 
-	// roots specifies the values in this assignment (excluding commonPrefix and commonSuffix, if non-empty).
+	// roots specifies the values in this assignment (excluding prefix and suffix, if non-empty).
 	// Its length must be equal to the "domainCount" field of the TopologyAssignmentSlice.
 	// +required
 	// +listType=atomic

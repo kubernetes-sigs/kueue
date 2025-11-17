@@ -18270,13 +18270,13 @@ spec:
                             examples below):\n  - When all node selector values (at
                             a given topology level, in a given slice)\n    share a
                             common prefix and/or suffix, these may be stored\n    in
-                            dedicated `commonPrefix`/`commonSuffix` fields.\n    If
-                            so, the array of `roots` will only store the remaining
-                            parts of these strings.\n  - When all node selector values
-                            (at a given topology level, in a given slice)\n    are
-                            identical, this may be represented by `universal` value.\n
-                            \ - When all pod counts (in a given slice) are identical,\n
-                            \   this may be represented by `universal` pod count.\n\nExample
+                            dedicated `prefix`/`suffix` fields.\n    If so, the array
+                            of `roots` will only store the remaining parts of these
+                            strings.\n  - When all node selector values (at a given
+                            topology level, in a given slice)\n    are identical,
+                            this may be represented by `universal` value.\n  - When
+                            all pod counts (in a given slice) are identical,\n    this
+                            may be represented by `universal` pod count.\n\nExample
                             1:\n\nThe following represents an assignment in which:\n*
                             4 Pods are to be scheduled on nodes matching the node
                             selector:\n  - cloud.provider.com/topology-block: block-1\n
@@ -18384,21 +18384,15 @@ spec:
                                             that apply to the pods in the current TopologyAssignmentSlice.
                                             Exactly one of universal, individual must be set.
                                           properties:
-                                            commonPrefix:
+                                            prefix:
                                               description: |-
-                                                commonPrefix specifies a common prefix for all values in this slice assignment.
-                                                It must be either nil pointer or a non-empty string.
-                                              maxLength: 63
-                                              type: string
-                                            commonSuffix:
-                                              description: |-
-                                                commonSuffix specifies a common suffix for all values in this slice assignment.
+                                                prefix specifies a common prefix for all values in this slice assignment.
                                                 It must be either nil pointer or a non-empty string.
                                               maxLength: 63
                                               type: string
                                             roots:
                                               description: |-
-                                                roots specifies the values in this assignment (excluding commonPrefix and commonSuffix, if non-empty).
+                                                roots specifies the values in this assignment (excluding prefix and suffix, if non-empty).
                                                 Its length must be equal to the "domainCount" field of the TopologyAssignmentSlice.
                                               items:
                                                 maxLength: 63
@@ -18407,6 +18401,12 @@ spec:
                                               minItems: 1
                                               type: array
                                               x-kubernetes-list-type: atomic
+                                            suffix:
+                                              description: |-
+                                                suffix specifies a common suffix for all values in this slice assignment.
+                                                It must be either nil pointer or a non-empty string.
+                                              maxLength: 63
+                                              type: string
                                           required:
                                           - roots
                                           type: object
