@@ -174,7 +174,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				if len(wl.OwnerReferences) == 0 {
 					return ctrl.Result{}, r.finalize(ctx, &wl, log)
 				} else {
-					log.Info("Uable to finalize: workload still has owners. Proceeding with reconcile.", "owners", wl.OwnerReferences)
+					log.Info("Unable to finalize: workload still has owners. Proceeding with reconcile.", "owners", wl.OwnerReferences)
 				}
 			}
 		case controllerutil.ContainsFinalizer(&wl, kueue.SafeDeleteFinalizerName):
