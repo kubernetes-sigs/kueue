@@ -118,7 +118,7 @@ Here is a sample Pod that just sleeps for a few seconds:
 You can create the Pod using the following command:
 ```sh
 # Create the pod
-kubectl create -f kueue-pod.yaml
+kubectl create -f https://kueue.sigs.k8s.io/examples/pods-kueue/kueue-pod.yaml
 ```
 
 ## Running a group of Pods to be admitted together
@@ -177,7 +177,7 @@ Here is a sample Pod group that just sleeps for a few seconds:
 
 You can create the Pod group using the following command:
 ```sh
-kubectl create -f kueue-pod-group.yaml
+kubectl create -f https://kueue.sigs.k8s.io/examples/pods-kueue/kueue-pod-group.yaml
 ```
 
 The name of the associated Workload created by Kueue equals the name of the Pod

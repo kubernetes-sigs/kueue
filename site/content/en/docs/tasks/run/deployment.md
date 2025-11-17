@@ -88,5 +88,5 @@ Here is a sample Deployment:
 
 You can create the Deployment using the following command:
 ```sh
-kubectl create -f sample-deployment.yaml
+kubectl create -f https://kueue.sigs.k8s.io/examples/serving-workloads/sample-deployment.yaml
 ```
