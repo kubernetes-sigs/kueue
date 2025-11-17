@@ -20,9 +20,9 @@ package v1beta2
 // TopologyAssignmentSliceLevelIndividualValuesApplyConfiguration represents a declarative configuration of the TopologyAssignmentSliceLevelIndividualValues type for use
 // with apply.
 type TopologyAssignmentSliceLevelIndividualValuesApplyConfiguration struct {
-	CommonPrefix *string  `json:"commonPrefix,omitempty"`
-	CommonSuffix *string  `json:"commonSuffix,omitempty"`
-	Roots        []string `json:"roots,omitempty"`
+	Prefix *string  `json:"prefix,omitempty"`
+	Suffix *string  `json:"suffix,omitempty"`
+	Roots  []string `json:"roots,omitempty"`
 }
 
 // TopologyAssignmentSliceLevelIndividualValuesApplyConfiguration constructs a declarative configuration of the TopologyAssignmentSliceLevelIndividualValues type for use with
@@ -31,19 +31,19 @@ func TopologyAssignmentSliceLevelIndividualValues() *TopologyAssignmentSliceLeve
 	return &TopologyAssignmentSliceLevelIndividualValuesApplyConfiguration{}
 }
 
-// WithCommonPrefix sets the CommonPrefix field in the declarative configuration to the given value
+// WithPrefix sets the Prefix field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the CommonPrefix field is set to the value of the last call.
-func (b *TopologyAssignmentSliceLevelIndividualValuesApplyConfiguration) WithCommonPrefix(value string) *TopologyAssignmentSliceLevelIndividualValuesApplyConfiguration {
-	b.CommonPrefix = &value
+// If called multiple times, the Prefix field is set to the value of the last call.
+func (b *TopologyAssignmentSliceLevelIndividualValuesApplyConfiguration) WithPrefix(value string) *TopologyAssignmentSliceLevelIndividualValuesApplyConfiguration {
+	b.Prefix = &value
 	return b
 }
 
-// WithCommonSuffix sets the CommonSuffix field in the declarative configuration to the given value
+// WithSuffix sets the Suffix field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the CommonSuffix field is set to the value of the last call.
-func (b *TopologyAssignmentSliceLevelIndividualValuesApplyConfiguration) WithCommonSuffix(value string) *TopologyAssignmentSliceLevelIndividualValuesApplyConfiguration {
-	b.CommonSuffix = &value
+// If called multiple times, the Suffix field is set to the value of the last call.
+func (b *TopologyAssignmentSliceLevelIndividualValuesApplyConfiguration) WithSuffix(value string) *TopologyAssignmentSliceLevelIndividualValuesApplyConfiguration {
+	b.Suffix = &value
 	return b
 }
 

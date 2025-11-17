@@ -40,8 +40,8 @@ func valueAtIndex(values kueue.TopologyAssignmentSliceLevelValues, idx int) stri
 		return *univ
 	}
 	ind := values.Individual
-	prefix := ptr.Deref(ind.CommonPrefix, "")
-	suffix := ptr.Deref(ind.CommonSuffix, "")
+	prefix := ptr.Deref(ind.Prefix, "")
+	suffix := ptr.Deref(ind.Suffix, "")
 	return prefix + ind.Roots[idx] + suffix
 }
 
@@ -183,10 +183,10 @@ func fillSingleCompactSliceValues(
 	ind := &kueue.TopologyAssignmentSliceLevelIndividualValues{}
 	values.Individual = ind
 	if len(prefix) > 0 {
-		ind.CommonPrefix = &prefix
+		ind.Prefix = &prefix
 	}
 	if len(suffix) > 0 {
-		ind.CommonSuffix = &suffix
+		ind.Suffix = &suffix
 	}
 	values.Individual.Roots = make([]string, 0, count)
 	for s := range inputProvider() {
@@ -196,7 +196,7 @@ func fillSingleCompactSliceValues(
 
 // singleCompactSliceEncoding translates a v1beta1 TopologyAssignment
 // to a v1beta2 counterpart consisting of a single slice,
-// in which the "compressing options" (CommonPrefix, CommonSuffix,
+// in which the "compressing options" (Prefix, Suffix,
 // Universal values for placement labels as well as Pod counts)
 // are used as much as possible.
 func singleCompactSliceEncoding(ta *TopologyAssignment) *kueue.TopologyAssignment {
