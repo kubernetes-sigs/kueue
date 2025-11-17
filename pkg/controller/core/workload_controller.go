@@ -165,16 +165,16 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	if !wl.DeletionTimestamp.IsZero() {
 		log = log.WithValues("deletionTimestamp", wl.DeletionTimestamp)
-		log.Info("Attempting to finalize workload.")
+		log.V(2).Info("Attempting to finalize workload.")
 
 		switch {
 		case controllerutil.ContainsFinalizer(&wl, kueue.ResourceInUseFinalizerName):
 			{
-				log.Info("Manual deletion by a user detected.")
+				log.V(2).Info("Manual deletion by a user detected.")
 				if len(wl.OwnerReferences) == 0 {
 					return ctrl.Result{}, r.finalize(ctx, &wl, log)
 				} else {
-					log.Info("Unable to finalize: workload still has owners. Proceeding with reconcile.", "owners", wl.OwnerReferences)
+					log.V(3).Info("Unable to finalize: workload still has owners. Proceeding with reconcile.", "owners", wl.OwnerReferences)
 				}
 			}
 		case controllerutil.ContainsFinalizer(&wl, kueue.SafeDeleteFinalizerName):
@@ -183,7 +183,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			}
 		default:
 			{
-				log.Info("Unknown finalizer(s) present. Proceeding with reconcile.")
+				log.V(3).Info("Unknown finalizer(s) present. Proceeding with reconcile.")
 			}
 		}
 	}
@@ -504,13 +504,13 @@ func (r *WorkloadReconciler) finalize(ctx context.Context, wl *kueue.Workload, l
 			err = r.cache.DeleteWorkload(log, wl)
 		})
 		if err != nil {
-			log.V(2).Error(err, "Failed to delete workload from cache.")
+			log.Error(err, "Failed to delete workload from cache.")
 			return err
 		}
 	} else {
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wl, func() {
 			if err := r.cache.DeleteWorkload(log, wl); err != nil {
-				log.V(2).Info("Failed to delete workload from cache.", "Error", err, "Note", "this may be intended behavior")
+				log.Info("Failed to delete workload from cache.", "Error", err, "Note", "this may be intended behavior")
 			}
 		})
 	}
