@@ -1,0 +1,56 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tas-sample-job
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+spec:
+  parallelism: 2
+  completions: 2
+  suspend: true
+  template:
+    metadata:
+      annotations:
+        kueue.x-k8s.io/podset-required-topology: kubernetes.io/hostname
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: sample-container
+        image: registry.k8s.io/e2e-test-images/agnhost:2.40
+        args: ["pause"]
+        resources:
+          requests:
+            cpu: "1"
+            memory: "1Gi"
+          limits:
+            cpu: "1"
+            memory: "1Gi"
+      terminationGracePeriodSeconds: 5
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: implicit-tas-job
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+spec:
+  parallelism: 3
+  completions: 3
+  suspend: true
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: sample-container
+        image: registry.k8s.io/e2e-test-images/agnhost:2.40
+        args: ["pause"]
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+      terminationGracePeriodSeconds: 5
