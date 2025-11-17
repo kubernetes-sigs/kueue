@@ -565,6 +565,7 @@ func (r *WorkloadReconciler) finalize(ctx context.Context, wl *kueue.Workload, l
 	if err := r.client.Update(ctx, wl); err != nil {
 		return err
 	}
+	
 	r.recorder.Eventf(wl, corev1.EventTypeNormal, "Finalized", "Workload %s has been finalized", workload.Key(wl))
 	return nil
 }
