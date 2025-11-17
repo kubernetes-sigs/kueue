@@ -1003,18 +1003,18 @@ type TopologyAssignmentSliceLevelValues struct {
 }
 
 type TopologyAssignmentSliceLevelIndividualValues struct {
-  // commonPrefix specifies a common prefix for all values in this slice assignment.
+  // prefix specifies a common prefix for all values in this slice assignment.
   // It must be either nil pointer or a non-empty string.
   // +optional
   // +kubebuilder:validation:MaxLength=63
-  CommonPrefix *string `json:"commonPrefix,omitempty"`
-  // commonSuffix specifies a common suffix for all values in this slice assignment.
+  prefix *string `json:"prefix,omitempty"`
+  // suffix specifies a common suffix for all values in this slice assignment.
   // It must be either nil pointer or a non-empty string.
   // +optional
   // +kubebuilder:validation:MaxLength=63
-  CommonSuffix *string `json:"commonSuffix,omitempty"`
+  suffix *string `json:"suffix,omitempty"`
 
-  // roots specifies the values in this assignment (excluding commonPrefix and commonSuffix, if non-empty).
+  // roots specifies the values in this assignment (excluding prefix and suffix, if non-empty).
   // Its length must be equal to the "domainCount" field of the TopologyAssignmentSlice.
   // +required
   // +listType=atomic
@@ -1057,7 +1057,7 @@ topologyAssignment:
     valuesPerLevel:
     - universal: block-1
     - individual:
-        commonPrefix: rack-
+        prefix: rack-
         roots: [1, 2]
     podCounts:
       individual: [4, 2]
@@ -1074,14 +1074,14 @@ topologyAssignment:
   - domainCount: 5
     valuesPerLevel:
     - individual:
-        commonPrefix: pool-1-node-
+        prefix: pool-1-node-
         roots: [1, 2, 3, 4, 5]
     podCounts:
       universal: 1
   - domainCount: 7
     valuesPerLevel:
     - individual:
-        commonPrefix: pool-2-node-
+        prefix: pool-2-node-
         roots: [1, 2, 3, 4, 5, 6, 7]
     podCounts:
       universal: 1

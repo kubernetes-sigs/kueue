@@ -1985,7 +1985,7 @@ and omit higher levels in the topology.</li>
 <ul>
 <li>When all node selector values (at a given topology level, in a given slice)
 share a common prefix and/or suffix, these may be stored
-in dedicated <code>commonPrefix</code>/<code>commonSuffix</code> fields.
+in dedicated <code>prefix</code>/<code>suffix</code> fields.
 If so, the array of <code>roots</code> will only store the remaining parts of these strings.</li>
 <li>When all node selector values (at a given topology level, in a given slice)
 are identical, this may be represented by <code>universal</code> value.</li>
@@ -3073,19 +3073,19 @@ The entry corresponding to a particular level specifies the placement of pods at
 <tbody>
     
   
-<tr><td><code>commonPrefix</code><br/>
+<tr><td><code>prefix</code><br/>
 <code>string</code>
 </td>
 <td>
-   <p>commonPrefix specifies a common prefix for all values in this slice assignment.
+   <p>prefix specifies a common prefix for all values in this slice assignment.
 It must be either nil pointer or a non-empty string.</p>
 </td>
 </tr>
-<tr><td><code>commonSuffix</code><br/>
+<tr><td><code>suffix</code><br/>
 <code>string</code>
 </td>
 <td>
-   <p>commonSuffix specifies a common suffix for all values in this slice assignment.
+   <p>suffix specifies a common suffix for all values in this slice assignment.
 It must be either nil pointer or a non-empty string.</p>
 </td>
 </tr>
@@ -3093,7 +3093,7 @@ It must be either nil pointer or a non-empty string.</p>
 <code>[]string</code>
 </td>
 <td>
-   <p>roots specifies the values in this assignment (excluding commonPrefix and commonSuffix, if non-empty).
+   <p>roots specifies the values in this assignment (excluding prefix and suffix, if non-empty).
 Its length must be equal to the &quot;domainCount&quot; field of the TopologyAssignmentSlice.</p>
 </td>
 </tr>

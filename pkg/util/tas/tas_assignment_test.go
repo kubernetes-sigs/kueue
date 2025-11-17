@@ -108,14 +108,14 @@ var bothWaysTestCases = []testCase{
 					ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
 						{
 							Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-								CommonPrefix: ptr.To("a"),
-								Roots:        []string{"1", "2"},
+								Prefix: ptr.To("a"),
+								Roots:  []string{"1", "2"},
 							},
 						},
 						{
 							Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-								CommonPrefix: ptr.To("b"),
-								Roots:        []string{"1", "2"},
+								Prefix: ptr.To("b"),
+								Roots:  []string{"1", "2"},
 							},
 						},
 					},
@@ -151,16 +151,16 @@ var bothWaysTestCases = []testCase{
 					ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
 						{
 							Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-								CommonPrefix: ptr.To("p.a"),
-								CommonSuffix: ptr.To(".s"),
-								Roots:        []string{"1", "2"},
+								Prefix: ptr.To("p.a"),
+								Suffix: ptr.To(".s"),
+								Roots:  []string{"1", "2"},
 							},
 						},
 						{
 							Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-								CommonPrefix: ptr.To("p.b"),
-								CommonSuffix: ptr.To(".s"),
-								Roots:        []string{"1", "2"},
+								Prefix: ptr.To("p.b"),
+								Suffix: ptr.To(".s"),
+								Roots:  []string{"1", "2"},
 							},
 						},
 					},
@@ -243,8 +243,8 @@ var bothWaysTestCases = []testCase{
 					ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
 						{
 							Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-								CommonPrefix: ptr.To("a1"),
-								Roots:        []string{"23", "2", "", "3"},
+								Prefix: ptr.To("a1"),
+								Roots:  []string{"23", "2", "", "3"},
 							},
 						},
 					},
@@ -288,8 +288,8 @@ var bothWaysTestCases = []testCase{
 					ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
 						{
 							Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-								CommonSuffix: ptr.To("3b"),
-								Roots:        []string{"12", "2", "", "1"},
+								Suffix: ptr.To("3b"),
+								Roots:  []string{"12", "2", "", "1"},
 							},
 						},
 					},
@@ -329,9 +329,9 @@ var bothWaysTestCases = []testCase{
 					ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
 						{
 							Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-								CommonPrefix: ptr.To("ab"),
-								CommonSuffix: ptr.To("acada"),
-								Roots:        []string{"ac", ""},
+								Prefix: ptr.To("ab"),
+								Suffix: ptr.To("acada"),
+								Roots:  []string{"ac", ""},
 							},
 						},
 					},
@@ -368,8 +368,8 @@ var bothWaysTestCases = []testCase{
 						// Prefix shrunk to "" -> it shouldn't be set at all.
 						{
 							Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-								CommonSuffix: ptr.To("aba"),
-								Roots:        []string{"ab", ""},
+								Suffix: ptr.To("aba"),
+								Roots:  []string{"ab", ""},
 							},
 						},
 					},
@@ -406,8 +406,8 @@ var bothWaysTestCases = []testCase{
 						// Prefix shrunk to "" -> it shouldn't be set at all.
 						{
 							Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-								CommonSuffix: ptr.To("aba"),
-								Roots:        []string{"", "ab"},
+								Suffix: ptr.To("aba"),
+								Roots:  []string{"", "ab"},
 							},
 						},
 					},
@@ -534,9 +534,9 @@ var oneWayTestCases = []testCase{
 						},
 						{
 							Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-								CommonPrefix: ptr.To("b"),
-								CommonSuffix: ptr.To("-s"),
-								Roots:        []string{"1", "2"},
+								Prefix: ptr.To("b"),
+								Suffix: ptr.To("-s"),
+								Roots:  []string{"1", "2"},
 							},
 						},
 					},
@@ -549,14 +549,14 @@ var oneWayTestCases = []testCase{
 					ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
 						{
 							Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-								CommonPrefix: ptr.To("a"),
-								Roots:        []string{"2", "3", "4"},
+								Prefix: ptr.To("a"),
+								Roots:  []string{"2", "3", "4"},
 							},
 						},
 						{
 							Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-								CommonSuffix: ptr.To("-t"),
-								Roots:        []string{"x", "y", "z"},
+								Suffix: ptr.To("-t"),
+								Roots:  []string{"x", "y", "z"},
 							},
 						},
 					},
@@ -724,9 +724,9 @@ func TestLowestLevel(t *testing.T) {
 					},
 					{
 						Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-							CommonPrefix: ptr.To("b"),
-							CommonSuffix: ptr.To("-s"),
-							Roots:        []string{"1", "2"},
+							Prefix: ptr.To("b"),
+							Suffix: ptr.To("-s"),
+							Roots:  []string{"1", "2"},
 						},
 					},
 				},
@@ -739,14 +739,14 @@ func TestLowestLevel(t *testing.T) {
 				ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
 					{
 						Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-							CommonPrefix: ptr.To("a"),
-							Roots:        []string{"2", "3", "4"},
+							Prefix: ptr.To("a"),
+							Roots:  []string{"2", "3", "4"},
 						},
 					},
 					{
 						Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-							CommonSuffix: ptr.To("-t"),
-							Roots:        []string{"x", "y", "z"},
+							Suffix: ptr.To("-t"),
+							Roots:  []string{"x", "y", "z"},
 						},
 					},
 				},

@@ -190,8 +190,8 @@ func TestWorkloadConvertTo(t *testing.T) {
 												},
 												{
 													Individual: &v1beta2.TopologyAssignmentSliceLevelIndividualValues{
-														CommonPrefix: ptr.To("b"),
-														Roots:        []string{"1", "2"},
+														Prefix: ptr.To("b"),
+														Roots:  []string{"1", "2"},
 													},
 												},
 											},
@@ -362,8 +362,8 @@ func TestWorkloadConvertFrom(t *testing.T) {
 												},
 												{
 													Individual: &v1beta2.TopologyAssignmentSliceLevelIndividualValues{
-														CommonPrefix: ptr.To("b"),
-														Roots:        []string{"1", "2"},
+														Prefix: ptr.To("b"),
+														Roots:  []string{"1", "2"},
 													},
 												},
 											},
@@ -421,8 +421,8 @@ func TestWorkloadConvertFrom(t *testing.T) {
 												},
 												{
 													Individual: &v1beta2.TopologyAssignmentSliceLevelIndividualValues{
-														CommonPrefix: ptr.To("b"),
-														Roots:        []string{"1", "2"},
+														Prefix: ptr.To("b"),
+														Roots:  []string{"1", "2"},
 													},
 												},
 											},
@@ -438,8 +438,8 @@ func TestWorkloadConvertFrom(t *testing.T) {
 												},
 												{
 													Individual: &v1beta2.TopologyAssignmentSliceLevelIndividualValues{
-														Roots:        []string{"first", "second"},
-														CommonSuffix: ptr.To("-in-a2"),
+														Roots:  []string{"first", "second"},
+														Suffix: ptr.To("-in-a2"),
 													},
 												},
 											},
