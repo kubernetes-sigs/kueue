@@ -303,6 +303,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	MultiKueueAdaptersForCustomJobs: {
 		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
 	WorkloadRequestUseMergePatch: {
 		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
