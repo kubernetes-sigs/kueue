@@ -211,8 +211,8 @@ const (
 
 	// owner: @j-skiba
 	//
-	// Enables automatic creation of default LocalQueues
-	DefaultLocalQueue featuregate.Feature = "DefaultLocalQueue"
+	// Enables automatic creation of default LocalQueues.
+	DefaultLocalQueueCreation featuregate.Feature = "DefaultLocalQueueCreation"
 )
 
 func init() {
@@ -331,7 +331,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	ReclaimablePods: {
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
-	DefaultLocalQueue: {
+	DefaultLocalQueueCreation: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }

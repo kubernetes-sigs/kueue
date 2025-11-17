@@ -1041,7 +1041,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 	ginkgo.When("DefaultLocalQueue feature is enabled", func() {
 		ginkgo.BeforeEach(func() {
 			fwk.StopManager(ctx)
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DefaultLocalQueue, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DefaultLocalQueueCreation, true)
 			fwk.StartManager(ctx, cfg, managerSetup)
 		})
 

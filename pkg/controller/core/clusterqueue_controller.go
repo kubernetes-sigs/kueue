@@ -366,7 +366,7 @@ func (r *ClusterQueueReconciler) Generic(e event.TypedGenericEvent[*kueue.Cluste
 }
 
 func (r *ClusterQueueReconciler) createDefaultLocalQueues(ctx context.Context, cq *kueue.ClusterQueue) {
-	if !features.Enabled(features.DefaultLocalQueue) || cq.Spec.DefaultLocalQueue == nil {
+	if !features.Enabled(features.DefaultLocalQueueCreation) || cq.Spec.DefaultLocalQueue == nil {
 		return
 	}
 	log := ctrl.LoggerFrom(ctx)
@@ -523,7 +523,7 @@ type cqNamespaceHandler struct {
 }
 
 func (h *cqNamespaceHandler) Create(ctx context.Context, e event.CreateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	if !features.Enabled(features.DefaultLocalQueue) {
+	if !features.Enabled(features.DefaultLocalQueueCreation) {
 		return
 	}
 
@@ -569,7 +569,7 @@ func (h *cqNamespaceHandler) Update(ctx context.Context, e event.UpdateEvent, _ 
 	}
 	h.qManager.QueueInadmissibleWorkloads(ctx, cqs)
 
-	if !features.Enabled(features.DefaultLocalQueue) {
+	if !features.Enabled(features.DefaultLocalQueueCreation) {
 		return
 	}
 

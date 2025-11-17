@@ -599,7 +599,7 @@ func TestCQNamespaceHandlerUpdate(t *testing.T) {
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			g := gomega.NewGomegaWithT(t)
-			features.SetFeatureGateDuringTest(t, features.DefaultLocalQueue, tc.featureGateEnabled)
+			features.SetFeatureGateDuringTest(t, features.DefaultLocalQueueCreation, tc.featureGateEnabled)
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 			client := utiltesting.NewClientBuilder().WithObjects(tc.cq, tc.newNs).Build()
@@ -724,7 +724,7 @@ func TestCQNamespaceHandlerCreate(t *testing.T) {
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			g := gomega.NewGomegaWithT(t)
-			features.SetFeatureGateDuringTest(t, features.DefaultLocalQueue, tc.featureGateEnabled)
+			features.SetFeatureGateDuringTest(t, features.DefaultLocalQueueCreation, tc.featureGateEnabled)
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder().WithObjects(tc.cq, tc.ns)
@@ -882,7 +882,7 @@ func TestClusterQueueReconcilerCreate(t *testing.T) {
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			g := gomega.NewGomegaWithT(t)
-			features.SetFeatureGateDuringTest(t, features.DefaultLocalQueue, tc.featureGateEnabled)
+			features.SetFeatureGateDuringTest(t, features.DefaultLocalQueueCreation, tc.featureGateEnabled)
 
 			ctx, log := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder()

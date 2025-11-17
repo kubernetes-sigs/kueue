@@ -116,7 +116,7 @@ func (w *ClusterQueueWebhook) validateClusterQueue(ctx context.Context, cq *kueu
 	allErrs = append(allErrs, validateTotalFlavors(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
 	allErrs = append(allErrs, validateTotalCoveredResources(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
 	allErrs = append(allErrs, validateFlavorResourceCombinations(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
-	if features.Enabled(features.DefaultLocalQueue) && cq.Spec.DefaultLocalQueue != nil {
+	if features.Enabled(features.DefaultLocalQueueCreation) && cq.Spec.DefaultLocalQueue != nil {
 		allErrs = append(allErrs, w.validateExistingLocalQueues(ctx, cq, path)...)
 	}
 	return allErrs
