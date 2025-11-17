@@ -503,8 +503,8 @@ not necessarily a Kubernetes Pod or Deployment name. Cannot be empty.</p>
 <td>
    <p>retryDelayMinutes specifies how long to keep the workload suspended after
 a failed check (after it transitioned to False). When the delay period has passed, the check
-state goes to &quot;Unknown&quot;. The default is 15 min.
-Deprecated: retryDelayMinutes has already been deprecated since v0.8 and will be removed in v1beta2.</p>
+state goes to &quot;Unknown&quot;. The default is 15 min.</p>
+<p>Deprecated: retryDelayMinutes has already been deprecated since v0.8 and will be removed in v1beta2.</p>
 </td>
 </tr>
 <tr><td><code>parameters</code><br/>
@@ -1197,8 +1197,8 @@ clusterQueue and haven't finished yet.</p>
 </td>
 <td>
    <p>pendingWorkloadsStatus contains the information exposed about the current
-status of the pending workloads in the cluster queue.
-Deprecated: This field is no longer effective since v0.14.0, which means Kueue no longer stores and updates information.
+status of the pending workloads in the cluster queue.</p>
+<p>Deprecated: This field is no longer effective since v0.14.0, which means Kueue no longer stores and updates information.
 You can migrate to VisibilityOnDemand
 (https://kueue.sigs.k8s.io/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/)
 instead.</p>
@@ -1887,8 +1887,8 @@ workloads assigned to this LocalQueue.</p>
 <a href="#kueue-x-k8s-io-v1beta1-LocalQueueFlavorStatus"><code>[]LocalQueueFlavorStatus</code></a>
 </td>
 <td>
-   <p>flavors lists all currently available ResourceFlavors in specified ClusterQueue.
-Deprecated: Flavors is deprecated and marked for removal in v1beta2.</p>
+   <p>flavors lists all currently available ResourceFlavors in specified ClusterQueue.</p>
+<p>Deprecated: Flavors is deprecated and marked for removal in v1beta2.</p>
 </td>
 </tr>
 <tr><td><code>fairSharing</code><br/>

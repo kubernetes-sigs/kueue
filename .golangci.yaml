@@ -15,6 +15,7 @@ linters:
     - loggercheck
     - makezero
     - misspell
+    - modernize
     - nilerr
     - nilnesserr
     - nolintlint
@@ -76,6 +77,9 @@ linters:
       forbid:
         - pattern: ^sort\.Slice$
           msg: Please use slices.SortFunc instead of sort.Slice for better performance and consistency
+    modernize:
+      disable:
+        - omitzero
   exclusions:
     generated: lax
     presets:
@@ -90,6 +94,9 @@ linters:
       - linters:
           - staticcheck
         text: 'SA1019: j.Status.RayClusterStatus.State is deprecated: the State field is replaced by the Conditions field.'
+      - linters:
+          - staticcheck
+        text: 'SA1019: features.* is deprecated: planned to be removed in .*'
       - linters:
           - fatcontext
         path: ^test/*

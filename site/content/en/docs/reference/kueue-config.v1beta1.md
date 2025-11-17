@@ -487,8 +487,8 @@ the expected format is <code>Kind.version.group.com</code>.</p>
 <a href="#config-kueue-x-k8s-io-v1beta1-PodIntegrationOptions"><code>PodIntegrationOptions</code></a>
 </td>
 <td>
-   <p>PodOptions defines kueue controller behaviour for pod objects
-Deprecated: This field will be removed on v1beta2, use ManagedJobsNamespaceSelector
+   <p>PodOptions defines kueue controller behaviour for pod objects</p>
+<p>Deprecated: This field will be removed on v1beta2, use ManagedJobsNamespaceSelector
 (https://kueue.sigs.k8s.io/docs/tasks/run/plain_pods/)
 instead.</p>
 </td>
