@@ -842,10 +842,9 @@ Defaults to 5min.</p>
 <code>bool</code>
 </td>
 <td>
-   <p>BlockAdmission when true, cluster queue will block admissions for all
+   <p>BlockAdmission when true, the cluster queue will block admissions for all
 subsequent jobs until the jobs reach the PodsReady=true condition.
-This setting is only honored when <code>Enable</code> is set to true.
-Defaults to true.</p>
+Defaults to false.</p>
 </td>
 </tr>
 <tr><td><code>requeuingStrategy</code><br/>
@@ -864,8 +863,7 @@ last transition to the PodsReady=false condition after a Workload is Admitted an
 Such a transition may happen when a Pod failed and the replacement Pod
 is awaited to be scheduled.
 After exceeding the timeout the corresponding job gets suspended again
-and requeued after the backoff delay. The timeout is enforced only if waitForPodsReady.enable=true.
-If not set, there is no timeout.</p>
+and requeued after the backoff delay.</p>
 </td>
 </tr>
 </tbody>

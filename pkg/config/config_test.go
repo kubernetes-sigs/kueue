@@ -202,7 +202,7 @@ apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 waitForPodsReady:
   timeout: 50s
-  blockAdmission: false
+  blockAdmission: true
   recoveryTimeout: 3m
   requeuingStrategy:
     timestamp: Creation
@@ -619,7 +619,7 @@ objectRetentionPolicies:
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
-					BlockAdmission:  ptr.To(false),
+					BlockAdmission:  ptr.To(true),
 					Timeout:         &metav1.Duration{Duration: 50 * time.Second},
 					RecoveryTimeout: &metav1.Duration{Duration: 3 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{

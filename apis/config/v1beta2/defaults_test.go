@@ -354,7 +354,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 			want: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
-					BlockAdmission:  ptr.To(true),
+					BlockAdmission:  ptr.To(false),
 					Timeout:         &podsReadyTimeout,
 					RecoveryTimeout: nil,
 					RequeuingStrategy: &RequeuingStrategy{
@@ -391,7 +391,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 			want: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
-					BlockAdmission:  ptr.To(true),
+					BlockAdmission:  ptr.To(false),
 					Timeout:         &podsReadyTimeoutOverwrite,
 					RecoveryTimeout: &metav1.Duration{Duration: time.Minute},
 					RequeuingStrategy: &RequeuingStrategy{
