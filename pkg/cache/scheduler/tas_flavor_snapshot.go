@@ -749,7 +749,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		currFitDomain, bestThreshold = findBestDomainsForBalancedPlacement(s, levelIdx, sliceLevelIdx, count, leaderCount, sliceSize)
 		useBalancedPlacement = bestThreshold > 0
 		if useBalancedPlacement {
-			currFitDomain, reason = applyBalancedPlacementAlgorithm(s, levelIdx, sliceLevelIdx, count, leaderCount, sliceSize, bestThreshold, unconstrained, currFitDomain)
+			currFitDomain, fitLevelIdx, reason = applyBalancedPlacementAlgorithm(s, levelIdx, sliceLevelIdx, count, leaderCount, sliceSize, bestThreshold, currFitDomain)
 			if len(reason) > 0 {
 				return nil, reason
 			}
@@ -761,31 +761,36 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		if len(reason) > 0 {
 			return nil, reason
 		}
-		// phase 2b: traverse the tree down level-by-level optimizing the number of
-		// topology domains at each level
-		// if unconstrained is set, we'll only do it once
-		currFitDomain = s.updateCountsToMinimumGeneric(currFitDomain, count, leaderCount, sliceSize, unconstrained, true)
+	}
+	// phase 2b: traverse the tree down level-by-level optimizing the number of
+	// topology domains at each level
+	// if unconstrained is set, we'll only do it once
+	currFitDomain = s.updateCountsToMinimumGeneric(currFitDomain, count, leaderCount, sliceSize, unconstrained, true)
+	levelIdx = fitLevelIdx
+	for ; levelIdx < min(len(s.domainsPerLevel)-1, sliceLevelIdx) && !useBalancedPlacement; levelIdx++ {
+		// If we are "above" the requested slice topology level and we don't run the balanced placement algorithm,
+		// we're greedily assigning pods/slices to all domains without checking what we've assigned to parent domains.
+		sortedLowerDomains := s.sortedDomains(s.lowerLevelDomains(currFitDomain), unconstrained)
+		currFitDomain = s.updateCountsToMinimumGeneric(sortedLowerDomains, count, leaderCount, sliceSize, unconstrained, true)
+	}
 
-		for levelIdx := fitLevelIdx; levelIdx+1 < len(s.domainsPerLevel); levelIdx++ {
-			if levelIdx < sliceLevelIdx {
-				// If we are "above" the requested slice topology level, we're greedily assigning pods/slices to
-				// all domains without checking what we've assigned to parent domains.
-				sortedLowerDomains := s.sortedDomains(s.lowerLevelDomains(currFitDomain), unconstrained)
-				currFitDomain = s.updateCountsToMinimumGeneric(sortedLowerDomains, count, leaderCount, sliceSize, unconstrained, true)
-			} else {
-				// If we are "at" or "below" the requested slice topology level, we have to carefully assign pods
-				// to domains based on what we've assigned to parent domains, that's why we're iterating through
-				// each parent domain and assigning `domain.state` amount of pods its child domains.
-				newCurrFitDomain := make([]*domain, 0)
-				for _, domain := range currFitDomain {
-					sortedLowerDomains := s.sortedDomains(domain.children, unconstrained)
-
-					addCurrFitDomain := s.updateCountsToMinimumGeneric(sortedLowerDomains, domain.state, domain.leaderState, 1, unconstrained, false)
-					newCurrFitDomain = append(newCurrFitDomain, addCurrFitDomain...)
-				}
-				currFitDomain = newCurrFitDomain
-			}
+	for ; levelIdx < len(s.domainsPerLevel)-1; levelIdx++ {
+		// If we are "at" or "below" the requested slice topology level or we run the balanced placement algorithm
+		// we have to carefully assign pods to domains based on what we've assigned to parent domains,
+		// that's why we're iterating through each parent domain and assigning `domain.state` amount of pods
+		// to its child domains.
+		sliceSizeOnLevel := sliceSize
+		if levelIdx >= sliceLevelIdx {
+			sliceSizeOnLevel = 1
 		}
+		newCurrFitDomain := make([]*domain, 0)
+		for _, domain := range currFitDomain {
+			sortedLowerDomains := s.sortedDomains(domain.children, unconstrained)
+
+			addCurrFitDomain := s.updateCountsToMinimumGeneric(sortedLowerDomains, domain.state, domain.leaderState, sliceSizeOnLevel, unconstrained, sliceSizeOnLevel > 1)
+			newCurrFitDomain = append(newCurrFitDomain, addCurrFitDomain...)
+		}
+		currFitDomain = newCurrFitDomain
 	}
 
 	assignments := make(map[kueue.PodSetReference]*utiltas.TopologyAssignment)
