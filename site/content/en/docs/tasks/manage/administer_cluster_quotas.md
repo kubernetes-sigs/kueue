@@ -29,7 +29,7 @@ You can perform all these steps at once by
 applying [examples/admin/single-clusterqueue-setup.yaml](/examples/admin/single-clusterqueue-setup.yaml):
 
 ```shell
-kubectl apply -f examples/admin/single-clusterqueue-setup.yaml
+kubectl apply -f https://kueue.sigs.k8s.io/examples/admin/single-clusterqueue-setup.yaml
 ```
 
 ### 1. Create a [ClusterQueue](/docs/concepts/cluster_queue)
