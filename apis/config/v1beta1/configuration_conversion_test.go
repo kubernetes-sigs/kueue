@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/apis/config/v1beta2"
 )
@@ -57,6 +58,28 @@ func TestConfigurationQueueConvertTo(t *testing.T) {
 				FairSharing: nil,
 			},
 		},
+		"with WaitForPodsReady": {
+			input: &Configuration{
+				WaitForPodsReady: &WaitForPodsReady{
+					Enable: true,
+				},
+			},
+			expected: &v1beta2.Configuration{
+				WaitForPodsReady: &v1beta2.WaitForPodsReady{
+					BlockAdmission: ptr.To(true),
+				},
+			},
+		},
+		"with WaitForPodsReady disabled": {
+			input: &Configuration{
+				WaitForPodsReady: &WaitForPodsReady{
+					Enable: false,
+				},
+			},
+			expected: &v1beta2.Configuration{
+				WaitForPodsReady: nil,
+			},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -91,6 +114,17 @@ func TestConfigurationQueueConvertFrom(t *testing.T) {
 				FairSharing: &FairSharing{
 					Enable:               true,
 					PreemptionStrategies: []PreemptionStrategy{LessThanOrEqualToFinalShare, LessThanInitialShare},
+				},
+			},
+		},
+		"with WaitForPodsReady": {
+			input: &v1beta2.Configuration{
+				WaitForPodsReady: &v1beta2.WaitForPodsReady{},
+			},
+			expected: &Configuration{
+				WaitForPodsReady: &WaitForPodsReady{
+					Enable:         true,
+					BlockAdmission: ptr.To(false),
 				},
 			},
 		},

@@ -182,6 +182,22 @@ spec:
                   flavorFungibility defines whether a workload should try the next flavor
                   before borrowing or preempting in the flavor being evaluated.
                 properties:
+                  preference:
+                    description: |-
+                      preference guides the choosing of the flavor for admission in case all candidate flavors
+                      require either preemption, borrowing, or both. The possible values are:
+                      - `BorrowingOverPreemption` (default): prefer to use borrowing rather than preemption
+                      when such a choice is possible. More technically it minimizes the borrowing distance
+                      in the cohort tree, and solves tie-breaks by preferring better preemption mode
+                      (reclaim over preemption within ClusterQueue).
+                      - `PreemptionOverBorrowing`: prefer to use preemption rather than borrowing
+                      when such a choice is possible.  More technically it optimizes the preemption mode
+                      (reclaim over preemption within ClusterQueue), and solves tie-breaks by minimizing
+                      the borrowing distance in the cohort tree.
+                    enum:
+                    - BorrowingOverPreemption
+                    - PreemptionOverBorrowing
+                    type: string
                   whenCanBorrow:
                     default: MayStopSearch
                     description: |-
@@ -214,6 +230,11 @@ spec:
                     - Preempt
                     type: string
                 type: object
+                x-kubernetes-validations:
+                - message: preference can only be set when both whenCanBorrow and
+                    whenCanPreempt are TryNextFlavor
+                  rule: '!has(self.preference) || (self.whenCanBorrow == ''TryNextFlavor''
+                    && self.whenCanPreempt == ''TryNextFlavor'')'
               namespaceSelector:
                 description: |-
                   namespaceSelector defines which namespaces are allowed to submit workloads to
@@ -967,6 +988,22 @@ spec:
                   flavorFungibility defines whether a workload should try the next flavor
                   before borrowing or preempting in the flavor being evaluated.
                 properties:
+                  preference:
+                    description: |-
+                      preference guides the choosing of the flavor for admission in case all candidate flavors
+                      require either preemption, borrowing, or both. The possible values are:
+                      - `BorrowingOverPreemption` (default): prefer to use borrowing rather than preemption
+                      when such a choice is possible. More technically it minimizes the borrowing distance
+                      in the cohort tree, and solves tie-breaks by preferring better preemption mode
+                      (reclaim over preemption within ClusterQueue).
+                      - `PreemptionOverBorrowing`: prefer to use preemption rather than borrowing
+                      when such a choice is possible.  More technically it optimizes the preemption mode
+                      (reclaim over preemption within ClusterQueue), and solves tie-breaks by minimizing
+                      the borrowing distance in the cohort tree.
+                    enum:
+                    - BorrowingOverPreemption
+                    - PreemptionOverBorrowing
+                    type: string
                   whenCanBorrow:
                     default: MayStopSearch
                     description: |-
@@ -995,6 +1032,11 @@ spec:
                     - TryNextFlavor
                     type: string
                 type: object
+                x-kubernetes-validations:
+                - message: preference can only be set when both whenCanBorrow and
+                    whenCanPreempt are TryNextFlavor
+                  rule: '!has(self.preference) || (self.whenCanBorrow == ''TryNextFlavor''
+                    && self.whenCanPreempt == ''TryNextFlavor'')'
               namespaceSelector:
                 description: |-
                   namespaceSelector defines which namespaces are allowed to submit workloads to

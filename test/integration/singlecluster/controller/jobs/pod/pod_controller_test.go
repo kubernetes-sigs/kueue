@@ -18,6 +18,7 @@ package pod
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 
 	"github.com/google/go-cmp/cmp"
@@ -39,6 +40,7 @@ import (
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -1973,7 +1975,6 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 
 	ginkgo.BeforeAll(func() {
 		waitForPodsReady := &configapi.WaitForPodsReady{
-			Enable:  true,
 			Timeout: &metav1.Duration{Duration: util.TinyTimeout},
 			RequeuingStrategy: &configapi.RequeuingStrategy{
 				Timestamp:          ptr.To(configapi.EvictionTimestamp),
@@ -2288,10 +2289,10 @@ var _ = ginkgo.Describe("Pod controller with TopologyAwareScheduling", ginkgo.Or
 				g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
 				g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
 				g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
-					&kueue.TopologyAssignment{
+					tas.V1Beta2From(&tas.TopologyAssignment{
 						Levels:  []string{tasBlockLabel},
-						Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"b1"}}},
-					},
+						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"b1"}}},
+					}),
 				))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -2339,10 +2340,10 @@ var _ = ginkgo.Describe("Pod controller with TopologyAwareScheduling", ginkgo.Or
 				g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
 				g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
 				g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
-					&kueue.TopologyAssignment{
+					tas.V1Beta2From(&tas.TopologyAssignment{
 						Levels:  []string{tasBlockLabel},
-						Domains: []kueue.TopologyDomainAssignment{{Count: 2, Values: []string{"b1"}}},
-					},
+						Domains: []tas.TopologyDomainAssignment{{Count: 2, Values: []string{"b1"}}},
+					}),
 				))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -2486,8 +2487,9 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 		ginkgo.By("verify the workload is admitted", func() {
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 			gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-			gomega.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment.Domains).To(gomega.HaveLen(1))
-			nodeName = wl.Status.Admission.PodSetAssignments[0].TopologyAssignment.Domains[0].Values[0]
+			nodeNames := slices.Collect(tas.LowestLevelValues(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment))
+			gomega.Expect(nodeNames).To(gomega.HaveLen(1))
+			nodeName = nodeNames[0]
 			gomega.Expect(nodeName).To(gomega.Or(gomega.Equal("x1"), gomega.Equal("x3")))
 		})
 
@@ -2531,8 +2533,9 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 		ginkgo.By("verify the workload is assigned a new node", func() {
 			gomega.Eventually(func(g gomega.Gomega) string {
 				gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-				gomega.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment.Domains).To(gomega.HaveLen(1))
-				return wl.Status.Admission.PodSetAssignments[0].TopologyAssignment.Domains[0].Values[0]
+				nodeNames := slices.Collect(tas.LowestLevelValues(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment))
+				gomega.Expect(nodeNames).To(gomega.HaveLen(1))
+				return nodeNames[0]
 			}, util.Timeout, util.Interval).ShouldNot(gomega.Equal(nodeName))
 		})
 	})
@@ -2568,8 +2571,9 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 		ginkgo.By("verify the workload is admitted", func() {
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 			gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-			gomega.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment.Domains).To(gomega.HaveLen(1))
-			nodeName = wl.Status.Admission.PodSetAssignments[0].TopologyAssignment.Domains[0].Values[0]
+			nodeNames := slices.Collect(tas.LowestLevelValues(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment))
+			gomega.Expect(nodeNames).To(gomega.HaveLen(1))
+			nodeName = nodeNames[0]
 			gomega.Expect(nodeName).To(gomega.Or(gomega.Equal("x1"), gomega.Equal("x3")))
 		})
 
@@ -2613,8 +2617,9 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 		ginkgo.By("verify the workload is assigned a new node", func() {
 			gomega.Eventually(func(g gomega.Gomega) string {
 				gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-				gomega.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment.Domains).To(gomega.HaveLen(1))
-				return wl.Status.Admission.PodSetAssignments[0].TopologyAssignment.Domains[0].Values[0]
+				nodeNames := slices.Collect(tas.LowestLevelValues(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment))
+				gomega.Expect(nodeNames).To(gomega.HaveLen(1))
+				return nodeNames[0]
 			}, util.Timeout, util.Interval).ShouldNot(gomega.Equal(nodeName))
 		})
 	})

@@ -215,10 +215,6 @@ type ControllerConfigurationSpec struct {
 // WaitForPodsReady defines configuration for the Wait For Pods Ready feature,
 // which is used to ensure that all Pods are ready within the specified time.
 type WaitForPodsReady struct {
-	// Enable indicates whether to enable wait for pods ready feature.
-	// Defaults to false.
-	Enable bool `json:"enable,omitempty"`
-
 	// Timeout defines the time for an admitted workload to reach the
 	// PodsReady=true condition. When the timeout is exceeded, the workload
 	// evicted and requeued in the same cluster queue.
@@ -226,9 +222,10 @@ type WaitForPodsReady struct {
 	// +optional
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
 
-	// BlockAdmission when true, cluster queue will block admissions for all
+	// BlockAdmission when true, the cluster queue will block admissions for all
 	// subsequent jobs until the jobs reach the PodsReady=true condition.
-	// This setting is only honored when `Enable` is set to true.
+	// Defaults to false.
+	// +optional
 	BlockAdmission *bool `json:"blockAdmission,omitempty"`
 
 	// RequeuingStrategy defines the strategy for requeuing a Workload.
@@ -240,8 +237,7 @@ type WaitForPodsReady struct {
 	// Such a transition may happen when a Pod failed and the replacement Pod
 	// is awaited to be scheduled.
 	// After exceeding the timeout the corresponding job gets suspended again
-	// and requeued after the backoff delay. The timeout is enforced only if waitForPodsReady.enable=true.
-	// If not set, there is no timeout.
+	// and requeued after the backoff delay.
 	// +optional
 	RecoveryTimeout *metav1.Duration `json:"recoveryTimeout,omitempty"`
 }

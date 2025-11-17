@@ -33,7 +33,6 @@ import (
 	apimachineryutilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -41,6 +40,7 @@ import (
 	podworkload "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/features"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
+	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 )
 
 var (
@@ -59,7 +59,6 @@ var (
 	dynamicResourceAllocationPath        = field.NewPath("resources", "deviceClassMappings")
 	objectRetentionPoliciesPath          = field.NewPath("objectRetentionPolicies")
 	objectRetentionPoliciesWorkloadsPath = objectRetentionPoliciesPath.Child("workloads")
-	log                                  = ctrl.Log.WithName("config")
 )
 
 func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorList {
@@ -153,10 +152,7 @@ func validateMultiKueue(c *configapi.Configuration) field.ErrorList {
 
 func validateWaitForPodsReady(c *configapi.Configuration) field.ErrorList {
 	var allErrs field.ErrorList
-	if !WaitForPodsReadyIsEnabled(c) {
-		if c.WaitForPodsReady != nil && (c.WaitForPodsReady.Timeout != nil || c.WaitForPodsReady.BlockAdmission != nil || c.WaitForPodsReady.RequeuingStrategy != nil || c.WaitForPodsReady.RecoveryTimeout != nil) {
-			log.Info("enable is set to false in waitForPodsReady, ignoring the rest of its configuration")
-		}
+	if !waitforpodsready.Enabled(c.WaitForPodsReady) {
 		return allErrs
 	}
 	if c.WaitForPodsReady.Timeout != nil && c.WaitForPodsReady.Timeout.Duration < 0 {

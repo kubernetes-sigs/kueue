@@ -517,22 +517,20 @@ ResourceFlavors, Kueue selects a one that fits the workload using borrowing
 (without preemptions). If there is no such ResourceFlavor, Kueue selects a Flavor
 that uses preemption and is preferably not borrowing.
 
-By default Kueue avoids preemptions and prefers borrowing when assigning Flavors.
-Borrowing is not disruptive to other workloads but a
-workload that borrows risks being prempted (since it is using nominal quota
-from some other Cluster Queue). If you prefer to preempt rather than borrow when possible,
-you can enable the feature gate `FlavorFungibilityImplicitPreferenceDefault`, which
-changes the default preference as follows: If `.spec.flavorFungibility.whenCanBorrow` is `TryNextFlavor`,
-it assumes that preemption is preferred over borrowing and otherwise it assumes
-that borrowing is preferred over preemption.
+When both policies are set to `TryNextFlavor`, you can steer how those feasible
+assignments are compared by setting `.spec.flavorFungibility.preference`:
+
+- `BorrowingOverPreemption` (default) keeps the historic behavior:
+  (`Fit`, `NoBorrow`) → (`Fit`, `Borrow`) → (`Preempt`, `NoBorrow`) → (`Preempt`, `Borrow`).
+- `PreemptionOverBorrowing` reverses the tie-breaker to prefer reclaiming quota over borrowing:
+  (`Fit`, `NoBorrow`) → (`Preempt`, `NoBorrow`) → (`Fit`, `Borrow`) → (`Preempt`, `Borrow`).
 
 {{% alert title="Note" color="primary" %}}
-`FlavorFungibilityImplicitPreferenceDefault` is currently an alpha feature,
-introduced to Kueue in version 0.13 and it is not enabled by default.
+The feature gate `FlavorFungibilityImplicitPreferenceDefault` is scheduled for removal in v0.15.
 
-To enable the feature, you have to set the `FlavorFungibilityImplicitPreferenceDefault`
-feature gate to `true`. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration)
-guide for details on feature gate configuration.
+Do not rely on this feature gate;
+instead configure flavor selection preference using the ClusterQueue field `spec.flavorFungibility.preference`
+(see [FlavorFungibility](/docs/concepts/cluster_queue/#flavorfungibility) for details).
 {{% /alert %}}
 
 

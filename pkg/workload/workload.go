@@ -51,6 +51,7 @@ import (
 	utilptr "sigs.k8s.io/kueue/pkg/util/ptr"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
+	"sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/util/wait"
 )
 
@@ -532,11 +533,11 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 			setRes.TopologyRequest = &TopologyRequest{
 				Levels: psa.TopologyAssignment.Levels,
 			}
-			for _, domain := range psa.TopologyAssignment.Domains {
+			for req := range tas.InternalSeqFrom(psa.TopologyAssignment) {
 				setRes.TopologyRequest.DomainRequests = append(setRes.TopologyRequest.DomainRequests, TopologyDomainRequests{
-					Values:            domain.Values,
+					Values:            req.Values,
 					SinglePodRequests: setRes.SinglePodRequests(),
-					Count:             domain.Count,
+					Count:             req.Count,
 				})
 			}
 		}
@@ -623,8 +624,31 @@ func UpdateRequeueState(wl *kueue.Workload, backoffBaseSeconds int32, backoffMax
 	backoff := wait.NewBackoff(time.Duration(backoffBaseSeconds)*time.Second, time.Duration(backoffMaxSeconds)*time.Second, 2, 0.0001)
 	waitDuration := backoff.WaitTime(int(requeuingCount))
 
-	wl.Status.RequeueState.RequeueAt = ptr.To(metav1.NewTime(clock.Now().Add(waitDuration)))
-	wl.Status.RequeueState.Count = &requeuingCount
+	_ = SetRequeueState(wl, metav1.NewTime(clock.Now().Add(waitDuration)), true)
+}
+
+// SetRequeueState sets the status.requeueState field with the given timeout
+// if it's greater than the existing value.
+// It will return true if the workload was mutated.
+func SetRequeueState(wl *kueue.Workload, waitUntil metav1.Time, incrementCount bool) bool {
+	if wl.Status.RequeueState == nil {
+		wl.Status.RequeueState = &kueue.RequeueState{}
+	}
+
+	// The requeue state is shared between multiple components,
+	// so we have to ensure that we don't overwrite a future requeue.
+	var updated bool
+	currentRequeueAt := ptr.Deref(wl.Status.RequeueState.RequeueAt, metav1.NewTime(time.Time{}))
+	if currentRequeueAt.Before(&waitUntil) && !currentRequeueAt.Equal(&waitUntil) {
+		wl.Status.RequeueState.RequeueAt = &waitUntil
+		updated = true
+	}
+	if incrementCount {
+		requeuingCount := ptr.Deref(wl.Status.RequeueState.Count, 0) + 1
+		wl.Status.RequeueState.Count = &requeuingCount
+		updated = true
+	}
+	return updated
 }
 
 // SetRequeuedCondition sets the WorkloadRequeued condition to true
@@ -862,7 +886,10 @@ func PropagateResourceRequests(w *kueue.Workload, info *Info) bool {
 // If strict is true, resourceVersion will be part of the patch.
 func admissionStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload) {
 	wlCopy.Status.Admission = w.Status.Admission.DeepCopy()
-	wlCopy.Status.RequeueState = w.Status.RequeueState.DeepCopy()
+	// Only include RequeueState in the patch if it has meaningful content.
+	if w.Status.RequeueState != nil && (w.Status.RequeueState.Count != nil || w.Status.RequeueState.RequeueAt != nil) {
+		wlCopy.Status.RequeueState = w.Status.RequeueState.DeepCopy()
+	}
 	if wlCopy.Status.Admission != nil {
 		// Clear ResourceRequests; Assignment.PodSetAssignment[].ResourceUsage supercedes it
 		wlCopy.Status.ResourceRequests = []kueue.PodSetRequest{}
@@ -1182,8 +1209,8 @@ func HasTopologyAssignmentWithUnhealthyNode(w *kueue.Workload) bool {
 		if psa.TopologyAssignment == nil {
 			continue
 		}
-		for _, domain := range psa.TopologyAssignment.Domains {
-			if HasUnhealthyNode(w, domain.Values[len(domain.Values)-1]) {
+		for value := range tas.LowestLevelValues(psa.TopologyAssignment) {
+			if HasUnhealthyNode(w, value) {
 				return true
 			}
 		}
@@ -1442,4 +1469,25 @@ func ReasonWithCause(reason, underlyingCause string) string {
 // it returns an empty string.
 func ClusterName(wl *kueue.Workload) string {
 	return ptr.Deref(wl.Status.ClusterName, "")
+}
+
+// ResetRequeue resets the requeue state of the workload as well as all admission checks
+// It returns true if the workload was modified.
+func ResetRequeue(wl *kueue.Workload) bool {
+	var updated bool
+
+	if wl.Status.RequeueState != nil {
+		wl.Status.RequeueState = nil
+		updated = true
+	}
+	for i := range wl.Status.AdmissionChecks {
+		if wl.Status.AdmissionChecks[i].RequeueAfterSeconds == nil || wl.Status.AdmissionChecks[i].RetryCount == nil {
+			continue
+		}
+		wl.Status.AdmissionChecks[i].RequeueAfterSeconds = nil
+		wl.Status.AdmissionChecks[i].RetryCount = nil
+		updated = true
+	}
+
+	return updated
 }

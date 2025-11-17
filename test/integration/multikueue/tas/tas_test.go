@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -237,6 +238,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 			worker1Lq = utiltestingapi.MakeLocalQueue("local-queue", worker1Ns.Name).ClusterQueue(worker1Cq.Name).Obj()
 			gomega.Expect(worker1TestCluster.client.Create(worker1TestCluster.ctx, worker1Lq)).Should(gomega.Succeed())
+			util.ExpectLocalQueuesToBeActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1Lq)
 
 			worker2Cq = utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
@@ -248,6 +250,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 			worker2Lq = utiltestingapi.MakeLocalQueue("local-queue", worker2Ns.Name).ClusterQueue(worker2Cq.Name).Obj()
 			gomega.Expect(worker2TestCluster.client.Create(worker2TestCluster.ctx, worker2Lq)).Should(gomega.Succeed())
+			util.ExpectLocalQueuesToBeActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2Lq)
 
 			worker1Nodes = []corev1.Node{
 				*testingnode.MakeNode("single-node").
@@ -350,10 +353,10 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
 					g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
 					g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
-						&kueue.TopologyAssignment{
+						tas.V1Beta2From(&tas.TopologyAssignment{
 							Levels:  []string{corev1.LabelHostname},
-							Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"host-1"}}},
-						},
+							Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"host-1"}}},
+						}),
 					))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -443,6 +446,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 			worker1Lq = utiltestingapi.MakeLocalQueue("local-queue", worker1Ns.Name).ClusterQueue(worker1Cq.Name).Obj()
 			gomega.Expect(worker1TestCluster.client.Create(worker1TestCluster.ctx, worker1Lq)).Should(gomega.Succeed())
+			util.ExpectLocalQueuesToBeActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1Lq)
 
 			worker2Cq = utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
@@ -455,6 +459,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 			worker2Lq = utiltestingapi.MakeLocalQueue("local-queue", worker2Ns.Name).ClusterQueue(worker2Cq.Name).Obj()
 			gomega.Expect(worker2TestCluster.client.Create(worker2TestCluster.ctx, worker2Lq)).Should(gomega.Succeed())
+			util.ExpectLocalQueuesToBeActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2Lq)
 		})
 
 		ginkgo.AfterEach(func() {
@@ -575,11 +580,11 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
 					g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
 					g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
-						&kueue.TopologyAssignment{
+						tas.V1Beta2From(&tas.TopologyAssignment{
 							Levels: []string{
 								corev1.LabelHostname,
 							},
-							Domains: []kueue.TopologyDomainAssignment{
+							Domains: []tas.TopologyDomainAssignment{
 								{
 									Count: 1,
 									Values: []string{
@@ -587,7 +592,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 									},
 								},
 							},
-						},
+						}),
 					))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})

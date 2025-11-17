@@ -41,6 +41,7 @@ import (
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
+	"sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -239,7 +240,7 @@ type PodSetAssignment struct {
 	Requests corev1.ResourceList
 	Count    int32
 
-	TopologyAssignment     *kueue.TopologyAssignment
+	TopologyAssignment     *tas.TopologyAssignment
 	DelayedTopologyRequest *kueue.DelayedTopologyRequestState
 }
 
@@ -287,7 +288,7 @@ func (psa *PodSetAssignment) toAPI() kueue.PodSetAssignment {
 		Flavors:                flavors,
 		ResourceUsage:          psa.Requests,
 		Count:                  ptr.To(psa.Count),
-		TopologyAssignment:     psa.TopologyAssignment.DeepCopy(),
+		TopologyAssignment:     tas.V1Beta2From(psa.TopologyAssignment),
 		DelayedTopologyRequest: psa.DelayedTopologyRequest,
 	}
 }
@@ -379,25 +380,39 @@ func isPreferred(a, b granularMode, fungibilityConfig kueue.FlavorFungibility) b
 		return true
 	}
 
-	if !features.Enabled(features.FlavorFungibilityImplicitPreferenceDefault) {
-		if a.preemptionMode != b.preemptionMode {
-			return a.preemptionMode > b.preemptionMode
-		} else {
-			return a.borrowingLevel.betterThan(b.borrowingLevel)
-		}
-	}
-
-	if fungibilityConfig.WhenCanBorrow == kueue.TryNextFlavor {
-		if a.borrowingLevel != b.borrowingLevel {
-			return a.borrowingLevel.betterThan(b.borrowingLevel)
-		}
-		return a.preemptionMode > b.preemptionMode
-	} else {
+	borrowingOverPreemption := func() bool {
 		if a.preemptionMode != b.preemptionMode {
 			return a.preemptionMode > b.preemptionMode
 		}
 		return a.borrowingLevel.betterThan(b.borrowingLevel)
 	}
+	preemptionOverBorrowing := func() bool {
+		if a.borrowingLevel != b.borrowingLevel {
+			return a.borrowingLevel.betterThan(b.borrowingLevel)
+		}
+		return a.preemptionMode > b.preemptionMode
+	}
+
+	if fungibilityConfig.Preference != nil {
+		switch *fungibilityConfig.Preference {
+		case kueue.BorrowingOverPreemption:
+			return preemptionOverBorrowing()
+		case kueue.PreemptionOverBorrowing:
+			return borrowingOverPreemption()
+		}
+	}
+
+	// BorrowingOverPreemption preference
+	if !features.Enabled(features.FlavorFungibilityImplicitPreferenceDefault) {
+		return borrowingOverPreemption()
+	}
+
+	// PreemptionOverBorrowing preference
+	if fungibilityConfig.WhenCanBorrow == kueue.TryNextFlavor {
+		return preemptionOverBorrowing()
+	}
+	// BorrowingOverPreemption preference
+	return borrowingOverPreemption()
 }
 
 func fromPreemptionPossibility(preemptionPossibility preemptioncommon.PreemptionPossibility) preemptionMode {
@@ -551,7 +566,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 				psAssignment.DelayedTopologyRequest = ptr.To(*podSet.DelayedTopologyRequest)
 			}
 			if podSet.TopologyRequest != nil {
-				psAssignment.TopologyAssignment = a.wl.Obj.Status.Admission.PodSetAssignments[i].TopologyAssignment
+				psAssignment.TopologyAssignment = tas.InternalFrom(a.wl.Obj.Status.Admission.PodSetAssignments[i].TopologyAssignment)
 			}
 		}
 

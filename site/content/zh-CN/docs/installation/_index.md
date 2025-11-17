@@ -155,7 +155,6 @@ data:
       webhookServiceName: kueue-webhook-service
       webhookSecretName: kueue-webhook-server-cert
     waitForPodsReady:
-      enable: true
       timeout: 10m
     integrations:
       frameworks:
@@ -294,7 +293,7 @@ spec:
 | `TASReplaceNodeOnPodTermination`              | `true`  | Beta  | 0.14 |      |
 | `ElasticJobsViaWorkloadSlices`                | `false` | Alpha | 0.13 |      |
 | `ManagedJobsNamespaceSelectorAlwaysRespected` | `false` | Alpha | 0.13 |      |
-| `FlavorFungibilityImplicitPreferenceDefault`  | `false` | Alpha | 0.13 |      |
+| `FlavorFungibilityImplicitPreferenceDefault`  | `false` | Alpha | 0.13 | 0.16 |
 | `WorkloadRequestUseMergePatch`                | `false` | Alpha | 0.14 |      |
 | `SanitizePodSets`                             | `true`  | Beta  | 0.13 |      |
 | `MultiKueueAllowInsecureKubeconfigs`          | `false` | Alpha | 0.13 |      |

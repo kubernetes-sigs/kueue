@@ -68,7 +68,6 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 	ginkgo.JustBeforeEach(func() {
 		configuration := &config.Configuration{
 			WaitForPodsReady: &config.WaitForPodsReady{
-				Enable:         true,
 				BlockAdmission: ptr.To(true),
 				Timeout:        &metav1.Duration{Duration: podsReadyTimeout},
 				RequeuingStrategy: &config.RequeuingStrategy{
@@ -603,7 +602,6 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 	ginkgo.JustBeforeEach(func() {
 		configuration := &config.Configuration{
 			WaitForPodsReady: &config.WaitForPodsReady{
-				Enable:         true,
 				BlockAdmission: ptr.To(false),
 				Timeout:        &metav1.Duration{Duration: podsReadyTimeout},
 				RequeuingStrategy: &config.RequeuingStrategy{
@@ -780,15 +778,29 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, standaloneClusterQ.Name, wl1)
 				// To avoid flakiness, we don't verify if the workload has a QuotaReserved=false with pending reason here.
 			})
-			ginkgo.By("verifying if all workloads have a proper re-queue count", func() {
+			ginkgo.By("verifying requeue state after first eviction and re-admission", func() {
+				// After the first eviction and re-admission (backoff completed), wl1 should have:
+				// - Count=1 (from the first eviction)
+				// - RequeueAt=nil (cleared after re-admission in nonblocking mode)
+				util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(wl1), &kueue.RequeueState{
+					Count: ptr.To[int32](1),
+				}, false)
+			})
+			ginkgo.By("waiting for the first workload to be evicted again (second eviction)", func() {
+				util.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(wl1), podsReadyTimeout)
+				util.FinishEvictionForWorkloads(ctx, k8sClient, wl1)
+			})
+			ginkgo.By("verifying if all workloads have a proper re-queue count after second eviction", func() {
 				// Here, we focus on verifying if the requeuingTimestamp works well.
-				// So, we don't check if the .status.requeueState.requeueAt is reset.
+				// We verify that .status.requeueState.requeueAt is nil (hasRequeueAt=false)
+				// because in nonblocking mode, after each backoff completes and re-admission happens,
+				// the controller clears RequeueAt to nil while preserving Count.
 				util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(wl1), &kueue.RequeueState{
 					Count: ptr.To[int32](2),
-				}, true)
+				}, false)
 				util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(wl2), &kueue.RequeueState{
 					Count: ptr.To[int32](1),
-				}, true)
+				}, false)
 				ginkgo.By("wl3 had never been admitted", func() {
 					util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(wl3), nil, false)
 				})

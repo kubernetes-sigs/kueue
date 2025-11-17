@@ -23,11 +23,13 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -920,8 +922,11 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking the AdmissionCheck is set to Retry, and the workload has requeueState set", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+					check := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
+					g.Expect(check.RequeueAfterSeconds).ToNot(gomega.BeNil())
+					g.Expect(check.RetryCount).ToNot(gomega.BeNil())
+					g.Expect(*check.RetryCount).To(gomega.Equal(int32(1)))
 					g.Expect(updatedWl.Status.RequeueState).NotTo(gomega.BeNil())
-					g.Expect(*updatedWl.Status.RequeueState.Count).To(gomega.Equal(int32(1)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -1018,7 +1023,10 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 					g.Expect(updatedWl.Status.RequeueState).NotTo(gomega.BeNil())
-					g.Expect(*updatedWl.Status.RequeueState.Count).To(gomega.Equal(int32(1)))
+					check := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
+					g.Expect(check.RequeueAfterSeconds).ToNot(gomega.BeNil())
+					g.Expect(check.RetryCount).ToNot(gomega.BeNil())
+					g.Expect(*check.RetryCount).To(gomega.Equal(int32(1)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -1086,11 +1094,12 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 
 					g.Expect(updatedWl.Status.AdmissionChecks).To(gomega.ContainElement(gomega.BeComparableTo(
 						kueue.AdmissionCheckState{
-							Name:    kueue.AdmissionCheckReference(ac.Name),
-							State:   kueue.CheckStatePending,
-							Message: "Reset to Pending after eviction. Previously: Rejected",
+							Name:       kueue.AdmissionCheckReference(ac.Name),
+							State:      kueue.CheckStatePending,
+							Message:    "Reset to Pending after eviction. Previously: Rejected",
+							RetryCount: ptr.To(int32(1)),
 						},
-						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
+						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates", "RequeueAfterSeconds"))))
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
 
 					ok, err := utiltesting.HasEventAppeared(ctx, k8sClient, corev1.Event{
@@ -1136,7 +1145,10 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 					g.Expect(updatedWl.Status.RequeueState).NotTo(gomega.BeNil())
-					g.Expect(*updatedWl.Status.RequeueState.Count).To(gomega.Equal(int32(1)))
+					check := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
+					g.Expect(check.RequeueAfterSeconds).ToNot(gomega.BeNil())
+					g.Expect(check.RetryCount).ToNot(gomega.BeNil())
+					g.Expect(*check.RetryCount).To(gomega.Equal(int32(1)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -1302,7 +1314,10 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 					g.Expect(updatedWl.Status.RequeueState).NotTo(gomega.BeNil())
-					g.Expect(*updatedWl.Status.RequeueState.Count).To(gomega.Equal(int32(1)))
+					check := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
+					g.Expect(check.RequeueAfterSeconds).ToNot(gomega.BeNil())
+					g.Expect(check.RetryCount).ToNot(gomega.BeNil())
+					g.Expect(*check.RetryCount).To(gomega.Equal(int32(1)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -1348,7 +1363,10 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 					g.Expect(updatedWl.Status.RequeueState).NotTo(gomega.BeNil())
-					g.Expect(*updatedWl.Status.RequeueState.Count).To(gomega.Equal(int32(2)))
+					check := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
+					g.Expect(check.RequeueAfterSeconds).ToNot(gomega.BeNil())
+					g.Expect(check.RetryCount).ToNot(gomega.BeNil())
+					g.Expect(*check.RetryCount).To(gomega.Equal(int32(2)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -1620,10 +1638,12 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 				util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
 			})
 
+			jobName := "job1"
 			ginkgo.By("submit the Job", func() {
-				jobBuilder := testingjob.MakeJob("job1", ns.Name).
+				jobBuilder := testingjob.MakeJob(jobName, ns.Name).
 					Queue(kueue.LocalQueueName(lq.Name)).
-					Request(corev1.ResourceCPU, "500m")
+					Request(corev1.ResourceCPU, "500m").
+					PodLabel(batchv1.JobNameLabel, jobName)
 				job1 := jobBuilder.Obj()
 				util.MustCreate(ctx, k8sClient, job1)
 				ginkgo.DeferCleanup(func() {
@@ -1636,6 +1656,11 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verify workload podTemplate has job-name label set correctly", func() {
+				gomega.Expect(wlObj.Spec.PodSets[0].Template.GetLabels()).To(gomega.BeComparableTo(map[string]string{
+					batchv1.JobNameLabel: jobName}))
 			})
 
 			ginkgo.By("await for wl1 to have QuotaReserved on flavor-1", func() {

@@ -18,6 +18,7 @@ package v1beta1
 
 import (
 	conversionapi "k8s.io/apimachinery/pkg/conversion"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/conversion"
 
 	"sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -43,6 +44,9 @@ func Convert_v1beta1_Configuration_To_v1beta2_Configuration(in *Configuration, o
 	if in.FairSharing == nil || !in.FairSharing.Enable {
 		out.FairSharing = nil
 	}
+	if in.WaitForPodsReady == nil || !in.WaitForPodsReady.Enable {
+		out.WaitForPodsReady = nil
+	}
 	return nil
 }
 
@@ -58,4 +62,25 @@ func Convert_v1beta1_FairSharing_To_v1beta2_FairSharing(in *FairSharing, out *v1
 func Convert_v1beta2_FairSharing_To_v1beta1_FairSharing(in *v1beta2.FairSharing, out *FairSharing, s conversionapi.Scope) error {
 	out.Enable = true
 	return autoConvert_v1beta2_FairSharing_To_v1beta1_FairSharing(in, out, s)
+}
+
+func Convert_v1beta1_WaitForPodsReady_To_v1beta2_WaitForPodsReady(in *WaitForPodsReady, out *v1beta2.WaitForPodsReady, s conversionapi.Scope) error {
+	if err := autoConvert_v1beta1_WaitForPodsReady_To_v1beta2_WaitForPodsReady(in, out, s); err != nil {
+		return err
+	}
+	if in.BlockAdmission == nil {
+		out.BlockAdmission = ptr.To(true)
+	}
+	return nil
+}
+
+func Convert_v1beta2_WaitForPodsReady_To_v1beta1_WaitForPodsReady(in *v1beta2.WaitForPodsReady, out *WaitForPodsReady, s conversionapi.Scope) error {
+	out.Enable = true
+	if err := autoConvert_v1beta2_WaitForPodsReady_To_v1beta1_WaitForPodsReady(in, out, s); err != nil {
+		return err
+	}
+	if in.BlockAdmission == nil {
+		out.BlockAdmission = ptr.To(false)
+	}
+	return nil
 }

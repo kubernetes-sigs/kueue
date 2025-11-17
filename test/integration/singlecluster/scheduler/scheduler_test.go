@@ -2667,16 +2667,16 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq1LowPriority, admission)
 				}
 
-				cq2HighPriority := createWorkloadWithPriority("cq1", "1", 9999)
+				cq1HighPriority := createWorkloadWithPriority("cq1", "1", 9999)
 				{
 					admission := utiltestingapi.MakeAdmission("cq1").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "f1", "1").Obj()).Obj()
-					util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2HighPriority, admission)
+					util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq1HighPriority, admission)
 				}
 
 				cq2MiddlePriority := createWorkloadWithPriority("cq2", "1", 105)
 				{
-					util.ExpectWorkloadsToBePreempted(ctx, k8sClient, cq2HighPriority)
-					util.FinishEvictionForWorkloads(ctx, k8sClient, cq2HighPriority)
+					util.ExpectWorkloadsToBePreempted(ctx, k8sClient, cq1HighPriority)
+					util.FinishEvictionForWorkloads(ctx, k8sClient, cq1HighPriority)
 
 					admission := utiltestingapi.MakeAdmission("cq2").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "f1", "1").Obj()).Obj()
 					util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2MiddlePriority, admission)
@@ -2687,7 +2687,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					util.FinishEvictionForWorkloads(ctx, k8sClient, cq1LowPriority)
 
 					admission := utiltestingapi.MakeAdmission("cq1").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "f2", "1").Obj()).Obj()
-					util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2HighPriority, admission)
+					util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq1HighPriority, admission)
 				}
 			})
 		})
