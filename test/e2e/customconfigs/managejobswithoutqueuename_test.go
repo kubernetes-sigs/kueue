@@ -23,6 +23,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"k8s.io/utils/strings/slices"
@@ -86,6 +87,79 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, clusterQueue, true, util.LongTimeout)
 		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, defaultRf, true, util.LongTimeout)
 		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+	})
+
+	ginkgo.When("manageJobsWithoutQueueName=true and ManagedJobsNamespaceSelectorAlwaysRespected=false", func() {
+		ginkgo.BeforeEach(func() {
+			util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
+				cfg.ManageJobsWithoutQueueName = true
+				cfg.FeatureGates = map[string]bool{string(features.ManagedJobsNamespaceSelectorAlwaysRespected): false}
+				cfg.ManagedJobsNamespaceSelector = &metav1.LabelSelector{
+					MatchExpressions: []metav1.LabelSelectorRequirement{
+						{
+							Key:      "kubernetes.io/metadata.name",
+							Operator: metav1.LabelSelectorOpNotIn,
+							Values:   []string{ns.Name, "kueue-system", "kube-system"},
+						},
+					},
+				}
+			})
+		})
+		ginkgo.AfterEach(func() {
+			util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
+				cfg.ManageJobsWithoutQueueName = true
+			})
+		})
+
+		ginkgo.It("should not suspend Jobs from unmanaged JobSet", func() {
+			var newJobSet *v1alpha2.JobSet
+
+			ginkgo.By("creating a JobSet", func() {
+				newJobSet = testingjobset.MakeJobSet("job-set", ns.Name).
+					Suspend(false).
+					ReplicatedJobs(
+						testingjobset.ReplicatedJobRequirements{
+							Name:        "test-job-1",
+							Replicas:    1,
+							Parallelism: 1,
+							Completions: 1,
+							Image:       "busybox",
+							Args:        []string{"sleep", "2s"},
+						},
+						testingjobset.ReplicatedJobRequirements{
+							Name:        "test-job-2",
+							Replicas:    1,
+							Parallelism: 1,
+							Completions: 1,
+							Image:       "busybox",
+							Args:        []string{"sleep", "2s"},
+						},
+					).Obj()
+				util.MustCreate(ctx, k8sClient, newJobSet)
+			})
+
+			ginkgo.By("verifying that the jobs are not suspended", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					jobs := &batchv1.JobList{}
+					g.Expect(k8sClient.List(ctx, jobs, client.InNamespace(ns.Name))).To(gomega.Succeed())
+					g.Expect(jobs.Items).To(gomega.HaveLen(2))
+					for _, job := range jobs.Items {
+						g.Expect(job.Spec.Suspend).To(gomega.HaveValue(gomega.BeFalse()))
+						for _, job := range jobs.Items {
+							g.Expect(job.Status.Active).To(gomega.Equal(int32(1)))
+						}
+					}
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying that the jobset is completed", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createjobset := &v1alpha2.JobSet{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(newJobSet), createjobset)).To(gomega.Succeed())
+					g.Expect(createjobset.Status.TerminalState).To(gomega.Equal(string(v1alpha2.JobSetCompleted)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
 	})
 
 	ginkgo.When("manageJobsWithoutQueueName=true and LocalQueueDefaulting=false", func() {
