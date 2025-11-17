@@ -558,7 +558,7 @@ func (r *WorkloadReconciler) finalize(ctx context.Context, wl *kueue.Workload, l
 		})
 	}
 
-	r.queues.DeleteWorkload(wl)
+	r.queues.DeleteWorkload(log, wl)
 
 	controllerutil.RemoveFinalizer(wl, kueue.ResourceInUseFinalizerName)
 	controllerutil.RemoveFinalizer(wl, kueue.SafeDeleteFinalizerName)
