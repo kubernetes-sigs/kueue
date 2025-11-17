@@ -163,7 +163,16 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(&wl), "queue", wl.Spec.QueueName, "status", status)
 	log.V(2).Info("Reconcile Workload")
 
-	if !wl.DeletionTimestamp.IsZero() {
+	if wl.DeletionTimestamp.IsZero() {
+		// Add safe-deletion finalizer in case it is missing.
+		if controllerutil.AddFinalizer(&wl, kueue.SafeDeleteFinalizerName) {
+			if err := r.client.Update(ctx, &wl); err != nil {
+				log.Error(err, "Failed to add finalizer")
+				return ctrl.Result{}, err
+			}
+		}
+	} else {
+		// Workload marked for deletion. Attempting to finalize.
 		log = log.WithValues("deletionTimestamp", wl.DeletionTimestamp)
 		log.V(2).Info("Attempting to finalize workload.")
 

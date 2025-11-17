@@ -2341,7 +2341,6 @@ func TestReconcile(t *testing.T) {
 		"shouldn't try to delete the workload because the retention period hasn't elapsed yet, object retention configured": {
 			enableObjectRetentionPolicies: true,
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
-				Finalizers().
 				Condition(metav1.Condition{
 					Type:               kueue.WorkloadFinished,
 					Status:             metav1.ConditionTrue,
@@ -2359,7 +2358,6 @@ func TestReconcile(t *testing.T) {
 				RequeueAfter: util.LongTimeout - util.Timeout,
 			},
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				Finalizers().
 				Condition(metav1.Condition{
 					Type:               kueue.WorkloadFinished,
 					Status:             metav1.ConditionTrue,
@@ -2645,6 +2643,7 @@ func TestReconcile(t *testing.T) {
 					Status:             metav1.ConditionTrue,
 					LastTransitionTime: metav1.NewTime(testStartTime.Add(-2 * util.LongTimeout)),
 				}).
+				Delete().
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Queue("lq").
@@ -2654,6 +2653,33 @@ func TestReconcile(t *testing.T) {
 					Type:               kueue.WorkloadFinished,
 					Status:             metav1.ConditionTrue,
 					LastTransitionTime: metav1.NewTime(testStartTime.Add(-2 * util.LongTimeout)),
+				}).
+				Delete().
+				Obj(),
+			wantError:          nil,
+			wantWorkloadCached: true,
+		},
+		"should add missing safe-deletion finalizer": {
+			cq: utiltestingapi.MakeClusterQueue("cq").Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadFinished,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testStartTime.Add(2 * util.LongTimeout)),
+				}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Finalizers(kueue.ResourceInUseFinalizerName, kueue.SafeDeleteFinalizerName).
+				ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadFinished,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testStartTime.Add(2 * util.LongTimeout)),
 				}).
 				Obj(),
 			wantError:          nil,
