@@ -23,9 +23,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/clock"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/util/wait"
 )
 
 // SyncAdmittedCondition sync the state of the Admitted condition based on the
@@ -90,11 +92,18 @@ func resetChecksOnEviction(w *kueue.Workload, now time.Time) {
 		if checks[i].State == kueue.CheckStatePending {
 			continue
 		}
+		var retryCount *int32
+		if checks[i].State == kueue.CheckStateRetry {
+			tmpRetryCount := ptr.Deref(checks[i].RetryCount, 0) + 1
+			retryCount = ptr.To(tmpRetryCount)
+		}
 		checks[i] = kueue.AdmissionCheckState{
-			Name:               checks[i].Name,
-			State:              kueue.CheckStatePending,
-			LastTransitionTime: metav1.NewTime(now),
-			Message:            "Reset to Pending after eviction. Previously: " + string(checks[i].State),
+			Name:                checks[i].Name,
+			State:               kueue.CheckStatePending,
+			Message:             "Reset to Pending after eviction. Previously: " + string(checks[i].State),
+			LastTransitionTime:  metav1.NewTime(now),
+			RequeueAfterSeconds: checks[i].RequeueAfterSeconds,
+			RetryCount:          retryCount,
 		}
 	}
 }
@@ -123,6 +132,7 @@ func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.
 	}
 	existingCondition.Message = newCheck.Message
 	existingCondition.PodSetUpdates = newCheck.PodSetUpdates
+	existingCondition.RequeueAfterSeconds = newCheck.RequeueAfterSeconds
 	return true
 }
 
@@ -185,4 +195,67 @@ func HasRejectedChecks(wl *kueue.Workload) bool {
 		}
 	}
 	return false
+}
+
+// GetMaxRetryTime returns the max retry time from all the admission checks.
+// It will return a zero time if no retry time is found.
+func GetMaxRetryTime(wl *kueue.Workload) metav1.Time {
+	var max time.Time
+	for i := range wl.Status.AdmissionChecks {
+		if wl.Status.AdmissionChecks[i].RequeueAfterSeconds == nil {
+			continue
+		}
+		// This should never happen, but prevents panics
+		if wl.Status.AdmissionChecks[i].LastTransitionTime.IsZero() {
+			continue
+		}
+		if wl.Status.AdmissionChecks[i].State != kueue.CheckStateRetry {
+			continue
+		}
+
+		retryTime := wl.Status.AdmissionChecks[i].LastTransitionTime.Add(time.Duration(*wl.Status.AdmissionChecks[i].RequeueAfterSeconds) * time.Second)
+		if max.Before(retryTime) {
+			max = retryTime
+		}
+	}
+	return metav1.NewTime(max)
+}
+
+// NeedsRequeueAtUpdate checks if the workload needs its RequeueAt time updated
+// based on admission check retry times. It returns the target requeue time if an
+// update should be performed, or nil if no update is needed.
+func NeedsRequeueAtUpdate(wl *kueue.Workload, clock clock.Clock) *metav1.Time {
+	maxTime := GetMaxRetryTime(wl)
+	// No retry time set
+	if maxTime.IsZero() {
+		return nil
+	}
+	// Retry time is in the past
+	if !maxTime.After(clock.Now()) {
+		return nil
+	}
+	// Check if we need to update RequeueState
+	if wl.Status.RequeueState != nil {
+		currentRequeueAt := ptr.Deref(wl.Status.RequeueState.RequeueAt, metav1.NewTime(time.Time{}))
+		if !currentRequeueAt.Before(&maxTime) || currentRequeueAt.Equal(&maxTime) {
+			// Current time is already >= maxTime, no update needed
+			return nil
+		}
+	}
+	return &maxTime
+}
+
+// UpdateAdmissionCheckRequeueState calculates the RequeueAfterSeconds based on the backoff and requeuingCount
+func UpdateAdmissionCheckRequeueState(acState *kueue.AdmissionCheckState, backoffBaseSeconds int32, backoffMaxSeconds int32, clock clock.Clock) {
+	requeuingCount := ptr.Deref(acState.RetryCount, 0) + 1
+
+	// Every backoff duration is about "60s*2^(n-1)+Rand" where:
+	// - "n" represents the "requeuingCount",
+	// - "Rand" represents the random jitter.
+	// During this time, the workload is treated as inadmissible and other
+	// workloads will have a chance to be admitted.
+	backoff := wait.NewBackoff(time.Duration(backoffBaseSeconds)*time.Second, time.Duration(backoffMaxSeconds)*time.Second, 2, 0.0001)
+	waitDuration := backoff.WaitTime(int(requeuingCount))
+
+	acState.RequeueAfterSeconds = ptr.To(int32(waitDuration.Truncate(time.Second).Seconds()))
 }

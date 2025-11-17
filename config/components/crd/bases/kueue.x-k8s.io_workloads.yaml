@@ -9081,6 +9081,27 @@ spec:
                       maxItems: 8
                       type: array
                       x-kubernetes-list-type: atomic
+                    requeueAfterSeconds:
+                      description: |-
+                        requeueAfterSeconds indicates how long to wait at least before
+                        retrying to admit the workload.
+                        The admission check controllers can set this field when State=Retry
+                        to implement delays between retry attempts.
+
+                        If nil when State=Retry, Kueue will retry immediately.
+                        If set, Kueue will add the workload back to the queue after
+                          lastTransitionTime + RequeueAfterSeconds is over.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    retryCount:
+                      description: |-
+                        retryCount tracks retry attempts for this admission check.
+                        Kueue automatically increments the counter whenever the
+                        state transitions to Retry.
+                      format: int32
+                      minimum: 0
+                      type: integer
                     state:
                       description: state of the admissionCheck, one of Pending, Ready,
                         Retry, Rejected
@@ -18580,6 +18601,27 @@ spec:
                       maxItems: 8
                       type: array
                       x-kubernetes-list-type: atomic
+                    requeueAfterSeconds:
+                      description: |-
+                        requeueAfterSeconds indicates how long to wait at least before
+                        retrying to admit the workload.
+                        The admission check controllers can set this field when State=Retry
+                        to implement delays between retry attempts.
+
+                        If nil when State=Retry, Kueue will retry immediately.
+                        If set, Kueue will add the workload back to the queue after
+                          lastTransitionTime + RequeueAfterSeconds is over.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    retryCount:
+                      description: |-
+                        retryCount tracks retry attempts for this admission check.
+                        Kueue automatically increments the counter whenever the
+                        state transitions to Retry.
+                      format: int32
+                      minimum: 0
+                      type: integer
                     state:
                       description: state of the admissionCheck, one of Pending, Ready,
                         Retry, Rejected
