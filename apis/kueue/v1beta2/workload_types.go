@@ -757,6 +757,24 @@ type AdmissionCheckState struct {
 	// +required
 	// +kubebuilder:validation:MaxLength=32768
 	Message string `json:"message" protobuf:"bytes,6,opt,name=message"`
+	// requeueAfterSeconds indicates how long to wait at least before
+	// retrying to admit the workload.
+	// The admission check controllers can set this field when State=Retry
+	// to implement delays between retry attempts.
+	//
+	// If nil when State=Retry, Kueue will retry immediately.
+	// If set, Kueue will add the workload back to the queue after
+	//   lastTransitionTime + RequeueAfterSeconds is over.
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	RequeueAfterSeconds *int32 `json:"requeueAfterSeconds,omitempty"`
+	// retryCount tracks retry attempts for this admission check.
+	// Kueue automatically increments the counter whenever the
+	// state transitions to Retry.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	RetryCount *int32 `json:"retryCount,omitempty"`
 
 	// podSetUpdates contains a list of pod set modifications suggested by AdmissionChecks.
 	// +optional
