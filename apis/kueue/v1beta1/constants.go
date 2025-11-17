@@ -18,7 +18,6 @@ package v1beta1
 
 const (
 	ResourceInUseFinalizerName                 = "kueue.x-k8s.io/resource-in-use"
-	SafeDeleteFinalizerName                 = "kueue.x-k8s.io/delete-safeguard"
 	DefaultPodSetName          PodSetReference = "main"
 
 	// ElasticJobSchedulingGate is the name of the scheduling gate applied to Pods
