@@ -562,10 +562,10 @@ func (r *WorkloadReconciler) finalize(ctx context.Context, wl *kueue.Workload, l
 
 	controllerutil.RemoveFinalizer(wl, kueue.ResourceInUseFinalizerName)
 	controllerutil.RemoveFinalizer(wl, kueue.SafeDeleteFinalizerName)
-	if err := r.client.Update(ctx, wl); err != nil {
+	if err := client.IgnoreNotFound(r.client.Update(ctx, wl)); err != nil {
 		return err
 	}
-	
+
 	r.recorder.Eventf(wl, corev1.EventTypeNormal, "Finalized", "Workload %s has been finalized", workload.Key(wl))
 	return nil
 }
