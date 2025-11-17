@@ -158,6 +158,7 @@ Cover the critical part of newly created code.
 - **Feature Gate:** `MultiKueueAdaptersForCustomJobs`
 - Implementation is behind a feature gate.
 - The generic adapter for custom jobs is implemented.
+- *Completed*
 
 #### Beta
 - **Milestone:** v0.15
@@ -177,6 +178,7 @@ Cover the critical part of newly created code.
 
 * 2024-06-20 First draft
 * 2025-07-15 Second draft
+* 2025-11-11 Beta graduation
 
 
 ## Drawbacks
