@@ -499,7 +499,7 @@ func (r *WorkloadReconciler) finalize(ctx context.Context, wl *kueue.Workload, l
 	defer r.notifyWatchers(wl, nil)
 
 	if workload.HasQuotaReservation(wl) {
-		var err error = nil
+		var err error
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wl, func() {
 			err = r.cache.DeleteWorkload(log, wl)
 		})
