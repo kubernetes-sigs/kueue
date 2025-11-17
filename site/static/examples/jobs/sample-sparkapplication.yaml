@@ -1,0 +1,29 @@
+apiVersion: sparkoperator.k8s.io/v1beta2
+kind: SparkApplication
+metadata:
+  name: spark-pi
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+spec:
+  type: Scala
+  mode: cluster                 # spark-operator supports "cluster" mode only
+  sparkVersion: 4.0.0
+  image: spark:4.0.0
+  imagePullPolicy: IfNotPresent
+  mainClass: org.apache.spark.examples.SparkPi
+  mainApplicationFile: local:///opt/spark/examples/jars/spark-examples.jar
+  arguments:
+  - "50000"
+  memoryOverheadFactor: "0"     # spark adds extra memory on memory limits
+                                # for non-JVM tasks. 0 can avoid it.
+  driver:
+    coreRequest: "1"
+    memory: 1g                  # In Java format (e.g. 512m, 2g)
+    serviceAccount: spark       # You need to create this service account beforehand,
+                                # and the service account should have proper role
+                                # ref: https://github.com/kubeflow/spark-operator/blob/master/config/rbac/spark-application-rbac.yaml
+  executor:
+    instances: 2
+    coreRequest: "1"
+    memory: 1g                  # In Java format (e.g. 512m, 2g)
+    deleteOnTermination: false  # to keep terminated executor pods for demo purpose
