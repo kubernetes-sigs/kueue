@@ -1,0 +1,81 @@
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: Topology
+metadata:
+  name: default
+spec:
+  levels:
+  - nodeLabel: kubernetes.io/hostname
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: tas-flavor
+spec:
+  nodeLabels:
+    cloud.provider.com/node-group: tas-node
+  topologyName: default
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: MultiKueueConfig
+metadata:
+  name: multikueue-config
+spec:
+  clusters:
+  - worker1
+  - worker2
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: AdmissionCheck
+metadata:
+  name: multikueue-ac
+spec:
+  controllerName: kueue.x-k8s.io/multikueue
+  parameters:
+    apiGroup: kueue.x-k8s.io
+    kind: MultiKueueConfig
+    name: multikueue-config
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: MultiKueueCluster
+metadata:
+  name: worker1
+spec:
+  kubeConfig:
+    locationType: Secret
+    location: worker1-secret
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: MultiKueueCluster
+metadata:
+  name: worker2
+spec:
+  kubeConfig:
+    locationType: Secret
+    location: worker2-secret
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: cluster-queue
+spec:
+  namespaceSelector: {}
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
+    flavors:
+    - name: tas-flavor
+      resources:
+      - name: cpu
+        nominalQuota: 16
+      - name: memory
+        nominalQuota: 32Gi
+  admissionChecksStrategy:
+    admissionChecks:
+    - name: multikueue-ac
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: LocalQueue
+metadata:
+  namespace: default
+  name: user-queue
+spec:
+  clusterQueue: cluster-queue
