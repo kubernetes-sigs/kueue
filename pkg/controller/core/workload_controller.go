@@ -165,7 +165,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	if !wl.DeletionTimestamp.IsZero() {
 		log = log.WithValues("deletionTimestamp", wl.DeletionTimestamp)
-		log.Info("Attemtping to finalize workload.")
+		log.Info("Attempting to finalize workload.")
 
 		switch {
 		case controllerutil.ContainsFinalizer(&wl, kueue.ResourceInUseFinalizerName):
