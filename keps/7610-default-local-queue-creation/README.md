@@ -19,6 +19,7 @@
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
   - [Improvements for future versions](#improvements-for-future-versions)
+  - [Automatic Garbage Collection](#automatic-garbage-collection)
 <!-- /toc -->
 
 ## Summary
@@ -56,12 +57,10 @@ automatically, making the namespace immediately ready for workload submission.
 
 ### Non-Goals
 
-- Automatically deleting the `LocalQueue` if a namespace no longer matches the
-  selector. The initial implementation will leave the `LocalQueue` in place to
-  avoid disrupting active workloads. Cleanup will remain a manual administrative
-  task.
-- A "garbage collection" mechanism for orphaned, auto-generated `LocalQueue`s.
-  This could be considered in a future iteration.
+- An automatic garbage collection mechanism to delete `LocalQueue`s from namespaces
+  that no longer match the `namespaceSelector`. The initial implementation will
+  leave these "orphaned" `LocalQueue`s in place to avoid disrupting active
+  workloads. Cleanup will remain a manual administrative task.
 - Supporting complex configurations for the auto-generated `LocalQueue` beyond
   its name.
 
@@ -147,25 +146,43 @@ annotations:
 
 ### Controller Logic
 
-The new `defaultlocalqueue-controller` will have reconciliation logic that handles four distinct scenarios, based on events for `ClusterQueue` and `Namespace` resources:
+The new `defaultlocalqueue-controller` will honor the global `namespaceSelector`
+defined in the Kueue configuration (which by default exludes `kube-system`).
+This ensures that the auto-creation of `LocalQueue` is restricted to the same scope
+as all other Kueue operations. 
+
+The controller's reconciliation logic handles four distinct scenarios based on events
+for ClusterQueue and Namespace resources:
 
 1.  **`ClusterQueue` Creation**:
-    *   When a new `ClusterQueue` is created with `spec.defaultLocalQueue` enabled, the controller lists all existing `Namespace`s.
-    *   For each `Namespace` that matches the `ClusterQueue`'s `spec.namespaceSelector`, it creates the default `LocalQueue` if it doesn't already exist.
+    *   When a new `ClusterQueue` is created with `spec.defaultLocalQueue` enabled,
+        the controller lists all existing `Namespace`s.
+    *   For each `Namespace` that matches the `ClusterQueue`'s `spec.namespaceSelector`,
+        it creates the default `LocalQueue` if it doesn't already exist.
 
 2.  **`ClusterQueue` Update**:
-    *   When a `ClusterQueue` is updated, and its `spec.namespaceSelector` has changed, the controller identifies the new set of matching `Namespace`s.
-    *   It then creates the default `LocalQueue` in any of these newly matched `Namespace`s where it doesn't already exist.
+    *   When a `ClusterQueue` is updated, and its `spec.namespaceSelector` has
+        changed, the controller identifies the new set of matching `Namespace`s.
+    *   It then creates the default `LocalQueue` in any of these newly matched
+        Namespace`s where it doesn't already exist.
 
 3.  **`Namespace` Creation**:
-    *   When a new `Namespace` is created, the controller iterates through all `ClusterQueue`s that have `spec.defaultLocalQueue` enabled.
-    *   If the new `Namespace`'s labels match a `ClusterQueue`'s `spec.namespaceSelector`, the controller creates the default `LocalQueue` in that `Namespace`.
+    *   When a new `Namespace` is created, the controller iterates through all
+        `ClusterQueue`s that have `spec.defaultLocalQueue` enabled.
+    *   If the new `Namespace`'s labels match a `ClusterQueue`'s
+        `spec.namespaceSelector`, the controller creates the default `LocalQueue`
+        in that `Namespace`.
 
 4.  **`Namespace` Update**:
-    *   When a `Namespace`'s labels are updated, the controller re-evaluates which `ClusterQueue`s it matches.
-    *   If the `Namespace` now matches a `ClusterQueue` it didn't before, the controller creates the default `LocalQueue` in that `Namespace`.
+    *   When a `Namespace`'s labels are updated, the controller re-evaluates
+        which `ClusterQueue`s it matches.
+    *   If the `Namespace` now matches a `ClusterQueue` it didn't before, the controller
+        creates the default `LocalQueue` in that `Namespace`.
 
-In all cases, if a `LocalQueue` with the target name already exists in the namespace, the controller will take no action and emit a warning event on the `ClusterQueue` to avoid overwriting existing resources. The created `LocalQueue` will reference the corresponding `ClusterQueue` and include identifying labels and annotations.
+In all cases, if a `LocalQueue` with the target name already exists in the namespace,
+the controller will take no action and emit a warning event on the `ClusterQueue`
+to avoid overwriting existing resources. The created `LocalQueue` will reference
+the corresponding `ClusterQueue` and include identifying labels and annotations.
 
 
 ### Test Plan
@@ -215,3 +232,13 @@ prevent selector overlap.
 5. If a selector overlap is detected and the `defaultLocalQueue.name` is the same,
    the request is rejected with an error detailing the conflict. This prevents
    two `ClusterQueues` from attempting to manage the same `LocalQueue` resource.
+
+### Automatic Garbage Collection
+
+Another considered approach was to automatically delete the auto-generated `LocalQueue`
+if a namespace's labels change and it no longer matches the `namespaceSelector`.
+This was ruled out for the initial version due to its complexity and potential for
+destructive behavior. If there were active or pending workloads in the `LocalQueue`,
+automatically deleting it could disrupt users. The current "do nothing" approach
+is significantly safer, leaving the cleanup decision in the hands of an
+administrator who can verify the queue is no longer in use.
