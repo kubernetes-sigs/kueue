@@ -208,6 +208,12 @@ const (
 	//
 	// Enables reclaimable pods counting towards quota.
 	ReclaimablePods featuregate.Feature = "ReclaimablePods"
+
+	// owner: @yaroslva-serdiuk
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/7597
+	// Do not remove job-name label from Workload PodTemplate object.
+	PropagateBatchJobLabelsToWorkload featuregate.Feature = "PropagateBatchJobLabelsToWorkload"
 )
 
 func init() {
@@ -326,6 +332,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	ReclaimablePods: {
+		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
+	},
+	PropagateBatchJobLabelsToWorkload: {
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
