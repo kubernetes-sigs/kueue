@@ -169,22 +169,16 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 		switch {
 		case controllerutil.ContainsFinalizer(&wl, kueue.ResourceInUseFinalizerName):
-			{
-				log.V(2).Info("Manual deletion by a user detected.")
-				if len(wl.OwnerReferences) == 0 {
-					return ctrl.Result{}, r.finalize(ctx, &wl, log)
-				} else {
-					log.V(3).Info("Unable to finalize: workload still has owners. Proceeding with reconcile.", "owners", wl.OwnerReferences)
-				}
+			log.V(2).Info("Manual deletion by a user detected.")
+			if len(wl.OwnerReferences) == 0 {
+				return ctrl.Result{}, r.finalize(ctx, &wl, log)
+			} else {
+				log.V(3).Info("Unable to finalize: workload still has owners. Proceeding with reconcile.", "owners", wl.OwnerReferences)
 			}
 		case controllerutil.ContainsFinalizer(&wl, kueue.SafeDeleteFinalizerName):
-			{
-				return ctrl.Result{}, r.finalize(ctx, &wl, log)
-			}
+			return ctrl.Result{}, r.finalize(ctx, &wl, log)
 		default:
-			{
-				log.V(3).Info("Unknown finalizer(s) present. Proceeding with reconcile.")
-			}
+			log.V(3).Info("Unknown finalizer(s) present. Proceeding with reconcile.")
 		}
 	}
 
