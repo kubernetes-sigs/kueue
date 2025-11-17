@@ -48,10 +48,11 @@ automatically, making the namespace immediately ready for workload submission.
   labels match a `ClusterQueue`'s `namespaceSelector`.
 - Provide a clear, opt-in mechanism on the `ClusterQueue` to enable and
   configure this behavior.
-- Prevent name conflicts and undefined behavior by validating that no two
-  `ClusterQueue`s with this feature enabled have overlapping `namespaceSelector`s.
+- Gracefully handle naming conflicts at runtime by ensuring the controller does
+  not overwrite pre-existing `LocalQueues` and provides clear warning events when
+  a conflict is detected.
 - Ensure that automatically created `LocalQueue`s are clearly identifiable via
-  labels and annotations for easy discovery and management.
+  labels or annotations for easy discovery and management.
 
 ### Non-Goals
 
