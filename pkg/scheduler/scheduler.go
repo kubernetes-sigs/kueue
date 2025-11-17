@@ -877,14 +877,15 @@ const (
 
 func (s *Scheduler) updateEntryPenalty(log logr.Logger, e *entry, op usageOp) {
 	lqKey := utilqueue.NewLocalQueueReference(e.Obj.Namespace, e.Obj.Spec.QueueName)
+	lqObjRef := klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName))
 	penalty := afs.CalculateEntryPenalty(e.SumTotalRequests(), s.admissionFairSharing)
 
 	switch op {
 	case add:
 		s.queues.PushEntryPenalty(lqKey, penalty)
-		log.V(3).Info("Entry penalty added to lq", "lqKey", lqKey, "penalty", penalty)
+		log.V(3).Info("Entry penalty added to localQueue", "localQueue", lqObjRef, "penalty", penalty)
 	case subtract:
 		s.queues.SubEntryPenalty(lqKey, penalty)
-		log.V(3).Info("Entry penalty subtracted from lq", "lqKey", lqKey, "penalty", penalty)
+		log.V(3).Info("Entry penalty subtracted from localQueue", "localQueue", lqObjRef, "penalty", penalty)
 	}
 }
