@@ -97,9 +97,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	// drop the selector
 	remoteJob.Spec.Selector = nil
 	// drop the templates cleanup labels
-	for _, cl := range ManagedLabels {
-		delete(remoteJob.Spec.Template.Labels, cl)
-	}
+	cleanLabels(&remoteJob.Spec.Template)
 
 	// add the prebuilt workload
 	if remoteJob.Labels == nil {

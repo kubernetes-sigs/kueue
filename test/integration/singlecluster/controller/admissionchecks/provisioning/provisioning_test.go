@@ -23,6 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1686,10 +1687,12 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 				util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
 			})
 
+			jobName := "job1"
 			ginkgo.By("submit the Job", func() {
-				jobBuilder := testingjob.MakeJob("job1", ns.Name).
+				jobBuilder := testingjob.MakeJob(jobName, ns.Name).
 					Queue(kueue.LocalQueueName(lq.Name)).
-					Request(corev1.ResourceCPU, "500m")
+					Request(corev1.ResourceCPU, "500m").
+					PodLabel(batchv1.JobNameLabel, jobName)
 				job1 := jobBuilder.Obj()
 				util.MustCreate(ctx, k8sClient, job1)
 				ginkgo.DeferCleanup(func() {
@@ -1702,6 +1705,11 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verify workload podTemplate has job-name label set correctly", func() {
+				gomega.Expect(wlObj.Spec.PodSets[0].Template.GetLabels()).To(gomega.BeComparableTo(map[string]string{
+					batchv1.JobNameLabel: jobName}))
 			})
 
 			ginkgo.By("await for wl1 to have QuotaReserved on flavor-1", func() {
