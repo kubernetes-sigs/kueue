@@ -82,8 +82,7 @@ type Controller struct {
 }
 
 type workloadInfo struct {
-	checkStates  []kueue.AdmissionCheckState
-	requeueState *kueue.RequeueState
+	checkStates []kueue.AdmissionCheckState
 }
 
 var _ reconcile.Reconciler = (*Controller)(nil)
@@ -486,7 +485,6 @@ func (wlInfo *workloadInfo) update(wl *kueue.Workload, c clock.Clock) {
 	for _, check := range wl.Status.AdmissionChecks {
 		workload.SetAdmissionCheckState(&wlInfo.checkStates, check, c)
 	}
-	wlInfo.requeueState = wl.Status.RequeueState
 }
 
 func (c *Controller) syncCheckStates(
@@ -499,7 +497,6 @@ func (c *Controller) syncCheckStates(
 	wlInfo.update(wl, c.clock)
 	checksMap := slices.ToRefMap(wl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) kueue.AdmissionCheckReference { return c.Name })
 	wlPatch := workload.BaseSSAWorkload(wl, true)
-	wlPatch.Status.RequeueState = wl.Status.RequeueState.DeepCopy()
 	recorderMessages := make([]string, 0, len(checkConfig))
 	updated := false
 	for check, prc := range checkConfig {
@@ -537,11 +534,11 @@ func (c *Controller) syncCheckStates(
 					// it is going to be retried
 					message := fmt.Sprintf("Retrying after failure: %s", apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed).Message)
 					updated = updateCheckMessage(&checkState, message) || updated
-					if wl.Status.RequeueState == nil || getAttempt(log, pr, wl.Name, check) > ptr.Deref(wl.Status.RequeueState.Count, 0) {
+					if getAttempt(log, pr, wl.Name, check) > ptr.Deref(checkState.RetryCount, 0) {
 						// We don't want to Retry on old ProvisioningRequests
 						updated = true
 						updateCheckState(&checkState, kueue.CheckStateRetry)
-						workload.UpdateRequeueState(wlPatch, backoffBaseSeconds, backoffMaxSeconds, c.clock)
+						workload.UpdateAdmissionCheckRequeueState(&checkState, backoffBaseSeconds, backoffMaxSeconds, c.clock)
 					}
 				} else {
 					updated = true
@@ -562,10 +559,10 @@ func (c *Controller) syncCheckStates(
 						// it is going to be retried
 						message := fmt.Sprintf("Retrying after booking expired: %s", apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.BookingExpired).Message)
 						updated = updateCheckMessage(&checkState, message) || updated
-						if wl.Status.RequeueState == nil || getAttempt(log, pr, wl.Name, check) > ptr.Deref(wl.Status.RequeueState.Count, 0) {
+						if getAttempt(log, pr, wl.Name, check) > ptr.Deref(checkState.RetryCount, 0) {
 							updated = true
 							updateCheckState(&checkState, kueue.CheckStateRetry)
-							workload.UpdateRequeueState(wlPatch, backoffBaseSeconds, backoffMaxSeconds, c.clock)
+							workload.UpdateAdmissionCheckRequeueState(&checkState, backoffBaseSeconds, backoffMaxSeconds, c.clock)
 						}
 					} else {
 						updated = true

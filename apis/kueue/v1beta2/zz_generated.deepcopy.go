@@ -146,6 +146,16 @@ func (in *AdmissionCheckSpec) DeepCopy() *AdmissionCheckSpec {
 func (in *AdmissionCheckState) DeepCopyInto(out *AdmissionCheckState) {
 	*out = *in
 	in.LastTransitionTime.DeepCopyInto(&out.LastTransitionTime)
+	if in.RequeueAfterSeconds != nil {
+		in, out := &in.RequeueAfterSeconds, &out.RequeueAfterSeconds
+		*out = new(int32)
+		**out = **in
+	}
+	if in.RetryCount != nil {
+		in, out := &in.RetryCount, &out.RetryCount
+		*out = new(int32)
+		**out = **in
+	}
 	if in.PodSetUpdates != nil {
 		in, out := &in.PodSetUpdates, &out.PodSetUpdates
 		*out = make([]PodSetUpdate, len(*in))

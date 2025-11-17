@@ -1440,8 +1440,9 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 				acs := admissioncheck.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
 				g.Expect(acs).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
-					Name:  kueue.AdmissionCheckReference(multiKueueAC.Name),
-					State: kueue.CheckStatePending,
+					Name:       kueue.AdmissionCheckReference(multiKueueAC.Name),
+					State:      kueue.CheckStatePending,
+					RetryCount: ptr.To(int32(1)),
 				}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "Message")))
 
 				// The transition interval should be close to testingKeepReadyTimeout (taking into account the resolution of the LastTransitionTime field)
