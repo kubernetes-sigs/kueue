@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	workloadtrainjob "sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
@@ -40,6 +41,10 @@ var _ = ginkgo.Describe("Trainjob Webhook", func() {
 	ginkgo.When("with manageJobsWithoutQueueName disabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 		ginkgo.BeforeAll(func() {
 			fwk.StartManager(ctx, cfg, managerSetup(func(mgr ctrl.Manager, opts ...jobframework.Option) error {
+				// Setup JobSet webhook (required for TrainJob validation)
+				if err := workloadjobset.SetupJobSetWebhook(mgr, opts...); err != nil {
+					return err
+				}
 				// Necessary to initialize the runtimes
 				if _, err := workloadtrainjob.NewReconciler(
 					ctx,
