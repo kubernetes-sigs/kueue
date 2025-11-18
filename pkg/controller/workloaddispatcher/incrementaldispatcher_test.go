@@ -61,7 +61,7 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 			wantErr:  apierrors.NewNotFound(schema.GroupResource{Group: kueue.GroupVersion.Group, Resource: "workloads"}, workloadName),
 		},
 		"workload deleted": {
-			workload: baseWorkload.Clone().DeletionTimestamp(now).Finalizers("kubernetes").Obj(),
+			workload: baseWorkload.Clone().DeletionTimestamp(now).WithFinalizers("kubernetes").Obj(),
 		},
 		"admission check nil": {
 			workload: baseWorkload.Clone().Obj(),

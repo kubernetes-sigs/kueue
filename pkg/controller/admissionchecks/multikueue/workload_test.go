@@ -69,7 +69,7 @@ func TestWlReconcile(t *testing.T) {
 		cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type }),
 	}
 
-	baseWorkloadBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace)
+	baseWorkloadBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace).Finalizers()
 	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace).Suspend(false)
 	baseJobManagedByKueueBuilder := baseJobBuilder.Clone().ManagedBy(kueue.MultiKueueControllerName)
 
@@ -110,7 +110,7 @@ func TestWlReconcile(t *testing.T) {
 			managersDeletedWorkloads: []*kueue.Workload{
 				baseWorkloadBuilder.Clone().
 					DeletionTimestamp(now).
-					Finalizers(kueue.ResourceInUseFinalizerName).
+					WithFinalizers(kueue.ResourceInUseFinalizerName).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					Obj(),
 			},
@@ -122,7 +122,7 @@ func TestWlReconcile(t *testing.T) {
 			managersDeletedWorkloads: []*kueue.Workload{
 				baseWorkloadBuilder.Clone().
 					DeletionTimestamp(now).
-					Finalizers(kueue.ResourceInUseFinalizerName).
+					WithFinalizers(kueue.ResourceInUseFinalizerName).
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStateRejected}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					Obj(),

@@ -335,7 +335,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test", "ns").
-					Finalizers(kueue.ResourceInUseFinalizerName).
+					WithFinalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
 							PodSpec(corev1.PodSpec{
@@ -388,7 +388,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("a", "ns").
-					Finalizers(kueue.ResourceInUseFinalizerName).
+					WithFinalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
 							PodSpec(corev1.PodSpec{
@@ -453,7 +453,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test", "ns").
-					Finalizers(kueue.ResourceInUseFinalizerName).
+					WithFinalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
 							PodSpec(corev1.PodSpec{
@@ -491,7 +491,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("a", "ns").WithFinalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
 							PodSpec(corev1.PodSpec{
@@ -567,7 +567,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test", "ns").
-					Finalizers(kueue.ResourceInUseFinalizerName).
+					WithFinalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
 							PodSpec(corev1.PodSpec{
@@ -622,7 +622,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("a", "ns").
-					Finalizers(kueue.ResourceInUseFinalizerName).
+					WithFinalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
 							PodSpec(corev1.PodSpec{

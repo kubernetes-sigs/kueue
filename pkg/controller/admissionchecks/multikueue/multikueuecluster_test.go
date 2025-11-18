@@ -553,7 +553,7 @@ func TestUpdateConfig(t *testing.T) {
 
 func TestRemoteClientGC(t *testing.T) {
 	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace)
-	baseWlBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace).ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "test-uuid")
+	baseWlBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace).Finalizers().ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "test-uuid")
 
 	cases := map[string]struct {
 		managersWorkloads []kueue.Workload

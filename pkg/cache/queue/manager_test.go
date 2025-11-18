@@ -1232,8 +1232,9 @@ func TestGetPendingWorkloadsInfo(t *testing.T) {
 				{
 					Obj: &kueue.Workload{
 						ObjectMeta: metav1.ObjectMeta{
-							Name:      "a",
-							Namespace: "",
+							Name:       "a",
+							Namespace:  "",
+							Finalizers: []string{kueue.SafeDeleteFinalizerName},
 						},
 						Spec: kueue.WorkloadSpec{
 							QueueName: "foo",
@@ -1243,8 +1244,9 @@ func TestGetPendingWorkloadsInfo(t *testing.T) {
 				{
 					Obj: &kueue.Workload{
 						ObjectMeta: metav1.ObjectMeta{
-							Name:      "b",
-							Namespace: "",
+							Name:       "b",
+							Namespace:  "",
+							Finalizers: []string{kueue.SafeDeleteFinalizerName},
 						},
 						Spec: kueue.WorkloadSpec{
 							QueueName: "foo",

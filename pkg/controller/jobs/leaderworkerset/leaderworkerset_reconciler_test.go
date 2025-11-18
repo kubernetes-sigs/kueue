@@ -72,7 +72,7 @@ func TestReconciler(t *testing.T) {
 				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
 					OwnerReference(gvk, testLWS, testUID).
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
-					Finalizers(kueue.ResourceInUseFinalizerName).
+					WithFinalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						kueue.PodSet{
 							Name: kueue.DefaultPodSetName,
@@ -130,7 +130,7 @@ func TestReconciler(t *testing.T) {
 				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
 					OwnerReference(gvk, testLWS, testUID).
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
-					Finalizers(kueue.ResourceInUseFinalizerName).
+					WithFinalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						kueue.PodSet{
 							Name: leaderPodSetName,
@@ -203,7 +203,7 @@ func TestReconciler(t *testing.T) {
 				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
 					OwnerReference(gvk, testLWS, testUID).
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
-					Finalizers(kueue.ResourceInUseFinalizerName).
+					WithFinalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						kueue.PodSet{
 							Name: leaderPodSetName,
@@ -235,7 +235,7 @@ func TestReconciler(t *testing.T) {
 				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "1"), testNS).
 					OwnerReference(gvk, testLWS, testUID).
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
-					Finalizers(kueue.ResourceInUseFinalizerName).
+					WithFinalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						kueue.PodSet{
 							Name: leaderPodSetName,
@@ -350,7 +350,7 @@ func TestReconciler(t *testing.T) {
 				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
 					OwnerReference(gvk, testLWS, testUID).
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
-					Finalizers(kueue.ResourceInUseFinalizerName).
+					WithFinalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						kueue.PodSet{
 							Name: leaderPodSetName,
@@ -460,7 +460,7 @@ func TestReconciler(t *testing.T) {
 				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
 					OwnerReference(gvk, testLWS, testUID).
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
-					Finalizers(kueue.ResourceInUseFinalizerName).
+					WithFinalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						kueue.PodSet{
 							Name: leaderPodSetName,
@@ -518,7 +518,7 @@ func TestReconciler(t *testing.T) {
 				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
 					OwnerReference(gvk, testLWS, testUID).
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
-					Finalizers(kueue.ResourceInUseFinalizerName).
+					WithFinalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						kueue.PodSet{
 							Name: kueue.DefaultPodSetName,
@@ -558,7 +558,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(gvk, testLWS, testUID).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "test-pod1", "test-pod1-uid").
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
-					Finalizers(kueue.ResourceInUseFinalizerName).
+					WithFinalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						kueue.PodSet{
 							Name: kueue.DefaultPodSetName,
@@ -577,7 +577,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(gvk, testLWS, testUID).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "test-pod2", "test-pod2-uid").
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
-					Finalizers(kueue.ResourceInUseFinalizerName).
+					WithFinalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						kueue.PodSet{
 							Name: kueue.DefaultPodSetName,
@@ -598,7 +598,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(gvk, testLWS, testUID).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "test-pod1", "test-pod1-uid").
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
-					Finalizers(kueue.ResourceInUseFinalizerName).
+					WithFinalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						kueue.PodSet{
 							Name: kueue.DefaultPodSetName,
@@ -616,7 +616,7 @@ func TestReconciler(t *testing.T) {
 				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "1"), testNS).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "test-pod2", "test-pod2-uid").
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
-					Finalizers(kueue.ResourceInUseFinalizerName).
+					WithFinalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						kueue.PodSet{
 							Name: kueue.DefaultPodSetName,

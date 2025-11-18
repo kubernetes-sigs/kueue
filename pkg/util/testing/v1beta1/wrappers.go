@@ -55,6 +55,23 @@ func (w *WorkloadWrapper) Clone() *WorkloadWrapper {
 	return &WorkloadWrapper{Workload: *w.DeepCopy()}
 }
 
+func (w *WorkloadWrapper) WithFinalizers(fin ...string) *WorkloadWrapper {
+	addSafeDeleteFinalizer := true
+	for _, f := range fin {
+		if f == kueue.SafeDeleteFinalizerName {
+			addSafeDeleteFinalizer = false
+		}
+	}
+
+	if addSafeDeleteFinalizer {
+		w.ObjectMeta.Finalizers = append(fin, kueue.SafeDeleteFinalizerName)
+	} else {
+		w.ObjectMeta.Finalizers = fin
+	}
+
+	return w
+}
+
 func (w *WorkloadWrapper) Finalizers(fin ...string) *WorkloadWrapper {
 	w.ObjectMeta.Finalizers = fin
 	return w

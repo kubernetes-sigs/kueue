@@ -66,7 +66,7 @@ func MakeWorkload(name, ns string) *WorkloadWrapper {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:       name,
 			Namespace:  ns,
-			Finalizers: []string{kueue.ResourceInUseFinalizerName, kueue.SafeDeleteFinalizerName},
+			Finalizers: []string{kueue.SafeDeleteFinalizerName},
 		},
 		Spec: kueue.WorkloadSpec{
 			PodSets: []kueue.PodSet{
@@ -109,6 +109,23 @@ func (w *WorkloadWrapper) Generation(num int64) *WorkloadWrapper {
 
 func (w *WorkloadWrapper) Name(name string) *WorkloadWrapper {
 	w.Workload.Name = name
+	return w
+}
+
+func (w *WorkloadWrapper) WithFinalizers(fin ...string) *WorkloadWrapper {
+	addSafeDeleteFinalizer := true
+	for _, f := range fin {
+		if f == kueue.SafeDeleteFinalizerName {
+			addSafeDeleteFinalizer = false
+		}
+	}
+
+	if addSafeDeleteFinalizer {
+		w.ObjectMeta.Finalizers = append(fin, kueue.SafeDeleteFinalizerName)
+	} else {
+		w.ObjectMeta.Finalizers = fin
+	}
+
 	return w
 }
 

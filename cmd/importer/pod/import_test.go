@@ -44,7 +44,7 @@ func TestImportNamespace(t *testing.T) {
 	baseWlWrapper := utiltestingapi.MakeWorkload("pod-pod-b17ab", testingNamespace).
 		ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "pod").
 		Label(controllerconstants.JobUIDLabel, "pod").
-		Finalizers(kueue.ResourceInUseFinalizerName).
+		WithFinalizers(kueue.ResourceInUseFinalizerName).
 		Queue("lq1").
 		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 			Image("img").

@@ -53,7 +53,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 	wlKey := types.NamespacedName{Name: wlName, Namespace: nsName}
 
 	baseWorkload := utiltestingapi.MakeWorkload(wlName, nsName).
-		Finalizers(kueue.ResourceInUseFinalizerName).
+		WithFinalizers(kueue.ResourceInUseFinalizerName).
 		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 		ReserveQuota(
 			utiltestingapi.MakeAdmission("cq").
@@ -71,7 +71,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 	workloadWithUnhealthyNode := baseWorkload.DeepCopy()
 	workloadWithUnhealthyNode.Status.UnhealthyNodes = []kueue.UnhealthyNode{{Name: nodeName}}
 	workloadWithTwoNodes := utiltestingapi.MakeWorkload(wlName, nsName).
-		Finalizers(kueue.ResourceInUseFinalizerName).
+		WithFinalizers(kueue.ResourceInUseFinalizerName).
 		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
 		ReserveQuota(
 			utiltestingapi.MakeAdmission("cq").

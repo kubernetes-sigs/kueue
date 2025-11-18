@@ -2554,7 +2554,6 @@ func TestReconcile(t *testing.T) {
 			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Queue("lq").
-				Finalizers(kueue.SafeDeleteFinalizerName).
 				ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).
 				Condition(metav1.Condition{
 					Type:               kueue.WorkloadFinished,
@@ -2606,6 +2605,7 @@ func TestReconcile(t *testing.T) {
 			cq: utiltestingapi.MakeClusterQueue("cq").Obj(),
 			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				WithFinalizers(kueue.ResourceInUseFinalizerName).
 				Queue("lq").
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).
@@ -2617,6 +2617,7 @@ func TestReconcile(t *testing.T) {
 				Delete().
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				WithFinalizers(kueue.ResourceInUseFinalizerName).
 				Queue("lq").
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).
@@ -2663,7 +2664,7 @@ func TestReconcile(t *testing.T) {
 			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Queue("lq").
-				Finalizers(kueue.ResourceInUseFinalizerName).
+				WithFinalizers(kueue.ResourceInUseFinalizerName).
 				ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).
 				Condition(metav1.Condition{
 					Type:               kueue.WorkloadFinished,
@@ -2673,7 +2674,7 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Queue("lq").
-				Finalizers(kueue.ResourceInUseFinalizerName, kueue.SafeDeleteFinalizerName).
+				WithFinalizers(kueue.ResourceInUseFinalizerName, kueue.SafeDeleteFinalizerName).
 				ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).
 				Condition(metav1.Condition{
 					Type:               kueue.WorkloadFinished,
@@ -2922,7 +2923,7 @@ func TestFinalize(t *testing.T) {
 		"clean up when in-use finalzier is set": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Queue("lq").
-				Finalizers(kueue.ResourceInUseFinalizerName).
+				WithFinalizers(kueue.ResourceInUseFinalizerName).
 				ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).
 				Condition(metav1.Condition{
 					Type:               kueue.WorkloadFinished,
@@ -2948,7 +2949,6 @@ func TestFinalize(t *testing.T) {
 		"clean up when safe-delete finalzier is set": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Queue("lq").
-				Finalizers(kueue.SafeDeleteFinalizerName).
 				ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).
 				Condition(metav1.Condition{
 					Type:               kueue.WorkloadFinished,
@@ -2973,6 +2973,7 @@ func TestFinalize(t *testing.T) {
 		},
 		"throw error when unable to delete wl from cache": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				WithFinalizers(kueue.ResourceInUseFinalizerName).
 				Queue("lq").
 				ReserveQuota(utiltestingapi.MakeAdmission("unknown-cq").Obj()).
 				Condition(metav1.Condition{

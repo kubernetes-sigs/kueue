@@ -232,7 +232,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 				testingjob.SetContainerDefaults(&sampleJob.Spec.Template.Spec.Containers[0])
 
 				wl = utiltestingapi.MakeWorkload("prebuilt-wl", ns.Name).
-					Finalizers(kueue.ResourceInUseFinalizerName).
+					WithFinalizers(kueue.ResourceInUseFinalizerName).
 					Queue(kueue.LocalQueueName(localQueue.Name)).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Containers(sampleJob.Spec.Template.Spec.Containers[0]).Obj(),

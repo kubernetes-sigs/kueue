@@ -77,7 +77,7 @@ func TestReconcileGenericJob(t *testing.T) {
 	}
 	baseWl := utiltestingapi.MakeWorkload("job-test-job", metav1.NamespaceDefault).
 		ResourceVersion("1").
-		Finalizers(kueue.ResourceInUseFinalizerName).
+		WithFinalizers(kueue.ResourceInUseFinalizerName).
 		Label(constants.JobUIDLabel, testJobName).
 		ControllerReference(testGVK, testJobName, testJobName).
 		Queue(testLocalQueueName).
@@ -211,7 +211,7 @@ func TestReconcileGenericJobWithCustomWorkloadActivation(t *testing.T) {
 	}
 	baseWl := utiltestingapi.MakeWorkload("job-test-job", testNS).
 		ResourceVersion("1").
-		Finalizers(kueue.ResourceInUseFinalizerName).
+		WithFinalizers(kueue.ResourceInUseFinalizerName).
 		Label(constants.JobUIDLabel, testJobName).
 		ControllerReference(testGVK, testJobName, testJobName).
 		Queue(testLocalQueueName).
@@ -727,7 +727,7 @@ func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
 	}{
 		"update podready condition failed": {
 			workload: utiltestingapi.MakeWorkload("job-test-job-podready-fail", metav1.NamespaceDefault).
-				Finalizers(kueue.ResourceInUseFinalizerName).
+				WithFinalizers(kueue.ResourceInUseFinalizerName).
 				Label(constants.JobUIDLabel, "test-job-podready-fail").
 				ControllerReference(testGVK, "test-job-podready-fail", "test-job-podready-fail").
 				Queue(testLocalQueueName).
@@ -766,7 +766,7 @@ func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
 		},
 		"update podready condition success": {
 			workload: utiltestingapi.MakeWorkload("job-test-job-podready-success", metav1.NamespaceDefault).
-				Finalizers(kueue.ResourceInUseFinalizerName).
+				WithFinalizers(kueue.ResourceInUseFinalizerName).
 				Label(constants.JobUIDLabel, "job-test-job-podready-success").
 				ControllerReference(testGVK, "test-job-podready-success", "test-job-podready-success").
 				Queue(testLocalQueueName).
