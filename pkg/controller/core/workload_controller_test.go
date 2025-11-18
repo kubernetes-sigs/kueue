@@ -2762,7 +2762,9 @@ func TestReconcile(t *testing.T) {
 
 				if testWl != nil {
 					cqCache.AddOrUpdateWorkload(testLog, testWl)
-					qManager.AddOrUpdateWorkload(testWl)
+					if err := qManager.AddOrUpdateWorkload(testWl); err != nil {
+						t.Errorf("couldn't add the workload to the queue cache manager: %v", err)
+					}
 				}
 
 				gotResult, gotError := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(testWl)})
@@ -3027,7 +3029,9 @@ func TestFinalize(t *testing.T) {
 			}
 
 			cqCache.AddOrUpdateWorkload(testLog, testWl)
-			qManager.AddOrUpdateWorkload(testWl)
+			if err := qManager.AddOrUpdateWorkload(testWl); err != nil {
+				t.Errorf("couldn't add the workload to the queue cache manager: %v", err)
+			}
 
 			gotError := reconciler.finalize(ctx, testWl, testLog)
 
