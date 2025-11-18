@@ -2760,7 +2760,7 @@ func TestReconcile(t *testing.T) {
 					}
 				}
 
-				if testWl != nil {
+				if tc.wantWorkloadCached {
 					cqCache.AddOrUpdateWorkload(testLog, testWl)
 					if err := qManager.AddOrUpdateWorkload(testWl); err != nil {
 						t.Errorf("couldn't add the workload to the queue cache manager: %v", err)
