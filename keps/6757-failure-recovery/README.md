@@ -13,7 +13,7 @@
 - [Design Details](#design-details)
   - [Configuration API](#configuration-api)
   - [Default Grace Period](#default-grace-period)
-  - [Controller](#controller)
+  - [Implementation Overview](#implementation-overview)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
     - [Integration Tests](#integration-tests)
@@ -112,19 +112,19 @@ type Configuration struct {
 
 type FailureRecoveryPolicy struct {
   // Rules specifies the rules to be enabled for failure recovery.
-  // In `alpha`, only a singular rule is supported.
-  // +kubebuilder:validation:MinItems=1
-  // +kubebuilder:validation:MaxItems=1
+  // Exactly one rule can be specified. We keep the API flexible to accommodate
+  // setting more rules in the future.
   Rules []FailureRecoveryRule `json:"rules"`
 }
 
-// +kubebuilder:validation:ExactlyOneOf=["terminatePod"]
 type FailureRecoveryRule struct {
   // Exactly one of the fields below must be specified.
 
   // TerminatePod enables and contains configuration for the `TerminatePod` strategy.
   // This strategy recovers stuck pods by forcefully terminating them after a configured
   // grace period elapses.
+  // Currently specifying the field is required. We keep the API flexible to allow
+  // introducing other rule actions in the future.
   // +optional
   TerminatePod *TerminatePodConfig `json:"terminatePod,omitempty"`
 }
@@ -171,7 +171,7 @@ Alternatively, a default value can be inferred from the `terminationGracePeriodS
 For example, it could be a multiple of that value. Nevertheless, this still runs the risk of
 setting a very small value or even 0, depending on the user's configuration.
 
-### Implementation overview
+### Implementation Overview
 
 Setting the strategy type to `TerminatePod` will enable a controller, which manages
 the failed nodes.
