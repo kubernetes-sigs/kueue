@@ -20,6 +20,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -53,10 +54,40 @@ func TestDefaultLocalQueueReconciler(t *testing.T) {
 		globalNsSelectorStr string
 		req                 reconcile.Request
 		wantError           error
-		wantLQs             []kueue.LocalQueue // Expected state of LocalQueues after reconciliation
+		wantLQs             []kueue.LocalQueue
 		wantEvents          []Event
 	}{
-		"should create a default LocalQueue when a matching namespace exists": {
+		"should create a default LocalQueue if the namespace matches cq and global selector is nil": {
+			clusterQueues: func() []*kueue.ClusterQueue {
+				cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+				cq.Spec.NamespaceSelector = &metav1.LabelSelector{MatchLabels: map[string]string{"dep": "eng"}}
+				cq.Spec.DefaultLocalQueue = &kueue.DefaultLocalQueue{Name: "default-lq"}
+				return []*kueue.ClusterQueue{cq}
+			}(),
+			            namespaces: []*corev1.Namespace{
+			                {
+			                    ObjectMeta: metav1.ObjectMeta{
+			                        Name:   "ns",
+			                        Labels: map[string]string{"dep": "eng"},
+			                    },
+			                },
+			            },
+			            req: reconcile.Request{NamespacedName: types.NamespacedName{Name: "cq"}},
+			            wantLQs: []kueue.LocalQueue{
+			                *utiltestingapi.MakeLocalQueue("default-lq", "ns").
+			                    ClusterQueue("cq").
+			                    Labels(map[string]string{"kueue.x-k8s.io/auto-generated": "true"}).
+			                    Annotations(map[string]string{"kueue.x-k8s.io/created-by-clusterqueue": "cq"}).
+			                    Obj(),
+			            },			wantEvents: []Event{
+				{
+					EventType: corev1.EventTypeNormal,
+					Reason:    "LocalQueueCreated",
+					Message:   "Created LocalQueue default-lq in namespace ns",
+				},
+			},
+		},
+		"should create a default LocalQueue if the namespace matches both cq and global selectors": {
 			clusterQueues: func() []*kueue.ClusterQueue {
 				cq := utiltestingapi.MakeClusterQueue("cq").Obj()
 				cq.Spec.NamespaceSelector = &metav1.LabelSelector{MatchLabels: map[string]string{"dep": "eng"}}
@@ -67,16 +98,17 @@ func TestDefaultLocalQueueReconciler(t *testing.T) {
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:   "ns",
-						Labels: map[string]string{"dep": "eng"},
+						Labels: map[string]string{"dep": "eng", "team": "alpha"},
 					},
 				},
 			},
-			req: reconcile.Request{NamespacedName: types.NamespacedName{Name: "cq"}},
+			globalNsSelectorStr: "team=alpha",
+			req:                 reconcile.Request{NamespacedName: types.NamespacedName{Name: "cq"}},
 			wantLQs: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("default-lq", "ns").
 					ClusterQueue("cq").
-					Labels(map[string]string{}).
-					Annotations(map[string]string{}).
+					Labels(map[string]string{"kueue.x-k8s.io/auto-generated": "true"}).
+					Annotations(map[string]string{"kueue.x-k8s.io/created-by-clusterqueue": "cq"}).
 					Obj(),
 			},
 			wantEvents: []Event{
@@ -116,6 +148,111 @@ func TestDefaultLocalQueueReconciler(t *testing.T) {
 					Message:   "Skipping LocalQueue creation in namespace ns, a LocalQueue with name default-lq already exists",
 				},
 			},
+		},
+		"should do nothing if defaultLocalQueue is not configured": {
+			clusterQueues: func() []*kueue.ClusterQueue {
+				cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+				cq.Spec.NamespaceSelector = &metav1.LabelSelector{MatchLabels: map[string]string{"dep": "eng"}}
+				return []*kueue.ClusterQueue{cq}
+			}(),
+			namespaces: []*corev1.Namespace{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:   "ns",
+						Labels: map[string]string{"dep": "eng"},
+					},
+				},
+			},
+			req:        reconcile.Request{NamespacedName: types.NamespacedName{Name: "cq"}},
+			wantLQs:    []kueue.LocalQueue{},
+			wantEvents: nil,
+		},
+		"should do nothing if clusterQueue is being deleted": {
+			clusterQueues: func() []*kueue.ClusterQueue {
+				cq := utiltestingapi.MakeClusterQueue("cq").DeletionTimestamp(time.Now()).Obj()
+				cq.Finalizers = []string{"finalizer"}
+				cq.Spec.NamespaceSelector = &metav1.LabelSelector{MatchLabels: map[string]string{"dep": "eng"}}
+				cq.Spec.DefaultLocalQueue = &kueue.DefaultLocalQueue{Name: "default-lq"}
+				return []*kueue.ClusterQueue{cq}
+			}(),
+			namespaces: []*corev1.Namespace{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:   "ns",
+						Labels: map[string]string{"dep": "eng"},
+					},
+				},
+			},
+			req:        reconcile.Request{NamespacedName: types.NamespacedName{Name: "cq"}},
+			wantLQs:    []kueue.LocalQueue{},
+			wantEvents: nil,
+		},
+		"should do nothing if no namespace matches": {
+			clusterQueues: func() []*kueue.ClusterQueue {
+				cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+				cq.Spec.NamespaceSelector = &metav1.LabelSelector{MatchLabels: map[string]string{"dep": "eng"}}
+				cq.Spec.DefaultLocalQueue = &kueue.DefaultLocalQueue{Name: "default-lq"}
+				return []*kueue.ClusterQueue{cq}
+			}(),
+			namespaces: []*corev1.Namespace{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:   "ns",
+						Labels: map[string]string{"dep": "another"},
+					},
+				},
+			},
+			req:        reconcile.Request{NamespacedName: types.NamespacedName{Name: "cq"}},
+			wantLQs:    []kueue.LocalQueue{},
+			wantEvents: nil,
+		},
+		"should do nothing if a LocalQueue with the same name and annotation already exists": {
+			clusterQueues: func() []*kueue.ClusterQueue {
+				cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+				cq.Spec.NamespaceSelector = &metav1.LabelSelector{MatchLabels: map[string]string{"dep": "eng"}}
+				cq.Spec.DefaultLocalQueue = &kueue.DefaultLocalQueue{Name: "default-lq"}
+				return []*kueue.ClusterQueue{cq}
+			}(),
+			namespaces: []*corev1.Namespace{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:   "ns",
+						Labels: map[string]string{"dep": "eng"},
+					},
+				},
+			},
+			localQueues: []*kueue.LocalQueue{
+				utiltestingapi.MakeLocalQueue("default-lq", "ns").
+					Annotations(map[string]string{"kueue.x-k8s.io/created-by-clusterqueue": "cq"}).
+					Obj(),
+			},
+			req: reconcile.Request{NamespacedName: types.NamespacedName{Name: "cq"}},
+			wantLQs: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("default-lq", "ns").
+					Annotations(map[string]string{"kueue.x-k8s.io/created-by-clusterqueue": "cq"}).
+					Obj(),
+			},
+			wantEvents: nil,
+		},
+		"should not create a default LocalQueue if the namespace doesn't match the global selector": {
+			clusterQueues: func() []*kueue.ClusterQueue {
+				cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+				cq.Spec.NamespaceSelector = &metav1.LabelSelector{MatchLabels: map[string]string{"dep": "eng"}}
+				cq.Spec.DefaultLocalQueue = &kueue.DefaultLocalQueue{Name: "default-lq"}
+				return []*kueue.ClusterQueue{cq}
+			}(),
+			namespaces: []*corev1.Namespace{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:   "ns",
+						Labels: map[string]string{"dep": "eng"},
+					},
+				},
+			},
+			globalNsSelectorStr: "team=alpha",
+			req:                 reconcile.Request{NamespacedName: types.NamespacedName{Name: "cq"}},
+			wantLQs:             []kueue.LocalQueue{},
+			wantEvents:          nil,
 		},
 	}
 
@@ -164,20 +301,7 @@ func TestDefaultLocalQueueReconciler(t *testing.T) {
 				t.Errorf("Failed to list LocalQueues: %v", err)
 			}
 
-			gotLQs := make([]kueue.LocalQueue, 0, len(lqList.Items))
-			for i := range lqList.Items {
-				if lqList.Items[i].Name == string(baseWorkload.Spec.QueueName) {
-					continue
-				}
-				// we need to remove the auto-added annotations/labels to compare
-				lq := lqList.Items[i]
-				delete(lq.Annotations, "kueue.x-k8s.io/created-by-clusterqueue")
-				delete(lq.Labels, "kueue.x-k8s.io/auto-generated")
-
-				gotLQs = append(gotLQs, lq)
-			}
-
-			if diff := cmp.Diff(tc.wantLQs, gotLQs, cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion")); diff != "" {
+			if diff := cmp.Diff(tc.wantLQs, lqList.Items, cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion")); diff != "" {
 				t.Errorf("LocalQueues (-want +got):\n%s", diff)
 			}
 
