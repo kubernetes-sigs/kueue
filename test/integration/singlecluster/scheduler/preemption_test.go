@@ -17,6 +17,7 @@ limitations under the License.
 package scheduler
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -142,6 +143,51 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, highWl2)
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, lowWl1, lowWl2)
+		})
+
+		ginkgo.It("Should retry on failed preemptions", func() {
+			attempt := 0
+			fakeSubResourcePatch = func(obj client.Object) (fakeClientUsage, error) {
+				wl, ok := obj.(*kueue.Workload)
+				if !ok {
+					return fallThrough, nil
+				}
+				if cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted); cond == nil || cond.Status != metav1.ConditionTrue {
+					return fallThrough, nil
+				}
+				// Ignore patches triggered by util.FinishEvictionForWorkloads()
+				if cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved); cond != nil && cond.Status == metav1.ConditionFalse && cond.Message == "By test" {
+					return fallThrough, nil
+				}
+
+				attempt++
+				if attempt < 3 {
+					return emitResponse, errors.New("simulate API server error while preempting workload")
+				}
+				return fallThrough, nil
+			}
+			ginkgo.By("Creating a low priority Workload")
+			lowWl := utiltestingapi.MakeWorkload("low-wl", ns.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
+				Priority(lowPriority).
+				Request(corev1.ResourceCPU, "3").
+				Obj()
+			util.MustCreate(ctx, k8sClient, lowWl)
+
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl)
+
+			ginkgo.By("Creating a high priority Workload")
+			highWl := utiltestingapi.MakeWorkload("high-wl", ns.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
+				Priority(highPriority).
+				Request(corev1.ResourceCPU, "3").
+				Obj()
+			util.MustCreate(ctx, k8sClient, highWl)
+
+			util.FinishEvictionForWorkloads(ctx, k8sClient, lowWl)
+
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, highWl)
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, lowWl)
 		})
 
 		ginkgo.It("Should preempt newer Workloads with the same priority when there is not enough quota", func() {

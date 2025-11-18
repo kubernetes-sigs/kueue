@@ -56,6 +56,18 @@ import (
 
 type ManagerSetup func(context.Context, manager.Manager)
 
+type managerSetupOptions struct {
+	NewClient client.NewClientFunc
+}
+
+type ManagerSetupOption func(*managerSetupOptions)
+
+func WithNewClient(c client.NewClientFunc) ManagerSetupOption {
+	return func(o *managerSetupOptions) {
+		o.NewClient = c
+	}
+}
+
 type Framework struct {
 	DepCRDPaths            []string
 	WebhookPath            string
@@ -107,7 +119,7 @@ func (f *Framework) Init() *rest.Config {
 	return cfg
 }
 
-func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.Client) {
+func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.WithWatch) {
 	err := config.AddToScheme(f.scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
@@ -138,7 +150,7 @@ func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.Clien
 	err = resourcev1beta2.AddToScheme(f.scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
-	k8sClient, err := client.New(cfg, client.Options{Scheme: f.scheme})
+	k8sClient, err := client.NewWithWatch(cfg, client.Options{Scheme: f.scheme})
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 	gomega.ExpectWithOffset(1, k8sClient).NotTo(gomega.BeNil())
 
@@ -148,9 +160,13 @@ func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.Clien
 	return ctx, k8sClient
 }
 
-func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerSetup ManagerSetup) {
+func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerSetup ManagerSetup, opts ...ManagerSetupOption) {
 	ginkgo.By("starting the manager", func() {
 		webhookInstallOptions := &f.testEnv.WebhookInstallOptions
+		managerSetupOptions := managerSetupOptions{}
+		for _, opt := range opts {
+			opt(&managerSetupOptions)
+		}
 		mgrOpts := manager.Options{
 			Scheme: f.scheme,
 			Metrics: metricsserver.Options{
@@ -165,6 +181,9 @@ func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerS
 			Controller: crconfig.Controller{
 				SkipNameValidation: ptr.To(true),
 			},
+		}
+		if managerSetupOptions.NewClient != nil {
+			mgrOpts.NewClient = managerSetupOptions.NewClient
 		}
 		mgr, err := ctrl.NewManager(cfg, mgrOpts)
 		gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "failed to create manager")
