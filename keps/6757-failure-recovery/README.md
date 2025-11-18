@@ -11,8 +11,9 @@
   - [Risks and Mitigations](#risks-and-mitigations)
     - [Replacing Pods Which Are Still Running](#replacing-pods-which-are-still-running)
 - [Design Details](#design-details)
-  - [Configuration API](#configuration-api)
-  - [Default Grace Period](#default-grace-period)
+  - [Defaults](#defaults)
+    - [Affected Pods](#affected-pods)
+    - [Grace Period](#grace-period)
   - [Implementation Overview](#implementation-overview)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
@@ -24,7 +25,8 @@
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
   - [Do Nothing](#do-nothing)
-  - [Hide The Controller Only Behind A Feature Gate](#hide-the-controller-only-behind-a-feature-gate)
+  - [Control All Pods Managed By Kueue](#control-all-pods-managed-by-kueue)
+  - [Introduce a <code>FailureRecoveryPolicy</code> API](#introduce-a-failurerecoverypolicy-api)
   - [Managing The <code>node.kubernetes.io/out-of-service</code> Taint On <code>Node</code>](#managing-the-nodekubernetesioout-of-service-taint-on-node)
 <!-- /toc -->
 
@@ -53,7 +55,6 @@ In particular, `Job`-based `Workload`s with `podReplacementPolicy: Failed` are u
 
 * Maximize the quota usage for `Workload`s by recovering from a common failure pattern that:
   * Prevents `Job`s using `podReplacementPolicy: Failed` from making progress.
-* Introduce the concept of failure recovery to the Kueue manager configuration API.
 
 ### Non-Goals
 
@@ -62,9 +63,8 @@ In particular, `Job`-based `Workload`s with `podReplacementPolicy: Failed` are u
 ## Proposal
 
 * Introduce a controller that moves zombie `Pod`s into the `Failed` phase.
-* Introduce an API for the users to:
-  * Enable the controller.
-  * Configure the grace period between the `Pod`'s deletion time and when the transition to `Failed` happens.
+  * The controller is enabled via a feature gate.
+* Introduce a reserved label that limits which pods are affected by the new controller.
 
 ### User Stories (Optional)
 
@@ -98,9 +98,155 @@ Controlling the covered workloads, instead of applying the recovery globally, wi
 
 ## Design Details
 
-### Configuration API
+### Defaults
 
-The `Configuration` struct is extended to add `FailureRecoveryPolicy`:
+#### Affected Pods
+
+In order to allow the first adopters to control which pods are affected by the new controller, a new reserved label will be introduced:
+```yaml
+kueue.x-k8s.io/pod-safe-to-forcefully-terminate: "true"
+```
+
+Only pods matching the label selector will be affected by the new controller:
+```yaml
+matchLabels:
+  kueue.x-k8s.io/pod-safe-to-forcefully-terminate: "true"
+```
+
+> The controller is not limited to pods managed by Kueue (i.e. having the `kueue.x-k8s.io/managed` or `kueue.x-k8s.io/podset` label). All pods in the cluster that have the new label will be affected.
+
+#### Grace Period
+
+A default grace period of **1 minute** will be introduced to get initial feedback about the feature.
+This will help inform the decision on the structure of the API and setting defaults makes sense when graduating to beta.
+
+### Implementation Overview
+
+Setting the strategy type to `TerminatePod` will enable a controller, which manages
+the failed nodes.
+
+The controller has to **ignore** updates to pods that:
+1. Are not terminating.
+    * `pod.DeletionTimestamp == nil`
+1. Are in a terminal phase.
+    * `pod.Status.Phase != corev1.PodRunning && pod.Status.Phase != corev1.PodPending`
+1. Are not labelled with the new `kueue.x-k8s.io/pod-safe-to-forcefully-terminate` label.
+1. Are **not** scheduled on a node tainted with `node.kubernetes.io/unreachable`.
+    * This explicitly ignores pods assigned to nodes that still have a running kubelet.
+    For example, nodes with the `node.kubernetes.io/not-ready` taint experiencing resource pressure
+    that makes pod termination take longer.
+
+For relevant (not ignored) terminating pods, the controller schedules another reconciliation
+to happen after the remaining grace period elapses.
+
+```go
+func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+  // ...
+
+  now := r.clock.Now()
+  gracefulTerminationPeriod := time.Duration(*pod.DeletionGracePeriodSeconds) * time.Second
+  totalGracePeriod := gracefulTerminationPeriod + defaultForcefulTerminationGracePeriod
+  if now.Before(pod.DeletionTimestamp.Add(totalGracePeriod)) {
+    gracePeriodLeft := pod.DeletionTimestamp.Add(totalGracePeriod).Sub(now)
+    return ctrl.Result{RequeueAfter: gracePeriodLeft}, nil
+  }
+
+  // ...
+}
+```
+
+In that scheduled reconciliation, unless the node recovered or the pod was deleted,
+the pod will be deemed "zombie" and transitioned into the `PodFailed` phase:
+
+```go
+func (r *ZombiePodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+  // ...
+
+  pod.Status.Phase = corev1.PodFailed
+  if err := r.client.Status().Update(ctx, pod); err != nil {
+    return ctrl.Result{}, err
+  }
+
+  return ctrl.Result{}, nil
+}
+```
+
+### Test Plan
+
+[x] I/we understand the owners of the involved components may require updates to
+existing tests to make this code solid enough prior to committing the changes necessary
+to implement this enhancement.
+
+#### Unit Tests
+
+The proposal will be covered with unit tests for:
+1. Configuration parsing.
+1. Controller behavior:
+    1. Whether it ignores irrelevant pods (not terminating, already failed/succeeded, not labeled).
+    1. Whether it correctly schedules a reconciliation for when the grace period elapses.
+    1. Whether it updates the pod's phase to `Failed` after the grace period elapses.
+
+#### Integration Tests
+
+The proposal will be covered with integrations tests that check whether:
+1. Adding a deletion timestamp to the pod requeues a reconciliation loop for when the grace period elapses.
+1. After the grace period elapses, the pod is marked as `Failed`.
+1. Replacement pods are scheduled in the place of the failed pod (optional, technically 1+2 is sufficient to prove this).
+
+Existing integration tests should prove that this feature does not impact Kueue during normal operation.
+
+### Graduation Criteria
+
+#### Alpha
+
+- Feature gate disabled by default.
+- Positive feedback from the users.
+
+### Beta
+
+- Feature gate enabled by default.
+- Re-evaluate the introduction of the `FailureRecoveryPolicy` API.
+
+## Implementation History
+
+2025-09-08: The [issue](https://github.com/kubernetes-sigs/kueue/issues/6757) is raised in Kueue.
+
+2025-09-12: The [issue](https://github.com/kubernetes/kubernetes/issues/134038) is raised in core Kubernetes.
+
+2025-10-17: First draft of the KEP.
+
+## Drawbacks
+
+* The same feature is discussed in core Kubernetes ([kubernetes/issues/134038](https://github.com/kubernetes/kubernetes/issues/134038)), so the underlying issue could potentially be fixed upstream. The timeline of an upstream change is long, but if the feature is deemed not time-critical, it could be fixed at the source instead of in Kueue.
+* This feature introduces a potential footgun to Kueue users and could turn out to be to volatile/risky to use in most affected cases.
+* It introduces yet another responsibility for Kueue - on top of quota management and scheduling, it will also start performing failure recovery.
+
+## Alternatives
+
+### Do Nothing
+
+Since this feature spawned a lengthy discussion about its riskiness and there are other controllers in the ecosystem which deal with
+node problem remediation (e.g. [medik8s](https://github.com/medik8s/self-node-remediation)), an alternative would be to do nothing,
+wait for the upstream conversations to be resolved and propose an alternative solution (external to Kueue) to the affected users.
+
+The biggest benefit of this approach is that it requires no implementation effort.
+
+**Reasons for discarding/deferring**
+
+1. Forces users to run another system alongside Kueue, making deploying Kueue more complex those cases.
+
+### Control All Pods Managed By Kueue
+
+Instead of limiting the affected pods with the new label, the controlled could cover all pods managed by Kueue.
+
+**Reasons for discarding/deferring**
+
+1. It will make the feature harder to test for the early adopters, since they would have to commit all the pods to test
+an alpha feature.
+
+### Introduce a `FailureRecoveryPolicy` API
+
+The `Configuration` struct could be extended to add `FailureRecoveryPolicy`:
 
 ```go
 type Configuration struct {
@@ -159,9 +305,7 @@ failureRecoveryPolicy:
       forcefulTerminationGracePeriod: 5m
 ```
 
-### Default Grace Period
-
-The proposal is to **not** set a default value for the forceful termination grace period.
+With the new API, the proposal is to **not** set a default value for the forceful termination grace period.
 This puts configuration over convention, as it will make the user consciously think about the
 grace period the need for their specific use case, without risking a faulty default.
 
@@ -172,144 +316,12 @@ Alternatively, a default value can be inferred from the `terminationGracePeriodS
 For example, it could be a multiple of that value. Nevertheless, this still runs the risk of
 setting a very small value or even 0, depending on the user's configuration.
 
-### Implementation Overview
-
-Setting the strategy type to `TerminatePod` will enable a controller, which manages
-the failed nodes.
-
-The controller has to **ignore** updates to pods that:
-1. Are not terminating.
-    * `pod.DeletionTimestamp == nil`
-1. Are in a terminal phase.
-    * `pod.Status.Phase != corev1.PodRunning && pod.Status.Phase != corev1.PodPending`
-1. Are not managed by Kueue.
-    * Neither the `kueue.x-k8s.io/managed` (for pod integration) nor `kueue.x-k8s.io/podset` label is set.
-1. Don't match the label selector defined in the configured `FailureRecoveryPolicy`.
-1. Are **not** scheduled on a node tainted with `node.kubernetes.io/unreachable`.
-    * This explicitly ignores pods assigned to nodes that still have a running kubelet.
-    For example, nodes with the `node.kubernetes.io/not-ready` taint experiencing resource pressure
-    that makes pod termination take longer.
-
-For relevant (not ignored) terminating pods, the controller schedules another reconciliation
-to happen after the remaining grace period elapses.
-In case a pod is matched by multiple selectors defined in the policy (many actions with `TerminatePodConfig`),
-the controller will use the **lowest** `ForcefulTerminationGracePeriod` that was found.
-
-```go
-func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-  // ...
-  terminationCfg := strictestMatchingTerminationConfig(r.terminationCfgs, pod)
-  // ...
-
-  now := r.clock.Now()
-  gracefulTerminationPeriod := time.Duration(*pod.DeletionGracePeriodSeconds) * time.Second
-  totalGracePeriod := gracefulTerminationPeriod + *terminationCfg.ForcefulTerminationGracePeriod
-  if now.Before(pod.DeletionTimestamp.Add(totalGracePeriod)) {
-    gracePeriodLeft := pod.DeletionTimestamp.Add(totalGracePeriod).Sub(now)
-    return ctrl.Result{RequeueAfter: gracePeriodLeft}, nil
-  }
-
-  // ...
-}
-```
-
-In that scheduled reconciliation, unless the node recovered or the pod was deleted,
-the pod will be deemed "zombie" and transitioned into the `PodFailed` phase:
-
-```go
-func (r *ZombiePodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-  // ...
-
-  pod.Status.Phase = corev1.PodFailed
-  if err := r.client.Status().Update(ctx, pod); err != nil {
-    return ctrl.Result{}, err
-  }
-
-  return ctrl.Result{}, nil
-}
-```
-
-### Test Plan
-
-[ ] I/we understand the owners of the involved components may require updates to
-existing tests to make this code solid enough prior to committing the changes necessary
-to implement this enhancement.
-
-#### Unit Tests
-
-The proposal will be covered with unit tests for:
-1. Configuration parsing.
-1. Controller behavior:
-    1. Whether it ignores irrelevant pods (not terminating, not managed by Kueue, already failed/succeeded, not labeled).
-    1. Whether it correctly schedules a reconciliation for when the grace period elapses.
-    1. Whether it updates the pod's phase to `Failed` after the grace period elapses.
-
-#### Integration Tests
-
-The proposal will be covered with integrations tests that check whether:
-1. Adding a deletion timestamp to the pod requeues a reconciliation loop for when the grace period elapses.
-1. After the grace period elapses, the pod is marked as `Failed`.
-1. Replacement pods are scheduled in the place of the failed pod (optional, technically 1+2 is sufficient to prove this).
-
-
-Existing integration tests should prove that this feature does not impact Kueue during normal operation.
-
-### Graduation Criteria
-
-#### Alpha
-
-- Feature gate disabled by default.
-- Positive feedback from the users.
-
-### Beta
-
-- Feature gate enabled by default.
-- Re-evaluate allowing for multiple rules in failurePolicyRules.
-
-## Implementation History
-
-2025-09-08: The [issue](https://github.com/kubernetes-sigs/kueue/issues/6757) is raised in Kueue.
-
-2025-09-12: The [issue](https://github.com/kubernetes/kubernetes/issues/134038) is raised in core Kubernetes.
-
-2025-10-17: First draft of the KEP.
-
-## Drawbacks
-
-* The same feature is discussed in core Kubernetes ([kubernetes/issues/134038](https://github.com/kubernetes/kubernetes/issues/134038)), so the underlying issue could potentially be fixed upstream. The timeline of an upstream change is long, but if the feature is deemed not time-critical, it could be fixed at the source instead of in Kueue.
-* This feature introduces a potential footgun to Kueue users and could turn out to be to volatile/risky to use in most affected cases.
-* It introduces yet another responsibility for Kueue - on top of quota management and scheduling, it will also start performing failure recovery.
-
-## Alternatives
-
-### Do Nothing
-
-Since this feature spawned a lengthy discussion about its riskiness and there are other controllers in the ecosystem which deal with
-node problem remediation (e.g. [medik8s](https://github.com/medik8s/self-node-remediation)), an alternative would be to do nothing,
-wait for the upstream conversations to be resolved and propose an alternative solution (external to Kueue) to the affected users.
-
-The biggest benefit of this approach is that it requires no implementation effort.
-
 **Reasons for discarding/deferring**
 
-1. Forces users to run another system alongside Kueue, making deploying Kueue more complex those cases.
-
-### Hide The Controller Only Behind A Feature Gate
-
-Instead of introducing changes to the API, a feature gate could be used to get some initial feedback about the
-feature and its risks.
-
-This approach is:
-
-1. Easy to implement, less moving parts.
-1. Allows to gather feedback quickly.
-
-**Reasons for discarding/deferring**
-
-1. It won't allow to implement the pod selectors and configurations for the failure recovery,
-limiting the implementation to defaults:
-    * `podLabelSelector` - everything.
-    * `forcefulTerminationGracePeriod` - a constant or a multiple of `terminationGracePeriodSeconds`.
+1. `FailureRecoveryPolicy` would have to be added to the **beta** `Configuration` API.
+To avoid committing to a specific structure (and the feature in general), it is more prudent to gather initial feedback
+with a feature gate first, then decide how to best represent it in the API.
+1. As mentioned in the [Do Nothing](#do-nothing) alternative, the issue this KEP is trying to mitigate might be solved at the core Kubernetes level. If so, deprecating a reserved label (proposed in the KEP) is simpler than deprecating an API.
 
 ### Managing The `node.kubernetes.io/out-of-service` Taint On `Node`
 
@@ -317,7 +329,7 @@ Core Kubernetes already contains logic for [automatic garbage collection](https:
 It updates the `Pod`s status and deletes it from `etcd`. The recovery controller could use this fact to terminate stuck pods by automatically adding this taint to nodes which are unreachable for some configurable time.
 
 Given the API proposal, this approach could potentially be implemented as an alternative
- recovery strategy in the future.
+ recovery strategy in the future (see [Introduce a <code>FailureRecoveryPolicy</code> API](#introduce-a-failurerecoverypolicy-api)).
 
  ```go
  type FailureRecoveryRule struct {
