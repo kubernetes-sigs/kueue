@@ -155,10 +155,10 @@ func patchCommon(obj client.Object, updateFn UpdateFunc, patchFn patchFunc, opti
 	for _, opt := range options {
 		opt(opts)
 	}
-	return executePatch(obj, opts, updateFn, patchFn)
+	return executePatch(obj, *opts, updateFn, patchFn)
 }
 
-func executePatch(obj client.Object, options *PatchOptions, update UpdateFunc, patchFn patchFunc) error {
+func executePatch(obj client.Object, options PatchOptions, update UpdateFunc, patchFn patchFunc) error {
 	objOriginal := getOriginalObject(obj, options)
 	objPatched, updated, err := update()
 	if err != nil || !updated {
@@ -179,7 +179,7 @@ func executePatch(obj client.Object, options *PatchOptions, update UpdateFunc, p
 // ResourceVersion field on the copied object. This ensures that the
 // ResourceVersion is included in the generated patch, enforcing stricter
 // version handling during the patch application.
-func getOriginalObject(obj client.Object, options *PatchOptions) client.Object {
+func getOriginalObject(obj client.Object, options PatchOptions) client.Object {
 	objOriginal := obj.DeepCopyObject().(client.Object)
 	if options.Strict {
 		// Clearing ResourceVersion from the original object to make sure it is included in the generated patch.
