@@ -499,7 +499,11 @@ func validateFailureRecoveryPolicy(c *configapi.Configuration) field.ErrorList {
 
 	for i, rule := range frp.Rules {
 		terminatePodConfigPath := failureRecoveryPolicyRulesPath.Index(i).Child("terminatePod")
-		if rule.TerminatePod != nil {
+		if rule.TerminatePod == nil {
+			allErrs = append(
+				allErrs,
+				field.Required(terminatePodConfigPath, "must be specified"))
+		} else {
 			allErrs = append(
 				allErrs,
 				validation.ValidateLabelSelector(&rule.TerminatePod.PodLabelSelector, validation.LabelSelectorValidationOptions{}, terminatePodConfigPath.Child("podLabelSelector"))...)

@@ -687,7 +687,24 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		"invalid podLabelSelector in .failureRecoveryPolicy.rules[i].terminatePod": {
+		"unspecified .terminatePod in .failureRecoveryPolicy.rules[i]": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				FailureRecoveryPolicy: &configapi.FailureRecoveryPolicy{
+					Rules: []configapi.FailureRecoveryRule{
+						{},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeRequired,
+					Origin: "",
+					Field:  "failureRecoveryPolicy.rules[0].terminatePod",
+				},
+			},
+		},
+		"invalid .podLabelSelector in .failureRecoveryPolicy.rules[i].terminatePod": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				FailureRecoveryPolicy: &configapi.FailureRecoveryPolicy{
