@@ -136,7 +136,7 @@ type TerminatePodConfig struct {
   PodLabelSelector metav1.LabelSelector `json:"podLabelSelector"`
 
   // ForcefulTerminationGracePeriod is the duration between when the pod's `deletionGracePeriodSeconds`
-  // elapses and when the pod should be forcefully deleted.
+  // elapses and when the pod should be forcefully terminated.
   // Represented using metav1.Duration (e.g. "10m", "1h30m").
   ForcefulTerminationGracePeriod metav1.Duration `json:"forcefulTerminationGracePeriod"`
 }
