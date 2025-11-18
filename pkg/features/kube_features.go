@@ -336,6 +336,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	ReclaimablePods: {
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
+	// PropagateBatchJobLabelsToWorkload is anabled from 0.13.10 and 0.14.5.
 	PropagateBatchJobLabelsToWorkload: {
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
