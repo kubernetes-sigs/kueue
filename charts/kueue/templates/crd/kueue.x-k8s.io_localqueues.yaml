@@ -294,6 +294,7 @@ spec:
                 flavors:
                   description: |-
                     flavors lists all currently available ResourceFlavors in specified ClusterQueue.
+
                     Deprecated: Flavors is deprecated and marked for removal in v1beta2.
                   items:
                     description: 'Deprecated: LocalQueueFlavorStatus is deprecated and marked for removal in v1beta2.'
