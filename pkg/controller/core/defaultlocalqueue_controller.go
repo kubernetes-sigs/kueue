@@ -90,6 +90,7 @@ func (r *DefaultLocalQueueReconciler) mapNamespaceToClusterQueues(ctx context.Co
 			return nil
 		}
 	}
+
 	log := r.log.WithValues("namespace", klog.KObj(ns))
 
 	var cqs kueue.ClusterQueueList
@@ -97,7 +98,6 @@ func (r *DefaultLocalQueueReconciler) mapNamespaceToClusterQueues(ctx context.Co
 		log.Error(err, "Failed to list ClusterQueues for namespace mapping")
 		return nil
 	}
-
 	requests := make([]reconcile.Request, 0, len(cqs.Items))
 	for i := range cqs.Items {
 		cq := &cqs.Items[i]
@@ -148,7 +148,6 @@ func (r *DefaultLocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		log.Error(err, "Failed to list matching namespaces")
 		return ctrl.Result{}, err
 	}
-
 	for i := range matchingNamespaces.Items {
 		ns := &matchingNamespaces.Items[i]
 		if r.namespaceSelector != nil {

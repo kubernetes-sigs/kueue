@@ -36,28 +36,22 @@ var _ = ginkgo.Describe("DefaultLocalQueue controller", ginkgo.Serial, func() {
 			cq *kueue.ClusterQueue
 		)
 
-		ginkgo.BeforeAll(func() {
+		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DefaultLocalQueueCreation, true)
 			fwk.StopManager(ctx)
 			fwk.StartManager(ctx, cfg, managerSetup)
-		})
-
-		ginkgo.AfterAll(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DefaultLocalQueueCreation, false)
-		})
-
-		ginkgo.BeforeEach(func() {
 			ns = &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
 					GenerateName: "ns-",
 				},
 			}
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
-			ns.Labels = map[string]string{"dep": ns.Name}
+			ns.Labels = map[string]string{ns.Name: ""}
 			gomega.Expect(k8sClient.Update(ctx, ns)).To(gomega.Succeed())
 		})
 
 		ginkgo.AfterEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DefaultLocalQueueCreation, false)
 			if cq != nil {
 				gomega.Expect(util.DeleteObject(ctx, k8sClient, cq)).To(gomega.Succeed())
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
@@ -94,7 +88,9 @@ var _ = ginkgo.Describe("DefaultLocalQueue controller", ginkgo.Serial, func() {
 		ginkgo.It("should create a default LocalQueue when a new matching namespace is created", func() {
 			cq = utiltestingapi.MakeClusterQueue("cq").
 				NamespaceSelector(&metav1.LabelSelector{
-					MatchLabels: ns.Labels,
+					MatchLabels: map[string]string{
+						"eng": "dev",
+					},
 				}).
 				GeneratedName("cq-").
 				DefaultLocalQueue(&kueue.DefaultLocalQueue{
@@ -105,8 +101,10 @@ var _ = ginkgo.Describe("DefaultLocalQueue controller", ginkgo.Serial, func() {
 
 			newNs := &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:   "new-ns",
-					Labels: ns.Labels,
+					Name: "new-ns",
+					Labels: map[string]string{
+						"eng": "dev",
+					},
 				},
 			}
 			gomega.Expect(k8sClient.Create(ctx, newNs)).To(gomega.Succeed())
@@ -123,9 +121,12 @@ var _ = ginkgo.Describe("DefaultLocalQueue controller", ginkgo.Serial, func() {
 		})
 
 		ginkgo.It("should create a default LocalQueue when a namespace is updated to match", func() {
+			labels := map[string]string{
+				"eng": "dev-update",
+			}
 			cq = utiltestingapi.MakeClusterQueue("cq").
 				NamespaceSelector(&metav1.LabelSelector{
-					MatchLabels: ns.Labels,
+					MatchLabels: labels,
 				}).
 				GeneratedName("cq-").
 				DefaultLocalQueue(&kueue.DefaultLocalQueue{
@@ -148,7 +149,7 @@ var _ = ginkgo.Describe("DefaultLocalQueue controller", ginkgo.Serial, func() {
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "default-lq", Namespace: nonMatchingNs.Name}, &kueue.LocalQueue{})).To(gomega.Not(gomega.Succeed()))
 			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 
-			nonMatchingNs.Labels = ns.Labels
+			nonMatchingNs.Labels = labels
 			gomega.Expect(k8sClient.Update(ctx, nonMatchingNs)).To(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
