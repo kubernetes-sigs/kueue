@@ -275,14 +275,15 @@ func findBestDomainsForBalancedPlacement(s *TASFlavorSnapshot, levelIdx, sliceLe
 	return currFitDomain, bestThreshold
 }
 
-// applyBalancedPlacementAlgorithm applies the balanced placement algorithm to determine domain assignments.
-func applyBalancedPlacementAlgorithm(s *TASFlavorSnapshot, levelIdx, sliceLevelIdx int, count, leaderCount, sliceSize, bestThreshold int32, unconstrained bool, currFitDomain []*domain) ([]*domain, string) {
+// applyBalancedPlacementAlgorithm applies the balanced placement algorithm to determine domain assignments
+// on the requested level(s)
+func applyBalancedPlacementAlgorithm(s *TASFlavorSnapshot, levelIdx, sliceLevelIdx int, count, leaderCount, sliceSize, bestThreshold int32, currFitDomain []*domain) ([]*domain, int, string) {
 	sliceCount := count / sliceSize
 	var fitLevelIdx int
 	if levelIdx < sliceLevelIdx {
 		resultDomains := selectOptimalDomainSetToFit(s, currFitDomain, sliceCount, leaderCount, sliceSize, true)
 		if resultDomains == nil {
-			return nil, "TAS Balanced Placement: Cannot find optimal domain set to fit the request"
+			return nil, 0, "TAS Balanced Placement: Cannot find optimal domain set to fit the request"
 		}
 		currFitDomain = s.lowerLevelDomains(resultDomains)
 		fitLevelIdx = levelIdx + 1
@@ -292,22 +293,9 @@ func applyBalancedPlacementAlgorithm(s *TASFlavorSnapshot, levelIdx, sliceLevelI
 	var reason string
 	currFitDomain, reason = placeSlicesOnDomainsBalanced(s, currFitDomain, sliceCount, leaderCount, sliceSize, bestThreshold)
 	if len(reason) > 0 {
-		return nil, reason
+		return nil, 0, reason
 	}
-	for currentLevelIdx := fitLevelIdx; currentLevelIdx+1 < len(s.domainsPerLevel); currentLevelIdx++ {
-		sliceSizeOnLevel := sliceSize
-		if currentLevelIdx >= sliceLevelIdx {
-			sliceSizeOnLevel = 1
-		}
-		newCurrFitDomain := make([]*domain, 0)
-		for _, domain := range currFitDomain {
-			sortedLowerDomains := s.sortedDomains(domain.children, unconstrained)
-			addCurrFitDomain := s.updateCountsToMinimumGeneric(sortedLowerDomains, domain.state, domain.leaderState, sliceSizeOnLevel, unconstrained, currentLevelIdx < sliceLevelIdx)
-			newCurrFitDomain = append(newCurrFitDomain, addCurrFitDomain...)
-		}
-		currFitDomain = newCurrFitDomain
-	}
-	return currFitDomain, ""
+	return currFitDomain, fitLevelIdx, ""
 }
 
 func getLowerLevelDomains(s *TASFlavorSnapshot, domains []*domain, levelIdx, sliceLevelIdx int) []*domain {
