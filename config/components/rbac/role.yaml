@@ -145,6 +145,7 @@ rules:
   resources:
   - jobsets
   verbs:
+  - create
   - delete
   - get
   - list
