@@ -911,7 +911,7 @@ failureRecoveryPolicy:
 										{
 											Key:      "example.com/pod-safe-to-fail",
 											Operator: metav1.LabelSelectorOpIn,
-											Values:   []string{"true", "True", "yes"},
+											Values:   []string{"true"},
 										},
 									},
 								},
