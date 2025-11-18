@@ -64,7 +64,7 @@ In particular, `Job`-based `Workload`s with `podReplacementPolicy: Failed` are u
 
 * Introduce a controller that moves zombie `Pod`s into the `Failed` phase.
   * The controller is enabled via a feature gate.
-* Introduce a reserved label that limits which pods are affected by the new controller.
+* Introduce a `kueue.x-k8s.io/pod-safe-to-forcefully-terminate` annotation that limits which pods are affected by the new controller.
 
 ### User Stories (Optional)
 
@@ -102,18 +102,14 @@ Controlling the covered workloads, instead of applying the recovery globally, wi
 
 #### Affected Pods
 
-In order to allow the first adopters to control which pods are affected by the new controller, a new reserved label will be introduced:
+In order to allow the first adopters to control which pods are affected by the new controller, a new `Pod` annotation will be introduced:
 ```yaml
 kueue.x-k8s.io/pod-safe-to-forcefully-terminate: "true"
 ```
 
-Only pods matching the label selector will be affected by the new controller:
-```yaml
-matchLabels:
-  kueue.x-k8s.io/pod-safe-to-forcefully-terminate: "true"
-```
+Only pods containing the new annotation will be affected by the controller.
 
-> The controller is not limited to pods managed by Kueue (i.e. having the `kueue.x-k8s.io/managed` or `kueue.x-k8s.io/podset` label). All pods in the cluster that have the new label will be affected.
+> The controller is not limited to pods managed by Kueue (i.e. having the `kueue.x-k8s.io/managed` or `kueue.x-k8s.io/podset` label). All pods in the cluster that have the new annotation will be affected.
 
 #### Grace Period
 
@@ -130,7 +126,7 @@ The controller has to **ignore** updates to pods that:
     * `pod.DeletionTimestamp == nil`
 1. Are in a terminal phase.
     * `pod.Status.Phase != corev1.PodRunning && pod.Status.Phase != corev1.PodPending`
-1. Are not labelled with the new `kueue.x-k8s.io/pod-safe-to-forcefully-terminate` label.
+1. Are not annotated with the new `kueue.x-k8s.io/pod-safe-to-forcefully-terminate` annotation.
 1. Are **not** scheduled on a node tainted with `node.kubernetes.io/unreachable`.
     * This explicitly ignores pods assigned to nodes that still have a running kubelet.
     For example, nodes with the `node.kubernetes.io/not-ready` taint experiencing resource pressure
@@ -182,7 +178,7 @@ to implement this enhancement.
 The proposal will be covered with unit tests for:
 1. Configuration parsing.
 1. Controller behavior:
-    1. Whether it ignores irrelevant pods (not terminating, already failed/succeeded, not labeled).
+    1. Whether it ignores irrelevant pods (not terminating, already failed/succeeded, not annotated).
     1. Whether it correctly schedules a reconciliation for when the grace period elapses.
     1. Whether it updates the pod's phase to `Failed` after the grace period elapses.
 
@@ -237,7 +233,7 @@ The biggest benefit of this approach is that it requires no implementation effor
 
 ### Control All Pods Managed By Kueue
 
-Instead of limiting the affected pods with the new label, the controlled could cover all pods managed by Kueue.
+Instead of limiting the affected pods with the new annotation, the controlled could cover all pods managed by Kueue.
 
 **Reasons for discarding/deferring**
 
@@ -321,7 +317,7 @@ setting a very small value or even 0, depending on the user's configuration.
 1. `FailureRecoveryPolicy` would have to be added to the **beta** `Configuration` API.
 To avoid committing to a specific structure (and the feature in general), it is more prudent to gather initial feedback
 with a feature gate first, then decide how to best represent it in the API.
-1. As mentioned in the [Do Nothing](#do-nothing) alternative, the issue this KEP is trying to mitigate might be solved at the core Kubernetes level. If so, deprecating a reserved label (proposed in the KEP) is simpler than deprecating an API.
+1. As mentioned in the [Do Nothing](#do-nothing) alternative, the issue this KEP is trying to mitigate might be solved at the core Kubernetes level. If so, deprecating an annotation (proposed in the KEP) is simpler than deprecating an API.
 
 ### Managing The `node.kubernetes.io/out-of-service` Taint On `Node`
 
