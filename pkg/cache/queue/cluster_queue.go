@@ -188,8 +188,7 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 	defer c.rwm.Unlock()
 	key := workload.Key(wInfo.Obj)
 	c.forgetInflightByKey(key)
-	oldInfo := c.inadmissibleWorkloads[key]
-	if oldInfo != nil {
+	if oldInfo := c.inadmissibleWorkload(key); oldInfo != nil {
 		// update in place if the workload was inadmissible and didn't change
 		// to potentially become admissible, unless the Eviction status changed
 		// which can affect the workloads order in the queue.
@@ -265,13 +264,19 @@ func (c *ClusterQueue) DeleteFromLocalQueue(log logr.Logger, q *LocalQueue) {
 	defer c.rwm.Unlock()
 	for _, w := range q.items {
 		key := workload.Key(w.Obj)
-		if wl := c.inadmissibleWorkloads[key]; wl != nil {
+		if c.inadmissibleWorkload(key) != nil {
 			delete(c.inadmissibleWorkloads, key)
 		}
 	}
 	for _, w := range q.items {
 		c.delete(log, w.Obj)
 	}
+}
+
+// inadmissibleWorkload retrieves a workload from inadmissibleWorkloads.
+// Returns the workload if it exists and is non-nil, otherwise returns nil.
+func (c *ClusterQueue) inadmissibleWorkload(key workload.Reference) *workload.Info {
+	return c.inadmissibleWorkloads[key]
 }
 
 // requeueIfNotPresent inserts a workload that cannot be admitted into
@@ -284,10 +289,12 @@ func (c *ClusterQueue) requeueIfNotPresent(wInfo *workload.Info, immediate bool)
 	defer c.rwm.Unlock()
 	key := workload.Key(wInfo.Obj)
 	c.forgetInflightByKey(key)
+
+	inadmissibleWl := c.inadmissibleWorkload(key)
+
 	if c.backoffWaitingTimeExpired(wInfo) &&
 		(immediate || c.queueInadmissibleCycle >= c.popCycle || wInfo.LastAssignment.PendingFlavors()) {
 		// If the workload was inadmissible, move it back into the queue.
-		inadmissibleWl := c.inadmissibleWorkloads[key]
 		if inadmissibleWl != nil {
 			wInfo = inadmissibleWl
 			delete(c.inadmissibleWorkloads, key)
@@ -295,11 +302,11 @@ func (c *ClusterQueue) requeueIfNotPresent(wInfo *workload.Info, immediate bool)
 		return c.heap.PushIfNotPresent(wInfo)
 	}
 
-	if c.inadmissibleWorkloads[key] != nil {
+	if inadmissibleWl != nil {
 		return false
 	}
 
-	if data := c.heap.GetByKey(key); data != nil {
+	if c.heap.GetByKey(key) != nil {
 		return false
 	}
 
