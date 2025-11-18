@@ -131,7 +131,7 @@ var _ = ginkgo.Describe("Kueue v1beta2", func() {
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob.Name, sampleJob.UID), Namespace: ns.Name}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-				g.Expect(hasQuotaReservation(createdWorkload)).Should(gomega.BeTrue())
+				g.Expect(hasQuotaReservation(createdWorkload)).Should(gomega.BeFalse())
 				g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
