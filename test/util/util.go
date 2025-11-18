@@ -295,16 +295,26 @@ func FinishWorkloads(ctx context.Context, k8sClient client.Client, workloads ...
 }
 
 func ExpectWorkloadsToHaveQuotaReservation(ctx context.Context, k8sClient client.Client, cqName string, wls ...*kueue.Workload) {
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	ginkgo.GinkgoHelper()
+	wlKeys := make([]client.ObjectKey, len(wls))
+	for index, wl := range wls {
+		wlKeys[index] = client.ObjectKeyFromObject(wl)
+	}
+	ExpectWorkloadsToHaveQuotaReservationByKey(ctx, k8sClient, cqName, wlKeys...)
+}
+
+func ExpectWorkloadsToHaveQuotaReservationByKey(ctx context.Context, k8sClient client.Client, cqName string, wlKeys ...client.ObjectKey) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
 		admitted := 0
 		var updatedWorkload kueue.Workload
-		for _, wl := range wls {
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
+		for _, wlKey := range wlKeys {
+			g.Expect(k8sClient.Get(ctx, wlKey, &updatedWorkload)).To(gomega.Succeed())
 			if workload.HasQuotaReservation(&updatedWorkload) && string(updatedWorkload.Status.Admission.ClusterQueue) == cqName {
 				admitted++
 			}
 		}
-		g.Expect(admitted).Should(gomega.Equal(len(wls)), "Not enough workloads were admitted")
+		g.Expect(admitted).Should(gomega.Equal(len(wlKeys)), "Not enough workloads were admitted")
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 

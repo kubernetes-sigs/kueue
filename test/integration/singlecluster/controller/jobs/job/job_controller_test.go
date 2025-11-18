@@ -2387,10 +2387,8 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 				Name:      workloadjob.GetWorkloadNameForJob(lowJob.Name, lowJob.UID),
 				Namespace: ns.Name,
 			}
-			ginkgo.By("Fetching the created low priority workload", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, lowWlLookupKey, createdLowWorkload)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			ginkgo.By("Verifying the created low priority workload is quota reserved", func() {
+				util.ExpectWorkloadsToHaveQuotaReservationByKey(ctx, k8sClient, clusterQueue.Name, lowWlLookupKey)
 			})
 
 			ginkgo.By("Setting ready for admission checks in low priority workload", func() {
@@ -2433,10 +2431,8 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 				Name:      workloadjob.GetWorkloadNameForJob(highJob.Name, highJob.UID),
 				Namespace: ns.Name,
 			}
-			ginkgo.By("Fetching the created high priority workload", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, highWlLookupKey, createdHighWorkload)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			ginkgo.By("Verifying the created high priority workload is quota reserved", func() {
+				util.ExpectWorkloadsToHaveQuotaReservationByKey(ctx, k8sClient, clusterQueue.Name, highWlLookupKey)
 			})
 
 			ginkgo.By("Setting ready for admission checks in high priority workload", func() {
