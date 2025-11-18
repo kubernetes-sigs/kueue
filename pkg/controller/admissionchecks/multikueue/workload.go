@@ -358,7 +358,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		}
 
 		// finish workload and copy the status to the local one
-		return reconcile.Result{}, workload.Finish(ctx, w.client, group.local, remoteFinishedCond.Reason, remoteFinishedCond.Message, kueue.MultiKueueControllerName, w.clock)
+		return reconcile.Result{}, workload.Finish(ctx, w.client, group.local, remoteFinishedCond.Reason, remoteFinishedCond.Message, w.clock)
 	}
 
 	// 2. delete all workloads that are out of sync (other than scaled-down elastic workloads)
