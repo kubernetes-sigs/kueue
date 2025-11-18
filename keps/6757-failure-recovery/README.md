@@ -153,7 +153,7 @@ failureRecoveryPolicy:
   - terminatePod:
       podLabelSelector:
         matchExpressions:
-        - key: safe-to-fail
+        - key: example.com/pod-safe-to-fail
           operator: In
           values: [ "true" ]
       forcefulTerminationGracePeriod: 5m
