@@ -405,7 +405,9 @@ The total length of each name must not exceed 253 characters.</p>
 <a href="#config-kueue-x-k8s-io-v1beta1-FailureRecoveryRule"><code>[]FailureRecoveryRule</code></a>
 </td>
 <td>
-   <p>Rules specifies the rules to be enabled for failure recovery.</p>
+   <p>Rules specifies the rules to be enabled for failure recovery.
+Exactly one rule can be specified. We keep the API flexible to accommodate
+setting more rules in the future.</p>
 </td>
 </tr>
 </tbody>
@@ -431,7 +433,9 @@ The total length of each name must not exceed 253 characters.</p>
 <td>
    <p>TerminatePod enables and contains configuration for the <code>TerminatePod</code> strategy.
 This strategy recovers stuck pods by forcefully terminating them after a configured
-grace period elapses.</p>
+grace period elapses.
+Currently specifying the field is required. We keep the API flexible to allow
+introducing other rule actions in the future.</p>
 </td>
 </tr>
 </tbody>
@@ -991,9 +995,7 @@ for Dynamic Resource Allocation support.</p>
 </td>
 <td>
    <p>PodLabelSelector specifies the scope of resources covered by <code>TerminatePod</code> failure recovery -
-resources not matching the selector are ignored by the controller.
-If a pod matches multiple configurations, the strictest one (with the shortest grace period)
-will be applied.</p>
+resources not matching the selector are ignored by the controller.</p>
 </td>
 </tr>
 <tr><td><code>forcefulTerminationGracePeriod</code> <B>[Required]</B><br/>

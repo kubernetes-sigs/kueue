@@ -88,7 +88,7 @@ integrations:
 #  - terminatePod:
 #      podLabelSelector:
 #        matchExpressions:
-#        - key: safe-to-fail
+#        - key: example.com/pod-safe-to-fail
 #          operator: In
 #          values: [ "true", "True", "yes" ]
 #      forcefulTerminationGracePeriod: 30s

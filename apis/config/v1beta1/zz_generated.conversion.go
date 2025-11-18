@@ -820,7 +820,7 @@ func Convert_v1beta2_Resources_To_v1beta1_Resources(in *v1beta2.Resources, out *
 }
 
 func autoConvert_v1beta1_TerminatePodConfig_To_v1beta2_TerminatePodConfig(in *TerminatePodConfig, out *v1beta2.TerminatePodConfig, s conversion.Scope) error {
-	out.PodLabelSelector = (*metav1.LabelSelector)(unsafe.Pointer(in.PodLabelSelector))
+	out.PodLabelSelector = in.PodLabelSelector
 	out.ForcefulTerminationGracePeriod = in.ForcefulTerminationGracePeriod
 	return nil
 }
@@ -831,7 +831,7 @@ func Convert_v1beta1_TerminatePodConfig_To_v1beta2_TerminatePodConfig(in *Termin
 }
 
 func autoConvert_v1beta2_TerminatePodConfig_To_v1beta1_TerminatePodConfig(in *v1beta2.TerminatePodConfig, out *TerminatePodConfig, s conversion.Scope) error {
-	out.PodLabelSelector = (*metav1.LabelSelector)(unsafe.Pointer(in.PodLabelSelector))
+	out.PodLabelSelector = in.PodLabelSelector
 	out.ForcefulTerminationGracePeriod = in.ForcefulTerminationGracePeriod
 	return nil
 }

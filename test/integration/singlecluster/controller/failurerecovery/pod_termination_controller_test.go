@@ -54,9 +54,9 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 				Rules: []config.FailureRecoveryRule{
 					{
 						TerminatePod: &config.TerminatePodConfig{
-							PodLabelSelector: &metav1.LabelSelector{
+							PodLabelSelector: metav1.LabelSelector{
 								MatchLabels: map[string]string{
-									"safe-to-fail": "true",
+									"example.com/pod-safe-to-fail": "true",
 								},
 							},
 							ForcefulTerminationGracePeriod: metav1.Duration{Duration: time.Second},
@@ -84,7 +84,7 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 			TerminationGracePeriod(1).
 			ManagedByKueueLabel().
 			NodeName(unreachableNodeName).
-			Label("safe-to-fail", "true")
+			Label("example.com/pod-safe-to-fail", "true")
 	})
 
 	ginkgo.It("forcefully terminates matching pods scheduled on unreachable nodes", func() {
@@ -99,7 +99,7 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 	})
 
 	ginkgo.It("does not forcefully terminate non matching pods scheduled on unreachable nodes", func() {
-		nonMatchingPod := matchingPodWrapper.Clone().Name("non-matching-pod").Label("safe-to-fail", "false").Obj()
+		nonMatchingPod := matchingPodWrapper.Clone().Name("non-matching-pod").Label("example.com/pod-safe-to-fail", "false").Obj()
 		createTerminatingPod(nonMatchingPod)
 
 		gomega.Consistently(func(g gomega.Gomega) {

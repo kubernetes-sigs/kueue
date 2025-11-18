@@ -81,7 +81,7 @@ func NewTerminatingPodReconciler(
 
 	terminationCfgs := make([]*terminatePodConfigInternal, len(cfgs))
 	for i, cfg := range cfgs {
-		selector, err := metav1.LabelSelectorAsSelector(cfg.PodLabelSelector)
+		selector, err := metav1.LabelSelectorAsSelector(&cfg.PodLabelSelector)
 		if err != nil {
 			return nil, err
 		}

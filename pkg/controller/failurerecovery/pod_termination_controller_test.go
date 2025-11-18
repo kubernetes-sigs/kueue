@@ -69,12 +69,12 @@ func TestReconciler(t *testing.T) {
 	baseCfg := []configapi.TerminatePodConfig{
 		// Config matching every pod
 		{
-			PodLabelSelector:               &metav1.LabelSelector{},
+			PodLabelSelector:               metav1.LabelSelector{},
 			ForcefulTerminationGracePeriod: metav1.Duration{Duration: time.Minute},
 		},
 		// Config matching specific pods. Tested pod does not have this label.
 		{
-			PodLabelSelector: &metav1.LabelSelector{
+			PodLabelSelector: metav1.LabelSelector{
 				MatchLabels: map[string]string{
 					"missing-label": "value",
 				},
@@ -84,7 +84,7 @@ func TestReconciler(t *testing.T) {
 	}
 	// Additional config matching specific pods. Tested pod has this label.
 	multiCfg := append(baseCfg, configapi.TerminatePodConfig{
-		PodLabelSelector: &metav1.LabelSelector{
+		PodLabelSelector: metav1.LabelSelector{
 			MatchLabels: map[string]string{
 				"terminate-quickly": "true",
 			},

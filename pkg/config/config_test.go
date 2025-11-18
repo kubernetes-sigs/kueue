@@ -361,9 +361,9 @@ failureRecoveryPolicy:
   - terminatePod:
       podLabelSelector:
         matchExpressions:
-        - key: safe-to-fail
+        - key: example.com/pod-safe-to-fail
           operator: In
-          values: [ "true", "True", "yes" ]
+          values: [ "true" ]
       forcefulTerminationGracePeriod: 5m
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
@@ -906,10 +906,10 @@ failureRecoveryPolicy:
 					Rules: []configapi.FailureRecoveryRule{
 						{
 							TerminatePod: &configapi.TerminatePodConfig{
-								PodLabelSelector: &metav1.LabelSelector{
+								PodLabelSelector: metav1.LabelSelector{
 									MatchExpressions: []metav1.LabelSelectorRequirement{
 										{
-											Key:      "safe-to-fail",
+											Key:      "example.com/pod-safe-to-fail",
 											Operator: metav1.LabelSelectorOpIn,
 											Values:   []string{"true", "True", "yes"},
 										},

@@ -679,7 +679,7 @@ func TestValidate(t *testing.T) {
 					Rules: []configapi.FailureRecoveryRule{
 						{
 							TerminatePod: &configapi.TerminatePodConfig{
-								PodLabelSelector:               &metav1.LabelSelector{},
+								PodLabelSelector:               metav1.LabelSelector{},
 								ForcefulTerminationGracePeriod: metav1.Duration{Duration: 1},
 							},
 						},
@@ -694,7 +694,7 @@ func TestValidate(t *testing.T) {
 					Rules: []configapi.FailureRecoveryRule{
 						{
 							TerminatePod: &configapi.TerminatePodConfig{
-								PodLabelSelector: &metav1.LabelSelector{
+								PodLabelSelector: metav1.LabelSelector{
 									MatchLabels: map[string]string{
 										"&invalid": "value",
 									},
