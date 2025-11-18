@@ -109,6 +109,20 @@ AC - Active: True Reason: Active Message: The admission check is active
 MC - Active: True Reason: Active Message: Connected
 ```
 
+### Create a sample setup with TAS
+
+To enable Topology-Aware Scheduling (TAS) in a MultiKueue setup, configure the worker clusters with topology levels and the manager cluster with delayed topology requests.
+
+Worker cluster configuration:
+
+{{< include "examples/multikueue/tas/worker-setup.yaml" "yaml" >}}
+
+Manager cluster configuration:
+
+{{< include "examples/multikueue/tas/manager-setup.yaml" "yaml" >}}
+
+For a complete setup guide including local development with Kind, see the [Setup MultiKueue with Topology-Aware Scheduling](/docs/tasks/dev/setup_multikueue_tas/) guide.
+
 ## (Optional) Setup MultiKueue with Open Cluster Management
 
 [Open Cluster Management (OCM)](https://open-cluster-management.io/) is a community-driven project focused on multicluster and multicloud scenarios for Kubernetes apps.
