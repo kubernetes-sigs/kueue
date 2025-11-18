@@ -352,23 +352,6 @@ objectRetentionPolicies:
 		t.Fatal(err)
 	}
 
-	failureRecoveryPolicyConfig := filepath.Join(tmpDir, "failureRecoveryPolicy.yaml")
-	if err := os.WriteFile(failureRecoveryPolicyConfig, []byte(`apiVersion: config.kueue.x-k8s.io/v1beta2
-kind: Configuration
-namespace: kueue-system
-failureRecoveryPolicy:
-  rules:
-  - terminatePod:
-      podLabelSelector:
-        matchExpressions:
-        - key: example.com/pod-safe-to-fail
-          operator: In
-          values: [ "true" ]
-      forcefulTerminationGracePeriod: 5m
-`), os.FileMode(0600)); err != nil {
-		t.Fatal(err)
-	}
-
 	enableDefaultInternalCertManagement := &configapi.InternalCertManagement{
 		Enable:             ptr.To(true),
 		WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
@@ -882,42 +865,6 @@ failureRecoveryPolicy:
 					Workloads: &configapi.WorkloadRetentionPolicy{
 						AfterFinished:           &metav1.Duration{Duration: 30 * time.Minute},
 						AfterDeactivatedByKueue: &metav1.Duration{Duration: 30 * time.Minute},
-					},
-				},
-			},
-			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
-		},
-		{
-			name:       "failureRecoveryPolicy config",
-			configFile: failureRecoveryPolicyConfig,
-			wantConfiguration: configapi.Configuration{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.GroupVersion.String(),
-					Kind:       "Configuration",
-				},
-				Namespace:                    ptr.To(configapi.DefaultNamespace),
-				ManageJobsWithoutQueueName:   false,
-				InternalCertManagement:       enableDefaultInternalCertManagement,
-				ClientConnection:             defaultClientConnection,
-				Integrations:                 defaultIntegrations,
-				MultiKueue:                   defaultMultiKueue,
-				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				FailureRecoveryPolicy: &configapi.FailureRecoveryPolicy{
-					Rules: []configapi.FailureRecoveryRule{
-						{
-							TerminatePod: &configapi.TerminatePodConfig{
-								PodLabelSelector: metav1.LabelSelector{
-									MatchExpressions: []metav1.LabelSelectorRequirement{
-										{
-											Key:      "example.com/pod-safe-to-fail",
-											Operator: metav1.LabelSelectorOpIn,
-											Values:   []string{"true"},
-										},
-									},
-								},
-								ForcefulTerminationGracePeriod: metav1.Duration{Duration: 5 * time.Minute},
-							},
-						},
 					},
 				},
 			},

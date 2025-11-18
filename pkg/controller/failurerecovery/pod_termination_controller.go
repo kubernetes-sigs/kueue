@@ -21,15 +21,12 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	utilnode "sigs.k8s.io/kueue/pkg/util/node"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
@@ -39,18 +36,17 @@ import (
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 
 var (
-	realClock = clock.RealClock{}
+	realClock                             = clock.RealClock{}
+	defaultForcefulTerminationGracePeriod = 1 * time.Second
+
+	// TODO: Move to API.
+	safeToForcefullyTerminateAnnotationName  = "kueue.x-k8s.io/safe-to-forcefully-terminate"
+	safeToForcefullyTerminateAnnotationValue = "true"
 )
 
 type TerminatingPodReconciler struct {
-	client          client.Client
-	terminationCfgs []*terminatePodConfigInternal
-	clock           clock.Clock
-}
-
-type terminatePodConfigInternal struct {
-	selector    labels.Selector
-	gracePeriod metav1.Duration
+	client client.Client
+	clock  clock.Clock
 }
 
 type TerminatingPodReconcilerOptions struct {
@@ -71,7 +67,6 @@ var defaultOptions = TerminatingPodReconcilerOptions{
 
 func NewTerminatingPodReconciler(
 	client client.Client,
-	cfgs []configapi.TerminatePodConfig,
 	opts ...TerminatingPodReconcilerOption,
 ) (*TerminatingPodReconciler, error) {
 	options := defaultOptions
@@ -79,23 +74,9 @@ func NewTerminatingPodReconciler(
 		opt(&options)
 	}
 
-	terminationCfgs := make([]*terminatePodConfigInternal, len(cfgs))
-	for i, cfg := range cfgs {
-		selector, err := metav1.LabelSelectorAsSelector(&cfg.PodLabelSelector)
-		if err != nil {
-			return nil, err
-		}
-
-		terminationCfgs[i] = &terminatePodConfigInternal{
-			selector:    selector,
-			gracePeriod: cfg.ForcefulTerminationGracePeriod,
-		}
-	}
-
 	return &TerminatingPodReconciler{
-		client:          client,
-		terminationCfgs: terminationCfgs,
-		clock:           options.clock,
+		client: client,
+		clock:  options.clock,
 	}, nil
 }
 
@@ -105,9 +86,9 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	terminationCfg := strictestMatchingTerminationConfig(r.terminationCfgs, pod)
-	// Pod does not match any of the configured pod label selector
-	if terminationCfg == nil {
+	// Pod did not opt-in to be forcefully terminated
+	annotationValue, hasAnnotation := pod.Annotations[safeToForcefullyTerminateAnnotationName]
+	if !hasAnnotation || annotationValue != safeToForcefullyTerminateAnnotationValue {
 		return ctrl.Result{}, nil
 	}
 
@@ -118,11 +99,6 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	// Pod is not in a running phase
 	if utilpod.IsTerminated(pod) {
-		return ctrl.Result{}, nil
-	}
-
-	// Pod is not managed by Kueue
-	if !utilpod.IsManagedByKueue(pod) {
 		return ctrl.Result{}, nil
 	}
 
@@ -138,7 +114,7 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	now := r.clock.Now()
 	gracefulTerminationPeriod := time.Duration(ptr.Deref(pod.DeletionGracePeriodSeconds, 0)) * time.Second
-	totalGracePeriod := gracefulTerminationPeriod + terminationCfg.gracePeriod.Duration
+	totalGracePeriod := gracefulTerminationPeriod + defaultForcefulTerminationGracePeriod
 	if now.Before(pod.DeletionTimestamp.Add(totalGracePeriod)) {
 		gracePeriodLeft := pod.DeletionTimestamp.Add(totalGracePeriod).Sub(now)
 		return ctrl.Result{RequeueAfter: gracePeriodLeft}, nil
@@ -151,20 +127,6 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	return ctrl.Result{}, nil
-}
-
-// Finds a matching config with the shortest grace period.
-func strictestMatchingTerminationConfig(cfgs []*terminatePodConfigInternal, p *corev1.Pod) *terminatePodConfigInternal {
-	var result *terminatePodConfigInternal
-
-	for _, cfg := range cfgs {
-		if cfg.selector.Matches(labels.Set(p.Labels)) &&
-			(result == nil || cfg.gracePeriod.Duration < result.gracePeriod.Duration) {
-			result = cfg
-		}
-	}
-
-	return result
 }
 
 func (r *TerminatingPodReconciler) SetupWithManager(mgr ctrl.Manager) error {

@@ -33,8 +33,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
-	"sigs.k8s.io/kueue/pkg/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -53,7 +51,6 @@ func TestReconciler(t *testing.T) {
 	now := time.Now()
 	nowSecondPrecision := metav1.NewTime(now).Rfc3339Copy()
 	beforeGracePeriod := now.Add(-time.Minute * 3)
-	inbetweenConfiguredGracePeriods := now.Add(-time.Second * 45)
 	fakeClock := testingclock.NewFakeClock(now)
 
 	unreachableNode := testingnode.MakeNode("unreachable-node").
@@ -61,47 +58,27 @@ func TestReconciler(t *testing.T) {
 	healthyNode := testingnode.MakeNode("healthy-node").Obj()
 	podToForcefullyTerminate := testingpod.MakePod("pod", "").
 		StatusPhase(corev1.PodRunning).
-		ManagedByKueueLabel().
-		Label("terminate-quickly", "true").
+		Annotation(safeToForcefullyTerminateAnnotationName, safeToForcefullyTerminateAnnotationValue).
 		NodeName(unreachableNode.Name).
 		DeletionTimestamp(beforeGracePeriod).
 		KueueFinalizer()
-	baseCfg := []configapi.TerminatePodConfig{
-		// Config matching every pod
-		{
-			PodLabelSelector:               metav1.LabelSelector{},
-			ForcefulTerminationGracePeriod: metav1.Duration{Duration: time.Minute},
-		},
-		// Config matching specific pods. Tested pod does not have this label.
-		{
-			PodLabelSelector: metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					"missing-label": "value",
-				},
-			},
-			ForcefulTerminationGracePeriod: metav1.Duration{Duration: time.Second * 10},
-		},
-	}
-	// Additional config matching specific pods. Tested pod has this label.
-	multiCfg := append(baseCfg, configapi.TerminatePodConfig{
-		PodLabelSelector: metav1.LabelSelector{
-			MatchLabels: map[string]string{
-				"terminate-quickly": "true",
-			},
-		},
-		ForcefulTerminationGracePeriod: metav1.Duration{Duration: time.Second * 30},
-	})
 
 	cases := map[string]struct {
 		testPod    *corev1.Pod
-		testConfig []configapi.TerminatePodConfig
 		wantResult ctrl.Result
 		wantErr    error
 		wantPod    *corev1.Pod
 	}{
 		"pod is not found": {
 			testPod:    testingpod.MakePod("pod2", "").Obj(),
-			testConfig: baseCfg,
+			wantResult: ctrl.Result{},
+			wantErr:    nil,
+		},
+		"pod did not opt-in with annotation": {
+			testPod: podToForcefullyTerminate.
+				Clone().
+				Annotation(safeToForcefullyTerminateAnnotationName, "false").
+				Obj(),
 			wantResult: ctrl.Result{},
 			wantErr:    nil,
 		},
@@ -110,7 +87,6 @@ func TestReconciler(t *testing.T) {
 				Clone().
 				DeletionTimestamp(time.Time{}).
 				Obj(),
-			testConfig: baseCfg,
 			wantResult: ctrl.Result{},
 			wantErr:    nil,
 		},
@@ -119,7 +95,6 @@ func TestReconciler(t *testing.T) {
 				Clone().
 				StatusPhase(corev1.PodFailed).
 				Obj(),
-			testConfig: baseCfg,
 			wantResult: ctrl.Result{},
 			wantErr:    nil,
 		},
@@ -128,16 +103,6 @@ func TestReconciler(t *testing.T) {
 				Clone().
 				StatusPhase(corev1.PodSucceeded).
 				Obj(),
-			testConfig: baseCfg,
-			wantResult: ctrl.Result{},
-			wantErr:    nil,
-		},
-		"pod is not managed by Kueue": {
-			testPod: podToForcefullyTerminate.
-				Clone().
-				Label(constants.ManagedByKueueLabelKey, "false").
-				Obj(),
-			testConfig: baseCfg,
 			wantResult: ctrl.Result{},
 			wantErr:    nil,
 		},
@@ -146,7 +111,6 @@ func TestReconciler(t *testing.T) {
 				Clone().
 				NodeName(healthyNode.Name).
 				Obj(),
-			testConfig: baseCfg,
 			wantResult: ctrl.Result{},
 			wantErr:    nil,
 		},
@@ -155,39 +119,17 @@ func TestReconciler(t *testing.T) {
 				Clone().
 				DeletionTimestamp(now).
 				Obj(),
-			testConfig: baseCfg,
 			wantResult: ctrl.Result{RequeueAfter: nowSecondPrecision.Add(time.Minute).Sub(now)},
 			wantErr:    nil,
 		},
 		"forceful termination grace period elapsed for pod": {
 			testPod:    podToForcefullyTerminate.Clone().Obj(),
-			testConfig: baseCfg,
-			wantResult: ctrl.Result{},
-			wantErr:    nil,
-			wantPod:    podToForcefullyTerminate.Clone().StatusPhase(corev1.PodFailed).Obj(),
-		},
-		"stricter forceful termination grace period did not elapse for pod with multiple matching configs": {
-			testPod: podToForcefullyTerminate.
-				Clone().
-				DeletionTimestamp(now).
-				Obj(),
-			testConfig: multiCfg,
-			wantResult: ctrl.Result{RequeueAfter: nowSecondPrecision.Add(time.Second * 30).Sub(now)},
-			wantErr:    nil,
-		},
-		"stricter forceful termination grace period elapsed for pod with multiple matching configs": {
-			testPod: podToForcefullyTerminate.
-				Clone().
-				DeletionTimestamp(inbetweenConfiguredGracePeriods).
-				Obj(),
-			testConfig: multiCfg,
 			wantResult: ctrl.Result{},
 			wantErr:    nil,
 			wantPod:    podToForcefullyTerminate.Clone().StatusPhase(corev1.PodFailed).Obj(),
 		},
 		"pod is scheduled on a node that does not exist": {
 			testPod:    podToForcefullyTerminate.Clone().NodeName("missing-node").Obj(),
-			testConfig: baseCfg,
 			wantResult: ctrl.Result{},
 			wantErr:    apierrors.NewNotFound(schema.GroupResource{Group: corev1.GroupName, Resource: "nodes"}, "missing-node"),
 		},
@@ -198,7 +140,7 @@ func TestReconciler(t *testing.T) {
 			objs := []client.Object{tc.testPod, healthyNode, unreachableNode}
 			clientBuilder := utiltesting.NewClientBuilder().WithObjects(objs...)
 			cl := clientBuilder.Build()
-			reconciler, err := NewTerminatingPodReconciler(cl, tc.testConfig, WithClock(fakeClock))
+			reconciler, err := NewTerminatingPodReconciler(cl, WithClock(fakeClock))
 			if err != nil {
 				t.Fatalf("could not create reconciler: %v", err)
 			}

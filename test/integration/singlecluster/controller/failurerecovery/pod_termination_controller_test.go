@@ -22,11 +22,8 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta2"
-	"sigs.k8s.io/kueue/pkg/constants"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util"
@@ -35,6 +32,10 @@ import (
 const (
 	unreachableNodeName = "unreachable-node"
 	reachableNodeName   = "reachable-node"
+
+	// The default termination grace period is set to 1 minute.
+	forcefulTerminationTimeout       = 80 * time.Second
+	forcefulTerminationCheckInterval = 15 * time.Second
 )
 
 func createTerminatingPod(p *corev1.Pod) {
@@ -49,24 +50,6 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 	var matchingPodWrapper *testingpod.PodWrapper
 
 	ginkgo.BeforeAll(func() {
-		kueueCfg := &config.Configuration{
-			FailureRecoveryPolicy: &config.FailureRecoveryPolicy{
-				Rules: []config.FailureRecoveryRule{
-					{
-						TerminatePod: &config.TerminatePodConfig{
-							PodLabelSelector: metav1.LabelSelector{
-								MatchLabels: map[string]string{
-									"example.com/pod-safe-to-fail": "true",
-								},
-							},
-							ForcefulTerminationGracePeriod: metav1.Duration{Duration: time.Second},
-						},
-					},
-				},
-			},
-		}
-		fwk.StartManager(ctx, cfg, managerSetup(kueueCfg))
-
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-fr-namespace-")
 		nodes := []corev1.Node{
 			*testingnode.MakeNode(unreachableNodeName).
@@ -82,12 +65,11 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 		matchingPodWrapper = testingpod.MakePod("matching-pod", ns.Name).
 			StatusPhase(corev1.PodPending).
 			TerminationGracePeriod(1).
-			ManagedByKueueLabel().
 			NodeName(unreachableNodeName).
-			Label("example.com/pod-safe-to-fail", "true")
+			Annotation("kueue.x-k8s.io/safe-to-forcefully-terminate", "true")
 	})
 
-	ginkgo.It("forcefully terminates matching pods scheduled on unreachable nodes", func() {
+	ginkgo.It("forcefully terminates pods that opt-in, scheduled on unreachable nodes", func() {
 		matchingPod := matchingPodWrapper.Clone().Obj()
 		createTerminatingPod(matchingPod)
 
@@ -95,29 +77,22 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: matchingPod.Name, Namespace: matchingPod.Namespace}, matchingPod)).
 				To(gomega.Succeed())
 			g.Expect(matchingPod.Status.Phase).Should(gomega.Equal(corev1.PodFailed))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, forcefulTerminationTimeout, forcefulTerminationCheckInterval).Should(gomega.Succeed())
 	})
 
-	ginkgo.It("does not forcefully terminate non matching pods scheduled on unreachable nodes", func() {
-		nonMatchingPod := matchingPodWrapper.Clone().Name("non-matching-pod").Label("example.com/pod-safe-to-fail", "false").Obj()
+	ginkgo.It("does not forcefully terminate pods that did not opt-in, scheduled on unreachable nodes", func() {
+		nonMatchingPod := matchingPodWrapper.
+			Clone().
+			Name("non-matching-pod").
+			Annotation("kueue.x-k8s.io/safe-to-forcefully-terminate", "false").
+			Obj()
 		createTerminatingPod(nonMatchingPod)
 
 		gomega.Consistently(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nonMatchingPod.Name, Namespace: nonMatchingPod.Namespace}, nonMatchingPod)).
 				To(gomega.Succeed())
 			g.Expect(nonMatchingPod.Status.Phase).Should(gomega.Equal(corev1.PodPending))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-	})
-
-	ginkgo.It("does not forcefully terminate non-Kueue pods scheduled on unreachable nodes", func() {
-		nonKueuePod := matchingPodWrapper.Clone().Name("non-kueue-pod").Label(constants.ManagedByKueueLabelKey, "false").Obj()
-		createTerminatingPod(nonKueuePod)
-
-		gomega.Consistently(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nonKueuePod.Name, Namespace: nonKueuePod.Namespace}, nonKueuePod)).
-				To(gomega.Succeed())
-			g.Expect(nonKueuePod.Status.Phase).Should(gomega.Equal(corev1.PodPending))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, forcefulTerminationTimeout, forcefulTerminationCheckInterval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("does not forcefully terminate matching pods scheduled on healthy nodes", func() {
@@ -128,6 +103,6 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: podOnHealthyNode.Name, Namespace: podOnHealthyNode.Namespace}, podOnHealthyNode)).
 				To(gomega.Succeed())
 			g.Expect(podOnHealthyNode.Status.Phase).Should(gomega.Equal(corev1.PodPending))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, forcefulTerminationTimeout, forcefulTerminationCheckInterval).Should(gomega.Succeed())
 	})
 })

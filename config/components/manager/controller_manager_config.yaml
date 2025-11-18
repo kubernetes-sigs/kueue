@@ -83,12 +83,3 @@ integrations:
 #  workloads:
 #    afterFinished: null # null indicates infinite retention, 0s means no retention at all
 #    afterDeactivatedByKueue: null # null indicates infinite retention, 0s means no retention at all
-#failureRecoveryPolicy:
-#  rules:
-#  - terminatePod:
-#      podLabelSelector:
-#        matchExpressions:
-#        - key: example.com/pod-safe-to-fail
-#          operator: In
-#          values: [ "true", "True", "yes" ]
-#      forcefulTerminationGracePeriod: 30s

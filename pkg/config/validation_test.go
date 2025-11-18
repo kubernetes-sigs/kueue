@@ -672,64 +672,6 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		"valid .failureRecoveryPolicy configuration": {
-			cfg: &configapi.Configuration{
-				Integrations: defaultIntegrations,
-				FailureRecoveryPolicy: &configapi.FailureRecoveryPolicy{
-					Rules: []configapi.FailureRecoveryRule{
-						{
-							TerminatePod: &configapi.TerminatePodConfig{
-								PodLabelSelector:               metav1.LabelSelector{},
-								ForcefulTerminationGracePeriod: metav1.Duration{Duration: 1},
-							},
-						},
-					},
-				},
-			},
-		},
-		"unspecified .terminatePod in .failureRecoveryPolicy.rules[i]": {
-			cfg: &configapi.Configuration{
-				Integrations: defaultIntegrations,
-				FailureRecoveryPolicy: &configapi.FailureRecoveryPolicy{
-					Rules: []configapi.FailureRecoveryRule{
-						{},
-					},
-				},
-			},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:   field.ErrorTypeRequired,
-					Origin: "",
-					Field:  "failureRecoveryPolicy.rules[0].terminatePod",
-				},
-			},
-		},
-		"invalid .podLabelSelector in .failureRecoveryPolicy.rules[i].terminatePod": {
-			cfg: &configapi.Configuration{
-				Integrations: defaultIntegrations,
-				FailureRecoveryPolicy: &configapi.FailureRecoveryPolicy{
-					Rules: []configapi.FailureRecoveryRule{
-						{
-							TerminatePod: &configapi.TerminatePodConfig{
-								PodLabelSelector: metav1.LabelSelector{
-									MatchLabels: map[string]string{
-										"&invalid": "value",
-									},
-								},
-								ForcefulTerminationGracePeriod: metav1.Duration{Duration: 1},
-							},
-						},
-					},
-				},
-			},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Origin: "labelKey",
-					Field:  "failureRecoveryPolicy.rules[0].terminatePod.podLabelSelector.matchLabels",
-				},
-			},
-		},
 	}
 
 	for name, tc := range testCases {

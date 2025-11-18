@@ -26,7 +26,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/failurerecovery"
 	"sigs.k8s.io/kueue/test/integration/framework"
 )
@@ -50,27 +49,17 @@ var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
+	fwk.StartManager(ctx, cfg, managerSetup)
 })
 
 var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
-func managerSetup(kueueCfg *config.Configuration) framework.ManagerSetup {
-	return func(ctx context.Context, mgr manager.Manager) {
-		mgr.GetScheme().Default(kueueCfg)
+func managerSetup(ctx context.Context, mgr manager.Manager) {
+	terminatingPodReconciler, err := failurerecovery.NewTerminatingPodReconciler(mgr.GetClient())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		terminationCfgs := make([]config.TerminatePodConfig, 0, len(kueueCfg.FailureRecoveryPolicy.Rules))
-		for _, rule := range kueueCfg.FailureRecoveryPolicy.Rules {
-			if rule.TerminatePod != nil {
-				terminationCfgs = append(terminationCfgs, *rule.TerminatePod)
-			}
-		}
-
-		terminatingPodReconciler, err := failurerecovery.NewTerminatingPodReconciler(mgr.GetClient(), terminationCfgs)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		err = terminatingPodReconciler.SetupWithManager(mgr)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	}
+	err = terminatingPodReconciler.SetupWithManager(mgr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
