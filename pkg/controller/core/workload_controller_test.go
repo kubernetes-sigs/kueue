@@ -43,7 +43,6 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
-	"sigs.k8s.io/kueue/pkg/cache/scheduler"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -2981,7 +2980,7 @@ func TestFinalize(t *testing.T) {
 				}).
 				Delete().
 				Obj(),
-			wantError:          scheduler.ErrCqNotFound,
+			wantError:          schdcache.ErrCqNotFound,
 			wantWorkloadCached: false,
 			wantFinalizers:     []string{kueue.ResourceInUseFinalizerName, kueue.SafeDeleteFinalizerName},
 			dontWantFinalizers: nil,
