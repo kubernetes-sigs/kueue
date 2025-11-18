@@ -57,7 +57,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		if err != nil {
 			return "DefaultLocalQueue", err
 		}
-		dlqRec := NewDefaultLocalQueueReconciler(mgr.GetClient(), qManager, cc, mgr.GetEventRecorderFor(constants.DefaultLocalQueueControllerName), WithNamespaceSelector(namespaceSelector))
+		dlqRec := NewDefaultLocalQueueReconciler(mgr.GetClient(), mgr.GetEventRecorderFor(constants.DefaultLocalQueueControllerName), WithNamespaceSelector(namespaceSelector))
 		if err := dlqRec.SetupWithManager(mgr, cfg); err != nil {
 			return "DefaultLocalQueue", err
 		}

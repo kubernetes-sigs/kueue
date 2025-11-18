@@ -1,3 +1,19 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package core
 
 import (
@@ -16,19 +32,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
-	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
 )
-
-type DefaultLocalQueueUpdateWatcher interface{}
 
 type DefaultLocalQueueReconciler struct {
 	client            client.Client
 	log               logr.Logger
-	qManager          *qcache.Manager
-	cache             *schdcache.Cache
 	recorder          record.EventRecorder
 	namespaceSelector labels.Selector
 }
@@ -51,8 +63,6 @@ var defaultDLQOptions = DefaultLocalQueueReconcilerOptions{}
 
 func NewDefaultLocalQueueReconciler(
 	client client.Client,
-	qMgr *qcache.Manager,
-	cache *schdcache.Cache,
 	recorder record.EventRecorder,
 	opts ...DefaultLocalQueueReconcilerOption,
 ) *DefaultLocalQueueReconciler {
@@ -63,8 +73,6 @@ func NewDefaultLocalQueueReconciler(
 	return &DefaultLocalQueueReconciler{
 		client:            client,
 		log:               ctrl.Log.WithName("default-local-queue-reconciler"),
-		qManager:          qMgr,
-		cache:             cache,
 		recorder:          recorder,
 		namespaceSelector: options.NamespaceSelector,
 	}
@@ -72,50 +80,46 @@ func NewDefaultLocalQueueReconciler(
 
 func (r *DefaultLocalQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) error {
 	return builder.TypedControllerManagedBy[reconcile.Request](mgr).
-		For(&kueue.ClusterQueue{}).
+		For(&corev1.Namespace{}).
 		Watches(
-			&corev1.Namespace{},
-			handler.EnqueueRequestsFromMapFunc(r.mapNamespaceToClusterQueues),
+			&kueue.ClusterQueue{},
+			handler.EnqueueRequestsFromMapFunc(r.mapClusterQueueToNamespaces),
 		).
-		Complete(WithLeadingManager(mgr, r, &kueue.ClusterQueue{}, cfg))
+		Complete(WithLeadingManager(mgr, r, &corev1.Namespace{}, cfg))
 }
 
-// mapNamespaceToClusterQueues is an event handler that maps an event on a Namespace object
-// to a reconciliation request for any ClusterQueue that might select it. This ensures that
-// when a namespace's labels change, the controllers for relevant ClusterQueues
-// are triggered to re-evaluate their state.
-func (r *DefaultLocalQueueReconciler) mapNamespaceToClusterQueues(ctx context.Context, ns client.Object) []reconcile.Request {
-	if r.namespaceSelector != nil {
-		if !r.namespaceSelector.Matches(labels.Set(ns.GetLabels())) {
-			return nil
-		}
-	}
-
-	log := r.log.WithValues("namespace", klog.KObj(ns))
-
-	var cqs kueue.ClusterQueueList
-	if err := r.client.List(ctx, &cqs); err != nil {
-		log.Error(err, "Failed to list ClusterQueues for namespace mapping")
+func (r *DefaultLocalQueueReconciler) mapClusterQueueToNamespaces(ctx context.Context, cqObj client.Object) []reconcile.Request {
+	cq, ok := cqObj.(*kueue.ClusterQueue)
+	if !ok {
 		return nil
 	}
-	requests := make([]reconcile.Request, 0, len(cqs.Items))
-	for i := range cqs.Items {
-		cq := &cqs.Items[i]
-		if cq.Spec.DefaultLocalQueue == nil {
+
+	log := r.log.WithValues("clusterQueue", klog.KObj(cq))
+
+	if cq.Spec.DefaultLocalQueue == nil || !cq.DeletionTimestamp.IsZero() {
+		return nil
+	}
+
+	selector, err := metav1.LabelSelectorAsSelector(cq.Spec.NamespaceSelector)
+	if err != nil {
+		log.Error(err, "Failed to parse namespaceSelector")
+		return nil
+	}
+
+	var nsList corev1.NamespaceList
+	if err := r.client.List(ctx, &nsList, client.MatchingLabelsSelector{Selector: selector}); err != nil {
+		log.Error(err, "Failed to list namespaces")
+		return nil
+	}
+
+	requests := make([]reconcile.Request, 0, len(nsList.Items))
+	for _, ns := range nsList.Items {
+		if r.namespaceSelector != nil && !r.namespaceSelector.Matches(labels.Set(ns.GetLabels())) {
 			continue
 		}
-
-		selector, err := metav1.LabelSelectorAsSelector(cq.Spec.NamespaceSelector)
-		if err != nil {
-			log.Error(err, "Failed to parse namespaceSelector for ClusterQueue", "clusterQueue", klog.KObj(cq))
-			continue
-		}
-
-		if selector.Matches(labels.Set(ns.GetLabels())) {
-			requests = append(requests, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: cq.Name},
-			})
-		}
+		requests = append(requests, reconcile.Request{
+			NamespacedName: types.NamespacedName{Name: ns.Name},
+		})
 	}
 	return requests
 }
@@ -127,37 +131,51 @@ func (r *DefaultLocalQueueReconciler) mapNamespaceToClusterQueues(ctx context.Co
 func (r *DefaultLocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	var cq kueue.ClusterQueue
-	if err := r.client.Get(ctx, req.NamespacedName, &cq); err != nil {
+	var ns corev1.Namespace
+	if err := r.client.Get(ctx, req.NamespacedName, &ns); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	if cq.Spec.DefaultLocalQueue == nil || !cq.DeletionTimestamp.IsZero() {
-		// Feature not enabled or CQ is being deleted, nothing to do.
+	if !ns.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, nil
 	}
 
-	selector, err := metav1.LabelSelectorAsSelector(cq.Spec.NamespaceSelector)
-	if err != nil {
-		log.Error(err, "Failed to parse namespaceSelector, skipping reconciliation", "clusterQueue", klog.KObj(&cq))
+	if r.namespaceSelector != nil && !r.namespaceSelector.Matches(labels.Set(ns.Labels)) {
 		return ctrl.Result{}, nil
 	}
 
-	var matchingNamespaces corev1.NamespaceList
-	if err := r.client.List(ctx, &matchingNamespaces, client.MatchingLabelsSelector{Selector: selector}); err != nil {
-		log.Error(err, "Failed to list matching namespaces")
+	var allCQs kueue.ClusterQueueList
+	if err := r.client.List(ctx, &allCQs); err != nil {
+		log.Error(err, "Failed to list ClusterQueues", "namespace", klog.KObj(&ns))
 		return ctrl.Result{}, err
 	}
-	for i := range matchingNamespaces.Items {
-		ns := &matchingNamespaces.Items[i]
-		if r.namespaceSelector != nil {
-			if !r.namespaceSelector.Matches(labels.Set(ns.Labels)) {
-				continue
-			}
+
+	nsLabels := labels.Set(ns.Labels)
+	var cqs kueue.ClusterQueueList
+	for i := range allCQs.Items {
+		cq := &allCQs.Items[i]
+		if cq.Spec.DefaultLocalQueue == nil {
+			continue
 		}
-		err := r.ensureLocalQueueExists(ctx, &cq, ns)
+
+		selector, err := metav1.LabelSelectorAsSelector(cq.Spec.NamespaceSelector)
 		if err != nil {
-			log.Error(err, "Failed to ensure LocalQueue exists in namespace", "namespace", klog.KObj(ns))
+			log.Error(err, "Failed to parse namespaceSelector for ClusterQueue", "clusterQueue", klog.KObj(cq))
+			continue
+		}
+
+		if selector.Matches(nsLabels) {
+			cqs.Items = append(cqs.Items, *cq)
+		}
+	}
+
+	for i := range cqs.Items {
+		cq := &cqs.Items[i]
+		if !cq.DeletionTimestamp.IsZero() {
+			continue
+		}
+		if err := r.ensureLocalQueueExists(ctx, cq, &ns); err != nil {
+			log.Error(err, "Failed to ensure LocalQueue exists in namespace", "clusterQueue", klog.KObj(cq), "namespace", klog.KObj(&ns))
 		}
 	}
 
@@ -174,7 +192,7 @@ func (r *DefaultLocalQueueReconciler) ensureLocalQueueExists(ctx context.Context
 
 	var lq kueue.LocalQueue
 	if err := r.client.Get(ctx, targetLQ, &lq); err == nil {
-		if lq.Annotations["kueue.x-k8s.io/created-by-clusterqueue"] == cq.Name {
+		if lq.Annotations[constants.CreatedByClusterQueueAnnotation] == cq.Name {
 			return nil
 		}
 		r.recorder.Eventf(cq, corev1.EventTypeWarning, "DefaultLocalQueueExists", "Skipping LocalQueue creation in namespace %s, a LocalQueue with name %s already exists", ns.Name, targetLQ.Name)
@@ -190,10 +208,10 @@ func (r *DefaultLocalQueueReconciler) ensureLocalQueueExists(ctx context.Context
 			Name:      targetLQ.Name,
 			Namespace: targetLQ.Namespace,
 			Annotations: map[string]string{
-				"kueue.x-k8s.io/created-by-clusterqueue": cq.Name,
+				constants.CreatedByClusterQueueAnnotation: cq.Name,
 			},
 			Labels: map[string]string{
-				"kueue.x-k8s.io/auto-generated": "true",
+				constants.AutoGeneratedLabel: "true",
 			},
 		},
 		Spec: kueue.LocalQueueSpec{
