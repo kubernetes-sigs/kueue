@@ -161,6 +161,7 @@ const (
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/582-preempt-based-on-flavor-order
 	//
 	// In flavor fungibility, the preference whether to preempt or borrow is inferred from flavor fungibility policy.
+	//
 	// Deprecated: planned to be removed in v0.16.
 	FlavorFungibilityImplicitPreferenceDefault featuregate.Feature = "FlavorFungibilityImplicitPreferenceDefault"
 
@@ -201,6 +202,7 @@ const (
 	//
 	// Allow insecure kubeconfigs in MultiKueue setup.
 	// Requires careful consideration as it may lead to security issues.
+	//
 	// Deprecated: planned to be removed in 0.17
 	MultiKueueAllowInsecureKubeconfigs featuregate.Feature = "MultiKueueAllowInsecureKubeconfigs"
 

@@ -82,6 +82,7 @@ type IntegrationCallbacks struct {
 	// The job's MultiKueue adapter (optional)
 	MultiKueueAdapter MultiKueueAdapter
 	// The list of integration that need to be enabled along with the current one.
+	//
 	// Deprecated: Use ImplicitlyEnabledFrameworkNames instead.
 	DependencyList []string
 	// The list of integrations implicitly enabled as dependencies of the integration.
