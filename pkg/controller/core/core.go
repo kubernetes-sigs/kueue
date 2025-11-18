@@ -63,14 +63,15 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		watchers = append(watchers, cohortRec)
 	}
 
-	// TODO: Add feature gate and check.
-	tpRec, err := failurerecovery.NewTerminatingPodReconciler(mgr.GetClient())
-	if err != nil {
-		return "FailureRecovery.TerminatePod", err
-	}
+	if features.Enabled(features.FailureRecoveryPolicy) {
+		tpRec, err := failurerecovery.NewTerminatingPodReconciler(mgr.GetClient())
+		if err != nil {
+			return "FailureRecoveryPolicy", err
+		}
 
-	if err := tpRec.SetupWithManager(mgr); err != nil {
-		return "FailureRecovery.TerminatePod", err
+		if err := tpRec.SetupWithManager(mgr); err != nil {
+			return "FailureRecoveryPolicy", err
+		}
 	}
 
 	cqRec := NewClusterQueueReconciler(
