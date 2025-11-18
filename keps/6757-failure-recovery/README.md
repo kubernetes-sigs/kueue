@@ -155,7 +155,7 @@ failureRecoveryPolicy:
         matchExpressions:
         - key: safe-to-fail
           operator: In
-          values: [ "true", "True", "yes" ]
+          values: [ "true" ]
       forcefulTerminationGracePeriod: 5m
 ```
 
@@ -172,7 +172,7 @@ Alternatively, a default value can be inferred from the `terminationGracePeriodS
 For example, it could be a multiple of that value. Nevertheless, this still runs the risk of
 setting a very small value or even 0, depending on the user's configuration.
 
-### Controller
+### Implementation overview
 
 Setting the strategy type to `TerminatePod` will enable a controller, which manages
 the failed nodes.
@@ -189,7 +189,6 @@ The controller has to **ignore** updates to pods that:
     * This explicitly ignores pods assigned to nodes that still have a running kubelet.
     For example, nodes with the `node.kubernetes.io/not-ready` taint experiencing resource pressure
     that makes pod termination take longer.
-
 
 For relevant (not ignored) terminating pods, the controller schedules another reconciliation
 to happen after the remaining grace period elapses.
@@ -259,7 +258,13 @@ Existing integration tests should prove that this feature does not impact Kueue 
 
 #### Alpha
 
+- Feature gate disabled by default.
 - Positive feedback from the users.
+
+### Beta
+
+- Feature gate enabled by default.
+- Re-evaluate allowing for multiple rules in failurePolicyRules.
 
 ## Implementation History
 
