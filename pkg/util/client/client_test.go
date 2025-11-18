@@ -53,10 +53,8 @@ func newObject(resourceVersion string, opts ...func(*batchv1.Job)) *batchv1.Job 
 
 func TestPatch(t *testing.T) {
 	type args struct {
-		// context: initialized in t.Run().
-		// client: initialized in t.Run().
 		obj     client.Object
-		update  func() (client.Object, bool, error)
+		update  UpdateFunc
 		options []PatchOption
 	}
 	type want struct {
@@ -181,10 +179,8 @@ func TestPatch(t *testing.T) {
 
 func TestPatchStatus(t *testing.T) {
 	type args struct {
-		// context: initialized in t.Run().
-		// client: initialized in t.Run().
 		obj     client.Object
-		update  func() (client.Object, bool, error)
+		update  UpdateFunc
 		options []PatchOption
 	}
 	type want struct {
