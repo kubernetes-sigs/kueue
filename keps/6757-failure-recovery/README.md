@@ -11,9 +11,8 @@
   - [Risks and Mitigations](#risks-and-mitigations)
     - [Replacing Pods Which Are Still Running](#replacing-pods-which-are-still-running)
 - [Design Details](#design-details)
-  - [Defaults](#defaults)
-    - [Affected Pods](#affected-pods)
-    - [Grace Period](#grace-period)
+  - [Affected Pods](#affected-pods)
+  - [Grace Period](#grace-period)
   - [Implementation Overview](#implementation-overview)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
@@ -91,27 +90,53 @@ the users might mistake it for a general issue within Kueue/the broader Kubernet
 As this risk stems from the behavior of the `kubelet` and control plane themselves, it cannot be fully mitigated without major changes in how Kubernetes operates.
 Instead, it should be adequately documented to prevent users without a compatible use-case from using it.
 Moreover, enabling this feature should require opt-in both from:
-1. The Administrator - by defining the recovery rules and selectors in the Kueue config.
+1. The Administrator - by enabling the feature globally.
 2. The User - by opting specific workloads into the failure recovery mechanism.
 
 Controlling the covered workloads, instead of applying the recovery globally, will guarantee that only pods that were deemed "safe to forcefully terminate" are affected.
 
 ## Design Details
 
-### Defaults
-
-#### Affected Pods
+### Affected Pods
 
 In order to allow the first adopters to control which pods are affected by the new controller, a new `Pod` annotation will be introduced:
 ```yaml
 kueue.x-k8s.io/safe-to-forcefully-terminate: "true"
 ```
 
-Only pods containing the new annotation will be affected by the controller.
+Only pods containing the new annotation will be affected by the controller, for example:
+```yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: sample-job-
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+spec:
+  parallelism: 3
+  completions: 3
+  podReplacementPolicy: Failed
+  template:
+    metadata:
+      annotations:
+        kueue.x-k8s.io/safe-to-forcefully-terminate: "true"  // <- new annotation
+    spec:
+      containers:
+      - name: dummy-job
+        image: registry.k8s.io/e2e-test-images/agnhost:2.53
+        command: [ "/bin/sh" ]
+        args: [ "-c", "sleep 600" ]
+        resources:
+          requests:
+            cpu: "1"
+            memory: "200Mi"
+      restartPolicy: Never
+```
 
 > The controller is not limited to pods managed by Kueue (i.e. having the `kueue.x-k8s.io/managed` or `kueue.x-k8s.io/podset` label). All pods in the cluster that have the new annotation will be affected.
 
-#### Grace Period
+### Grace Period
 
 A default grace period of **1 minute** will be introduced to get initial feedback about the feature.
 This will help inform the decision on the structure of the API and setting defaults makes sense when graduating to beta.
