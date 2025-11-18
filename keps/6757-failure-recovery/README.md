@@ -19,6 +19,7 @@
     - [Integration Tests](#integration-tests)
   - [Graduation Criteria](#graduation-criteria)
     - [Alpha](#alpha)
+  - [Beta](#beta)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
