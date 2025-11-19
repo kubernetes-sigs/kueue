@@ -162,10 +162,33 @@ This grace period defines the amount of time the pod has to terminate gracefully
 This KEP defines "pods stuck terminating" as pods that were not terminated **1 minute** after the `deletionGracePeriodSeconds` elapsed.
 The value of 1 minute is chosen to get initial feedback about the feature and help inform the decision on the structure of the API and setting defaults makes sense when graduating to beta.
 
+### Observability
+
+Since this feature relies on interplay with existing Kubernetes mechanism, it should be possible for users to trace
+pod terminations back to the new controller. This will allow for easier troubleshooting and attribution, which is crucial
+when gathering initial user feedback.
+
+To address that, a new `ForcefullyTerminated` `PodCondition` object will be assigned to the pod when it is terminated by the new controller.
+
+```yaml
+apiVersion: v1
+kind: Pod
+spec:
+  # ...
+  terminationGracePeriodSeconds: 30
+status:
+  conditions:
+  # grace period = `terminationGracePeriodSeconds` + 60s (default threshold in the KEP)
+  - message: 'Pod forcefully terminated after 90s grace period due to unreachable node `node-a` (triggered by `kueue.x-k8s.io/safe-to-forcefully-terminate annotation`)'
+    reason: ForcefullyTerminated
+    status: "True"
+    type: FailureRecovery
+    # ...
+```
+
 ### Implementation Overview
 
-Setting the strategy type to `TerminatePod` will enable a controller, which manages
-the failed nodes.
+Enabling the `FailureRecoveryPolicy` feature gate will turn on a controller, which manages the failed nodes.
 
 The controller has to **ignore** updates to pods that:
 1. Are not terminating.
