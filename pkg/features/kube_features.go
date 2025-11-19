@@ -214,11 +214,6 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/7597
 	// Do not remove job-name label from Workload PodTemplate object.
 	PropagateBatchJobLabelsToWorkload featuregate.Feature = "PropagateBatchJobLabelsToWorkload"
-
-	// owner: @j-skiba
-	//
-	// Enables automatic creation of default LocalQueues.
-	DefaultLocalQueueCreation featuregate.Feature = "DefaultLocalQueueCreation"
 )
 
 func init() {
@@ -341,9 +336,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	PropagateBatchJobLabelsToWorkload: {
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
-	},
-	DefaultLocalQueueCreation: {
-		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

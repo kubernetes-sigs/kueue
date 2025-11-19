@@ -143,8 +143,6 @@ type ClusterQueueSpec struct {
 	AdmissionScope *AdmissionScope `json:"admissionScope,omitempty"`
 }
 
-
-
 // AdmissionChecksStrategy defines a strategy for a AdmissionCheck.
 type AdmissionChecksStrategy struct {
 	// admissionChecks is a list of strategies for AdmissionChecks

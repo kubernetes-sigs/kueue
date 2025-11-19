@@ -160,25 +160,6 @@ spec:
                   maxLength: 253
                   pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                   type: string
-                defaultLocalQueue:
-                  description: |-
-                    defaultLocalQueue specifies the configuration for automatically creating LocalQueues
-                    in namespaces that match the ClusterQueue's namespaceSelector. This feature is
-                    controlled by the `DefaultLocalQueue` feature gate.
-                    If this field is set, a LocalQueue with the specified name will be created in
-                    each matching namespace. The LocalQueue will reference this ClusterQueue.
-                  properties:
-                    name:
-                      description: |-
-                        name is the name of the LocalQueue to be created in matching namespaces.
-                        This name must be a valid DNS subdomain name.
-                      maxLength: 253
-                      minLength: 1
-                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
-                      type: string
-                  required:
-                    - name
-                  type: object
                 fairSharing:
                   description: |-
                     fairSharing defines the properties of the ClusterQueue when
@@ -946,25 +927,6 @@ spec:
                   maxLength: 253
                   pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                   type: string
-                defaultLocalQueue:
-                  description: |-
-                    defaultLocalQueue specifies the configuration for automatically creating LocalQueues
-                    in namespaces that match the ClusterQueue's namespaceSelector. This feature is
-                    controlled by the `DefaultLocalQueue` feature gate.
-                    If this field is set, a LocalQueue with the specified name will be created in
-                    each matching namespace. The LocalQueue will reference this ClusterQueue.
-                  properties:
-                    name:
-                      description: |-
-                        name is the name of the LocalQueue to be created in matching namespaces.
-                        This name must be a valid DNS subdomain name.
-                      maxLength: 253
-                      minLength: 1
-                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
-                      type: string
-                  required:
-                    - name
-                  type: object
                 fairSharing:
                   description: |-
                     fairSharing defines the properties of the ClusterQueue when
