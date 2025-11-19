@@ -760,7 +760,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 			g.Expect(testRayClusterWorkload.Spec.PodSets[0].Count).Should(gomega.BeEquivalentTo(int32(1)))
 			g.Expect(testRayClusterWorkload.Spec.PodSets[1].Count).Should(gomega.BeEquivalentTo(int32(2)))
 
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testRayClusterWorkload)
+			g.Expect(workload.IsAdmitted(testRayClusterWorkload)).Should(gomega.BeTrue())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("the raycluster is unsuspended")
@@ -799,7 +799,6 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 			workloads := &kueue.WorkloadList{}
 			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testRayCluster.Namespace))).Should(gomega.Succeed())
 			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testRayClusterWorkload)
 
 			g.Expect(workloads.Items[0].Spec.PodSets).Should(gomega.HaveLen(2))
 			g.Expect(workloads.Items[0].Spec.PodSets[0].Count).Should(gomega.Equal(int32(1)))
@@ -807,6 +806,8 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 
 			g.Expect(workloads.Items[0].UID).Should(gomega.BeEquivalentTo(testRayClusterWorkload.UID))
 			testRayClusterWorkload = &workloads.Items[0]
+
+			g.Expect(workload.IsAdmitted(testRayClusterWorkload)).Should(gomega.BeTrue())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("increasing the RayCluster's worker replicas to 2 to emulate scale-up operation")
@@ -844,8 +845,8 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 					g.Expect(workloads.Items[i].Spec.PodSets[1].Count).Should(gomega.Equal(int32(1)))
 				} else {
 					g.Expect(workloads.Items[i].Name).ShouldNot(gomega.Equal(testRayClusterWorkload.Name))
-					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testRayClusterWorkload)
 					testRayClusterWorkload = &workloads.Items[i]
+					g.Expect(workload.IsAdmitted(testRayClusterWorkload)).Should(gomega.BeTrue())
 				}
 			}
 
@@ -888,7 +889,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testRayClusterA.Namespace))).Should(gomega.Succeed())
 			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
 			testRayClusterAWorkload = &workloads.Items[0]
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testRayClusterAWorkload)
+			g.Expect(workload.IsAdmitted(testRayClusterAWorkload)).Should(gomega.BeTrue())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("the raycluster-a is unsuspended")
@@ -931,10 +932,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("admitting the raycluster-b workload")
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayClusterBWorkload), testRayClusterBWorkload)).Should(gomega.Succeed())
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testRayClusterBWorkload)
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testRayClusterBWorkload)
 
 		ginkgo.By("the raycluster-b is unsuspended")
 		gomega.Eventually(func(g gomega.Gomega) {
