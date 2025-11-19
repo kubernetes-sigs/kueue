@@ -26,7 +26,7 @@
   - [Do Nothing](#do-nothing)
   - [Control All Pods Managed By Kueue](#control-all-pods-managed-by-kueue)
   - [Introduce a <code>FailureRecoveryPolicy</code> API](#introduce-a-failurerecoverypolicy-api)
-  - [Managing The <code>node.kubernetes.io/out-of-service</code> Taint On <code>Node</code>](#managing-the-nodekubernetesioout-of-service-taint-on-node)
+  - [Leveraging Core Kubernetes Non-Graceful Node Shutdown Handling](#leveraging-core-kubernetes-non-graceful-node-shutdown-handling)
 <!-- /toc -->
 
 ## Summary
@@ -317,7 +317,7 @@ To avoid committing to a specific structure (and the feature in general), it is 
 with a feature gate first, then decide how to best represent it in the API.
 1. As mentioned in the [Do Nothing](#do-nothing) alternative, the issue this KEP is trying to mitigate might be solved at the core Kubernetes level. If so, deprecating an annotation (proposed in the KEP) is simpler than deprecating an API.
 
-### Managing The `node.kubernetes.io/out-of-service` Taint On `Node`
+### Leveraging Core Kubernetes Non-Graceful Node Shutdown Handling
 
 Core Kubernetes already contains logic for [non-graceful node shutdown handling](https://kubernetes.io/docs/concepts/cluster-administration/node-shutdown/#non-graceful-node-shutdown) and [automatic garbage collection](https://github.com/kubernetes/kubernetes/blob/4870d987d0a4aac2d9223d4c0b9f22858c0d1590/pkg/controller/podgc/gc_controller.go) of `Pod`s running on such nodes (tainted with the `node.kubernetes.io/out-of-service` taint).
 It updates the `Pod`s status and deletes it from `etcd`. The recovery controller could use this fact to terminate stuck pods by automatically adding this taint to nodes which are unreachable for some configurable time.
