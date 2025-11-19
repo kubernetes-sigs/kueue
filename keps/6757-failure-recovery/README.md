@@ -157,40 +157,10 @@ The controller has to **ignore** updates to pods that:
     For example, nodes with the `node.kubernetes.io/not-ready` taint experiencing resource pressure
     that makes pod termination take longer.
 
-For relevant (not ignored) terminating pods, the controller schedules another reconciliation
-to happen after the remaining grace period elapses.
-
-```go
-func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-  // ...
-
-  now := r.clock.Now()
-  gracefulTerminationPeriod := time.Duration(*pod.DeletionGracePeriodSeconds) * time.Second
-  totalGracePeriod := gracefulTerminationPeriod + defaultForcefulTerminationGracePeriod
-  if now.Before(pod.DeletionTimestamp.Add(totalGracePeriod)) {
-    gracePeriodLeft := pod.DeletionTimestamp.Add(totalGracePeriod).Sub(now)
-    return ctrl.Result{RequeueAfter: gracePeriodLeft}, nil
-  }
-
-  // ...
-}
-```
-
-In that scheduled reconciliation, unless the node recovered or the pod was deleted,
-the pod will be deemed "zombie" and transitioned into the `PodFailed` phase:
-
-```go
-func (r *ZombiePodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-  // ...
-
-  pod.Status.Phase = corev1.PodFailed
-  if err := r.client.Status().Update(ctx, pod); err != nil {
-    return ctrl.Result{}, err
-  }
-
-  return ctrl.Result{}, nil
-}
-```
+For relevant (not ignored) terminating pods, the reconciliation behaves in the following way:
+1. It computes the amount of time elapsed since the the pod's `gracefulTerminationGracePeriod` elapsed:
+    1. If it's below the default timeout of **1 minute**, the reconciler will requeue the object to be re-evaluated once the thershold is reached.
+    1. Otherwise, if the threshold of **1 minute** was reached, the pod will be deemed "zombie" and transitioned into the `PodFailed` phase.
 
 ### Test Plan
 
