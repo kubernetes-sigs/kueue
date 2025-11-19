@@ -85,6 +85,66 @@ connection.</p>
 </tbody>
 </table>
 
+## `ClusterProfileConfig`     {#config-kueue-x-k8s-io-v1beta2-ClusterProfileConfig}
+    
+
+**Appears in:**
+
+- [MultiKueue](#config-kueue-x-k8s-io-v1beta2-MultiKueue)
+
+
+<p>ClusterProfileConfig defines configuration for using the ClusterProfile API in MultiKueue.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>credentialsProviders</code> <B>[Required]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-ClusterProfileCredentialsProvider"><code>[]ClusterProfileCredentialsProvider</code></a>
+</td>
+<td>
+   <p>CredentialsProviders defines a list of providers to obtain credentials of worker clusters
+using the ClusterProfile API.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `ClusterProfileCredentialsProvider`     {#config-kueue-x-k8s-io-v1beta2-ClusterProfileCredentialsProvider}
+    
+
+**Appears in:**
+
+- [ClusterProfileConfig](#config-kueue-x-k8s-io-v1beta2-ClusterProfileConfig)
+
+
+<p>ClusterProfileCredentialsProvider defines a credentials provider in the ClusterProfile API.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>Name is the name of the provider.</p>
+</td>
+</tr>
+<tr><td><code>execConfig</code> <B>[Required]</B><br/>
+<code>k8s.io/client-go/tools/clientcmd/api.ExecConfig</code>
+</td>
+<td>
+   <p>ExecConfig is the exec configuration to obtain credentials.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `ControllerConfigurationSpec`     {#config-kueue-x-k8s-io-v1beta2-ControllerConfigurationSpec}
     
 
@@ -573,6 +633,13 @@ if the connection with its reserving worker cluster is lost.</p>
    <p>ExternalFrameworks defines a list of external frameworks that should be supported
 by the generic MultiKueue adapter. Each entry defines how to handle a specific
 GroupVersionKind (GVK) for MultiKueue operations.</p>
+</td>
+</tr>
+<tr><td><code>clusterProfileConfig</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-ClusterProfileConfig"><code>ClusterProfileConfig</code></a>
+</td>
+<td>
+   <p>ClusterProfileConfig defines configuration for using the ClusterProfile API.</p>
 </td>
 </tr>
 </tbody>

@@ -195,6 +195,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta2.AdmissionScopeApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("BorrowWithinCohort"):
 		return &kueuev1beta2.BorrowWithinCohortApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("ClusterProfileReference"):
+		return &kueuev1beta2.ClusterProfileReferenceApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("ClusterQueue"):
 		return &kueuev1beta2.ClusterQueueApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("ClusterQueuePreemption"):

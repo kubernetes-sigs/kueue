@@ -21,6 +21,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	configv1alpha1 "k8s.io/component-base/config/v1alpha1"
 )
 
@@ -274,6 +275,10 @@ type MultiKueue struct {
 	// GroupVersionKind (GVK) for MultiKueue operations.
 	// +optional
 	ExternalFrameworks []MultiKueueExternalFramework `json:"externalFrameworks,omitempty"`
+
+	// ClusterProfileConfig defines configuration for using the ClusterProfile API.
+	// +optional
+	ClusterProfileConfig *ClusterProfileConfig `json:"clusterProfileConfig,omitempty"`
 }
 
 // MultiKueueExternalFramework defines a framework that is not built-in.
@@ -365,6 +370,21 @@ type InternalCertManagement struct {
 	// WebhookSecretName is the name of the Secret used to store CA and server certs.
 	// Defaults to kueue-webhook-server-cert.
 	WebhookSecretName *string `json:"webhookSecretName,omitempty"`
+}
+
+// ClusterProfileConfig defines configuration for using the ClusterProfile API in MultiKueue.
+type ClusterProfileConfig struct {
+	// CredentialsProviders defines a list of providers to obtain credentials of worker clusters
+	// using the ClusterProfile API.
+	CredentialsProviders []ClusterProfileCredentialsProvider `json:"credentialsProviders,omitempty"`
+}
+
+// ClusterProfileCredentialsProvider defines a credentials provider in the ClusterProfile API.
+type ClusterProfileCredentialsProvider struct {
+	// Name is the name of the provider.
+	Name string `json:"name"`
+	//  ExecConfig is the exec configuration to obtain credentials.
+	ExecConfig *clientcmdapi.ExecConfig `json:"execConfig"`
 }
 
 type ClientConnection struct {

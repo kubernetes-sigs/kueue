@@ -816,6 +816,37 @@ policy can be preempted by the borrowing workload.</p>
 
 
 
+## `ClusterProfileReference`     {#kueue-x-k8s-io-v1beta2-ClusterProfileReference}
+    
+
+**Appears in:**
+
+- [MultiKueueClusterSpec](#kueue-x-k8s-io-v1beta2-MultiKueueClusterSpec)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>name of the ClusterProfile.</p>
+</td>
+</tr>
+<tr><td><code>namespace</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>namespace of the ClusterProfile.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `ClusterQueuePreemption`     {#kueue-x-k8s-io-v1beta2-ClusterQueuePreemption}
     
 
@@ -1766,11 +1797,18 @@ workloads assigned to this LocalQueue.</p>
 <tbody>
     
   
-<tr><td><code>kubeConfig,omitempty,omitzero</code> <B>[Required]</B><br/>
+<tr><td><code>kubeConfig,omitempty,omitzero</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-KubeConfig"><code>KubeConfig</code></a>
 </td>
 <td>
    <p>kubeConfig is information on how to connect to the cluster.</p>
+</td>
+</tr>
+<tr><td><code>clusterProfile</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-ClusterProfileReference"><code>ClusterProfileReference</code></a>
+</td>
+<td>
+   <p>clusterProfile is the reference to the ClusterProfile object used to connect to the cluster.</p>
 </td>
 </tr>
 </tbody>

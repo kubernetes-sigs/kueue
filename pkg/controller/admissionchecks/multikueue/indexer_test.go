@@ -25,12 +25,14 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -44,7 +46,7 @@ func getClientBuilder(ctx context.Context) *fake.ClientBuilder {
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(kueue.AddToScheme(scheme))
-	utilruntime.Must(kueue.AddToScheme(scheme))
+	utilruntime.Must(inventoryv1alpha1.AddToScheme(scheme))
 
 	utilruntime.Must(jobframework.ForEachIntegration(func(_ string, cb jobframework.IntegrationCallbacks) error {
 		if cb.MultiKueueAdapter != nil && cb.AddToScheme != nil {
@@ -88,6 +90,65 @@ func TestListMultiKueueClustersUsingKubeConfig(t *testing.T) {
 				utiltestingapi.MakeMultiKueueCluster("cluster2").KubeConfig(kueue.SecretLocationType, "secret2").Obj(),
 			},
 			filter:   client.MatchingFields{UsingKubeConfigs: TestNamespace + "/secret1"},
+			wantList: []string{"cluster1"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			builder := getClientBuilder(ctx)
+			k8sclient := builder.Build()
+			for _, req := range tc.clusters {
+				if err := k8sclient.Create(ctx, req); err != nil {
+					t.Fatalf("Unable to create %q cluster: %v", client.ObjectKeyFromObject(req), err)
+				}
+			}
+
+			lst := &kueue.MultiKueueClusterList{}
+
+			gotListErr := k8sclient.List(ctx, lst, tc.filter)
+			if diff := cmp.Diff(tc.wantListError, gotListErr); diff != "" {
+				t.Errorf("unexpected list error (-want/+got):\n%s", diff)
+			}
+
+			gotList := slices.Map(lst.Items, func(mkc *kueue.MultiKueueCluster) string { return mkc.Name })
+			if diff := cmp.Diff(tc.wantList, gotList, cmpopts.EquateEmpty(), cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+				t.Errorf("unexpected list (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestListMultiKueueClustersUsingClusterProfile(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.MultiKueueClusterProfile, true)
+	cases := map[string]struct {
+		clusters      []*kueue.MultiKueueCluster
+		filter        client.ListOption
+		wantListError error
+		wantList      []string
+	}{
+		"no clusters": {
+			filter: client.MatchingFields{UsingClusterProfiles: TestNamespace + "/ns1/clusterprofile1"},
+		},
+		"single cluster, single match": {
+			clusters: []*kueue.MultiKueueCluster{
+				utiltestingapi.MakeMultiKueueCluster("cluster1").ClusterProfile("clusterprofile1", "ns1").Obj(),
+			},
+			filter:   client.MatchingFields{UsingClusterProfiles: TestNamespace + "/ns1/clusterprofile1"},
+			wantList: []string{"cluster1"},
+		},
+		"single cluster, no match": {
+			clusters: []*kueue.MultiKueueCluster{
+				utiltestingapi.MakeMultiKueueCluster("cluster2").ClusterProfile("clusterprofile2", "ns2").Obj(),
+			},
+			filter: client.MatchingFields{UsingClusterProfiles: TestNamespace + "/ns1/clusterprofile1"},
+		},
+		"multiple clusters, single match": {
+			clusters: []*kueue.MultiKueueCluster{
+				utiltestingapi.MakeMultiKueueCluster("cluster1").ClusterProfile("clusterprofile1", "ns1").Obj(),
+				utiltestingapi.MakeMultiKueueCluster("cluster2").ClusterProfile("clusterprofile2", "ns2").Obj(),
+			},
+			filter:   client.MatchingFields{UsingClusterProfiles: TestNamespace + "/ns1/clusterprofile1"},
 			wantList: []string{"cluster1"},
 		},
 	}

@@ -24,11 +24,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 )
 
 const (
 	UsingKubeConfigs               = "spec.kubeconfigs"
+	UsingClusterProfiles           = "spec.clusterprofiles"
 	UsingMultiKueueClusters        = "spec.multiKueueClusters"
 	AdmissionCheckUsingConfigKey   = "spec.multiKueueConfig"
 	WorkloadsWithAdmissionCheckKey = "status.admissionChecks"
@@ -44,7 +46,23 @@ func getIndexUsingKubeConfigs(configNamespace string) func(obj client.Object) []
 		if !isCluster {
 			return nil
 		}
+		if cluster.Spec.KubeConfig == nil {
+			return nil
+		}
 		return []string{strings.Join([]string{configNamespace, cluster.Spec.KubeConfig.Location}, "/")}
+	}
+}
+
+func getIndexUsingClusterProfiles(configNamespace string) func(obj client.Object) []string {
+	return func(obj client.Object) []string {
+		cluster, isCluster := obj.(*kueue.MultiKueueCluster)
+		if !isCluster {
+			return nil
+		}
+		if cluster.Spec.ClusterProfile == nil {
+			return nil
+		}
+		return []string{strings.Join([]string{configNamespace, cluster.Spec.ClusterProfile.Namespace, cluster.Spec.ClusterProfile.Name}, "/")}
 	}
 }
 
@@ -59,6 +77,11 @@ func indexUsingMultiKueueClusters(obj client.Object) []string {
 func SetupIndexer(ctx context.Context, indexer client.FieldIndexer, configNamespace string) error {
 	if err := indexer.IndexField(ctx, &kueue.MultiKueueCluster{}, UsingKubeConfigs, getIndexUsingKubeConfigs(configNamespace)); err != nil {
 		return fmt.Errorf("setting index on clusters using kubeconfig: %w", err)
+	}
+	if features.Enabled(features.MultiKueueClusterProfile) {
+		if err := indexer.IndexField(ctx, &kueue.MultiKueueCluster{}, UsingClusterProfiles, getIndexUsingClusterProfiles(configNamespace)); err != nil {
+			return fmt.Errorf("setting index on clusters using cluster profiles: %w", err)
+		}
 	}
 	if err := indexer.IndexField(ctx, &kueue.MultiKueueConfig{}, UsingMultiKueueClusters, indexUsingMultiKueueClusters); err != nil {
 		return fmt.Errorf("setting index on configs using clusters: %w", err)

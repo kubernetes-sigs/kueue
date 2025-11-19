@@ -234,8 +234,8 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 					g.Expect(updatedCluster.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.MultiKueueClusterActive,
 						Status:  metav1.ConditionFalse,
-						Reason:  "BadConfig",
-						Message: `Secret "testing-secret" not found`,
+						Reason:  "BadKubeConfig",
+						Message: `load client config failed: Secret "testing-secret" not found`,
 					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -363,8 +363,8 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 					g.Expect(updatedCluster.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.MultiKueueClusterActive,
 						Status:  metav1.ConditionFalse,
-						Reason:  "BadConfig",
-						Message: fmt.Sprintf("open %s: no such file or directory", fsKubeConfig),
+						Reason:  "BadKubeConfig",
+						Message: fmt.Sprintf("load client config failed: open %s: no such file or directory", fsKubeConfig),
 					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -478,7 +478,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 						Type:    kueue.MultiKueueClusterActive,
 						Status:  metav1.ConditionFalse,
 						Reason:  "InsecureKubeConfig",
-						Message: "insecure kubeconfig: certificate-authority file paths are not allowed, use certificate-authority-data for cluster default-cluster",
+						Message: "load client config failed: certificate-authority file paths are not allowed, use certificate-authority-data for cluster default-cluster",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -590,7 +590,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 						Type:    kueue.MultiKueueClusterActive,
 						Status:  metav1.ConditionFalse,
 						Reason:  "InsecureKubeConfig",
-						Message: "insecure kubeconfig: tokenFile is not allowed",
+						Message: "load client config failed: tokenFile is not allowed",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -780,7 +780,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 						Type:    kueue.MultiKueueClusterActive,
 						Status:  metav1.ConditionFalse,
 						Reason:  "InsecureKubeConfig",
-						Message: "insecure kubeconfig: certificate-authority file paths are not allowed, use certificate-authority-data for cluster default-cluster",
+						Message: "load client config failed: certificate-authority file paths are not allowed, use certificate-authority-data for cluster default-cluster",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
