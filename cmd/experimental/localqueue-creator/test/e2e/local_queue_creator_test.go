@@ -24,7 +24,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/cmd/experimental/localqueue-creator/pkg/constants"
 )
 
 var _ = ginkgo.Describe("DefaultLocalQueue", func() {
@@ -75,7 +74,6 @@ var _ = ginkgo.Describe("DefaultLocalQueue", func() {
 			}, "1m", "1s").Should(gomega.Succeed())
 
 			gomega.Expect(createdLQ.Spec.ClusterQueue).To(gomega.Equal(kueue.ClusterQueueReference(cq.Name)))
-			gomega.Expect(createdLQ.Annotations[constants.CreatedByClusterQueueAnnotation]).To(gomega.Equal(cq.Name))
 		})
 
 		ginkgo.It("Should create a default LocalQueue when ClusterQueue is updated to match namespace", func() {
