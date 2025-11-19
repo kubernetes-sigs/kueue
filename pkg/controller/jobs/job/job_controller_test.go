@@ -3934,7 +3934,7 @@ func TestReconciler(t *testing.T) {
 					}
 				}
 				recorder := &utiltesting.EventRecorder{}
-				reconciler, err := NewReconciler(ctx, kClient, indexer, recorder, append(tc.reconcilerOptions, jobframework.WithClock(t, fakeClock))...)
+				reconciler, err := NewReconciler(ctx, kClient, indexer, recorder, append(tc.reconcilerOptions, jobframework.WithClock(fakeClock))...)
 				if err != nil {
 					t.Errorf("Error creating the reconciler: %v", err)
 				}

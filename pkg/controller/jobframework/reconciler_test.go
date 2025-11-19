@@ -670,7 +670,7 @@ func TestProcessOptions(t *testing.T) {
 				WithWaitForPodsReady(&configapi.WaitForPodsReady{}),
 				WithKubeServerVersion(&kubeversion.ServerVersionFetcher{}),
 				WithLabelKeysToCopy([]string{"toCopyKey"}),
-				WithClock(t, fakeClock),
+				WithClock(fakeClock),
 			},
 			wantOpts: Options{
 				ManageJobsWithoutQueueName: true,
@@ -830,7 +830,7 @@ func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
 
 			fakeClock := testingclock.NewFakeClock(testStartTime)
 			options := []Option{
-				WithClock(nil, fakeClock),
+				WithClock(fakeClock),
 				WithWaitForPodsReady(&configapi.WaitForPodsReady{}),
 			}
 			recorder := &utiltesting.EventRecorder{}
