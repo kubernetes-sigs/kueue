@@ -18,9 +18,9 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-SCRIPT_DIR=$(dirname "${BASH_SOURCE[0]}")
+SCRIPT_DIR=$(cd $(dirname "${BASH_SOURCE[0]}") && pwd)
 REPO_ROOT=$(realpath "$SCRIPT_DIR/../../..")
-KIND_CLUSTER_NAME="dlq-e2e"
+KIND_CLUSTER_NAME="localqueue-creator-e2e"
 GIT_TAG=$(git describe --tags --dirty --always)
 
 # Use tools from the root project

@@ -69,12 +69,13 @@ GINKGO := $(BIN_DIR)/ginkgo
 GOTESTSUM := $(BIN_DIR)/gotestsum
 ARTIFACTS ?= $(ROOT_DIR)/artifacts
 ENVTEST_K8S_VERSION ?= 1.34
+INTEGRATION_NPROCS ?= 4
 
 .PHONY: test-integration
 test-integration:
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	PROJECT_DIR=$(ROOT_DIR)/ \
-	GOWORK=off $(GINKGO) -v ./test/integration/...
+	GOWORK=off $(GINKGO) -procs=$(INTEGRATION_NPROCS) -v ./test/integration/...
 
 .PHONY: test-e2e
 test-e2e:
