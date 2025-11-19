@@ -186,6 +186,24 @@ status:
     # ...
 ```
 
+Additionally, an analogous `Warning` event will be emitted for the affected pod:
+
+```yaml
+apiVersion: v1
+kind: Event
+type: Warning
+involvedObject:
+  apiVersion: v1
+  kind: Pod
+  name: pod-a
+  namespace: default
+message: 'Pod forcefully terminated after 90s grace period due to unreachable node `node-a` (triggered by `kueue.x-k8s.io/safe-to-forcefully-terminate annotation`)'
+reason: FailedScheduling
+reportingComponent: pod-termination-controller
+source:
+  component: pod-termination-controller
+```
+
 ### Implementation Overview
 
 Enabling the `FailureRecoveryPolicy` feature gate will turn on a controller, which manages the failed nodes.
