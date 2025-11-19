@@ -355,6 +355,21 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		}
 	}
 
+	// when manageJobsWithoutQueueName is enabled, standalone jobs without queue names
+	// are still not managed if they don't match the namespace selector.
+	if r.manageJobsWithoutQueueName && QueueName(job) == "" {
+		ns := corev1.Namespace{}
+		err := r.client.Get(ctx, client.ObjectKey{Name: job.Object().GetNamespace()}, &ns)
+		if err != nil {
+			log.Error(err, "failed to get job namespace")
+			return ctrl.Result{}, err
+		}
+		if !r.managedJobsNamespaceSelector.Matches(labels.Set(ns.GetLabels())) {
+			log.V(3).Info("namespace selector does not match, ignoring the job", "namespace", ns.Name)
+			return ctrl.Result{}, nil
+		}
+	}
+
 	// if this is a non-toplevel job, suspend the job if its ancestor's workload is not found or not admitted.
 	if !isTopLevelJob {
 		_, _, finished := job.Finished()
@@ -374,21 +389,6 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			}
 		}
 		return ctrl.Result{}, nil
-	}
-
-	// when manageJobsWithoutQueueName is enabled, standalone jobs without queue names
-	// are still not managed if they don't match the namespace selector.
-	if r.manageJobsWithoutQueueName && QueueName(job) == "" {
-		ns := corev1.Namespace{}
-		err := r.client.Get(ctx, client.ObjectKey{Name: job.Object().GetNamespace()}, &ns)
-		if err != nil {
-			log.Error(err, "failed to get job namespace")
-			return ctrl.Result{}, err
-		}
-		if !r.managedJobsNamespaceSelector.Matches(labels.Set(ns.GetLabels())) {
-			log.V(3).Info("namespace selector does not match, ignoring the job", "namespace", ns.Name)
-			return ctrl.Result{}, nil
-		}
 	}
 
 	log.V(2).Info("Reconciling Job")
