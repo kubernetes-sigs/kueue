@@ -6,8 +6,10 @@ resources:
 - rbac/role.yaml
 - rbac/role_binding.yaml
 - manager/manager.yaml
+- manager/controller_config_map.yaml
 
 images:
 - name: localqueue-creator
   newName: us-central1-docker.pkg.dev/k8s-staging-images/kueue/localqueue-creator
+  newTag: 89929deb6-dirty
 namespace: kueue-system

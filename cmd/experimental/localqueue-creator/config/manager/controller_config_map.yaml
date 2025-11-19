@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: localqueue-creator-config
+  namespace: kueue-system
+data:
+  controller_manager_config.yaml: |
+    localQueueName: default
+    # managedJobsNamespaceSelector:
+    #   matchLabels:
+    #     key: value

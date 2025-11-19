@@ -21,6 +21,7 @@ import (
 	"os"
 
 	"go.uber.org/zap/zapcore"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -29,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	localqueuecreatorconfig "sigs.k8s.io/kueue/cmd/experimental/localqueue-creator/pkg/config"
 	"sigs.k8s.io/kueue/cmd/experimental/localqueue-creator/pkg/controller"
 )
 
@@ -42,8 +44,10 @@ func init() {
 }
 
 func main() {
-	var localQueueName string
-	flag.StringVar(&localQueueName, "local-queue-name", "default", "The name of the LocalQueue to create by default in selected namespaces.")
+	var configFile string
+	flag.StringVar(&configFile, "config", "",
+		"The controller will load its initial configuration from this file. "+
+			"Omit this flag to use the default configuration values.")
 	opts := zap.Options{
 		TimeEncoder: zapcore.RFC3339NanoTimeEncoder,
 	}
@@ -52,6 +56,12 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 	setupLog := ctrl.Log.WithName("setup")
+
+	cfg, err := localqueuecreatorconfig.Load(configFile)
+	if err != nil {
+		setupLog.Error(err, "unable to load the configuration")
+		os.Exit(1)
+	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
@@ -62,10 +72,22 @@ func main() {
 		os.Exit(1)
 	}
 
+	reconcilerOpts := []controller.LocalQueueCreatorReconcilerOption{
+		controller.WithLocalQueueName(cfg.LocalQueueName),
+	}
+	if cfg.ManagedJobsNamespaceSelector != nil {
+		selector, err := metav1.LabelSelectorAsSelector(cfg.ManagedJobsNamespaceSelector)
+		if err != nil {
+			setupLog.Error(err, "unable to parse managed-jobs-namespace-selector")
+			os.Exit(1)
+		}
+		reconcilerOpts = append(reconcilerOpts, controller.WithNamespaceSelector(selector))
+	}
+
 	if err = controller.NewLocalQueueCreatorReconciler(
 		mgr.GetClient(),
 		mgr.GetEventRecorderFor("kueue-localqueue-creator"),
-		controller.WithLocalQueueName(localQueueName),
+		reconcilerOpts...,
 	).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DefaultLocalQueue")
 		os.Exit(1)
