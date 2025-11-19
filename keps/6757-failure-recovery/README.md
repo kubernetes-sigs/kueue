@@ -41,6 +41,24 @@ When the `kubelet` fails to send its regular heartbeat to the control plane with
 If the heartbeat is resumed within this toleration period, the control plane removes the taints and the pods continue running.
 On the other hand, if it is not resumed, then the pods are marked for termination (i.e. their `deletionTimestamp` is set in `etcd`).
 
+The complete flow of pod termination in this case is as follows:
+1. `node-a` stops sending a heartbeat to the control plane.
+1. **After `node-monitor-grace-period` elapses ([50 seconds by default](https://kubernetes.io/docs/reference/node/node-status/#condition))**, the `node.kubernetes.io/unreachable` taint is added to `node-a`.
+1. A toleration ([5 minutes by default](https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/#taint-based-evictions)) for the `node.kubernetes.io/unreachable` is added to pods running on `node-a`.
+1. **After the toleration time elapses**, the control plane marks the pods for termination by setting their `deletionTimestamp`
+and `deletionGracePeriodSeconds` ([30 seconds by default](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#pod-termination-flow)).
+1. **After the deletion grace period elapses**, the `kubelet` should send the `SIGKILL` signal to the pods to terminate them and set their phase accordingly.
+Regardless of whether this happens or not, the control plane will not see this update because of the lack of communication with the `kubelet`.
+1. The pod remains in a `Terminating` state.
+
+The pod can also become "stuck" if the loss of communication occurs **after** the pod was marked for termination:
+
+1. `pod-a` running on `node-a` is marked for termination. Its `deletionTimestamp` and `deletionGracePeriodSeconds` are set.
+1. `node-a` stops sending a heartbeat to the control plane.
+1. **After the deletion grace period elapses**, the `kubelet` should send the `SIGKILL` signal to the pods to terminate them and set their phase accordingly.
+Regardless of whether this happens or not, the control plane will not see this update because of the lack of communication with the `kubelet`.
+1. The pod remains in a `Terminating` state.
+
 Without a functioning `kubelet`, the pods have no way of progressing beyond that point on their own.
 Such pods, colloquially called "zombie pods", remain terminating until the node is healed or they are manually removed.
 This is a crucial safety measure, as in that scenario the control plane has no way to confirm that the pods actually stopped
