@@ -124,8 +124,8 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	gracefulTerminationPeriod := time.Duration(ptr.Deref(pod.DeletionGracePeriodSeconds, 0)) * time.Second
 	totalGracePeriod := gracefulTerminationPeriod + r.forcefulTerminationGracePeriod
 	if now.Before(pod.DeletionTimestamp.Add(totalGracePeriod)) {
-		gracePeriodLeft := pod.DeletionTimestamp.Add(totalGracePeriod).Sub(now)
-		return ctrl.Result{RequeueAfter: gracePeriodLeft}, nil
+		remainingTime := pod.DeletionTimestamp.Add(totalGracePeriod).Sub(now)
+		return ctrl.Result{RequeueAfter: remainingTime}, nil
 	}
 
 	podPatch := pod.DeepCopy()
