@@ -443,8 +443,8 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 			nominatedWorkers = append(nominatedWorkers, workerName)
 		}
 		if group.local.Status.ClusterName == nil && !equality.Semantic.DeepEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
-			if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func() (bool, error) {
-				group.local.Status.NominatedClusterNames = nominatedWorkers
+			if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+				wl.Status.NominatedClusterNames = nominatedWorkers
 				return true, nil
 			}); err != nil {
 				log.V(2).Error(err, "Failed to patch nominated clusters", "workload", klog.KObj(group.local))
@@ -646,9 +646,9 @@ func (w *wlReconciler) syncReservingRemoteState(ctx context.Context, group *wlGr
 		return nil
 	}
 
-	if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func() (bool, error) {
+	if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
 		if needsTopologyUpdate {
-			updateDelayedTopologyRequest(group.local, group.remotes[reservingRemote])
+			updateDelayedTopologyRequest(wl, group.remotes[reservingRemote])
 		}
 
 		if needsACUpdate {
@@ -662,10 +662,10 @@ func (w *wlReconciler) syncReservingRemoteState(ctx context.Context, group *wlGr
 			// update the transition time since is used to detect the lost worker state.
 			acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
 
-			workload.SetAdmissionCheckState(&group.local.Status.AdmissionChecks, *acs, w.clock)
+			workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *acs, w.clock)
 			// Set the cluster name to the reserving remote and clear the nominated clusters.
-			group.local.Status.ClusterName = &reservingRemote
-			group.local.Status.NominatedClusterNames = nil
+			wl.Status.ClusterName = &reservingRemote
+			wl.Status.NominatedClusterNames = nil
 		}
 
 		return true, nil

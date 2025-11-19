@@ -1023,25 +1023,31 @@ func WithLooseOnApply() PatchAdmissionStatusOption {
 // PatchAdmissionStatus updates the admission status of a workload.
 // If the WorkloadRequestUseMergePatch feature is enabled, it uses a Merge Patch with update function.
 // Otherwise, it runs the update function and, if updated, applies the SSA Patch status.
-func PatchAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, clk clock.Clock, update func() (bool, error), options ...PatchAdmissionStatusOption) error {
+func PatchAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, clk clock.Clock, update func(*kueue.Workload) (bool, error), options ...PatchAdmissionStatusOption) error {
 	opts := DefaultPatchAdmissionStatusOptions()
 	for _, opt := range options {
 		opt(opts)
 	}
-
+	var err error
+	wlCopy := w.DeepCopy()
 	if features.Enabled(features.WorkloadRequestUseMergePatch) {
 		var patchOptions []clientutil.PatchOption
 		if !opts.StrictPatch {
 			patchOptions = append(patchOptions, clientutil.WithLoose())
 		}
-		return clientutil.PatchStatus(ctx, c, w, update, patchOptions...)
+		err = clientutil.PatchStatus(ctx, c, wlCopy, func() (bool, error) {
+			return update(wlCopy)
+		}, patchOptions...)
+	} else {
+		if updated, err := update(wlCopy); err != nil || !updated {
+			return err
+		}
+		err = ApplyAdmissionStatus(ctx, c, wlCopy, opts.StrictApply, clk)
 	}
-	updated, err := update()
-	if err != nil || !updated {
-		return err
+	if err == nil {
+		wlCopy.DeepCopyInto(w)
 	}
-
-	return ApplyAdmissionStatus(ctx, c, w, opts.StrictApply, clk)
+	return err
 }
 
 type Ordering struct {
@@ -1279,7 +1285,7 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 type EvictOption func(*EvictOptions)
 
 type EvictOptions struct {
-	CustomPrepare func()
+	CustomPrepare func(wl *kueue.Workload)
 }
 
 func DefaultEvictOptions() *EvictOptions {
@@ -1288,7 +1294,7 @@ func DefaultEvictOptions() *EvictOptions {
 	}
 }
 
-func WithCustomPrepare(customPrepare func()) EvictOption {
+func WithCustomPrepare(customPrepare func(wl *kueue.Workload)) EvictOption {
 	return func(o *EvictOptions) {
 		if customPrepare != nil {
 			o.CustomPrepare = customPrepare
@@ -1307,9 +1313,9 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 		reportWorkloadEvictedOnce bool
 	)
 
-	if err := PatchAdmissionStatus(ctx, c, wl, clock, func() (bool, error) {
+	if err := PatchAdmissionStatus(ctx, c, wl, clock, func(wl *kueue.Workload) (bool, error) {
 		if opts.CustomPrepare != nil {
-			opts.CustomPrepare()
+			opts.CustomPrepare(wl)
 		}
 
 		evictionReason := reason
