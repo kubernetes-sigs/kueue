@@ -88,58 +88,6 @@ func NewLocalQueueCreatorReconciler(
 	}
 }
 
-func (r *LocalQueueCreatorReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return builder.TypedControllerManagedBy[reconcile.Request](mgr).
-		For(&corev1.Namespace{}).
-		Watches(
-			&kueue.ClusterQueue{},
-			handler.EnqueueRequestsFromMapFunc(r.mapClusterQueueToNamespaces),
-		).
-		Complete(r)
-}
-
-func (r *LocalQueueCreatorReconciler) mapClusterQueueToNamespaces(ctx context.Context, cqObj client.Object) []reconcile.Request {
-	cq, ok := cqObj.(*kueue.ClusterQueue)
-	if !ok {
-		return nil
-	}
-
-	log := r.log.WithValues("clusterQueue", klog.KObj(cq))
-
-	if !cq.DeletionTimestamp.IsZero() {
-		return nil
-	}
-
-	var selector labels.Selector
-	if cq.Spec.NamespaceSelector == nil {
-		selector = labels.Everything()
-	} else {
-		var err error
-		selector, err = metav1.LabelSelectorAsSelector(cq.Spec.NamespaceSelector)
-		if err != nil {
-			log.Error(err, "Failed to parse namespaceSelector")
-			return nil
-		}
-	}
-
-	var nsList corev1.NamespaceList
-	if err := r.client.List(ctx, &nsList, client.MatchingLabelsSelector{Selector: selector}); err != nil {
-		log.Error(err, "Failed to list namespaces")
-		return nil
-	}
-
-	requests := make([]reconcile.Request, 0, len(nsList.Items))
-	for _, ns := range nsList.Items {
-		if r.namespaceSelector != nil && !r.namespaceSelector.Matches(labels.Set(ns.GetLabels())) {
-			continue
-		}
-		requests = append(requests, reconcile.Request{
-			NamespacedName: types.NamespacedName{Name: ns.Name},
-		})
-	}
-	return requests
-}
-
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterqueues,verbs=get;list;watch
@@ -199,6 +147,58 @@ func (r *LocalQueueCreatorReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *LocalQueueCreatorReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	return builder.TypedControllerManagedBy[reconcile.Request](mgr).
+		For(&corev1.Namespace{}).
+		Watches(
+			&kueue.ClusterQueue{},
+			handler.EnqueueRequestsFromMapFunc(r.mapClusterQueueToNamespaces),
+		).
+		Complete(r)
+}
+
+func (r *LocalQueueCreatorReconciler) mapClusterQueueToNamespaces(ctx context.Context, cqObj client.Object) []reconcile.Request {
+	cq, ok := cqObj.(*kueue.ClusterQueue)
+	if !ok {
+		return nil
+	}
+
+	log := r.log.WithValues("clusterQueue", klog.KObj(cq))
+
+	if !cq.DeletionTimestamp.IsZero() {
+		return nil
+	}
+
+	var selector labels.Selector
+	if cq.Spec.NamespaceSelector == nil {
+		selector = labels.Everything()
+	} else {
+		var err error
+		selector, err = metav1.LabelSelectorAsSelector(cq.Spec.NamespaceSelector)
+		if err != nil {
+			log.Error(err, "Failed to parse namespaceSelector")
+			return nil
+		}
+	}
+
+	var nsList corev1.NamespaceList
+	if err := r.client.List(ctx, &nsList, client.MatchingLabelsSelector{Selector: selector}); err != nil {
+		log.Error(err, "Failed to list namespaces")
+		return nil
+	}
+
+	requests := make([]reconcile.Request, 0, len(nsList.Items))
+	for _, ns := range nsList.Items {
+		if r.namespaceSelector != nil && !r.namespaceSelector.Matches(labels.Set(ns.GetLabels())) {
+			continue
+		}
+		requests = append(requests, reconcile.Request{
+			NamespacedName: types.NamespacedName{Name: ns.Name},
+		})
+	}
+	return requests
 }
 
 func (r *LocalQueueCreatorReconciler) ensureLocalQueueExists(ctx context.Context, cq *kueue.ClusterQueue, ns *corev1.Namespace) error {
