@@ -89,7 +89,6 @@ func TestLocalQueueCreatorReconciler(t *testing.T) {
 					},
 				},
 			},
-
 			wantEvents: []Event{
 				{
 					EventType: corev1.EventTypeNormal,

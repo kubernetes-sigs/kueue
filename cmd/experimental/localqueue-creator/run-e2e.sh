@@ -58,7 +58,7 @@ IMAGE_TAG="us-central1-docker.pkg.dev/k8s-staging-images/kueue/localqueue-creato
 "$KIND" load docker-image "$IMAGE_TAG" --name "$KIND_CLUSTER_NAME"
 
 echo "Deploying localqueue-creator..."
-cd run-in-cluster
+cd config
 # Use the same tag as the Makefile
 IMAGE_TAG="us-central1-docker.pkg.dev/k8s-staging-images/kueue/localqueue-creator:$GIT_TAG"
 "$KUSTOMIZE" edit set image localqueue-creator="$IMAGE_TAG"

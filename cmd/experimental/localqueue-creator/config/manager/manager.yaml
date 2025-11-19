@@ -49,8 +49,3 @@ spec:
             memory: 20Mi
       serviceAccountName: localqueue-creator
       terminationGracePeriodSeconds: 10
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: localqueue-creator

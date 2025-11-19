@@ -70,6 +70,11 @@ GOTESTSUM := $(BIN_DIR)/gotestsum
 ARTIFACTS ?= $(ROOT_DIR)/artifacts
 ENVTEST_K8S_VERSION ?= 1.34
 INTEGRATION_NPROCS ?= 4
+CONTROLLER_GEN := $(BIN_DIR)/controller-gen
+
+.PHONY: manifests
+manifests:
+	$(CONTROLLER_GEN) rbac:roleName=localqueue-creator-role output:rbac:artifacts:config=config/rbac paths="./pkg/controller/..."
 
 .PHONY: test-integration
 test-integration:
