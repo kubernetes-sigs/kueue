@@ -319,7 +319,7 @@ with a feature gate first, then decide how to best represent it in the API.
 
 ### Managing The `node.kubernetes.io/out-of-service` Taint On `Node`
 
-Core Kubernetes already contains logic for [automatic garbage collection](https://github.com/kubernetes/kubernetes/blob/4870d987d0a4aac2d9223d4c0b9f22858c0d1590/pkg/controller/podgc/gc_controller.go) of `Pod`s running on a `Node` with the `node.kubernetes.io/out-of-service` taint.
+Core Kubernetes already contains logic for [non-graceful node shutdown handling](https://kubernetes.io/docs/concepts/cluster-administration/node-shutdown/#non-graceful-node-shutdown) and [automatic garbage collection](https://github.com/kubernetes/kubernetes/blob/4870d987d0a4aac2d9223d4c0b9f22858c0d1590/pkg/controller/podgc/gc_controller.go) of `Pod`s running on such nodes (tainted with the `node.kubernetes.io/out-of-service` taint).
 It updates the `Pod`s status and deletes it from `etcd`. The recovery controller could use this fact to terminate stuck pods by automatically adding this taint to nodes which are unreachable for some configurable time.
 
 Given the API proposal, this approach could potentially be implemented as an alternative
