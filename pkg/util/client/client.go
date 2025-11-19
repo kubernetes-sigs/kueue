@@ -22,10 +22,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// UpdateFunc is a function that attempts to update a resource.
-// It returns the resulting object, a bool indicating whether an update was made,
-// and an error if any occurred.
-type UpdateFunc func() (client.Object, bool, error)
+// UpdateFunc is a function that modifies an object in-place.
+// It returns a bool indicating whether an update was made, and an error if any occurred.
+type UpdateFunc func() (bool, error)
 
 // PatchOption defines a functional option for customizing PatchOptions.
 // It follows the functional options pattern, allowing callers to configure
@@ -91,10 +90,9 @@ func WithLoose() PatchOption {
 //
 // Example:
 //
-//	err := Patch(ctx, client, obj, func() (client.Object, bool, error) {
-//	    updated := obj.DeepCopyObject().(client.Object)
-//	    updated.SetLabels(map[string]string{"app": "demo"})
-//	    return updated, true, nil
+//	err := Patch(ctx, client, obj, func() (bool, error) {
+//	    obj.SetLabels(map[string]string{"app": "demo"})
+//	    return true, nil
 //	}, WithLoose())
 //	if err != nil {
 //	    log.Fatal(err)
@@ -126,11 +124,9 @@ func Patch(ctx context.Context, c client.Client, obj client.Object, update Updat
 //
 // Example:
 //
-//	err := PatchStatus(ctx, client, obj, func() (client.Object, bool, error) {
-//	    updated := obj.DeepCopyObject().(client.Object)
-//	    myObj := updated.(*myv1.MyCustomResource)
-//	    myObj.Status.Phase = "Ready"
-//	    return updated, true, nil
+//	err := PatchStatus(ctx, client, obj, func() (bool, error) {
+//	    obj.Status.Phase = "Ready"
+//	    return true, nil
 //	})
 //	if err != nil {
 //	    log.Fatal(err)
@@ -160,11 +156,11 @@ func patchCommon(obj client.Object, updateFn UpdateFunc, patchFn patchFunc, opti
 
 func executePatch(obj client.Object, options *PatchOptions, update UpdateFunc, patchFn patchFunc) error {
 	objOriginal := getOriginalObject(obj, options)
-	objPatched, updated, err := update()
+	updated, err := update()
 	if err != nil || !updated {
 		return err
 	}
-	patch, err := createPatch(objOriginal, objPatched)
+	patch, err := createPatch(objOriginal, obj)
 	if err != nil {
 		return err
 	}

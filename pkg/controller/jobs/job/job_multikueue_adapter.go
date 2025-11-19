@@ -69,9 +69,9 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 				log.V(2).Info("Skipping the sync since the local job is still suspended")
 				return nil
 			}
-			return clientutil.PatchStatus(ctx, localClient, &localJob, func() (client.Object, bool, error) {
+			return clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
 				localJob.Status = remoteJob.Status
-				return &localJob, true, nil
+				return true, nil
 			})
 		}
 		remoteFinished := false
@@ -82,9 +82,9 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 			}
 		}
 		if remoteFinished {
-			return clientutil.PatchStatus(ctx, localClient, &localJob, func() (client.Object, bool, error) {
+			return clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
 				localJob.Status = remoteJob.Status
-				return &localJob, true, nil
+				return true, nil
 			})
 		}
 
@@ -113,7 +113,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 			}
 
 			// Update remote job's workload slice name and parallelism if needed.
-			if err := clientutil.Patch(ctx, remoteClient, &remoteJob, func() (client.Object, bool, error) {
+			if err := clientutil.Patch(ctx, remoteClient, &remoteJob, func() (bool, error) {
 				// Update workload name label.
 				labelsChanged := false
 				if remoteJob.Labels == nil {
@@ -128,7 +128,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 				// Update parallelism.
 				remoteJob.Spec.Parallelism = localJob.Spec.Parallelism
-				return &remoteJob, oldParallelism != newParallelism || labelsChanged, nil
+				return oldParallelism != newParallelism || labelsChanged, nil
 			}); err != nil {
 				return fmt.Errorf("failed to patch remote job: %w", err)
 			}

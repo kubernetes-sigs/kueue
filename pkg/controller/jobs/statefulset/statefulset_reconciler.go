@@ -103,16 +103,16 @@ func (r *Reconciler) finalizePods(ctx context.Context, sts *appsv1.StatefulSet, 
 
 func (r *Reconciler) finalizePod(ctx context.Context, sts *appsv1.StatefulSet, pod *corev1.Pod) error {
 	log := ctrl.LoggerFrom(ctx)
-	return client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (client.Object, bool, error) {
+	return client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
 		if ungateAndFinalize(sts, pod) {
 			log.V(3).Info(
 				"Finalizing pod in group",
 				"pod", klog.KObj(pod),
 				"group", pod.Labels[podcontroller.GroupNameLabel],
 			)
-			return pod, true, nil
+			return true, nil
 		}
-		return pod, false, nil
+		return false, nil
 	}))
 }
 

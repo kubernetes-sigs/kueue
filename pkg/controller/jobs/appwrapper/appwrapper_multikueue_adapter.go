@@ -63,9 +63,9 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 			log.V(2).Info("Skipping the sync since the local appwrapper is still suspended")
 			return nil
 		}
-		return clientutil.PatchStatus(ctx, localClient, &localAppWrapper, func() (client.Object, bool, error) {
+		return clientutil.PatchStatus(ctx, localClient, &localAppWrapper, func() (bool, error) {
 			localAppWrapper.Status = remoteAppWrapper.Status
-			return &localAppWrapper, true, nil
+			return true, nil
 		})
 	}
 

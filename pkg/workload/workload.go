@@ -809,7 +809,7 @@ func HasTopologyAssignmentsPending(w *kueue.Workload) bool {
 	return false
 }
 
-func SetPreemptedCondition(w *kueue.Workload, now time.Time, reason string, message string) {
+func SetPreemptedCondition(w *kueue.Workload, now time.Time, reason string, message string) bool {
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadPreempted,
 		Status:             metav1.ConditionTrue,
@@ -817,7 +817,7 @@ func SetPreemptedCondition(w *kueue.Workload, now time.Time, reason string, mess
 		Reason:             reason,
 		Message:            api.TruncateConditionMessage(message),
 	}
-	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
+	return apimeta.SetStatusCondition(&w.Status.Conditions, condition)
 }
 
 func SetDeactivationTarget(w *kueue.Workload, reason string, message string) bool {
@@ -1023,7 +1023,7 @@ func WithLooseOnApply() PatchAdmissionStatusOption {
 // PatchAdmissionStatus updates the admission status of a workload.
 // If the WorkloadRequestUseMergePatch feature is enabled, it uses a Merge Patch with update function.
 // Otherwise, it runs the update function and, if updated, applies the SSA Patch status.
-func PatchAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, clk clock.Clock, update func() (*kueue.Workload, bool, error), options ...PatchAdmissionStatusOption) error {
+func PatchAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, clk clock.Clock, update func() (bool, error), options ...PatchAdmissionStatusOption) error {
 	opts := DefaultPatchAdmissionStatusOptions()
 	for _, opt := range options {
 		opt(opts)
@@ -1034,16 +1034,14 @@ func PatchAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workloa
 		if !opts.StrictPatch {
 			patchOptions = append(patchOptions, clientutil.WithLoose())
 		}
-		return clientutil.PatchStatus(ctx, c, w, func() (client.Object, bool, error) {
-			return update()
-		}, patchOptions...)
+		return clientutil.PatchStatus(ctx, c, w, update, patchOptions...)
 	}
-	wPatched, updated, err := update()
+	updated, err := update()
 	if err != nil || !updated {
 		return err
 	}
 
-	return ApplyAdmissionStatus(ctx, c, wPatched, opts.StrictApply, clk)
+	return ApplyAdmissionStatus(ctx, c, w, opts.StrictApply, clk)
 }
 
 type Ordering struct {
@@ -1281,7 +1279,7 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 type EvictOption func(*EvictOptions)
 
 type EvictOptions struct {
-	CustomPrepare func() (*kueue.Workload, error)
+	CustomPrepare func()
 }
 
 func DefaultEvictOptions() *EvictOptions {
@@ -1290,7 +1288,7 @@ func DefaultEvictOptions() *EvictOptions {
 	}
 }
 
-func WithCustomPrepare(customPrepare func() (*kueue.Workload, error)) EvictOption {
+func WithCustomPrepare(customPrepare func()) EvictOption {
 	return func(o *EvictOptions) {
 		if customPrepare != nil {
 			o.CustomPrepare = customPrepare
@@ -1304,28 +1302,27 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 		opt(opts)
 	}
 
-	// if there is no customPrepare, wl and wlOrig are equal
-	wlOrig := wl.DeepCopy()
-	if opts.CustomPrepare != nil {
-		var err error
-		wl, err = opts.CustomPrepare()
-		if err != nil || wl == nil {
-			return err
-		}
-	}
+	var (
+		hadAdmission              = wl.Status.Admission != nil
+		reportWorkloadEvictedOnce bool
+	)
 
-	evictionReason := reason
-	if reason == kueue.WorkloadDeactivated && underlyingCause != "" {
-		evictionReason = ReasonWithCause(evictionReason, string(underlyingCause))
-	}
-	prepareForEviction(wl, clock.Now(), evictionReason, msg)
-	reportWorkloadEvictedOnce := workloadEvictionStateInc(wl, reason, underlyingCause)
-	if err := PatchAdmissionStatus(ctx, c, wlOrig, clock, func() (*kueue.Workload, bool, error) {
-		return wl, true, nil
+	if err := PatchAdmissionStatus(ctx, c, wl, clock, func() (bool, error) {
+		if opts.CustomPrepare != nil {
+			opts.CustomPrepare()
+		}
+
+		evictionReason := reason
+		if reason == kueue.WorkloadDeactivated && underlyingCause != "" {
+			evictionReason = ReasonWithCause(evictionReason, string(underlyingCause))
+		}
+		prepareForEviction(wl, clock.Now(), evictionReason, msg)
+		reportWorkloadEvictedOnce = workloadEvictionStateInc(wl, reason, underlyingCause)
+		return true, nil
 	}); err != nil {
 		return err
 	}
-	if wlOrig.Status.Admission == nil {
+	if !hadAdmission {
 		// This is an extra safeguard for access to `wl.Status.Admission`.
 		// This function is expected to be called only for workload which have
 		// Admission.
@@ -1342,9 +1339,8 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 
 func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, msg string, clock clock.Clock) error {
 	if features.Enabled(features.WorkloadRequestUseMergePatch) {
-		return clientutil.PatchStatus(ctx, c, wl, func() (client.Object, bool, error) {
-			update := SetFinishedCondition(wl, clock.Now(), reason, msg)
-			return wl, update, nil
+		return clientutil.PatchStatus(ctx, c, wl, func() (bool, error) {
+			return SetFinishedCondition(wl, clock.Now(), reason, msg), nil
 		})
 	} else {
 		newWl := PrepareWorkloadPatch(wl, true, clock)

@@ -1652,16 +1652,10 @@ func TestPatchAdmissionStatus(t *testing.T) {
 					cl = utiltesting.NewFakeClient(wl)
 				}
 				called := false
-				gotErr := PatchAdmissionStatus(
-					ctx,
-					cl,
-					wl,
-					fakeClock,
-					func() (*kueue.Workload, bool, error) {
-						called = true
-						return wl, tc.patchCall.updated, tc.patchCall.err
-					},
-				)
+				gotErr := PatchAdmissionStatus(ctx, cl, wl, fakeClock, func() (bool, error) {
+					called = true
+					return tc.patchCall.updated, tc.patchCall.err
+				})
 				if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
 					t.Errorf("Unexpected error (-want/+got)\n%s", diff)
 				}

@@ -168,9 +168,8 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 
 			message := preemptionMessage(preemptor.Obj, target.Reason, preemptorPath, preempteePath)
 			wlCopy := target.WorkloadInfo.Obj.DeepCopy()
-			err := workload.Evict(ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, "", p.clock, workload.WithCustomPrepare(func() (*kueue.Workload, error) {
+			err := workload.Evict(ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, "", p.clock, workload.WithCustomPrepare(func() {
 				workload.SetPreemptedCondition(wlCopy, p.clock.Now(), target.Reason, message)
-				return wlCopy, nil
 			}))
 			if err != nil {
 				errCh.SendErrorWithCancel(err, cancel)
