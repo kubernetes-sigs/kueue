@@ -1041,17 +1041,6 @@ if FairSharing is enabled in the Kueue configuration.</p>
    <p>admissionScope indicates whether ClusterQueue uses the Admission Fair Sharing</p>
 </td>
 </tr>
-<tr><td><code>defaultLocalQueue</code><br/>
-<a href="#kueue-x-k8s-io-v1beta2-DefaultLocalQueue"><code>DefaultLocalQueue</code></a>
-</td>
-<td>
-   <p>defaultLocalQueue specifies the configuration for automatically creating LocalQueues
-in namespaces that match the ClusterQueue's namespaceSelector. This feature is
-controlled by the <code>DefaultLocalQueue</code> feature gate.
-If this field is set, a LocalQueue with the specified name will be created in
-each matching namespace. The LocalQueue will reference this ClusterQueue.</p>
-</td>
-</tr>
 </tbody>
 </table>
 
@@ -1244,33 +1233,6 @@ if FairSharing is enabled in the Kueue configuration.</p>
    <p>fairSharing contains the current state for this Cohort
 when participating in Fair Sharing.
 The is recorded only when Fair Sharing is enabled in the Kueue configuration.</p>
-</td>
-</tr>
-</tbody>
-</table>
-
-## `DefaultLocalQueue`     {#kueue-x-k8s-io-v1beta2-DefaultLocalQueue}
-    
-
-**Appears in:**
-
-- [ClusterQueueSpec](#kueue-x-k8s-io-v1beta2-ClusterQueueSpec)
-
-
-<p>DefaultLocalQueue defines the configuration for automatically created LocalQueues.</p>
-
-
-<table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
-<tbody>
-    
-  
-<tr><td><code>name</code> <B>[Required]</B><br/>
-<code>string</code>
-</td>
-<td>
-   <p>name is the name of the LocalQueue to be created in matching namespaces.
-This name must be a valid DNS subdomain name.</p>
 </td>
 </tr>
 </tbody>

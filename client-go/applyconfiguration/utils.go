@@ -77,8 +77,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.CohortSpecApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("CohortStatus"):
 		return &kueuev1beta1.CohortStatusApplyConfiguration{}
-	case v1beta1.SchemeGroupVersion.WithKind("DefaultLocalQueue"):
-		return &kueuev1beta1.DefaultLocalQueueApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("FairSharing"):
 		return &kueuev1beta1.FairSharingApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("FairSharingStatus"):
@@ -211,8 +209,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta2.CohortSpecApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("CohortStatus"):
 		return &kueuev1beta2.CohortStatusApplyConfiguration{}
-	case v1beta2.SchemeGroupVersion.WithKind("DefaultLocalQueue"):
-		return &kueuev1beta2.DefaultLocalQueueApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("FairSharing"):
 		return &kueuev1beta2.FairSharingApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("FairSharingStatus"):

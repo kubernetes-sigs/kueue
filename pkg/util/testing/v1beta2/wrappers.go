@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1beta1
+package v1beta2
 
 import (
 	"fmt"
@@ -976,12 +976,6 @@ func (c *ClusterQueueWrapper) QueueingStrategy(strategy kueue.QueueingStrategy) 
 // NamespaceSelector sets the namespace selector.
 func (c *ClusterQueueWrapper) NamespaceSelector(s *metav1.LabelSelector) *ClusterQueueWrapper {
 	c.Spec.NamespaceSelector = s
-	return c
-}
-
-// DefaultLocalQueue sets the defaultLocalQueue field.
-func (c *ClusterQueueWrapper) DefaultLocalQueue(s *kueue.DefaultLocalQueue) *ClusterQueueWrapper {
-	c.Spec.DefaultLocalQueue = s
 	return c
 }
 
