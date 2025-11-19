@@ -27,8 +27,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	utilnode "sigs.k8s.io/kueue/pkg/util/node"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
+	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
 )
 
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
@@ -117,7 +117,7 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, err
 	}
 	// Pod is not scheduled on an unreachable node
-	if !utilnode.HasTaint(node, corev1.TaintNodeUnreachable) {
+	if !utiltaints.TaintKeyExists(node.Spec.Taints, corev1.TaintNodeUnreachable) {
 		return ctrl.Result{}, nil
 	}
 
