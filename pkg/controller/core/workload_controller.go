@@ -57,6 +57,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	qutil "sigs.k8s.io/kueue/pkg/util/queue"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
@@ -360,17 +361,13 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadDeactivationTarget)
 			}
 			if wl.Status.RequeueState != nil {
-				if features.Enabled(features.WorkloadRequestUseMergePatch) {
-					// When using a merge patch, we can set the entire RequeueState to nil.
-					wl.Status.RequeueState = nil
-				} else {
-					// When using SSA, we must clear individual fields instead of setting to nil.
-					wl.Status.RequeueState.Count = nil
-					wl.Status.RequeueState.RequeueAt = nil
-				}
+				// Clear RequeueState using Merge Patch instead of SSA.
+				// SSA cannot delete a pointer field with json:",omitempty" when it's owned
+				// by a different field manager. Merge Patch handles this correctly.
+				wl.Status.RequeueState = nil
 			}
 		}
-		if updated || wl.Status.RequeueState != nil {
+		if updated {
 			if evicted {
 				if err := workload.Evict(ctx, r.client, r.recorder, &wl, reason, message, underlyingCause, r.clock, workload.WithCustomPrepare(prepare)); err != nil {
 					if !apierrors.IsNotFound(err) {
@@ -378,7 +375,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 					}
 				}
 			} else {
-				if err := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func() (bool, error) {
+				if err := clientutil.PatchStatus(ctx, r.client, &wl, func() (bool, error) {
 					prepare()
 					return true, nil
 				}); err != nil {
