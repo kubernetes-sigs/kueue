@@ -183,7 +183,7 @@ status:
   - message: 'Pod forcefully terminated after 90s grace period due to unreachable node `node-a` (triggered by `kueue.x-k8s.io/safe-to-forcefully-terminate annotation`)'
     reason: KueueForcefullyTerminated
     status: "True"
-    type: FailureRecovery
+    type: KueueFailureRecovery
     # ...
 ```
 
