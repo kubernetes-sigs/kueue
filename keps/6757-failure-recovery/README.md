@@ -181,7 +181,7 @@ status:
   conditions:
   # grace period = `terminationGracePeriodSeconds` + 60s (default threshold in the KEP)
   - message: 'Pod forcefully terminated after 90s grace period due to unreachable node `node-a` (triggered by `kueue.x-k8s.io/safe-to-forcefully-terminate annotation`)'
-    reason: ForcefullyTerminated
+    reason: KueueForcefullyTerminated
     status: "True"
     type: FailureRecovery
     # ...
@@ -199,7 +199,7 @@ involvedObject:
   name: pod-a
   namespace: default
 message: 'Pod forcefully terminated after 90s grace period due to unreachable node `node-a` (triggered by `kueue.x-k8s.io/safe-to-forcefully-terminate annotation`)'
-reason: ForcefullyTerminated
+reason: KueueForcefullyTerminated
 reportingComponent: pod-termination-controller
 source:
   component: pod-termination-controller
