@@ -36,7 +36,7 @@ i.e. pods that are stuck in the `Pending`/`Running` state due to a node-level fa
 
 ## Motivation
 
-Currently, a malfunction of the `kubelet` (or a more general node failure) results in the pods running on that node to become stuck.
+Currently, a network partition or a malfunction of the `kubelet` (or a more general node failure) results in the pods running on that node to become stuck.
 When the `kubelet` fails to send its regular heartbeat to the control plane within `node-monitor-grace-period`, the node is deemed unhealthy and is assigned the `node.kubernetes.io/unreachable` taint. By default, Kubernetes [automatically adds a 5-minute toleration](https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/#taint-based-evictions) for pods running in the affected node (this can be explicitly set by a different value by the user/controller).
 If the heartbeat is resumed within this toleration period, the control plane removes the taints and the pods continue running.
 On the other hand, if it is not resumed, then the pods are marked for termination (i.e. their `deletionTimestamp` is set in `etcd`).
@@ -45,7 +45,8 @@ Without a functioning `kubelet`, the pods have no way of progressing beyond that
 Such pods, colloquially called "zombie pods", remain terminating until the node is healed or they are manually removed.
 This is a crucial safety measure, as in that scenario the control plane has no way to confirm that the pods actually stopped
 and released all their resources. It is especially relevant for stateful applications and might result in data corruption.
-For example, the stuck pod might still be writing to a `PersistentVolume` when a replacement is started.
+For example, the stuck pod might still be writing to a `PersistentVolume` when a replacement is started
+(which is likely in the case of network partitions, where the node is functioning correctly, just unable to communicate with the control plane).
 
 Nevertheless, it became clear that in some cases having a mechanism that would unblock replacement pods from starting would be beneficial.
 In particular, `Job`-based `Workload`s with `podReplacementPolicy: Failed` are unable to make progress when this issue occurs and require manual administration intervention.
