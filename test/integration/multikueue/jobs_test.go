@@ -1918,6 +1918,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 })
 
 func admitWorkloadAndCheckWorkerCopies(acName string, wlLookupKey types.NamespacedName, admission *utiltestingapi.AdmissionWrapper) {
+	ginkgo.GinkgoHelper()
 	ginkgo.By("setting workload reservation in the management cluster", func() {
 		util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission.Obj())
 	})
@@ -1967,6 +1968,7 @@ func admitWorkloadAndCheckWorkerCopies(acName string, wlLookupKey types.Namespac
 }
 
 func waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey types.NamespacedName, finishJobReason string) {
+	ginkgo.GinkgoHelper()
 	gomega.Eventually(func(g gomega.Gomega) {
 		createdWorkload := &kueue.Workload{}
 		g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
@@ -1990,12 +1992,14 @@ func waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey types.Names
 }
 
 func setQuotaReservationInCluster(wlLookupKey types.NamespacedName, admission *utiltestingapi.AdmissionWrapper) {
+	ginkgo.GinkgoHelper()
 	ginkgo.By("setting workload reservation in the management cluster", func() {
 		util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission.Obj())
 	})
 }
 
 func checkingTheWorkloadCreation(wlLookupKey types.NamespacedName, matcher gomegatypes.GomegaMatcher) {
+	ginkgo.GinkgoHelper()
 	ginkgo.By("checking the workload creation in the worker clusters", func() {
 		managerWl := &kueue.Workload{}
 		createdWorkload := &kueue.Workload{}
