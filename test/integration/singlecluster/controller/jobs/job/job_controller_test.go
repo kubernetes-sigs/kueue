@@ -3549,7 +3549,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testJob.Namespace))).Should(gomega.Succeed())
 			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
 			testJobWorkload = &workloads.Items[0]
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testJobWorkload)
+			g.Expect(workload.IsAdmitted(testJobWorkload)).Should(gomega.BeTrue())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("the job is unsuspended")
@@ -3587,10 +3587,10 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 			workloads := &kueue.WorkloadList{}
 			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testJob.Namespace))).Should(gomega.Succeed())
 			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testJobWorkload)
 			g.Expect(workloads.Items[0].Spec.PodSets[0].Count).Should(gomega.BeEquivalentTo(int32(1)))
 			g.Expect(workloads.Items[0].UID).Should(gomega.BeEquivalentTo(testJobWorkload.UID))
 			testJobWorkload = &workloads.Items[0]
+			g.Expect(workload.IsAdmitted(testJobWorkload)).Should(gomega.BeTrue())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("increasing the job's parallelism to emulate scale-up operation")
@@ -3619,7 +3619,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 					g.Expect(workload.IsFinished(&workloads.Items[i])).Should(gomega.BeTrue())
 					continue
 				}
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testJobWorkload)
+				g.Expect(workload.IsAdmitted(&workloads.Items[i])).Should(gomega.BeTrue())
 			}
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
@@ -3647,7 +3647,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testJobA.Namespace))).Should(gomega.Succeed())
 			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
 			testJobAWorkload = &workloads.Items[0]
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testJobAWorkload)
+			g.Expect(workload.IsAdmitted(testJobAWorkload)).Should(gomega.BeTrue())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("the job-a is unsuspended")
@@ -3679,7 +3679,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testJobA.Namespace), client.MatchingLabels{constants.JobUIDLabel: string(testJobB.UID)})).Should(gomega.Succeed())
 			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
 			testJobBWorkload = &workloads.Items[0]
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, testJobBWorkload)
+			g.Expect(testJobBWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, "Pending"))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("scale-down job-a to make room for job-b")
@@ -3691,7 +3691,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		ginkgo.By("admitting the job-b workload")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJobBWorkload), testJobBWorkload)).Should(gomega.Succeed())
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testJobBWorkload)
+			g.Expect(workload.IsAdmitted(testJobBWorkload)).Should(gomega.BeTrue())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("the job-b is unsuspended")
