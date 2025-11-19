@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"testing"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -210,9 +209,7 @@ func WithCache(c *schdcache.Cache) Option {
 }
 
 // WithClock sets the clock of the reconciler.
-// It default to system's clock and should only
-// be changed in testing.
-func WithClock(_ testing.TB, c clock.Clock) Option {
+func WithClock(c clock.Clock) Option {
 	return func(o *Options) {
 		o.Clock = c
 	}
