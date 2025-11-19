@@ -11,5 +11,4 @@ resources:
 images:
 - name: localqueue-creator
   newName: us-central1-docker.pkg.dev/k8s-staging-images/kueue/localqueue-creator
-  newTag: 89929deb6-dirty
 namespace: kueue-system
