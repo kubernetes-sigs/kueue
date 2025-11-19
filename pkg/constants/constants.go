@@ -42,10 +42,6 @@ const (
 	ManagedByKueueLabelKey   = "kueue.x-k8s.io/managed"
 	ManagedByKueueLabelValue = "true"
 
-	// CreatedByClusterQueueAnnotation is the annotation added to auto-generated LocalQueues
-	// that references the ClusterQueue that generated them.
-	CreatedByClusterQueueAnnotation = "kueue.x-k8s.io/created-by-clusterqueue"
-
 	// PodSetLabel is a label set on the Job's PodTemplate to indicate the name
 	// of the PodSet of the admitted Workload corresponding to the PodTemplate.
 	// The label is set when starting the Job, and removed on stopping the Job.
