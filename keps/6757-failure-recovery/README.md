@@ -138,8 +138,10 @@ spec:
 
 ### Grace Period
 
-A default grace period of **1 minute** will be introduced to get initial feedback about the feature.
-This will help inform the decision on the structure of the API and setting defaults makes sense when graduating to beta.
+When a pod is marked for termination, it's assigned with a `deletionGracePeriodSeconds`.
+This grace period defines the amount of time the pod has to terminate gracefully.
+This KEP defines "pods stuck terminating" as pods that were not terminated **1 minute** after the `deletionGracePeriodSeconds` elapsed.
+The value of 1 minute is chosen to get initial feedback about the feature and help inform the decision on the structure of the API and setting defaults makes sense when graduating to beta.
 
 ### Implementation Overview
 
