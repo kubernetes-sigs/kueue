@@ -36,8 +36,7 @@ import (
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 
 var (
-	realClock                             = clock.RealClock{}
-	defaultForcefulTerminationGracePeriod = 1 * time.Second
+	realClock = clock.RealClock{}
 
 	// TODO: Move to API.
 	safeToForcefullyTerminateAnnotationName  = "kueue.x-k8s.io/safe-to-forcefully-terminate"
@@ -45,12 +44,14 @@ var (
 )
 
 type TerminatingPodReconciler struct {
-	client client.Client
-	clock  clock.Clock
+	client                         client.Client
+	clock                          clock.Clock
+	forcefulTerminationGracePeriod time.Duration
 }
 
 type TerminatingPodReconcilerOptions struct {
-	clock clock.Clock
+	clock                          clock.Clock
+	forcefulTerminationGracePeriod time.Duration
 }
 
 type TerminatingPodReconcilerOption func(*TerminatingPodReconcilerOptions)
@@ -61,8 +62,15 @@ func WithClock(c clock.Clock) TerminatingPodReconcilerOption {
 	}
 }
 
+func WithForcefulTerminationGracePeriod(t time.Duration) TerminatingPodReconcilerOption {
+	return func(o *TerminatingPodReconcilerOptions) {
+		o.forcefulTerminationGracePeriod = t
+	}
+}
+
 var defaultOptions = TerminatingPodReconcilerOptions{
-	clock: realClock,
+	clock:                          realClock,
+	forcefulTerminationGracePeriod: time.Minute,
 }
 
 func NewTerminatingPodReconciler(
@@ -114,7 +122,7 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	now := r.clock.Now()
 	gracefulTerminationPeriod := time.Duration(ptr.Deref(pod.DeletionGracePeriodSeconds, 0)) * time.Second
-	totalGracePeriod := gracefulTerminationPeriod + defaultForcefulTerminationGracePeriod
+	totalGracePeriod := gracefulTerminationPeriod + r.forcefulTerminationGracePeriod
 	if now.Before(pod.DeletionTimestamp.Add(totalGracePeriod)) {
 		gracePeriodLeft := pod.DeletionTimestamp.Add(totalGracePeriod).Sub(now)
 		return ctrl.Result{RequeueAfter: gracePeriodLeft}, nil

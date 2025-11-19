@@ -17,8 +17,6 @@ limitations under the License.
 package failurerecovery
 
 import (
-	"time"
-
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -32,10 +30,6 @@ import (
 const (
 	unreachableNodeName = "unreachable-node"
 	reachableNodeName   = "reachable-node"
-
-	// The default termination grace period is set to 1 minute.
-	forcefulTerminationTimeout       = 80 * time.Second
-	forcefulTerminationCheckInterval = 15 * time.Second
 )
 
 func createTerminatingPod(p *corev1.Pod) {
@@ -77,7 +71,7 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: matchingPod.Name, Namespace: matchingPod.Namespace}, matchingPod)).
 				To(gomega.Succeed())
 			g.Expect(matchingPod.Status.Phase).Should(gomega.Equal(corev1.PodFailed))
-		}, forcefulTerminationTimeout, forcefulTerminationCheckInterval).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("does not forcefully terminate pods that did not opt-in, scheduled on unreachable nodes", func() {
@@ -92,7 +86,7 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nonMatchingPod.Name, Namespace: nonMatchingPod.Namespace}, nonMatchingPod)).
 				To(gomega.Succeed())
 			g.Expect(nonMatchingPod.Status.Phase).Should(gomega.Equal(corev1.PodPending))
-		}, forcefulTerminationTimeout, forcefulTerminationCheckInterval).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("does not forcefully terminate matching pods scheduled on healthy nodes", func() {
@@ -103,6 +97,6 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: podOnHealthyNode.Name, Namespace: podOnHealthyNode.Namespace}, podOnHealthyNode)).
 				To(gomega.Succeed())
 			g.Expect(podOnHealthyNode.Status.Phase).Should(gomega.Equal(corev1.PodPending))
-		}, forcefulTerminationTimeout, forcefulTerminationCheckInterval).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 })

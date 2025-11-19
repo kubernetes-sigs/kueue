@@ -19,6 +19,7 @@ package failurerecovery
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -57,7 +58,10 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 func managerSetup(ctx context.Context, mgr manager.Manager) {
-	terminatingPodReconciler, err := failurerecovery.NewTerminatingPodReconciler(mgr.GetClient())
+	terminatingPodReconciler, err := failurerecovery.NewTerminatingPodReconciler(
+		mgr.GetClient(),
+		failurerecovery.WithForcefulTerminationGracePeriod(2*time.Second),
+	)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = terminatingPodReconciler.SetupWithManager(mgr)
