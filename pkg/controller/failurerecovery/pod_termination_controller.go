@@ -83,8 +83,9 @@ func NewTerminatingPodReconciler(
 	}
 
 	return &TerminatingPodReconciler{
-		client: client,
-		clock:  options.clock,
+		client:                         client,
+		clock:                          options.clock,
+		forcefulTerminationGracePeriod: options.forcefulTerminationGracePeriod,
 	}, nil
 }
 
