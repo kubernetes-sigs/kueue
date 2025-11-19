@@ -24,7 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/cmd/experimental/localqueue-creator/pkg/constants"
 )
 
 var _ = ginkgo.Describe("DefaultLocalQueue", func() {

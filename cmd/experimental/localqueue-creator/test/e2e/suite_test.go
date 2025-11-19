@@ -52,6 +52,4 @@ var _ = ginkgo.BeforeSuite(func() {
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(k8sClient).NotTo(gomega.BeNil())
-
-	ctx = context.Background()
 })

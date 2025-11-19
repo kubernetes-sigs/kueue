@@ -55,7 +55,7 @@ func TestAPIs(t *testing.T) {
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{}
 	cfg = fwk.Init()
-	ctx, k8sClient = fwk.SetupClient(cfg)
+	ctx, k8sClient = fwk.SetupClient(cfg) //nolint:fatcontext // Global context is required for test suite setup
 })
 
 var _ = ginkgo.AfterSuite(func() {
