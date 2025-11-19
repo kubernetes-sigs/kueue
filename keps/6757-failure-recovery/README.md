@@ -13,6 +13,7 @@
 - [Design Details](#design-details)
   - [Affected Pods](#affected-pods)
   - [Grace Period](#grace-period)
+  - [Observability](#observability)
   - [Implementation Overview](#implementation-overview)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
@@ -198,7 +199,7 @@ involvedObject:
   name: pod-a
   namespace: default
 message: 'Pod forcefully terminated after 90s grace period due to unreachable node `node-a` (triggered by `kueue.x-k8s.io/safe-to-forcefully-terminate annotation`)'
-reason: FailedScheduling
+reason: ForcefullyTerminated
 reportingComponent: pod-termination-controller
 source:
   component: pod-termination-controller
