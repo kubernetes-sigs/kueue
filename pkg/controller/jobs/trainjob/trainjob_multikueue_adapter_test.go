@@ -87,16 +87,14 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					JobsStatus(
-						kftrainerapi.JobStatus{
-							Name:      "replicated-job-1",
-							Ready:     1,
-							Succeeded: 1,
-						},
-						kftrainerapi.JobStatus{
-							Name:      "replicated-job-2",
-							Ready:     3,
-							Succeeded: 0,
-						},
+						testingtrainjob.MakeJobStatusWrapper("replicated-job-1").
+							Ready(1).
+							Succeeded(1).
+							Obj(),
+						testingtrainjob.MakeJobStatusWrapper("replicated-job-2").
+							Ready(3).
+							Succeeded(0).
+							Obj(),
 					).
 					Obj(),
 			},
@@ -107,16 +105,14 @@ func TestMultiKueueAdapter(t *testing.T) {
 			wantManagersTrainJobs: []kftrainerapi.TrainJob{
 				*baseTrainJobManagedByKueueBuilder.Clone().
 					JobsStatus(
-						kftrainerapi.JobStatus{
-							Name:      "replicated-job-1",
-							Ready:     1,
-							Succeeded: 1,
-						},
-						kftrainerapi.JobStatus{
-							Name:      "replicated-job-2",
-							Ready:     3,
-							Succeeded: 0,
-						},
+						testingtrainjob.MakeJobStatusWrapper("replicated-job-1").
+							Ready(1).
+							Succeeded(1).
+							Obj(),
+						testingtrainjob.MakeJobStatusWrapper("replicated-job-2").
+							Ready(3).
+							Succeeded(0).
+							Obj(),
 					).
 					Obj(),
 			},
@@ -125,16 +121,14 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					JobsStatus(
-						kftrainerapi.JobStatus{
-							Name:      "replicated-job-1",
-							Ready:     1,
-							Succeeded: 1,
-						},
-						kftrainerapi.JobStatus{
-							Name:      "replicated-job-2",
-							Ready:     3,
-							Succeeded: 0,
-						},
+						testingtrainjob.MakeJobStatusWrapper("replicated-job-1").
+							Ready(1).
+							Succeeded(1).
+							Obj(),
+						testingtrainjob.MakeJobStatusWrapper("replicated-job-2").
+							Ready(3).
+							Succeeded(0).
+							Obj(),
 					).
 					Obj(),
 			},
@@ -151,16 +145,14 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Suspend(true).
 					JobsStatus(
-						kftrainerapi.JobStatus{
-							Name:      "replicated-job-1",
-							Ready:     1,
-							Succeeded: 1,
-						},
-						kftrainerapi.JobStatus{
-							Name:      "replicated-job-2",
-							Ready:     3,
-							Succeeded: 0,
-						},
+						testingtrainjob.MakeJobStatusWrapper("replicated-job-1").
+							Ready(1).
+							Succeeded(1).
+							Obj(),
+						testingtrainjob.MakeJobStatusWrapper("replicated-job-2").
+							Ready(3).
+							Succeeded(0).
+							Obj(),
 					).
 					Obj(),
 			},
@@ -179,16 +171,14 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Suspend(true).
 					JobsStatus(
-						kftrainerapi.JobStatus{
-							Name:      "replicated-job-1",
-							Ready:     1,
-							Succeeded: 1,
-						},
-						kftrainerapi.JobStatus{
-							Name:      "replicated-job-2",
-							Ready:     3,
-							Succeeded: 0,
-						},
+						testingtrainjob.MakeJobStatusWrapper("replicated-job-1").
+							Ready(1).
+							Succeeded(1).
+							Obj(),
+						testingtrainjob.MakeJobStatusWrapper("replicated-job-2").
+							Ready(3).
+							Succeeded(0).
+							Obj(),
 					).
 					Obj(),
 			},
@@ -199,16 +189,14 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					JobsStatus(
-						kftrainerapi.JobStatus{
-							Name:      "replicated-job-1",
-							Ready:     1,
-							Succeeded: 1,
-						},
-						kftrainerapi.JobStatus{
-							Name:      "replicated-job-2",
-							Ready:     3,
-							Succeeded: 0,
-						},
+						testingtrainjob.MakeJobStatusWrapper("replicated-job-1").
+							Ready(1).
+							Succeeded(1).
+							Obj(),
+						testingtrainjob.MakeJobStatusWrapper("replicated-job-2").
+							Ready(3).
+							Succeeded(0).
+							Obj(),
 					).
 					Obj(),
 			},

@@ -190,7 +190,7 @@ github.com/json-iterator/go
 # github.com/kubeflow/mpi-operator v0.6.0
 ## explicit; go 1.23
 github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1
-# github.com/kubeflow/trainer/v2 v2.0.1
+# github.com/kubeflow/trainer/v2 v2.1.0
 ## explicit; go 1.24.0
 github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1
 github.com/kubeflow/trainer/v2/pkg/apply
@@ -206,7 +206,9 @@ github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/jobset/constants
 github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/mpi
 github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/plainml
 github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/torch
+github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/volcano
 github.com/kubeflow/trainer/v2/pkg/runtime/indexer
+github.com/kubeflow/trainer/v2/pkg/util/trainingruntime
 github.com/kubeflow/trainer/v2/pkg/util/trainjob
 # github.com/kubeflow/training-operator v1.9.3
 ## explicit; go 1.23
@@ -391,14 +393,13 @@ go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp
 go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp/internal/request
 go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp/internal/semconv
 go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp/internal/semconvutil
-# go.opentelemetry.io/otel v1.35.0
-## explicit; go 1.22.0
+# go.opentelemetry.io/otel v1.36.0
+## explicit; go 1.23.0
 go.opentelemetry.io/otel
 go.opentelemetry.io/otel/attribute
+go.opentelemetry.io/otel/attribute/internal
 go.opentelemetry.io/otel/baggage
 go.opentelemetry.io/otel/codes
-go.opentelemetry.io/otel/internal
-go.opentelemetry.io/otel/internal/attribute
 go.opentelemetry.io/otel/internal/baggage
 go.opentelemetry.io/otel/internal/global
 go.opentelemetry.io/otel/propagation
@@ -418,8 +419,8 @@ go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc/internal
 go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc/internal/envconfig
 go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc/internal/otlpconfig
 go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc/internal/retry
-# go.opentelemetry.io/otel/metric v1.35.0
-## explicit; go 1.22.0
+# go.opentelemetry.io/otel/metric v1.36.0
+## explicit; go 1.23.0
 go.opentelemetry.io/otel/metric
 go.opentelemetry.io/otel/metric/embedded
 go.opentelemetry.io/otel/metric/noop
@@ -431,8 +432,8 @@ go.opentelemetry.io/otel/sdk/internal/env
 go.opentelemetry.io/otel/sdk/internal/x
 go.opentelemetry.io/otel/sdk/resource
 go.opentelemetry.io/otel/sdk/trace
-# go.opentelemetry.io/otel/trace v1.35.0
-## explicit; go 1.22.0
+# go.opentelemetry.io/otel/trace v1.36.0
+## explicit; go 1.23.0
 go.opentelemetry.io/otel/trace
 go.opentelemetry.io/otel/trace/embedded
 go.opentelemetry.io/otel/trace/internal/telemetry
@@ -593,8 +594,6 @@ golang.org/x/tools/internal/stdlib
 golang.org/x/tools/internal/typeparams
 golang.org/x/tools/internal/typesinternal
 golang.org/x/tools/internal/versions
-# golang.org/x/tools/go/expect v0.1.0-deprecated
-## explicit; go 1.23.0
 # gomodules.xyz/jsonpatch/v2 v2.5.0
 ## explicit; go 1.20
 gomodules.xyz/jsonpatch/v2
@@ -1580,7 +1579,7 @@ sigs.k8s.io/apiserver-network-proxy/konnectivity-client/pkg/client
 sigs.k8s.io/apiserver-network-proxy/konnectivity-client/pkg/client/metrics
 sigs.k8s.io/apiserver-network-proxy/konnectivity-client/pkg/common/metrics
 sigs.k8s.io/apiserver-network-proxy/konnectivity-client/proto/client
-# sigs.k8s.io/controller-runtime v0.22.1
+# sigs.k8s.io/controller-runtime v0.22.3
 ## explicit; go 1.24.0
 sigs.k8s.io/controller-runtime
 sigs.k8s.io/controller-runtime/pkg/builder
@@ -1736,8 +1735,8 @@ sigs.k8s.io/lws/api/leaderworkerset/v1
 ## explicit; go 1.18
 sigs.k8s.io/randfill
 sigs.k8s.io/randfill/bytesource
-# sigs.k8s.io/scheduler-plugins v0.31.8
-## explicit; go 1.22.0
+# sigs.k8s.io/scheduler-plugins v0.34.1-devel
+## explicit; go 1.24.0
 sigs.k8s.io/scheduler-plugins/apis/scheduling
 sigs.k8s.io/scheduler-plugins/apis/scheduling/v1alpha1
 sigs.k8s.io/scheduler-plugins/pkg/generated/applyconfiguration/scheduling/v1alpha1
@@ -1752,3 +1751,8 @@ sigs.k8s.io/structured-merge-diff/v6/value
 ## explicit; go 1.22
 sigs.k8s.io/yaml
 sigs.k8s.io/yaml/kyaml
+# volcano.sh/apis v1.13.1-0.20251028070205-46d20c0699e7
+## explicit; go 1.24.0
+volcano.sh/apis/pkg/apis/scheduling
+volcano.sh/apis/pkg/apis/scheduling/v1beta1
+volcano.sh/apis/pkg/client/applyconfiguration/scheduling/v1beta1

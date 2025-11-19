@@ -25,6 +25,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apiruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -79,7 +80,7 @@ func NewTrainingRuntime(ctx context.Context, c client.Client, indexer client.Fie
 	return trainingRuntimeFactory, nil
 }
 
-func (r *TrainingRuntime) NewObjects(ctx context.Context, trainJob *trainer.TrainJob) ([]any, error) {
+func (r *TrainingRuntime) NewObjects(ctx context.Context, trainJob *trainer.TrainJob) ([]apiruntime.ApplyConfiguration, error) {
 	var trainingRuntime trainer.TrainingRuntime
 	err := r.client.Get(ctx, client.ObjectKey{Namespace: trainJob.Namespace, Name: trainJob.Spec.RuntimeRef.Name}, &trainingRuntime)
 	if err != nil {
@@ -138,7 +139,7 @@ func (r *TrainingRuntime) newRuntimeInfo(
 		// The JobSetTemplateSpec annotations are overridden by the TrainJob Annotations (.spec.annotations).
 		propagationAnnotations[k] = v
 	}
-	err := r.mergePodSpecOverrides(trainJob, &jobSetTemplateSpec)
+	err := r.mergePodTemplateOverrides(trainJob, &jobSetTemplateSpec)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +160,6 @@ func (r *TrainingRuntime) newRuntimeInfo(
 		runtime.WithMLPolicySource(mlPolicy),
 		runtime.WithPodGroupPolicy(podGroupPolicy),
 		runtime.WithTemplateSpecObjApply(jobSetSpecApply),
-		runtime.WithPodSetSyncer(syncPodSets),
 	}
 
 	for i, rJob := range jobSetSpecApply.ReplicatedJobs {
@@ -187,67 +187,58 @@ func (r *TrainingRuntime) newRuntimeInfo(
 	return runtime.NewInfo(opts...), nil
 }
 
-func (r *TrainingRuntime) mergePodSpecOverrides(trainJob *trainer.TrainJob, jobSetTemplateSpec *trainer.JobSetTemplateSpec) error {
-	for _, podSpecOverride := range trainJob.Spec.PodSpecOverrides {
+func (r *TrainingRuntime) mergePodTemplateOverrides(trainJob *trainer.TrainJob, jobSetTemplateSpec *trainer.JobSetTemplateSpec) error {
+	for _, podTemplateOverride := range trainJob.Spec.PodTemplateOverrides {
 		for i, job := range jobSetTemplateSpec.Spec.ReplicatedJobs {
-			if !slices.ContainsFunc(podSpecOverride.TargetJobs, func(targetJob trainer.PodSpecOverrideTargetJob) bool {
+			if !slices.ContainsFunc(podTemplateOverride.TargetJobs, func(targetJob trainer.PodTemplateOverrideTargetJob) bool {
 				return targetJob.Name == job.Name
 			}) {
 				continue
 			}
-			patch, err := json.Marshal(podSpecOverride)
+
+			podTemplatePatch := map[string]any{}
+			if podTemplateOverride.Metadata != nil {
+				metadata := map[string]any{}
+				if podTemplateOverride.Metadata.Labels != nil {
+					metadata["labels"] = podTemplateOverride.Metadata.Labels
+				}
+				if podTemplateOverride.Metadata.Annotations != nil {
+					metadata["annotations"] = podTemplateOverride.Metadata.Annotations
+				}
+				if len(metadata) > 0 {
+					podTemplatePatch["metadata"] = metadata
+				}
+			}
+
+			if podTemplateOverride.Spec != nil {
+				podTemplatePatch["spec"] = podTemplateOverride.Spec
+			}
+
+			// Apply a strategic merge patch against the full PodTemplateSpec
+			source, err := json.Marshal(job.Template.Spec.Template)
 			if err != nil {
 				return err
 			}
-			source, err := json.Marshal(job.Template.Spec.Template.Spec)
+			patch, err := json.Marshal(podTemplatePatch)
 			if err != nil {
 				return err
 			}
-			merged, err := strategicpatch.StrategicMergePatch(source, patch, corev1.PodSpec{})
+			merged, err := strategicpatch.StrategicMergePatch(source, patch, corev1.PodTemplateSpec{})
 			if err != nil {
 				return err
 			}
-			spec := corev1.PodSpec{}
-			err = json.Unmarshal(merged, &spec)
-			if err != nil {
+			mergedTemplate := corev1.PodTemplateSpec{}
+			if err := json.Unmarshal(merged, &mergedTemplate); err != nil {
 				return err
 			}
-			jobSetTemplateSpec.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec = spec
+			jobSetTemplateSpec.Spec.ReplicatedJobs[i].Template.Spec.Template = mergedTemplate
 		}
 	}
 	return nil
 }
 
-func syncPodSets(info *runtime.Info) {
-	jsSpec, ok := runtime.TemplateSpecApply[jobsetv1alpha2ac.JobSetSpecApplyConfiguration](info)
-	if !ok {
-		return
-	}
-	for psIdx, ps := range info.TemplateSpec.PodSets {
-		if ps.Count != nil {
-			jsSpec.ReplicatedJobs[psIdx].Template.Spec.Parallelism = ps.Count
-			jsSpec.ReplicatedJobs[psIdx].Template.Spec.Completions = ps.Count
-		}
-		apply.UpsertVolumes(&jsSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.Volumes, ps.Volumes...)
-		for containerIdx, container := range ps.Containers {
-			apply.UpsertEnvVar(
-				&jsSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.Containers[containerIdx].Env,
-				container.Env...,
-			)
-			apply.UpsertPort(
-				&jsSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.Containers[containerIdx].Ports,
-				container.Ports...,
-			)
-			apply.UpsertVolumeMounts(
-				&jsSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.Containers[containerIdx].VolumeMounts,
-				container.VolumeMounts...,
-			)
-		}
-	}
-}
-
-func (r *TrainingRuntime) TerminalCondition(ctx context.Context, trainJob *trainer.TrainJob) (*metav1.Condition, error) {
-	return r.framework.RunTerminalConditionPlugins(ctx, trainJob)
+func (r *TrainingRuntime) TrainJobStatus(ctx context.Context, trainJob *trainer.TrainJob) (*trainer.TrainJobStatus, error) {
+	return r.framework.RunTrainJobStatusPlugin(ctx, trainJob)
 }
 
 func (r *TrainingRuntime) EventHandlerRegistrars() []runtime.ReconcilerBuilder {

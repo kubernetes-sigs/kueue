@@ -20,18 +20,18 @@ package v1alpha1
 
 import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	v1alpha1 "sigs.k8s.io/scheduler-plugins/apis/scheduling/v1alpha1"
+	schedulingv1alpha1 "sigs.k8s.io/scheduler-plugins/apis/scheduling/v1alpha1"
 )
 
 // PodGroupStatusApplyConfiguration represents a declarative configuration of the PodGroupStatus type for use
 // with apply.
 type PodGroupStatusApplyConfiguration struct {
-	Phase             *v1alpha1.PodGroupPhase `json:"phase,omitempty"`
-	OccupiedBy        *string                 `json:"occupiedBy,omitempty"`
-	Running           *int32                  `json:"running,omitempty"`
-	Succeeded         *int32                  `json:"succeeded,omitempty"`
-	Failed            *int32                  `json:"failed,omitempty"`
-	ScheduleStartTime *v1.Time                `json:"scheduleStartTime,omitempty"`
+	Phase             *schedulingv1alpha1.PodGroupPhase `json:"phase,omitempty"`
+	OccupiedBy        *string                           `json:"occupiedBy,omitempty"`
+	Running           *int32                            `json:"running,omitempty"`
+	Succeeded         *int32                            `json:"succeeded,omitempty"`
+	Failed            *int32                            `json:"failed,omitempty"`
+	ScheduleStartTime *v1.Time                          `json:"scheduleStartTime,omitempty"`
 }
 
 // PodGroupStatusApplyConfiguration constructs a declarative configuration of the PodGroupStatus type for use with
@@ -43,7 +43,7 @@ func PodGroupStatus() *PodGroupStatusApplyConfiguration {
 // WithPhase sets the Phase field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Phase field is set to the value of the last call.
-func (b *PodGroupStatusApplyConfiguration) WithPhase(value v1alpha1.PodGroupPhase) *PodGroupStatusApplyConfiguration {
+func (b *PodGroupStatusApplyConfiguration) WithPhase(value schedulingv1alpha1.PodGroupPhase) *PodGroupStatusApplyConfiguration {
 	b.Phase = &value
 	return b
 }
