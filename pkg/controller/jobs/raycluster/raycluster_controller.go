@@ -97,6 +97,17 @@ func (j *RayCluster) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
+func (j *RayCluster) IsTopLevel() bool {
+	// Short term solution to support RayJob InTreeAutoscaling: https://github.com/kubernetes-sigs/kueue/issues/7605
+	if ptr.Deref(j.Spec.EnableInTreeAutoscaling, false) &&
+		jobframework.WorkloadSliceEnabled(j) &&
+		j.Labels[rayutils.RayOriginatedFromCRDLabelKey] == string(rayutils.RayJobCRD) {
+		return true
+	} else {
+		return false
+	}
+}
+
 func (j *RayCluster) PodLabelSelector() string {
 	return fmt.Sprintf("%s=%s", rayutils.RayClusterLabelKey, j.Name)
 }

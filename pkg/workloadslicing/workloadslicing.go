@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"slices"
 
 	corev1 "k8s.io/api/core/v1"
@@ -272,14 +273,43 @@ func EnsureWorkloadSlices(ctx context.Context, clnt client.Client, clk clock.Clo
 // allowing them to be considered for scheduling.
 //
 // This function performs the following steps:
-// 1. Lists all pods in the same namespace with an OwnerReference UID matching the parent object.
+// 1. Lists all pods in the same namespace with given podLabelSelector or an OwnerReference UID matching the parent object.
 // 2. For each pod, removes the ElasticJobSchedulingGate scheduling gate if present.
 //
 // Returns:
 // - An error if any of the operations fail; otherwise, nil.
-func StartWorkloadSlicePods(ctx context.Context, clnt client.Client, object client.Object) error {
+func StartWorkloadSlicePods(ctx context.Context, clnt client.Client, object client.Object, podLabelSelector string) error {
+	log := ctrl.LoggerFrom(ctx).WithValues("name", object.GetName(), "namespace", object.GetNamespace())
 	list := &corev1.PodList{}
-	if err := clnt.List(ctx, list, client.InNamespace(object.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(object.GetUID())}); err != nil {
+	// Use podLabelSelector if provided, otherwise fall back to OwnerReferenceUID
+	var listOptions []client.ListOption
+	if podLabelSelector != "" {
+		log.V(10).Info("Using podLabelSelector to list pods", "selector", podLabelSelector)
+		// Parse label selector string (format: "key=value")
+		// Example: "ray.io/cluster=ray-cluster-xxx"
+		labelSelector, err := metav1.ParseToLabelSelector(podLabelSelector)
+		if err != nil {
+			log.Error(err, "Failed to parse pod label selector", "podLabelSelector", podLabelSelector)
+			return fmt.Errorf("failed to parse pod label selector: %w", err)
+		}
+		selector, err := metav1.LabelSelectorAsSelector(labelSelector)
+		if err != nil {
+			log.Error(err, "Failed to convert pod label selector", "podLabelSelector", podLabelSelector)
+			return fmt.Errorf("failed to convert pod label selector: %w", err)
+		}
+		listOptions = []client.ListOption{
+			client.InNamespace(object.GetNamespace()),
+			client.MatchingLabelsSelector{Selector: selector},
+		}
+	} else {
+		log.V(10).Info("Using OwnerReferenceUID to list pods")
+		listOptions = []client.ListOption{
+			client.InNamespace(object.GetNamespace()),
+			client.MatchingFields{indexer.OwnerReferenceUID: string(object.GetUID())},
+		}
+	}
+
+	if err := clnt.List(ctx, list, listOptions...); err != nil {
 		return fmt.Errorf("failed to list job pods: %w", err)
 	}
 	for i := range list.Items {

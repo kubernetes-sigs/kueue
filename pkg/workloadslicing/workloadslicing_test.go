@@ -1110,7 +1110,7 @@ func Test_StartWorkloadSlicePods(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			if err := StartWorkloadSlicePods(ctx, tt.args.clnt, tt.args.object); (err != nil) != tt.wantErr {
+			if err := StartWorkloadSlicePods(ctx, tt.args.clnt, tt.args.object, ""); (err != nil) != tt.wantErr {
 				t.Errorf("StartWorkloadSlicePods() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if tt.wantPods == nil {
