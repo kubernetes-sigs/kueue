@@ -60,7 +60,7 @@ var _ = ginkgo.AfterSuite(func() {
 func managerSetup(ctx context.Context, mgr manager.Manager) {
 	terminatingPodReconciler, err := failurerecovery.NewTerminatingPodReconciler(
 		mgr.GetClient(),
-		failurerecovery.WithForcefulTerminationGracePeriod(2*time.Second),
+		failurerecovery.WithForcefulTerminationGracePeriod(time.Millisecond),
 	)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
