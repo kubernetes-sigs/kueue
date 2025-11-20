@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/test/util"
 )
 
 var _ = ginkgo.Describe("DefaultLocalQueue", func() {
@@ -71,7 +72,7 @@ var _ = ginkgo.Describe("DefaultLocalQueue", func() {
 			createdLQ := &kueue.LocalQueue{}
 			gomega.Eventually(func() error {
 				return k8sClient.Get(ctx, types.NamespacedName{Name: "default", Namespace: ns.Name}, createdLQ)
-			}, "1m", "1s").Should(gomega.Succeed())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Expect(createdLQ.Spec.ClusterQueue).To(gomega.Equal(kueue.ClusterQueueReference(cq.Name)))
 		})
@@ -96,7 +97,7 @@ var _ = ginkgo.Describe("DefaultLocalQueue", func() {
 			createdLQ := &kueue.LocalQueue{}
 			gomega.Consistently(func() error {
 				return k8sClient.Get(ctx, types.NamespacedName{Name: "default", Namespace: ns.Name}, createdLQ)
-			}, "5s", "1s").Should(gomega.Not(gomega.Succeed()))
+			}, util.Timeout, util.Interval).Should(gomega.Not(gomega.Succeed()))
 
 			ginkgo.By("updating the ClusterQueue to match the namespace")
 			gomega.Eventually(func() error {
@@ -108,12 +109,12 @@ var _ = ginkgo.Describe("DefaultLocalQueue", func() {
 					MatchLabels: map[string]string{"foo": "baz"},
 				}
 				return k8sClient.Update(ctx, &currentCQ)
-			}, "10s", "1s").Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("checking that the localqueue is created")
 			gomega.Eventually(func() error {
 				return k8sClient.Get(ctx, types.NamespacedName{Name: "default", Namespace: ns.Name}, createdLQ)
-			}, "1m", "1s").Should(gomega.Succeed())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Expect(createdLQ.Spec.ClusterQueue).To(gomega.Equal(kueue.ClusterQueueReference(cq.Name)))
 		})
@@ -154,7 +155,7 @@ var _ = ginkgo.Describe("DefaultLocalQueue", func() {
 					return ""
 				}
 				return string(lq.Spec.ClusterQueue)
-			}, "10s", "1s").Should(gomega.Equal("some-other-queue"))
+			}, util.Timeout, util.Interval).Should(gomega.Equal("some-other-queue"))
 		})
 
 		ginkgo.It("Should not delete LocalQueue when namespace no longer matches", func() {
@@ -177,7 +178,7 @@ var _ = ginkgo.Describe("DefaultLocalQueue", func() {
 			createdLQ := &kueue.LocalQueue{}
 			gomega.Eventually(func() error {
 				return k8sClient.Get(ctx, types.NamespacedName{Name: "default", Namespace: ns.Name}, createdLQ)
-			}, "1m", "1s").Should(gomega.Succeed())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("updating namespace to no longer match")
 			ns.Labels = map[string]string{"persist": "false"}
@@ -186,7 +187,7 @@ var _ = ginkgo.Describe("DefaultLocalQueue", func() {
 			ginkgo.By("ensuring LocalQueue persists")
 			gomega.Consistently(func() error {
 				return k8sClient.Get(ctx, types.NamespacedName{Name: "default", Namespace: ns.Name}, &kueue.LocalQueue{})
-			}, "10s", "1s").Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })
