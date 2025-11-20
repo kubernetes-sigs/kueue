@@ -327,7 +327,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	// - Workload doesn't have quota reservation as a result of scale-up, i.e., scaling-up in progress.
 	if group.IsElasticWorkload() &&
 		((group.IsFinished() && workloadslicing.IsReplaced(group.local.Status)) ||
-			(!workload.HasQuotaReservation(group.local) && workloadslicing.ScaledUp(group.local))) {
+			(!group.IsFinished() && !workload.HasQuotaReservation(group.local) && workloadslicing.ScaledUp(group.local))) {
 		return reconcile.Result{}, nil
 	}
 

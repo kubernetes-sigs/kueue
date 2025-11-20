@@ -192,6 +192,8 @@ func TestSchedule(t *testing.T) {
 		wantAssignments map[workload.Reference]kueue.Admission
 		// wantWorkloads is the subset of workloads that got admitted in this cycle.
 		wantWorkloads []kueue.Workload
+		// workload version to compensate for the difference between use of Apply and Merge patch in FakeClient
+		wantWorkloadUseMergePatch []kueue.Workload
 		// wantLeft is the workload keys that are left in the queues after this cycle.
 		wantLeft map[kueue.ClusterQueueReference][]workload.Reference
 		// wantInadmissibleLeft is the workload keys that are left in the inadmissible state after this cycle.
@@ -6853,6 +6855,48 @@ func TestSchedule(t *testing.T) {
 					Generation(1).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadFinished,
+						Message:            "Workload has finished",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadFinished,
+						Message:            "Workload has finished",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadFinished,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadSliceReplaced,
+						Message:            "Replaced to accommodate a workload (UID: , JobUID: ) due to workload slice aggregation",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					PastAdmittedTime(0).
+					Obj(),
+				*utiltestingapi.MakeWorkload("foo-2", "sales").
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "sales/foo-1").
+					ResourceVersion("2").
+					Queue("main").
+					PodSets(*utiltestingapi.MakePodSet("one", 15).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Admission(
+						utiltestingapi.MakeAdmission("sales").
+							PodSets(utiltestingapi.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "default", "15000m").
+								Count(15).
+								Obj()).
+							Obj(),
+					).
+					Generation(1).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionTrue,
 						Reason:             kueue.WorkloadQuotaReserved,
 						Message:            "Quota reserved in ClusterQueue sales",
@@ -6867,6 +6911,32 @@ func TestSchedule(t *testing.T) {
 						ObservedGeneration: 1,
 						LastTransitionTime: metav1.NewTime(now),
 					}).
+					Obj(),
+			},
+			wantWorkloadUseMergePatch: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo-1", "sales").
+					ResourceVersion("2").
+					Queue("main").
+					PodSets(*utiltestingapi.MakePodSet("one", 10).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Generation(1).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadFinished,
+						Message:            "Workload has finished",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadFinished,
+						Message:            "Workload has finished",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadFinished,
 						Status:             metav1.ConditionTrue,
@@ -6875,6 +6945,7 @@ func TestSchedule(t *testing.T) {
 						ObservedGeneration: 1,
 						LastTransitionTime: metav1.NewTime(now),
 					}).
+					PastAdmittedTime(0).
 					Obj(),
 				*utiltestingapi.MakeWorkload("foo-2", "sales").
 					Annotation(workloadslicing.WorkloadSliceReplacementFor, "sales/foo-1").
@@ -7505,8 +7576,14 @@ func TestSchedule(t *testing.T) {
 					cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type }),
 				}
 
-				if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, defaultWorkloadCmpOpts); diff != "" {
-					t.Errorf("Unexpected workloads (-want,+got):\n%s", diff)
+				if features.Enabled(features.WorkloadRequestUseMergePatch) && tc.wantWorkloadUseMergePatch != nil {
+					if diff := cmp.Diff(tc.wantWorkloadUseMergePatch, gotWorkloads.Items, defaultWorkloadCmpOpts); diff != "" {
+						t.Errorf("Unexpected workloads (-want,+got):\n%s", diff)
+					}
+				} else {
+					if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, defaultWorkloadCmpOpts); diff != "" {
+						t.Errorf("Unexpected workloads (-want,+got):\n%s", diff)
+					}
 				}
 
 				if len(gotAssignments) == 0 {
