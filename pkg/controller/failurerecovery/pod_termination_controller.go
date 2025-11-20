@@ -122,7 +122,7 @@ func (r *TerminatingPodReconciler) Update(u event.UpdateEvent) bool {
 	}
 
 	// Pod was not marked for deletion in the update
-	if !(oldPod.DeletionTimestamp.IsZero() && !newPod.DeletionTimestamp.IsZero()) {
+	if !oldPod.DeletionTimestamp.IsZero() || newPod.DeletionTimestamp.IsZero() {
 		return false
 	}
 
