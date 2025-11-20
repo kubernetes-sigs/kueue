@@ -26,19 +26,21 @@ import (
 //revive:disable:var-naming
 
 func Convert_v1beta2_MultiKueueClusterSpec_To_v1beta1_MultiKueueClusterSpec(in *v1beta2.MultiKueueClusterSpec, out *MultiKueueClusterSpec, s conversionapi.Scope) error {
-	if in.KubeConfig != nil {
+	if in.ClusterSource.KubeConfig != nil {
 		out.KubeConfig = KubeConfig{
-			Location:     in.KubeConfig.Location,
-			LocationType: LocationType(in.KubeConfig.LocationType),
+			Location:     in.ClusterSource.KubeConfig.Location,
+			LocationType: LocationType(in.ClusterSource.KubeConfig.LocationType),
 		}
 	}
 	return autoConvert_v1beta2_MultiKueueClusterSpec_To_v1beta1_MultiKueueClusterSpec(in, out, s)
 }
 
 func Convert_v1beta1_MultiKueueClusterSpec_To_v1beta2_MultiKueueClusterSpec(in *MultiKueueClusterSpec, out *v1beta2.MultiKueueClusterSpec, s conversionapi.Scope) error {
-	out.KubeConfig = &v1beta2.KubeConfig{
-		Location:     in.KubeConfig.Location,
-		LocationType: v1beta2.LocationType(in.KubeConfig.LocationType),
+	if in.KubeConfig.Location != "" {
+		out.ClusterSource.KubeConfig = &v1beta2.KubeConfig{
+			Location:     in.KubeConfig.Location,
+			LocationType: v1beta2.LocationType(in.KubeConfig.LocationType),
+		}
 	}
 	return autoConvert_v1beta1_MultiKueueClusterSpec_To_v1beta2_MultiKueueClusterSpec(in, out, s)
 }

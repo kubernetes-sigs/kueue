@@ -203,6 +203,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta2.ClusterQueueSpecApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("ClusterQueueStatus"):
 		return &kueuev1beta2.ClusterQueueStatusApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("ClusterSource"):
+		return &kueuev1beta2.ClusterSourceApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("Cohort"):
 		return &kueuev1beta2.CohortApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("CohortSpec"):

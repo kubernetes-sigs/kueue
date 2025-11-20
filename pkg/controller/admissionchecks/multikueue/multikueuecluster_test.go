@@ -535,7 +535,7 @@ func TestUpdateConfig(t *testing.T) {
 			reconcileFor: "worker1",
 			clusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
-					ClusterProfile("worker1", TestNamespace).
+					ClusterProfile("worker1").
 					Generation(1).
 					Obj(),
 			},
@@ -550,7 +550,7 @@ func TestUpdateConfig(t *testing.T) {
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
-					ClusterProfile("worker1", TestNamespace).
+					ClusterProfile("worker1").
 					Active(metav1.ConditionTrue, "Active", "Connected", 1).
 					Generation(1).
 					Obj(),
@@ -567,7 +567,7 @@ func TestUpdateConfig(t *testing.T) {
 			reconcileFor: "worker1",
 			clusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
-					ClusterProfile("worker1", TestNamespace).
+					ClusterProfile("worker1").
 					Generation(1).
 					Obj(),
 			},
@@ -580,7 +580,7 @@ func TestUpdateConfig(t *testing.T) {
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
-					ClusterProfile("worker1", TestNamespace).
+					ClusterProfile("worker1").
 					Active(metav1.ConditionFalse, "BadClusterProfile", "load client config failed: unsupported credential provider", 1).
 					Generation(1).
 					Obj(),
@@ -591,7 +591,7 @@ func TestUpdateConfig(t *testing.T) {
 			reconcileFor: "worker1",
 			clusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
-					ClusterProfile("worker1", TestNamespace).
+					ClusterProfile("worker1").
 					Generation(1).
 					Obj(),
 			},
@@ -604,7 +604,7 @@ func TestUpdateConfig(t *testing.T) {
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
-					ClusterProfile("worker1", TestNamespace).
+					ClusterProfile("worker1").
 					Active(metav1.ConditionFalse, "BadClusterProfile", "load client config failed: clusterprofiles.multicluster.x-k8s.io \"worker1\" not found", 1).
 					Generation(1).
 					Obj(),
@@ -615,7 +615,7 @@ func TestUpdateConfig(t *testing.T) {
 			reconcileFor: "worker1",
 			clusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
-					ClusterProfile("worker1", TestNamespace).
+					ClusterProfile("worker1").
 					Generation(1).
 					Obj(),
 			},
@@ -625,7 +625,7 @@ func TestUpdateConfig(t *testing.T) {
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
-					ClusterProfile("worker1", TestNamespace).
+					ClusterProfile("worker1").
 					Active(metav1.ConditionFalse, "MultiKueueClusterProfileFeatureDisabled", "load client config failed: MultiKueueClusterProfile feature gate is disabled", 1).
 					Generation(1).
 					Obj(),
@@ -689,10 +689,10 @@ func TestUpdateConfig(t *testing.T) {
 			}
 
 			// Create test kubeconfig file for path location type
-			if tc.clusters != nil && tc.clusters[0].Spec.KubeConfig != nil && tc.clusters[0].Spec.KubeConfig.LocationType == kueue.PathLocationType && tc.clusters[0].Spec.KubeConfig.Location != "" {
+			if tc.clusters != nil && tc.clusters[0].Spec.ClusterSource.KubeConfig != nil && tc.clusters[0].Spec.ClusterSource.KubeConfig.LocationType == kueue.PathLocationType && tc.clusters[0].Spec.ClusterSource.KubeConfig.Location != "" {
 				kubeconfigBytes := testKubeconfig("worker1")
-				if err := os.WriteFile(tc.clusters[0].Spec.KubeConfig.Location, []byte(kubeconfigBytes), 0666); err != nil {
-					t.Errorf("Failed to create test file (%s): %v", tc.clusters[0].Spec.KubeConfig.Location, err)
+				if err := os.WriteFile(tc.clusters[0].Spec.ClusterSource.KubeConfig.Location, []byte(kubeconfigBytes), 0666); err != nil {
+					t.Errorf("Failed to create test file (%s): %v", tc.clusters[0].Spec.ClusterSource.KubeConfig.Location, err)
 				}
 			}
 

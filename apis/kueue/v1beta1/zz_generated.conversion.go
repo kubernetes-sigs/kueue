@@ -1736,13 +1736,12 @@ func Convert_v1beta2_MultiKueueClusterList_To_v1beta1_MultiKueueClusterList(in *
 }
 
 func autoConvert_v1beta1_MultiKueueClusterSpec_To_v1beta2_MultiKueueClusterSpec(in *MultiKueueClusterSpec, out *v1beta2.MultiKueueClusterSpec, s conversion.Scope) error {
-	// WARNING: in.KubeConfig requires manual conversion: inconvertible types (sigs.k8s.io/kueue/apis/kueue/v1beta1.KubeConfig vs *sigs.k8s.io/kueue/apis/kueue/v1beta2.KubeConfig)
+	// WARNING: in.KubeConfig requires manual conversion: does not exist in peer-type
 	return nil
 }
 
 func autoConvert_v1beta2_MultiKueueClusterSpec_To_v1beta1_MultiKueueClusterSpec(in *v1beta2.MultiKueueClusterSpec, out *MultiKueueClusterSpec, s conversion.Scope) error {
-	// WARNING: in.KubeConfig requires manual conversion: inconvertible types (*sigs.k8s.io/kueue/apis/kueue/v1beta2.KubeConfig vs sigs.k8s.io/kueue/apis/kueue/v1beta1.KubeConfig)
-	// WARNING: in.ClusterProfile requires manual conversion: does not exist in peer-type
+	// WARNING: in.ClusterSource requires manual conversion: does not exist in peer-type
 	return nil
 }
 

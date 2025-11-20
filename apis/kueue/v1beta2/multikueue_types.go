@@ -62,16 +62,21 @@ type KubeConfig struct {
 	LocationType LocationType `json:"locationType"`
 }
 
-// +kubebuilder:validation:ExactlyOneOf=kubeConfig;clusterProfile
-
 type MultiKueueClusterSpec struct {
+	// clusterSource is the source to connect to the cluster.
+	// +required
+	ClusterSource ClusterSource `json:"clusterSource,omitempty"`
+}
+
+// +kubebuilder:validation:ExactlyOneOf=kubeConfig;clusterProfileRef
+type ClusterSource struct {
 	// kubeConfig is information on how to connect to the cluster.
 	// +optional
 	KubeConfig *KubeConfig `json:"kubeConfig,omitempty,omitzero"`
 
-	// clusterProfile is the reference to the ClusterProfile object used to connect to the cluster.
+	// clusterProfileRef is the reference to the ClusterProfile object used to connect to the cluster.
 	// +optional
-	ClusterProfile *ClusterProfileReference `json:"clusterProfile,omitempty"`
+	ClusterProfileRef *ClusterProfileReference `json:"clusterProfileRef,omitempty"`
 }
 
 type ClusterProfileReference struct {
@@ -80,12 +85,6 @@ type ClusterProfileReference struct {
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	Name string `json:"name,omitempty"`
-
-	// namespace of the ClusterProfile.
-	// +kubebuilder:validation:MaxLength=256
-	// +kubebuilder:validation:MinLength=1
-	// +required
-	Namespace string `json:"namespace,omitempty"`
 }
 
 type MultiKueueClusterStatus struct {

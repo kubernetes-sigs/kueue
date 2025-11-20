@@ -189,11 +189,14 @@ const (
     SecretLocationType LocationType = "Secret"
 )
 
-// +kubebuilder:validation:ExactlyOneOf=kubeConfig;clusterProfile
-
 type MultiKueueClusterSpec struct {
-    // Information about how to connect to the cluster.
-    // Exactly one of KubeConfig or ClusterProfile must be specified.
+  // Information about the cluster.
+  // +required
+  ClusterSource ClusterSource `json:"clusterSource,omitempty"`
+}
+
+// +kubebuilder:validation:ExactlyOneOf=kubeConfig;clusterProfile
+type ClusterSource struct {
 
     // KubeConfig is the direct specification of the kubeconfig for the remote cluster.
     // This field can only be configured when ClusterProfile is not specified.
@@ -204,7 +207,7 @@ type MultiKueueClusterSpec struct {
     // The controller will use the information from the ClusterProfile to connect to the remote cluster.
     // This field can only be configured when KubeConfig is not specified.
     // +optional
-    ClusterProfile *ClusterProfileReference `json:"clusterProfile,omitempty"`
+    ClusterProfileRef *ClusterProfileReference `json:"clusterProfile,omitempty"`
 }
 
 type KubeConfig struct {
@@ -221,9 +224,6 @@ type KubeConfig struct {
 type ClusterProfileReference struct {
   // Name of the ClusterProfile.
   Name string `json:"name"`
-
-  // Namespace of the ClusterProfile.
-  Namespace string `json:"namespace"`
 }
 
 type MultiKueueClusterStatus struct {
@@ -279,7 +279,7 @@ type ClusterProfileCredentialsProvider struct {
 	// Name is the name of the provider.
 	Name string `json:"name"`
 	//  ExecConfig is the exec configuration to obtain credentials.
-	ExecConfig *clientcmdapi.ExecConfig `json:"execConfig"`
+	ExecConfig clientcmdapi.ExecConfig `json:"execConfig"`
 }
 ```
 
