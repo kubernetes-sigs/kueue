@@ -25,6 +25,7 @@ import (
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -85,24 +86,56 @@ func NewTerminatingPodReconciler(
 	}, nil
 }
 
+func (r *TerminatingPodReconciler) Generic(event.GenericEvent) bool {
+	return false
+}
+
+func (r *TerminatingPodReconciler) Create(e event.CreateEvent) bool {
+	pod := e.Object.(*corev1.Pod)
+
+	if !podOptedInToFailurePolicy(pod) {
+		return false
+	}
+
+	if pod.DeletionTimestamp.IsZero() {
+		return false
+	}
+
+	return true
+}
+
+func (r *TerminatingPodReconciler) Update(u event.UpdateEvent) bool {
+	oldPod := u.ObjectOld.(*corev1.Pod)
+	newPod := u.ObjectNew.(*corev1.Pod)
+
+	if !podOptedInToFailurePolicy(newPod) {
+		return false
+	}
+
+	// Pod was not marked for deletion in the update
+	if !(oldPod.DeletionTimestamp.IsZero() && !newPod.DeletionTimestamp.IsZero()) {
+		return false
+	}
+
+	return true
+}
+
+func (r *TerminatingPodReconciler) Delete(event.DeleteEvent) bool {
+	return false
+}
+
+func podOptedInToFailurePolicy(p *corev1.Pod) bool {
+	annotationValue, hasAnnotation := p.Annotations[constants.SafeToForcefullyTerminateAnnotationKey]
+	return hasAnnotation && annotationValue == constants.SafeToForcefullyTerminateAnnotationValue
+}
+
 func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	pod := &corev1.Pod{}
 	if err := r.client.Get(ctx, req.NamespacedName, pod); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Pod did not opt-in to be forcefully terminated
-	annotationValue, hasAnnotation := pod.Annotations[constants.SafeToForcefullyTerminateAnnotationKey]
-	if !hasAnnotation || annotationValue != constants.SafeToForcefullyTerminateAnnotationValue {
-		return ctrl.Result{}, nil
-	}
-
-	// Pod was not marked for termination
-	if pod.DeletionTimestamp.IsZero() {
-		return ctrl.Result{}, nil
-	}
-
-	// Pod is not in a running phase
+	// Pod was already terminated
 	if utilpod.IsTerminated(pod) {
 		return ctrl.Result{}, nil
 	}
@@ -136,5 +169,6 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 func (r *TerminatingPodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.Pod{}).
+		WithEventFilter(r).
 		Complete(r)
 }

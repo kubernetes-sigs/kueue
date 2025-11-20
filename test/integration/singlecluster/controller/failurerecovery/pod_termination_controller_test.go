@@ -63,7 +63,7 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 	ginkgo.It("forcefully terminates pods that opt-in, scheduled on unreachable nodes", func() {
 		matchingPod := matchingPodWrapper.Clone().Obj()
 		util.MustCreate(ctx, k8sClient, matchingPod)
-		gomega.ExpectWithOffset(1, k8sClient.Delete(ctx, matchingPod)).To(gomega.Succeed())
+		gomega.Expect(k8sClient.Delete(ctx, matchingPod)).To(gomega.Succeed())
 
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: matchingPod.Name, Namespace: matchingPod.Namespace}, matchingPod)).
@@ -79,11 +79,11 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 			Annotation(constants.SafeToForcefullyTerminateAnnotationKey, "false").
 			Obj()
 		util.MustCreate(ctx, k8sClient, nonMatchingPod)
-		gomega.ExpectWithOffset(1, k8sClient.Delete(ctx, nonMatchingPod)).To(gomega.Succeed())
+		gomega.Expect(k8sClient.Delete(ctx, nonMatchingPod)).To(gomega.Succeed())
 
 		podOnHealthyNode := matchingPodWrapper.Clone().Name("healthy-pod").NodeName(reachableNodeName).Obj()
 		util.MustCreate(ctx, k8sClient, podOnHealthyNode)
-		gomega.ExpectWithOffset(1, k8sClient.Delete(ctx, podOnHealthyNode)).To(gomega.Succeed())
+		gomega.Expect(k8sClient.Delete(ctx, podOnHealthyNode)).To(gomega.Succeed())
 
 		gomega.Consistently(func(g gomega.Gomega) {
 			// Non-matching pod is left untouched.
