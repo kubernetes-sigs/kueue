@@ -55,12 +55,19 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
-	setupLog := ctrl.Log.WithName("setup")
+
+	if err := start(configFile); err != nil {
+		os.Exit(1)
+	}
+}
+
+func start(configFile string) error {
+	log := ctrl.Log.WithName("setup")
 
 	cfg, err := localqueuecreatorconfig.Load(configFile)
 	if err != nil {
-		setupLog.Error(err, "unable to load the configuration")
-		os.Exit(1)
+		log.Error(err, "Unable to load the configuration")
+		return err
 	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
@@ -68,8 +75,8 @@ func main() {
 		HealthProbeBindAddress: ":8081",
 	})
 	if err != nil {
-		setupLog.Error(err, "unable to start manager")
-		os.Exit(1)
+		log.Error(err, "Unable to start manager")
+		return err
 	}
 
 	reconcilerOpts := []controller.LocalQueueCreatorReconcilerOption{
@@ -78,8 +85,8 @@ func main() {
 	if cfg.ManagedJobsNamespaceSelector != nil {
 		selector, err := metav1.LabelSelectorAsSelector(cfg.ManagedJobsNamespaceSelector)
 		if err != nil {
-			setupLog.Error(err, "unable to parse managed-jobs-namespace-selector")
-			os.Exit(1)
+			log.Error(err, "Unable to parse managed-jobs-namespace-selector")
+			return err
 		}
 		reconcilerOpts = append(reconcilerOpts, controller.WithNamespaceSelector(selector))
 	}
@@ -89,22 +96,23 @@ func main() {
 		mgr.GetEventRecorderFor("kueue-localqueue-creator"),
 		reconcilerOpts...,
 	).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "DefaultLocalQueue")
-		os.Exit(1)
+		log.Error(err, "Unable to create controller", "controller", "DefaultLocalQueue")
+		return err
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up health check")
-		os.Exit(1)
+		log.Error(err, "Unable to set up health check")
+		return err
 	}
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up ready check")
-		os.Exit(1)
+		log.Error(err, "Unable to set up ready check")
+		return err
 	}
 
-	setupLog.Info("starting manager")
+	log.Info("Starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		setupLog.Error(err, "problem running manager")
-		os.Exit(1)
+		log.Error(err, "Problem running manager")
+		return err
 	}
+	return nil
 }
