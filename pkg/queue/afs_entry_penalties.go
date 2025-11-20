@@ -56,27 +56,7 @@ func (m *AfsEntryPenalties) Peek(lqKey utilqueue.LocalQueueReference) corev1.Res
 	return penalty
 }
 
-func (m *AfsEntryPenalties) WithPenaltyLocked(lqKey utilqueue.LocalQueueReference, fn func(penalty corev1.ResourceList) error) error {
-	m.Lock()
-	defer m.Unlock()
-
-	penalty, found := m.penalties.Get(lqKey)
-	if !found {
-		penalty = corev1.ResourceList{}
-	}
-
-	err := fn(penalty)
-	if err == nil && found {
-		m.penalties.Delete(lqKey)
-	}
-
-	return err
-}
-
-func (m *AfsEntryPenalties) HasPendingFor(lqKey utilqueue.LocalQueueReference) bool {
-	m.Lock()
-	defer m.Unlock()
-
+func (m *AfsEntryPenalties) hasPendingFor(lqKey utilqueue.LocalQueueReference) bool {
 	_, found := m.penalties.Get(lqKey)
 
 	return found

@@ -2369,7 +2369,8 @@ func TestGetCacheLQ(t *testing.T) {
 				t.Fatalf("Adding LocalQueue: %v", err)
 			}
 
-			gotLq, gotErr := cache.GetCacheLocalQueue(tc.getCQReference, tc.getLq)
+			lqKey := queue.Key(tc.getLq)
+			gotLq, gotErr := cache.GetCacheLocalQueue(tc.getCQReference, lqKey)
 			if diff := cmp.Diff(tc.wantLq, gotLq, cmp.AllowUnexported(LocalQueue{}), cmpopts.EquateEmpty(), cmpopts.IgnoreTypes(sync.RWMutex{})); diff != "" {
 				t.Errorf("Unexpected localQueues (-want,+got):\n%s", diff)
 			}
