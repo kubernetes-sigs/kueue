@@ -20,6 +20,7 @@ patches:
 # patches here are for enabling the conversion webhook for each CRD
 - path: patches/webhook_in_localqueues.yaml
 - path: patches/webhook_in_clusterqueues.yaml
+- path: patches/webhook_in_cohorts.yaml
 - path: patches/webhook_in_workloads.yaml
 #- path: patches/webhook_in_resourceflavors.yaml
 #+kubebuilder:scaffold:crdkustomizewebhookpatch

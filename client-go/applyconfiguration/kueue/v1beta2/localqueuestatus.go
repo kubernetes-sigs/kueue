@@ -24,13 +24,13 @@ import (
 // LocalQueueStatusApplyConfiguration represents a declarative configuration of the LocalQueueStatus type for use
 // with apply.
 type LocalQueueStatusApplyConfiguration struct {
-	Conditions         []v1.ConditionApplyConfiguration          `json:"conditions,omitempty"`
-	PendingWorkloads   *int32                                    `json:"pendingWorkloads,omitempty"`
-	ReservingWorkloads *int32                                    `json:"reservingWorkloads,omitempty"`
-	AdmittedWorkloads  *int32                                    `json:"admittedWorkloads,omitempty"`
-	FlavorsReservation []LocalQueueFlavorUsageApplyConfiguration `json:"flavorsReservation,omitempty"`
-	FlavorsUsage       []LocalQueueFlavorUsageApplyConfiguration `json:"flavorsUsage,omitempty"`
-	FairSharing        *FairSharingStatusApplyConfiguration      `json:"fairSharing,omitempty"`
+	Conditions         []v1.ConditionApplyConfiguration               `json:"conditions,omitempty"`
+	PendingWorkloads   *int32                                         `json:"pendingWorkloads,omitempty"`
+	ReservingWorkloads *int32                                         `json:"reservingWorkloads,omitempty"`
+	AdmittedWorkloads  *int32                                         `json:"admittedWorkloads,omitempty"`
+	FlavorsReservation []LocalQueueFlavorUsageApplyConfiguration      `json:"flavorsReservation,omitempty"`
+	FlavorsUsage       []LocalQueueFlavorUsageApplyConfiguration      `json:"flavorsUsage,omitempty"`
+	FairSharing        *LocalQueueFairSharingStatusApplyConfiguration `json:"fairSharing,omitempty"`
 }
 
 // LocalQueueStatusApplyConfiguration constructs a declarative configuration of the LocalQueueStatus type for use with
@@ -105,7 +105,7 @@ func (b *LocalQueueStatusApplyConfiguration) WithFlavorsUsage(values ...*LocalQu
 // WithFairSharing sets the FairSharing field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the FairSharing field is set to the value of the last call.
-func (b *LocalQueueStatusApplyConfiguration) WithFairSharing(value *FairSharingStatusApplyConfiguration) *LocalQueueStatusApplyConfiguration {
+func (b *LocalQueueStatusApplyConfiguration) WithFairSharing(value *LocalQueueFairSharingStatusApplyConfiguration) *LocalQueueStatusApplyConfiguration {
 	b.FairSharing = value
 	return b
 }
