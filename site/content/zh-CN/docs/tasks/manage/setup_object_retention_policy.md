@@ -1,29 +1,26 @@
 ---
-title: "Setup garbage-collection of workload"
+title: "设置 Workload 的垃圾回收"
 date: 2025-05-16
 weight: 11
 description: >
-  Configure automatic garbage-collection of finished and deactivated Workloads
-  by defining retention policies.
+  通过定义保留策略来配置自动垃圾回收已完成或已停用的 Workload。
 ---
 
-This guide shows you how to enable and configure optional object retention
-policies in Kueue to automatically delete finished or deactivated Workloads
-after a specified time. By default, Kueue leaves all Workload objects in cluster
-indefinitely; with object retention you can free up etcd storage and reduce
-Kueue’s memory footprint.
+本指南演示如何在 Kueue 中启用并配置可选的对象保留策略，以在指定时间后自动删除已完成或已停用的
+Workload。默认情况下，Kueue 会在集群中永久保留所有 Workload 对象；通过对象保留策略，可以释放
+etcd 存储并降低 Kueue 的内存占用。
 
-## Prerequisites
 
-- A running Kueue installation at **v0.12** or newer.
-- The `ObjectRetentionPolicies` feature-gate enabled in the Kueue controller manager. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
+## 前置条件 {#prerequisites}
 
-## Set up a retention policy
+- 可正常运行的 Kueue **v0.12** 或更高版本。
+- 在 Kueue 控制器管理器中启用 `ObjectRetentionPolicies` 特性。
+  有关此特性的配置细节，请参阅[安装指南](/zh-CN/docs/installation/#change-the-feature-gates-configuration)。
 
-Follow the instructions described
-[here](/docs/installation#install-a-custom-configured-released-version) to
-install a release version by extending the configuration with the following
-fields:
+## 设置保留策略 {#set-up-a-retention-policy}
+
+按照此处描述的说明[安装自定义配置的发布版本](/zh-CN/docs/installation#install-a-custom-configured-released-version)，
+并通过添加以下字段扩展配置：
 
 ```yaml
       objectRetentionPolicies:
@@ -32,20 +29,19 @@ fields:
           afterDeactivatedByKueue: "1h"
 ```
 
-### Workload Retention Policy
+### Workload 保留策略 {#workload-retention-policy}
 
-The retention policy for Workloads is defined in the
-`.objectRetentionPolicies.workloads` field.
-It contains the following optional fields:
-- `afterFinished`: Duration after which finished Workloads are deleted.
-- `afterDeactivatedByKueue`: Duration after which any Kueue-deactivated Workloads (such as a Job, JobSet, or other custom workload types) are deleted.
+Workload 的保留策略在 `.objectRetentionPolicies.workloads` 字段下定义。
+包含以下可选字段：
+- `afterFinished`：已完成Workload在多长时间后被删除。
+- `afterDeactivatedByKueue`：Kueue 已停用的 Workload（例如 Job、JobSet 或其他自定义
+	Workload 类型）在多长时间后被删除。
 
+## 示例 {#example}
 
-## Example
+### Kueue 配置 {##kueue-configuration}
 
-### Kueue Configuration
-
-**Configure** Kueue with a 1m retention policy and enable [waitForPodsReady](/docs/tasks/manage/setup_wait_for_pods_ready.md):
+**配置** Kueue 使用 1 分钟的保留策略，并启用 [waitForPodsReady](/zh-CN/docs/tasks/manage/setup_wait_for_pods_ready.md)：
 
 ```yaml
   objectRetentionPolicies:
@@ -63,9 +59,9 @@ It contains the following optional fields:
 
 ---
 
-### Scenario A: Successfully finished Workload
+### 场景 A：成功完成的 Workload {#scenario-a-successfully-finished-workloa}
 
-1. **Submit** a simple Workload that should finish normally:
+1. **提交** 一个应能正常完成的简单 Workload：
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta2
@@ -111,7 +107,7 @@ spec:
               cpu: "1"
 ```
 
-2. Watch the status transition to `Finished`. After ~1 minute, Kueue will automatically delete it:
+2. 观察状态转为 `Finished`。大约在 1 分钟后，Kueue 会自动删除该 Workload：
 
 ```bash
 # ~1m after Finished
@@ -125,17 +121,18 @@ kubectl get jobs -n default
 
 ---
 
-### Scenario B: Evicted Workload via `waitForPodsReady`
+### 场景 B：通过 `waitForPodsReady` 驱逐 Workload {#scenario-b-evicted-workload-via-waitforpodsready}
 
-1. **Configure** Kueue [deployment](/docs/installation#install-a-custom-configured-released-version) to have more resources available than the node can provide:
+1. **配置** Kueue 使得 [Deployment](/zh-CN/docs/installation#install-a-custom-configured-released-version)
+    可使用超过节点容量的资源：
 
 ```yaml
         resources:
           limits:
-            cpu: "100" # or any value greater than the node's capacity
+            cpu: "100" # 或任何大于节点容量的值
 ```
 
-2. **Submit** a Workload that requests more than is available on the node:
+2. **提交** 一个请求量超过节点可用资源的 Workload：
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta2
@@ -150,7 +147,7 @@ spec:
     - name: objectretention-rf
       resources:
       - name: cpu
-        nominalQuota: "100" # more than is available on the node
+        nominalQuota: "100" # 超过节点可用量
 ---
 apiVersion: kueue.x-k8s.io/v1beta2
 kind: LocalQueue
@@ -178,10 +175,10 @@ spec:
           args: ["entrypoint-tester"]
           resources:
             requests:
-              cpu: "100" # more than is available on the node
+              cpu: "100" # 超过节点可用量
 ```
 
-3. Without all Pods ready, Kueue evicts and deactivates the Workload:
+3. 在 Pod 未全部就绪的情况下，Kueue 会驱逐并停用该 Workload：
 
 ```bash
 # ~2m after submission
@@ -190,7 +187,7 @@ kubectl get workloads -n default
 # limited-workload                               False                 2m
 ```
 
-4. ~1 minute after eviction, the deactivated Workload is garbage-collected:
+4. 在驱逐后约 1 分钟，已停用的 Workload 会被垃圾回收：
 
 ```bash
 # ~1m after eviction
@@ -201,16 +198,13 @@ kubectl get jobs -n default
 # <limited-job not found>
 ```
 
-## Notes
+## 注意事项 {#notes}
 
-- `afterDeactivatedByKueue` is the duration to wait after *any* Kueue-managed Workload
-  (such as a Job, JobSet, or other custom workload types)
-  has been marked as deactivated by Kueue before automatically deleting it.
-  Deletion of deactivated workloads may cascade to objects not created by Kueue,
-  since deleting the parent Workload owner (e.g. JobSet) can trigger garbage-collection of dependent resources.
-  If you manually / automatically deactivate the Workload by specifying `.spec.active=false`, `afterDeactivatedByKueue` is _NOT_ effective.
-- If a retention duration is mis-configured (invalid duration),
-  the controller will fail to start.
-- Deletion is handled synchronously in the reconciliation loop; in
-  clusters with thousands of expired Workloads it may take time to
-  remove them all on first startup.
+- `afterDeactivatedByKueue` 表示在 Kueue 将 Workload（例如 Job、JobSet 或其他自定义 workload 类型）标记为已停用后，
+  等待多长时间再自动删除该 Workload。删除已停用的 Workload 可能会级联删除并非由 Kueue 创建的对象，
+  因为删除父级 Workload 的 owner 引用（例如 JobSet）可能触发对从属资源的垃圾回收。如果你是通过手动或设置 
+  `.spec.active=false` 的方式停用 Workload，则 `afterDeactivatedByKueue` 不会生效。
+- 如果保留的时长配置错误（无效的 duration 字符串），控制器将无法启动。
+- 删除是在 reconciler 循环中同步处理的；如果集群有数千个过期的 Workload，
+  集群首次启动时可能需要一些时间才能删除这些 Workload。
+``` 
