@@ -39,9 +39,11 @@ import (
 // +kubebuilder:rbac:groups="",resources=pods/status,verbs=get;patch
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 
-var (
-	realClock              = clock.RealClock{}
-	terminationEventReason = "KueueForcefullyTerminated"
+var realClock = clock.RealClock{}
+
+const (
+	KueueFailureRecoveryConditionType = "KueueFailureRecovery"
+	KueueForcefulTerminationReason    = "KueueForcefullyTerminated"
 )
 
 type TerminatingPodReconciler struct {
@@ -165,11 +167,6 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, nil
 	}
 
-	podPatch := pod.DeepCopy()
-	podPatch.Status.Phase = corev1.PodFailed
-	if err := r.client.Status().Patch(ctx, podPatch, client.MergeFrom(pod)); err != nil {
-		return ctrl.Result{}, err
-	}
 	totalDeletionGracePeriod := time.Duration(ptr.Deref(pod.DeletionGracePeriodSeconds, 0)) + r.forcefulTerminationGracePeriod
 	eventMessage := fmt.Sprintf(
 		"Pod forcefully terminated after %s grace period due to unreachable node `%s` (triggered by `%s` annotation)",
@@ -177,7 +174,19 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		node.Name,
 		constants.SafeToForcefullyTerminateAnnotationKey,
 	)
-	r.recorder.Event(pod, corev1.EventTypeWarning, terminationEventReason, eventMessage)
+
+	podPatch := pod.DeepCopy()
+	podPatch.Status.Phase = corev1.PodFailed
+	podPatch.Status.Conditions = append(podPatch.Status.Conditions, corev1.PodCondition{
+		Type:    KueueFailureRecoveryConditionType,
+		Status:  corev1.ConditionTrue,
+		Reason:  KueueForcefulTerminationReason,
+		Message: eventMessage,
+	})
+	if err := r.client.Status().Patch(ctx, podPatch, client.MergeFrom(pod)); err != nil {
+		return ctrl.Result{}, err
+	}
+	r.recorder.Event(pod, corev1.EventTypeWarning, KueueForcefulTerminationReason, eventMessage)
 
 	return ctrl.Result{}, nil
 }

@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/failurerecovery"
 	"sigs.k8s.io/kueue/test/integration/framework"
 )
@@ -60,6 +61,7 @@ var _ = ginkgo.AfterSuite(func() {
 func managerSetup(ctx context.Context, mgr manager.Manager) {
 	terminatingPodReconciler, err := failurerecovery.NewTerminatingPodReconciler(
 		mgr.GetClient(),
+		mgr.GetEventRecorderFor(constants.PodTerminationControllerName),
 		failurerecovery.WithForcefulTerminationGracePeriod(time.Millisecond),
 	)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())

@@ -126,12 +126,20 @@ func TestReconciler(t *testing.T) {
 			testPod:    podToForcefullyTerminate.Clone().Obj(),
 			wantResult: ctrl.Result{},
 			wantErr:    nil,
-			wantPod:    podToForcefullyTerminate.Clone().StatusPhase(corev1.PodFailed).Obj(),
+			wantPod: podToForcefullyTerminate.Clone().
+				StatusPhase(corev1.PodFailed).
+				StatusConditions(corev1.PodCondition{
+					Type:    KueueFailureRecoveryConditionType,
+					Status:  "True",
+					Reason:  KueueForcefulTerminationReason,
+					Message: "Pod forcefully terminated after 1m0s grace period due to unreachable node `unreachable-node` (triggered by `kueue.x-k8s.io/safe-to-forcefully-terminate` annotation)",
+				}).
+				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "ns", Name: "pod"},
 					EventType: "Warning",
-					Reason:    "KueueForcefullyTerminated",
+					Reason:    KueueForcefulTerminationReason,
 					Message:   "Pod forcefully terminated after 1m0s grace period due to unreachable node `unreachable-node` (triggered by `kueue.x-k8s.io/safe-to-forcefully-terminate` annotation)",
 				},
 			},
