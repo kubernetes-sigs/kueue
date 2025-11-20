@@ -77,7 +77,7 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 		}, forcefulTerminationTimeout, util.Interval).Should(gomega.Succeed())
 	})
 
-	ginkgo.It("does not forcefully terminate pods that did not opt-in, scheduled on unreachable nodes", func() {
+	ginkgo.It("does not forcefully terminate matching pods that did not opt-in or are running on healthy nodes", func() {
 		nonMatchingPod := matchingPodWrapper.
 			Clone().
 			Name("non-matching-pod").
@@ -85,18 +85,16 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 			Obj()
 		createTerminatingPod(nonMatchingPod)
 
-		gomega.Consistently(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nonMatchingPod.Name, Namespace: nonMatchingPod.Namespace}, nonMatchingPod)).
-				To(gomega.Succeed())
-			g.Expect(nonMatchingPod.Status.Phase).Should(gomega.Equal(corev1.PodPending))
-		}, forcefulTerminationTimeout, util.Interval).Should(gomega.Succeed())
-	})
-
-	ginkgo.It("does not forcefully terminate matching pods scheduled on healthy nodes", func() {
 		podOnHealthyNode := matchingPodWrapper.Clone().Name("healthy-pod").NodeName(reachableNodeName).Obj()
 		createTerminatingPod(podOnHealthyNode)
 
 		gomega.Consistently(func(g gomega.Gomega) {
+			// Non-matching pod is left untouched.
+			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nonMatchingPod.Name, Namespace: nonMatchingPod.Namespace}, nonMatchingPod)).
+				To(gomega.Succeed())
+			g.Expect(nonMatchingPod.Status.Phase).Should(gomega.Equal(corev1.PodPending))
+
+			// Healthy pod is left untouched.
 			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: podOnHealthyNode.Name, Namespace: podOnHealthyNode.Namespace}, podOnHealthyNode)).
 				To(gomega.Succeed())
 			g.Expect(podOnHealthyNode.Status.Phase).Should(gomega.Equal(corev1.PodPending))
