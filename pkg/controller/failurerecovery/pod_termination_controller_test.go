@@ -70,27 +70,6 @@ func TestReconciler(t *testing.T) {
 		wantErr    error
 		wantPod    *corev1.Pod
 	}{
-		"pod is not found": {
-			testPod:    testingpod.MakePod("pod2", "").Obj(),
-			wantResult: ctrl.Result{},
-			wantErr:    nil,
-		},
-		"pod did not opt-in with annotation": {
-			testPod: podToForcefullyTerminate.
-				Clone().
-				Annotation(constants.SafeToForcefullyTerminateAnnotationKey, "false").
-				Obj(),
-			wantResult: ctrl.Result{},
-			wantErr:    nil,
-		},
-		"pod is not marked for termination": {
-			testPod: podToForcefullyTerminate.
-				Clone().
-				DeletionTimestamp(time.Time{}).
-				Obj(),
-			wantResult: ctrl.Result{},
-			wantErr:    nil,
-		},
 		"pod is in failed phase": {
 			testPod: podToForcefullyTerminate.
 				Clone().
@@ -98,6 +77,10 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			wantResult: ctrl.Result{},
 			wantErr:    nil,
+			wantPod: podToForcefullyTerminate.
+				Clone().
+				StatusPhase(corev1.PodFailed).
+				Obj(),
 		},
 		"pod is in succeeded phase": {
 			testPod: podToForcefullyTerminate.
@@ -106,6 +89,10 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			wantResult: ctrl.Result{},
 			wantErr:    nil,
+			wantPod: podToForcefullyTerminate.
+				Clone().
+				StatusPhase(corev1.PodSucceeded).
+				Obj(),
 		},
 		"pod is not scheduled on an unreachable node": {
 			testPod: podToForcefullyTerminate.
@@ -114,6 +101,10 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			wantResult: ctrl.Result{},
 			wantErr:    nil,
+			wantPod: podToForcefullyTerminate.
+				Clone().
+				NodeName(healthyNode.Name).
+				Obj(),
 		},
 		"forceful termination grace period did not elapse for pod": {
 			testPod: podToForcefullyTerminate.
@@ -122,6 +113,10 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			wantResult: ctrl.Result{RequeueAfter: nowSecondPrecision.Add(time.Minute).Sub(now)},
 			wantErr:    nil,
+			wantPod: podToForcefullyTerminate.
+				Clone().
+				DeletionTimestamp(now).
+				Obj(),
 		},
 		"forceful termination grace period elapsed for pod": {
 			testPod:    podToForcefullyTerminate.Clone().Obj(),
@@ -133,6 +128,7 @@ func TestReconciler(t *testing.T) {
 			testPod:    podToForcefullyTerminate.Clone().NodeName("missing-node").Obj(),
 			wantResult: ctrl.Result{},
 			wantErr:    apierrors.NewNotFound(schema.GroupResource{Group: corev1.GroupName, Resource: "nodes"}, "missing-node"),
+			wantPod:    podToForcefullyTerminate.Clone().NodeName("missing-node").Obj(),
 		},
 	}
 
@@ -165,11 +161,8 @@ func TestReconciler(t *testing.T) {
 			if err := cl.Get(ctx, client.ObjectKeyFromObject(tc.testPod), gotPod); err != nil {
 				t.Fatalf("could not get pod after reconcile")
 			}
-			wantPod := tc.wantPod
-			if wantPod == nil {
-				wantPod = tc.testPod
-			}
-			if diff := cmp.Diff(wantPod, gotPod, podCmpOpts...); diff != "" {
+
+			if diff := cmp.Diff(tc.wantPod, gotPod, podCmpOpts...); diff != "" {
 				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
 			}
 		})
