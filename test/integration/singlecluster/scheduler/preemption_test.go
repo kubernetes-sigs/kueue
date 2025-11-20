@@ -147,7 +147,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 		ginkgo.It("Should retry on failed preemptions", func() {
 			attempt := 0
-			fakeSubResourcePatch = func(obj client.Object) (fakeClientUsage, error) {
+			fakeSubResourcePatchSpec = func(obj client.Object) (fakeClientUsage, error) {
 				wl, ok := obj.(*kueue.Workload)
 				if !ok {
 					return fallThrough, nil
