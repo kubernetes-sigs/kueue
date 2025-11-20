@@ -66,7 +66,7 @@ IMAGE_TAG="us-central1-docker.pkg.dev/k8s-staging-images/kueue/localqueue-creato
 cd ..
 
 echo "Waiting for deployment to be ready..."
-kubectl wait deployment/localqueue-creator -n kueue-system --for=condition=available --timeout=2m
+kubectl wait deployment/kueue-localqueue-controller -n kueue-system --for=condition=available --timeout=2m
 
 echo "Running E2E tests..."
 "$GINKGO" -v test/e2e/...
