@@ -140,6 +140,14 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, nil
 	}
 
+	// Forceful termination threshold not reached
+	now := r.clock.Now()
+	forcefulTerminationThreshold := pod.DeletionTimestamp.Add(r.forcefulTerminationGracePeriod)
+	if now.Before(forcefulTerminationThreshold) {
+		remainingTime := forcefulTerminationThreshold.Sub(now)
+		return ctrl.Result{RequeueAfter: remainingTime}, nil
+	}
+
 	node := &corev1.Node{}
 	nodeKey := types.NamespacedName{Name: pod.Spec.NodeName}
 	if err := r.client.Get(ctx, nodeKey, node); err != nil {
@@ -148,13 +156,6 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// Pod is not scheduled on an unreachable node
 	if !utiltaints.TaintKeyExists(node.Spec.Taints, corev1.TaintNodeUnreachable) {
 		return ctrl.Result{}, nil
-	}
-
-	now := r.clock.Now()
-	forcefulTerminationThreshold := pod.DeletionTimestamp.Add(r.forcefulTerminationGracePeriod)
-	if now.Before(forcefulTerminationThreshold) {
-		remainingTime := forcefulTerminationThreshold.Sub(now)
-		return ctrl.Result{RequeueAfter: remainingTime}, nil
 	}
 
 	podPatch := pod.DeepCopy()
