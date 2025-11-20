@@ -25,9 +25,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	testingclock "k8s.io/utils/clock/testing"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -127,7 +125,7 @@ func TestReconciler(t *testing.T) {
 		"pod is scheduled on a node that does not exist": {
 			testPod:    podToForcefullyTerminate.Clone().NodeName("missing-node").Obj(),
 			wantResult: ctrl.Result{},
-			wantErr:    apierrors.NewNotFound(schema.GroupResource{Group: corev1.GroupName, Resource: "nodes"}, "missing-node"),
+			wantErr:    nil,
 			wantPod:    podToForcefullyTerminate.Clone().NodeName("missing-node").Obj(),
 		},
 	}

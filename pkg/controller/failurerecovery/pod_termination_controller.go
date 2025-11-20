@@ -151,7 +151,7 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	node := &corev1.Node{}
 	nodeKey := types.NamespacedName{Name: pod.Spec.NodeName}
 	if err := r.client.Get(ctx, nodeKey, node); err != nil {
-		return ctrl.Result{}, err
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	// Pod is not scheduled on an unreachable node
 	if !utiltaints.TaintKeyExists(node.Spec.Taints, corev1.TaintNodeUnreachable) {
