@@ -42,7 +42,7 @@ type SetupOptions struct {
 	eventsBatchPeriod    time.Duration
 	adapters             map[string]jobframework.MultiKueueAdapter
 	dispatcherName       string
-	clusterProfileConfig *configapi.ClusterProfileConfig
+	clusterProfileConfig *configapi.ClusterProfile
 }
 
 type SetupOption func(o *SetupOptions)
@@ -93,7 +93,7 @@ func WithDispatcherName(dispatcherName string) SetupOption {
 	}
 }
 
-func WithClusterProfiles(clusterProfiles *configapi.ClusterProfileConfig) SetupOption {
+func WithClusterProfiles(clusterProfiles *configapi.ClusterProfile) SetupOption {
 	return func(o *SetupOptions) {
 		o.clusterProfileConfig = clusterProfiles
 	}

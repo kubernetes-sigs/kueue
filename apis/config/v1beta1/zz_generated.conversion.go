@@ -629,7 +629,7 @@ func autoConvert_v1beta2_MultiKueue_To_v1beta1_MultiKueue(in *v1beta2.MultiKueue
 	out.WorkerLostTimeout = (*metav1.Duration)(unsafe.Pointer(in.WorkerLostTimeout))
 	out.DispatcherName = (*string)(unsafe.Pointer(in.DispatcherName))
 	out.ExternalFrameworks = *(*[]MultiKueueExternalFramework)(unsafe.Pointer(&in.ExternalFrameworks))
-	// WARNING: in.ClusterProfileConfig requires manual conversion: does not exist in peer-type
+	// WARNING: in.ClusterProfile requires manual conversion: does not exist in peer-type
 	return nil
 }
 

@@ -85,7 +85,7 @@ connection.</p>
 </tbody>
 </table>
 
-## `ClusterProfileConfig`     {#config-kueue-x-k8s-io-v1beta2-ClusterProfileConfig}
+## `ClusterProfile`     {#config-kueue-x-k8s-io-v1beta2-ClusterProfile}
     
 
 **Appears in:**
@@ -93,7 +93,7 @@ connection.</p>
 - [MultiKueue](#config-kueue-x-k8s-io-v1beta2-MultiKueue)
 
 
-<p>ClusterProfileConfig defines configuration for using the ClusterProfile API in MultiKueue.</p>
+<p>ClusterProfile defines configuration for using the ClusterProfile API in MultiKueue.</p>
 
 
 <table class="table">
@@ -117,7 +117,7 @@ using the ClusterProfile API.</p>
 
 **Appears in:**
 
-- [ClusterProfileConfig](#config-kueue-x-k8s-io-v1beta2-ClusterProfileConfig)
+- [ClusterProfile](#config-kueue-x-k8s-io-v1beta2-ClusterProfile)
 
 
 <p>ClusterProfileCredentialsProvider defines a credentials provider in the ClusterProfile API.</p>
@@ -635,11 +635,11 @@ by the generic MultiKueue adapter. Each entry defines how to handle a specific
 GroupVersionKind (GVK) for MultiKueue operations.</p>
 </td>
 </tr>
-<tr><td><code>clusterProfileConfig</code><br/>
-<a href="#config-kueue-x-k8s-io-v1beta2-ClusterProfileConfig"><code>ClusterProfileConfig</code></a>
+<tr><td><code>clusterProfile</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-ClusterProfile"><code>ClusterProfile</code></a>
 </td>
 <td>
-   <p>ClusterProfileConfig defines configuration for using the ClusterProfile API.</p>
+   <p>ClusterProfile defines configuration for using the ClusterProfile API.</p>
 </td>
 </tr>
 </tbody>

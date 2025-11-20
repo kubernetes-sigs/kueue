@@ -257,18 +257,18 @@ The controller obtains cluster credentials based on the `MultiKueueCluster` spec
 
   The authentication flow is as follows:
   1. The controller reads the `ClusterProfile` object referenced by the `MultiKueueCluster`. The `ClusterProfile` contains a list of access providers.
-  2. The controller uses this configuration to match the access provider with the credentials provider and invoke the credential plugin binary. The list of credentials providers is configured in the `CredentialsProviders` section under `ClusterProfileConfig` in the `MultiKueue` in the Configuration API.
+  2. The controller uses this configuration to match the access provider with the credentials provider and invoke the credential plugin binary. The list of credentials providers is configured in the `CredentialsProviders` section under `ClusterProfile` in the `MultiKueue` in the Configuration API.
 
 ```go
 type MultiKueue struct {
   ...
-	// ClusterProfileConfig defines configuration for using the ClusterProfile API.
+	// ClusterProfile defines configuration for using the ClusterProfile API.
 	// +optional
-	ClusterProfileConfig *ClusterProfileConfig `json:"clusterProfileConfig,omitempty"`
+	ClusterProfile *ClusterProfile `json:"clusterProfile,omitempty"`
 }
 
-// ClusterProfileConfig defines configuration for using the ClusterProfile API in MultiKueue.
-type ClusterProfileConfig struct {
+// ClusterProfile defines configuration for using the ClusterProfile API in MultiKueue.
+type ClusterProfile struct {
 	// CredentialsProviders defines a list of providers to obtain credentials of worker clusters
 	// using the ClusterProfile API.
 	CredentialsProviders []ClusterProfileCredentialsProvider `json:"credentialsProviders,omitempty"`
