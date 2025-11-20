@@ -117,14 +117,14 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q_borrowing").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /r/c/q; preemptee path: /r/q_borrowing",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
@@ -216,14 +216,14 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q_borrowing").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /r/c/q; preemptee path: /r/q_borrowing",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
@@ -300,14 +300,14 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q_borrowing").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /r/c/q; preemptee path: /r/q_borrowing",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
@@ -322,14 +322,14 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q_borrowing").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /r/c/q; preemptee path: /r/q_borrowing",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
@@ -424,14 +424,14 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /r/c/q; preemptee path: /r/c/q",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
@@ -446,14 +446,14 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q_same_cohort").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort while borrowing; preemptor path: /r/c/q; preemptee path: /r/c/q_same_cohort",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclaimWhileBorrowing",
@@ -530,14 +530,14 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q_borrowing").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /r/c/q; preemptee path: /r/q_borrowing",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
@@ -641,14 +641,14 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q_same_cohort").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort while borrowing; preemptor path: /r/c/q; preemptee path: /r/c/q_same_cohort",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclaimWhileBorrowing",
@@ -733,14 +733,14 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q_borrowing").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /r/c/q; preemptee path: /r/q_borrowing",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
@@ -755,14 +755,14 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q_same_cohort").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /r/c/q; preemptee path: /r/c/q_same_cohort",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
@@ -860,14 +860,14 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q_borrowing").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /r/c/q; preemptee path: /r/q_borrowing",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
@@ -889,14 +889,14 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q_same_cohort").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort while borrowing; preemptor path: /r/c/q; preemptee path: /r/c/q_same_cohort",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclaimWhileBorrowing",
@@ -994,14 +994,14 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q_borrowing").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /r/c/q; preemptee path: /r/q_borrowing",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
@@ -1023,14 +1023,14 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /r/c/q; preemptee path: /r/c/q",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
@@ -1136,14 +1136,14 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q_borrowing").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /r/c/q; preemptee path: /r/q_borrowing",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
@@ -1357,14 +1357,14 @@ func TestHierarchicalPreemptions(t *testing.T) {
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "3").
 							Assignment(corev1.ResourceMemory, "default", "1Gi").Obj()).Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /r/c/q; preemptee path: /r/q_borrowing",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
@@ -1441,7 +1441,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q_same_cohort").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						LastTransitionTime: metav1.NewTime(now),
@@ -1474,7 +1474,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q_same_cohort").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						LastTransitionTime: metav1.NewTime(now),
@@ -1543,14 +1543,14 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q_borrowing").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /r/c/q; preemptee path: /r/q_borrowing",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
@@ -1729,14 +1729,14 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /r/c11/c21/c31/q5; preemptee path: /r/c12/q1",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
@@ -1765,14 +1765,14 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q2").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort; preemptor path: /r/c11/c21/c31/q5; preemptee path: /r/c11/c23/q2",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
