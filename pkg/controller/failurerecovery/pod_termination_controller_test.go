@@ -89,7 +89,6 @@ func TestCreateEventFilter(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-
 			gotResult := reconciler.Create(event.CreateEvent{Object: tc.pod})
 
 			if diff := cmp.Diff(tc.wantResult, gotResult); diff != "" {
@@ -141,7 +140,6 @@ func TestUpdateEventFilter(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-
 			gotResult := reconciler.Update(event.UpdateEvent{ObjectOld: tc.oldPod, ObjectNew: tc.newPod})
 
 			if diff := cmp.Diff(tc.wantResult, gotResult); diff != "" {
