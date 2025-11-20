@@ -36,13 +36,6 @@ const (
 	forcefulTerminationTimeout = 2 * time.Second
 )
 
-func createTerminatingPod(p *corev1.Pod) {
-	ginkgo.GinkgoHelper()
-
-	util.MustCreate(ctx, k8sClient, p)
-	gomega.ExpectWithOffset(1, k8sClient.Delete(ctx, p)).To(gomega.Succeed())
-}
-
 var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var ns *corev1.Namespace
 	var matchingPodWrapper *testingpod.PodWrapper
@@ -69,7 +62,8 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 
 	ginkgo.It("forcefully terminates pods that opt-in, scheduled on unreachable nodes", func() {
 		matchingPod := matchingPodWrapper.Clone().Obj()
-		createTerminatingPod(matchingPod)
+		util.MustCreate(ctx, k8sClient, matchingPod)
+		gomega.ExpectWithOffset(1, k8sClient.Delete(ctx, matchingPod)).To(gomega.Succeed())
 
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: matchingPod.Name, Namespace: matchingPod.Namespace}, matchingPod)).
@@ -82,12 +76,14 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 		nonMatchingPod := matchingPodWrapper.
 			Clone().
 			Name("non-matching-pod").
-			Annotation(constants.SafeToForcefullyTerminateAnnotationKey, constants.SafeToForcefullyTerminateAnnotationValue).
+			Annotation(constants.SafeToForcefullyTerminateAnnotationKey, "false").
 			Obj()
-		createTerminatingPod(nonMatchingPod)
+		util.MustCreate(ctx, k8sClient, nonMatchingPod)
+		gomega.ExpectWithOffset(1, k8sClient.Delete(ctx, nonMatchingPod)).To(gomega.Succeed())
 
 		podOnHealthyNode := matchingPodWrapper.Clone().Name("healthy-pod").NodeName(reachableNodeName).Obj()
-		createTerminatingPod(podOnHealthyNode)
+		util.MustCreate(ctx, k8sClient, podOnHealthyNode)
+		gomega.ExpectWithOffset(1, k8sClient.Delete(ctx, podOnHealthyNode)).To(gomega.Succeed())
 
 		gomega.Consistently(func(g gomega.Gomega) {
 			// Non-matching pod is left untouched.
