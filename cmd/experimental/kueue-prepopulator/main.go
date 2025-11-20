@@ -30,8 +30,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	localqueuecreatorconfig "sigs.k8s.io/kueue/cmd/experimental/localqueue-creator/pkg/config"
-	"sigs.k8s.io/kueue/cmd/experimental/localqueue-creator/pkg/controller"
+	kueueprepopulatorconfig "sigs.k8s.io/kueue/cmd/experimental/kueue-prepopulator/pkg/config"
+	"sigs.k8s.io/kueue/cmd/experimental/kueue-prepopulator/pkg/controller"
 )
 
 var (
@@ -64,7 +64,7 @@ func main() {
 func start(configFile string) error {
 	log := ctrl.Log.WithName("setup")
 
-	cfg, err := localqueuecreatorconfig.Load(configFile)
+	cfg, err := kueueprepopulatorconfig.Load(configFile)
 	if err != nil {
 		log.Error(err, "Unable to load the configuration")
 		return err
@@ -79,7 +79,7 @@ func start(configFile string) error {
 		return err
 	}
 
-	reconcilerOpts := []controller.LocalQueueCreatorReconcilerOption{
+	reconcilerOpts := []controller.KueuePrepopulatorReconcilerOption{
 		controller.WithLocalQueueName(cfg.LocalQueueName),
 	}
 	if cfg.ManagedJobsNamespaceSelector != nil {
@@ -91,9 +91,9 @@ func start(configFile string) error {
 		reconcilerOpts = append(reconcilerOpts, controller.WithNamespaceSelector(selector))
 	}
 
-	if err = controller.NewLocalQueueCreatorReconciler(
+	if err = controller.NewKueuePrepopulatorReconciler(
 		mgr.GetClient(),
-		mgr.GetEventRecorderFor("kueue-localqueue-creator"),
+		mgr.GetEventRecorderFor("kueue-prepopulator"),
 		reconcilerOpts...,
 	).SetupWithManager(mgr); err != nil {
 		log.Error(err, "Unable to create controller", "controller", "DefaultLocalQueue")

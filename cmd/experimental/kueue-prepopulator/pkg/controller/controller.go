@@ -34,12 +34,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/cmd/experimental/localqueue-creator/pkg/constants"
+	"sigs.k8s.io/kueue/cmd/experimental/kueue-prepopulator/pkg/constants"
 )
 
-const ControllerName = "local-queue-creator"
+const ControllerName = "kueue-prepopulator"
 
-type LocalQueueCreatorReconciler struct {
+type KueuePrepopulatorReconciler struct {
 	client            client.Client
 	log               logr.Logger
 	recorder          record.EventRecorder
@@ -47,41 +47,41 @@ type LocalQueueCreatorReconciler struct {
 	localQueueName    string
 }
 
-var _ reconcile.Reconciler = (*LocalQueueCreatorReconciler)(nil)
+var _ reconcile.Reconciler = (*KueuePrepopulatorReconciler)(nil)
 
-type LocalQueueCreatorReconcilerOptions struct {
+type KueuePrepopulatorReconcilerOptions struct {
 	NamespaceSelector labels.Selector
 	LocalQueueName    string
 }
 
-type LocalQueueCreatorReconcilerOption func(*LocalQueueCreatorReconcilerOptions)
+type KueuePrepopulatorReconcilerOption func(*KueuePrepopulatorReconcilerOptions)
 
-func WithNamespaceSelector(s labels.Selector) LocalQueueCreatorReconcilerOption {
-	return func(o *LocalQueueCreatorReconcilerOptions) {
+func WithNamespaceSelector(s labels.Selector) KueuePrepopulatorReconcilerOption {
+	return func(o *KueuePrepopulatorReconcilerOptions) {
 		o.NamespaceSelector = s
 	}
 }
 
-func WithLocalQueueName(name string) LocalQueueCreatorReconcilerOption {
-	return func(o *LocalQueueCreatorReconcilerOptions) {
+func WithLocalQueueName(name string) KueuePrepopulatorReconcilerOption {
+	return func(o *KueuePrepopulatorReconcilerOptions) {
 		o.LocalQueueName = name
 	}
 }
 
-var defaultCreatorOptions = LocalQueueCreatorReconcilerOptions{}
+var defaultPrepopulatorOptions = KueuePrepopulatorReconcilerOptions{}
 
-func NewLocalQueueCreatorReconciler(
+func NewKueuePrepopulatorReconciler(
 	client client.Client,
 	recorder record.EventRecorder,
-	opts ...LocalQueueCreatorReconcilerOption,
-) *LocalQueueCreatorReconciler {
-	options := defaultCreatorOptions
+	opts ...KueuePrepopulatorReconcilerOption,
+) *KueuePrepopulatorReconciler {
+	options := defaultPrepopulatorOptions
 	for _, opt := range opts {
 		opt(&options)
 	}
-	return &LocalQueueCreatorReconciler{
+	return &KueuePrepopulatorReconciler{
 		client:            client,
-		log:               ctrl.Log.WithName("local-queue-creator-reconciler"),
+		log:               ctrl.Log.WithName("kueue-prepopulator-reconciler"),
 		recorder:          recorder,
 		namespaceSelector: options.NamespaceSelector,
 		localQueueName:    options.LocalQueueName,
@@ -93,7 +93,7 @@ func NewLocalQueueCreatorReconciler(
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterqueues,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=localqueues,verbs=get;list;watch;create
 
-func (r *LocalQueueCreatorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *KueuePrepopulatorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	var ns corev1.Namespace
@@ -149,7 +149,7 @@ func (r *LocalQueueCreatorReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	return ctrl.Result{}, nil
 }
 
-func (r *LocalQueueCreatorReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *KueuePrepopulatorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return builder.TypedControllerManagedBy[reconcile.Request](mgr).
 		For(&corev1.Namespace{}).
 		Watches(
@@ -159,7 +159,7 @@ func (r *LocalQueueCreatorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *LocalQueueCreatorReconciler) mapClusterQueueToNamespaces(ctx context.Context, cqObj client.Object) []reconcile.Request {
+func (r *KueuePrepopulatorReconciler) mapClusterQueueToNamespaces(ctx context.Context, cqObj client.Object) []reconcile.Request {
 	cq, ok := cqObj.(*kueue.ClusterQueue)
 	if !ok {
 		return nil
@@ -201,7 +201,7 @@ func (r *LocalQueueCreatorReconciler) mapClusterQueueToNamespaces(ctx context.Co
 	return requests
 }
 
-func (r *LocalQueueCreatorReconciler) ensureLocalQueueExists(ctx context.Context, cq *kueue.ClusterQueue, ns *corev1.Namespace) error {
+func (r *KueuePrepopulatorReconciler) ensureLocalQueueExists(ctx context.Context, cq *kueue.ClusterQueue, ns *corev1.Namespace) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	targetLQ := types.NamespacedName{

@@ -1,16 +1,16 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: kueue-localqueue-controller
+  name: kueue-prepopulator-controller
 spec:
   replicas: 1
   selector:
     matchLabels:
-      control-plane: kueue-localqueue-controller
+      control-plane: kueue-prepopulator-controller
   template:
     metadata:
       labels:
-        control-plane: kueue-localqueue-controller
+        control-plane: kueue-prepopulator-controller
     spec:
       securityContext:
         runAsNonRoot: true
@@ -21,7 +21,7 @@ spec:
         - "--config=/etc/kueue/controller_manager_config.yaml"
         - "--zap-log-level=2"
         imagePullPolicy: IfNotPresent
-        image: us-central1-docker.pkg.dev/k8s-staging-images/kueue/localqueue-creator:latest
+        image: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-prepopulator:latest
         name: manager
         securityContext:
           allowPrivilegeEscalation: false
@@ -51,9 +51,9 @@ spec:
         volumeMounts:
         - mountPath: /etc/kueue
           name: manager-config
-      serviceAccountName: kueue-localqueue-controller
+      serviceAccountName: kueue-prepopulator-controller
       terminationGracePeriodSeconds: 10
       volumes:
       - configMap:
-          name: kueue-localqueue-controller-config
+          name: kueue-prepopulator-controller-config
         name: manager-config

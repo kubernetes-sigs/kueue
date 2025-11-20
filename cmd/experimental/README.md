@@ -11,7 +11,7 @@ where they will be maintained long term.
 
 ### Existing integrations
 
-- `localqueue-creator`
+- `kueue-prepopulator`
 
 ### Adding new integrations
 

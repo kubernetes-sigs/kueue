@@ -1,4 +1,4 @@
-module sigs.k8s.io/kueue/cmd/experimental/localqueue-creator
+module sigs.k8s.io/kueue/cmd/experimental/kueue-prepopulator
 
 go 1.25.0
 
@@ -14,6 +14,7 @@ require (
 	k8s.io/klog/v2 v2.130.1
 	sigs.k8s.io/controller-runtime v0.22.4
 	sigs.k8s.io/kueue v0.14.4
+	sigs.k8s.io/yaml v1.6.0
 )
 
 require (
@@ -95,6 +96,5 @@ require (
 	sigs.k8s.io/lws v0.7.0 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.0 // indirect
-	sigs.k8s.io/yaml v1.6.0 // indirect
 	volcano.sh/apis v1.13.1-0.20251028070205-46d20c0699e7 // indirect
 )

@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/cmd/experimental/localqueue-creator/pkg/constants"
+	"sigs.k8s.io/kueue/cmd/experimental/kueue-prepopulator/pkg/constants"
 )
 
 // Event is a simplified representation of a Kubernetes event for testing purposes.
@@ -43,7 +43,7 @@ type Event struct {
 	Message   string
 }
 
-func TestLocalQueueCreatorReconciler(t *testing.T) {
+func TestKueuePrepopulatorReconciler(t *testing.T) {
 	cases := map[string]struct {
 		clusterQueues       []*kueue.ClusterQueue
 		namespaces          []*corev1.Namespace
@@ -439,7 +439,7 @@ func TestLocalQueueCreatorReconciler(t *testing.T) {
 			k8sclient := builder.Build()
 			recorder := record.NewFakeRecorder(10)
 
-			var opts []LocalQueueCreatorReconcilerOption
+			var opts []KueuePrepopulatorReconcilerOption
 			if tc.globalNsSelectorStr != "" {
 				selector, err := labels.Parse(tc.globalNsSelectorStr)
 				if err != nil {
@@ -449,7 +449,7 @@ func TestLocalQueueCreatorReconciler(t *testing.T) {
 			}
 			opts = append(opts, WithLocalQueueName(tc.localQueueName))
 
-			reconciler := NewLocalQueueCreatorReconciler(
+			reconciler := NewKueuePrepopulatorReconciler(
 				k8sclient,
 				recorder,
 				opts...,

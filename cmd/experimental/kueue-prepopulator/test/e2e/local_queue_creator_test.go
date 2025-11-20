@@ -102,9 +102,7 @@ var _ = ginkgo.Describe("DefaultLocalQueue", func() {
 			ginkgo.By("updating the ClusterQueue to match the namespace")
 			gomega.Eventually(func() error {
 				var currentCQ kueue.ClusterQueue
-				if err := k8sClient.Get(ctx, types.NamespacedName{Name: cq.Name}, &currentCQ); err != nil {
-					return err
-				}
+				gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: cq.Name}, &currentCQ)).To(gomega.Succeed())
 				currentCQ.Spec.NamespaceSelector = &metav1.LabelSelector{
 					MatchLabels: map[string]string{"foo": "baz"},
 				}

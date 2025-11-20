@@ -24,7 +24,7 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-// Configuration defines the configuration for the localqueue-creator controller.
+// Configuration defines the configuration for the kueue-prepopulator controller.
 type Configuration struct {
 	// LocalQueueName is the name of the LocalQueue to create by default.
 	LocalQueueName string `json:"localQueueName,omitempty"`

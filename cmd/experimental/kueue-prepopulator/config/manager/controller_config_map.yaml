@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: kueue-localqueue-controller-config
+  name: kueue-prepopulator-controller-config
   namespace: kueue-system
 data:
   controller_manager_config.yaml: |
