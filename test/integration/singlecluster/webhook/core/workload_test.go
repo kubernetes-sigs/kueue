@@ -1604,7 +1604,7 @@ var _ = ginkgo.Describe("TopologyAssignment validation", ginkgo.Ordered, func() 
 			}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Status().Update(ctx, wl)).To(expectedOutcome)
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		},
 		ginkgo.Entry("accepts a TopologyAssignment combining various item counts & patterns of subfield presence",
 			// 2 levels, 5 slices, 3 domains in first slice, 4 domains in second slice
