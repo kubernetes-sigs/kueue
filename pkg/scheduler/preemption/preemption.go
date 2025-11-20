@@ -154,7 +154,7 @@ func preemptionMessage(preemptor *kueue.Workload, reason, preemptorPath, preempt
 }
 
 // IssuePreemptions marks the target workloads as evicted.
-func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.Info, targets []*Target, snap *schdcache.ClusterQueueSnapshot) (preempted int, errors int, exampleError error) {
+func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.Info, targets []*Target, snap *schdcache.ClusterQueueSnapshot) (preempted int, failedPreemptions int, exampleError error) {
 	log := ctrl.LoggerFrom(ctx)
 	errCh := routine.NewErrorChannel()
 	ctx, cancel := context.WithCancel(ctx)
