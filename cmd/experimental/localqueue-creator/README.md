@@ -50,11 +50,10 @@ To deploy the `localqueue-creator` using a locally built image into a Kind clust
 2.  **Apply manifests:** Apply the manifests from the `config` directory.
 
     ```bash
-    kubectl apply -k config
+        kubectl apply -k config
     ```
-
+    
 ## Configuration
-
 The `localqueue-creator` supports the following command-line flags:
 
 *   `--local-queue-name`: The name of the `LocalQueue` to create by default in selected namespaces. Defaults to `"default"`.
@@ -68,3 +67,39 @@ To set these flags, modify the `args` list in the `Deployment` manifest (`run-in
         - "--zap-log-level=2"
         - "--local-queue-name=my-custom-queue"
 ```
+
+## Testing
+
+The `localqueue-creator` project includes unit, integration, and end-to-end (e2e) tests to ensure its functionality and reliability.
+
+### Unit Tests
+
+To run the unit tests:
+
+```bash
+make test
+```
+
+### Integration Tests
+
+To run the integration tests:
+
+```bash
+make test-integration
+```
+
+### End-to-End Tests
+
+To run the end-to-end tests, you need a Kubernetes cluster and a `kind` image.
+
+1.  **Build Kind Image:**
+
+    ```bash
+    make kind-image-build
+    ```
+
+2.  **Run E2E Tests:**
+
+    ```bash
+    make test-e2e
+    ```
