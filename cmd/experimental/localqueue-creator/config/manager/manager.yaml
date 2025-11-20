@@ -21,7 +21,7 @@ spec:
         - "--config=/etc/kueue/controller_manager_config.yaml"
         - "--zap-log-level=2"
         imagePullPolicy: IfNotPresent
-        image: localqueue-creator:latest
+        image: us-central1-docker.pkg.dev/k8s-staging-images/kueue/localqueue-creator:latest
         name: manager
         securityContext:
           allowPrivilegeEscalation: false
@@ -51,9 +51,9 @@ spec:
         volumeMounts:
         - mountPath: /etc/kueue
           name: manager-config
-      serviceAccountName: localqueue-creator
+      serviceAccountName: kueue-localqueue-controller
       terminationGracePeriodSeconds: 10
       volumes:
       - configMap:
-          name: localqueue-creator-config
+          name: kueue-localqueue-controller-config
         name: manager-config

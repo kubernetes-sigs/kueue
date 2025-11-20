@@ -74,7 +74,7 @@ CONTROLLER_GEN := $(BIN_DIR)/controller-gen
 
 .PHONY: manifests
 manifests:
-	$(CONTROLLER_GEN) rbac:roleName=localqueue-creator-role output:rbac:artifacts:config=config/rbac paths="./pkg/controller/..."
+	$(CONTROLLER_GEN) rbac:roleName=kueue-localqueue-controller-role output:rbac:artifacts:config=config/rbac paths="./pkg/controller/..."
 
 .PHONY: test-integration
 test-integration:

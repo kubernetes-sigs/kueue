@@ -61,7 +61,7 @@ echo "Deploying localqueue-creator..."
 cd config
 # Use the same tag as the Makefile
 IMAGE_TAG="us-central1-docker.pkg.dev/k8s-staging-images/kueue/localqueue-creator:$GIT_TAG"
-"$KUSTOMIZE" edit set image localqueue-creator="$IMAGE_TAG"
+"$KUSTOMIZE" edit set image us-central1-docker.pkg.dev/k8s-staging-images/kueue/localqueue-creator="$IMAGE_TAG"
 "$KUSTOMIZE" build . | kubectl apply --server-side -f -
 cd ..
 

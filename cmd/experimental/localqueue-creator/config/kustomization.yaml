@@ -9,6 +9,6 @@ resources:
 - manager/controller_config_map.yaml
 
 images:
-- name: localqueue-creator
+- name: us-central1-docker.pkg.dev/k8s-staging-images/kueue/localqueue-creator
   newName: us-central1-docker.pkg.dev/k8s-staging-images/kueue/localqueue-creator
 namespace: kueue-system
