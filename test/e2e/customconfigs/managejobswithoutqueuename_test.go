@@ -123,16 +123,16 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 							Replicas:    1,
 							Parallelism: 1,
 							Completions: 1,
-							Image:       "busybox",
-							Args:        []string{"sleep", "2s"},
+							Image:       util.GetAgnHostImage(),
+							Args:        util.BehaviorExitFast,
 						},
 						testingjobset.ReplicatedJobRequirements{
 							Name:        "test-job-2",
 							Replicas:    1,
 							Parallelism: 1,
 							Completions: 1,
-							Image:       "busybox",
-							Args:        []string{"sleep", "2s"},
+							Image:       util.GetAgnHostImage(),
+							Args:        util.BehaviorExitFast,
 						},
 					).Obj()
 				util.MustCreate(ctx, k8sClient, newJobSet)
@@ -145,9 +145,18 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 					g.Expect(jobs.Items).To(gomega.HaveLen(2))
 					for _, job := range jobs.Items {
 						g.Expect(job.Spec.Suspend).To(gomega.HaveValue(gomega.BeFalse()))
-						for _, job := range jobs.Items {
-							g.Expect(job.Status.Active).To(gomega.Equal(int32(1)))
-						}
+					}
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying that the jobs are complete", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					jobs := &batchv1.JobList{}
+					g.Expect(k8sClient.List(ctx, jobs, client.InNamespace(ns.Name))).To(gomega.Succeed())
+					g.Expect(jobs.Items).To(gomega.HaveLen(2))
+					for _, job := range jobs.Items {
+						g.Expect(job.Spec.Suspend).To(gomega.HaveValue(gomega.BeFalse()))
+						g.Expect(job.Status.Succeeded).To(gomega.Equal(int32(1)))
 					}
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
