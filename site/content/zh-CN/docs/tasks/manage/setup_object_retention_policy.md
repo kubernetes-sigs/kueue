@@ -3,20 +3,23 @@ title: "设置 Workload 的垃圾回收"
 date: 2025-05-16
 weight: 11
 description: >
-  在Kueue保留策略中配置自动回收已完成或已停用的Workload。
+  通过定义保留策略来配置自动垃圾回收已完成或已停用的 Workload。
 ---
 
-本指南演示如何在 Kueue 中启用并配置可选的对象保留策略，以在指定时间后自动删除已完成或已停用的 Workload。默认情况下，Kueue 会在集群中永久保留所有 Workload 对象；通过对象保留策略，可以释放 etcd 存储并降低 Kueue 的内存占用。
+本指南演示如何在 Kueue 中启用并配置可选的对象保留策略，以在指定时间后自动删除已完成或已停用的
+Workload。默认情况下，Kueue 会在集群中永久保留所有 Workload 对象；通过对象保留策略，可以释放
+etcd 存储并降低 Kueue 的内存占用。
+
 
 ## 前置条件
 
-- 已运行的 Kueue 安装，版本为 **v0.12** 或更新版本。
-- 在 Kueue controller manager 中启用 `ObjectRetentionPolicies` 特性。有关特性配置的详细信息，请参阅[安装](/docs/installation/#change-the-feature-gates-configuration)指南。
+- 可正常运行的 Kueue **v0.12** 或更高版本。
+- 在 Kueue 控制器管理器中启用 `ObjectRetentionPolicies` 特性。
+  有关此特性的配置细节，请参阅[安装指南](/zh-CN/docs/installation/#change-the-feature-gates-configuration)。
 
 ## 设置保留策略
 
-按照此处描述的说明
-[安装自定义配置的发布版本](/docs/installation#install-a-custom-configured-released-version)，
+按照此处描述的说明[安装自定义配置的发布版本](/zh-CN/docs/installation#install-a-custom-configured-released-version)，
 安装发布版本并通过添加以下字段扩展配置：
 
 ```yaml
@@ -117,7 +120,7 @@ kubectl get jobs -n default
 
 ---
 
-### 场景 B：通过 `waitForPodsReady` 导致的被驱逐 Workload
+### 场景 B：通过 `waitForPodsReady` 驱逐 Workload
 
 1. **将** Kueue [部署配置](/docs/installation#install-a-custom-configured-released-version)为比节点容量更大的资源：
 
@@ -182,7 +185,7 @@ kubectl get workloads -n default
 # limited-workload                               False                 2m
 ```
 
-4. 在被驱逐后约 ~1 分钟，已停用的 Workload 会被垃圾回收：
+4. 在驱逐后约 1 分钟，已停用的 Workload 会被垃圾回收：
 
 ```bash
 # ~1m after eviction
@@ -195,7 +198,11 @@ kubectl get jobs -n default
 
 ## 注意事项
 
-- `afterDeactivatedByKueue` 表示在 Kueue 将 Workload（例如 Job、JobSet 或其他自定义 workload 类型）标记为已停用后，等待多长时间再自动删除该 Workload。删除已停用的 Workload 可能会级联删除并非由 Kueue 创建的对象，因为删除父级 Workload 的 owner 引用（例如 JobSet）可能触发对从属资源的垃圾回收。如果你是通过手动或设置 `.spec.active=false` 的方式停用 Workload，则 `afterDeactivatedByKueue` 不会生效。
+- `afterDeactivatedByKueue` 表示在 Kueue 将 Workload（例如 Job、JobSet 或其他自定义 workload 类型）标记为已停用后，
+  等待多长时间再自动删除该 Workload。删除已停用的 Workload 可能会级联删除并非由 Kueue 创建的对象，
+  因为删除父级 Workload 的 owner 引用（例如 JobSet）可能触发对从属资源的垃圾回收。如果你是通过手动或设置 
+  `.spec.active=false` 的方式停用 Workload，则 `afterDeactivatedByKueue` 不会生效。
 - 如果保留持续时间配置错误（无效的 duration 字符串），控制器将无法启动。
-- 删除是在 reconciler 循环中同步处理的；在具有数千个过期 Workload 的集群中，首次启动时可能需要一些时间来完成删除。
-```
+- 删除是在 reconciler 循环中同步处理的；如果集群有数千个过期的 Workload，
+  集群首次启动时可能需要一些时间才能删除这些 Workload。
+``` 
