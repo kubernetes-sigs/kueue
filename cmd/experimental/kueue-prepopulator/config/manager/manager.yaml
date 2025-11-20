@@ -1,16 +1,16 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: kueue-prepopulator-controller
+  name: kueue-prepopulator
 spec:
   replicas: 1
   selector:
     matchLabels:
-      control-plane: kueue-prepopulator-controller
+      control-plane: kueue-prepopulator
   template:
     metadata:
       labels:
-        control-plane: kueue-prepopulator-controller
+        control-plane: kueue-prepopulator
     spec:
       securityContext:
         runAsNonRoot: true
@@ -51,9 +51,9 @@ spec:
         volumeMounts:
         - mountPath: /etc/kueue
           name: manager-config
-      serviceAccountName: kueue-prepopulator-controller
+      serviceAccountName: kueue-prepopulator
       terminationGracePeriodSeconds: 10
       volumes:
       - configMap:
-          name: kueue-prepopulator-controller-config
+          name: kueue-prepopulator-config
         name: manager-config
