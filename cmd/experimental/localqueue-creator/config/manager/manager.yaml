@@ -1,16 +1,16 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: localqueue-creator
+  name: kueue-localqueue-controller
 spec:
   replicas: 1
   selector:
     matchLabels:
-      control-plane: localqueue-creator
+      control-plane: kueue-localqueue-controller
   template:
     metadata:
       labels:
-        control-plane: localqueue-creator
+        control-plane: kueue-localqueue-controller
     spec:
       securityContext:
         runAsNonRoot: true
