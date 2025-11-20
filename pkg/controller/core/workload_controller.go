@@ -57,6 +57,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -326,7 +327,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 					}
 				}
 			} else {
-				if err := workload.PatchAdmissionStatus(ctx, r.client, wlOrig, r.clock, func() (*kueue.Workload, bool, error) {
+				if err := clientutil.PatchStatus(ctx, r.client, wlOrig, func() (client.Object, bool, error) {
 					return &wl, true, nil
 				}); err != nil {
 					if !apierrors.IsNotFound(err) {
