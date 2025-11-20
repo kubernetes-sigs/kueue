@@ -127,7 +127,7 @@ func (r *LocalQueueCreatorReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			selector, err = metav1.LabelSelectorAsSelector(cq.Spec.NamespaceSelector)
 			if err != nil {
 				log.Error(err, "Failed to parse namespaceSelector for ClusterQueue", "clusterQueue", klog.KObj(cq))
-				continue
+				return ctrl.Result{}, err
 			}
 		}
 
