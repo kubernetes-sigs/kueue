@@ -36,23 +36,30 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
+	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
 )
 
+const (
+	resourceGPU = corev1.ResourceName("GPU")
+)
+
 func TestLocalQueueReconcile(t *testing.T) {
 	clock := testingclock.NewFakeClock(time.Now().Truncate(time.Second))
 	cases := map[string]struct {
-		clusterQueue     *kueue.ClusterQueue
-		localQueue       *kueue.LocalQueue
-		wantLocalQueue   *kueue.LocalQueue
-		wantError        error
-		afsConfig        *config.AdmissionFairSharing
-		runningWls       []kueue.Workload
-		wantRequeueAfter *time.Duration
+		clusterQueue             *kueue.ClusterQueue
+		localQueue               *kueue.LocalQueue
+		wantLocalQueue           *kueue.LocalQueue
+		wantError                error
+		afsConfig                *config.AdmissionFairSharing
+		runningWls               []kueue.Workload
+		wantRequeueAfter         *time.Duration
+		initialConsumedResources queueafs.ConsumedResourcesEntry
 	}{
 		"local queue with Hold StopPolicy": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("test-cluster-queue").
@@ -134,15 +141,13 @@ func TestLocalQueueReconcile(t *testing.T) {
 				FairSharing(&kueue.FairSharing{
 					Weight: ptr.To(resource.MustParse("1")),
 				}).
-				FairSharingStatus(
-					&kueue.LocalQueueFairSharingStatus{
-						AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
-							LastUpdate: metav1.NewTime(clock.Now().Add(-5 * time.Minute)),
-							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-								corev1.ResourceCPU: resource.MustParse("8")},
-						},
-					}).
 				Obj(),
+			initialConsumedResources: queueafs.ConsumedResourcesEntry{
+				Resources: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("8"),
+				},
+				LastUpdate: clock.Now().Add(-5 * time.Minute),
+			},
 			wantLocalQueue: utiltestingapi.MakeLocalQueue("test-queue", "default").
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
@@ -173,15 +178,13 @@ func TestLocalQueueReconcile(t *testing.T) {
 				FairSharing(&kueue.FairSharing{
 					Weight: ptr.To(resource.MustParse("1")),
 				}).
-				FairSharingStatus(
-					&kueue.LocalQueueFairSharingStatus{
-						AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
-							LastUpdate: metav1.NewTime(clock.Now().Add(-5 * time.Minute)),
-							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-								corev1.ResourceCPU: resource.MustParse("8")},
-						},
-					}).
 				Obj(),
+			initialConsumedResources: queueafs.ConsumedResourcesEntry{
+				Resources: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("8"),
+				},
+				LastUpdate: clock.Now().Add(-5 * time.Minute),
+			},
 			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq", "default").
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
@@ -222,17 +225,14 @@ func TestLocalQueueReconcile(t *testing.T) {
 				FairSharing(&kueue.FairSharing{
 					Weight: ptr.To(resource.MustParse("1")),
 				}).
-				FairSharingStatus(
-					&kueue.LocalQueueFairSharingStatus{
-						AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
-							LastUpdate: metav1.NewTime(clock.Now().Add(-5 * time.Minute)),
-							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-								corev1.ResourceCPU: resource.MustParse("8"),
-								"GPU":              resource.MustParse("16"),
-							},
-						},
-					}).
 				Obj(),
+			initialConsumedResources: queueafs.ConsumedResourcesEntry{
+				Resources: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("8"),
+					resourceGPU:        resource.MustParse("16"),
+				},
+				LastUpdate: clock.Now().Add(-5 * time.Minute),
+			},
 			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq", "default").
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
@@ -286,15 +286,13 @@ func TestLocalQueueReconcile(t *testing.T) {
 				FairSharing(&kueue.FairSharing{
 					Weight: ptr.To(resource.MustParse("1")),
 				}).
-				FairSharingStatus(
-					&kueue.LocalQueueFairSharingStatus{
-						AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
-							LastUpdate: metav1.NewTime(clock.Now().Add(-5 * time.Minute)),
-							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-								corev1.ResourceCPU: resource.MustParse("8")},
-						},
-					}).
 				Obj(),
+			initialConsumedResources: queueafs.ConsumedResourcesEntry{
+				Resources: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("8"),
+				},
+				LastUpdate: clock.Now().Add(-5 * time.Minute),
+			},
 			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq", "default").
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
@@ -335,15 +333,13 @@ func TestLocalQueueReconcile(t *testing.T) {
 				FairSharing(&kueue.FairSharing{
 					Weight: ptr.To(resource.MustParse("1")),
 				}).
-				FairSharingStatus(
-					&kueue.LocalQueueFairSharingStatus{
-						AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
-							LastUpdate: metav1.NewTime(clock.Now().Add(-5 * time.Minute)),
-							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-								corev1.ResourceCPU: resource.MustParse("8")},
-						},
-					}).
 				Obj(),
+			initialConsumedResources: queueafs.ConsumedResourcesEntry{
+				Resources: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("8"),
+				},
+				LastUpdate: clock.Now().Add(-5 * time.Minute),
+			},
 			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq", "default").
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
@@ -374,15 +370,13 @@ func TestLocalQueueReconcile(t *testing.T) {
 				FairSharing(&kueue.FairSharing{
 					Weight: ptr.To(resource.MustParse("1")),
 				}).
-				FairSharingStatus(
-					&kueue.LocalQueueFairSharingStatus{
-						AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
-							LastUpdate: metav1.NewTime(clock.Now().Add(-5 * time.Minute)),
-							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-								"GPU": resource.MustParse("8")},
-						},
-					}).
 				Obj(),
+			initialConsumedResources: queueafs.ConsumedResourcesEntry{
+				Resources: corev1.ResourceList{
+					resourceGPU: resource.MustParse("8"),
+				},
+				LastUpdate: clock.Now().Add(-5 * time.Minute),
+			},
 			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq", "default").
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
@@ -395,7 +389,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 					&kueue.LocalQueueFairSharingStatus{
 						AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
 							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-								"GPU": resource.MustParse("6827m"),
+								resourceGPU: resource.MustParse("6827m"),
 							},
 						},
 					}).
@@ -423,15 +417,13 @@ func TestLocalQueueReconcile(t *testing.T) {
 				FairSharing(&kueue.FairSharing{
 					Weight: ptr.To(resource.MustParse("1")),
 				}).
-				FairSharingStatus(
-					&kueue.LocalQueueFairSharingStatus{
-						AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
-							LastUpdate: metav1.NewTime(clock.Now().Add(-5 * time.Minute)),
-							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-								"GPU": resource.MustParse("8")},
-						},
-					}).
 				Obj(),
+			initialConsumedResources: queueafs.ConsumedResourcesEntry{
+				Resources: corev1.ResourceList{
+					resourceGPU: resource.MustParse("8"),
+				},
+				LastUpdate: clock.Now().Add(-5 * time.Minute),
+			},
 			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq", "default").
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
@@ -477,6 +469,12 @@ func TestLocalQueueReconcile(t *testing.T) {
 						},
 					}).
 				Obj(),
+			initialConsumedResources: queueafs.ConsumedResourcesEntry{
+				Resources: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("8"),
+				},
+				LastUpdate: clock.Now().Add(-4 * time.Minute),
+			},
 			wantLocalQueue: utiltestingapi.MakeLocalQueue("test-queue", "default").
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
@@ -493,6 +491,78 @@ func TestLocalQueueReconcile(t *testing.T) {
 					}).
 				Obj(),
 			wantRequeueAfter: ptr.To(time.Minute),
+			afsConfig: &config.AdmissionFairSharing{
+				UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
+				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
+			},
+		},
+		"local queue with uninitialized cache initializes status": {
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				Obj(),
+			localQueue: utiltestingapi.MakeLocalQueue("lq", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				FairSharing(&kueue.FairSharing{
+					Weight: ptr.To(resource.MustParse("1")),
+				}).
+				Obj(),
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				FairSharing(&kueue.FairSharing{
+					Weight: ptr.To(resource.MustParse("1")),
+				}).
+				FairSharingStatus(
+					&kueue.LocalQueueFairSharingStatus{
+						AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
+							LastUpdate:        metav1.NewTime(clock.Now()),
+							ConsumedResources: corev1.ResourceList{},
+						},
+					}).
+				Obj(),
+			afsConfig: &config.AdmissionFairSharing{
+				UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
+				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
+			},
+		},
+		"local queue with uninitialized cache captures current usage": {
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				Obj(),
+			localQueue: utiltestingapi.MakeLocalQueue("lq", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				FairSharing(&kueue.FairSharing{
+					Weight: ptr.To(resource.MustParse("1")),
+				}).
+				Obj(),
+			runningWls: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "default").
+					Queue("lq").
+					Request(corev1.ResourceCPU, "4").
+					SimpleReserveQuota("cq", "rf", clock.Now()).
+					Admitted(true).
+					Obj(),
+			},
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				ReservingWorkloads(1).
+				AdmittedWorkloads(1).
+				FairSharing(&kueue.FairSharing{
+					Weight: ptr.To(resource.MustParse("1")),
+				}).
+				FairSharingStatus(
+					&kueue.LocalQueueFairSharingStatus{
+						AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
+							LastUpdate: metav1.NewTime(clock.Now()),
+							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+								corev1.ResourceCPU: resource.MustParse("4"),
+							},
+						},
+					}).
+				Obj(),
 			afsConfig: &config.AdmissionFairSharing{
 				UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
 				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
@@ -527,6 +597,10 @@ func TestLocalQueueReconcile(t *testing.T) {
 				t.Fatalf("Unexpected error: %v", err)
 			}
 			_ = qManager.AddLocalQueue(ctxWithLogger, tc.localQueue)
+			if tc.initialConsumedResources.Resources != nil {
+				lqKey := utilqueue.Key(tc.localQueue)
+				qManager.AfsConsumedResources.Set(lqKey, tc.initialConsumedResources.Resources, tc.initialConsumedResources.LastUpdate)
+			}
 			reconciler := NewLocalQueueReconciler(cl, qManager, cqCache,
 				WithClock(clock),
 				WithAdmissionFairSharingConfig(tc.afsConfig))
