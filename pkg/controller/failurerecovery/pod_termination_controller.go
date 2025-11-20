@@ -23,7 +23,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/clock"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -119,10 +118,9 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	now := r.clock.Now()
-	gracefulTerminationPeriod := time.Duration(ptr.Deref(pod.DeletionGracePeriodSeconds, 0)) * time.Second
-	totalGracePeriod := gracefulTerminationPeriod + r.forcefulTerminationGracePeriod
-	if now.Before(pod.DeletionTimestamp.Add(totalGracePeriod)) {
-		remainingTime := pod.DeletionTimestamp.Add(totalGracePeriod).Sub(now)
+	forcefulTerminationThreshold := pod.DeletionTimestamp.Add(r.forcefulTerminationGracePeriod)
+	if now.Before(forcefulTerminationThreshold) {
+		remainingTime := forcefulTerminationThreshold.Sub(now)
 		return ctrl.Result{RequeueAfter: remainingTime}, nil
 	}
 
