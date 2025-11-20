@@ -11,5 +11,4 @@ resources:
 images:
 - name: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-prepopulator
   newName: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-prepopulator
-  newTag: f442fcb7d-dirty
 namespace: kueue-system
