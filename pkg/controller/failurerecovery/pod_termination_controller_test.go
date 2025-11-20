@@ -26,6 +26,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	testingclock "k8s.io/utils/clock/testing"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -55,7 +56,7 @@ func TestReconciler(t *testing.T) {
 	unreachableNode := testingnode.MakeNode("unreachable-node").
 		Taints(corev1.Taint{Key: corev1.TaintNodeUnreachable}).Obj()
 	healthyNode := testingnode.MakeNode("healthy-node").Obj()
-	podToForcefullyTerminate := testingpod.MakePod("pod", "").
+	podToForcefullyTerminate := testingpod.MakePod("pod", "ns").
 		StatusPhase(corev1.PodRunning).
 		Annotation(constants.SafeToForcefullyTerminateAnnotationKey, constants.SafeToForcefullyTerminateAnnotationValue).
 		NodeName(unreachableNode.Name).
@@ -67,6 +68,7 @@ func TestReconciler(t *testing.T) {
 		wantResult ctrl.Result
 		wantErr    error
 		wantPod    *corev1.Pod
+		wantEvents []utiltesting.EventRecord
 	}{
 		"pod is in failed phase": {
 			testPod: podToForcefullyTerminate.
@@ -79,6 +81,7 @@ func TestReconciler(t *testing.T) {
 				Clone().
 				StatusPhase(corev1.PodFailed).
 				Obj(),
+			wantEvents: nil,
 		},
 		"pod is in succeeded phase": {
 			testPod: podToForcefullyTerminate.
@@ -91,6 +94,7 @@ func TestReconciler(t *testing.T) {
 				Clone().
 				StatusPhase(corev1.PodSucceeded).
 				Obj(),
+			wantEvents: nil,
 		},
 		"pod is not scheduled on an unreachable node": {
 			testPod: podToForcefullyTerminate.
@@ -103,6 +107,7 @@ func TestReconciler(t *testing.T) {
 				Clone().
 				NodeName(healthyNode.Name).
 				Obj(),
+			wantEvents: nil,
 		},
 		"forceful termination grace period did not elapse for pod": {
 			testPod: podToForcefullyTerminate.
@@ -115,18 +120,28 @@ func TestReconciler(t *testing.T) {
 				Clone().
 				DeletionTimestamp(now).
 				Obj(),
+			wantEvents: nil,
 		},
 		"forceful termination grace period elapsed for pod": {
 			testPod:    podToForcefullyTerminate.Clone().Obj(),
 			wantResult: ctrl.Result{},
 			wantErr:    nil,
 			wantPod:    podToForcefullyTerminate.Clone().StatusPhase(corev1.PodFailed).Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "pod"},
+					EventType: "Warning",
+					Reason:    "KueueForcefullyTerminated",
+					Message:   "Pod forcefully terminated after 1m0s grace period due to unreachable node `unreachable-node` (triggered by `kueue.x-k8s.io/safe-to-forcefully-terminate` annotation)",
+				},
+			},
 		},
 		"pod is scheduled on a node that does not exist": {
 			testPod:    podToForcefullyTerminate.Clone().NodeName("missing-node").Obj(),
 			wantResult: ctrl.Result{},
 			wantErr:    nil,
 			wantPod:    podToForcefullyTerminate.Clone().NodeName("missing-node").Obj(),
+			wantEvents: nil,
 		},
 	}
 
@@ -135,7 +150,8 @@ func TestReconciler(t *testing.T) {
 			objs := []client.Object{tc.testPod, healthyNode, unreachableNode}
 			clientBuilder := utiltesting.NewClientBuilder().WithObjects(objs...)
 			cl := clientBuilder.Build()
-			reconciler, err := NewTerminatingPodReconciler(cl, WithClock(fakeClock))
+			recorder := &utiltesting.EventRecorder{}
+			reconciler, err := NewTerminatingPodReconciler(cl, recorder, WithClock(fakeClock))
 			if err != nil {
 				t.Fatalf("could not create reconciler: %v", err)
 			}
@@ -162,6 +178,10 @@ func TestReconciler(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantPod, gotPod, podCmpOpts...); diff != "" {
 				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
+			}
+
+			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
+				t.Errorf("unexpected events (-want/+got):\n%s", diff)
 			}
 		})
 	}

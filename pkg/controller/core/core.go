@@ -64,7 +64,10 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 	}
 
 	if features.Enabled(features.FailureRecoveryPolicy) {
-		tpRec, err := failurerecovery.NewTerminatingPodReconciler(mgr.GetClient())
+		tpRec, err := failurerecovery.NewTerminatingPodReconciler(
+			mgr.GetClient(),
+			mgr.GetEventRecorderFor(constants.PodTerminationControllerName),
+		)
 		if err != nil {
 			return "FailureRecoveryPolicy", err
 		}

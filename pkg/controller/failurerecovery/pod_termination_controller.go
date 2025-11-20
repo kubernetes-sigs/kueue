@@ -18,11 +18,14 @@ package failurerecovery
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/clock"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -37,13 +40,15 @@ import (
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 
 var (
-	realClock = clock.RealClock{}
+	realClock              = clock.RealClock{}
+	terminationEventReason = "KueueForcefullyTerminated"
 )
 
 type TerminatingPodReconciler struct {
 	client                         client.Client
 	clock                          clock.Clock
 	forcefulTerminationGracePeriod time.Duration
+	recorder                       record.EventRecorder
 }
 
 type TerminatingPodReconcilerOptions struct {
@@ -72,6 +77,7 @@ var defaultOptions = TerminatingPodReconcilerOptions{
 
 func NewTerminatingPodReconciler(
 	client client.Client,
+	recorder record.EventRecorder,
 	opts ...TerminatingPodReconcilerOption,
 ) (*TerminatingPodReconciler, error) {
 	options := defaultOptions
@@ -83,6 +89,7 @@ func NewTerminatingPodReconciler(
 		client:                         client,
 		clock:                          options.clock,
 		forcefulTerminationGracePeriod: options.forcefulTerminationGracePeriod,
+		recorder:                       recorder,
 	}, nil
 }
 
@@ -163,6 +170,14 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if err := r.client.Status().Patch(ctx, podPatch, client.MergeFrom(pod)); err != nil {
 		return ctrl.Result{}, err
 	}
+	totalDeletionGracePeriod := time.Duration(ptr.Deref(pod.DeletionGracePeriodSeconds, 0)) + r.forcefulTerminationGracePeriod
+	eventMessage := fmt.Sprintf(
+		"Pod forcefully terminated after %s grace period due to unreachable node `%s` (triggered by `%s` annotation)",
+		totalDeletionGracePeriod,
+		node.Name,
+		constants.SafeToForcefullyTerminateAnnotationKey,
+	)
+	r.recorder.Event(pod, corev1.EventTypeWarning, terminationEventReason, eventMessage)
 
 	return ctrl.Result{}, nil
 }
