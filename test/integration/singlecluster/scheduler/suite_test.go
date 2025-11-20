@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
+type subResourcePatchFn func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error
 type fakeClientUsage int
 type fakeClientCallSpec func(obj client.Object) (fakeClientUsage, error)
 
@@ -53,11 +54,11 @@ const (
 )
 
 var (
-	cfg                  *rest.Config
-	k8sClient            client.Client
-	ctx                  context.Context
-	fwk                  *framework.Framework
-	fakeSubResourcePatch fakeClientCallSpec
+	cfg                      *rest.Config
+	k8sClient                client.Client
+	ctx                      context.Context
+	fwk                      *framework.Framework
+	fakeSubResourcePatchSpec fakeClientCallSpec
 )
 
 func TestScheduler(t *testing.T) {
@@ -82,7 +83,7 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 var _ = ginkgo.BeforeEach(func() {
-	fakeSubResourcePatch = nil
+	fakeSubResourcePatchSpec = nil
 })
 
 func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
@@ -119,7 +120,7 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 func setupInterceptedClient() (context.Context, client.Client) {
 	ctx, baseClient := fwk.SetupClient(cfg)
 	funcs := interceptor.Funcs{
-		SubResourcePatch: wrapFakeSubResourcePatch(&fakeSubResourcePatch, baseClient),
+		SubResourcePatch: fakeSubResourcePatchFrom(&fakeSubResourcePatchSpec, baseClient),
 	}
 	client := interceptor.NewClient(baseClient, funcs)
 	return ctx, client
@@ -131,13 +132,13 @@ func newInterceptedClient(config *rest.Config, options client.Options) (client.C
 		return nil, err
 	}
 	funcs := interceptor.Funcs{
-		SubResourcePatch: wrapFakeSubResourcePatch(&fakeSubResourcePatch, baseClient),
+		SubResourcePatch: fakeSubResourcePatchFrom(&fakeSubResourcePatchSpec, baseClient),
 	}
 	client := interceptor.NewClient(baseClient, funcs)
 	return client, nil
 }
 
-func wrapFakeSubResourcePatch(f *fakeClientCallSpec, baseK8sClient client.Client) func(context.Context, client.Client, string, client.Object, client.Patch, ...client.SubResourcePatchOption) error {
+func fakeSubResourcePatchFrom(f *fakeClientCallSpec, baseK8sClient client.Client) subResourcePatchFn {
 	if f == nil {
 		panic("Nil pointer passed to wrapFakeSubResourcePatch")
 	}
