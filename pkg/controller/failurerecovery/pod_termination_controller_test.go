@@ -18,7 +18,6 @@ package failurerecovery
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -30,6 +29,7 @@ import (
 	testingclock "k8s.io/utils/clock/testing"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -46,6 +46,110 @@ var (
 		),
 	}
 )
+
+func TestCreateEventFilter(t *testing.T) {
+	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
+	cl := utiltesting.NewFakeClient()
+	recorder := &utiltesting.EventRecorder{}
+	reconciler, err := NewTerminatingPodReconciler(cl, recorder, WithClock(fakeClock))
+	if err != nil {
+		t.Fatalf("could not create reconciler: %v", err)
+	}
+
+	podToReconcile := testingpod.MakePod("pod", "ns").
+		StatusPhase(corev1.PodRunning).
+		Annotation(constants.SafeToForcefullyTerminateAnnotationKey, constants.SafeToForcefullyTerminateAnnotationValue).
+		DeletionTimestamp(now).
+		KueueFinalizer()
+
+	cases := map[string]struct {
+		pod        *corev1.Pod
+		wantResult bool
+	}{
+		"pod is annotated and marked for deletion": {
+			pod:        podToReconcile.Obj(),
+			wantResult: true,
+		},
+		"pod is not annotated": {
+			pod: podToReconcile.
+				Clone().
+				Annotation(constants.SafeToForcefullyTerminateAnnotationKey, "false").
+				Obj(),
+			wantResult: false,
+		},
+		"pod is not marked for deletion": {
+			pod: podToReconcile.
+				Clone().
+				DeletionTimestamp(time.Time{}).
+				Obj(),
+			wantResult: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+
+			gotResult := reconciler.Create(event.CreateEvent{Object: tc.pod})
+
+			if diff := cmp.Diff(tc.wantResult, gotResult); diff != "" {
+				t.Errorf("unexpected reconcile result (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestUpdateEventFilter(t *testing.T) {
+	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
+	cl := utiltesting.NewFakeClient()
+	recorder := &utiltesting.EventRecorder{}
+	reconciler, err := NewTerminatingPodReconciler(cl, recorder, WithClock(fakeClock))
+	if err != nil {
+		t.Fatalf("could not create reconciler: %v", err)
+	}
+
+	oldPod := testingpod.MakePod("pod", "ns").
+		StatusPhase(corev1.PodRunning).
+		Annotation(constants.SafeToForcefullyTerminateAnnotationKey, constants.SafeToForcefullyTerminateAnnotationValue)
+	newPodToReconcile := oldPod.Clone().DeletionTimestamp(now)
+
+	cases := map[string]struct {
+		oldPod     *corev1.Pod
+		newPod     *corev1.Pod
+		wantResult bool
+	}{
+		"pod is annotated and was marked for deletion": {
+			oldPod:     oldPod.Obj(),
+			newPod:     newPodToReconcile.Obj(),
+			wantResult: true,
+		},
+		"pod was already deleted": {
+			oldPod:     oldPod.Clone().DeletionTimestamp(now).Obj(),
+			newPod:     newPodToReconcile.Obj(),
+			wantResult: false,
+		},
+		"updated object is not annotated": {
+			oldPod: oldPod.Obj(),
+			newPod: newPodToReconcile.
+				Clone().
+				Annotation(constants.SafeToForcefullyTerminateAnnotationKey, "false").
+				Obj(),
+			wantResult: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+
+			gotResult := reconciler.Update(event.UpdateEvent{ObjectOld: tc.oldPod, ObjectNew: tc.newPod})
+
+			if diff := cmp.Diff(tc.wantResult, gotResult); diff != "" {
+				t.Errorf("unexpected reconcile result (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
 
 func TestReconciler(t *testing.T) {
 	now := time.Now()
@@ -171,7 +275,6 @@ func TestReconciler(t *testing.T) {
 			gotResult, gotError := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(tc.testPod)})
 
 			if diff := cmp.Diff(tc.wantResult, gotResult); diff != "" {
-				fmt.Println(tc.testPod.DeletionTimestamp.Add(time.Minute).Sub(now))
 				t.Errorf("unexpected reconcile result (-want/+got):\n%s", diff)
 			}
 
