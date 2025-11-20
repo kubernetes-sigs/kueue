@@ -37,6 +37,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
+	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -64,32 +65,14 @@ func TestScheduleForAFS(t *testing.T) {
 		*utiltestingapi.MakeLocalQueue("lq-a", "default").
 			FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
 			ClusterQueue("cq1").
-			FairSharingStatus(&kueue.LocalQueueFairSharingStatus{
-				WeightedShare: 1,
-				AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
-					ConsumedResources: corev1.ResourceList{},
-				},
-			}).
 			Obj(),
 		*utiltestingapi.MakeLocalQueue("lq-b", "default").
 			FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
 			ClusterQueue("cq1").
-			FairSharingStatus(&kueue.LocalQueueFairSharingStatus{
-				WeightedShare: 1,
-				AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
-					ConsumedResources: corev1.ResourceList{},
-				},
-			}).
 			Obj(),
 		*utiltestingapi.MakeLocalQueue("lq-c", "default").
 			FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
 			ClusterQueue("cq1").
-			FairSharingStatus(&kueue.LocalQueueFairSharingStatus{
-				WeightedShare: 1,
-				AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
-					ConsumedResources: corev1.ResourceList{},
-				},
-			}).
 			Obj(),
 	}
 
@@ -520,12 +503,6 @@ func TestScheduleForAFS(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
 				features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, tc.enableFairSharing)
 
-				for i, q := range queues {
-					if resList, found := tc.initialUsage[q.Name]; found {
-						queues[i].Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources = resList
-					}
-				}
-
 				clientBuilder := utiltesting.NewClientBuilder().
 					WithLists(
 						&kueue.WorkloadList{Items: tc.workloads},
@@ -546,6 +523,10 @@ func TestScheduleForAFS(t *testing.T) {
 					if err := qManager.AddLocalQueue(ctx, &q); err != nil {
 						t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
 					}
+				}
+				for lqName, resources := range tc.initialUsage {
+					lqKey := utilqueue.LocalQueueReference(fmt.Sprintf("default/%s", lqName))
+					qManager.SetAfsConsumedResources(lqKey, resources, fakeClock.Now())
 				}
 				for _, rf := range resourceFlavors {
 					cqCache.AddOrUpdateResourceFlavor(log, rf)

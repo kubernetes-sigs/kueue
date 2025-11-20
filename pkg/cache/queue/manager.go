@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -35,6 +36,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -121,6 +123,7 @@ type Manager struct {
 	secondPassQueue            *secondPassQueue
 
 	afsEntryPenalties      *AfsEntryPenalties
+	afsConsumedResources   *queueafs.AfsConsumedResources
 	workloadUpdateWatchers []WorkloadUpdateWatcher
 
 	draReconcileChannel chan<- event.TypedGenericEvent[*kueue.Workload]
@@ -141,6 +144,7 @@ func NewManager(client client.Client, checker StatusChecker, options ...Option) 
 		topologyUpdateWatchers: make([]TopologyUpdateWatcher, 0),
 		secondPassQueue:        newSecondPassQueue(),
 		afsEntryPenalties:      newPenaltyMap(),
+		afsConsumedResources:   queueafs.NewAfsConsumedResources(),
 	}
 	for _, option := range options {
 		option(m)
@@ -186,10 +190,12 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 	}
 
 	var afsEntryPenalties *utilmaps.SyncMap[queue.LocalQueueReference, corev1.ResourceList]
+	var afsConsumedResources *queueafs.AfsConsumedResources
 	if afs.Enabled(m.admissionFairSharingConfig) {
 		afsEntryPenalties = m.afsEntryPenalties.getPenalties()
+		afsConsumedResources = m.afsConsumedResources
 	}
-	cqImpl, err := newClusterQueue(ctx, m.client, cq, m.workloadOrdering, m.admissionFairSharingConfig, afsEntryPenalties)
+	cqImpl, err := newClusterQueue(ctx, m.client, cq, m.workloadOrdering, m.admissionFairSharingConfig, afsEntryPenalties, afsConsumedResources)
 	if err != nil {
 		return err
 	}
@@ -808,6 +814,22 @@ func (m *Manager) HasPendingPenaltyFor(lqKey queue.LocalQueueReference) bool {
 
 func (m *Manager) GetAfsEntryPenalties() *utilmaps.SyncMap[queue.LocalQueueReference, corev1.ResourceList] {
 	return m.afsEntryPenalties.getPenalties()
+}
+
+func (m *Manager) SetAfsConsumedResources(lqKey queue.LocalQueueReference, resources corev1.ResourceList, lastUpdate time.Time) {
+	m.afsConsumedResources.Set(lqKey, resources, lastUpdate)
+}
+
+func (m *Manager) GetAfsConsumedResourcesFor(lqKey queue.LocalQueueReference) (queueafs.ConsumedResourcesEntry, bool) {
+	return m.afsConsumedResources.Get(lqKey)
+}
+
+func (m *Manager) DeleteAfsConsumedResources(lqKey queue.LocalQueueReference) {
+	m.afsConsumedResources.Delete(lqKey)
+}
+
+func (m *Manager) GetAfsConsumedResources() *queueafs.AfsConsumedResources {
+	return m.afsConsumedResources
 }
 
 type WorkloadUpdateWatcher interface {

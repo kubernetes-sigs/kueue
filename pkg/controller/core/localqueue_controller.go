@@ -18,6 +18,7 @@ package core
 
 import (
 	"context"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -174,8 +175,14 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	if afs.Enabled(r.admissionFSConfig) {
 		updated := r.initializeAdmissionFsStatus(&queueObj)
-		sinceLastUpdate := r.clock.Now().Sub(queueObj.Status.FairSharing.AdmissionFairSharingStatus.LastUpdate.Time)
 		lqKey := utilqueue.Key(&queueObj)
+		var sinceLastUpdate time.Duration
+		if entry, found := r.queues.GetAfsConsumedResourcesFor(lqKey); found {
+			sinceLastUpdate = r.clock.Now().Sub(entry.LastUpdate)
+		} else {
+			// No cache entry, force reconciliation by setting time >= interval
+			sinceLastUpdate = r.admissionFSConfig.UsageSamplingInterval.Duration
+		}
 		if interval := r.admissionFSConfig.UsageSamplingInterval.Duration; !updated && sinceLastUpdate < interval && !r.queues.HasPendingPenaltyFor(lqKey) {
 			return ctrl.Result{RequeueAfter: interval - sinceLastUpdate}, nil
 		}
@@ -274,20 +281,35 @@ func (r *LocalQueueReconciler) initializeAdmissionFsStatus(lq *kueue.LocalQueue)
 }
 
 func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *kueue.LocalQueue) error {
+	lqKey := utilqueue.Key(lq)
 	halfLifeTime := r.admissionFSConfig.UsageHalfLifeTime.Seconds()
 	// reset usage to 0 if halfLife is 0
 	if halfLifeTime == 0 {
-		return r.updateAdmissionFsStatus(ctx, lq, corev1.ResourceList{})
+		now := r.clock.Now()
+		r.queues.SetAfsConsumedResources(lqKey, corev1.ResourceList{}, now)
+		r.log.V(3).Info("Reset AFS consumed resources cache", "namespace", lq.Namespace, "name", lq.Name)
+		if err := r.updateAdmissionFsStatus(ctx, lq, corev1.ResourceList{}, now); err != nil {
+			r.log.V(3).Info("Failed to reset LocalQueue status", "namespace", lq.Namespace, "name", lq.Name, "error", err)
+		}
+		return nil
 	}
 	cacheLq, err := r.cache.GetCacheLocalQueue(lq.Spec.ClusterQueue, lq)
 	if err != nil {
 		return err
 	}
-	// calculate alpha rate
-	oldUsage := lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources
+
+	var oldUsage corev1.ResourceList
+	var lastUpdate time.Time
+	if entry, found := r.queues.GetAfsConsumedResourcesFor(lqKey); found {
+		oldUsage = entry.Resources
+		lastUpdate = entry.LastUpdate
+	} else {
+		oldUsage = corev1.ResourceList{}
+		lastUpdate = r.clock.Now()
+	}
 	newUsage := cacheLq.GetAdmittedUsage()
 	alpha := afs.CalculateAlphaRate(
-		r.clock.Now().Sub(lq.Status.FairSharing.AdmissionFairSharingStatus.LastUpdate.Time).Seconds(),
+		r.clock.Now().Sub(lastUpdate).Seconds(),
 		halfLifeTime,
 	)
 	// calculate weighted average of old and new usage
@@ -295,20 +317,27 @@ func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *k
 	scaledOldUsage := resource.MulByFloat(oldUsage, 1-alpha)
 	sum := resource.MergeResourceListKeepSum(scaledOldUsage, scaledNewUsage)
 	// Add penalty to the final usage
-	lqKey := utilqueue.Key(lq)
-	err = r.queues.UpdateWithPenalty(lqKey, func(penalty corev1.ResourceList) error {
+	if err = r.queues.UpdateWithPenalty(lqKey, func(penalty corev1.ResourceList) error {
 		sum = resource.MergeResourceListKeepSum(sum, penalty)
+		return nil
+	}); err != nil {
+		return err
+	}
 
-		// update status
-		return r.updateAdmissionFsStatus(ctx, lq, sum)
-	})
-	return err
+	now := r.clock.Now()
+	r.queues.SetAfsConsumedResources(lqKey, sum, now)
+	r.log.V(3).Info("Updated AFS consumed resources cache", "namespace", lq.Namespace, "name", lq.Name, "consumedResources", sum)
+
+	// Update status for observability purposes
+	if err := r.updateAdmissionFsStatus(ctx, lq, sum, now); err != nil {
+		r.log.V(3).Info("Failed to update LocalQueue status", "namespace", lq.Namespace, "name", lq.Name, "error", err)
+	}
+	return nil
 }
 
-func (r *LocalQueueReconciler) updateAdmissionFsStatus(ctx context.Context, lq *kueue.LocalQueue, consumedResources corev1.ResourceList) error {
+func (r *LocalQueueReconciler) updateAdmissionFsStatus(ctx context.Context, lq *kueue.LocalQueue, consumedResources corev1.ResourceList, lastUpdate time.Time) error {
 	lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources = consumedResources
-	lq.Status.FairSharing.AdmissionFairSharingStatus.LastUpdate = metav1.NewTime(r.clock.Now())
-	r.log.V(3).Info("Updated LocalQueue fair sharing status", "namespace", lq.Namespace, "name", lq.Name, "consumedResources", consumedResources)
+	lq.Status.FairSharing.AdmissionFairSharingStatus.LastUpdate = metav1.NewTime(lastUpdate)
 	return r.client.Status().Update(ctx, lq)
 }
 
