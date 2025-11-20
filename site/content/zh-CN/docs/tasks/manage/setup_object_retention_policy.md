@@ -20,7 +20,7 @@ etcd 存储并降低 Kueue 的内存占用。
 ## 设置保留策略
 
 按照此处描述的说明[安装自定义配置的发布版本](/zh-CN/docs/installation#install-a-custom-configured-released-version)，
-安装发布版本并通过添加以下字段扩展配置：
+并通过添加以下字段扩展配置：
 
 ```yaml
       objectRetentionPolicies:
@@ -31,16 +31,17 @@ etcd 存储并降低 Kueue 的内存占用。
 
 ### Workload 保留策略
 
-Workload 的保留策略定义在 `.objectRetentionPolicies.workloads` 字段下。
+Workload 的保留策略在 `.objectRetentionPolicies.workloads` 字段下定义。
 包含以下可选字段：
-- `afterFinished`：Workload 标记为已完成后，等待多长时间再删除。
-- `afterDeactivatedByKueue`：Kueue 将 Workload（例如 Job、JobSet 或其他自定义 workload 类型）标记为已停用后，等待多长时间再自动删除该 Workload。
+- `afterFinished`：已完成Workload在多长时间后被删除。
+- `afterDeactivatedByKueue`：Kueue 已停用的 Workload（例如 Job、JobSet 或其他自定义
+	Workload 类型）在多长时间后被删除。
 
 ## 示例
 
 ### Kueue 配置
 
-**配置** Kueue 配置为 1 分钟的保留策略，并启用 [waitForPodsReady](/docs/tasks/manage/setup_wait_for_pods_ready.md)：
+**配置** Kueue 使用 1 分钟的保留策略，并启用 [waitForPodsReady](/zh-CN/docs/tasks/manage/setup_wait_for_pods_ready.md)：
 
 ```yaml
   objectRetentionPolicies:
@@ -106,7 +107,7 @@ spec:
               cpu: "1"
 ```
 
-2. 观察状态转为 `Finished`。大约在 ~1 分钟后，Kueue 会自动删除该 Workload：
+2. 观察状态转为 `Finished`。大约在 1 分钟后，Kueue 会自动删除该 Workload：
 
 ```bash
 # ~1m after Finished
@@ -122,7 +123,8 @@ kubectl get jobs -n default
 
 ### 场景 B：通过 `waitForPodsReady` 驱逐 Workload
 
-1. **将** Kueue [部署配置](/docs/installation#install-a-custom-configured-released-version)为比节点容量更大的资源：
+1. **配置** Kueue 使得 [Deployment](/zh-CN/docs/installation#install-a-custom-configured-released-version)
+    可使用超过节点容量的资源：
 
 ```yaml
         resources:
@@ -202,7 +204,7 @@ kubectl get jobs -n default
   等待多长时间再自动删除该 Workload。删除已停用的 Workload 可能会级联删除并非由 Kueue 创建的对象，
   因为删除父级 Workload 的 owner 引用（例如 JobSet）可能触发对从属资源的垃圾回收。如果你是通过手动或设置 
   `.spec.active=false` 的方式停用 Workload，则 `afterDeactivatedByKueue` 不会生效。
-- 如果保留持续时间配置错误（无效的 duration 字符串），控制器将无法启动。
+- 如果保留的时长配置错误（无效的 duration 字符串），控制器将无法启动。
 - 删除是在 reconciler 循环中同步处理的；如果集群有数千个过期的 Workload，
   集群首次启动时可能需要一些时间才能删除这些 Workload。
 ``` 
