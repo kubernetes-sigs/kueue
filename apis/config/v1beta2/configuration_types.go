@@ -276,9 +276,9 @@ type MultiKueue struct {
 	// +optional
 	ExternalFrameworks []MultiKueueExternalFramework `json:"externalFrameworks,omitempty"`
 
-	// ClusterProfileConfig defines configuration for using the ClusterProfile API.
+	// ClusterProfile defines configuration for using the ClusterProfile API.
 	// +optional
-	ClusterProfileConfig *ClusterProfileConfig `json:"clusterProfileConfig,omitempty"`
+	ClusterProfile *ClusterProfile `json:"clusterProfile,omitempty"`
 }
 
 // MultiKueueExternalFramework defines a framework that is not built-in.
@@ -372,8 +372,8 @@ type InternalCertManagement struct {
 	WebhookSecretName *string `json:"webhookSecretName,omitempty"`
 }
 
-// ClusterProfileConfig defines configuration for using the ClusterProfile API in MultiKueue.
-type ClusterProfileConfig struct {
+// ClusterProfile defines configuration for using the ClusterProfile API in MultiKueue.
+type ClusterProfile struct {
 	// CredentialsProviders defines a list of providers to obtain credentials of worker clusters
 	// using the ClusterProfile API.
 	CredentialsProviders []ClusterProfileCredentialsProvider `json:"credentialsProviders,omitempty"`
