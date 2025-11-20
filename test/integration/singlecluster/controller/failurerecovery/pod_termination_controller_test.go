@@ -24,6 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util"
@@ -63,7 +64,7 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 			StatusPhase(corev1.PodPending).
 			TerminationGracePeriod(1).
 			NodeName(unreachableNodeName).
-			Annotation("kueue.x-k8s.io/safe-to-forcefully-terminate", "true")
+			Annotation(constants.SafeToForcefullyTerminateAnnotationKey, constants.SafeToForcefullyTerminateAnnotationValue)
 	})
 
 	ginkgo.It("forcefully terminates pods that opt-in, scheduled on unreachable nodes", func() {
@@ -81,7 +82,7 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 		nonMatchingPod := matchingPodWrapper.
 			Clone().
 			Name("non-matching-pod").
-			Annotation("kueue.x-k8s.io/safe-to-forcefully-terminate", "false").
+			Annotation(constants.SafeToForcefullyTerminateAnnotationKey, constants.SafeToForcefullyTerminateAnnotationValue).
 			Obj()
 		createTerminatingPod(nonMatchingPod)
 

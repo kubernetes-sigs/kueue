@@ -27,6 +27,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
 )
@@ -37,10 +38,6 @@ import (
 
 var (
 	realClock = clock.RealClock{}
-
-	// TODO: Move to API.
-	safeToForcefullyTerminateAnnotationName  = "kueue.x-k8s.io/safe-to-forcefully-terminate"
-	safeToForcefullyTerminateAnnotationValue = "true"
 )
 
 type TerminatingPodReconciler struct {
@@ -96,8 +93,8 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Pod did not opt-in to be forcefully terminated
-	annotationValue, hasAnnotation := pod.Annotations[safeToForcefullyTerminateAnnotationName]
-	if !hasAnnotation || annotationValue != safeToForcefullyTerminateAnnotationValue {
+	annotationValue, hasAnnotation := pod.Annotations[constants.SafeToForcefullyTerminateAnnotationKey]
+	if !hasAnnotation || annotationValue != constants.SafeToForcefullyTerminateAnnotationValue {
 		return ctrl.Result{}, nil
 	}
 

@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -58,7 +59,7 @@ func TestReconciler(t *testing.T) {
 	healthyNode := testingnode.MakeNode("healthy-node").Obj()
 	podToForcefullyTerminate := testingpod.MakePod("pod", "").
 		StatusPhase(corev1.PodRunning).
-		Annotation(safeToForcefullyTerminateAnnotationName, safeToForcefullyTerminateAnnotationValue).
+		Annotation(constants.SafeToForcefullyTerminateAnnotationKey, constants.SafeToForcefullyTerminateAnnotationValue).
 		NodeName(unreachableNode.Name).
 		DeletionTimestamp(beforeGracePeriod).
 		KueueFinalizer()
@@ -77,7 +78,7 @@ func TestReconciler(t *testing.T) {
 		"pod did not opt-in with annotation": {
 			testPod: podToForcefullyTerminate.
 				Clone().
-				Annotation(safeToForcefullyTerminateAnnotationName, "false").
+				Annotation(constants.SafeToForcefullyTerminateAnnotationKey, "false").
 				Obj(),
 			wantResult: ctrl.Result{},
 			wantErr:    nil,
