@@ -11,13 +11,13 @@ Workload。默认情况下，Kueue 会在集群中永久保留所有 Workload �
 etcd 存储并降低 Kueue 的内存占用。
 
 
-## 前置条件
+## 前置条件 {#prerequisites}
 
 - 可正常运行的 Kueue **v0.12** 或更高版本。
 - 在 Kueue 控制器管理器中启用 `ObjectRetentionPolicies` 特性。
   有关此特性的配置细节，请参阅[安装指南](/zh-CN/docs/installation/#change-the-feature-gates-configuration)。
 
-## 设置保留策略
+## 设置保留策略 {#Set up a retention policy}
 
 按照此处描述的说明[安装自定义配置的发布版本](/zh-CN/docs/installation#install-a-custom-configured-released-version)，
 并通过添加以下字段扩展配置：
@@ -29,7 +29,7 @@ etcd 存储并降低 Kueue 的内存占用。
           afterDeactivatedByKueue: "1h"
 ```
 
-### Workload 保留策略
+### Workload 保留策略 {#Workload Retention Policy}
 
 Workload 的保留策略在 `.objectRetentionPolicies.workloads` 字段下定义。
 包含以下可选字段：
@@ -37,9 +37,9 @@ Workload 的保留策略在 `.objectRetentionPolicies.workloads` 字段下定义
 - `afterDeactivatedByKueue`：Kueue 已停用的 Workload（例如 Job、JobSet 或其他自定义
 	Workload 类型）在多长时间后被删除。
 
-## 示例
+## 示例 {#Example}
 
-### Kueue 配置
+### Kueue 配置 {#Kueue Configuration}
 
 **配置** Kueue 使用 1 分钟的保留策略，并启用 [waitForPodsReady](/zh-CN/docs/tasks/manage/setup_wait_for_pods_ready.md)：
 
@@ -59,7 +59,7 @@ Workload 的保留策略在 `.objectRetentionPolicies.workloads` 字段下定义
 
 ---
 
-### 场景 A：成功完成的 Workload
+### 场景 A：成功完成的 Workload {#Scenario A}
 
 1. **提交** 一个应能正常完成的简单 Workload：
 
@@ -121,7 +121,7 @@ kubectl get jobs -n default
 
 ---
 
-### 场景 B：通过 `waitForPodsReady` 驱逐 Workload
+### 场景 B：通过 `waitForPodsReady` 驱逐 Workload {#Scenario B}
 
 1. **配置** Kueue 使得 [Deployment](/zh-CN/docs/installation#install-a-custom-configured-released-version)
     可使用超过节点容量的资源：
@@ -198,7 +198,7 @@ kubectl get jobs -n default
 # <limited-job not found>
 ```
 
-## 注意事项
+## 注意事项 {#Notes}
 
 - `afterDeactivatedByKueue` 表示在 Kueue 将 Workload（例如 Job、JobSet 或其他自定义 workload 类型）标记为已停用后，
   等待多长时间再自动删除该 Workload。删除已停用的 Workload 可能会级联删除并非由 Kueue 创建的对象，
