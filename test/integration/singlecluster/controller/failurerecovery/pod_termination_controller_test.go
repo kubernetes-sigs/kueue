@@ -31,9 +31,9 @@ import (
 )
 
 const (
-	unreachableNodeName        = "unreachable-node"
-	reachableNodeName          = "reachable-node"
-	forcefulTerminationTimeout = 2 * time.Second
+	unreachableNodeName             = "unreachable-node"
+	reachableNodeName               = "reachable-node"
+	forcefulTerminationCheckTimeout = 2 * time.Second
 )
 
 var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -69,7 +69,7 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: matchingPod.Name, Namespace: matchingPod.Namespace}, matchingPod)).
 				To(gomega.Succeed())
 			g.Expect(matchingPod.Status.Phase).Should(gomega.Equal(corev1.PodFailed))
-		}, forcefulTerminationTimeout, util.Interval).Should(gomega.Succeed())
+		}, forcefulTerminationCheckTimeout, util.Interval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("does not forcefully terminate matching pods that did not opt-in or are running on healthy nodes", func() {
@@ -95,6 +95,6 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: podOnHealthyNode.Name, Namespace: podOnHealthyNode.Namespace}, podOnHealthyNode)).
 				To(gomega.Succeed())
 			g.Expect(podOnHealthyNode.Status.Phase).Should(gomega.Equal(corev1.PodPending))
-		}, forcefulTerminationTimeout, util.Interval).Should(gomega.Succeed())
+		}, forcefulTerminationCheckTimeout, util.Interval).Should(gomega.Succeed())
 	})
 })
