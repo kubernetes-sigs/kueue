@@ -2627,7 +2627,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 						PreferredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
@@ -2660,14 +2660,14 @@ func TestScheduleForTASPreemption(t *testing.T) {
 						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "5").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-foo, JobUID: job-foo) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
@@ -2741,7 +2741,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 						PreferredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "2").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
@@ -2774,14 +2774,14 @@ func TestScheduleForTASPreemption(t *testing.T) {
 						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "5").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-foo, JobUID: job-foo) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
@@ -2859,7 +2859,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 						PreferredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "2").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
@@ -2892,14 +2892,14 @@ func TestScheduleForTASPreemption(t *testing.T) {
 						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "5").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-high-priority-waiting, JobUID: job-high-priority-waiting) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
@@ -2993,7 +2993,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 						PreferredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "2").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
@@ -3026,14 +3026,14 @@ func TestScheduleForTASPreemption(t *testing.T) {
 						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "2").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-foo, JobUID: job-foo) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
@@ -3149,7 +3149,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
@@ -3182,14 +3182,14 @@ func TestScheduleForTASPreemption(t *testing.T) {
 						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "4").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-foo, JobUID: job-foo) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
@@ -3318,7 +3318,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
@@ -3578,14 +3578,14 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						PreferredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionTrue,
 						Reason:             "QuotaReserved",
 						Message:            "Quota reserved in ClusterQueue tas-cq-a",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadAdmitted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Admitted",
@@ -3682,14 +3682,14 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-b1, JobUID: job-b1) due to reclamation within the cohort; preemptor path: /tas-cohort-main/tas-cq-b; preemptee path: /tas-cohort-main/tas-cq-a",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
@@ -3706,7 +3706,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						PreferredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
@@ -3834,14 +3834,14 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-b1, JobUID: job-b1) due to reclamation within the cohort; preemptor path: /tas-cohort-main/tas-cq-b; preemptee path: /tas-cohort-main/tas-cq-a",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
@@ -3900,7 +3900,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						PreferredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
@@ -4032,14 +4032,14 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-b1, JobUID: job-b1) due to reclamation within the cohort; preemptor path: /tas-cohort-main/tas-cq-b; preemptee path: /tas-cohort-main/tas-cq-a",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
@@ -4059,7 +4059,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						Request(corev1.ResourceCPU, "1").
 						Request(corev1.ResourceMemory, "1").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
@@ -4217,14 +4217,14 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-b1, JobUID: job-b1) due to reclamation within the cohort; preemptor path: /tas-cohort-main/tas-cq-b; preemptee path: /tas-cohort-main/tas-cq-a",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
@@ -4252,14 +4252,14 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-b1, JobUID: job-b1) due to reclamation within the cohort; preemptor path: /tas-cohort-main/tas-cq-b; preemptee path: /tas-cohort-main/tas-cq-a",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
@@ -4277,7 +4277,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
@@ -4298,7 +4298,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						PreferredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
@@ -4358,14 +4358,14 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						PreferredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "5").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionTrue,
 						Reason:             "QuotaReserved",
 						Message:            "Quota reserved in ClusterQueue tas-cq-a",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadAdmitted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Admitted",
@@ -4391,14 +4391,14 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						PreferredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceMemory, "5").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionTrue,
 						Reason:             "QuotaReserved",
 						Message:            "Quota reserved in ClusterQueue tas-cq-b",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadAdmitted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Admitted",
@@ -4475,14 +4475,14 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						PreferredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionTrue,
 						Reason:             "QuotaReserved",
 						Message:            "Quota reserved in ClusterQueue tas-cq-a",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadAdmitted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Admitted",
@@ -4508,14 +4508,14 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						PreferredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionTrue,
 						Reason:             "QuotaReserved",
 						Message:            "Quota reserved in ClusterQueue tas-cq-b",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadAdmitted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Admitted",
@@ -4593,14 +4593,14 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						PreferredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionTrue,
 						Reason:             "QuotaReserved",
 						Message:            "Quota reserved in ClusterQueue tas-cq-a",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadAdmitted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Admitted",
@@ -4626,7 +4626,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						PreferredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
@@ -4692,14 +4692,14 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						PreferredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionTrue,
 						Reason:             "QuotaReserved",
 						Message:            "Quota reserved in ClusterQueue tas-cq-a",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadAdmitted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Admitted",
@@ -4725,7 +4725,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						PreferredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
@@ -4794,14 +4794,14 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						PreferredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "2").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionTrue,
 						Reason:             "QuotaReserved",
 						Message:            "Quota reserved in ClusterQueue tas-cq-a",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadAdmitted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Admitted",
@@ -4827,7 +4827,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						PreferredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "2").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
@@ -4938,14 +4938,14 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-a2, JobUID: job-a2) due to prioritization in the ClusterQueue; preemptor path: /tas-cohort-main/tas-cq-a; preemptee path: /tas-cohort-main/tas-cq-a",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
@@ -4963,7 +4963,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						PreferredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
@@ -4984,7 +4984,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						PreferredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
@@ -5093,7 +5093,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						PreferredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
@@ -5114,7 +5114,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						PreferredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
@@ -5223,7 +5223,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						PreferredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
@@ -5244,14 +5244,14 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						PreferredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionTrue,
 						Reason:             "QuotaReserved",
 						Message:            "Quota reserved in ClusterQueue tas-cq-b",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadAdmitted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Admitted",
