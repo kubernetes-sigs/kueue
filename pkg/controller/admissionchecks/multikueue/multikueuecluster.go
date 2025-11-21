@@ -458,6 +458,13 @@ func (c *clustersReconciler) loadClientConfig(ctx context.Context, cluster *kueu
 		if err != nil {
 			return nil, retry, "BadClusterProfile", err
 		}
+		opts := validateRestConfigOptions{
+			// ExecProvider is allowed for ClusterProfile credentials plugins.
+			allowExecProvider: true,
+		}
+		if err := validateRestConfig(restConfig, opts); err != nil {
+			return nil, false, "BadRestConfig", err
+		}
 		return &clientConfig{RestConfig: restConfig}, false, "", nil
 	}
 
@@ -514,8 +521,17 @@ func validateKubeconfig(kubeconfig []byte) error {
 		return err
 	}
 
+	return validateRestConfig(restConfig, validateRestConfigOptions{})
+}
+
+type validateRestConfigOptions struct {
+	allowExecProvider bool
+}
+
+func validateRestConfig(restConfig *rest.Config, opts validateRestConfigOptions) error {
 	// Block dangerous auth mechanisms
-	// BearerToken is allowed due to service account tokens usage
+	// BearerTokenFile is not allowed.
+	// Instead BearerToken is allowed due to service account tokens usage.
 	if restConfig.BearerTokenFile != "" {
 		return errors.New("bearerTokenFile is not allowed")
 	}
@@ -526,7 +542,7 @@ func validateKubeconfig(kubeconfig []byte) error {
 	if restConfig.Username != "" || restConfig.Password != "" {
 		return errors.New("basic auth is not allowed")
 	}
-	if restConfig.ExecProvider != nil {
+	if restConfig.ExecProvider != nil && !opts.allowExecProvider {
 		return errors.New("exec plugins are not allowed")
 	}
 	if restConfig.AuthProvider != nil {
