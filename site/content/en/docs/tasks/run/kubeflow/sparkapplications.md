@@ -1,6 +1,6 @@
 ---
 title: "Run a SparkApplication"
-date: 2024-11-17
+date: 2025-11-17
 weight: 7
 description: >
   Run a Kueue scheduled SparkApplication
