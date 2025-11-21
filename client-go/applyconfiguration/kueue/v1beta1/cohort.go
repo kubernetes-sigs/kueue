@@ -34,10 +34,9 @@ type CohortApplyConfiguration struct {
 
 // Cohort constructs a declarative configuration of the Cohort type for use with
 // apply.
-func Cohort(name, namespace string) *CohortApplyConfiguration {
+func Cohort(name string) *CohortApplyConfiguration {
 	b := &CohortApplyConfiguration{}
 	b.WithName(name)
-	b.WithNamespace(namespace)
 	b.WithKind("Cohort")
 	b.WithAPIVersion("kueue.x-k8s.io/v1beta1")
 	return b
