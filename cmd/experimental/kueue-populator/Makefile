@@ -100,3 +100,25 @@ update-helm: manifests $(YAML_PROCESSOR)
 
 $(YAML_PROCESSOR):
 	cd $(ROOT_DIR) && $(MAKE) yaml-processor
+
+HELM ?= helm
+
+.PHONY: helm-lint
+helm-lint: ## Run Helm chart lint test.
+	$(HELM) lint charts/kueue-populator
+
+.PHONY: helm-verify
+helm-verify: helm-lint ## run helm template and detect any rendering failures
+# test default values
+	$(HELM) template charts/kueue-populator > /dev/null
+# test nondefault options
+	$(HELM) template charts/kueue-populator --set image.repository=my-repo --set image.tag=v1.0.0 > /dev/null
+
+.PHONY: helm-unit-test
+helm-unit-test:
+	$(HELM) unittest charts/kueue-populator --strict --debug
+
+.PHONY: helm-test
+helm-test: ## Run Helm chart integration tests (requires active cluster).
+	$(HELM) test kueue-populator
+

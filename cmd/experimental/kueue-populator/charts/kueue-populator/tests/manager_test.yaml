@@ -1,0 +1,74 @@
+suite: test kueue-populator deployment
+templates:
+  - manager.yaml
+
+tests:
+  - it: should have default replicas
+    documentIndex: 4
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 1
+
+  - it: should set image and tag from values
+    documentIndex: 4
+    set:
+      kueuePopulator.image.repository: myrepo/myimage
+      kueuePopulator.image.tag: v1.2.3
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: myrepo/myimage:v1.2.3
+
+  - it: should apply security context
+    documentIndex: 4
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+
+  - it: should configure ConfigMap correctly
+    documentIndex: 3
+    set:
+      kueuePopulator.config.localQueueName: "my-local-queue"
+      kueuePopulator.config.managedJobsNamespaceSelector:
+        matchLabels:
+          app: my-app
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "localQueueName: my-local-queue"
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "managedJobsNamespaceSelector:\n\\s+matchExpressions:\n\\s+- key: kubernetes.io/metadata.name\n\\s+operator: NotIn\n\\s+values:\n\\s+- kube-system\n\\s+- kueue-system\n\\s+matchLabels:\n\\s+app: my-app"
+
+  - it: should set resources
+    documentIndex: 4
+    set:
+      kueuePopulator.resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 200m
+          memory: 256Mi
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.cpu
+          value: 100m
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: 256Mi
+
+  - it: should set imagePullSecrets
+    documentIndex: 4
+    set:
+      kueuePopulator.imagePullSecrets:
+        - name: my-secret
+    asserts:
+      - equal:
+          path: spec.template.spec.imagePullSecrets[0].name
+          value: my-secret

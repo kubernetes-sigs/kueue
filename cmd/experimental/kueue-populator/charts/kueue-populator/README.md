@@ -89,13 +89,36 @@ This chart includes the official `kueue` chart as a dependency. You can configur
 See the [Kueue chart README](https://github.com/kubernetes-sigs/kueue/blob/main/charts/kueue/README.md) for all possible Kueue configuration options.
 
 ## Testing
-
+ 
+### Unit Tests & Linting
+ 
+You can run unit tests and linting locally without a cluster using the Makefile targets:
+ 
+```bash
+# Run Helm lint
+make helm-lint
+ 
+# Verify Helm template rendering
+make helm-verify
+ 
+# Run Helm unit tests (requires helm-unittest plugin)
+make helm-unit-test
+```
+ 
+### Integration Tests
+ 
 This chart includes tests to verify the installation. Assuming you have installed the chart as `kueue-populator` in the `kueue-system` namespace, you can run the tests using:
-
+ 
 ```bash
 helm test kueue-populator --namespace kueue-system
 ```
-
+ 
+Or using the Makefile target (requires active cluster):
+ 
+```bash
+make helm-test
+```
+ 
 This will launch a few test pods that check for the health of the deployments and the existence of the expected resources.
 
 ## Uninstallation

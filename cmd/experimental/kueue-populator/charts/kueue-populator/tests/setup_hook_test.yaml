@@ -1,0 +1,40 @@
+suite: test setup-hook configuration
+templates:
+  - setup-hook.yaml
+
+tests:
+  - it: should configure TAS levels and node labels
+    documentIndex: 0
+    set:
+      kueuePopulator.config.tasLevels:
+        - name: "cloud.google.com/gke-accelerator"
+      kueuePopulator.config.nodeLabel:
+        cloud.google.com/gke-accelerator: "nvidia-tesla-t4"
+    asserts:
+      - matchRegex:
+          path: data["resources.yaml"]
+          pattern: "kind: Topology"
+      - matchRegex:
+          path: data["resources.yaml"]
+          pattern: "nodeLabel: \"cloud.google.com/gke-accelerator\""
+      - matchRegex:
+          path: data["resources.yaml"]
+          pattern: "nodeLabels:\n\\s+cloud.google.com/gke-accelerator: nvidia-tesla-t4"
+
+  - it: should configure ClusterQueue name and resources
+    documentIndex: 0
+    set:
+      kueuePopulator.config.clusterQueueName: "my-cluster-queue"
+      kueuePopulator.config.resources:
+        - name: "nvidia.com/gpu"
+          nominalQuota: 10
+    asserts:
+      - matchRegex:
+          path: data["resources.yaml"]
+          pattern: "kind: ClusterQueue\\s+metadata:\\s+name: \"my-cluster-queue\""
+      - matchRegex:
+          path: data["resources.yaml"]
+          pattern: "- \"nvidia.com/gpu\""
+      - matchRegex:
+          path: data["resources.yaml"]
+          pattern: "- name: \"nvidia.com/gpu\"\n\\s+nominalQuota: 10"
