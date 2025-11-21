@@ -1,24 +1,28 @@
 # Configuration for the Kueue Prepopulator component
 kueuePopulator:
   image:
+    # -- Image repository for the populator
     # REQUIRED: Specify the repository where your kueue-populator image is pushed.
     # Example: <YOUR_REGISTRY>/kueue-populator
     repository: null
+    # -- Image tag for the populator
     # REQUIRED: Specify the tag of the image you want to deploy.
     # Example: latest
     tag: null
+    # -- Image pull policy
     pullPolicy: IfNotPresent
   
-  # Optional: imagePullSecrets
-  # imagePullSecrets:
-  #   - name: regcred
+  # -- Image pull secrets for the populator
+  imagePullSecrets: []
   
   # Configuration for the controller
   config:
+    # -- Name of the default LocalQueue to create in namespaces
     localQueueName: "default"
+    # -- Name of the default ClusterQueue to create and reference in LocalQueues
     clusterQueueName: "cluster-queue"
     
-    # Defaults for the created ClusterQueue
+    # -- Resources to configure in the default ResourceFlavor and ClusterQueue
     resources:
       - name: "cpu"
         nominalQuota: "10"
@@ -27,24 +31,26 @@ kueuePopulator:
       - name: "nvidia.com/gpu"
         nominalQuota: "100"
     
-    # List of topology levels. 
+    # -- List of topology levels. Enables Topology creation if not empty.
     # Example:
     # tasLevels:
     #   - name: cloud.google.com/gke-nodepool
     tasLevels: []
     
-    # Node labels to associate with the ResourceFlavor
+    # -- Node labels to associate with the default ResourceFlavor
     # Example:
     # nodeLabel:
     #   cloud.google.com/gke-nodepool: "default-pool"
     nodeLabel: {}
 
+    # -- Label selector to filter namespaces where the default LocalQueue will be created.
     managedJobsNamespaceSelector:
       matchExpressions:
         - key: kubernetes.io/metadata.name
           operator: NotIn
           values: [ "kube-system", "kueue-system" ]
 
+  # -- Resource requests and limits for the populator deployment
   resources:
     limits:
       cpu: 100m
@@ -55,8 +61,10 @@ kueuePopulator:
 
 # Default values for the dependency 'kueue'
 kueue:
+  # -- Enable the Kueue subchart
   enabled: true
   managerConfig:
+    # -- Overrides for the controller manager config
     controllerManagerConfigYaml: |-
       apiVersion: config.kueue.x-k8s.io/v1beta1
       kind: Configuration
@@ -68,5 +76,6 @@ kueue:
             values: [ "kube-system", "kueue-system" ]
   controllerManager:
     featureGates:
+      # -- Enable TopologyAwareScheduling feature gate
       - name: TopologyAwareScheduling
         enabled: true

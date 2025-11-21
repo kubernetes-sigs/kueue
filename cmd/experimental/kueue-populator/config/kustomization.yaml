@@ -11,5 +11,5 @@ resources:
 images:
 - name: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-populator
   newName: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-populator
-  newTag: e533ba333-dirty
+  newTag: main
 namespace: kueue-system
