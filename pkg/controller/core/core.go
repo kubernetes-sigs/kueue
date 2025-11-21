@@ -25,6 +25,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/failurerecovery"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
@@ -60,6 +61,20 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 			return "Cohort", err
 		}
 		watchers = append(watchers, cohortRec)
+	}
+
+	if features.Enabled(features.FailureRecoveryPolicy) {
+		tpRec, err := failurerecovery.NewTerminatingPodReconciler(
+			mgr.GetClient(),
+			mgr.GetEventRecorderFor(constants.PodTerminationControllerName),
+		)
+		if err != nil {
+			return "FailureRecoveryPolicy", err
+		}
+
+		if err := tpRec.SetupWithManager(mgr); err != nil {
+			return "FailureRecoveryPolicy", err
+		}
 	}
 
 	cqRec := NewClusterQueueReconciler(

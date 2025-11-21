@@ -222,6 +222,12 @@ const (
 	//
 	// Enables ClusterProfile integration for MultiKueue.
 	MultiKueueClusterProfile featuregate.Feature = "MultiKueueClusterProfile"
+
+	// owner: @kshalot
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/6757
+	// Enabled failure recovery of pods stuck in terminating state.
+	FailureRecoveryPolicy featuregate.Feature = "FailureRecoveryPolicy"
 )
 
 func init() {
@@ -346,8 +352,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	PropagateBatchJobLabelsToWorkload: {
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
-
 	MultiKueueClusterProfile: {
+		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	FailureRecoveryPolicy: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
