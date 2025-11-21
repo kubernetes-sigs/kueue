@@ -450,11 +450,11 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 
 func (c *clustersReconciler) loadClientConfig(ctx context.Context, cluster *kueue.MultiKueueCluster) (*clientConfig, bool, string, error) {
 	log := ctrl.LoggerFrom(ctx)
-	if cluster.Spec.ClusterProfile != nil {
+	if cluster.Spec.ClusterProfileRef != nil {
 		if !features.Enabled(features.MultiKueueClusterProfile) {
 			return nil, false, "MultiKueueClusterProfileFeatureDisabled", errors.New("MultiKueueClusterProfile feature gate is disabled")
 		}
-		restConfig, retry, err := c.getRestConfigFromClusterProfile(ctx, cluster.Spec.ClusterProfile)
+		restConfig, retry, err := c.getRestConfigFromClusterProfile(ctx, cluster.Spec.ClusterProfileRef)
 		if err != nil {
 			return nil, retry, "BadClusterProfile", err
 		}

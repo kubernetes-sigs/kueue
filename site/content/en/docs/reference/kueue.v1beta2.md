@@ -801,14 +801,14 @@ policy can be preempted by the borrowing workload.</p>
 <code>string</code>
 </td>
 <td>
-   <p>name of the ClusterProfile.</p>
+   <p>name of the ClusterProfileRef.</p>
 </td>
 </tr>
 <tr><td><code>namespace</code> <B>[Required]</B><br/>
 <code>string</code>
 </td>
 <td>
-   <p>namespace of the ClusterProfile.</p>
+   <p>namespace of the ClusterProfileRef.</p>
 </td>
 </tr>
 </tbody>
@@ -1834,11 +1834,11 @@ workloads assigned to this LocalQueue.</p>
    <p>kubeConfig is information on how to connect to the cluster.</p>
 </td>
 </tr>
-<tr><td><code>clusterProfile</code><br/>
+<tr><td><code>clusterProfileRef</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-ClusterProfileReference"><code>ClusterProfileReference</code></a>
 </td>
 <td>
-   <p>clusterProfile is the reference to the ClusterProfile object used to connect to the cluster.</p>
+   <p>clusterProfileRef is the reference to the ClusterProfile object used to connect to the cluster.</p>
 </td>
 </tr>
 </tbody>

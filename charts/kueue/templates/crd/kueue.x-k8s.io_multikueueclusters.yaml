@@ -198,16 +198,16 @@ spec:
             spec:
               description: spec is the specification of the MultiKueueCluster.
               properties:
-                clusterProfile:
-                  description: clusterProfile is the reference to the ClusterProfile object used to connect to the cluster.
+                clusterProfileRef:
+                  description: clusterProfileRef is the reference to the ClusterProfile object used to connect to the cluster.
                   properties:
                     name:
-                      description: name of the ClusterProfile.
+                      description: name of the ClusterProfileRef.
                       maxLength: 256
                       minLength: 1
                       type: string
                     namespace:
-                      description: namespace of the ClusterProfile.
+                      description: namespace of the ClusterProfileRef.
                       maxLength: 256
                       minLength: 1
                       type: string
@@ -239,8 +239,8 @@ spec:
                   type: object
               type: object
               x-kubernetes-validations:
-                - message: exactly one of the fields in [kubeConfig clusterProfile] must be set
-                  rule: '[has(self.kubeConfig),has(self.clusterProfile)].filter(x,x==true).size() == 1'
+                - message: exactly one of the fields in [kubeConfig clusterProfileRef] must be set
+                  rule: '[has(self.kubeConfig),has(self.clusterProfileRef)].filter(x,x==true).size() == 1'
             status:
               description: status is the status of the MultiKueueCluster.
               properties:
