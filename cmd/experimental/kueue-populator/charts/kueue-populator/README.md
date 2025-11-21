@@ -20,16 +20,25 @@ This Helm chart installs the Kueue Prepopulator, a component designed to automat
 
 ## Building the Image
 
-Currently, the `kueue-populator` image is not automatically published. You need to build and push it to your own registry.
-
-From the root of the Kueue repository:
-
+You need to build and push the image to your own registry.
+ 
+From the `cmd/experimental/kueue-populator` directory:
+ 
 ```bash
-# Example build and push:
-IMG="<YOUR_REGISTRY>/kueue-populator:latest" make docker-build-populator docker-push-populator
+# Build the image
+make image-build IMAGE_REGISTRY=<YOUR_REGISTRY>
+ 
+# Push the image
+make image-push IMAGE_REGISTRY=<YOUR_REGISTRY>
 ```
-
-Replace `<YOUR_REGISTRY>` with your container registry path.
+ 
+This will build and push an image with the tag `<YOUR_REGISTRY>/kueue-populator:<GIT_TAG>`.
+ 
+If you want to use a specific tag, you can override `GIT_TAG`:
+ 
+```bash
+make image-build image-push IMAGE_REGISTRY=<YOUR_REGISTRY> GIT_TAG=latest
+```
 
 ## Installation
 
