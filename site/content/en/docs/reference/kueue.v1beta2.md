@@ -671,39 +671,6 @@ If empty, the AdmissionCheck will run for all workloads submitted to the Cluster
 </tbody>
 </table>
 
-## `AdmissionFairSharingStatus`     {#kueue-x-k8s-io-v1beta2-AdmissionFairSharingStatus}
-    
-
-**Appears in:**
-
-- [FairSharingStatus](#kueue-x-k8s-io-v1beta2-FairSharingStatus)
-
-
-
-<table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
-<tbody>
-    
-  
-<tr><td><code>consumedResources</code> <B>[Required]</B><br/>
-<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcelist-v1-core"><code>k8s.io/api/core/v1.ResourceList</code></a>
-</td>
-<td>
-   <p>consumedResources represents the aggregated usage of resources over time,
-with decaying function applied.
-The value is populated if usage consumption functionality is enabled in Kueue config.</p>
-</td>
-</tr>
-<tr><td><code>lastUpdate</code> <B>[Required]</B><br/>
-<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Time</code></a>
-</td>
-<td>
-   <p>lastUpdate is the time when share and consumed resources were updated.</p>
-</td>
-</tr>
-</tbody>
-</table>
-
 ## `AdmissionMode`     {#kueue-x-k8s-io-v1beta2-AdmissionMode}
     
 (Alias of `string`)
@@ -1350,8 +1317,6 @@ When not 0, Weight must be greater than 10^-9.</p>
 
 - [CohortStatus](#kueue-x-k8s-io-v1beta2-CohortStatus)
 
-- [LocalQueueStatus](#kueue-x-k8s-io-v1beta2-LocalQueueStatus)
-
 
 <p>FairSharingStatus contains the information about the current status of Fair Sharing.</p>
 
@@ -1372,13 +1337,6 @@ divided by the weight.  If zero, it means that the usage of
 the Node is below the nominal quota.  If the Node has a
 weight of zero and is borrowing, this will return
 9223372036854775807, the maximum possible share value.</p>
-</td>
-</tr>
-<tr><td><code>admissionFairSharingStatus</code><br/>
-<a href="#kueue-x-k8s-io-v1beta2-AdmissionFairSharingStatus"><code>AdmissionFairSharingStatus</code></a>
-</td>
-<td>
-   <p>admissionFairSharingStatus represents information relevant to the Admission Fair Sharing</p>
 </td>
 </tr>
 </tbody>
@@ -1566,6 +1524,78 @@ which the kueue controller manager is running. The config should be stored in th
 </td>
 <td>
    <p>locationType of the KubeConfig.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `LocalQueueAdmissionFairSharingStatus`     {#kueue-x-k8s-io-v1beta2-LocalQueueAdmissionFairSharingStatus}
+    
+
+**Appears in:**
+
+- [LocalQueueFairSharingStatus](#kueue-x-k8s-io-v1beta2-LocalQueueFairSharingStatus)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>consumedResources</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcelist-v1-core"><code>k8s.io/api/core/v1.ResourceList</code></a>
+</td>
+<td>
+   <p>consumedResources represents the aggregated usage of resources over time,
+with decaying function applied.
+The value is populated if usage consumption functionality is enabled in Kueue config.</p>
+</td>
+</tr>
+<tr><td><code>lastUpdate</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Time</code></a>
+</td>
+<td>
+   <p>lastUpdate is the time when share and consumed resources were updated.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `LocalQueueFairSharingStatus`     {#kueue-x-k8s-io-v1beta2-LocalQueueFairSharingStatus}
+    
+
+**Appears in:**
+
+- [LocalQueueStatus](#kueue-x-k8s-io-v1beta2-LocalQueueStatus)
+
+
+<p>LocalQueueFairSharingStatus contains the information about the current status of Fair Sharing.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>weightedShare</code> <B>[Required]</B><br/>
+<code>int64</code>
+</td>
+<td>
+   <p>weightedShare represents the maximum of the ratios of usage
+above nominal quota to the lendable resources in the
+Cohort, among all the resources provided by the Node, and
+divided by the weight.  If zero, it means that the usage of
+the Node is below the nominal quota.  If the Node has a
+weight of zero and is borrowing, this will return
+9223372036854775807, the maximum possible share value.</p>
+</td>
+</tr>
+<tr><td><code>admissionFairSharingStatus</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-LocalQueueAdmissionFairSharingStatus"><code>LocalQueueAdmissionFairSharingStatus</code></a>
+</td>
+<td>
+   <p>admissionFairSharingStatus represents information relevant to the Admission Fair Sharing</p>
 </td>
 </tr>
 </tbody>
@@ -1762,7 +1792,7 @@ workloads assigned to this LocalQueue.</p>
 </td>
 </tr>
 <tr><td><code>fairSharing</code><br/>
-<a href="#kueue-x-k8s-io-v1beta2-FairSharingStatus"><code>FairSharingStatus</code></a>
+<a href="#kueue-x-k8s-io-v1beta2-LocalQueueFairSharingStatus"><code>LocalQueueFairSharingStatus</code></a>
 </td>
 <td>
    <p>fairSharing contains the information about the current status of fair sharing.</p>

@@ -189,8 +189,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta2.AdmissionCheckStatusApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("AdmissionCheckStrategyRule"):
 		return &kueuev1beta2.AdmissionCheckStrategyRuleApplyConfiguration{}
-	case v1beta2.SchemeGroupVersion.WithKind("AdmissionFairSharingStatus"):
-		return &kueuev1beta2.AdmissionFairSharingStatusApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("AdmissionScope"):
 		return &kueuev1beta2.AdmissionScopeApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("BorrowWithinCohort"):
@@ -225,6 +223,10 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta2.KubeConfigApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("LocalQueue"):
 		return &kueuev1beta2.LocalQueueApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("LocalQueueAdmissionFairSharingStatus"):
+		return &kueuev1beta2.LocalQueueAdmissionFairSharingStatusApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("LocalQueueFairSharingStatus"):
+		return &kueuev1beta2.LocalQueueFairSharingStatusApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("LocalQueueFlavorUsage"):
 		return &kueuev1beta2.LocalQueueFlavorUsageApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("LocalQueueResourceUsage"):

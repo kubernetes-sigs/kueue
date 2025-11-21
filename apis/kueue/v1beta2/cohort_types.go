@@ -117,3 +117,5 @@ type CohortList struct {
 func init() {
 	SchemeBuilder.Register(&Cohort{}, &CohortList{})
 }
+
+func (src *Cohort) Hub() {}

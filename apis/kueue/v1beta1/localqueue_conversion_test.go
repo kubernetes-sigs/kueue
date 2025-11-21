@@ -32,6 +32,7 @@ func TestLocalQueueConvertTo(t *testing.T) {
 		Name:      "test-localqueue",
 		Namespace: "default",
 	}
+	now := metav1.Now()
 
 	testCases := map[string]struct {
 		input    *LocalQueue
@@ -172,6 +173,15 @@ func TestLocalQueueConvertTo(t *testing.T) {
 					ClusterQueue: "cluster-queue-1",
 				},
 				Status: LocalQueueStatus{
+					FairSharing: &FairSharingStatus{
+						WeightedShare: 100,
+						AdmissionFairSharingStatus: &AdmissionFairSharingStatus{
+							ConsumedResources: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("10"),
+							},
+							LastUpdate: now,
+						},
+					},
 					Conditions: []metav1.Condition{
 						{
 							Type:   "Active",
@@ -199,6 +209,15 @@ func TestLocalQueueConvertTo(t *testing.T) {
 					ClusterQueue: "cluster-queue-1",
 				},
 				Status: v1beta2.LocalQueueStatus{
+					FairSharing: &v1beta2.LocalQueueFairSharingStatus{
+						WeightedShare: 100,
+						AdmissionFairSharingStatus: &v1beta2.LocalQueueAdmissionFairSharingStatus{
+							ConsumedResources: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("10"),
+							},
+							LastUpdate: now,
+						},
+					},
 					Conditions: []metav1.Condition{
 						{
 							Type:   "Active",

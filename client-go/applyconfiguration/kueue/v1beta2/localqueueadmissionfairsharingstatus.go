@@ -22,23 +22,23 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// AdmissionFairSharingStatusApplyConfiguration represents a declarative configuration of the AdmissionFairSharingStatus type for use
+// LocalQueueAdmissionFairSharingStatusApplyConfiguration represents a declarative configuration of the LocalQueueAdmissionFairSharingStatus type for use
 // with apply.
-type AdmissionFairSharingStatusApplyConfiguration struct {
+type LocalQueueAdmissionFairSharingStatusApplyConfiguration struct {
 	ConsumedResources *v1.ResourceList `json:"consumedResources,omitempty"`
 	LastUpdate        *metav1.Time     `json:"lastUpdate,omitempty"`
 }
 
-// AdmissionFairSharingStatusApplyConfiguration constructs a declarative configuration of the AdmissionFairSharingStatus type for use with
+// LocalQueueAdmissionFairSharingStatusApplyConfiguration constructs a declarative configuration of the LocalQueueAdmissionFairSharingStatus type for use with
 // apply.
-func AdmissionFairSharingStatus() *AdmissionFairSharingStatusApplyConfiguration {
-	return &AdmissionFairSharingStatusApplyConfiguration{}
+func LocalQueueAdmissionFairSharingStatus() *LocalQueueAdmissionFairSharingStatusApplyConfiguration {
+	return &LocalQueueAdmissionFairSharingStatusApplyConfiguration{}
 }
 
 // WithConsumedResources sets the ConsumedResources field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the ConsumedResources field is set to the value of the last call.
-func (b *AdmissionFairSharingStatusApplyConfiguration) WithConsumedResources(value v1.ResourceList) *AdmissionFairSharingStatusApplyConfiguration {
+func (b *LocalQueueAdmissionFairSharingStatusApplyConfiguration) WithConsumedResources(value v1.ResourceList) *LocalQueueAdmissionFairSharingStatusApplyConfiguration {
 	b.ConsumedResources = &value
 	return b
 }
@@ -46,7 +46,7 @@ func (b *AdmissionFairSharingStatusApplyConfiguration) WithConsumedResources(val
 // WithLastUpdate sets the LastUpdate field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the LastUpdate field is set to the value of the last call.
-func (b *AdmissionFairSharingStatusApplyConfiguration) WithLastUpdate(value metav1.Time) *AdmissionFairSharingStatusApplyConfiguration {
+func (b *LocalQueueAdmissionFairSharingStatusApplyConfiguration) WithLastUpdate(value metav1.Time) *LocalQueueAdmissionFairSharingStatusApplyConfiguration {
 	b.LastUpdate = &value
 	return b
 }

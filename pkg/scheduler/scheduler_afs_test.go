@@ -64,9 +64,9 @@ func TestScheduleForAFS(t *testing.T) {
 		*utiltestingapi.MakeLocalQueue("lq-a", "default").
 			FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
 			ClusterQueue("cq1").
-			FairSharingStatus(&kueue.FairSharingStatus{
+			FairSharingStatus(&kueue.LocalQueueFairSharingStatus{
 				WeightedShare: 1,
-				AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
+				AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
 					ConsumedResources: corev1.ResourceList{},
 				},
 			}).
@@ -74,9 +74,9 @@ func TestScheduleForAFS(t *testing.T) {
 		*utiltestingapi.MakeLocalQueue("lq-b", "default").
 			FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
 			ClusterQueue("cq1").
-			FairSharingStatus(&kueue.FairSharingStatus{
+			FairSharingStatus(&kueue.LocalQueueFairSharingStatus{
 				WeightedShare: 1,
-				AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
+				AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
 					ConsumedResources: corev1.ResourceList{},
 				},
 			}).
@@ -84,9 +84,9 @@ func TestScheduleForAFS(t *testing.T) {
 		*utiltestingapi.MakeLocalQueue("lq-c", "default").
 			FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
 			ClusterQueue("cq1").
-			FairSharingStatus(&kueue.FairSharingStatus{
+			FairSharingStatus(&kueue.LocalQueueFairSharingStatus{
 				WeightedShare: 1,
-				AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
+				AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
 					ConsumedResources: corev1.ResourceList{},
 				},
 			}).

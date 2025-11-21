@@ -262,10 +262,10 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 
 func (r *LocalQueueReconciler) initializeAdmissionFsStatus(lq *kueue.LocalQueue) bool {
 	if lq.Status.FairSharing == nil {
-		lq.Status.FairSharing = &kueue.FairSharingStatus{}
+		lq.Status.FairSharing = &kueue.LocalQueueFairSharingStatus{}
 	}
 	if lq.Status.FairSharing.AdmissionFairSharingStatus == nil {
-		lq.Status.FairSharing.AdmissionFairSharingStatus = &kueue.AdmissionFairSharingStatus{
+		lq.Status.FairSharing.AdmissionFairSharingStatus = &kueue.LocalQueueAdmissionFairSharingStatus{
 			LastUpdate: metav1.NewTime(r.clock.Now()),
 		}
 		return true

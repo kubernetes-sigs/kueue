@@ -20,6 +20,8 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -206,6 +208,15 @@ func TestClusterQueueConvertTo(t *testing.T) {
 					QueueingStrategy: StrictFIFO,
 				},
 				Status: ClusterQueueStatus{
+					FairSharing: &FairSharingStatus{
+						WeightedShare: 100,
+						AdmissionFairSharingStatus: &AdmissionFairSharingStatus{
+							ConsumedResources: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("10"),
+							},
+							LastUpdate: metav1.Now(),
+						},
+					},
 					Conditions: []metav1.Condition{
 						{
 							Type:   "Active",
@@ -232,6 +243,9 @@ func TestClusterQueueConvertTo(t *testing.T) {
 					QueueingStrategy: v1beta2.StrictFIFO,
 				},
 				Status: v1beta2.ClusterQueueStatus{
+					FairSharing: &v1beta2.FairSharingStatus{
+						WeightedShare: 100,
+					},
 					Conditions: []metav1.Condition{
 						{
 							Type:   "Active",
@@ -347,6 +361,9 @@ func TestClusterQueueConvertFrom(t *testing.T) {
 					QueueingStrategy: v1beta2.StrictFIFO,
 				},
 				Status: v1beta2.ClusterQueueStatus{
+					FairSharing: &v1beta2.FairSharingStatus{
+						WeightedShare: 100,
+					},
 					Conditions: []metav1.Condition{
 						{
 							Type:   "Active",
@@ -368,6 +385,9 @@ func TestClusterQueueConvertFrom(t *testing.T) {
 					QueueingStrategy: StrictFIFO,
 				},
 				Status: ClusterQueueStatus{
+					FairSharing: &FairSharingStatus{
+						WeightedShare: 100,
+					},
 					Conditions: []metav1.Condition{
 						{
 							Type:   "Active",

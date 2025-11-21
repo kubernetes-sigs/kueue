@@ -777,7 +777,7 @@ func (q *LocalQueueWrapper) Active(status metav1.ConditionStatus) *LocalQueueWra
 }
 
 // FairSharingStatus updates the fairSharing in status.
-func (q *LocalQueueWrapper) FairSharingStatus(status *kueue.FairSharingStatus) *LocalQueueWrapper {
+func (q *LocalQueueWrapper) FairSharingStatus(status *kueue.LocalQueueFairSharingStatus) *LocalQueueWrapper {
 	q.Status.FairSharing = status
 	return q
 }
