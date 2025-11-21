@@ -24,6 +24,7 @@ import (
 
 	sparkv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
 	sparkcommon "github.com/kubeflow/spark-operator/v2/pkg/common"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -149,65 +150,66 @@ func (j *SparkApplication) RunWithPodSetsInfo(ctx context.Context, podSetsInfo [
 
 	j.Spec.Suspend = ptr.To(false)
 
-	// driver
-	driverPodInfo := podSetsInfo[0]
-	if j.Spec.Driver.Template == nil {
-		j.Spec.Driver.Template = emptyDriverPodTemplateSpec.DeepCopy()
-	}
-	// spec.NodeSelector and spec.driver.nodeSelector is mutually exclusive
-	driverNodeSelector := j.Spec.Driver.NodeSelector
-	if j.Spec.NodeSelector != nil {
-		driverNodeSelector = j.Spec.NodeSelector
-	}
-	jDriverPodSetInfo := &podset.PodSetInfo{
-		Annotations:     j.Spec.Driver.Annotations,
-		Labels:          j.Spec.Driver.Labels,
-		NodeSelector:    driverNodeSelector,
-		Tolerations:     j.Spec.Driver.Tolerations,
-		SchedulingGates: j.Spec.Driver.Template.Spec.SchedulingGates,
-	}
-	if err := jDriverPodSetInfo.Merge(driverPodInfo); err != nil {
-		return err
-	}
-	j.Spec.Driver.Annotations = jDriverPodSetInfo.Annotations
-	j.Spec.Driver.Labels = jDriverPodSetInfo.Labels
-	if j.Spec.NodeSelector != nil {
-		j.Spec.NodeSelector = jDriverPodSetInfo.NodeSelector
-	} else {
-		j.Spec.Driver.NodeSelector = jDriverPodSetInfo.NodeSelector
-	}
-	j.Spec.Driver.Tolerations = jDriverPodSetInfo.Tolerations
-	j.Spec.Driver.Template.Spec.SchedulingGates = jDriverPodSetInfo.SchedulingGates
+	mutatePodSetInfoFor := func(role string) error {
+		var podSetInfo podset.PodSetInfo
+		var nodeSelector map[string]string
+		var sparkPodSpec *sparkv1beta2.SparkPodSpec
 
-	// executors
-	executorPodInfo := podSetsInfo[1]
-	if j.Spec.Executor.Template == nil {
-		j.Spec.Executor.Template = emptyExecutorPodTemplateSpec.DeepCopy()
+		switch role {
+		case sparkcommon.SparkRoleDriver:
+			podSetInfo = podSetsInfo[0]
+			if j.Spec.Driver.Template == nil {
+				j.Spec.Driver.Template = emptyDriverPodTemplateSpec.DeepCopy()
+			}
+			// spec.NodeSelector and spec.driver.nodeSelector is mutually exclusive
+			nodeSelector = j.Spec.Driver.NodeSelector
+			if j.Spec.NodeSelector != nil {
+				nodeSelector = j.Spec.NodeSelector
+			}
+			sparkPodSpec = &j.Spec.Driver.SparkPodSpec
+		case sparkcommon.SparkRoleExecutor:
+			podSetInfo = podSetsInfo[1]
+			sparkPodSpec = &j.Spec.Executor.SparkPodSpec
+			if j.Spec.Executor.Template == nil {
+				j.Spec.Executor.Template = emptyExecutorPodTemplateSpec.DeepCopy()
+			}
+			// spec.NodeSelector and spec.executor.nodeSelector is mutually exclusive
+			nodeSelector = j.Spec.Executor.NodeSelector
+			if j.Spec.NodeSelector != nil {
+				nodeSelector = j.Spec.NodeSelector
+			}
+		default:
+			return fmt.Errorf("unknown Spark role: %s", role)
+		}
+
+		sparkPodSetInfo := &podset.PodSetInfo{
+			Annotations:     sparkPodSpec.Annotations,
+			Labels:          sparkPodSpec.Labels,
+			NodeSelector:    nodeSelector,
+			Tolerations:     sparkPodSpec.Tolerations,
+			SchedulingGates: sparkPodSpec.Template.Spec.SchedulingGates,
+		}
+		if err := sparkPodSetInfo.Merge(podSetInfo); err != nil {
+			return err
+		}
+		sparkPodSpec.Annotations = sparkPodSetInfo.Annotations
+		sparkPodSpec.Labels = sparkPodSetInfo.Labels
+		if j.Spec.NodeSelector != nil {
+			j.Spec.NodeSelector = sparkPodSetInfo.NodeSelector
+		} else {
+			sparkPodSpec.NodeSelector = sparkPodSetInfo.NodeSelector
+		}
+		sparkPodSpec.Tolerations = sparkPodSetInfo.Tolerations
+		sparkPodSpec.Template.Spec.SchedulingGates = sparkPodSetInfo.SchedulingGates
+		return nil
 	}
-	// spec.NodeSelector and spec.executor.nodeSelector is mutually exclusive
-	executorNodeSelector := j.Spec.Executor.NodeSelector
-	if j.Spec.NodeSelector != nil {
-		executorNodeSelector = j.Spec.NodeSelector
-	}
-	jExecutorPodSetInfo := podset.PodSetInfo{
-		Annotations:     j.Spec.Executor.Annotations,
-		Labels:          j.Spec.Executor.Labels,
-		NodeSelector:    executorNodeSelector,
-		Tolerations:     j.Spec.Executor.Tolerations,
-		SchedulingGates: j.Spec.Executor.Template.Spec.SchedulingGates,
-	}
-	if err := jExecutorPodSetInfo.Merge(executorPodInfo); err != nil {
+
+	if err := mutatePodSetInfoFor(sparkcommon.SparkRoleDriver); err != nil {
 		return err
 	}
-	j.Spec.Executor.Annotations = jExecutorPodSetInfo.Annotations
-	j.Spec.Executor.Labels = jExecutorPodSetInfo.Labels
-	if j.Spec.NodeSelector != nil {
-		j.Spec.NodeSelector = jExecutorPodSetInfo.NodeSelector
-	} else {
-		j.Spec.Executor.NodeSelector = jExecutorPodSetInfo.NodeSelector
+	if err := mutatePodSetInfoFor(sparkcommon.SparkRoleExecutor); err != nil {
+		return err
 	}
-	j.Spec.Executor.Tolerations = jExecutorPodSetInfo.Tolerations
-	j.Spec.Executor.Template.Spec.SchedulingGates = jExecutorPodSetInfo.SchedulingGates
 
 	return nil
 }
@@ -218,75 +220,67 @@ func (j *SparkApplication) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) b
 		return false
 	}
 
-	// driver
-	var changed bool
-	driverPodInfo := podSetsInfo[0]
-	if !maps.Equal(j.Spec.Driver.Annotations, driverPodInfo.Annotations) {
-		j.Spec.Driver.Annotations = maps.Clone(driverPodInfo.Annotations)
-		changed = true
-	}
-	if !maps.Equal(j.Spec.Driver.Labels, driverPodInfo.Labels) {
-		j.Spec.Driver.Labels = maps.Clone(driverPodInfo.Labels)
-		changed = true
-	}
-	if j.Spec.NodeSelector != nil {
-		if !maps.Equal(j.Spec.NodeSelector, driverPodInfo.NodeSelector) {
-			j.Spec.NodeSelector = maps.Clone(driverPodInfo.NodeSelector)
+	restorePodSetsInfoFrom := func(role string) bool {
+		var podSetInfo podset.PodSetInfo
+		var sparkPodSpec *sparkv1beta2.SparkPodSpec
+		var emptyPodTemplate *corev1.PodTemplateSpec
+		var changed bool
+
+		switch role {
+		case sparkcommon.SparkRoleDriver:
+			podSetInfo = podSetsInfo[0]
+			sparkPodSpec = &j.Spec.Driver.SparkPodSpec
+			emptyPodTemplate = emptyDriverPodTemplateSpec
+		case sparkcommon.SparkRoleExecutor:
+			podSetInfo = podSetsInfo[1]
+			sparkPodSpec = &j.Spec.Executor.SparkPodSpec
+			emptyPodTemplate = emptyExecutorPodTemplateSpec
+		default:
+			return false
+		}
+
+		if !maps.Equal(sparkPodSpec.Annotations, podSetInfo.Annotations) {
+			sparkPodSpec.Annotations = maps.Clone(podSetInfo.Annotations)
 			changed = true
 		}
-	} else {
-		if !maps.Equal(j.Spec.Driver.NodeSelector, driverPodInfo.NodeSelector) {
-			j.Spec.Driver.NodeSelector = maps.Clone(driverPodInfo.NodeSelector)
+		if !maps.Equal(sparkPodSpec.Labels, podSetInfo.Labels) {
+			sparkPodSpec.Labels = maps.Clone(podSetInfo.Labels)
 			changed = true
 		}
-	}
-	if !slices.Equal(j.Spec.Driver.Tolerations, driverPodInfo.Tolerations) {
-		j.Spec.Driver.Tolerations = slices.Clone(driverPodInfo.Tolerations)
-		changed = true
-	}
-	if j.Spec.Driver.Template == nil {
-		j.Spec.Driver.Template = emptyDriverPodTemplateSpec.DeepCopy()
-	}
-	if !slices.Equal(j.Spec.Driver.Template.Spec.SchedulingGates, driverPodInfo.SchedulingGates) {
-		j.Spec.Driver.Template.Spec.SchedulingGates = slices.Clone(driverPodInfo.SchedulingGates)
-		changed = true
+		if j.Spec.NodeSelector != nil {
+			if !maps.Equal(j.Spec.NodeSelector, podSetInfo.NodeSelector) {
+				j.Spec.NodeSelector = maps.Clone(podSetInfo.NodeSelector)
+				changed = true
+			}
+		} else {
+			if !maps.Equal(sparkPodSpec.NodeSelector, podSetInfo.NodeSelector) {
+				sparkPodSpec.NodeSelector = maps.Clone(podSetInfo.NodeSelector)
+				changed = true
+			}
+		}
+		if !slices.Equal(sparkPodSpec.Tolerations, podSetInfo.Tolerations) {
+			sparkPodSpec.Tolerations = slices.Clone(podSetInfo.Tolerations)
+			changed = true
+		}
+		if sparkPodSpec.Template == nil {
+			sparkPodSpec.Template = emptyPodTemplate.DeepCopy()
+		}
+		if !slices.Equal(sparkPodSpec.Template.Spec.SchedulingGates, podSetInfo.SchedulingGates) {
+			sparkPodSpec.Template.Spec.SchedulingGates = slices.Clone(podSetInfo.SchedulingGates)
+			changed = true
+		}
+
+		if role == sparkcommon.SparkRoleExecutor {
+			j.Spec.Executor.Instances = ptr.To(podSetInfo.Count)
+		}
+
+		return changed
 	}
 
-	// executors
-	executorPodInfo := podSetsInfo[1]
-	j.Spec.Executor.Instances = ptr.To(executorPodInfo.Count)
-	if !maps.Equal(j.Spec.Executor.Annotations, executorPodInfo.Annotations) {
-		j.Spec.Executor.Annotations = maps.Clone(executorPodInfo.Annotations)
-		changed = true
-	}
-	if !maps.Equal(j.Spec.Executor.Labels, executorPodInfo.Labels) {
-		j.Spec.Executor.Labels = maps.Clone(executorPodInfo.Labels)
-		changed = true
-	}
-	if j.Spec.NodeSelector != nil {
-		if !maps.Equal(j.Spec.NodeSelector, executorPodInfo.NodeSelector) {
-			j.Spec.NodeSelector = maps.Clone(executorPodInfo.NodeSelector)
-			changed = true
-		}
-	} else {
-		if !maps.Equal(j.Spec.Executor.NodeSelector, executorPodInfo.NodeSelector) {
-			j.Spec.Executor.NodeSelector = maps.Clone(executorPodInfo.NodeSelector)
-			changed = true
-		}
-	}
-	if !slices.Equal(j.Spec.Executor.Tolerations, executorPodInfo.Tolerations) {
-		j.Spec.Executor.Tolerations = slices.Clone(executorPodInfo.Tolerations)
-		changed = true
-	}
-	if j.Spec.Executor.Template == nil {
-		j.Spec.Executor.Template = emptyExecutorPodTemplateSpec.DeepCopy()
-	}
-	if !slices.Equal(j.Spec.Executor.Template.Spec.SchedulingGates, executorPodInfo.SchedulingGates) {
-		j.Spec.Executor.Template.Spec.SchedulingGates = slices.Clone(executorPodInfo.SchedulingGates)
-		changed = true
-	}
+	driverChanged := restorePodSetsInfoFrom(sparkcommon.SparkRoleDriver)
+	executorChanged := restorePodSetsInfoFrom(sparkcommon.SparkRoleExecutor)
 
-	return changed
+	return driverChanged || executorChanged
 }
 
 func (j *SparkApplication) Finished(ctx context.Context) (message string, success, finished bool) {
