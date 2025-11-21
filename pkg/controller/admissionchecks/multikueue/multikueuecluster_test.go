@@ -116,12 +116,30 @@ type testClusterProfileCreds struct {
 func (t *testClusterProfileCreds) BuildConfigFromCP(clusterprofile *inventoryv1alpha1.ClusterProfile) (*rest.Config, error) {
 	for _, provider := range clusterprofile.Status.CredentialProviders {
 		if t.supportedProviders[provider.Name] {
-			return &rest.Config{
-				Host: clusterprofile.Name,
-			}, nil
+			if strings.Contains(clusterprofile.Name, "invalid") {
+				return testRestConfigInvalid(), nil
+			}
+			return testRestConfig(), nil
 		}
 	}
 	return nil, errors.New("unsupported credential provider")
+}
+
+func testRestConfig() *rest.Config {
+	return &rest.Config{
+		Host: "https://10.10.10.10",
+		ExecProvider: &clientcmdapi.ExecConfig{
+			APIVersion: "v1",
+			Command:    "/test-command",
+		},
+	}
+}
+
+func testRestConfigInvalid() *rest.Config {
+	return &rest.Config{
+		Host:            "invalid-host",
+		BearerTokenFile: "/path/to/file",
+	}
 }
 
 func makeTestClusterProfile(name string, providerName string) inventoryv1alpha1.ClusterProfile {
@@ -540,7 +558,7 @@ func TestUpdateConfig(t *testing.T) {
 			wantRemoteClients: map[string]*remoteClient{
 				"worker1": {
 					config: &clientConfig{
-						RestConfig: &rest.Config{Host: "worker1"},
+						RestConfig: testRestConfig(),
 					},
 				},
 			},
@@ -613,6 +631,32 @@ func TestUpdateConfig(t *testing.T) {
 					Obj(),
 			},
 			wantErr: fmt.Errorf("failed to load client config, reason: MultiKueueClusterProfileFeatureDisabled, error: %w", errors.New("MultiKueueClusterProfile feature gate is disabled")),
+		},
+		"invalid rest config from cluster profile": {
+			reconcileFor: "invalid",
+			clusters: []kueue.MultiKueueCluster{
+				*utiltestingapi.MakeMultiKueueCluster("invalid").
+					ClusterProfile("invalid", TestNamespace).
+					Generation(1).
+					Obj(),
+			},
+			secrets: []corev1.Secret{},
+			clusterprofiles: []inventoryv1alpha1.ClusterProfile{
+				makeTestClusterProfile("invalid", "credentialProvider1"),
+			},
+			cpCreds: &testClusterProfileCreds{
+				supportedProviders: map[string]bool{
+					"credentialProvider1": true,
+				},
+			},
+			wantClusters: []kueue.MultiKueueCluster{
+				*utiltestingapi.MakeMultiKueueCluster("invalid").
+					ClusterProfile("invalid", TestNamespace).
+					Active(metav1.ConditionFalse, "BadRestConfig", "load client config failed: bearerTokenFile is not allowed", 1).
+					Generation(1).
+					Obj(),
+			},
+			wantErr: fmt.Errorf("failed to load client config, reason: BadRestConfig, error: %w", errors.New("bearerTokenFile is not allowed")),
 		},
 	}
 
