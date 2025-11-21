@@ -59,8 +59,8 @@ var _ = ginkgo.Describe("SparkApplication integration", func() {
 		cq = utiltestingapi.MakeClusterQueue(clusterQueueName).
 			ResourceGroup(
 				*utiltestingapi.MakeFlavorQuotas(resourceFlavorName).
-					Resource(corev1.ResourceCPU, "5").
-					Resource(corev1.ResourceMemory, "10Gi").
+					Resource(corev1.ResourceCPU, "200m").
+					Resource(corev1.ResourceMemory, "1Gi").
 					Obj(),
 			).
 			Preemption(kueue.ClusterQueuePreemption{
@@ -113,10 +113,10 @@ var _ = ginkgo.Describe("SparkApplication integration", func() {
 		ginkgo.It("should run if admitted", func() {
 			sparkApp := sparkapplicationtesting.MakeSparkApplication("sparkapplication-simple", ns.Name).
 				DriverServiceAccount(sa.Name).
-				DriverCoreRequest("1").
+				DriverCoreRequest("0.1").
 				DriverMemoryRequest("512m"). // 512MB
 				ExecutorServiceAccount(sa.Name).
-				ExecutorCoreRequest("1").
+				ExecutorCoreRequest("0.1").
 				ExecutorMemoryRequest("512m"). // 512MB
 				ExecutorInstances(1).
 				Queue(lq.Name).
