@@ -66,6 +66,11 @@ const (
 	// this set will provide waiting time between 0 to 5m20s
 	retryIncrement = 5 * time.Second
 	retryMaxSteps  = 7
+
+	MultiKueueClusterProfileFeatureDisabledReason = "MultiKueueClusterProfileFeatureDisabled"
+	MultiKueueClusterBadClusterProfileReason      = "BadClusterProfile"
+	MultiKueueClusterBadKubeConfigReason          = "BadKubeConfig"
+	MultiKueueClusterInsecureKubeConfigReason     = "InsecureKubeConfig"
 )
 
 // retryAfter returns an exponentially increasing interval between
@@ -423,10 +428,7 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 		return reconcile.Result{}, nil //nolint:nilerr // nil is intentional, as either the cluster is deleted, or not found
 	}
 
-	clientConfig, retry, reason, err := c.loadClientConfig(ctx, cluster)
-	if retry {
-		return reconcile.Result{}, err
-	}
+	clientConfig, reason, err := c.loadClientConfig(ctx, cluster)
 	if err != nil {
 		log.Error(err, "loading client config failed")
 		c.stopAndRemoveCluster(req.Name)
@@ -448,32 +450,32 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 	return reconcile.Result{}, client.IgnoreNotFound(c.updateStatus(ctx, cluster, true, "Active", "Connected"))
 }
 
-func (c *clustersReconciler) loadClientConfig(ctx context.Context, cluster *kueue.MultiKueueCluster) (*clientConfig, bool, string, error) {
+func (c *clustersReconciler) loadClientConfig(ctx context.Context, cluster *kueue.MultiKueueCluster) (*clientConfig, string, error) {
 	log := ctrl.LoggerFrom(ctx)
 	if cluster.Spec.ClusterProfile != nil {
 		if !features.Enabled(features.MultiKueueClusterProfile) {
-			return nil, false, "MultiKueueClusterProfileFeatureDisabled", errors.New("MultiKueueClusterProfile feature gate is disabled")
+			return nil, MultiKueueClusterProfileFeatureDisabledReason, errors.New("MultiKueueClusterProfile feature gate is disabled")
 		}
-		restConfig, retry, err := c.getRestConfigFromClusterProfile(ctx, cluster.Spec.ClusterProfile)
+		restConfig, err := c.getRestConfigFromClusterProfile(ctx, cluster.Spec.ClusterProfile)
 		if err != nil {
-			return nil, retry, "BadClusterProfile", err
+			return nil, MultiKueueClusterBadClusterProfileReason, err
 		}
-		return &clientConfig{RestConfig: restConfig}, false, "", nil
+		return &clientConfig{RestConfig: restConfig}, "", nil
 	}
 
-	kubeConfig, retry, err := c.getKubeConfig(ctx, cluster.Spec.KubeConfig)
+	kubeConfig, err := c.getKubeConfig(ctx, cluster.Spec.KubeConfig)
 	if err != nil {
-		return nil, retry, "BadKubeConfig", err
+		return nil, MultiKueueClusterBadKubeConfigReason, err
 	}
 
 	if features.Enabled(features.MultiKueueAllowInsecureKubeconfigs) {
 		log.V(3).Info("Feature MultiKueueAllowInsecureKubeconfigs is enabled, skipping kubeconfig validation")
-		return &clientConfig{Kubeconfig: kubeConfig}, false, "", nil
+		return &clientConfig{Kubeconfig: kubeConfig}, "", nil
 	}
 	if err := validateKubeconfig(kubeConfig); err != nil {
-		return nil, false, "InsecureKubeConfig", err
+		return nil, MultiKueueClusterInsecureKubeConfigReason, err
 	}
-	return &clientConfig{Kubeconfig: kubeConfig}, false, "", nil
+	return &clientConfig{Kubeconfig: kubeConfig}, "", nil
 }
 
 // validateKubeconfig checks that the provided kubeconfig content is safe to use
@@ -553,9 +555,9 @@ func isValidHostname(server string) bool {
 	return len(errs) == 0
 }
 
-func (c *clustersReconciler) getKubeConfig(ctx context.Context, ref *kueue.KubeConfig) ([]byte, bool, error) {
+func (c *clustersReconciler) getKubeConfig(ctx context.Context, ref *kueue.KubeConfig) ([]byte, error) {
 	if ref == nil {
-		return nil, false, errors.New("kubeconfig reference is nil")
+		return nil, errors.New("kubeconfig reference is nil")
 	}
 
 	if ref.LocationType == kueue.SecretLocationType {
@@ -565,21 +567,16 @@ func (c *clustersReconciler) getKubeConfig(ctx context.Context, ref *kueue.KubeC
 	return c.getKubeConfigFromPath(ref.Location)
 }
 
-func (c *clustersReconciler) getRestConfigFromClusterProfile(ctx context.Context, profileRef *kueue.ClusterProfileReference) (*rest.Config, bool, error) {
+func (c *clustersReconciler) getRestConfigFromClusterProfile(ctx context.Context, profileRef *kueue.ClusterProfileReference) (*rest.Config, error) {
 	cp := &inventoryv1alpha1.ClusterProfile{}
 	if err := c.localClient.Get(ctx, types.NamespacedName{Name: profileRef.Name, Namespace: profileRef.Namespace}, cp); err != nil {
-		return nil, !apierrors.IsNotFound(err), err
+		return nil, err
 	}
 
-	restConfig, err := c.cpCreds.BuildConfigFromCP(cp)
-	if err != nil {
-		return nil, false, err
-	}
-
-	return restConfig, false, nil
+	return c.cpCreds.BuildConfigFromCP(cp)
 }
 
-func (c *clustersReconciler) getKubeConfigFromSecret(ctx context.Context, secretName string) ([]byte, bool, error) {
+func (c *clustersReconciler) getKubeConfigFromSecret(ctx context.Context, secretName string) ([]byte, error) {
 	sec := corev1.Secret{}
 	secretObjKey := types.NamespacedName{
 		Namespace: c.configNamespace,
@@ -587,20 +584,19 @@ func (c *clustersReconciler) getKubeConfigFromSecret(ctx context.Context, secret
 	}
 	err := c.localClient.Get(ctx, secretObjKey, &sec)
 	if err != nil {
-		return nil, !apierrors.IsNotFound(err), err
+		return nil, err
 	}
 
 	kconfigBytes, found := sec.Data[kueue.MultiKueueConfigSecretKey]
 	if !found {
-		return nil, false, fmt.Errorf("key %q not found in secret %q", kueue.MultiKueueConfigSecretKey, secretName)
+		return nil, fmt.Errorf("key %q not found in secret %q", kueue.MultiKueueConfigSecretKey, secretName)
 	}
 
-	return kconfigBytes, false, nil
+	return kconfigBytes, nil
 }
 
-func (c *clustersReconciler) getKubeConfigFromPath(path string) ([]byte, bool, error) {
-	content, err := os.ReadFile(path)
-	return content, false, err
+func (c *clustersReconciler) getKubeConfigFromPath(path string) ([]byte, error) {
+	return os.ReadFile(path)
 }
 
 func (c *clustersReconciler) updateStatus(ctx context.Context, cluster *kueue.MultiKueueCluster, active bool, reason, message string) error {
