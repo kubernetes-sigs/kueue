@@ -1,0 +1,137 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-kueue-populator
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-kueue-populator-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - kueue.x-k8s.io
+  resources:
+  - clusterqueues
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - kueue.x-k8s.io
+  resources:
+  - localqueues
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-kueue-populator-role-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-kueue-populator-role
+subjects:
+- kind: ServiceAccount
+  name: {{ .Release.Name }}-kueue-populator
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-kueue-populator-config
+  namespace: {{ .Release.Namespace }}
+data:
+  controller_manager_config.yaml: |
+    localQueueName: {{ .Values.kueuePopulator.config.localQueueName }}
+    {{- if .Values.kueuePopulator.config.managedJobsNamespaceSelector }}
+    managedJobsNamespaceSelector:
+      {{- toYaml .Values.kueuePopulator.config.managedJobsNamespaceSelector | nindent 6 }}
+    {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-kueue-populator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: kueue-populator
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    control-plane: kueue-populator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      control-plane: kueue-populator
+      app.kubernetes.io/name: kueue-populator
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        control-plane: kueue-populator
+        app.kubernetes.io/name: kueue-populator
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}-kueue-populator
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - args:
+        - "--config=/etc/kueue/controller_manager_config.yaml"
+        - "--zap-log-level=2"
+        image: "{{ .Values.kueuePopulator.image.repository }}:{{ .Values.kueuePopulator.image.tag }}"
+        imagePullPolicy: {{ .Values.kueuePopulator.image.pullPolicy }}
+        name: manager
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          {{- toYaml .Values.kueuePopulator.resources | nindent 10 }}
+        volumeMounts:
+        - mountPath: /etc/kueue
+          name: manager-config
+      {{- with .Values.kueuePopulator.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 10
+      volumes:
+      - configMap:
+          name: {{ .Release.Name }}-kueue-populator-config
+        name: manager-config

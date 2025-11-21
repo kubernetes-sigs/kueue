@@ -20,7 +20,7 @@ set -o pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(realpath "$SCRIPT_DIR/../../..")
-KIND_CLUSTER_NAME="kueue-prepopulator-e2e"
+KIND_CLUSTER_NAME="kueue-populator-e2e"
 GIT_TAG=$(git describe --tags --dirty --always)
 
 # Use tools from the root project
@@ -52,21 +52,21 @@ echo "Installing Kueue..."
 kubectl wait deployment/kueue-controller-manager -n kueue-system --for=condition=available --timeout=5m
 cd "$SCRIPT_DIR"
 
-echo "Building and loading kueue-prepopulator image..."
+echo "Building and loading kueue-populator image..."
 make kind-image-build
-IMAGE_TAG="us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-prepopulator:$GIT_TAG"
+IMAGE_TAG="us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-populator:$GIT_TAG"
 "$KIND" load docker-image "$IMAGE_TAG" --name "$KIND_CLUSTER_NAME"
 
-echo "Deploying kueue-prepopulator..."
+echo "Deploying kueue-populator..."
 cd config
 # Use the same tag as the Makefile
-IMAGE_TAG="us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-prepopulator:$GIT_TAG"
-"$KUSTOMIZE" edit set image us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-prepopulator="$IMAGE_TAG"
+IMAGE_TAG="us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-populator:$GIT_TAG"
+"$KUSTOMIZE" edit set image us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-populator="$IMAGE_TAG"
 "$KUSTOMIZE" build . | kubectl apply --server-side -f -
 cd ..
 
 echo "Waiting for deployment to be ready..."
-kubectl wait deployment/kueue-prepopulator -n kueue-system --for=condition=available --timeout=2m
+kubectl wait deployment/kueue-populator -n kueue-system --for=condition=available --timeout=2m
 
 echo "Running E2E tests..."
 "$GINKGO" -v test/e2e/...

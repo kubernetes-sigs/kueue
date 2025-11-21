@@ -1,4 +1,4 @@
-module sigs.k8s.io/kueue/cmd/experimental/kueue-prepopulator
+module sigs.k8s.io/kueue/cmd/experimental/kueue-populator
 
 go 1.25.0
 

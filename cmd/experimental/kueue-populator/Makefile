@@ -16,7 +16,7 @@ DOCKER_BUILDX_CMD ?= docker buildx
 IMAGE_BUILD_CMD ?= $(DOCKER_BUILDX_CMD) build
 
 IMAGE_REGISTRY ?= us-central1-docker.pkg.dev/k8s-staging-images/kueue
-IMAGE_NAME := kueue-prepopulator
+IMAGE_NAME := kueue-populator
 IMAGE_REPO := $(IMAGE_REGISTRY)/$(IMAGE_NAME)
 IMAGE_TAG := $(IMAGE_REPO):$(GIT_TAG)
 
@@ -25,6 +25,22 @@ BASE_IMAGE ?= gcr.io/distroless/static:nonroot
 BASE_BUILDER_IMAGE ?= golang:1.25.0
 BUILDER_IMAGE ?= $(BASE_BUILDER_IMAGE)
 CGO_ENABLED ?= 0
+
+# Integration tests
+ROOT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))/../../..
+BIN_DIR := $(ROOT_DIR)/bin
+ENVTEST := $(BIN_DIR)/setup-envtest
+GINKGO := $(BIN_DIR)/ginkgo
+GOTESTSUM := $(BIN_DIR)/gotestsum
+ARTIFACTS ?= $(ROOT_DIR)/artifacts
+ENVTEST_K8S_VERSION ?= 1.34
+INTEGRATION_NPROCS ?= 4
+CONTROLLER_GEN := $(BIN_DIR)/controller-gen
+
+YAML_PROCESSOR = $(BIN_DIR)/yaml-processor
+YAML_PROCESSOR_LOG_LEVEL ?= info
+
+HELM ?= helm
 
 .PHONY: all
 all: fmt vet build
@@ -62,19 +78,10 @@ kind-image-build: PUSH=--load
 kind-image-build: image-build
 
 # Integration tests
-ROOT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))/../../..
-BIN_DIR := $(ROOT_DIR)/bin
-ENVTEST := $(BIN_DIR)/setup-envtest
-GINKGO := $(BIN_DIR)/ginkgo
-GOTESTSUM := $(BIN_DIR)/gotestsum
-ARTIFACTS ?= $(ROOT_DIR)/artifacts
-ENVTEST_K8S_VERSION ?= 1.34
-INTEGRATION_NPROCS ?= 4
-CONTROLLER_GEN := $(BIN_DIR)/controller-gen
 
 .PHONY: manifests
 manifests:
-	$(CONTROLLER_GEN) rbac:roleName=kueue-prepopulator-role output:rbac:artifacts:config=config/rbac paths="./pkg/controller/..."
+	$(CONTROLLER_GEN) rbac:roleName=kueue-populator-role output:rbac:artifacts:config=config/rbac paths="./pkg/controller/..."
 
 .PHONY: test-integration
 test-integration:
@@ -90,3 +97,31 @@ test-e2e:
 test: ## Run unit tests.
 	GOWORK=off $(GOTESTSUM) --junitfile $(ARTIFACTS)/junit-unit.xml -- \
 		-race -coverpkg=./... -coverprofile $(ARTIFACTS)/cover-unit.out ./pkg/controller/...
+
+
+.PHONY: update-helm
+update-helm: manifests $(YAML_PROCESSOR)
+	$(YAML_PROCESSOR) -zap-log-level=$(YAML_PROCESSOR_LOG_LEVEL) hack/processing-plan.yaml
+
+$(YAML_PROCESSOR):
+	cd $(ROOT_DIR) && $(MAKE) yaml-processor
+
+
+
+.PHONY: helm-lint
+helm-lint: ## Run Helm chart lint test.
+	$(HELM) lint charts/kueue-populator
+
+.PHONY: helm-verify
+helm-verify: helm-lint ## run helm template and detect any rendering failures
+	$(HELM) template charts/kueue-populator > /dev/null
+	$(HELM) template charts/kueue-populator --set image.repository=my-repo --set image.tag=v1.0.0 > /dev/null
+
+.PHONY: helm-unit-test
+helm-unit-test:
+	$(HELM) unittest charts/kueue-populator --strict --debug
+
+.PHONY: helm-test
+helm-test: ## Run Helm chart integration tests (requires active cluster).
+	$(HELM) test kueue-populator
+

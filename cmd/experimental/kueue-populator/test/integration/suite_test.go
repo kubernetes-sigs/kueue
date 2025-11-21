@@ -28,7 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	"sigs.k8s.io/kueue/cmd/experimental/kueue-prepopulator/pkg/controller"
+	"sigs.k8s.io/kueue/cmd/experimental/kueue-populator/pkg/controller"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/core"
@@ -48,7 +48,7 @@ func TestAPIs(t *testing.T) {
 	gomega.RegisterFailHandler(ginkgo.Fail)
 
 	ginkgo.RunSpecs(t,
-		"kueue-prepopulator Controllers Suite",
+		"kueue-populator Controllers Suite",
 	)
 }
 
@@ -88,7 +88,7 @@ func managerAndControllerSetup(controllersCfg *config.Configuration) framework.M
 		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
-		opts := []controller.KueuePrepopulatorReconcilerOption{
+		opts := []controller.KueuePopulatorReconcilerOption{
 			controller.WithLocalQueueName("default-lq"),
 		}
 		if controllersCfg.ManagedJobsNamespaceSelector != nil {
@@ -97,7 +97,7 @@ func managerAndControllerSetup(controllersCfg *config.Configuration) framework.M
 			opts = append(opts, controller.WithNamespaceSelector(selector))
 		}
 
-		reconciler := controller.NewKueuePrepopulatorReconciler(
+		reconciler := controller.NewKueuePopulatorReconciler(
 			mgr.GetClient(),
 			mgr.GetEventRecorderFor(controller.ControllerName),
 			opts...,
