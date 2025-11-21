@@ -55,6 +55,14 @@ import (
 
 type ManagerSetup func(context.Context, manager.Manager)
 
+type ManagerOption func(*manager.Options)
+
+func WithNewClient(c client.NewClientFunc) ManagerOption {
+	return func(o *manager.Options) {
+		o.NewClient = c
+	}
+}
+
 type Framework struct {
 	DepCRDPaths           []string
 	WebhookPath           string
@@ -101,7 +109,7 @@ func (f *Framework) Init() *rest.Config {
 	return cfg
 }
 
-func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.Client) {
+func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.WithWatch) {
 	err := config.AddToScheme(f.scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
@@ -129,7 +137,7 @@ func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.Clien
 	err = autoscaling.AddToScheme(f.scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
-	k8sClient, err := client.New(cfg, client.Options{Scheme: f.scheme})
+	k8sClient, err := client.NewWithWatch(cfg, client.Options{Scheme: f.scheme})
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 	gomega.ExpectWithOffset(1, k8sClient).NotTo(gomega.BeNil())
 
@@ -139,10 +147,10 @@ func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.Clien
 	return ctx, k8sClient
 }
 
-func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerSetup ManagerSetup) {
+func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerSetup ManagerSetup, opts ...ManagerOption) {
 	ginkgo.By("starting the manager", func() {
 		webhookInstallOptions := &f.testEnv.WebhookInstallOptions
-		mgrOpts := manager.Options{
+		mgrOptions := manager.Options{
 			Scheme: f.scheme,
 			Metrics: metricsserver.Options{
 				BindAddress: "0", // disable metrics to avoid conflicts between packages.
@@ -157,7 +165,10 @@ func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerS
 				SkipNameValidation: ptr.To(true),
 			},
 		}
-		mgr, err := ctrl.NewManager(cfg, mgrOpts)
+		for _, opt := range opts {
+			opt(&mgrOptions)
+		}
+		mgr, err := ctrl.NewManager(cfg, mgrOptions)
 		gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "failed to create manager")
 
 		managerCtx, managerCancel := context.WithCancel(ctx)
