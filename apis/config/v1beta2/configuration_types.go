@@ -384,7 +384,7 @@ type ClusterProfileCredentialsProvider struct {
 	// Name is the name of the provider.
 	Name string `json:"name"`
 	//  ExecConfig is the exec configuration to obtain credentials.
-	ExecConfig *clientcmdapi.ExecConfig `json:"execConfig"`
+	ExecConfig clientcmdapi.ExecConfig `json:"execConfig"`
 }
 
 type ClientConnection struct {
