@@ -24,7 +24,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -140,11 +139,6 @@ func (w *RayJobWebhook) validateCreate(job *rayv1.RayJob) (field.ErrorList, erro
 
 		clusterSpec := spec.RayClusterSpec
 		clusterSpecPath := specPath.Child("rayClusterSpec")
-
-		// Should not use auto scaler. Once the resources are reserved by queue the cluster should do its best to use them.
-		if ptr.Deref(clusterSpec.EnableInTreeAutoscaling, false) {
-			allErrors = append(allErrors, field.Invalid(clusterSpecPath.Child("enableInTreeAutoscaling"), clusterSpec.EnableInTreeAutoscaling, "a kueue managed job should not use autoscaling"))
-		}
 
 		// Should limit the worker count to 8 - 1 (max podSets num - cluster head)
 		if len(clusterSpec.WorkerGroupSpecs) > 7 {

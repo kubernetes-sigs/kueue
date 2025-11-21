@@ -630,7 +630,16 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	if workloadSliceEnabled(job) {
 		// Start workload-slice schedule-gated pods (if any).
 		log.V(3).Info("Job running with admitted workload slice, start pods.")
-		return ctrl.Result{}, workloadslicing.StartWorkloadSlicePods(ctx, r.client, object)
+		// Check if job implements JobWithPodLabelSelector interface
+		var podLabelSelector string
+		if jobWithPodLabelSelector, ok := job.(JobWithPodLabelSelector); ok {
+			podLabelSelector = jobWithPodLabelSelector.PodLabelSelector()
+			log.V(10).Info("Using PodLabelSelector from job", "podLabelSelector", podLabelSelector)
+		} else {
+			log.V(10).Info("Not using PodLabelSelector from job")
+		}
+
+		return ctrl.Result{}, workloadslicing.StartWorkloadSlicePods(ctx, r.client, object, podLabelSelector)
 	}
 
 	// workload is admitted and job is running, nothing to do.
@@ -1506,11 +1515,15 @@ func clearMinCountsIfFeatureDisabled(in []kueue.PodSet) []kueue.PodSet {
 	return in
 }
 
-// workloadSliceEnabled returns true if all the following conditions are met:
+// WorkloadSliceEnabled returns true if all the following conditions are met:
 //   - The ElasticJobsViaWorkloadSlices feature is enabled.
 //   - The provided job is not nil.
 //   - The job's underlying object is not nil.
 //   - The job's object has opted in for WorkloadSlice processing.
+func WorkloadSliceEnabled(job GenericJob) bool {
+	return workloadSliceEnabled(job)
+}
+
 func workloadSliceEnabled(job GenericJob) bool {
 	if job == nil {
 		return false
