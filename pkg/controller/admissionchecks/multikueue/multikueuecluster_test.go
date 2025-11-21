@@ -298,7 +298,7 @@ func TestUpdateConfig(t *testing.T) {
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.PathLocationType, "").
-					Active(metav1.ConditionFalse, "BadKubeConfig", "load client config failed: open : no such file or directory", 1).
+					Active(metav1.ConditionFalse, MultiKueueClusterBadKubeConfigReason, "load client config failed: open : no such file or directory", 1).
 					Generation(1).
 					Obj(),
 			},
@@ -455,7 +455,7 @@ func TestUpdateConfig(t *testing.T) {
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.SecretLocationType, "worker1").
-					Active(metav1.ConditionFalse, "InsecureKubeConfig", "load client config failed: tokenFile is not allowed", 1).
+					Active(metav1.ConditionFalse, MultiKueueClusterInsecureKubeConfigReason, "load client config failed: tokenFile is not allowed", 1).
 					Generation(1).
 					Obj(),
 			},
@@ -478,7 +478,7 @@ func TestUpdateConfig(t *testing.T) {
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.SecretLocationType, "worker1").
-					Active(metav1.ConditionFalse, "InsecureKubeConfig", "load client config failed: tokenFile is not allowed", 1).
+					Active(metav1.ConditionFalse, MultiKueueClusterInsecureKubeConfigReason, "load client config failed: tokenFile is not allowed", 1).
 					Generation(1).
 					Obj(),
 			},
@@ -563,7 +563,7 @@ func TestUpdateConfig(t *testing.T) {
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					ClusterProfile("worker1", TestNamespace).
-					Active(metav1.ConditionFalse, "BadClusterProfile", "load client config failed: unsupported credential provider", 1).
+					Active(metav1.ConditionFalse, MultiKueueClusterBadClusterProfileReason, "load client config failed: unsupported credential provider", 1).
 					Generation(1).
 					Obj(),
 			},
@@ -587,7 +587,7 @@ func TestUpdateConfig(t *testing.T) {
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					ClusterProfile("worker1", TestNamespace).
-					Active(metav1.ConditionFalse, "BadClusterProfile", "load client config failed: clusterprofiles.multicluster.x-k8s.io \"worker1\" not found", 1).
+					Active(metav1.ConditionFalse, MultiKueueClusterBadClusterProfileReason, "load client config failed: clusterprofiles.multicluster.x-k8s.io \"worker1\" not found", 1).
 					Generation(1).
 					Obj(),
 			},
@@ -608,7 +608,7 @@ func TestUpdateConfig(t *testing.T) {
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					ClusterProfile("worker1", TestNamespace).
-					Active(metav1.ConditionFalse, "MultiKueueClusterProfileFeatureDisabled", "load client config failed: MultiKueueClusterProfile feature gate is disabled", 1).
+					Active(metav1.ConditionFalse, MultiKueueClusterProfileFeatureDisabledReason, "load client config failed: MultiKueueClusterProfile feature gate is disabled", 1).
 					Generation(1).
 					Obj(),
 			},
