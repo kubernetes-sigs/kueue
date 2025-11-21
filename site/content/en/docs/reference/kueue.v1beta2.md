@@ -804,6 +804,13 @@ policy can be preempted by the borrowing workload.</p>
    <p>name of the ClusterProfile.</p>
 </td>
 </tr>
+<tr><td><code>namespace</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>namespace of the ClusterProfile.</p>
+</td>
+</tr>
 </tbody>
 </table>
 

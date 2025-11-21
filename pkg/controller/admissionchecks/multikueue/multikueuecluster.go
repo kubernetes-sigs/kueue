@@ -583,7 +583,7 @@ func (c *clustersReconciler) getKubeConfig(ctx context.Context, ref *kueue.KubeC
 
 func (c *clustersReconciler) getRestConfigFromClusterProfile(ctx context.Context, profileRef *kueue.ClusterProfileReference) (*rest.Config, bool, error) {
 	cp := &inventoryv1alpha1.ClusterProfile{}
-	if err := c.localClient.Get(ctx, types.NamespacedName{Name: profileRef.Name, Namespace: c.configNamespace}, cp); err != nil {
+	if err := c.localClient.Get(ctx, types.NamespacedName{Name: profileRef.Name, Namespace: profileRef.Namespace}, cp); err != nil {
 		return nil, !apierrors.IsNotFound(err), err
 	}
 

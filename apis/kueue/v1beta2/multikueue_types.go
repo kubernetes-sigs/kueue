@@ -85,6 +85,12 @@ type ClusterProfileReference struct {
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	Name string `json:"name,omitempty"`
+
+	// namespace of the ClusterProfile.
+	// +kubebuilder:validation:MaxLength=256
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Namespace string `json:"namespace,omitempty"`
 }
 
 type MultiKueueClusterStatus struct {

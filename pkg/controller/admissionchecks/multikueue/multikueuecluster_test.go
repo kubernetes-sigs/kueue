@@ -535,7 +535,7 @@ func TestUpdateConfig(t *testing.T) {
 			reconcileFor: "worker1",
 			clusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
-					ClusterProfile("worker1").
+					ClusterProfile("worker1", TestNamespace).
 					Generation(1).
 					Obj(),
 			},
@@ -550,7 +550,7 @@ func TestUpdateConfig(t *testing.T) {
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
-					ClusterProfile("worker1").
+					ClusterProfile("worker1", TestNamespace).
 					Active(metav1.ConditionTrue, "Active", "Connected", 1).
 					Generation(1).
 					Obj(),
@@ -567,7 +567,7 @@ func TestUpdateConfig(t *testing.T) {
 			reconcileFor: "worker1",
 			clusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
-					ClusterProfile("worker1").
+					ClusterProfile("worker1", TestNamespace).
 					Generation(1).
 					Obj(),
 			},
@@ -580,7 +580,7 @@ func TestUpdateConfig(t *testing.T) {
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
-					ClusterProfile("worker1").
+					ClusterProfile("worker1", TestNamespace).
 					Active(metav1.ConditionFalse, "BadClusterProfile", "load client config failed: unsupported credential provider", 1).
 					Generation(1).
 					Obj(),
@@ -591,7 +591,7 @@ func TestUpdateConfig(t *testing.T) {
 			reconcileFor: "worker1",
 			clusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
-					ClusterProfile("worker1").
+					ClusterProfile("worker1", TestNamespace).
 					Generation(1).
 					Obj(),
 			},
@@ -604,7 +604,7 @@ func TestUpdateConfig(t *testing.T) {
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
-					ClusterProfile("worker1").
+					ClusterProfile("worker1", TestNamespace).
 					Active(metav1.ConditionFalse, "BadClusterProfile", "load client config failed: clusterprofiles.multicluster.x-k8s.io \"worker1\" not found", 1).
 					Generation(1).
 					Obj(),
@@ -615,7 +615,7 @@ func TestUpdateConfig(t *testing.T) {
 			reconcileFor: "worker1",
 			clusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
-					ClusterProfile("worker1").
+					ClusterProfile("worker1", TestNamespace).
 					Generation(1).
 					Obj(),
 			},
@@ -625,7 +625,7 @@ func TestUpdateConfig(t *testing.T) {
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
-					ClusterProfile("worker1").
+					ClusterProfile("worker1", TestNamespace).
 					Active(metav1.ConditionFalse, "MultiKueueClusterProfileFeatureDisabled", "load client config failed: MultiKueueClusterProfile feature gate is disabled", 1).
 					Generation(1).
 					Obj(),
@@ -636,7 +636,7 @@ func TestUpdateConfig(t *testing.T) {
 			reconcileFor: "invalid",
 			clusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("invalid").
-					ClusterProfile("invalid").
+					ClusterProfile("invalid", TestNamespace).
 					Generation(1).
 					Obj(),
 			},
@@ -651,7 +651,7 @@ func TestUpdateConfig(t *testing.T) {
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("invalid").
-					ClusterProfile("invalid").
+					ClusterProfile("invalid", TestNamespace).
 					Active(metav1.ConditionFalse, "BadRestConfig", "load client config failed: bearerTokenFile is not allowed", 1).
 					Generation(1).
 					Obj(),
