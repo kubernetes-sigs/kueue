@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	utilclient "sigs.k8s.io/kueue/pkg/util/client"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
 )
@@ -175,17 +176,21 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		constants.SafeToForcefullyTerminateAnnotationKey,
 	)
 
-	podPatch := pod.DeepCopy()
-	podPatch.Status.Phase = corev1.PodFailed
-	podPatch.Status.Conditions = append(podPatch.Status.Conditions, corev1.PodCondition{
-		Type:    KueueFailureRecoveryConditionType,
-		Status:  corev1.ConditionTrue,
-		Reason:  KueueForcefulTerminationReason,
-		Message: eventMessage,
+	err := utilclient.PatchStatus(ctx, r.client, pod, func() (bool, error) {
+		pod.Status.Phase = corev1.PodFailed
+		pod.Status.Conditions = append(pod.Status.Conditions, corev1.PodCondition{
+			Type:    KueueFailureRecoveryConditionType,
+			Status:  corev1.ConditionTrue,
+			Reason:  KueueForcefulTerminationReason,
+			Message: eventMessage,
+		})
+		return true, nil
 	})
-	if err := r.client.Status().Patch(ctx, podPatch, client.MergeFrom(pod)); err != nil {
+
+	if err != nil {
 		return ctrl.Result{}, err
 	}
+
 	r.recorder.Event(pod, corev1.EventTypeWarning, KueueForcefulTerminationReason, eventMessage)
 
 	return ctrl.Result{}, nil
