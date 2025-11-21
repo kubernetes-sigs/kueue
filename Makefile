@@ -127,6 +127,7 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 		rbac:roleName=manager-role output:rbac:artifacts:config=config/components/rbac\
 		webhook output:webhook:artifacts:config=config/components/webhook\
 		paths="./pkg/controller/...;./pkg/webhooks/...;./pkg/util/cert/...;./pkg/visibility/..."
+	git restore -- config/components/crd/bases
 	$(MAKE) compile-crd-manifests
 
 .PHONY: compile-crd-manifests
@@ -145,6 +146,11 @@ generate: gomod-download generate-mocks generate-apiref generate-code generate-k
 generate-code: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations and client-go libraries.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./apis/..."
 	TOOLS_DIR=${TOOLS_DIR} ./hack/update-codegen.sh $(GO_CMD)
+	rm -rv ./apis/*/v1/zz_*
+	git clean -fd -- ./apis/*/v1/**
+	git restore -- client-go/
+	git clean -fd -- client-go/
+	git restore -- apis/visibility/openapi/
 
 .PHONY: generate-mocks
 generate-mocks: mockgen ## Generate mockgen mocks
