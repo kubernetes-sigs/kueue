@@ -35,8 +35,8 @@ func (c *FakeKueueV1beta1) ClusterQueues() v1beta1.ClusterQueueInterface {
 	return newFakeClusterQueues(c)
 }
 
-func (c *FakeKueueV1beta1) Cohorts(namespace string) v1beta1.CohortInterface {
-	return newFakeCohorts(c, namespace)
+func (c *FakeKueueV1beta1) Cohorts() v1beta1.CohortInterface {
+	return newFakeCohorts(c)
 }
 
 func (c *FakeKueueV1beta1) LocalQueues(namespace string) v1beta1.LocalQueueInterface {
