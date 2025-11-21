@@ -52,7 +52,7 @@ type KubeConfig struct {
 	// +kubebuilder:validation:MaxLength=256
 	// +kubebuilder:validation:MinLength=1
 	// +required
-	Location string `json:"location,omitempty"`
+	Location string `json:"location"`
 
 	// locationType of the KubeConfig.
 	//

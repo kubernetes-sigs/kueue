@@ -94,7 +94,7 @@ linters:
       path: "apis/kueue/v1beta2"
 
     # Required fields that intentionally exclude omitempty
-    - text: "requiredfields: field (ControllerName|LastUpdate|Reason|UnderlyingCause|Message|WeightedShare|Value|ConsumedResources) should have the omitempty tag."
+    - text: "requiredfields: field (ControllerName|LastUpdate|Reason|UnderlyingCause|Message|WeightedShare|Value|ConsumedResources|Location) should have the omitempty tag."
       path: "apis/kueue/v1beta2"
 
     # ResourceList fields (map types required for Kubernetes compatibility)
