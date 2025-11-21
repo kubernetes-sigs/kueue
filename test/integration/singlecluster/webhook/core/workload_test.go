@@ -1591,20 +1591,21 @@ var _ = ginkgo.Describe("TopologyAssignment validation", ginkgo.Ordered, func() 
 
 	var _ = ginkgo.DescribeTable("kubebuilder XValidation rule set",
 		func(tasAssignment kueue.TopologyAssignment, expectedOutcome gomegatypes.GomegaMatcher) {
-			wl.Status = kueue.WorkloadStatus{
-				Admission: &kueue.Admission{
-					ClusterQueue: "cq1",
-					PodSetAssignments: []kueue.PodSetAssignment{
-						{
-							Name:               "ps1",
-							TopologyAssignment: ptr.To(tasAssignment),
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				wl.Status = kueue.WorkloadStatus{
+					Admission: &kueue.Admission{
+						ClusterQueue: "cq1",
+						PodSetAssignments: []kueue.PodSetAssignment{
+							{
+								Name:               "ps1",
+								TopologyAssignment: ptr.To(tasAssignment),
+							},
 						},
 					},
-				},
-			}
-			gomega.Eventually(func(g gomega.Gomega) {
+				}
 				g.Expect(k8sClient.Status().Update(ctx, wl)).To(expectedOutcome)
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		},
 		ginkgo.Entry("accepts a TopologyAssignment combining various item counts & patterns of subfield presence",
 			// 2 levels, 5 slices, 3 domains in first slice, 4 domains in second slice
