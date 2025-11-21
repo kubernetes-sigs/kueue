@@ -86,8 +86,13 @@ func (f *Framework) Init() *rest.Config {
 	ginkgo.By("bootstrapping test environment", func() {
 		baseCrdPath := filepath.Join(util.GetProjectBaseDir(), "config", "components", "crd", "_output")
 		f.testEnv = &envtest.Environment{
-			CRDDirectoryPaths:     append(f.DepCRDPaths, baseCrdPath),
-			ErrorIfCRDPathMissing: true,
+			CRDDirectoryPaths:        append(f.DepCRDPaths, baseCrdPath),
+			ErrorIfCRDPathMissing:    true,
+			ControlPlaneStartTimeout: 300 * time.Second,
+			CRDInstallOptions: envtest.CRDInstallOptions{
+				MaxTime:         300 * time.Second,
+				CleanUpAfterUse: true,
+			},
 		}
 		var err error
 		f.testEnv.Scheme = scheme.Scheme
