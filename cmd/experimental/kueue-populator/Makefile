@@ -26,6 +26,22 @@ BASE_BUILDER_IMAGE ?= golang:1.25.0
 BUILDER_IMAGE ?= $(BASE_BUILDER_IMAGE)
 CGO_ENABLED ?= 0
 
+# Integration tests
+ROOT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))/../../..
+BIN_DIR := $(ROOT_DIR)/bin
+ENVTEST := $(BIN_DIR)/setup-envtest
+GINKGO := $(BIN_DIR)/ginkgo
+GOTESTSUM := $(BIN_DIR)/gotestsum
+ARTIFACTS ?= $(ROOT_DIR)/artifacts
+ENVTEST_K8S_VERSION ?= 1.34
+INTEGRATION_NPROCS ?= 4
+CONTROLLER_GEN := $(BIN_DIR)/controller-gen
+
+YAML_PROCESSOR = $(BIN_DIR)/yaml-processor
+YAML_PROCESSOR_LOG_LEVEL ?= info
+
+HELM ?= helm
+
 .PHONY: all
 all: fmt vet build
 
@@ -62,15 +78,6 @@ kind-image-build: PUSH=--load
 kind-image-build: image-build
 
 # Integration tests
-ROOT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))/../../..
-BIN_DIR := $(ROOT_DIR)/bin
-ENVTEST := $(BIN_DIR)/setup-envtest
-GINKGO := $(BIN_DIR)/ginkgo
-GOTESTSUM := $(BIN_DIR)/gotestsum
-ARTIFACTS ?= $(ROOT_DIR)/artifacts
-ENVTEST_K8S_VERSION ?= 1.34
-INTEGRATION_NPROCS ?= 4
-CONTROLLER_GEN := $(BIN_DIR)/controller-gen
 
 .PHONY: manifests
 manifests:
@@ -91,8 +98,6 @@ test: ## Run unit tests.
 	GOWORK=off $(GOTESTSUM) --junitfile $(ARTIFACTS)/junit-unit.xml -- \
 		-race -coverpkg=./... -coverprofile $(ARTIFACTS)/cover-unit.out ./pkg/controller/...
 
-YAML_PROCESSOR = $(BIN_DIR)/yaml-processor
-YAML_PROCESSOR_LOG_LEVEL ?= info
 
 .PHONY: update-helm
 update-helm: manifests $(YAML_PROCESSOR)
@@ -101,7 +106,7 @@ update-helm: manifests $(YAML_PROCESSOR)
 $(YAML_PROCESSOR):
 	cd $(ROOT_DIR) && $(MAKE) yaml-processor
 
-HELM ?= helm
+
 
 .PHONY: helm-lint
 helm-lint: ## Run Helm chart lint test.
