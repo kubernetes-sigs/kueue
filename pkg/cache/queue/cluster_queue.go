@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -567,8 +568,8 @@ func queueOrderingFunc(ctx context.Context, c client.Client, wo workload.Orderin
 			case errB != nil:
 				log.V(2).Error(errB, "Error determining LocalQueue usage")
 			default:
-				log.V(3).Info("Resource usage from LocalQueue", "LocalQueue", a.Obj.Spec.QueueName, "Usage", lqAUsage)
-				log.V(3).Info("Resource usage from LocalQueue", "LocalQueue", b.Obj.Spec.QueueName, "Usage", lqBUsage)
+				log.V(3).Info("Resource usage from LocalQueue", "localQueue", klog.KRef(a.Obj.Namespace, string(a.Obj.Spec.QueueName)), "usage", lqAUsage)
+				log.V(3).Info("Resource usage from LocalQueue", "localQueue", klog.KRef(b.Obj.Namespace, string(b.Obj.Spec.QueueName)), "usage", lqBUsage)
 				if lqAUsage != lqBUsage {
 					return lqAUsage < lqBUsage
 				}
