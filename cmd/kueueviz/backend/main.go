@@ -17,13 +17,21 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"log"
+	"os/signal"
+	"syscall"
 
 	"kueueviz/config"
 	"kueueviz/handlers"
+
+	_ "sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 )
 
 func main() {
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer cancel()
+
 	// Initialize server configuration
 	serverConfig := config.NewServerConfig()
 
@@ -31,7 +39,7 @@ func main() {
 	config.SetupPprof()
 
 	// Create Kubernetes client
-	_, dynamicClient, err := createK8sClient()
+	dynamicClient, mngr, err := createK8sClient()
 	if err != nil {
 		log.Fatalf("Error creating Kubernetes client: %v", err)
 	}
@@ -43,10 +51,18 @@ func main() {
 	}
 
 	// Initialize routes
-	handlers.InitializeWebSocketRoutes(r, dynamicClient)
+	handlers.InitializeWebSocketRoutes(r, mngr.GetClient())
 	handlers.InitializeAPIRoutes(r, dynamicClient)
 
+	// Start manager in a separate goroutine
+	go func() {
+		if err = mngr.Start(ctx); err != nil {
+			log.Fatalf("Failed to start manager: %v", err)
+		}
+	}()
+
 	// Start server
+	// TODO: bind gin to context
 	if err := r.Run(serverConfig.GetServerAddress()); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}

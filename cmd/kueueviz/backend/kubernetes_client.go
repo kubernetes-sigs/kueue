@@ -21,14 +21,27 @@ import (
 	"os"
 	"path/filepath"
 
+	schedulingv1 "k8s.io/api/scheduling/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/kubernetes"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+)
+
+var (
+	scheme = runtime.NewScheme()
 )
 
 // createK8sClient initializes Kubernetes clients, checking for in-cluster or local kubeconfig
-func createK8sClient() (*kubernetes.Clientset, dynamic.Interface, error) {
+func createK8sClient() (dynamic.Interface, manager.Manager, error) {
 	var config *rest.Config
 	var err error
 
@@ -53,17 +66,28 @@ func createK8sClient() (*kubernetes.Clientset, dynamic.Interface, error) {
 		fmt.Printf("Using kubeconfig: %s\n", kubeconfig)
 	}
 
-	// Create the Kubernetes clientset
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create Kubernetes clientset: %v", err)
-	}
-
 	// Create the dynamic client
 	dynamicClient, err := dynamic.NewForConfig(config)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create dynamic client: %v", err)
 	}
 
-	return clientset, dynamicClient, nil
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(schedulingv1.AddToScheme(scheme))
+
+	utilruntime.Must(kueue.AddToScheme(scheme))
+	utilruntime.Must(kueuev1beta1.AddToScheme(scheme))
+	utilruntime.Must(kueuealpha.AddToScheme(scheme))
+
+	opts := ctrl.Options{
+		Scheme:  scheme,
+		Metrics: metricsserver.Options{BindAddress: "0"}, // Disable metrics serving
+	}
+
+	mngr, err := ctrl.NewManager(config, opts)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create controller-runtime manager: %v", err)
+	}
+
+	return dynamicClient, mngr, nil
 }
