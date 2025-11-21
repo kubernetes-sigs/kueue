@@ -10,15 +10,15 @@ spec:
   serviceAccountName: "{{ .Release.Name }}-test-sa"
   containers:
     - name: check-clusterqueue
-      image: registry.k8s.io/kubectl:v1.33.0
+      image: registry.k8s.io/kubectl:v1.33.6
       command: ["kubectl"]
       args: ["get", "clusterqueue", "{{ .Values.kueuePopulator.config.clusterQueueName }}"]
     - name: check-resourceflavor
-      image: registry.k8s.io/kubectl:v1.33.0
+      image: registry.k8s.io/kubectl:v1.33.6
       command: ["kubectl"]
       args: ["get", "resourceflavor", "tas-gpu-default"]
     - name: check-localqueue-default
-      image: registry.k8s.io/kubectl:v1.33.0
+      image: registry.k8s.io/kubectl:v1.33.6
       command: ["kubectl"]
       args: ["get", "localqueue", "-n", "default", "{{ .Values.kueuePopulator.config.localQueueName }}"]
   restartPolicy: Never
