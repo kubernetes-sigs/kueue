@@ -26,7 +26,8 @@ Kueue 通过为 RayService 创建的 RayCluster 来管理 RayService。
 
 {{% alert title="注意" color="primary" %}}
 RayService 通过 RayCluster 由 Kueue 管理；
-在 v0.8.1 之前，你需要在完成安装后重启 Kueue 才能使用 RayCluster。你可以通过运行 `kubectl delete pods -l control-plane=controller-manager -n kueue-system` 来完成此操作。
+在 v0.8.1 之前，你需要在完成安装后重启 Kueue 才能使用 RayCluster。你可以通过运行
+`kubectl delete pods -l control-plane=controller-manager -n kueue-system` 来完成此操作。
 {{% /alert %}}
 
 ## RayService 定义 {#rayservice-definition}
