@@ -9,7 +9,7 @@ resources:
 - manager/controller_config_map.yaml
 
 images:
-- name: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-prepopulator
-  newName: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-prepopulator
-  newTag: main
+- name: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-populator
+  newName: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-populator
+  newTag: e533ba333-dirty
 namespace: kueue-system

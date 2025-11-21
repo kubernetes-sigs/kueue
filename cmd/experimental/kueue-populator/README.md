@@ -1,6 +1,6 @@
 # Kueue Prepopulator
 
-The `kueue-prepopulator` is an experimental controller that automatically creates a `LocalQueue` in namespaces that match a `ClusterQueue`'s `namespaceSelector`. This simplifies the setup for users who want to automatically provision `LocalQueue`s without manual intervention.
+The `kueue-populator` is an experimental controller that automatically creates a `LocalQueue` in namespaces that match a `ClusterQueue`'s `namespaceSelector`. This simplifies the setup for users who want to automatically provision `LocalQueue`s without manual intervention.
 
 ## Purpose
 
@@ -8,13 +8,13 @@ This component demonstrates how to extend Kueue's functionality with custom cont
 
 ## Build
 
-To build the `kueue-prepopulator` binary:
+To build the `kueue-populator` binary:
 
 ```bash
 make build
 ```
 
-This will create the executable `bin/manager` in the current directory (`cmd/experimental/kueue-prepopulator/bin`).
+This will create the executable `bin/manager` in the current directory (`cmd/experimental/kueue-populator/bin`).
 
 To build the container image:
 
@@ -22,13 +22,13 @@ To build the container image:
 make image-build
 ```
 
-The image will be tagged as `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-prepopulator:$(GIT_TAG)`.
+The image will be tagged as `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-populator:$(GIT_TAG)`.
 
 ## Deploy
 
-The `kueue-prepopulator` can be deployed to a Kubernetes cluster using the Kustomize manifests located in the `config/` directory.
+The `kueue-populator` can be deployed to a Kubernetes cluster using the Kustomize manifests located in the `config/` directory.
 
-1.  **Ensure Kueue is installed:** The `kueue-prepopulator` relies on Kueue CRDs and assumes a Kueue installation is present in the cluster.
+1.  **Ensure Kueue is installed:** The `kueue-populator` relies on Kueue CRDs and assumes a Kueue installation is present in the cluster.
 2.  **Apply manifests (to an existing cluster):**
 
     ```bash
@@ -37,7 +37,7 @@ The `kueue-prepopulator` can be deployed to a Kubernetes cluster using the Kusto
 
 ### Deploying to Kind with a Local Image
 
-To deploy the `kueue-prepopulator` using a locally built image into a Kind cluster:
+To deploy the `kueue-populator` using a locally built image into a Kind cluster:
 
 1.  **Build and Load Image:** Ensure you have built the image for your local environment:
 
@@ -54,7 +54,7 @@ To deploy the `kueue-prepopulator` using a locally built image into a Kind clust
     ```
     
 ## Configuration
-The `kueue-prepopulator` supports the following command-line flags:
+The `kueue-populator` supports the following command-line flags:
 
 *   `--local-queue-name`: The name of the `LocalQueue` to create by default in selected namespaces. Defaults to `"default"`.
 *   `--zap-log-level`: Sets the logging verbosity level for the Zap logger (e.g., `info`, `debug`, `error`).
@@ -70,7 +70,7 @@ To set these flags, modify the `args` list in the `Deployment` manifest (`config
 
 ## Testing
 
-The `kueue-prepopulator` project includes unit, integration, and end-to-end (e2e) tests to ensure its functionality and reliability.
+The `kueue-populator` project includes unit, integration, and end-to-end (e2e) tests to ensure its functionality and reliability.
 
 ### Unit Tests
 

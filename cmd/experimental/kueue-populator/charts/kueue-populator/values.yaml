@@ -1,0 +1,72 @@
+# Configuration for the Kueue Prepopulator component
+kueuePopulator:
+  image:
+    # REQUIRED: Specify the repository where your kueue-populator image is pushed.
+    # Example: <YOUR_REGISTRY>/kueue-populator
+    repository: null
+    # REQUIRED: Specify the tag of the image you want to deploy.
+    # Example: latest
+    tag: null
+    pullPolicy: IfNotPresent
+  
+  # Optional: imagePullSecrets
+  # imagePullSecrets:
+  #   - name: regcred
+  
+  # Configuration for the controller
+  config:
+    localQueueName: "default"
+    clusterQueueName: "cluster-queue"
+    
+    # Defaults for the created ClusterQueue
+    resources:
+      - name: "cpu"
+        nominalQuota: "10"
+      - name: "memory"
+        nominalQuota: "10Gi"
+      - name: "nvidia.com/gpu"
+        nominalQuota: "100"
+    
+    # List of topology levels. 
+    # Example:
+    # tasLevels:
+    #   - name: cloud.google.com/gke-nodepool
+    tasLevels: []
+    
+    # Node labels to associate with the ResourceFlavor
+    # Example:
+    # nodeLabel:
+    #   cloud.google.com/gke-nodepool: "default-pool"
+    nodeLabel: {}
+
+    managedJobsNamespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values: [ "kube-system", "kueue-system" ]
+
+  resources:
+    limits:
+      cpu: 100m
+      memory: 100Mi
+    requests:
+      cpu: 100m
+      memory: 100Mi
+
+# Default values for the dependency 'kueue'
+kueue:
+  enabled: true
+  managerConfig:
+    controllerManagerConfigYaml: |-
+      apiVersion: config.kueue.x-k8s.io/v1beta1
+      kind: Configuration
+      # EXCLUDE kueue-system from webhooks to prevent deadlock with the post-install hook
+      managedJobsNamespaceSelector:
+        matchExpressions:
+          - key: kubernetes.io/metadata.name
+            operator: NotIn
+            values: [ "kube-system", "kueue-system" ]
+  controllerManager:
+    featureGates:
+      - name: TopologyAwareScheduling
+        enabled: true

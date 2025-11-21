@@ -11,7 +11,7 @@ where they will be maintained long term.
 
 ### Existing integrations
 
-- `kueue-prepopulator`
+- `kueue-populator`
 
 ### Adding new integrations
 

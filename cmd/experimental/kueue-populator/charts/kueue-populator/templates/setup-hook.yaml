@@ -1,0 +1,136 @@
+# 1. ConfigMap containing Kueue resource definitions
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-kueue-resources
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+data:
+  resources.yaml: |-
+{{- if .Values.kueuePopulator.config.tasLevels }}
+    apiVersion: kueue.x-k8s.io/v1beta1
+    kind: Topology
+    metadata:
+      name: "default"
+    spec:
+      levels:
+{{- range .Values.kueuePopulator.config.tasLevels }}
+        - nodeLabel: {{ .name | quote }}
+{{- end }}
+    ---
+{{- end }}
+    kind: ResourceFlavor
+    apiVersion: kueue.x-k8s.io/v1beta1
+    metadata:
+      name: "tas-gpu-default"
+    spec:
+      {{- with .Values.kueuePopulator.config.nodeLabel }}
+      nodeLabels:
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.kueuePopulator.config.tasLevels }}
+      topologyName: "default"
+      {{- end }}
+      tolerations:
+      - key: "nvidia.com/gpu"
+        operator: "Exists"
+        effect: NoSchedule
+    ---
+    apiVersion: kueue.x-k8s.io/v1beta1
+    kind: ClusterQueue
+    metadata:
+      name: {{ .Values.kueuePopulator.config.clusterQueueName | quote }}
+    spec:
+      namespaceSelector: {} # match all.
+      resourceGroups:
+      - coveredResources:
+{{- range .Values.kueuePopulator.config.resources }}
+        - {{ .name | quote }}
+{{- end }}
+        flavors:
+        - name: "tas-gpu-default"
+          resources:
+{{- range .Values.kueuePopulator.config.resources }}
+          - name: {{ .name | quote }}
+            nominalQuota: {{ .nominalQuota }}
+{{- end }}
+---
+# 2. Service Account for the Job
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-kueue-hook-sa
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation
+
+---
+# 3. ClusterRole with required permissions
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-kueue-hook-clusterrole
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation
+rules:
+- apiGroups: ["kueue.x-k8s.io"]
+  resources: ["topologies", "resourceflavors", "clusterqueues", "localqueues"]
+  verbs: ["create", "get", "list", "patch", "update"]
+- apiGroups: [""] # Core API group
+  resources: ["configmaps", "endpoints"]
+  verbs: ["get"]
+
+---
+# 4. A ClusterRoleBinding to grant the permissions cluster-wide
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-kueue-hook-crb
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-kueue-hook-clusterrole
+subjects:
+- kind: ServiceAccount
+  name: {{ .Release.Name }}-kueue-hook-sa
+  namespace: {{ .Release.Namespace }}
+---
+# 5. The Job that waits and applies the resources
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: "{{ .Release.Name }}-create-kueue-resources-job"
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": hook-succeeded,before-hook-creation
+spec:
+  template:
+    spec:
+      serviceAccountName: {{ .Release.Name }}-kueue-hook-sa
+      containers:
+      - name: kubectl-apply
+        image: registry.k8s.io/kubectl:v1.33.6
+        command:
+        - kubectl
+        - apply
+        - -f
+        - /etc/config/resources.yaml
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/config
+      restartPolicy: Never
+      volumes:
+      - name: config-volume
+        configMap:
+          name: {{ .Release.Name }}-kueue-resources
+  backoffLimit: 5
