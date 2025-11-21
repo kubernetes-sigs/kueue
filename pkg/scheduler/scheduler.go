@@ -303,7 +303,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			if preempted != 0 {
 				e.inadmissibleMsg += fmt.Sprintf(". Pending the preemption of %d workload(s)", preempted)
 				e.requeueReason = qcache.RequeueReasonPendingPreemption
-			} else {
+			} else if errors > 0 {
 				e.inadmissibleMsg += fmt.Sprintf(". Preempting %d workload(s) failed, will retry.", errors)
 				e.requeueReason = qcache.RequeueReasonPreemptionFailed
 			}
