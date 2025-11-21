@@ -689,10 +689,10 @@ func TestUpdateConfig(t *testing.T) {
 			}
 
 			// Create test kubeconfig file for path location type
-			if tc.clusters != nil && tc.clusters[0].Spec.KubeConfig != nil && tc.clusters[0].Spec.KubeConfig.LocationType == kueue.PathLocationType && tc.clusters[0].Spec.KubeConfig.Location != "" {
+			if tc.clusters != nil && tc.clusters[0].Spec.ClusterSource.KubeConfig != nil && tc.clusters[0].Spec.ClusterSource.KubeConfig.LocationType == kueue.PathLocationType && tc.clusters[0].Spec.ClusterSource.KubeConfig.Location != "" {
 				kubeconfigBytes := testKubeconfig("worker1")
-				if err := os.WriteFile(tc.clusters[0].Spec.KubeConfig.Location, []byte(kubeconfigBytes), 0666); err != nil {
-					t.Errorf("Failed to create test file (%s): %v", tc.clusters[0].Spec.KubeConfig.Location, err)
+				if err := os.WriteFile(tc.clusters[0].Spec.ClusterSource.KubeConfig.Location, []byte(kubeconfigBytes), 0666); err != nil {
+					t.Errorf("Failed to create test file (%s): %v", tc.clusters[0].Spec.ClusterSource.KubeConfig.Location, err)
 				}
 			}
 

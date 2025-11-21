@@ -375,7 +375,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdCluster := &kueue.MultiKueueCluster{}
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster2), createdCluster)).To(gomega.Succeed())
-					createdCluster.Spec.KubeConfig.Location = "bad-secret"
+					createdCluster.Spec.ClusterSource.KubeConfig.Location = "bad-secret"
 					g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, createdCluster)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -414,7 +414,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdCluster := &kueue.MultiKueueCluster{}
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster1), createdCluster)).To(gomega.Succeed())
-					createdCluster.Spec.KubeConfig.Location = "bad-secret"
+					createdCluster.Spec.ClusterSource.KubeConfig.Location = "bad-secret"
 					g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, createdCluster)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -460,7 +460,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdCluster := &kueue.MultiKueueCluster{}
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster2), createdCluster)).To(gomega.Succeed())
-					createdCluster.Spec.KubeConfig.Location = managerMultiKueueSecret2.Name
+					createdCluster.Spec.ClusterSource.KubeConfig.Location = managerMultiKueueSecret2.Name
 					g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, createdCluster)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -486,7 +486,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdCluster := &kueue.MultiKueueCluster{}
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster1), createdCluster)).To(gomega.Succeed())
-					createdCluster.Spec.KubeConfig.Location = managerMultiKueueSecret1.Name
+					createdCluster.Spec.ClusterSource.KubeConfig.Location = managerMultiKueueSecret1.Name
 					g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, createdCluster)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 

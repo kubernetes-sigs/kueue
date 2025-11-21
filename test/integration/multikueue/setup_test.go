@@ -768,8 +768,8 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			updatedCluster := kueue.MultiKueueCluster{}
 			ginkgo.By("updating the cluster spec", func() {
 				gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, clusterKey, &updatedCluster)).To(gomega.Succeed())
-				updatedCluster.Spec.KubeConfig.LocationType = kueue.SecretLocationType
-				updatedCluster.Spec.KubeConfig.Location = secret.Name
+				updatedCluster.Spec.ClusterSource.KubeConfig.LocationType = kueue.SecretLocationType
+				updatedCluster.Spec.ClusterSource.KubeConfig.Location = secret.Name
 				gomega.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, &updatedCluster)).To(gomega.Succeed())
 			})
 

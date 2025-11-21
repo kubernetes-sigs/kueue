@@ -18,6 +18,7 @@ package v1beta1
 
 import (
 	conversionapi "k8s.io/apimachinery/pkg/conversion"
+	"sigs.k8s.io/controller-runtime/pkg/conversion"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
@@ -25,20 +26,34 @@ import (
 //lint:file-ignore ST1003 "generated Convert_* calls below use underscores"
 //revive:disable:var-naming
 
+func (src *MultiKueueCluster) ConvertTo(dstRaw conversion.Hub) error {
+	dst := dstRaw.(*v1beta2.MultiKueueCluster)
+	return autoConvert_v1beta1_MultiKueueCluster_To_v1beta2_MultiKueueCluster(src, dst, nil)
+}
+
+func (dst *MultiKueueCluster) ConvertFrom(srcRaw conversion.Hub) error {
+	src := srcRaw.(*v1beta2.MultiKueueCluster)
+	return autoConvert_v1beta2_MultiKueueCluster_To_v1beta1_MultiKueueCluster(src, dst, nil)
+}
+
 func Convert_v1beta2_MultiKueueClusterSpec_To_v1beta1_MultiKueueClusterSpec(in *v1beta2.MultiKueueClusterSpec, out *MultiKueueClusterSpec, s conversionapi.Scope) error {
-	if in.KubeConfig != nil {
+	if in.ClusterSource.KubeConfig != nil {
 		out.KubeConfig = KubeConfig{
-			Location:     in.KubeConfig.Location,
-			LocationType: LocationType(in.KubeConfig.LocationType),
+			Location:     in.ClusterSource.KubeConfig.Location,
+			LocationType: LocationType(in.ClusterSource.KubeConfig.LocationType),
 		}
 	}
 	return autoConvert_v1beta2_MultiKueueClusterSpec_To_v1beta1_MultiKueueClusterSpec(in, out, s)
 }
 
 func Convert_v1beta1_MultiKueueClusterSpec_To_v1beta2_MultiKueueClusterSpec(in *MultiKueueClusterSpec, out *v1beta2.MultiKueueClusterSpec, s conversionapi.Scope) error {
-	out.KubeConfig = &v1beta2.KubeConfig{
-		Location:     in.KubeConfig.Location,
-		LocationType: v1beta2.LocationType(in.KubeConfig.LocationType),
+	if in.KubeConfig.Location != "" {
+		out.ClusterSource = v1beta2.ClusterSource{
+			KubeConfig: &v1beta2.KubeConfig{
+				Location:     in.KubeConfig.Location,
+				LocationType: v1beta2.LocationType(in.KubeConfig.LocationType),
+			},
+		}
 	}
 	return autoConvert_v1beta1_MultiKueueClusterSpec_To_v1beta2_MultiKueueClusterSpec(in, out, s)
 }
