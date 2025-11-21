@@ -114,9 +114,7 @@ helm-lint: ## Run Helm chart lint test.
 
 .PHONY: helm-verify
 helm-verify: helm-lint ## run helm template and detect any rendering failures
-# test default values
 	$(HELM) template charts/kueue-populator > /dev/null
-# test nondefault options
 	$(HELM) template charts/kueue-populator --set image.repository=my-repo --set image.tag=v1.0.0 > /dev/null
 
 .PHONY: helm-unit-test
