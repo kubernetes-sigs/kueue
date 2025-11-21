@@ -554,8 +554,7 @@ var (
 func TestReconciler(t *testing.T) {
 	// the clock is primarily used with second rounded times
 	// use the current time trimmed.
-	testStartTime := time.Now().Truncate(time.Second)
-	fakeClock := testingclock.NewFakeClock(testStartTime)
+	now := time.Now().Truncate(time.Second)
 
 	t.Cleanup(jobframework.EnableIntegrationsForTest(t, FrameworkName))
 	baseJobWrapper := utiltestingjob.MakeJob("job", "ns").
@@ -568,7 +567,7 @@ func TestReconciler(t *testing.T) {
 	baseWorkloadWrapper := utiltesting.MakeWorkload("wl", "ns").
 		Finalizers(kueue.ResourceInUseFinalizerName).
 		PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
-		ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj())
+		ReserveQuotaAt(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj(), now)
 
 	baseWPCWrapper := utiltesting.MakeWorkloadPriorityClass("test-wpc").
 		PriorityValue(100)
@@ -605,11 +604,11 @@ func TestReconciler(t *testing.T) {
 			job:     *baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.DeepCopy(),
 			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
-				Admitted(false).
+				AdmittedAt(false, now).
 				Obj(),
 			},
 			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
-				Admitted(false).
+				AdmittedAt(false, now).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
@@ -626,11 +625,11 @@ func TestReconciler(t *testing.T) {
 			job:     *baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.DeepCopy(),
 			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
-				Admitted(true).
+				AdmittedAt(true, now).
 				Obj(),
 			},
 			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
-				Admitted(true).
+				AdmittedAt(true, now).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
@@ -655,7 +654,7 @@ func TestReconciler(t *testing.T) {
 				Active(10).
 				Obj(),
 			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
-				Admitted(true).
+				AdmittedAt(true, now).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
@@ -665,7 +664,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			},
 			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
-				Admitted(true).
+				AdmittedAt(true, now).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
@@ -686,7 +685,7 @@ func TestReconciler(t *testing.T) {
 				Ready(10).
 				Obj(),
 			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
-				Admitted(true).
+				AdmittedAt(true, now).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
@@ -696,7 +695,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			},
 			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
-				Admitted(true).
+				AdmittedAt(true, now).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionTrue,
@@ -717,11 +716,11 @@ func TestReconciler(t *testing.T) {
 				Ready(10).
 				Obj(),
 			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
-				Admitted(true).
+				AdmittedAt(true, now).
 				Obj(),
 			},
 			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
-				Admitted(true).
+				AdmittedAt(true, now).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionTrue,
@@ -744,7 +743,7 @@ func TestReconciler(t *testing.T) {
 				Failed(1).
 				Obj(),
 			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
-				Admitted(true).
+				AdmittedAt(true, now).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionTrue,
@@ -754,7 +753,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			},
 			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
-				Admitted(true).
+				AdmittedAt(true, now).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
@@ -779,7 +778,7 @@ func TestReconciler(t *testing.T) {
 				Failed(1).
 				Obj(),
 			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
-				Admitted(true).
+				AdmittedAt(true, now).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
@@ -789,7 +788,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			},
 			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
-				Admitted(true).
+				AdmittedAt(true, now).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
@@ -810,7 +809,7 @@ func TestReconciler(t *testing.T) {
 				Ready(10).
 				Obj(),
 			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
-				Admitted(true).
+				AdmittedAt(true, now).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
@@ -820,7 +819,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			},
 			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
-				Admitted(true).
+				AdmittedAt(true, now).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionTrue,
@@ -837,7 +836,7 @@ func TestReconciler(t *testing.T) {
 			job:     *baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.DeepCopy(),
 			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
-				Admitted(true).
+				AdmittedAt(true, now).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
@@ -847,7 +846,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			},
 			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
-				Admitted(true).
+				AdmittedAt(true, now).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
@@ -868,7 +867,7 @@ func TestReconciler(t *testing.T) {
 				Ready(10).
 				Obj(),
 			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
-				Admitted(true).
+				AdmittedAt(true, now).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionTrue,
@@ -878,7 +877,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			},
 			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
-				Admitted(true).
+				AdmittedAt(true, now).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionTrue,
@@ -895,7 +894,7 @@ func TestReconciler(t *testing.T) {
 			job:     *baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.DeepCopy(),
 			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
-				Admitted(true).
+				AdmittedAt(true, now).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
@@ -905,7 +904,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			},
 			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
-				Admitted(true).
+				AdmittedAt(true, now).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
@@ -929,12 +928,12 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -1023,7 +1022,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, now).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check",
 						State: kueue.CheckStateReady,
@@ -1040,7 +1039,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, now).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check",
 						State: kueue.CheckStateReady,
@@ -1073,7 +1072,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					AdmittedAt(true, testStartTime.Add(-time.Second)).
+					AdmittedAt(true, now.Add(-time.Second)).
 					Active(false).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
@@ -1163,14 +1162,14 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					AdmittedAt(true, testStartTime.Add(-time.Second)).
+					AdmittedAt(true, now.Add(-time.Second)).
 					Active(true).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
 						Message:            "The workload is deactivated",
-						LastTransitionTime: metav1.NewTime(testStartTime),
+						LastTransitionTime: metav1.NewTime(now),
 					}).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check",
@@ -1254,14 +1253,14 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					AdmittedAt(true, testStartTime.Add(-time.Second)).
+					AdmittedAt(true, now.Add(-time.Second)).
 					Active(false).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             kueue.WorkloadDeactivated,
 						Message:            "The workload is deactivated",
-						LastTransitionTime: metav1.NewTime(testStartTime),
+						LastTransitionTime: metav1.NewTime(now),
 					}).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check",
@@ -1342,14 +1341,14 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					AdmittedAt(true, testStartTime.Add(-time.Second)).
+					AdmittedAt(true, now.Add(-time.Second)).
 					Active(false).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
 						Message:            "The workload is deactivated",
-						LastTransitionTime: metav1.NewTime(testStartTime),
+						LastTransitionTime: metav1.NewTime(now),
 					}).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check",
@@ -1439,14 +1438,14 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					AdmittedAt(true, testStartTime.Add(-2*time.Minute)).
+					AdmittedAt(true, now.Add(-2*time.Minute)).
 					Active(false).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
 						Message:            "The workload is deactivated",
-						LastTransitionTime: metav1.NewTime(testStartTime.Add(-time.Minute)),
+						LastTransitionTime: metav1.NewTime(now.Add(-time.Minute)),
 					}).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check",
@@ -1527,14 +1526,14 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					AdmittedAt(true, testStartTime.Add(-2*time.Minute)).
+					AdmittedAt(true, now.Add(-2*time.Minute)).
 					Active(false).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
 						Message:            "The workload is deactivated",
-						LastTransitionTime: metav1.NewTime(testStartTime.Add(-time.Minute)),
+						LastTransitionTime: metav1.NewTime(now.Add(-time.Minute)),
 					}).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check",
@@ -1616,7 +1615,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					AdmittedAt(true, testStartTime.Add(-time.Second)).
+					AdmittedAt(true, now.Add(-time.Second)).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
 						Status:  metav1.ConditionTrue,
@@ -1672,7 +1671,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					AdmittedAt(true, testStartTime.Add(-time.Second)).
+					AdmittedAt(true, now.Add(-time.Second)).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
 						Status:  metav1.ConditionTrue,
@@ -1752,7 +1751,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					AdmittedAt(true, testStartTime.Add(-time.Second)).
+					AdmittedAt(true, now.Add(-time.Second)).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
 						Status:  metav1.ConditionTrue,
@@ -1832,7 +1831,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					AdmittedAt(true, testStartTime.Add(-time.Second)).
+					AdmittedAt(true, now.Add(-time.Second)).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
 						Status:  metav1.ConditionTrue,
@@ -1912,7 +1911,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					AdmittedAt(true, testStartTime.Add(-time.Second)).
+					AdmittedAt(true, now.Add(-time.Second)).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
 						Status:  metav1.ConditionTrue,
@@ -1993,7 +1992,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, now).
 					Active(false).
 					Queue("foo").
 					Condition(metav1.Condition{
@@ -2024,7 +2023,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, now).
 					Active(false).
 					Queue("foo").
 					Condition(metav1.Condition{
@@ -2062,7 +2061,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, now).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check1",
 						State: kueue.CheckStateReady,
@@ -2091,7 +2090,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, now).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check1",
 						State: kueue.CheckStateReady,
@@ -2133,7 +2132,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, now).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check1",
 						State: kueue.CheckStateReady,
@@ -2162,7 +2161,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, now).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check1",
 						State: kueue.CheckStateReady,
@@ -2204,7 +2203,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, now).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check1",
 						State: kueue.CheckStateReady,
@@ -2233,7 +2232,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, now).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check1",
 						State: kueue.CheckStateReady,
@@ -2277,7 +2276,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, now).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check",
 						State: kueue.CheckStateReady,
@@ -2294,7 +2293,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, now).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check",
 						State: kueue.CheckStateReady,
@@ -2330,7 +2329,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, now).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check1",
 						State: kueue.CheckStateReady,
@@ -2373,7 +2372,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, now).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check1",
 						State: kueue.CheckStateReady,
@@ -2435,12 +2434,12 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -2462,7 +2461,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			wantErr: jobframework.ErrNoMatchingWorkloads,
@@ -2524,8 +2523,8 @@ func TestReconciler(t *testing.T) {
 				*utiltesting.MakeWorkload("a", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(8).Obj()).Obj()).
-					Admitted(true).
+					ReserveQuotaAt(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(8).Obj()).Obj(), now).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -2537,8 +2536,8 @@ func TestReconciler(t *testing.T) {
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(8).Obj()).Obj()).
-					Admitted(true).
+					ReserveQuotaAt(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(8).Obj()).Obj(), now).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -2571,8 +2570,8 @@ func TestReconciler(t *testing.T) {
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(8).Obj()).Obj()).
-					Admitted(true).
+					ReserveQuotaAt(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(8).Obj()).Obj(), now).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			wantErr: jobframework.ErrNoMatchingWorkloads,
@@ -2849,16 +2848,16 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("unit-test", "ns").
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj()).
-					Admitted(true).
+					ReserveQuotaAt(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj(), now).
+					AdmittedAt(true, now).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("unit-test", "ns").
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj()).
-					Admitted(true).
+					ReserveQuotaAt(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj(), now).
+					AdmittedAt(true, now).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
 					Obj(),
 			},
@@ -2929,18 +2928,18 @@ func TestReconciler(t *testing.T) {
 				*utiltesting.MakeWorkload("parent-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj()).
+					ReserveQuotaAt(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj(), now).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("parent-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj()).
+					ReserveQuotaAt(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj(), now).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 		},
@@ -2963,8 +2962,8 @@ func TestReconciler(t *testing.T) {
 				*utiltesting.MakeWorkload("first-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
-					Admitted(true).
+					ReserveQuotaAt(utiltesting.MakeAdmission("cq").Obj(), now).
+					AdmittedAt(true, now).
 					Obj(),
 				*utiltesting.MakeWorkload("second-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
@@ -2975,8 +2974,8 @@ func TestReconciler(t *testing.T) {
 				*utiltesting.MakeWorkload("first-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
-					Admitted(true).
+					ReserveQuotaAt(utiltesting.MakeAdmission("cq").Obj(), now).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			wantErr: jobframework.ErrExtraWorkloads,
@@ -2992,13 +2991,13 @@ func TestReconciler(t *testing.T) {
 		"when workload is evicted, suspend, reset startTime and restore node affinity": {
 			job: *baseJobWrapper.Clone().
 				Suspend(false).
-				StartTime(time.Now()).
+				StartTime(now).
 				NodeSelector("provisioning", "spot").
 				Active(10).
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadEvicted,
 						Status: metav1.ConditionTrue,
@@ -3011,7 +3010,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadEvicted,
 						Status: metav1.ConditionTrue,
@@ -3029,13 +3028,13 @@ func TestReconciler(t *testing.T) {
 		"when workload is evicted but suspended, reset startTime and restore node affinity": {
 			job: *baseJobWrapper.Clone().
 				Suspend(true).
-				StartTime(time.Now()).
+				StartTime(now).
 				NodeSelector("provisioning", "spot").
 				Active(10).
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadEvicted,
 						Status: metav1.ConditionTrue,
@@ -3048,7 +3047,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadEvicted,
 						Status: metav1.ConditionTrue,
@@ -3064,7 +3063,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadEvicted,
 						Status: metav1.ConditionTrue,
@@ -3077,7 +3076,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadEvicted,
 						Status: metav1.ConditionTrue,
@@ -3095,7 +3094,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, now).
 					Generation(1).
 					Obj(),
 			},
@@ -3108,7 +3107,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadFinished,
 						Status:             metav1.ConditionTrue,
@@ -3567,14 +3566,14 @@ func TestReconciler(t *testing.T) {
 						controllerconsts.JobUIDLabel: "",
 					}).
 					Priority(0).
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(kueue.PodSetAssignment{
+					ReserveQuotaAt(utiltesting.MakeAdmission("cq").PodSets(kueue.PodSetAssignment{
 						Name: kueue.DefaultPodSetName,
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "default",
 						},
 						Count: ptr.To[int32](10),
-					}).Obj()).
-					Admitted(true).
+					}).Obj(), now).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -3596,14 +3595,14 @@ func TestReconciler(t *testing.T) {
 						controllerconsts.JobUIDLabel: "",
 					}).
 					Priority(0).
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(kueue.PodSetAssignment{
+					ReserveQuotaAt(utiltesting.MakeAdmission("cq").PodSets(kueue.PodSetAssignment{
 						Name: kueue.DefaultPodSetName,
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "default",
 						},
 						Count: ptr.To[int32](10),
-					}).Obj()).
-					Admitted(true).
+					}).Obj(), now).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 		},
@@ -3638,13 +3637,13 @@ func TestReconciler(t *testing.T) {
 						controllerconsts.JobUIDLabel: "",
 					}).
 					Priority(0).
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(kueue.PodSetAssignment{
+					ReserveQuotaAt(utiltesting.MakeAdmission("cq").PodSets(kueue.PodSetAssignment{
 						Name: kueue.DefaultPodSetName,
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "default",
 						},
 						Count: ptr.To[int32](10),
-					}).Obj()).
+					}).Obj(), now).
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -3666,7 +3665,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(false).
+					AdmittedAt(false, now).
 					Active(false).
 					Queue("foo").
 					Condition(metav1.Condition{
@@ -3683,7 +3682,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(false).
+					AdmittedAt(false, now).
 					Active(false).
 					Queue("foo").
 					Condition(metav1.Condition{
@@ -3716,7 +3715,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(false).
+					AdmittedAt(false, now).
 					Active(false).
 					Queue("foo").
 					Condition(metav1.Condition{
@@ -3738,7 +3737,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(false).
+					AdmittedAt(false, now).
 					Active(false).
 					Queue("foo").
 					Condition(metav1.Condition{
@@ -3940,7 +3939,8 @@ func TestReconciler(t *testing.T) {
 				}
 			}
 			recorder := &utiltesting.EventRecorder{}
-			reconciler := NewReconciler(kClient, recorder, append(tc.reconcilerOptions, jobframework.WithClock(t, fakeClock))...)
+			reconciler := NewReconciler(kClient, recorder,
+				append(tc.reconcilerOptions, jobframework.WithClock(t, testingclock.NewFakeClock(now)))...)
 
 			jobKey := client.ObjectKeyFromObject(&tc.job)
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{
