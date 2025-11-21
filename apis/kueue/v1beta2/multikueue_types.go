@@ -69,19 +69,19 @@ type MultiKueueClusterSpec struct {
 	// +optional
 	KubeConfig *KubeConfig `json:"kubeConfig,omitempty,omitzero"`
 
-	// clusterProfile is the reference to the ClusterProfile object used to connect to the cluster.
+	// clusterProfileRef is the reference to the ClusterProfile object used to connect to the cluster.
 	// +optional
-	ClusterProfile *ClusterProfileReference `json:"clusterProfile,omitempty"`
+	ClusterProfileRef *ClusterProfileReference `json:"clusterProfileRef,omitempty"`
 }
 
 type ClusterProfileReference struct {
-	// name of the ClusterProfile.
+	// name of the ClusterProfileRef.
 	// +kubebuilder:validation:MaxLength=256
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	Name string `json:"name,omitempty"`
 
-	// namespace of the ClusterProfile.
+	// namespace of the ClusterProfileRef.
 	// +kubebuilder:validation:MaxLength=256
 	// +kubebuilder:validation:MinLength=1
 	// +required

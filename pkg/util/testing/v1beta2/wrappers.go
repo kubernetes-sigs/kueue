@@ -1440,7 +1440,7 @@ func (mkc *MultiKueueClusterWrapper) KubeConfig(locationType kueue.LocationType,
 }
 
 func (mkc *MultiKueueClusterWrapper) ClusterProfile(name string, namespace string) *MultiKueueClusterWrapper {
-	mkc.Spec.ClusterProfile = &kueue.ClusterProfileReference{
+	mkc.Spec.ClusterProfileRef = &kueue.ClusterProfileReference{
 		Name:      name,
 		Namespace: namespace,
 	}

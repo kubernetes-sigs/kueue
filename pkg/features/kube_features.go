@@ -220,7 +220,7 @@ const (
 	// owner: @hdp617
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/693-multikueue
 	//
-	// Enables ClusterProfile integration for MultiKueue.
+	// Enables ClusterProfileRef integration for MultiKueue.
 	MultiKueueClusterProfile featuregate.Feature = "MultiKueueClusterProfile"
 
 	// owner: @kshalot

@@ -59,10 +59,10 @@ func getIndexUsingClusterProfiles(configNamespace string) func(obj client.Object
 		if !isCluster {
 			return nil
 		}
-		if cluster.Spec.ClusterProfile == nil {
+		if cluster.Spec.ClusterProfileRef == nil {
 			return nil
 		}
-		return []string{strings.Join([]string{configNamespace, cluster.Spec.ClusterProfile.Namespace, cluster.Spec.ClusterProfile.Name}, "/")}
+		return []string{strings.Join([]string{configNamespace, cluster.Spec.ClusterProfileRef.Namespace, cluster.Spec.ClusterProfileRef.Name}, "/")}
 	}
 }
 
