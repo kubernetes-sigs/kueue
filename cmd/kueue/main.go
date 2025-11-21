@@ -211,12 +211,14 @@ func main() {
 	}
 
 	certsReady := make(chan struct{})
+	ctx := ctrl.SetupSignalHandler()
 
 	if cfg.InternalCertManagement != nil && *cfg.InternalCertManagement.Enable {
-		if err = cert.ManageCerts(mgr, cfg, certsReady); err != nil {
-			setupLog.Error(err, "Unable to set up cert rotation")
+		if err := bootstrap(cfg, kubeConfig); err != nil {
+			setupLog.Error(err, "Unable to bootstrap")
 			os.Exit(1)
 		}
+		close(certsReady)
 	} else {
 		close(certsReady)
 	}
@@ -247,7 +249,6 @@ func main() {
 	cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 	queues := qcache.NewManager(mgr.GetClient(), cCache, queueOptions...)
 
-	ctx := ctrl.SetupSignalHandler()
 	if err := setupIndexes(ctx, mgr, &cfg); err != nil {
 		setupLog.Error(err, "Unable to setup indexes")
 		os.Exit(1)
@@ -297,6 +298,40 @@ func main() {
 		setupLog.Error(err, "Could not run manager")
 		os.Exit(1)
 	}
+}
+
+func bootstrap(cfg configapi.Configuration, kubeconfig *rest.Config) error {
+	mgrBootstrap, err := ctrl.NewManager(kubeconfig, ctrl.Options{
+		Scheme: scheme,
+		Metrics: metricsserver.Options{
+			BindAddress:    "0",
+			FilterProvider: filters.WithAuthenticationAndAuthorization,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	conversionCertsReady := make(chan struct{})
+	if err = cert.ManageCerts(mgrBootstrap, cfg, conversionCertsReady); err != nil {
+		return err
+	}
+
+	// 3. Run the Bootstrap Manager with a mechanism to stop it
+	// We need a context we can cancel once we verify the CA is set.
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Run in a goroutine because Start() is blocking
+	go func() {
+		if err := mgrBootstrap.Start(ctx); err != nil {
+			setupLog.Error(err, "problem running bootstrap manager")
+		}
+	}()
+
+	cert.WaitForCertsReady(setupLog, conversionCertsReady)
+
+	cancel() // Stops the bootstrap manager
+	setupLog.Info("Phase 1 Complete: CA Injected. Stopping Bootstrap Manager.")
+	return nil
 }
 
 func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configuration) error {
