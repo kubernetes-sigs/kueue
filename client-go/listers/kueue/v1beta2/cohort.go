@@ -30,8 +30,9 @@ type CohortLister interface {
 	// List lists all Cohorts in the indexer.
 	// Objects returned here must be treated as read-only.
 	List(selector labels.Selector) (ret []*kueuev1beta2.Cohort, err error)
-	// Cohorts returns an object that can list and get Cohorts.
-	Cohorts(namespace string) CohortNamespaceLister
+	// Get retrieves the Cohort from the index for a given name.
+	// Objects returned here must be treated as read-only.
+	Get(name string) (*kueuev1beta2.Cohort, error)
 	CohortListerExpansion
 }
 
@@ -43,27 +44,4 @@ type cohortLister struct {
 // NewCohortLister returns a new CohortLister.
 func NewCohortLister(indexer cache.Indexer) CohortLister {
 	return &cohortLister{listers.New[*kueuev1beta2.Cohort](indexer, kueuev1beta2.Resource("cohort"))}
-}
-
-// Cohorts returns an object that can list and get Cohorts.
-func (s *cohortLister) Cohorts(namespace string) CohortNamespaceLister {
-	return cohortNamespaceLister{listers.NewNamespaced[*kueuev1beta2.Cohort](s.ResourceIndexer, namespace)}
-}
-
-// CohortNamespaceLister helps list and get Cohorts.
-// All objects returned here must be treated as read-only.
-type CohortNamespaceLister interface {
-	// List lists all Cohorts in the indexer for a given namespace.
-	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*kueuev1beta2.Cohort, err error)
-	// Get retrieves the Cohort from the indexer for a given namespace and name.
-	// Objects returned here must be treated as read-only.
-	Get(name string) (*kueuev1beta2.Cohort, error)
-	CohortNamespaceListerExpansion
-}
-
-// cohortNamespaceLister implements the CohortNamespaceLister
-// interface.
-type cohortNamespaceLister struct {
-	listers.ResourceIndexer[*kueuev1beta2.Cohort]
 }
