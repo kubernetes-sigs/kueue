@@ -55,14 +55,10 @@ import (
 
 type ManagerSetup func(context.Context, manager.Manager)
 
-type managerSetupOptions struct {
-	NewClient client.NewClientFunc
-}
+type ManagerOption func(*manager.Options)
 
-type ManagerSetupOption func(*managerSetupOptions)
-
-func WithNewClient(c client.NewClientFunc) ManagerSetupOption {
-	return func(o *managerSetupOptions) {
+func WithNewClient(c client.NewClientFunc) ManagerOption {
+	return func(o *manager.Options) {
 		o.NewClient = c
 	}
 }
@@ -151,14 +147,10 @@ func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.WithW
 	return ctx, k8sClient
 }
 
-func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerSetup ManagerSetup, opts ...ManagerSetupOption) {
+func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerSetup ManagerSetup, opts ...ManagerOption) {
 	ginkgo.By("starting the manager", func() {
 		webhookInstallOptions := &f.testEnv.WebhookInstallOptions
-		managerSetupOptions := managerSetupOptions{}
-		for _, opt := range opts {
-			opt(&managerSetupOptions)
-		}
-		mgrOpts := manager.Options{
+		mgrOptions := manager.Options{
 			Scheme: f.scheme,
 			Metrics: metricsserver.Options{
 				BindAddress: "0", // disable metrics to avoid conflicts between packages.
@@ -173,10 +165,10 @@ func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerS
 				SkipNameValidation: ptr.To(true),
 			},
 		}
-		if managerSetupOptions.NewClient != nil {
-			mgrOpts.NewClient = managerSetupOptions.NewClient
+		for _, opt := range opts {
+			opt(&mgrOptions)
 		}
-		mgr, err := ctrl.NewManager(cfg, mgrOpts)
+		mgr, err := ctrl.NewManager(cfg, mgrOptions)
 		gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "failed to create manager")
 
 		managerCtx, managerCancel := context.WithCancel(ctx)
