@@ -69,7 +69,7 @@ if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:leaderworker
 fi
 
 if [[ -n ${SPARKOPERATOR_VERSION:-} ]]; then
-    export SPARKOPERATOR_IMAGE="ghcr.io/kubeflow/spark-operator/controller:${SPARKOPERATOR_VERSION}"
+    export SPARKOPERATOR_IMAGE="ghcr.io/kubeflow/spark-operator/controller:${SPARKOPERATOR_VERSION#v}"
 fi
 
 if [[ -n "${CERTMANAGER_VERSION:-}" ]]; then
@@ -196,9 +196,8 @@ function prepare_docker_images {
         local current_image="${IMAGE_TAG%:*}:${KUEUE_UPGRADE_FROM_VERSION}"
         docker pull "${current_image}"
     fi
-    # FIXME: pull released version
     if [[ -n ${SPARKOPERATOR_VERSION:-} ]]; then
-        (cd "${SPARKOPERATOR_ROOT}" && chmod +x entrypoint.sh && make docker-build IMAGE="${SPARKOPERATOR_IMAGE}")
+        docker pull "${SPARKOPERATOR_IMAGE}"
     fi
 }
 
@@ -436,11 +435,12 @@ function install_lws {
 # $2 kubeconfig option
 function install_sparkoperator {
     cluster_kind_load_image "${1}" "${SPARKOPERATOR_IMAGE}"
-    # FIXME: replace with released helm chart
-    ${HELM} install spark-operator "${SPARKOPERATOR_ROOT}/charts/spark-operator-chart" \
+    ${HELM} repo add spark-operator https://kubeflow.github.io/spark-operator
+    ${HELM} repo update
+    ${HELM} install spark-operator spark-operator/spark-operator \
     --namespace spark-operator \
     --create-namespace \
-    --set image.tag="${SPARKOPERATOR_VERSION}" \
+    --set image.tag="${SPARKOPERATOR_VERSION#v}" \
     --set 'spark.jobNamespaces[0]='
 }
 
