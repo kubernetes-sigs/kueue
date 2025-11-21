@@ -165,7 +165,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 				return fallThrough, nil
 			}
 			ginkgo.By("Creating a low priority Workload")
-			lowWl := utiltestingapi.MakeWorkload("low-wl", ns.Name).
+			lowWl := testing.MakeWorkload("low-wl", ns.Name).
 				Queue(kueue.LocalQueueName(q.Name)).
 				Priority(lowPriority).
 				Request(corev1.ResourceCPU, "3").
@@ -175,7 +175,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl)
 
 			ginkgo.By("Creating a high priority Workload")
-			highWl := utiltestingapi.MakeWorkload("high-wl", ns.Name).
+			highWl := testing.MakeWorkload("high-wl", ns.Name).
 				Queue(kueue.LocalQueueName(q.Name)).
 				Priority(highPriority).
 				Request(corev1.ResourceCPU, "3").
