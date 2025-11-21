@@ -129,7 +129,7 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Pod was already terminated
+	// Pod was updated in the meantime and should not be forcefully terminated
 	if !podEligibleForTermination(pod) {
 		return ctrl.Result{}, nil
 	}
