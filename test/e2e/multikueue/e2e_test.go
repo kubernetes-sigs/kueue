@@ -218,11 +218,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			ginkgo.By("Waiting to be admitted in worker2", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
-					g.Expect(admissioncheck.FindAdmissionCheck(createdLeaderWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAc.Name))).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
-						Name:    kueue.AdmissionCheckReference(multiKueueAc.Name),
-						State:   kueue.CheckStatePending,
-						Message: `The workload got reservation on "worker2"`,
-					}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")))
+					util.ExpectAdmissionCheckState(g, createdLeaderWorkload, multiKueueAc.Name, kueue.CheckStatePending, `The workload got reservation on "worker2"`)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -415,11 +411,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			ginkgo.By("Waiting to be admitted in worker2", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
-					g.Expect(admissioncheck.FindAdmissionCheck(createdLeaderWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAc.Name))).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
-						Name:    kueue.AdmissionCheckReference(multiKueueAc.Name),
-						State:   kueue.CheckStatePending,
-						Message: `The workload got reservation on "worker2"`,
-					}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")))
+					util.ExpectAdmissionCheckState(g, createdLeaderWorkload, multiKueueAc.Name, kueue.CheckStatePending, `The workload got reservation on "worker2"`)
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 
 				ginkgo.By("ensure all pods are created", func() {
@@ -469,11 +461,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			ginkgo.By("Waiting to be admitted in worker2, and the manager's job unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
-					g.Expect(admissioncheck.FindAdmissionCheck(createdLeaderWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAc.Name))).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
-						Name:    kueue.AdmissionCheckReference(multiKueueAc.Name),
-						State:   kueue.CheckStateReady,
-						Message: `The workload got reservation on "worker2"`,
-					}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")))
+					util.ExpectAdmissionCheckState(g, createdLeaderWorkload, multiKueueAc.Name, kueue.CheckStateReady, `The workload got reservation on "worker2"`)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -1057,11 +1045,7 @@ func waitForJobAdmitted(wlLookupKey types.NamespacedName, acName, workerName str
 			Reason:  "Admitted",
 			Message: "The workload is admitted",
 		}, util.IgnoreConditionTimestampsAndObservedGeneration))
-		g.Expect(admissioncheck.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(acName))).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
-			Name:    kueue.AdmissionCheckReference(acName),
-			State:   kueue.CheckStateReady,
-			Message: fmt.Sprintf(`The workload got reservation on "%s"`, workerName),
-		}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")))
+		util.ExpectAdmissionCheckState(g, createdWorkload, acName, kueue.CheckStateReady, fmt.Sprintf(`The workload got reservation on "%s"`, workerName))
 	}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 }
 
