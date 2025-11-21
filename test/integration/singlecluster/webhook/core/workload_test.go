@@ -1580,9 +1580,7 @@ var _ = ginkgo.Describe("TopologyAssignment validation", ginkgo.Ordered, func() 
 	})
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, func(ctx context.Context, mgr manager.Manager) {
-			managerSetup(ctx, mgr)
-		})
+		fwk.StartManager(ctx, cfg, managerSetup)
 	})
 
 	ginkgo.AfterAll(func() {
