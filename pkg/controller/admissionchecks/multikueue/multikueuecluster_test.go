@@ -636,7 +636,7 @@ func TestUpdateConfig(t *testing.T) {
 			reconcileFor: "invalid",
 			clusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("invalid").
-					ClusterProfile("invalid", TestNamespace).
+					ClusterProfile("invalid").
 					Generation(1).
 					Obj(),
 			},
@@ -651,7 +651,7 @@ func TestUpdateConfig(t *testing.T) {
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("invalid").
-					ClusterProfile("invalid", TestNamespace).
+					ClusterProfile("invalid").
 					Active(metav1.ConditionFalse, "BadRestConfig", "load client config failed: bearerTokenFile is not allowed", 1).
 					Generation(1).
 					Obj(),

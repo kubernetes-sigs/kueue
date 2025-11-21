@@ -174,3 +174,5 @@ type MultiKueueConfigList struct {
 func init() {
 	SchemeBuilder.Register(&MultiKueueConfig{}, &MultiKueueConfigList{}, &MultiKueueCluster{}, &MultiKueueClusterList{})
 }
+
+func (*MultiKueueCluster) Hub() {}
