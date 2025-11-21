@@ -359,6 +359,7 @@ func TestSchedule(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("sales", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("sales", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("sales", "foo", "FlavorAttempts", corev1.EventTypeNormal).Message("Considered: one: default(Fit)").Obj(),
 			},
 		},
 		"skip workload with missing or deleted ClusterQueue (NoFit)": {
@@ -6986,6 +6987,7 @@ func TestSchedule(t *testing.T) {
 				utiltesting.MakeEventRecord("sales", "foo-1", kueue.WorkloadSliceReplaced, corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("sales", "foo-2", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("sales", "foo-2", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("sales", "foo-2", "FlavorAttempts", corev1.EventTypeNormal).Message("Considered: one: default(Fit)").Obj(),
 			},
 		},
 		"prefer flavor with most local capacity": {
