@@ -959,8 +959,8 @@ func (in *MultiKueueClusterSpec) DeepCopyInto(out *MultiKueueClusterSpec) {
 		*out = new(KubeConfig)
 		**out = **in
 	}
-	if in.ClusterProfile != nil {
-		in, out := &in.ClusterProfile, &out.ClusterProfile
+	if in.ClusterProfileRef != nil {
+		in, out := &in.ClusterProfileRef, &out.ClusterProfileRef
 		*out = new(ClusterProfileReference)
 		**out = **in
 	}
