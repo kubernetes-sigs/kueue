@@ -17,13 +17,16 @@ limitations under the License.
 package cert
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"time"
 
-	"github.com/go-logr/logr"
 	cert "github.com/open-policy-agent/cert-controller/pkg/rotator"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 )
@@ -38,8 +41,11 @@ const (
 // +kubebuilder:rbac:groups="admissionregistration.k8s.io",resources=validatingwebhookconfigurations,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups="apiextensions.k8s.io",resources=customresourcedefinitions,verbs=get;list;watch;update
 
-// ManageCerts creates all certs for webhooks. This function is called from main.go.
-func ManageCerts(mgr ctrl.Manager, cfg config.Configuration, setupFinished chan struct{}) error {
+// BootstrapCerts creates a minimal manager to generate certificates and inject CA bundles.
+// This function blocks until certificates are ready and CA bundles are injected into CRDs.
+func BootstrapCerts(kubeConfig *rest.Config, cfg config.Configuration) error {
+	log := ctrl.Log.WithName("cert-bootstrap")
+
 	// DNSName is <service name>.<namespace>.svc
 	var dnsName = fmt.Sprintf("%s.%s.svc", *cfg.InternalCertManagement.WebhookServiceName, *cfg.Namespace)
 
@@ -48,7 +54,25 @@ func ManageCerts(mgr ctrl.Manager, cfg config.Configuration, setupFinished chan 
 	mutatingWebhookName := buildWebhookConfigurationName(webhookBaseName, "mutating")
 	validatingWebhookName := buildWebhookConfigurationName(webhookBaseName, "validating")
 
-	return cert.AddRotator(mgr, &cert.CertRotator{
+	// Create a minimal bootstrap manager with leader election.
+	log.Info("Creating bootstrap manager for certificate generation")
+	bootstrapMgr, err := ctrl.NewManager(kubeConfig, ctrl.Options{
+		LeaderElection:          true,
+		LeaderElectionID:        "kueue-bootstrap-cert-generation",
+		LeaderElectionNamespace: *cfg.Namespace,
+		HealthProbeBindAddress:  "0",
+		Metrics:                 metricsserver.Options{BindAddress: "0"},
+	})
+	if err != nil {
+		return fmt.Errorf("unable to create bootstrap manager: %w", err)
+	}
+
+	certsReady := make(chan struct{})
+
+	// Add cert rotator to bootstrap manager.
+	// Cert-rotator will handle both cert generation AND CA bundle injection
+	// for all webhooks (admission + CRD conversion) with built-in retry logic.
+	err = cert.AddRotator(bootstrapMgr, &cert.CertRotator{
 		SecretKey: types.NamespacedName{
 			Namespace: *cfg.Namespace,
 			Name:      *cfg.InternalCertManagement.WebhookSecretName,
@@ -57,7 +81,7 @@ func ManageCerts(mgr ctrl.Manager, cfg config.Configuration, setupFinished chan 
 		CAName:         caName,
 		CAOrganization: caOrganization,
 		DNSName:        dnsName,
-		IsReady:        setupFinished,
+		IsReady:        certsReady,
 		Webhooks: []cert.WebhookInfo{{
 			Type: cert.Validating,
 			Name: validatingWebhookName,
@@ -77,16 +101,41 @@ func ManageCerts(mgr ctrl.Manager, cfg config.Configuration, setupFinished chan 
 			Type: cert.CRDConversion,
 			Name: "cohorts.kueue.x-k8s.io",
 		}},
-		// When kueue is running in the leader election mode,
-		// we expect webhook server will run in primary and secondary instance
-		RequireLeaderElection: false,
+		RequireLeaderElection: true,
 	})
+	if err != nil {
+		return fmt.Errorf("unable to add cert rotator to bootstrap manager: %w", err)
+	}
+
+	bootstrapCtx, bootstrapCancel := context.WithCancel(context.Background())
+	defer bootstrapCancel()
+
+	go func() {
+		log.Info("Starting bootstrap manager")
+		if err := bootstrapMgr.Start(bootstrapCtx); err != nil {
+			log.Error(err, "Bootstrap manager failed")
+		}
+	}()
+
+	// Wait for cert-rotator to complete cert generation and CA injection
+	log.Info("Waiting for certificate generation and CA injection to complete")
+	<-certsReady
+	log.Info("Certificates ready and CA bundles injected")
+
+	log.Info("Stopping bootstrap manager")
+	bootstrapCancel()
+
+	time.Sleep(1 * time.Second)
+
+	log.Info("Certificate bootstrap complete")
+	return nil
 }
 
-func WaitForCertsReady(log logr.Logger, certsReady chan struct{}) {
-	log.Info("Waiting for certificate generation to complete")
-	<-certsReady
-	log.Info("Certs ready")
+// ManageCerts signals that certs are ready (they were already set up by BootstrapCerts).
+func ManageCerts(mgr ctrl.Manager, cfg config.Configuration, setupFinished chan struct{}) error {
+	// Certs are already ready from bootstrap, just signal completion
+	close(setupFinished)
+	return nil
 }
 
 // deriveWebhookBaseName extracts the base name from a webhook service name
