@@ -213,6 +213,15 @@ var _ = ginkgo.Describe("Kueue", func() {
 			util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, jobKey, map[string]string{
 				"instance-type": "on-demand",
 			})
+
+			ginkgo.By("Await for pods to be running", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var job batchv1.Job
+					g.Expect(k8sClient.Get(ctx, jobKey, &job)).To(gomega.Succeed())
+					g.Expect(job.Status.Active).To(gomega.BeEquivalentTo(1))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob.Name, sampleJob.UID), Namespace: ns.Name}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
