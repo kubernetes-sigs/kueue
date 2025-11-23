@@ -1,0 +1,256 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package tas
+
+import (
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"math/rand/v2"
+	"sort"
+	"strings"
+	"testing"
+
+	corev1 "k8s.io/api/core/v1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+)
+
+const (
+	targetNodeCount = 40_000
+)
+
+// Generate n hex numbers of given length,
+// ensuring they're distinct (and otherwise quasi-random).
+// For the health of tests, this function behaves deterministically.
+func randomHexIds(n, length int) []string {
+	chosen := map[string]bool{}
+	res := make([]string, n)
+	rnd := rand.NewChaCha8([32]byte{})
+	bytes := make([]byte, (length+1)/2)
+	for i := range n {
+		for {
+			rnd.Read(bytes)
+			id := hex.EncodeToString(bytes)[:length]
+			if !chosen[id] {
+				chosen[id] = true
+				res[i] = id
+				break
+			}
+		}
+	}
+	return res
+}
+
+func fixedId(length int) string {
+	// This is really whatever.
+	return strings.Repeat("a", length)
+}
+
+func consecutiveIps(n int) []string {
+	res := make([]string, n)
+	for i := range n {
+		// Picking 100.10x.xxx.xxx (instead of traditional 10.x.xxx.xxx)
+		// to make the test scenario a bit more adverse.
+		res[i] = fmt.Sprintf("100.%d.%d.%d",
+			100+i/(1<<16),
+			i%(1<<16)/(1<<8),
+			i%(1<<8),
+		)
+	}
+	return res
+}
+
+type namingScheme func(nodes int) []string
+
+type poolAndNodeBasedNamingConfig struct {
+	fixedPrefixAndSuffixLength int
+	pools                      int
+	nodeIdLength               int
+	poolIdLength               int
+}
+
+func poolAndNodeBasedNaming(config poolAndNodeBasedNamingConfig) namingScheme {
+	return func(nodes int) []string {
+		res := make([]string, nodes)
+		nodeIds := randomHexIds(nodes, config.nodeIdLength)
+		poolIds := randomHexIds(config.pools, config.poolIdLength)
+		for i := range nodes {
+			res[i] = fmt.Sprintf("%s-%s-%s-%s",
+				fixedId(config.fixedPrefixAndSuffixLength),
+				poolIds[i%config.pools],
+				nodeIds[i],
+				fixedId(config.fixedPrefixAndSuffixLength),
+			)
+		}
+		return res
+	}
+}
+
+type regionAndIpBasedNamingConfig struct {
+	fixedPrefixAndSuffixLength int
+	regions                    int
+	regionIdLength             int
+}
+
+func regionAndIpBasedNaming(config regionAndIpBasedNamingConfig) namingScheme {
+	return func(nodes int) []string {
+		regions := 100
+		res := make([]string, nodes)
+		nodeIps := consecutiveIps(nodes)
+		regionIds := randomHexIds(config.regions, config.regionIdLength)
+		for i := range nodes {
+			res[i] = fmt.Sprintf("%s-%s-%s-%s",
+				fixedId(config.fixedPrefixAndSuffixLength),
+				regionIds[i%regions],
+				nodeIps[i],
+				fixedId(config.fixedPrefixAndSuffixLength),
+			)
+		}
+		return res
+	}
+}
+
+type nodeBasedNamingConfig struct {
+	fixedPrefixAndSuffixLength int
+	nodeIdLength               int
+}
+
+func nodeBasedNaming(config nodeBasedNamingConfig) namingScheme {
+	return func(nodes int) []string {
+		res := make([]string, nodes)
+		nodeIds := randomHexIds(nodes, config.nodeIdLength)
+		for i := range nodes {
+			res[i] = fmt.Sprintf("%s-%s-%s",
+				fixedId(config.fixedPrefixAndSuffixLength),
+				nodeIds[i],
+				fixedId(config.fixedPrefixAndSuffixLength),
+			)
+		}
+		return res
+	}
+}
+
+func internalSinglePodsOn(nodes []string) *TopologyAssignment {
+	res := &TopologyAssignment{
+		Levels:  []string{corev1.LabelHostname},
+		Domains: make([]TopologyDomainAssignment, len(nodes)),
+	}
+	for i, n := range nodes {
+		res.Domains[i] = TopologyDomainAssignment{
+			Values: []string{n},
+			Count:  1,
+		}
+	}
+	return res
+}
+
+func jsonStr(v any) string {
+	bytes, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	return string(bytes)
+}
+
+func isTooLarge(ta *kueue.TopologyAssignment) bool {
+	return len(jsonStr(ta)) > 1_500_000
+}
+
+func maxNodesFor(naming namingScheme) int {
+	return sort.Search(300_000, func(n int) bool {
+		return isTooLarge(V1Beta2From(internalSinglePodsOn(naming(n))))
+	}) - 1
+}
+
+type performanceTestCase struct {
+	name   string
+	naming namingScheme
+}
+
+var performanceTestCases = []performanceTestCase{
+	{
+		name: "pool-and-node-based naming, 100 node pools",
+		naming: poolAndNodeBasedNaming(poolAndNodeBasedNamingConfig{
+			pools:                      100, // happens in practice, at least in GKE
+			nodeIdLength:               6,   // reached in AKS
+			poolIdLength:               20,  // reachable in AKS (<pool-name>-<8-char-id>-vmss)
+			fixedPrefixAndSuffixLength: 20,
+		}),
+	},
+	{
+		name: "pool-and-node-based naming, 1 node pool",
+		naming: poolAndNodeBasedNaming(poolAndNodeBasedNamingConfig{
+			pools:                      1,
+			nodeIdLength:               6,
+			poolIdLength:               20,
+			fixedPrefixAndSuffixLength: 20,
+		}),
+	},
+	{
+		name: "region-and-IP-based naming",
+		naming: regionAndIpBasedNaming(regionAndIpBasedNamingConfig{
+			regions: 100, // EKS has 70, leaving room for growth
+
+			// Reached in EKS ("ap-southeast-2") & ACK ("cn-zhangjiakou").
+			// GKE reaches even 23 ("northamerica-northeast2") but luckily its naming is not region-based.
+			regionIdLength: 14,
+
+			fixedPrefixAndSuffixLength: 20,
+		}),
+	},
+	{
+		name: "node-only-based naming",
+		naming: nodeBasedNaming(nodeBasedNamingConfig{
+			nodeIdLength:               8, // reached in VKE
+			fixedPrefixAndSuffixLength: 20,
+		}),
+	},
+}
+
+func TestByteSizeLimit(t *testing.T) {
+	for _, tc := range performanceTestCases {
+		t.Run(tc.name, func(t *testing.T) {
+			nodesLimit := maxNodesFor(tc.naming)
+			if nodesLimit < targetNodeCount {
+				t.Errorf("Nodes limit for naming %q is too low: got %d, want >= %d", tc.name, nodesLimit, targetNodeCount)
+			} else {
+				t.Logf("Nodes limit for naming %q is %d", tc.name, nodesLimit)
+			}
+		})
+	}
+}
+
+func BenchmarkV1Beta2From(b *testing.B) {
+	for _, tc := range performanceTestCases {
+		nodeNames := tc.naming(targetNodeCount)
+
+		// For our current strategy (just extract single common prefix & suffix),
+		// having node names sorted is an adverse scenario for benchmarking.
+		// (This is because longer common prefix & suffix will "hold" for longer).
+		// If we ever wish to test other approaches, we may want to also have
+		// a variant of this benchmark when node names get shuffled quasi-randomly.
+		sort.Strings(nodeNames)
+		ta := internalSinglePodsOn(nodeNames)
+
+		desc := fmt.Sprintf("Naming scheme %q, %d nodes", tc.name, targetNodeCount)
+		b.Run(desc, func(b *testing.B) {
+			for b.Loop() {
+				var _ = V1Beta2From(ta)
+			}
+		})
+	}
+}
