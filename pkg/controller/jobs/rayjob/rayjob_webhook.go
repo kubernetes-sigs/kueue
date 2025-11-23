@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -85,6 +86,9 @@ func (w *RayJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 			return err
 		}
 	} else {
+		if !workloadslicing.Enabled(job.Object()) {
+			return fmt.Errorf("RayJob should enable workload slicing if autoscaling is enabled")
+		}
 		log.V(5).Info("Do not apply default for suspend due to EnableInTreeAutoscaling", "jobName", job.Name, "jobNamespace", job.Namespace)
 	}
 	jobframework.ApplyDefaultForManagedBy(job, w.queues, w.cache, log)
