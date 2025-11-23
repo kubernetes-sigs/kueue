@@ -374,7 +374,28 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	if !isTopLevelJob {
 		_, _, finished := job.Finished()
 		if !finished && !job.IsSuspended() {
-			if ancestorWorkload, err := r.getWorkloadForObject(ctx, ancestorJob); err != nil {
+			var ancestorWorkload *kueue.Workload
+			var err error
+			ancestorGenericJob := CreateGenericJobFromRuntimeObject(ancestorJob)
+			if ancestorGenericJob != nil {
+				log.V(10).Info("Ancestor job converted to generic job, trying to convert it again to JobWithCustomWorkloadRetriever")
+				jobWithCustomWorkloadRetriever, ok := ancestorGenericJob.(JobWithCustomWorkloadRetriever)
+				if ok {
+					log.V(10).Info("Ancestor job converted to JobWithCustomWorkloadRetriever")
+					ancestorWorkload, err = jobWithCustomWorkloadRetriever.GetWorkload(ctx, r.client)
+					if err != nil {
+						log.Error(err, "couldn't get an ancestor job workload")
+						return ctrl.Result{}, err
+					}
+				} else {
+					log.V(10).Info("Ancestor job not converted to JobWithCustomWorkloadRetriever")
+					ancestorWorkload, err = r.getWorkloadForObject(ctx, ancestorJob)
+				}
+			} else {
+				log.V(10).Info("Ancestor job not converted to generic job", "ancestorJobName", ancestorJob.GetName())
+				ancestorWorkload, err = r.getWorkloadForObject(ctx, ancestorJob)
+			}
+			if err != nil {
 				log.Error(err, "couldn't get an ancestor job workload")
 				return ctrl.Result{}, err
 			} else if ancestorWorkload == nil || !workload.IsAdmitted(ancestorWorkload) {
@@ -630,16 +651,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	if workloadSliceEnabled(job) {
 		// Start workload-slice schedule-gated pods (if any).
 		log.V(3).Info("Job running with admitted workload slice, start pods.")
-		// Check if job implements JobWithPodLabelSelector interface
-		var podLabelSelector string
-		if jobWithPodLabelSelector, ok := job.(JobWithPodLabelSelector); ok {
-			podLabelSelector = jobWithPodLabelSelector.PodLabelSelector()
-			log.V(10).Info("Using PodLabelSelector from job", "podLabelSelector", podLabelSelector)
-		} else {
-			log.V(10).Info("Not using PodLabelSelector from job")
-		}
-
-		return ctrl.Result{}, workloadslicing.StartWorkloadSlicePods(ctx, r.client, object, podLabelSelector)
+		return ctrl.Result{}, workloadslicing.StartWorkloadSlicePods(ctx, r.client, object)
 	}
 
 	// workload is admitted and job is running, nothing to do.
@@ -703,10 +715,10 @@ func (r *JobReconciler) recordAdmissionCheckUpdate(wl *kueue.Workload, job Gener
 	}
 }
 
-// getWorkloadForObject returns the Workload associated with the given job.
-func (r *JobReconciler) getWorkloadForObject(ctx context.Context, jobObj client.Object) (*kueue.Workload, error) {
+// GetWorkloadForObject returns the Workload associated with the given job.
+func GetWorkloadForObject(ctx context.Context, jobObj client.Object, c client.Client) (*kueue.Workload, error) {
 	wls := kueue.WorkloadList{}
-	if err := r.client.List(ctx, &wls, client.InNamespace(jobObj.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(jobObj.GetUID())}); client.IgnoreNotFound(err) != nil {
+	if err := c.List(ctx, &wls, client.InNamespace(jobObj.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(jobObj.GetUID())}); client.IgnoreNotFound(err) != nil {
 		return nil, err
 	}
 
@@ -724,6 +736,10 @@ func (r *JobReconciler) getWorkloadForObject(ctx context.Context, jobObj client.
 	}
 
 	return &wls.Items[0], nil
+}
+
+func (r *JobReconciler) getWorkloadForObject(ctx context.Context, jobObj client.Object) (*kueue.Workload, error) {
+	return GetWorkloadForObject(ctx, jobObj, r.client)
 }
 
 // FindAncestorJobManagedByKueue traverses controllerRefs to find the top-level ancestor Job managed by Kueue.
