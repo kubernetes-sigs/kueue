@@ -116,7 +116,8 @@ func (j *RayJob) Skip(ctx context.Context) bool {
 		return true
 	}
 	// Short term solution to support RayJob InTreeAutoscaling: https://github.com/kubernetes-sigs/kueue/issues/7605
-	if ptr.Deref(j.Spec.RayClusterSpec.EnableInTreeAutoscaling, false) &&
+	if j.Spec.RayClusterSpec != nil &&
+		ptr.Deref(j.Spec.RayClusterSpec.EnableInTreeAutoscaling, false) &&
 		jobframework.WorkloadSliceEnabled(j) {
 		return true
 	}
