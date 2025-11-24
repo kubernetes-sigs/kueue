@@ -49,10 +49,12 @@ The following commands assume you are in the `cmd/experimental/kueue-populator` 
 Example using `--set`:
 
 ```bash
-helm install kueue-populator ./charts/kueue-populator --namespace kueue-system --create-namespace \
+helm install kueue-populator ./charts/kueue-populator --namespace kueue-system --create-namespace --wait \
   --set kueuePopulator.image.repository=<YOUR_REGISTRY>/kueue-populator \
   --set kueuePopulator.image.tag=latest
 ```
+
+> The `--wait` flag is required to ensure that the Kueue controller and webhooks are fully ready before the chart attempts to create Kueue resources (like ClusterQueue) via post-install hooks. Without it, the installation may fail.
 
 Example using a custom `my-values.yaml`:
 
@@ -65,7 +67,7 @@ kueuePopulator:
 ```
 
 ```bash
-helm install kueue-populator ./charts/kueue-populator --namespace kueue-system --create-namespace -f my-values.yaml
+helm install kueue-populator ./charts/kueue-populator --namespace kueue-system --create-namespace --wait -f my-values.yaml
 ```
 
 ## Configuration
