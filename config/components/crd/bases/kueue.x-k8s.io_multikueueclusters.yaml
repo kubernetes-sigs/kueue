@@ -189,14 +189,8 @@ spec:
                         maxLength: 256
                         minLength: 1
                         type: string
-                      namespace:
-                        description: namespace of the ClusterProfile.
-                        maxLength: 256
-                        minLength: 1
-                        type: string
                     required:
                     - name
-                    - namespace
                     type: object
                   kubeConfig:
                     description: kubeConfig is information on how to connect to the
