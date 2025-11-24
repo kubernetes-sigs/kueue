@@ -1439,10 +1439,9 @@ func (mkc *MultiKueueClusterWrapper) KubeConfig(locationType kueue.LocationType,
 	return mkc
 }
 
-func (mkc *MultiKueueClusterWrapper) ClusterProfile(name, namespace string) *MultiKueueClusterWrapper {
+func (mkc *MultiKueueClusterWrapper) ClusterProfile(name string) *MultiKueueClusterWrapper {
 	mkc.Spec.ClusterSource.ClusterProfileRef = &kueue.ClusterProfileReference{
-		Name:      name,
-		Namespace: namespace,
+		Name: name,
 	}
 	return mkc
 }

@@ -135,22 +135,22 @@ func TestListMultiKueueClustersUsingClusterProfile(t *testing.T) {
 		},
 		"single cluster, single match": {
 			clusters: []*kueue.MultiKueueCluster{
-				utiltestingapi.MakeMultiKueueCluster("cluster1").ClusterProfile("clusterprofile1", TestNamespace).Obj(),
+				utiltestingapi.MakeMultiKueueCluster("cluster1").ClusterProfile("clusterprofile1").Obj(),
 			},
 			filter:   client.MatchingFields{UsingClusterProfiles: TestNamespace + "/clusterprofile1"},
 			wantList: []string{"cluster1"},
 		},
 		"single cluster, no match": {
 			clusters: []*kueue.MultiKueueCluster{
-				utiltestingapi.MakeMultiKueueCluster("cluster2").ClusterProfile("clusterprofile2", TestNamespace).Obj(),
+				utiltestingapi.MakeMultiKueueCluster("cluster2").ClusterProfile("clusterprofile2").Obj(),
 			},
 			filter:   client.MatchingFields{UsingClusterProfiles: TestNamespace + "/clusterprofile1"},
 			wantList: []string{},
 		},
 		"multiple clusters, single match": {
 			clusters: []*kueue.MultiKueueCluster{
-				utiltestingapi.MakeMultiKueueCluster("cluster1").ClusterProfile("clusterprofile1", TestNamespace).Obj(),
-				utiltestingapi.MakeMultiKueueCluster("cluster2").ClusterProfile("clusterprofile2", TestNamespace).Obj(),
+				utiltestingapi.MakeMultiKueueCluster("cluster1").ClusterProfile("clusterprofile1").Obj(),
+				utiltestingapi.MakeMultiKueueCluster("cluster2").ClusterProfile("clusterprofile2").Obj(),
 			},
 			filter:   client.MatchingFields{UsingClusterProfiles: TestNamespace + "/clusterprofile1"},
 			wantList: []string{"cluster1"},
