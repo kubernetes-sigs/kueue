@@ -28,6 +28,16 @@ metadata:
     controller-gen.kubebuilder.io/version: v0.19.0
   name: cohorts.kueue.x-k8s.io
 spec:
+  conversion:
+    strategy: Webhook
+    webhook:
+      clientConfig:
+        service:
+          name: '{{ include "kueue.fullname" . }}-webhook-service'
+          namespace: '{{ .Release.Namespace }}'
+          path: /convert
+      conversionReviewVersions:
+        - v1
   group: kueue.x-k8s.io
   names:
     kind: Cohort
