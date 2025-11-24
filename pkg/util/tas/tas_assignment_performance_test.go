@@ -20,6 +20,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"math/rand/v2"
 	"sort"
 	"strings"
@@ -32,14 +33,37 @@ import (
 
 const (
 	targetNodeCount = 40_000
+	hexTable        = "0123456789abcdef"
 )
 
 // Generate n hex numbers of given length,
 // ensuring they're distinct (and otherwise quasi-random).
 // For the health of tests, this function behaves deterministically.
 func randomHexIDs(n, length int) []string {
-	chosen := map[string]bool{}
 	res := make([]string, n)
+
+	// A trick to optimize performance.
+	// (Needed as this function turned out slow on Prow, see
+	// https://github.com/kubernetes-sigs/kueue/pull/7821#issuecomment-3570552610)
+	// If the setup is reasonably large, split this to 2 sub-problems,
+	// and do the "set-concat" operation on the solutions.
+	if n >= 1000 && length >= 4 {
+		subN := int(math.Ceil(math.Sqrt(float64(n))))
+		subLength := length / 2
+		subIDs := randomHexIDs(subN, subLength)
+		joiners := make([]string, 16)
+		if length%2 == 1 {
+			for i, ch := range hexTable {
+				joiners[i] = string(ch)
+			}
+		}
+		for i := range n {
+			res[i] = subIDs[i/subN] + joiners[i%16] + subIDs[i%subN]
+		}
+		return res
+	}
+
+	chosen := map[string]bool{}
 	rnd := rand.NewChaCha8([32]byte{})
 	bytes := make([]byte, (length+1)/2)
 	for i := range n {
