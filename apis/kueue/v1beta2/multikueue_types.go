@@ -59,7 +59,7 @@ type KubeConfig struct {
 	// +kubebuilder:default=Secret
 	// +optional
 	// +kubebuilder:validation:Enum=Secret;Path
-	LocationType LocationType `json:"locationType"`
+	LocationType LocationType `json:"locationType,omitempty"`
 }
 
 type MultiKueueClusterSpec struct {
