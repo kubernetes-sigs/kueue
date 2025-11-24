@@ -171,16 +171,19 @@ func isTooLarge(ta *kueue.TopologyAssignment) bool {
 	return len(jsonStr(ta)) > 1_500_000
 }
 
-func maxNodesFor(naming namingScheme, testCaseName string, t *testing.T) int {
-	return sort.Search(300_000, func(n int) bool {
+func approxMaxNodesFor(naming namingScheme, testCaseName string, t *testing.T) int {
+	step := 1_000
+	ceiling := 300_000
+	found := sort.Search(ceiling/step, func(n int) bool {
 		// TODO remove when done with debugging
 		now := func() string { return time.Now().Format("15:04:05.000") }
-		t.Logf("[%s] [%s] Trying %d nodes ...\n", now(), testCaseName, n)
-		res := V1Beta2From(internalSinglePodsOn(naming(n)))
-		t.Logf("[%s] [%s] Trying %d nodes - result has %d bytes\n", now(), testCaseName, n, len(jsonStr(res)))
+		t.Logf("[%s] [%s] Trying %d nodes ...\n", now(), testCaseName, n*step)
+		res := V1Beta2From(internalSinglePodsOn(naming(n * step)))
+		t.Logf("[%s] [%s] Trying %d nodes - result has %d bytes\n", now(), testCaseName, n*step, len(jsonStr(res)))
 
 		return isTooLarge(res)
 	}) - 1
+	return found * step
 }
 
 type performanceTestCase struct {
@@ -242,11 +245,11 @@ var performanceTestCases = []performanceTestCase{
 func TestByteSizeLimit(t *testing.T) {
 	for _, tc := range performanceTestCases {
 		t.Run(tc.name, func(t *testing.T) {
-			nodesLimit := maxNodesFor(tc.naming, tc.name, t)
+			nodesLimit := approxMaxNodesFor(tc.naming, tc.name, t)
 			if nodesLimit < targetNodeCount {
-				t.Errorf("Nodes limit for naming %q is too low: got %d, want >= %d", tc.name, nodesLimit, targetNodeCount)
+				t.Errorf("Nodes limit for naming %q is too low: got approx. %d, want >= %d", tc.name, nodesLimit, targetNodeCount)
 			} else {
-				t.Logf("Nodes limit for naming %q is %d", tc.name, nodesLimit)
+				t.Logf("Nodes limit for naming %q is approx. %d", tc.name, nodesLimit)
 			}
 		})
 	}
