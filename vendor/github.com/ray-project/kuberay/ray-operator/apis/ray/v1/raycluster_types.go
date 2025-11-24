@@ -11,6 +11,9 @@ import (
 
 // RayClusterSpec defines the desired state of RayCluster
 type RayClusterSpec struct {
+	// AuthOptions specifies the authentication options for the RayCluster.
+	// +optional
+	AuthOptions *AuthOptions `json:"authOptions,omitempty"`
 	// Suspend indicates whether a RayCluster should be suspended.
 	// A suspended RayCluster will have head pods and worker pods deleted.
 	// +optional
@@ -44,6 +47,26 @@ type RayClusterSpec struct {
 	// WorkerGroupSpecs are the specs for the worker pods
 	// +optional
 	WorkerGroupSpecs []WorkerGroupSpec `json:"workerGroupSpecs,omitempty"`
+}
+
+// AuthMode describes the authentication mode for the Ray cluster.
+type AuthMode string
+
+const (
+	// AuthModeDisabled disables authentication.
+	AuthModeDisabled AuthMode = "disabled"
+	// AuthModeToken enables token-based authentication.
+	AuthModeToken AuthMode = "token"
+)
+
+// AuthOptions defines the authentication options for a RayCluster.
+type AuthOptions struct {
+	// Mode specifies the authentication mode.
+	// Supported values are "disabled" and "token".
+	// Defaults to "token".
+	// +kubebuilder:validation:Enum=disabled;token
+	// +optional
+	Mode AuthMode `json:"mode,omitempty"`
 }
 
 // GcsFaultToleranceOptions contains configs for GCS FT
