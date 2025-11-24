@@ -104,10 +104,11 @@ type Manager struct {
 	sync.RWMutex
 	cond sync.Cond
 
-	clock         clock.WithDelayedExecution
-	client        client.Client
-	statusChecker StatusChecker
-	localQueues   map[queue.LocalQueueReference]*LocalQueue
+	clock            clock.WithDelayedExecution
+	client           client.Client
+	statusChecker    StatusChecker
+	localQueues      map[queue.LocalQueueReference]*LocalQueue
+	assumedWorkloads map[workload.Reference]queue.LocalQueueReference
 
 	workloadOrdering workload.Ordering
 
@@ -128,10 +129,11 @@ type Manager struct {
 
 func NewManager(client client.Client, checker StatusChecker, options ...Option) *Manager {
 	m := &Manager{
-		clock:         realClock,
-		client:        client,
-		statusChecker: checker,
-		localQueues:   make(map[queue.LocalQueueReference]*LocalQueue),
+		clock:            realClock,
+		client:           client,
+		statusChecker:    checker,
+		localQueues:      make(map[queue.LocalQueueReference]*LocalQueue),
+		assumedWorkloads: make(map[workload.Reference]queue.LocalQueueReference),
 		workloadOrdering: workload.Ordering{
 			PodsReadyRequeuingTimestamp: config.EvictionTimestamp,
 		},
@@ -436,11 +438,19 @@ func (m *Manager) ClusterQueueForWorkload(wl *kueue.Workload) (kueue.ClusterQueu
 func (m *Manager) AddOrUpdateWorkload(w *kueue.Workload, opts ...workload.InfoOption) error {
 	m.Lock()
 	defer m.Unlock()
-	return m.AddOrUpdateWorkloadWithoutLock(w, opts...)
+	var nullLogger *logr.Logger = nil
+	return m.AddOrUpdateWorkloadWithoutLock(nullLogger, w, opts...)
 }
 
-func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload, opts ...workload.InfoOption) error {
+func (m *Manager) AddOrUpdateWorkloadWithoutLock(log *logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
+	wlKey := workload.Key(w)
 	qKey := queue.KeyFromWorkload(w)
+
+	assumedQueue, assumed := m.assumedWorkloads[wlKey]
+	if assumed && assumedQueue != qKey {
+		m.deleteWorkloadFromQueueAndClusterQueue(log, wlKey)
+	}
+
 	q := m.localQueues[qKey]
 	if q == nil {
 		return ErrLocalQueueDoesNotExistOrInactive
@@ -448,6 +458,8 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload, opts ...work
 	allOptions := append(m.workloadInfoOptions, opts...)
 	wInfo := workload.NewInfo(w, allOptions...)
 	q.AddOrUpdate(wInfo)
+	m.assumedWorkloads[workload.Key(w)] = qKey
+
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq == nil {
 		return ErrClusterQueueDoesNotExist
@@ -476,12 +488,15 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 		return false
 	}
 
-	q := m.localQueues[queue.KeyFromWorkload(&w)]
+	qKey := queue.KeyFromWorkload(&w)
+	q := m.localQueues[qKey]
 	if q == nil {
 		return false
 	}
 	info.Update(&w)
 	q.AddOrUpdate(info)
+	m.assumedWorkloads[workload.Key(&w)] = qKey
+
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq == nil {
 		return false
@@ -498,24 +513,33 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	return added
 }
 
-func (m *Manager) DeleteWorkload(log logr.Logger, w *kueue.Workload) {
+func (m *Manager) DeleteWorkload(log logr.Logger, wlKey workload.Reference) {
 	m.Lock()
 	defer m.Unlock()
-	m.deleteWorkloadFromQueueAndClusterQueue(log, w, queue.KeyFromWorkload(w))
-	m.DeleteSecondPassWithoutLock(w)
+	m.deleteWorkloadFromQueueAndClusterQueue(&log, wlKey)
+	m.DeleteSecondPassWithoutLock(wlKey)
 }
 
-func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(log logr.Logger, w *kueue.Workload, qKey queue.LocalQueueReference) {
+func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(log *logr.Logger, wlKey workload.Reference) {
+	qKey, ok := m.assumedWorkloads[wlKey]
+	if !ok {
+		return
+	}
+	
 	q := m.localQueues[qKey]
 	if q == nil {
 		return
 	}
-	delete(q.items, workload.Key(w))
+	delete(q.items, wlKey)
+
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq != nil {
-		cq.Delete(log, w)
+		cq.Delete(log, wlKey)
 		m.reportPendingWorkloads(q.ClusterQueue, cq)
 	}
+
+	delete(m.assumedWorkloads, wlKey)
+
 	if features.Enabled(features.LocalQueueMetrics) {
 		m.reportLQPendingWorkloads(q)
 	}
@@ -628,13 +652,10 @@ func requeueWorkloadsCohortSubtree(ctx context.Context, m *Manager, cohort *coho
 
 // UpdateWorkload updates the workload to the corresponding queue or adds it if
 // it didn't exist. Returns whether the queue existed.
-func (m *Manager) UpdateWorkload(log logr.Logger, oldW, w *kueue.Workload, opts ...workload.InfoOption) error {
+func (m *Manager) UpdateWorkload(log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
 	m.Lock()
 	defer m.Unlock()
-	if oldW.Spec.QueueName != w.Spec.QueueName {
-		m.deleteWorkloadFromQueueAndClusterQueue(log, w, queue.KeyFromWorkload(oldW))
-	}
-	return m.AddOrUpdateWorkloadWithoutLock(w, opts...)
+	return m.AddOrUpdateWorkloadWithoutLock(&log, w, opts...)
 }
 
 // CleanUpOnContext tracks the context. When closed, it wakes routines waiting
@@ -678,11 +699,15 @@ func (m *Manager) heads() []workload.Info {
 			continue
 		}
 		m.reportPendingWorkloads(cqName, cq)
+		wlKey := workload.Key(wl.Obj)
 		wlCopy := *wl
 		wlCopy.ClusterQueue = cqName
 		workloads = append(workloads, wlCopy)
+
 		q := m.localQueues[queue.KeyFromWorkload(wl.Obj)]
-		delete(q.items, workload.Key(wl.Obj))
+		delete(q.items, wlKey)
+		delete(m.assumedWorkloads, wlKey)
+
 		if features.Enabled(features.LocalQueueMetrics) {
 			m.reportLQPendingWorkloads(q)
 		}
@@ -756,8 +781,8 @@ func (m *Manager) ClusterQueueFromLocalQueue(localQueueKey queue.LocalQueueRefer
 
 // DeleteSecondPassWithoutLock deletes the pending workload from the second
 // pass queue.
-func (m *Manager) DeleteSecondPassWithoutLock(w *kueue.Workload) {
-	m.secondPassQueue.deleteByKey(workload.Key(w))
+func (m *Manager) DeleteSecondPassWithoutLock(wlKey workload.Reference) {
+	m.secondPassQueue.deleteByKey(wlKey)
 }
 
 // QueueSecondPassIfNeeded queues for the second pass of scheduling with exponential
