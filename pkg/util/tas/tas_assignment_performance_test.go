@@ -26,6 +26,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
@@ -36,14 +37,14 @@ const (
 // Generate n hex numbers of given length,
 // ensuring they're distinct (and otherwise quasi-random).
 // For the health of tests, this function behaves deterministically.
-func randomHexIds(n, length int) []string {
+func randomHexIDs(n, length int) []string {
 	chosen := map[string]bool{}
 	res := make([]string, n)
 	rnd := rand.NewChaCha8([32]byte{})
 	bytes := make([]byte, (length+1)/2)
 	for i := range n {
 		for {
-			rnd.Read(bytes)
+			var _, _ = rnd.Read(bytes)
 			id := hex.EncodeToString(bytes)[:length]
 			if !chosen[id] {
 				chosen[id] = true
@@ -55,12 +56,12 @@ func randomHexIds(n, length int) []string {
 	return res
 }
 
-func fixedId(length int) string {
+func fixedID(length int) string {
 	// This is really whatever.
 	return strings.Repeat("a", length)
 }
 
-func consecutiveIps(n int) []string {
+func consecutiveIPs(n int) []string {
 	res := make([]string, n)
 	for i := range n {
 		// Picking 100.10x.xxx.xxx (instead of traditional 10.x.xxx.xxx)
@@ -79,44 +80,44 @@ type namingScheme func(nodes int) []string
 type poolAndNodeBasedNamingConfig struct {
 	fixedPrefixAndSuffixLength int
 	pools                      int
-	nodeIdLength               int
-	poolIdLength               int
+	nodeIDLength               int
+	poolIDLength               int
 }
 
 func poolAndNodeBasedNaming(config poolAndNodeBasedNamingConfig) namingScheme {
 	return func(nodes int) []string {
 		res := make([]string, nodes)
-		nodeIds := randomHexIds(nodes, config.nodeIdLength)
-		poolIds := randomHexIds(config.pools, config.poolIdLength)
+		nodeIDs := randomHexIDs(nodes, config.nodeIDLength)
+		poolIDs := randomHexIDs(config.pools, config.poolIDLength)
 		for i := range nodes {
 			res[i] = fmt.Sprintf("%s-%s-%s-%s",
-				fixedId(config.fixedPrefixAndSuffixLength),
-				poolIds[i%config.pools],
-				nodeIds[i],
-				fixedId(config.fixedPrefixAndSuffixLength),
+				fixedID(config.fixedPrefixAndSuffixLength),
+				poolIDs[i%config.pools],
+				nodeIDs[i],
+				fixedID(config.fixedPrefixAndSuffixLength),
 			)
 		}
 		return res
 	}
 }
 
-type regionAndIpBasedNamingConfig struct {
+type regionAndIPBasedNamingConfig struct {
 	fixedPrefixAndSuffixLength int
 	regions                    int
-	regionIdLength             int
+	regionIDLength             int
 }
 
-func regionAndIpBasedNaming(config regionAndIpBasedNamingConfig) namingScheme {
+func regionAndIPBasedNaming(config regionAndIPBasedNamingConfig) namingScheme {
 	return func(nodes int) []string {
 		res := make([]string, nodes)
-		nodeIps := consecutiveIps(nodes)
-		regionIds := randomHexIds(config.regions, config.regionIdLength)
+		nodeIPs := consecutiveIPs(nodes)
+		regionIDs := randomHexIDs(config.regions, config.regionIDLength)
 		for i := range nodes {
 			res[i] = fmt.Sprintf("%s-%s-%s-%s",
-				fixedId(config.fixedPrefixAndSuffixLength),
-				regionIds[i%config.regions],
-				nodeIps[i],
-				fixedId(config.fixedPrefixAndSuffixLength),
+				fixedID(config.fixedPrefixAndSuffixLength),
+				regionIDs[i%config.regions],
+				nodeIPs[i],
+				fixedID(config.fixedPrefixAndSuffixLength),
 			)
 		}
 		return res
@@ -125,18 +126,18 @@ func regionAndIpBasedNaming(config regionAndIpBasedNamingConfig) namingScheme {
 
 type nodeBasedNamingConfig struct {
 	fixedPrefixAndSuffixLength int
-	nodeIdLength               int
+	nodeIDLength               int
 }
 
 func nodeBasedNaming(config nodeBasedNamingConfig) namingScheme {
 	return func(nodes int) []string {
 		res := make([]string, nodes)
-		nodeIds := randomHexIds(nodes, config.nodeIdLength)
+		nodeIDs := randomHexIDs(nodes, config.nodeIDLength)
 		for i := range nodes {
 			res[i] = fmt.Sprintf("%s-%s-%s",
-				fixedId(config.fixedPrefixAndSuffixLength),
-				nodeIds[i],
-				fixedId(config.fixedPrefixAndSuffixLength),
+				fixedID(config.fixedPrefixAndSuffixLength),
+				nodeIDs[i],
+				fixedID(config.fixedPrefixAndSuffixLength),
 			)
 		}
 		return res
@@ -185,10 +186,10 @@ var performanceTestCases = []performanceTestCase{
 		name: "pool-and-node-based naming (100 node pools)",
 		naming: poolAndNodeBasedNaming(poolAndNodeBasedNamingConfig{
 			pools:        100, // happens in practice, at least in GKE
-			nodeIdLength: 6,   // reached in AKS
+			nodeIDLength: 6,   // reached in AKS
 
 			// reachable in AKS (<pool-name>-<8-char-id>-vmss, then let <pool-name> have 8 chars)
-			poolIdLength: 22,
+			poolIDLength: 22,
 
 			fixedPrefixAndSuffixLength: 20,
 		}),
@@ -197,35 +198,35 @@ var performanceTestCases = []performanceTestCase{
 		name: "pool-and-node-based naming (1 node pool)",
 		naming: poolAndNodeBasedNaming(poolAndNodeBasedNamingConfig{
 			pools:                      1,
-			nodeIdLength:               6,
-			poolIdLength:               22,
+			nodeIDLength:               6,
+			poolIDLength:               22,
 			fixedPrefixAndSuffixLength: 20,
 		}),
 	},
 	{
 		name: "region-and-IP-based naming (100 regions)",
-		naming: regionAndIpBasedNaming(regionAndIpBasedNamingConfig{
+		naming: regionAndIPBasedNaming(regionAndIPBasedNamingConfig{
 			regions: 100, // EKS has 70, leaving room for growth
 
 			// Reached in EKS ("ap-southeast-2") & ACK ("cn-zhangjiakou").
 			// GKE reaches even 23 ("northamerica-northeast2") but luckily its naming is not region-based.
-			regionIdLength: 14,
+			regionIDLength: 14,
 
 			fixedPrefixAndSuffixLength: 20,
 		}),
 	},
 	{
 		name: "region-and-IP-based naming (1 region)",
-		naming: regionAndIpBasedNaming(regionAndIpBasedNamingConfig{
+		naming: regionAndIPBasedNaming(regionAndIPBasedNamingConfig{
 			regions:                    1,
-			regionIdLength:             14,
+			regionIDLength:             14,
 			fixedPrefixAndSuffixLength: 20,
 		}),
 	},
 	{
 		name: "node-only-based naming",
 		naming: nodeBasedNaming(nodeBasedNamingConfig{
-			nodeIdLength:               8, // reached in VKE
+			nodeIDLength:               8, // reached in VKE
 			fixedPrefixAndSuffixLength: 20,
 		}),
 	},
