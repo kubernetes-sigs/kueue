@@ -341,7 +341,7 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.C
 	}
 	if features.Enabled(features.FailureRecoveryPolicy) {
 		if failedCtrlName, err := failurerecovery.SetupControllers(mgr, cfg); err != nil {
-			return fmt.Errorf("could not setup FailureRecover controller %s: %w", failedCtrlName, err)
+			return fmt.Errorf("could not setup FailureRecovery controller %s: %w", failedCtrlName, err)
 		}
 	}
 
