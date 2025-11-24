@@ -41,14 +41,8 @@ trap cleanup EXIT
 echo "Creating Kind cluster..."
 "$KIND" create cluster --name "$KIND_CLUSTER_NAME"
 
-echo "Building and loading Kueue image..."
-cd "$REPO_ROOT"
-IMAGE_TAG_KUEUE="us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:$GIT_TAG"
-make kind-image-build
-"$KIND" load docker-image "$IMAGE_TAG_KUEUE" --name "$KIND_CLUSTER_NAME"
-
 echo "Installing Kueue..."
-"$KUSTOMIZE" build config/default | sed "s|us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:main|$IMAGE_TAG_KUEUE|g" | kubectl apply --server-side -f -
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.14.4/manifests.yaml
 kubectl wait deployment/kueue-controller-manager -n kueue-system --for=condition=available --timeout=5m
 cd "$SCRIPT_DIR"
 
