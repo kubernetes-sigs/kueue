@@ -62,16 +62,21 @@ type KubeConfig struct {
 	LocationType LocationType `json:"locationType"`
 }
 
-// +kubebuilder:validation:ExactlyOneOf=kubeConfig;clusterProfile
-
 type MultiKueueClusterSpec struct {
+	// clusterSource is the source to connect to the cluster.
+	// +required
+	ClusterSource ClusterSource `json:"clusterSource,omitempty"`
+}
+
+// +kubebuilder:validation:ExactlyOneOf=kubeConfig;clusterProfileRef
+type ClusterSource struct {
 	// kubeConfig is information on how to connect to the cluster.
 	// +optional
 	KubeConfig *KubeConfig `json:"kubeConfig,omitempty,omitzero"`
 
-	// clusterProfile is the reference to the ClusterProfile object used to connect to the cluster.
+	// clusterProfileRef is the reference to the ClusterProfile object used to connect to the cluster.
 	// +optional
-	ClusterProfile *ClusterProfileReference `json:"clusterProfile,omitempty"`
+	ClusterProfileRef *ClusterProfileReference `json:"clusterProfileRef,omitempty"`
 }
 
 type ClusterProfileReference struct {
@@ -175,3 +180,5 @@ type MultiKueueConfigList struct {
 func init() {
 	SchemeBuilder.Register(&MultiKueueConfig{}, &MultiKueueConfigList{}, &MultiKueueCluster{}, &MultiKueueClusterList{})
 }
+
+func (*MultiKueueCluster) Hub() {}
