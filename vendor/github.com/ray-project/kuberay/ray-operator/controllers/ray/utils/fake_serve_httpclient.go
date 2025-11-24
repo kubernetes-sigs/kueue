@@ -20,7 +20,7 @@ type FakeRayDashboardClient struct {
 
 var _ dashboardclient.RayDashboardClientInterface = (*FakeRayDashboardClient)(nil)
 
-func (r *FakeRayDashboardClient) InitClient(_ *http.Client, _ string) {
+func (r *FakeRayDashboardClient) InitClient(_ *http.Client, _ string, _ string) {
 }
 
 func (r *FakeRayDashboardClient) UpdateDeployments(_ context.Context, configJson []byte) error {

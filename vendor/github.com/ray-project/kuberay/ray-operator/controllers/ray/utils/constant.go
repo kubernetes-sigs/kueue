@@ -156,6 +156,13 @@ const (
 	RAY_NODE_TYPE_NAME       = "RAY_NODE_TYPE_NAME"
 	RAY_ENABLE_AUTOSCALER_V2 = "RAY_enable_autoscaler_v2"
 
+	// RAY_AUTH_MODE_ENV_VAR is the Ray environment variable for configuring the authentication mode
+	RAY_AUTH_MODE_ENV_VAR = "RAY_AUTH_MODE"
+	// RAY_AUTH_TOKEN_ENV_VAR is the Ray environment variable containing the authentication token.
+	RAY_AUTH_TOKEN_ENV_VAR = "RAY_AUTH_TOKEN" // #nosec G101
+	// RAY_AUTH_TOKEN_SECRET_KEY is the key used in the Secret containing Ray auth token
+	RAY_AUTH_TOKEN_SECRET_KEY = "auth_token"
+
 	// This KubeRay operator environment variable is used to determine if random Pod
 	// deletion should be enabled. Note that this only takes effect when autoscaling
 	// is enabled for the RayCluster. This is a feature flag for v0.6.0, and will be
@@ -248,7 +255,7 @@ const (
 	// The version is included in the RAY_USAGE_STATS_EXTRA_TAGS environment variable
 	// as well as the user-agent. This constant is updated before release.
 	// TODO: Update KUBERAY_VERSION to be a build-time variable.
-	KUBERAY_VERSION = "v1.5.0"
+	KUBERAY_VERSION = "v1.5.1"
 
 	// KubeRayController represents the value of the default job controller
 	KubeRayController = "ray.io/kuberay-operator"
