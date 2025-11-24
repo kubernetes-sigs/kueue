@@ -77,7 +77,7 @@ var _ = ginkgo.Describe("Upgrade Validation", ginkgo.Ordered, func() {
 
 	ginkgo.It("should read pre-existing LocalQueue without x509 errors", func() {
 		lq := &kueue.LocalQueue{}
-		lqKey := types.NamespacedName{Name: "upgrade-test-lq", Namespace: "default"}
+		lqKey := types.NamespacedName{Name: "upgrade-test-lq", Namespace: "kueue-upgrade-test"}
 		gomega.Expect(k8sClient.Get(ctx, lqKey, lq)).To(gomega.Succeed())
 	})
 
@@ -124,7 +124,7 @@ var _ = ginkgo.Describe("Upgrade Validation", ginkgo.Ordered, func() {
 	})
 
 	ginkgo.It("should admit jobs using pre-existing LocalQueue", func() {
-		const jobNamespace = "default"
+		const jobNamespace = "kueue-upgrade-test"
 		const queueName = "upgrade-test-lq"
 
 		testJob := testingjob.MakeJob("upgrade-validation-job", jobNamespace).

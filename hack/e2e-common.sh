@@ -450,6 +450,16 @@ function upgrade_test_flow {
     
     # Step 2: Create test resources
     echo "Creating test resources..."
+    
+    # Create custom namespace for test resources (idempotent)
+    kubectl apply --kubeconfig="$1" -f - <<EOF_NS
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kueue-upgrade-test
+EOF_NS
+    
+    # Apply test resources
     kubectl apply --kubeconfig="$1" -f - <<EOF
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: ResourceFlavor
@@ -476,7 +486,7 @@ apiVersion: kueue.x-k8s.io/v1beta1
 kind: LocalQueue
 metadata:
   name: upgrade-test-lq
-  namespace: default
+  namespace: kueue-upgrade-test
 spec:
   clusterQueue: upgrade-test-cq
 EOF
@@ -496,6 +506,9 @@ EOF
         echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side --force-conflicts -f -
     )
     
-    echo "✓ Upgrade complete (rolling update in progress)"
+    # Wait for the rolling update to complete.
+    echo "Waiting for rolling update to complete..."
+    kubectl wait --for=condition=available --timeout=300s deployment/kueue-controller-manager -n "${KUEUE_NAMESPACE}"
+    echo "Upgrade complete (rolling update finished)"
     echo "========================================="
 }
