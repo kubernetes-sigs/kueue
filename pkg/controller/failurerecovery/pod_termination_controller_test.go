@@ -52,10 +52,7 @@ func TestCreateEventFilter(t *testing.T) {
 	fakeClock := testingclock.NewFakeClock(now)
 	cl := utiltesting.NewFakeClient()
 	recorder := &utiltesting.EventRecorder{}
-	reconciler, err := NewTerminatingPodReconciler(cl, recorder, WithClock(fakeClock))
-	if err != nil {
-		t.Fatalf("could not create reconciler: %v", err)
-	}
+	reconciler := NewTerminatingPodReconciler(cl, recorder, WithClock(fakeClock))
 
 	podToReconcile := testingpod.MakePod("pod", "ns").
 		StatusPhase(corev1.PodRunning).
@@ -103,10 +100,7 @@ func TestUpdateEventFilter(t *testing.T) {
 	fakeClock := testingclock.NewFakeClock(now)
 	cl := utiltesting.NewFakeClient()
 	recorder := &utiltesting.EventRecorder{}
-	reconciler, err := NewTerminatingPodReconciler(cl, recorder, WithClock(fakeClock))
-	if err != nil {
-		t.Fatalf("could not create reconciler: %v", err)
-	}
+	reconciler := NewTerminatingPodReconciler(cl, recorder, WithClock(fakeClock))
 
 	oldPod := testingpod.MakePod("pod", "ns").
 		StatusPhase(corev1.PodRunning).
@@ -261,10 +255,7 @@ func TestReconciler(t *testing.T) {
 			clientBuilder := utiltesting.NewClientBuilder().WithObjects(objs...)
 			cl := clientBuilder.Build()
 			recorder := &utiltesting.EventRecorder{}
-			reconciler, err := NewTerminatingPodReconciler(cl, recorder, WithClock(fakeClock))
-			if err != nil {
-				t.Fatalf("could not create reconciler: %v", err)
-			}
+			reconciler := NewTerminatingPodReconciler(cl, recorder, WithClock(fakeClock))
 
 			ctxWithLogger, _ := utiltesting.ContextWithLog(t)
 			ctx, ctxCancel := context.WithCancel(ctxWithLogger)

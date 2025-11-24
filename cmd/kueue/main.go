@@ -62,6 +62,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/controller/failurerecovery"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
@@ -337,6 +338,11 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.C
 
 	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, cfg); err != nil {
 		return fmt.Errorf("unable to create controller %s: %w", failedCtrl, err)
+	}
+	if features.Enabled(features.FailureRecoveryPolicy) {
+		if failedCtrlName, err := failurerecovery.SetupControllers(mgr, cfg); err != nil {
+			return fmt.Errorf("could not setup FailureRecover controller %s: %w", failedCtrlName, err)
+		}
 	}
 
 	// setup provision admission check controller
