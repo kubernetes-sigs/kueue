@@ -271,13 +271,7 @@ func EnsureWorkloadSlices(ctx context.Context, clnt client.Client, clk clock.Clo
 // - An error if any of the operations fail; otherwise, nil.
 func StartWorkloadSlicePods(ctx context.Context, clnt client.Client, object client.Object) error {
 	list := &corev1.PodList{}
-	// Use podLabelSelector if provided, otherwise fall back to OwnerReferenceUID
-	var listOptions []client.ListOption
-	listOptions = []client.ListOption{
-		client.InNamespace(object.GetNamespace()),
-		client.MatchingFields{indexer.OwnerReferenceUID: string(object.GetUID())},
-	}
-	if err := clnt.List(ctx, list, listOptions...); err != nil {
+	if err := clnt.List(ctx, list, client.InNamespace(object.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(object.GetUID())}); err != nil {
 		return fmt.Errorf("failed to list job pods: %w", err)
 	}
 	for i := range list.Items {
