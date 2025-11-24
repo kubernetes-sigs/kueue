@@ -16,7 +16,7 @@ DOCKER_BUILDX_CMD ?= docker buildx
 IMAGE_BUILD_CMD ?= $(DOCKER_BUILDX_CMD) build
 
 IMAGE_REGISTRY ?= us-central1-docker.pkg.dev/k8s-staging-images/kueue
-IMAGE_NAME := kueue-prepopulator
+IMAGE_NAME := kueue-populator
 IMAGE_REPO := $(IMAGE_REGISTRY)/$(IMAGE_NAME)
 IMAGE_TAG := $(IMAGE_REPO):$(GIT_TAG)
 
@@ -74,7 +74,7 @@ CONTROLLER_GEN := $(BIN_DIR)/controller-gen
 
 .PHONY: manifests
 manifests:
-	$(CONTROLLER_GEN) rbac:roleName=kueue-prepopulator-role output:rbac:artifacts:config=config/rbac paths="./pkg/controller/..."
+	$(CONTROLLER_GEN) rbac:roleName=kueue-populator-role output:rbac:artifacts:config=config/rbac paths="./pkg/controller/..."
 
 .PHONY: test-integration
 test-integration:
