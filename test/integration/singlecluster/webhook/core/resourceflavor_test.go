@@ -17,7 +17,6 @@ limitations under the License.
 package core
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/onsi/ginkgo/v2"
@@ -26,7 +25,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -41,9 +39,7 @@ const (
 
 var _ = ginkgo.Describe("ResourceFlavor Webhook", ginkgo.Ordered, func() {
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, func(ctx context.Context, mgr manager.Manager) {
-			managerSetup(ctx, mgr)
-		})
+		fwk.StartManager(ctx, cfg, managerSetup)
 	})
 	ginkgo.AfterAll(func() {
 		fwk.StopManager(ctx)

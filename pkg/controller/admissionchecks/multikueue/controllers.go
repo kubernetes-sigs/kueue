@@ -131,7 +131,7 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 			for _, provider := range options.clusterProfileConfig.CredentialsProviders {
 				p = append(p, credentials.Provider{
 					Name:       provider.Name,
-					ExecConfig: provider.ExecConfig,
+					ExecConfig: &provider.ExecConfig,
 				})
 			}
 			cpCreds = credentials.New(p)

@@ -38,6 +38,7 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -136,6 +137,9 @@ func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config, 
 		return nil, nil, fmt.Errorf("unable to get kubeconfig for context %q: %w", kContext, err)
 	}
 	gomega.ExpectWithOffset(1, cfg).NotTo(gomega.BeNil())
+
+	err = apiextensionsv1.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = kueue.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())

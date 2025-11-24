@@ -52,6 +52,7 @@ const (
 	RequeueReasonNamespaceMismatch     RequeueReason = "NamespaceMismatch"
 	RequeueReasonGeneric               RequeueReason = ""
 	RequeueReasonPendingPreemption     RequeueReason = "PendingPreemption"
+	RequeueReasonPreemptionFailed      RequeueReason = "PreemptionFailed"
 )
 
 var (
@@ -549,7 +550,11 @@ func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.
 	if c.queueingStrategy == kueue.StrictFIFO {
 		return c.requeueIfNotPresent(wInfo, reason != RequeueReasonNamespaceMismatch)
 	}
-	return c.requeueIfNotPresent(wInfo, reason == RequeueReasonFailedAfterNomination || reason == RequeueReasonPendingPreemption)
+	return c.requeueIfNotPresent(
+		wInfo,
+		reason == RequeueReasonFailedAfterNomination ||
+			reason == RequeueReasonPendingPreemption ||
+			reason == RequeueReasonPreemptionFailed)
 }
 
 // queueOrderingFunc returns a function used by the clusterQueue heap algorithm

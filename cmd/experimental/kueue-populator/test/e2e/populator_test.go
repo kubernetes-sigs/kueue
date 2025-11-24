@@ -27,7 +27,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("DefaultLocalQueue", func() {
+var _ = ginkgo.Describe("KueuePopulator", func() {
 	var (
 		ns *corev1.Namespace
 		cq *kueue.ClusterQueue
@@ -50,7 +50,7 @@ var _ = ginkgo.Describe("DefaultLocalQueue", func() {
 		}
 	})
 
-	ginkgo.When("DefaultLocalQueue controller is enabled", func() {
+	ginkgo.When("The controller is enabled", func() {
 		ginkgo.It("Should create a default LocalQueue when namespace matches ClusterQueue selector", func() {
 			cq = &kueue.ClusterQueue{
 				ObjectMeta: metav1.ObjectMeta{

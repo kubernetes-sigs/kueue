@@ -788,7 +788,7 @@ policy can be preempted by the borrowing workload.</p>
 
 **Appears in:**
 
-- [MultiKueueClusterSpec](#kueue-x-k8s-io-v1beta2-MultiKueueClusterSpec)
+- [ClusterSource](#kueue-x-k8s-io-v1beta2-ClusterSource)
 
 
 
@@ -802,13 +802,6 @@ policy can be preempted by the borrowing workload.</p>
 </td>
 <td>
    <p>name of the ClusterProfile.</p>
-</td>
-</tr>
-<tr><td><code>namespace</code> <B>[Required]</B><br/>
-<code>string</code>
-</td>
-<td>
-   <p>namespace of the ClusterProfile.</p>
 </td>
 </tr>
 </tbody>
@@ -1115,6 +1108,37 @@ clusterQueue and haven't finished yet.</p>
    <p>fairSharing contains the current state for this ClusterQueue
 when participating in Fair Sharing.
 This is recorded only when Fair Sharing is enabled in the Kueue configuration.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `ClusterSource`     {#kueue-x-k8s-io-v1beta2-ClusterSource}
+    
+
+**Appears in:**
+
+- [MultiKueueClusterSpec](#kueue-x-k8s-io-v1beta2-MultiKueueClusterSpec)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>kubeConfig,omitempty,omitzero</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-KubeConfig"><code>KubeConfig</code></a>
+</td>
+<td>
+   <p>kubeConfig is information on how to connect to the cluster.</p>
+</td>
+</tr>
+<tr><td><code>clusterProfileRef</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-ClusterProfileReference"><code>ClusterProfileReference</code></a>
+</td>
+<td>
+   <p>clusterProfileRef is the reference to the ClusterProfile object used to connect to the cluster.</p>
 </td>
 </tr>
 </tbody>
@@ -1501,7 +1525,7 @@ There could be up to 64 resources.</p>
 
 **Appears in:**
 
-- [MultiKueueClusterSpec](#kueue-x-k8s-io-v1beta2-MultiKueueClusterSpec)
+- [ClusterSource](#kueue-x-k8s-io-v1beta2-ClusterSource)
 
 
 
@@ -1827,18 +1851,11 @@ workloads assigned to this LocalQueue.</p>
 <tbody>
     
   
-<tr><td><code>kubeConfig,omitempty,omitzero</code><br/>
-<a href="#kueue-x-k8s-io-v1beta2-KubeConfig"><code>KubeConfig</code></a>
+<tr><td><code>clusterSource</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta2-ClusterSource"><code>ClusterSource</code></a>
 </td>
 <td>
-   <p>kubeConfig is information on how to connect to the cluster.</p>
-</td>
-</tr>
-<tr><td><code>clusterProfile</code><br/>
-<a href="#kueue-x-k8s-io-v1beta2-ClusterProfileReference"><code>ClusterProfileReference</code></a>
-</td>
-<td>
-   <p>clusterProfile is the reference to the ClusterProfile object used to connect to the cluster.</p>
+   <p>clusterSource is the source to connect to the cluster.</p>
 </td>
 </tr>
 </tbody>

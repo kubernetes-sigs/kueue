@@ -1,4 +1,4 @@
-# Kueue Prepopulator
+# Kueue Populator
 
 The `kueue-populator` is an experimental controller that automatically creates a `LocalQueue` in namespaces that match a `ClusterQueue`'s `namespaceSelector`. This simplifies the setup for users who want to automatically provision `LocalQueue`s without manual intervention.
 

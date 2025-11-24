@@ -68,14 +68,14 @@ func WithLocalQueueName(name string) KueuePopulatorReconcilerOption {
 	}
 }
 
-var defaultPrepopulatorOptions = KueuePopulatorReconcilerOptions{}
+var defaultPopulatorOptions = KueuePopulatorReconcilerOptions{}
 
 func NewKueuePopulatorReconciler(
 	client client.Client,
 	recorder record.EventRecorder,
 	opts ...KueuePopulatorReconcilerOption,
 ) *KueuePopulatorReconciler {
-	options := defaultPrepopulatorOptions
+	options := defaultPopulatorOptions
 	for _, opt := range opts {
 		opt(&options)
 	}
@@ -214,13 +214,13 @@ func (r *KueuePopulatorReconciler) ensureLocalQueueExists(ctx context.Context, c
 		if lq.Spec.ClusterQueue == kueue.ClusterQueueReference(cq.Name) {
 			return nil
 		}
-		r.recorder.Eventf(cq, corev1.EventTypeWarning, "DefaultLocalQueueExists", "Skipping LocalQueue creation in namespace %s, a LocalQueue with name %s already exists", ns.Name, targetLQ.Name)
+		r.recorder.Eventf(cq, corev1.EventTypeWarning, "LocalQueueExists", "Skipping LocalQueue creation in namespace %s, a LocalQueue with name %s already exists", ns.Name, targetLQ.Name)
 		return nil
 	} else if !apierrors.IsNotFound(err) {
 		return err
 	}
 
-	log.Info("Creating default LocalQueue", "namespace", ns.Name, "localQueue", targetLQ.Name)
+	log.Info("Creating LocalQueue", "namespace", ns.Name, "localQueue", targetLQ.Name)
 
 	newLQ := &kueue.LocalQueue{
 		ObjectMeta: metav1.ObjectMeta{

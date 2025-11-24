@@ -46,10 +46,10 @@ func getIndexUsingKubeConfigs(configNamespace string) func(obj client.Object) []
 		if !isCluster {
 			return nil
 		}
-		if cluster.Spec.KubeConfig == nil {
+		if cluster.Spec.ClusterSource.KubeConfig == nil {
 			return nil
 		}
-		return []string{strings.Join([]string{configNamespace, cluster.Spec.KubeConfig.Location}, "/")}
+		return []string{strings.Join([]string{configNamespace, cluster.Spec.ClusterSource.KubeConfig.Location}, "/")}
 	}
 }
 
@@ -59,10 +59,10 @@ func getIndexUsingClusterProfiles(configNamespace string) func(obj client.Object
 		if !isCluster {
 			return nil
 		}
-		if cluster.Spec.ClusterProfile == nil {
+		if cluster.Spec.ClusterSource.ClusterProfileRef == nil {
 			return nil
 		}
-		return []string{strings.Join([]string{configNamespace, cluster.Spec.ClusterProfile.Namespace, cluster.Spec.ClusterProfile.Name}, "/")}
+		return []string{strings.Join([]string{configNamespace, cluster.Spec.ClusterSource.ClusterProfileRef.Name}, "/")}
 	}
 }
 

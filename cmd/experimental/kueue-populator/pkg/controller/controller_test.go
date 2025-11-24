@@ -353,7 +353,7 @@ func TestKueuePopulatorReconciler(t *testing.T) {
 			wantEvents: []Event{
 				{
 					EventType: corev1.EventTypeWarning,
-					Reason:    "DefaultLocalQueueExists",
+					Reason:    "LocalQueueExists",
 					Message:   "Skipping LocalQueue creation in namespace ns, a LocalQueue with name default-lq already exists",
 				},
 			},
