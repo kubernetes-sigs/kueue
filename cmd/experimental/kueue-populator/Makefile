@@ -26,20 +26,6 @@ BASE_BUILDER_IMAGE ?= golang:1.25.0
 BUILDER_IMAGE ?= $(BASE_BUILDER_IMAGE)
 CGO_ENABLED ?= 0
 
-# Integration tests
-ROOT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))/../../..
-BIN_DIR := $(ROOT_DIR)/bin
-ENVTEST := $(BIN_DIR)/setup-envtest
-GINKGO := $(BIN_DIR)/ginkgo
-GOTESTSUM := $(BIN_DIR)/gotestsum
-ARTIFACTS ?= $(ROOT_DIR)/artifacts
-ENVTEST_K8S_VERSION ?= 1.34
-INTEGRATION_NPROCS ?= 4
-CONTROLLER_GEN := $(BIN_DIR)/controller-gen
-
-YAML_PROCESSOR = $(BIN_DIR)/yaml-processor
-YAML_PROCESSOR_LOG_LEVEL ?= info
-
 HELM ?= helm
 
 .PHONY: all
@@ -77,7 +63,18 @@ kind-image-build: PLATFORMS=linux/amd64
 kind-image-build: PUSH=--load
 kind-image-build: image-build
 
-# Integration tests
+ROOT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))/../../..
+BIN_DIR := $(ROOT_DIR)/bin
+ENVTEST := $(BIN_DIR)/setup-envtest
+GINKGO := $(BIN_DIR)/ginkgo
+GOTESTSUM := $(BIN_DIR)/gotestsum
+ARTIFACTS ?= $(ROOT_DIR)/artifacts
+ENVTEST_K8S_VERSION ?= 1.34
+INTEGRATION_NPROCS ?= 4
+CONTROLLER_GEN := $(BIN_DIR)/controller-gen
+
+YAML_PROCESSOR = $(BIN_DIR)/yaml-processor
+YAML_PROCESSOR_LOG_LEVEL ?= info
 
 .PHONY: manifests
 manifests:
@@ -106,8 +103,6 @@ update-helm: manifests $(YAML_PROCESSOR)
 $(YAML_PROCESSOR):
 	cd $(ROOT_DIR) && $(MAKE) yaml-processor
 
-
-
 .PHONY: helm-lint
 helm-lint: ## Run Helm chart lint test.
 	$(HELM) lint charts/kueue-populator
@@ -115,7 +110,7 @@ helm-lint: ## Run Helm chart lint test.
 .PHONY: helm-verify
 helm-verify: helm-lint ## run helm template and detect any rendering failures
 	$(HELM) template charts/kueue-populator > /dev/null
-	$(HELM) template charts/kueue-populator --set image.repository=my-repo --set image.tag=v1.0.0 > /dev/null
+	$(HELM) template charts/kueue-populator --set image.repository=my-repo --set image.tag=v0.1.0 > /dev/null
 
 .PHONY: helm-unit-test
 helm-unit-test:
