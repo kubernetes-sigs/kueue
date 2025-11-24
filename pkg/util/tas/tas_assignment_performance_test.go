@@ -24,7 +24,6 @@ import (
 	"sort"
 	"strings"
 	"testing"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 
@@ -76,6 +75,13 @@ func consecutiveIPs(n int) []string {
 	return res
 }
 
+// namingScheme generates a list of node names according to a specific recipe.
+//
+// The list should be "well-prefixing", in that namingScheme(n)[:m] should be
+// an "equally good representative" of the scheme as namingScheme(m).
+// (This convention helps test performance; it's used in "approxMaxNodesFor").
+// To achieve that, specific schemes should rotate node "properties"
+// (like node pool, region etc.) using "%" operator rather than in big fixed chunks.
 type namingScheme func(nodes int) []string
 
 type poolAndNodeBasedNamingConfig struct {
@@ -171,17 +177,13 @@ func isTooLarge(ta *kueue.TopologyAssignment) bool {
 	return len(jsonStr(ta)) > 1_500_000
 }
 
-func approxMaxNodesFor(naming namingScheme, testCaseName string, t *testing.T) int {
-	step := 1_000
+func approxMaxNodesFor(naming namingScheme) int {
+	step := 1_000 // We search with a reduced resolution, to speed up the test
 	ceiling := 300_000
+	nodeNames := naming(ceiling)
 	found := sort.Search(ceiling/step, func(n int) bool {
-		// TODO remove when done with debugging
-		now := func() string { return time.Now().Format("15:04:05.000") }
-		t.Logf("[%s] [%s] Trying %d nodes ...\n", now(), testCaseName, n*step)
-		res := V1Beta2From(internalSinglePodsOn(naming(n * step)))
-		t.Logf("[%s] [%s] Trying %d nodes - result has %d bytes\n", now(), testCaseName, n*step, len(jsonStr(res)))
-
-		return isTooLarge(res)
+		// Here we rely on "well-prefixing"; see the comment on "nodeNaming".
+		return isTooLarge(V1Beta2From(internalSinglePodsOn(nodeNames[:n*step])))
 	}) - 1
 	return found * step
 }
@@ -245,7 +247,7 @@ var performanceTestCases = []performanceTestCase{
 func TestByteSizeLimit(t *testing.T) {
 	for _, tc := range performanceTestCases {
 		t.Run(tc.name, func(t *testing.T) {
-			nodesLimit := approxMaxNodesFor(tc.naming, tc.name, t)
+			nodesLimit := approxMaxNodesFor(tc.naming)
 			if nodesLimit < targetNodeCount {
 				t.Errorf("Nodes limit for naming %q is too low: got approx. %d, want >= %d", tc.name, nodesLimit, targetNodeCount)
 			} else {
