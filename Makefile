@@ -40,10 +40,12 @@ IMAGE_REGISTRY ?= $(STAGING_IMAGE_REGISTRY)
 IMAGE_REPO := $(IMAGE_REGISTRY)/kueue
 IMAGE_REPO_KUEUEVIZ_BACKEND := $(IMAGE_REGISTRY)/kueueviz-backend
 IMAGE_REPO_KUEUEVIZ_FRONTEND := $(IMAGE_REGISTRY)/kueueviz-frontend
+IMAGE_REPO_KUEUE_POPULATOR := $(IMAGE_REGISTRY)/kueue-populator
 
 IMAGE_TAG := $(IMAGE_REPO):$(GIT_TAG)
 IMAGE_TAG_KUEUEVIZ_BACKEND := $(IMAGE_REPO_KUEUEVIZ_BACKEND):$(GIT_TAG)
 IMAGE_TAG_KUEUEVIZ_FRONTEND := $(IMAGE_REPO_KUEUEVIZ_FRONTEND):$(GIT_TAG)
+IMAGE_TAG_KUEUE_POPULATOR := $(IMAGE_REPO_KUEUE_POPULATOR):$(GIT_TAG)
 
 RAY_VERSION := 2.41.0
 RAYMINI_VERSION ?= 0.0.1
@@ -486,6 +488,30 @@ kueueviz-image-push: kueueviz-image-build
 kueueviz-image: VIZ_PLATFORMS=$(HOST_IMAGE_PLATFORM)
 kueueviz-image: PUSH=--load
 kueueviz-image: kueueviz-image-build
+
+# Build the kueue-populator image
+.PHONY: populator-image-build
+populator-image-build:
+	$(IMAGE_BUILD_CMD) \
+		-t $(IMAGE_TAG_KUEUE_POPULATOR) \
+		-t $(IMAGE_REPO_KUEUE_POPULATOR):$(RELEASE_BRANCH) \
+		--platform=$(PLATFORMS) \
+		--build-arg BASE_IMAGE=$(BASE_IMAGE) \
+		--build-arg BUILDER_IMAGE=$(BUILDER_IMAGE) \
+		--build-arg CGO_ENABLED=$(CGO_ENABLED) \
+		$(PUSH) \
+		$(IMAGE_BUILD_EXTRA_OPTS) \
+		-f ./cmd/experimental/kueue-populator/Dockerfile ./cmd/experimental/kueue-populator
+
+.PHONY: populator-image-push
+populator-image-push: PUSH=--push
+populator-image-push: populator-image-build
+
+# Build a docker local us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-populator image
+.PHONY: populator-image
+populator-image: PLATFORMS=$(HOST_IMAGE_PLATFORM)
+populator-image: PUSH=--load
+populator-image: populator-image-build
 
 .PHONY: kueuectl
 kueuectl:

@@ -1,16 +1,13 @@
 # Configuration for the Kueue Prepopulator component
 kueuePopulator:
   image:
-    # -- Image repository for the populator
-    # REQUIRED: Specify the repository where your kueue-populator image is pushed.
-    # Example: <YOUR_REGISTRY>/kueue-populator
-    repository: null
-    # -- Image tag for the populator
-    # REQUIRED: Specify the tag of the image you want to deploy.
-    # Example: latest
-    tag: null
-    # -- Image pull policy
-    pullPolicy: IfNotPresent
+    # -- Populator's image repository
+    repository: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-populator
+    # -- Populator's image tag
+    tag: main
+    # -- Populator's image pullPolicy.
+    # This should be set to 'IfNotPresent' for released version
+    pullPolicy: Always
   
   # -- Image pull secrets for the populator
   imagePullSecrets: []

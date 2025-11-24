@@ -12,6 +12,7 @@ steps:
       - importer-image-push
       - helm-chart-push
       - kueueviz-image-push
+      - populator-image-push
     env:
       - DOCKER_BUILDX_CMD=/buildx-entrypoint
       - GOTOOLCHAIN=auto
