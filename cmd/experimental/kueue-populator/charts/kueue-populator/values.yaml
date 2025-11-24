@@ -1,4 +1,4 @@
-# Configuration for the Kueue Prepopulator component
+# Configuration for the Kueue Populator component
 kueuePopulator:
   image:
     # -- Populator's image repository
