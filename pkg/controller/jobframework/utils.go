@@ -17,11 +17,11 @@ limitations under the License.
 package jobframework
 
 import (
+	"sync"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"sync"
-
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
@@ -47,7 +47,7 @@ func CreateGenericJobFromRuntimeObject(obj runtime.Object) GenericJob {
 	if objectKind == nil {
 		return nil
 	}
-	var gvk schema.GroupVersionKind = objectKind.GroupVersionKind()
+	gvk := objectKind.GroupVersionKind()
 	convertFunc, ok := jobConvertRegistry.Load(gvk)
 	if !ok {
 		return nil

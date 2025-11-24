@@ -18,18 +18,17 @@ package rayjob
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"k8s.io/utils/ptr"
-	"sigs.k8s.io/kueue/pkg/workloadslicing"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
-
 	kueuebeta "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -37,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/podset"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -87,7 +87,7 @@ func (w *RayJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		}
 	} else {
 		if !workloadslicing.Enabled(job.Object()) {
-			return fmt.Errorf("RayJob should enable workload slicing if autoscaling is enabled")
+			return errors.New("RayJob should enable workload slicing if autoscaling is enabled")
 		}
 		log.V(5).Info("Do not apply default for suspend due to EnableInTreeAutoscaling", "jobName", job.Name, "jobNamespace", job.Namespace)
 	}
