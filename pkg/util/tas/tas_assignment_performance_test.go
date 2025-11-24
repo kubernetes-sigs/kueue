@@ -108,14 +108,13 @@ type regionAndIpBasedNamingConfig struct {
 
 func regionAndIpBasedNaming(config regionAndIpBasedNamingConfig) namingScheme {
 	return func(nodes int) []string {
-		regions := 100
 		res := make([]string, nodes)
 		nodeIps := consecutiveIps(nodes)
 		regionIds := randomHexIds(config.regions, config.regionIdLength)
 		for i := range nodes {
 			res[i] = fmt.Sprintf("%s-%s-%s-%s",
 				fixedId(config.fixedPrefixAndSuffixLength),
-				regionIds[i%regions],
+				regionIds[i%config.regions],
 				nodeIps[i],
 				fixedId(config.fixedPrefixAndSuffixLength),
 			)
@@ -183,25 +182,28 @@ type performanceTestCase struct {
 
 var performanceTestCases = []performanceTestCase{
 	{
-		name: "pool-and-node-based naming, 100 node pools",
+		name: "pool-and-node-based naming (100 node pools)",
 		naming: poolAndNodeBasedNaming(poolAndNodeBasedNamingConfig{
-			pools:                      100, // happens in practice, at least in GKE
-			nodeIdLength:               6,   // reached in AKS
-			poolIdLength:               20,  // reachable in AKS (<pool-name>-<8-char-id>-vmss)
+			pools:        100, // happens in practice, at least in GKE
+			nodeIdLength: 6,   // reached in AKS
+
+			// reachable in AKS (<pool-name>-<8-char-id>-vmss, then let <pool-name> have 8 chars)
+			poolIdLength: 22,
+
 			fixedPrefixAndSuffixLength: 20,
 		}),
 	},
 	{
-		name: "pool-and-node-based naming, 1 node pool",
+		name: "pool-and-node-based naming (1 node pool)",
 		naming: poolAndNodeBasedNaming(poolAndNodeBasedNamingConfig{
 			pools:                      1,
 			nodeIdLength:               6,
-			poolIdLength:               20,
+			poolIdLength:               22,
 			fixedPrefixAndSuffixLength: 20,
 		}),
 	},
 	{
-		name: "region-and-IP-based naming",
+		name: "region-and-IP-based naming (100 regions)",
 		naming: regionAndIpBasedNaming(regionAndIpBasedNamingConfig{
 			regions: 100, // EKS has 70, leaving room for growth
 
@@ -209,6 +211,14 @@ var performanceTestCases = []performanceTestCase{
 			// GKE reaches even 23 ("northamerica-northeast2") but luckily its naming is not region-based.
 			regionIdLength: 14,
 
+			fixedPrefixAndSuffixLength: 20,
+		}),
+	},
+	{
+		name: "region-and-IP-based naming (1 region)",
+		naming: regionAndIpBasedNaming(regionAndIpBasedNamingConfig{
+			regions:                    1,
+			regionIdLength:             14,
 			fixedPrefixAndSuffixLength: 20,
 		}),
 	},
