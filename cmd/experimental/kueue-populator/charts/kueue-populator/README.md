@@ -1,6 +1,6 @@
-# Kueue Prepopulator
+# Kueue Populator
 
-This Helm chart installs the Kueue Prepopulator, a component designed to automatically create default LocalQueue resources in namespaces, and sets up initial Kueue resources like a default ClusterQueue and ResourceFlavor. It includes the official Kueue chart as a dependency.
+This Helm chart installs the Kueue Populator, a component designed to automatically create default LocalQueue resources in namespaces, and sets up initial Kueue resources like a default ClusterQueue and ResourceFlavor. It includes the official Kueue chart as a dependency.
 
 ## Purpose
 
@@ -70,7 +70,7 @@ helm install kueue-populator ./charts/kueue-populator --namespace kueue-system -
 
 ## Configuration
 
-### Kueue Prepopulator Configuration
+### Kueue Populator Configuration
 
 The following table lists the configurable parameters under the `kueuePopulator` key in `values.yaml`:
 
