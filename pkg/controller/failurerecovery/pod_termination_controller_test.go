@@ -89,7 +89,7 @@ func TestCreateEventFilter(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			gotResult := reconciler.Create(event.CreateEvent{Object: tc.pod})
+			gotResult := reconciler.Create(event.TypedCreateEvent[*corev1.Pod]{Object: tc.pod})
 
 			if diff := cmp.Diff(tc.wantResult, gotResult); diff != "" {
 				t.Errorf("unexpected reconcile result (-want/+got):\n%s", diff)
@@ -140,7 +140,7 @@ func TestUpdateEventFilter(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			gotResult := reconciler.Update(event.UpdateEvent{ObjectOld: tc.oldPod, ObjectNew: tc.newPod})
+			gotResult := reconciler.Update(event.TypedUpdateEvent[*corev1.Pod]{ObjectOld: tc.oldPod, ObjectNew: tc.newPod})
 
 			if diff := cmp.Diff(tc.wantResult, gotResult); diff != "" {
 				t.Errorf("unexpected reconcile result (-want/+got):\n%s", diff)

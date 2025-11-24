@@ -177,52 +177,53 @@ spec:
           spec:
             description: spec is the specification of the MultiKueueCluster.
             properties:
-              clusterProfile:
-                description: clusterProfile is the reference to the ClusterProfile
-                  object used to connect to the cluster.
+              clusterSource:
+                description: clusterSource is the source to connect to the cluster.
                 properties:
-                  name:
-                    description: name of the ClusterProfile.
-                    maxLength: 256
-                    minLength: 1
-                    type: string
-                  namespace:
-                    description: namespace of the ClusterProfile.
-                    maxLength: 256
-                    minLength: 1
-                    type: string
-                required:
-                - name
-                - namespace
-                type: object
-              kubeConfig:
-                description: kubeConfig is information on how to connect to the cluster.
-                properties:
-                  location:
-                    description: |-
-                      location of the KubeConfig.
+                  clusterProfileRef:
+                    description: clusterProfileRef is the reference to the ClusterProfile
+                      object used to connect to the cluster.
+                    properties:
+                      name:
+                        description: name of the ClusterProfile.
+                        maxLength: 256
+                        minLength: 1
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  kubeConfig:
+                    description: kubeConfig is information on how to connect to the
+                      cluster.
+                    properties:
+                      location:
+                        description: |-
+                          location of the KubeConfig.
 
-                      If LocationType is Secret then Location is the name of the secret inside the namespace in
-                      which the kueue controller manager is running. The config should be stored in the "kubeconfig" key.
-                    maxLength: 256
-                    minLength: 1
-                    type: string
-                  locationType:
-                    default: Secret
-                    description: locationType of the KubeConfig.
-                    enum:
-                    - Secret
-                    - Path
-                    type: string
-                required:
-                - location
+                          If LocationType is Secret then Location is the name of the secret inside the namespace in
+                          which the kueue controller manager is running. The config should be stored in the "kubeconfig" key.
+                        maxLength: 256
+                        minLength: 1
+                        type: string
+                      locationType:
+                        default: Secret
+                        description: locationType of the KubeConfig.
+                        enum:
+                        - Secret
+                        - Path
+                        type: string
+                    required:
+                    - location
+                    type: object
                 type: object
+                x-kubernetes-validations:
+                - message: exactly one of the fields in [kubeConfig clusterProfileRef]
+                    must be set
+                  rule: '[has(self.kubeConfig),has(self.clusterProfileRef)].filter(x,x==true).size()
+                    == 1'
+            required:
+            - clusterSource
             type: object
-            x-kubernetes-validations:
-            - message: exactly one of the fields in [kubeConfig clusterProfile] must
-                be set
-              rule: '[has(self.kubeConfig),has(self.clusterProfile)].filter(x,x==true).size()
-                == 1'
           status:
             description: status is the status of the MultiKueueCluster.
             properties:

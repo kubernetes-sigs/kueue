@@ -29,8 +29,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	utilclient "sigs.k8s.io/kueue/pkg/util/client"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
 )
@@ -95,47 +98,29 @@ func NewTerminatingPodReconciler(
 	}, nil
 }
 
-func (r *TerminatingPodReconciler) Generic(event.GenericEvent) bool {
+func (r *TerminatingPodReconciler) Generic(event.TypedGenericEvent[*corev1.Pod]) bool {
 	return false
 }
 
-func (r *TerminatingPodReconciler) Create(e event.CreateEvent) bool {
-	pod := e.Object.(*corev1.Pod)
-
-	if !podOptedInToFailurePolicy(pod) {
-		return false
-	}
-
-	if pod.DeletionTimestamp.IsZero() {
-		return false
-	}
-
-	return true
+func (r *TerminatingPodReconciler) Create(e event.TypedCreateEvent[*corev1.Pod]) bool {
+	return podEligibleForTermination(e.Object)
 }
 
-func (r *TerminatingPodReconciler) Update(u event.UpdateEvent) bool {
-	oldPod := u.ObjectOld.(*corev1.Pod)
-	newPod := u.ObjectNew.(*corev1.Pod)
-
-	if !podOptedInToFailurePolicy(newPod) {
+func (r *TerminatingPodReconciler) Update(u event.TypedUpdateEvent[*corev1.Pod]) bool {
+	if !podEligibleForTermination(u.ObjectNew) {
 		return false
 	}
 
 	// Pod was not marked for deletion in the update
-	if !oldPod.DeletionTimestamp.IsZero() || newPod.DeletionTimestamp.IsZero() {
+	if !u.ObjectOld.DeletionTimestamp.IsZero() || u.ObjectNew.DeletionTimestamp.IsZero() {
 		return false
 	}
 
 	return true
 }
 
-func (r *TerminatingPodReconciler) Delete(event.DeleteEvent) bool {
+func (r *TerminatingPodReconciler) Delete(event.TypedDeleteEvent[*corev1.Pod]) bool {
 	return false
-}
-
-func podOptedInToFailurePolicy(p *corev1.Pod) bool {
-	annotationValue, hasAnnotation := p.Annotations[constants.SafeToForcefullyTerminateAnnotationKey]
-	return hasAnnotation && annotationValue == constants.SafeToForcefullyTerminateAnnotationValue
 }
 
 func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -144,8 +129,8 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Pod was already terminated
-	if utilpod.IsTerminated(pod) {
+	// Pod was updated in the meantime and should not be forcefully terminated
+	if !podEligibleForTermination(pod) {
 		return ctrl.Result{}, nil
 	}
 
@@ -175,25 +160,51 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		constants.SafeToForcefullyTerminateAnnotationKey,
 	)
 
-	podPatch := pod.DeepCopy()
-	podPatch.Status.Phase = corev1.PodFailed
-	podPatch.Status.Conditions = append(podPatch.Status.Conditions, corev1.PodCondition{
-		Type:    KueueFailureRecoveryConditionType,
-		Status:  corev1.ConditionTrue,
-		Reason:  KueueForcefulTerminationReason,
-		Message: eventMessage,
+	err := utilclient.PatchStatus(ctx, r.client, pod, func() (bool, error) {
+		pod.Status.Phase = corev1.PodFailed
+		pod.Status.Conditions = append(pod.Status.Conditions, corev1.PodCondition{
+			Type:    KueueFailureRecoveryConditionType,
+			Status:  corev1.ConditionTrue,
+			Reason:  KueueForcefulTerminationReason,
+			Message: eventMessage,
+		})
+		return true, nil
 	})
-	if err := r.client.Status().Patch(ctx, podPatch, client.MergeFrom(pod)); err != nil {
+
+	if err != nil {
 		return ctrl.Result{}, err
 	}
+
 	r.recorder.Event(pod, corev1.EventTypeWarning, KueueForcefulTerminationReason, eventMessage)
 
 	return ctrl.Result{}, nil
 }
 
+func podEligibleForTermination(p *corev1.Pod) bool {
+	annotationValue, hasAnnotation := p.Annotations[constants.SafeToForcefullyTerminateAnnotationKey]
+	if !hasAnnotation || annotationValue != constants.SafeToForcefullyTerminateAnnotationValue {
+		return false
+	}
+
+	if p.DeletionTimestamp.IsZero() {
+		return false
+	}
+
+	if utilpod.IsTerminated(p) {
+		return false
+	}
+
+	return true
+}
+
 func (r *TerminatingPodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
+		WatchesRawSource(source.TypedKind(
+			mgr.GetCache(),
+			&corev1.Pod{},
+			&handler.TypedEnqueueRequestForObject[*corev1.Pod]{},
+			r,
+		)).
 		For(&corev1.Pod{}).
-		WithEventFilter(r).
 		Complete(r)
 }

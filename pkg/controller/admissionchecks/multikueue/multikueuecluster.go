@@ -351,7 +351,7 @@ type clustersReconciler struct {
 
 	adapters map[string]jobframework.MultiKueueAdapter
 
-	cpCreds clusterProfileCreds
+	clusterProfileCreds clusterProfileCreds
 }
 
 type clusterProfileCreds interface {
@@ -450,18 +450,25 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 
 func (c *clustersReconciler) loadClientConfig(ctx context.Context, cluster *kueue.MultiKueueCluster) (*clientConfig, bool, string, error) {
 	log := ctrl.LoggerFrom(ctx)
-	if cluster.Spec.ClusterProfile != nil {
+	if cluster.Spec.ClusterSource.ClusterProfileRef != nil {
 		if !features.Enabled(features.MultiKueueClusterProfile) {
 			return nil, false, "MultiKueueClusterProfileFeatureDisabled", errors.New("MultiKueueClusterProfile feature gate is disabled")
 		}
-		restConfig, retry, err := c.getRestConfigFromClusterProfile(ctx, cluster.Spec.ClusterProfile)
+		restConfig, retry, err := c.getRestConfigFromClusterProfile(ctx, cluster.Spec.ClusterSource.ClusterProfileRef)
 		if err != nil {
 			return nil, retry, "BadClusterProfile", err
+		}
+		opts := validateRestConfigOptions{
+			// ExecProvider is allowed for ClusterProfile credentials plugins.
+			allowExecProvider: true,
+		}
+		if err := validateRestConfig(restConfig, opts); err != nil {
+			return nil, false, "BadRestConfig", err
 		}
 		return &clientConfig{RestConfig: restConfig}, false, "", nil
 	}
 
-	kubeConfig, retry, err := c.getKubeConfig(ctx, cluster.Spec.KubeConfig)
+	kubeConfig, retry, err := c.getKubeConfig(ctx, cluster.Spec.ClusterSource.KubeConfig)
 	if err != nil {
 		return nil, retry, "BadKubeConfig", err
 	}
@@ -514,8 +521,17 @@ func validateKubeconfig(kubeconfig []byte) error {
 		return err
 	}
 
+	return validateRestConfig(restConfig, validateRestConfigOptions{})
+}
+
+type validateRestConfigOptions struct {
+	allowExecProvider bool
+}
+
+func validateRestConfig(restConfig *rest.Config, opts validateRestConfigOptions) error {
 	// Block dangerous auth mechanisms
-	// BearerToken is allowed due to service account tokens usage
+	// BearerTokenFile is not allowed.
+	// Instead BearerToken is allowed due to service account tokens usage.
 	if restConfig.BearerTokenFile != "" {
 		return errors.New("bearerTokenFile is not allowed")
 	}
@@ -526,7 +542,7 @@ func validateKubeconfig(kubeconfig []byte) error {
 	if restConfig.Username != "" || restConfig.Password != "" {
 		return errors.New("basic auth is not allowed")
 	}
-	if restConfig.ExecProvider != nil {
+	if restConfig.ExecProvider != nil && !opts.allowExecProvider {
 		return errors.New("exec plugins are not allowed")
 	}
 	if restConfig.AuthProvider != nil {
@@ -567,11 +583,11 @@ func (c *clustersReconciler) getKubeConfig(ctx context.Context, ref *kueue.KubeC
 
 func (c *clustersReconciler) getRestConfigFromClusterProfile(ctx context.Context, profileRef *kueue.ClusterProfileReference) (*rest.Config, bool, error) {
 	cp := &inventoryv1alpha1.ClusterProfile{}
-	if err := c.localClient.Get(ctx, types.NamespacedName{Name: profileRef.Name, Namespace: profileRef.Namespace}, cp); err != nil {
+	if err := c.localClient.Get(ctx, types.NamespacedName{Name: profileRef.Name, Namespace: c.configNamespace}, cp); err != nil {
 		return nil, !apierrors.IsNotFound(err), err
 	}
 
-	restConfig, err := c.cpCreds.BuildConfigFromCP(cp)
+	restConfig, err := c.clusterProfileCreds.BuildConfigFromCP(cp)
 	if err != nil {
 		return nil, false, err
 	}
@@ -659,16 +675,16 @@ func (c *clustersReconciler) getRemoteClients() []*remoteClient {
 
 func newClustersReconciler(c client.Client, namespace string, gcInterval time.Duration, origin string, fsWatcher *KubeConfigFSWatcher, adapters map[string]jobframework.MultiKueueAdapter, cpCreds clusterProfileCreds) *clustersReconciler {
 	return &clustersReconciler{
-		localClient:     c,
-		configNamespace: namespace,
-		remoteClients:   make(map[string]*remoteClient),
-		wlUpdateCh:      make(chan event.GenericEvent, eventChBufferSize),
-		gcInterval:      gcInterval,
-		origin:          origin,
-		watchEndedCh:    make(chan event.GenericEvent, eventChBufferSize),
-		fsWatcher:       fsWatcher,
-		adapters:        adapters,
-		cpCreds:         cpCreds,
+		localClient:         c,
+		configNamespace:     namespace,
+		remoteClients:       make(map[string]*remoteClient),
+		wlUpdateCh:          make(chan event.GenericEvent, eventChBufferSize),
+		gcInterval:          gcInterval,
+		origin:              origin,
+		watchEndedCh:        make(chan event.GenericEvent, eventChBufferSize),
+		fsWatcher:           fsWatcher,
+		adapters:            adapters,
+		clusterProfileCreds: cpCreds,
 	}
 }
 
@@ -699,8 +715,8 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 	filter := predicate.Funcs{
 		CreateFunc: func(ce event.CreateEvent) bool {
 			if cluster, isCluster := ce.Object.(*kueue.MultiKueueCluster); isCluster {
-				if cluster.Spec.KubeConfig != nil && cluster.Spec.KubeConfig.LocationType == kueue.PathLocationType {
-					err := c.fsWatcher.AddOrUpdate(cluster.Name, cluster.Spec.KubeConfig.Location)
+				if cluster.Spec.ClusterSource.KubeConfig != nil && cluster.Spec.ClusterSource.KubeConfig.LocationType == kueue.PathLocationType {
+					err := c.fsWatcher.AddOrUpdate(cluster.Name, cluster.Spec.ClusterSource.KubeConfig.Location)
 					if err != nil {
 						filterLog.Error(err, "AddOrUpdate FS watch", "cluster", klog.KObj(cluster))
 					}
@@ -715,8 +731,8 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 				return true
 			}
 
-			clusterNewHasKubeConfigPath := clusterNew.Spec.KubeConfig != nil && clusterNew.Spec.KubeConfig.LocationType == kueue.PathLocationType
-			clusterOldHasKubeConfigPath := clusterOld.Spec.KubeConfig != nil && clusterOld.Spec.KubeConfig.LocationType == kueue.PathLocationType
+			clusterNewHasKubeConfigPath := clusterNew.Spec.ClusterSource.KubeConfig != nil && clusterNew.Spec.ClusterSource.KubeConfig.LocationType == kueue.PathLocationType
+			clusterOldHasKubeConfigPath := clusterOld.Spec.ClusterSource.KubeConfig != nil && clusterOld.Spec.ClusterSource.KubeConfig.LocationType == kueue.PathLocationType
 			if clusterOldHasKubeConfigPath && !clusterNewHasKubeConfigPath {
 				err := c.fsWatcher.Remove(clusterOld.Name)
 				if err != nil {
@@ -725,7 +741,7 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 			}
 
 			if clusterNewHasKubeConfigPath {
-				err := c.fsWatcher.AddOrUpdate(clusterNew.Name, clusterNew.Spec.KubeConfig.Location)
+				err := c.fsWatcher.AddOrUpdate(clusterNew.Name, clusterNew.Spec.ClusterSource.KubeConfig.Location)
 				if err != nil {
 					filterLog.Error(err, "AddOrUpdate FS watch", "cluster", klog.KObj(clusterNew))
 				}
@@ -734,7 +750,7 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 		},
 		DeleteFunc: func(de event.DeleteEvent) bool {
 			if cluster, isCluster := de.Object.(*kueue.MultiKueueCluster); isCluster {
-				if cluster.Spec.KubeConfig != nil && cluster.Spec.KubeConfig.LocationType == kueue.PathLocationType {
+				if cluster.Spec.ClusterSource.KubeConfig != nil && cluster.Spec.ClusterSource.KubeConfig.LocationType == kueue.PathLocationType {
 					err := c.fsWatcher.Remove(cluster.Name)
 					if err != nil {
 						filterLog.Error(err, "Remove FS watch", "cluster", klog.KObj(cluster))
