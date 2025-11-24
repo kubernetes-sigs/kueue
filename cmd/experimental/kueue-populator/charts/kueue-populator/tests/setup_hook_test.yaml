@@ -28,6 +28,8 @@ tests:
       kueuePopulator.config.clusterQueue.resources:
         - name: "nvidia.com/gpu"
           nominalQuota: 10
+      kueuePopulator.config.resourceFlavor.resources:
+        - name: "nvidia.com/gpu"
     asserts:
       - matchRegex:
           path: data["resources.yaml"]

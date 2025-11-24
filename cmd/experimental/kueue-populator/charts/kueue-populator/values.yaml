@@ -27,7 +27,7 @@ kueuePopulator:
     clusterQueue:
       # -- Name of the default ClusterQueue
       name: "cluster-queue"
-      # -- Resources to configure in the default ResourceFlavor and ClusterQueue
+      # -- Resources to configure in the default ClusterQueue
       resources:
         - name: "cpu"
           nominalQuota: "10"
@@ -52,6 +52,11 @@ kueuePopulator:
       # nodeLabels:
       #   cloud.google.com/gke-nodepool: "default-pool"
       nodeLabels: {}
+      # -- Resources to configure in the default ResourceFlavor
+      resources:
+        - name: "cpu"
+        - name: "memory"
+        - name: "nvidia.com/gpu"
 
     # -- Label selector to filter namespaces where the default LocalQueue will be created.
     managedJobsNamespaceSelector:

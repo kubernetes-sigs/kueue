@@ -43,7 +43,6 @@ data:
       - key: "nvidia.com/gpu"
         operator: "Exists"
         effect: NoSchedule
-    ---
 {{- end }}
 {{- if .Values.kueuePopulator.config.clusterQueue }}
     apiVersion: kueue.x-k8s.io/v1beta1
@@ -54,7 +53,7 @@ data:
       namespaceSelector: {} # match all.
       resourceGroups:
       - coveredResources:
-{{- range .Values.kueuePopulator.config.clusterQueue.resources }}
+{{- range .Values.kueuePopulator.config.resourceFlavor.resources }}
         - {{ .name | quote }}
 {{- end }}
         flavors:
