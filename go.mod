@@ -42,7 +42,7 @@ require (
 	sigs.k8s.io/controller-runtime v0.22.4
 	sigs.k8s.io/jobset v0.10.1
 	sigs.k8s.io/lws v0.7.0
-	sigs.k8s.io/structured-merge-diff/v6 v6.3.0
+	sigs.k8s.io/structured-merge-diff/v6 v6.3.1
 	sigs.k8s.io/yaml v1.6.0
 )
 
