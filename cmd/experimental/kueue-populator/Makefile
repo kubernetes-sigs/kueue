@@ -26,6 +26,8 @@ BASE_BUILDER_IMAGE ?= golang:1.25.0
 BUILDER_IMAGE ?= $(BASE_BUILDER_IMAGE)
 CGO_ENABLED ?= 0
 
+HELM ?= helm
+
 .PHONY: all
 all: fmt vet build
 
@@ -72,6 +74,9 @@ ENVTEST_K8S_VERSION ?= 1.34
 INTEGRATION_NPROCS ?= 4
 CONTROLLER_GEN := $(BIN_DIR)/controller-gen
 
+YAML_PROCESSOR = $(BIN_DIR)/yaml-processor
+YAML_PROCESSOR_LOG_LEVEL ?= info
+
 .PHONY: manifests
 manifests:
 	$(CONTROLLER_GEN) rbac:roleName=kueue-populator-role output:rbac:artifacts:config=config/rbac paths="./pkg/controller/..."
@@ -90,3 +95,29 @@ test-e2e:
 test: ## Run unit tests.
 	GOWORK=off $(GOTESTSUM) --junitfile $(ARTIFACTS)/junit-unit.xml -- \
 		-race -coverpkg=./... -coverprofile $(ARTIFACTS)/cover-unit.out ./pkg/controller/...
+
+
+.PHONY: update-helm
+update-helm: manifests $(YAML_PROCESSOR)
+	$(YAML_PROCESSOR) -zap-log-level=$(YAML_PROCESSOR_LOG_LEVEL) hack/processing-plan.yaml
+
+$(YAML_PROCESSOR):
+	cd $(ROOT_DIR) && $(MAKE) yaml-processor
+
+.PHONY: helm-lint
+helm-lint: ## Run Helm chart lint test.
+	$(HELM) lint charts/kueue-populator
+
+.PHONY: helm-verify
+helm-verify: helm-lint ## run helm template and detect any rendering failures
+	$(HELM) template charts/kueue-populator > /dev/null
+	$(HELM) template charts/kueue-populator --set image.repository=my-repo --set image.tag=v0.1.0 > /dev/null
+
+.PHONY: helm-unit-test
+helm-unit-test:
+	$(HELM) unittest charts/kueue-populator --strict --debug
+
+.PHONY: helm-test
+helm-test: ## Run Helm chart integration tests (requires active cluster).
+	$(HELM) test kueue-populator
+
