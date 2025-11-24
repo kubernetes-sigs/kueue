@@ -31,7 +31,6 @@ import (
 )
 
 var _ = ginkgo.Describe("Kueue Certs", func() {
-
 	var (
 		ns             *corev1.Namespace
 		onDemandFlavor *kueue.ResourceFlavor
@@ -41,9 +40,7 @@ var _ = ginkgo.Describe("Kueue Certs", func() {
 
 	var (
 		mvcKey           = client.ObjectKey{Name: "kueue-mutating-webhook-configuration"}
-		localQueueCRDKey = client.ObjectKey{
-			Name: "localqueues.kueue.x-k8s.io",
-		}
+		localQueueCRDKey = client.ObjectKey{Name: "localqueues.kueue.x-k8s.io"}
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -69,12 +66,8 @@ var _ = ginkgo.Describe("Kueue Certs", func() {
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		if clusterQueue != nil {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		}
-		if onDemandFlavor != nil {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
-		}
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 	})
 
 	ginkgo.It("should rotate the certificates for the CRD resources", func() {
@@ -93,7 +86,7 @@ var _ = ginkgo.Describe("Kueue Certs", func() {
 				for _, webhook := range mwc.Webhooks {
 					g.Expect(webhook.ClientConfig.CABundle).ToNot(gomega.BeEmpty())
 				}
-			}, util.StartUpTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("clear the caBundle field", func() {
@@ -145,7 +138,7 @@ var _ = ginkgo.Describe("Kueue Certs", func() {
 		ginkgo.By("revert the LocalQueue change", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), localQueue)).To(gomega.Succeed())
-				g.Expect(localQueue.Spec.StopPolicy).Should(gomega.BeEquivalentTo(ptr.To(kueue.Hold)))
+				g.Expect(localQueue.Spec.StopPolicy).Should(gomega.Equal(ptr.To(kueue.Hold)))
 				localQueue.Spec.StopPolicy = ptr.To(kueue.None)
 				g.Expect(k8sClient.Update(ctx, localQueue)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
