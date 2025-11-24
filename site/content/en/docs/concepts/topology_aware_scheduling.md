@@ -115,7 +115,7 @@ to a TAS ResourceFlavor.
 ### ClusterAutoscaler support
 
 TAS integrates with the [Kubernetes ClusterAutoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler)
-through the [Provisioning AdmissionCheck](/docs/admission-check-controllers/provisioning/).
+through the [Provisioning AdmissionCheck](/docs/concepts/admission_check/provisioning_request/).
 
 When a workload is assigned to the TAS ResourceFlavor with Provisioning
 AdmissionCheck, then its admission flow has the following stages:
@@ -127,7 +127,7 @@ AdmissionCheck, then its admission flow has the following stages:
 3. **Topology assignment**: Kueue sets topology assignment, on the Workload
   object, calculated taking into account any newly provisioned nodes.
 
-Check also [PodSet updates in ProvisioningRequestConfig](site/content/en/docs/admission-check-controllers/provisioning.md)
+Check also [PodSet updates in ProvisioningRequestConfig](/docs/concepts/admission_check/provisioning_request/#podset-updates)
 to see how you can configure Kueue if you want to restrict scheduling to the
 newly provisioned nodes (assuming the provisioning class supports it).
 
