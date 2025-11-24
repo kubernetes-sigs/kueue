@@ -84,6 +84,16 @@ func defaultControlOptions(namespace string) ctrl.Options {
 	}
 }
 
+func controlOptionsWithClusterProfile(namespace string) ctrl.Options {
+	cOpts := defaultControlOptions(namespace)
+	cOpts.Cache.ByObject[objectKeyClusterProfile] = ctrlcache.ByObject{
+		Namespaces: map[string]ctrlcache.Config{
+			namespace: {},
+		},
+	}
+	return cOpts
+}
+
 func TestLoad(t *testing.T) {
 	testScheme := runtime.NewScheme()
 	err := configapi.AddToScheme(testScheme)
@@ -399,11 +409,13 @@ objectRetentionPolicies:
 	}
 
 	testcases := []struct {
-		name              string
-		configFile        string
-		wantConfiguration configapi.Configuration
-		wantOptions       ctrl.Options
-		wantError         error
+		name                 string
+		configFile           string
+		enableClusterProfile bool
+		crdExistsOverride    func(string) bool
+		wantConfiguration    configapi.Configuration
+		wantOptions          ctrl.Options
+		wantError            error
 	}{
 		{
 			name:       "default config",
@@ -794,6 +806,33 @@ objectRetentionPolicies:
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
 		{
+			name:                 "multiKueue config with clusterProfile",
+			configFile:           multiKueueConfig,
+			enableClusterProfile: true,
+			crdExistsOverride: func(string) bool {
+				return true
+			},
+			wantConfiguration: configapi.Configuration{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: configapi.GroupVersion.String(),
+					Kind:       "Configuration",
+				},
+				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				ManageJobsWithoutQueueName: false,
+				InternalCertManagement:     enableDefaultInternalCertManagement,
+				ClientConnection:           defaultClientConnection,
+				Integrations:               defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					GCInterval:        &metav1.Duration{Duration: 90 * time.Second},
+					Origin:            ptr.To("multikueue-manager1"),
+					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
+					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeIncremental),
+				},
+				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+			},
+			wantOptions: controlOptionsWithClusterProfile(configapi.DefaultNamespace),
+		},
+		{
 			name:       "resourceTransform config",
 			configFile: resourceTransformConfig,
 			wantConfiguration: configapi.Configuration{
@@ -874,6 +913,12 @@ objectRetentionPolicies:
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.crdExistsOverride != nil {
+				crdExistsFunc = tc.crdExistsOverride
+				defer func() {
+					crdExistsFunc = crdExists
+				}()
+			}
 			options, cfg, err := Load(testScheme, tc.configFile)
 			if tc.wantError == nil {
 				if err != nil {

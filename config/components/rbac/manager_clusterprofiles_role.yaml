@@ -1,0 +1,15 @@
+# permissions for the manager to access clusterprofiles.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: manager-clusterprofiles-role
+  namespace: system
+rules:
+- apiGroups:
+  - multicluster.x-k8s.io
+  resources:
+  - clusterprofiles
+  verbs:
+  - get
+  - list
+  - watch

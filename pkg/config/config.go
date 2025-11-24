@@ -18,14 +18,18 @@ package config
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	"k8s.io/client-go/rest"
+	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -34,8 +38,13 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 )
 
+const clusterProfileCRDName = "clusterprofiles.multicluster.x-k8s.io"
+
 var (
-	objectKeySecret = new(corev1.Secret)
+	objectKeySecret         = new(corev1.Secret)
+	objectKeyClusterProfile = new(inventoryv1alpha1.ClusterProfile)
+
+	crdExistsFunc = crdExists
 )
 
 // fromFile provides an alternative to the deprecated ctrl.ConfigFile().AtPath(path).OfKind(&cfg)
@@ -119,6 +128,14 @@ func addCacheByObjectTo(o *ctrl.Options, cfg *configapi.Configuration) {
 			*cfg.Namespace: {},
 		},
 	}
+
+	if crdExistsFunc(clusterProfileCRDName) {
+		o.Cache.ByObject[objectKeyClusterProfile] = ctrlcache.ByObject{
+			Namespaces: map[string]ctrlcache.Config{
+				*cfg.Namespace: {},
+			},
+		}
+	}
 }
 
 func addLeaderElectionTo(o *ctrl.Options, cfg *configapi.Configuration) {
@@ -200,4 +217,17 @@ func Load(scheme *runtime.Scheme, configFile string) (ctrl.Options, configapi.Co
 	}
 	addTo(&options, &cfg)
 	return options, cfg, err
+}
+
+func crdExists(crdName string) bool {
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		return false
+	}
+	apiExtClient, err := apiextensionsclient.NewForConfig(config)
+	if err != nil {
+		return false
+	}
+	_, err = apiExtClient.ApiextensionsV1().CustomResourceDefinitions().Get(context.TODO(), crdName, metav1.GetOptions{})
+	return err == nil
 }
