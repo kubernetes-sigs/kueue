@@ -490,8 +490,8 @@ kueueviz-image: PUSH=--load
 kueueviz-image: kueueviz-image-build
 
 # Build the kueue-populator image
-.PHONY: populator-image-build
-populator-image-build:
+.PHONY: kueue-populator-image-build
+kueue-populator-image-build:
 	$(IMAGE_BUILD_CMD) \
 		-t $(IMAGE_TAG_KUEUE_POPULATOR) \
 		-t $(IMAGE_REPO_KUEUE_POPULATOR):$(RELEASE_BRANCH) \
@@ -503,15 +503,15 @@ populator-image-build:
 		$(IMAGE_BUILD_EXTRA_OPTS) \
 		-f ./cmd/experimental/kueue-populator/Dockerfile ./cmd/experimental/kueue-populator
 
-.PHONY: populator-image-push
-populator-image-push: PUSH=--push
-populator-image-push: populator-image-build
+.PHONY: kueue-populator-image-push
+kueue-populator-image-push: PUSH=--push
+kueue-populator-image-push: kueue-populator-image-build
 
 # Build a docker local us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-populator image
-.PHONY: populator-image
-populator-image: PLATFORMS=$(HOST_IMAGE_PLATFORM)
-populator-image: PUSH=--load
-populator-image: populator-image-build
+.PHONY: kueue-populator-image
+kueue-populator-image: PLATFORMS=$(HOST_IMAGE_PLATFORM)
+kueue-populator-image: PUSH=--load
+kueue-populator-image: kueue-populator-image-build
 
 .PHONY: kueuectl
 kueuectl:
