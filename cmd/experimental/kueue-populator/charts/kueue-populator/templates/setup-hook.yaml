@@ -53,7 +53,7 @@ data:
       namespaceSelector: {} # match all.
       resourceGroups:
       - coveredResources:
-{{- range .Values.kueuePopulator.config.resourceFlavor.resources }}
+{{- range .Values.kueuePopulator.config.clusterQueue.resources }}
         - {{ .name | quote }}
 {{- end }}
         flavors:

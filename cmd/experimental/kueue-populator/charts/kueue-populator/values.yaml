@@ -52,11 +52,6 @@ kueuePopulator:
       # nodeLabels:
       #   cloud.google.com/gke-nodepool: "default-pool"
       nodeLabels: {}
-      # -- Resources to configure in the default ResourceFlavor
-      resources:
-        - name: "cpu"
-        - name: "memory"
-        - name: "nvidia.com/gpu"
 
     # -- Label selector to filter namespaces where the default LocalQueue will be created.
     managedJobsNamespaceSelector:
