@@ -96,7 +96,7 @@ func start(configFile string) error {
 		mgr.GetEventRecorderFor("kueue-populator"),
 		reconcilerOpts...,
 	).SetupWithManager(mgr); err != nil {
-		log.Error(err, "Unable to create controller", "controller", "DefaultLocalQueue")
+		log.Error(err, "Unable to create controller", "controller", "KueuePopulator")
 		return err
 	}
 
