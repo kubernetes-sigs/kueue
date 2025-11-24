@@ -25,13 +25,13 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/cmd/experimental/kueue-prepopulator/pkg/constants"
+	"sigs.k8s.io/kueue/cmd/experimental/kueue-populator/pkg/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("KueuePrepopulator controller", ginkgo.Serial, func() {
-	ginkgo.When("the KueuePrepopulator controller is running", func() {
+var _ = ginkgo.Describe("KueuePopulator controller", ginkgo.Serial, func() {
+	ginkgo.When("the KueuePopulator controller is running", func() {
 		var (
 			ns *corev1.Namespace
 			cq *kueue.ClusterQueue

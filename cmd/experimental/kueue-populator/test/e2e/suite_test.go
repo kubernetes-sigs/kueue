@@ -38,7 +38,7 @@ var (
 
 func TestE2E(t *testing.T) {
 	gomega.RegisterFailHandler(ginkgo.Fail)
-	ginkgo.RunSpecs(t, "LocalQueueCreator E2E Suite")
+	ginkgo.RunSpecs(t, "KueuePopulator E2E Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
