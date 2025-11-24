@@ -63,6 +63,7 @@ kind-image-build: PLATFORMS=linux/amd64
 kind-image-build: PUSH=--load
 kind-image-build: image-build
 
+# Integration tests
 ROOT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))/../../..
 BIN_DIR := $(ROOT_DIR)/bin
 ENVTEST := $(BIN_DIR)/setup-envtest
