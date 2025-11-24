@@ -14,31 +14,41 @@ kueuePopulator:
   
   # Configuration for the controller
   config:
-    # -- Name of the default LocalQueue to create in namespaces
-    localQueueName: "default"
-    # -- Name of the default ClusterQueue to create and reference in LocalQueues
-    clusterQueueName: "cluster-queue"
+    # -- Configuration for the default LocalQueue
+    localQueue:
+      # -- Name of the default LocalQueue to create in namespaces
+      name: "default"
     
-    # -- Resources to configure in the default ResourceFlavor and ClusterQueue
-    resources:
-      - name: "cpu"
-        nominalQuota: "10"
-      - name: "memory"
-        nominalQuota: "10Gi"
-      - name: "nvidia.com/gpu"
-        nominalQuota: "100"
-    
-    # -- List of topology levels. Enables Topology creation if not empty.
-    # Example:
-    # tasLevels:
-    #   - name: cloud.google.com/gke-nodepool
-    tasLevels: []
-    
-    # -- Node labels to associate with the default ResourceFlavor
-    # Example:
-    # nodeLabel:
-    #   cloud.google.com/gke-nodepool: "default-pool"
-    nodeLabel: {}
+    # -- Configuration for the default ClusterQueue
+    # If not set, the ClusterQueue will not be created.
+    clusterQueue:
+      # -- Name of the default ClusterQueue
+      name: "cluster-queue"
+      # -- Resources to configure in the default ResourceFlavor and ClusterQueue
+      resources:
+        - name: "cpu"
+          nominalQuota: "10"
+        - name: "memory"
+          nominalQuota: "10Gi"
+        - name: "nvidia.com/gpu"
+          nominalQuota: "100"
+
+    # -- Configuration for Topology Aware Scheduling
+    # If not set, Topology resources will not be created.
+    topology:
+      # -- List of topology levels.
+      # Example:
+      # levels:
+      #   - nodeLabel: cloud.google.com/gke-nodepool
+      levels: []
+
+    # -- Configuration for the default ResourceFlavor
+    resourceFlavor:
+      # -- Node labels to associate with the default ResourceFlavor
+      # Example:
+      # nodeLabels:
+      #   cloud.google.com/gke-nodepool: "default-pool"
+      nodeLabels: {}
 
     # -- Label selector to filter namespaces where the default LocalQueue will be created.
     managedJobsNamespaceSelector:
@@ -46,15 +56,6 @@ kueuePopulator:
         - key: kubernetes.io/metadata.name
           operator: NotIn
           values: [ "kube-system", "kueue-system" ]
-
-  # -- Resource requests and limits for the populator deployment
-  resources:
-    limits:
-      cpu: 100m
-      memory: 100Mi
-    requests:
-      cpu: 100m
-      memory: 100Mi
 
 # Default values for the dependency 'kueue'
 kueue:

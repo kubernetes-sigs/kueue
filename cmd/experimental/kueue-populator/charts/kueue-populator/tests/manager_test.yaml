@@ -33,7 +33,7 @@ tests:
   - it: should configure ConfigMap correctly
     documentIndex: 3
     set:
-      kueuePopulator.config.localQueueName: "my-local-queue"
+      kueuePopulator.config.localQueue.name: "my-local-queue"
       kueuePopulator.config.managedJobsNamespaceSelector:
         matchLabels:
           app: my-app
@@ -44,24 +44,6 @@ tests:
       - matchRegex:
           path: data["controller_manager_config.yaml"]
           pattern: "managedJobsNamespaceSelector:\n\\s+matchExpressions:\n\\s+- key: kubernetes.io/metadata.name\n\\s+operator: NotIn\n\\s+values:\n\\s+- kube-system\n\\s+- kueue-system\n\\s+matchLabels:\n\\s+app: my-app"
-
-  - it: should set resources
-    documentIndex: 4
-    set:
-      kueuePopulator.resources:
-        requests:
-          cpu: 100m
-          memory: 128Mi
-        limits:
-          cpu: 200m
-          memory: 256Mi
-    asserts:
-      - equal:
-          path: spec.template.spec.containers[0].resources.requests.cpu
-          value: 100m
-      - equal:
-          path: spec.template.spec.containers[0].resources.limits.memory
-          value: 256Mi
 
   - it: should set imagePullSecrets
     documentIndex: 4

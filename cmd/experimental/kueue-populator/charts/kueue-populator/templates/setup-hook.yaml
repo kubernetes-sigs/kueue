@@ -10,52 +10,60 @@ metadata:
     "helm.sh/hook-delete-policy": before-hook-creation
 data:
   resources.yaml: |-
-{{- if .Values.kueuePopulator.config.tasLevels }}
+{{- if .Values.kueuePopulator.config.topology }}
+{{- if .Values.kueuePopulator.config.topology.levels }}
     apiVersion: kueue.x-k8s.io/v1beta1
     kind: Topology
     metadata:
       name: "default"
     spec:
       levels:
-{{- range .Values.kueuePopulator.config.tasLevels }}
-        - nodeLabel: {{ .name | quote }}
+{{- range .Values.kueuePopulator.config.topology.levels }}
+        - nodeLabel: {{ .nodeLabel | quote }}
 {{- end }}
     ---
 {{- end }}
+{{- end }}
+{{- if .Values.kueuePopulator.config.resourceFlavor }}
     kind: ResourceFlavor
     apiVersion: kueue.x-k8s.io/v1beta1
     metadata:
       name: "tas-gpu-default"
     spec:
-      {{- with .Values.kueuePopulator.config.nodeLabel }}
+      {{- with .Values.kueuePopulator.config.resourceFlavor.nodeLabels }}
       nodeLabels:
       {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if .Values.kueuePopulator.config.tasLevels }}
+      {{- if .Values.kueuePopulator.config.topology }}
+      {{- if .Values.kueuePopulator.config.topology.levels }}
       topologyName: "default"
+      {{- end }}
       {{- end }}
       tolerations:
       - key: "nvidia.com/gpu"
         operator: "Exists"
         effect: NoSchedule
     ---
+{{- end }}
+{{- if .Values.kueuePopulator.config.clusterQueue }}
     apiVersion: kueue.x-k8s.io/v1beta1
     kind: ClusterQueue
     metadata:
-      name: {{ .Values.kueuePopulator.config.clusterQueueName | quote }}
+      name: {{ .Values.kueuePopulator.config.clusterQueue.name | quote }}
     spec:
       namespaceSelector: {} # match all.
       resourceGroups:
       - coveredResources:
-{{- range .Values.kueuePopulator.config.resources }}
+{{- range .Values.kueuePopulator.config.clusterQueue.resources }}
         - {{ .name | quote }}
 {{- end }}
         flavors:
         - name: "tas-gpu-default"
           resources:
-{{- range .Values.kueuePopulator.config.resources }}
+{{- range .Values.kueuePopulator.config.clusterQueue.resources }}
           - name: {{ .name | quote }}
             nominalQuota: {{ .nominalQuota }}
+{{- end }}
 {{- end }}
 ---
 # 2. Service Account for the Job

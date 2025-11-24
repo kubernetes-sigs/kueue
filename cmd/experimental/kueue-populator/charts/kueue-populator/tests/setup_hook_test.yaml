@@ -6,9 +6,9 @@ tests:
   - it: should configure TAS levels and node labels
     documentIndex: 0
     set:
-      kueuePopulator.config.tasLevels:
-        - name: "cloud.google.com/gke-accelerator"
-      kueuePopulator.config.nodeLabel:
+      kueuePopulator.config.topology.levels:
+        - nodeLabel: "cloud.google.com/gke-accelerator"
+      kueuePopulator.config.resourceFlavor.nodeLabels:
         cloud.google.com/gke-accelerator: "nvidia-tesla-t4"
     asserts:
       - matchRegex:
@@ -24,8 +24,8 @@ tests:
   - it: should configure ClusterQueue name and resources
     documentIndex: 0
     set:
-      kueuePopulator.config.clusterQueueName: "my-cluster-queue"
-      kueuePopulator.config.resources:
+      kueuePopulator.config.clusterQueue.name: "my-cluster-queue"
+      kueuePopulator.config.clusterQueue.resources:
         - name: "nvidia.com/gpu"
           nominalQuota: 10
     asserts:
