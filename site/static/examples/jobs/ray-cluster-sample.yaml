@@ -118,7 +118,7 @@ spec:
                   # For this example, we use a 500m CPU request to accommodate resource-constrained local
                   # Kubernetes testing environments such as KinD and minikube.
                   cpu: "1"
-                  # For production use-cases, we recommend allocating at least 8Gb memory for each Ray container.
+                  # For production use-cases, we recommend allocating at least 8GB memory for each Ray container.
                   memory: "1G"
           # use volumes
           # Refer to https://kubernetes.io/docs/concepts/storage/volumes/
