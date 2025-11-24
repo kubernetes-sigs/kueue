@@ -199,12 +199,12 @@ func podEligibleForTermination(p *corev1.Pod) bool {
 
 func (r *TerminatingPodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
+		Named("pod_termination_controller").
 		WatchesRawSource(source.TypedKind(
 			mgr.GetCache(),
 			&corev1.Pod{},
 			&handler.TypedEnqueueRequestForObject[*corev1.Pod]{},
 			r,
 		)).
-		For(&corev1.Pod{}).
 		Complete(r)
 }
