@@ -79,13 +79,12 @@ The following table lists the configurable parameters under the `kueuePopulator`
 | `image.repository`                                 | string   | `null`            | **Required.** Image repository for the populator (e.g., `<YOUR_REGISTRY>/kueue-populator`)            |
 | `image.tag`                                        | string   | `null`            | **Required.** Image tag for the populator (e.g., `latest`)                                                |
 | `image.pullPolicy`                                 | string   | `IfNotPresent`    | Image pull policy                                                                                          |
-| `config.localQueueName`                            | string   | `default`         | Name of the default LocalQueue to create in namespaces                                                     |
-| `config.clusterQueueName`                          | string   | `cluster-queue`   | Name of the default ClusterQueue to create and reference in LocalQueues                                    |
-| `config.resources`                                 | list     | (see values.yaml) | Resources to configure in the default ResourceFlavor and ClusterQueue                                      |
-| `config.tasLevels`                                 | list     | `[]`              | Optional list of node labels for Topology Aware Scheduling levels. Enables Topology creation.            |
-| `config.nodeLabel`                                 | object   | `{}`              | Node labels to associate with the default ResourceFlavor.                                                  |
+| `config.localQueue.name`                           | string   | `default`         | Name of the default LocalQueue to create in namespaces                                                     |
+| `config.clusterQueue.name`                         | string   | `cluster-queue`   | Name of the default ClusterQueue to create and reference in LocalQueues                                    |
+| `config.clusterQueue.resources`                    | list     | (see values.yaml) | Resources to configure in the default ResourceFlavor and ClusterQueue                                      |
+| `config.topology.levels`                           | list     | `[]`              | Optional list of node labels for Topology Aware Scheduling levels. Enables Topology creation.            |
+| `config.resourceFlavor.nodeLabels`                 | object   | `{}`              | Node labels to associate with the default ResourceFlavor.                                                  |
 | `config.managedJobsNamespaceSelector`              | object   | (see values.yaml) | Label selector to filter namespaces where the default LocalQueue will be created. Excludes system namespaces. |
-| `resources`                                        | object   | (see values.yaml) | CPU/Memory resource requests and limits for the populator deployment.                                   |
 
 ### Kueue Subchart Configuration
 
