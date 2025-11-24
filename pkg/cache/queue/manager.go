@@ -318,6 +318,7 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		return fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
 	for _, w := range workloads.Items {
+		m.assumedWorkloads[workload.Key(&w)] = key
 		if !workload.IsActive(&w) || workload.HasQuotaReservation(&w) {
 			continue
 		}
@@ -446,19 +447,16 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log *logr.Logger, w *kueue.Work
 	wlKey := workload.Key(w)
 	qKey := queue.KeyFromWorkload(w)
 
-	assumedQueue, assumed := m.assumedWorkloads[wlKey]
-	if assumed && assumedQueue != qKey {
-		m.deleteWorkloadFromQueueAndClusterQueue(log, wlKey)
-	}
+	m.deleteWorkloadFromObsoleteQueues(log, wlKey, qKey)
 
 	q := m.localQueues[qKey]
 	if q == nil {
 		return ErrLocalQueueDoesNotExistOrInactive
 	}
+	m.assumedWorkloads[workload.Key(w)] = qKey
 	allOptions := append(m.workloadInfoOptions, opts...)
 	wInfo := workload.NewInfo(w, allOptions...)
 	q.AddOrUpdate(wInfo)
-	m.assumedWorkloads[workload.Key(w)] = qKey
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq == nil {
@@ -489,13 +487,16 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	}
 
 	qKey := queue.KeyFromWorkload(&w)
+	wlKey := workload.Key(&w)
+	m.deleteWorkloadFromObsoleteQueues(nil, wlKey, qKey)
+
 	q := m.localQueues[qKey]
 	if q == nil {
 		return false
 	}
 	info.Update(&w)
+	m.assumedWorkloads[wlKey] = qKey
 	q.AddOrUpdate(info)
-	m.assumedWorkloads[workload.Key(&w)] = qKey
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq == nil {
@@ -516,20 +517,30 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 func (m *Manager) DeleteWorkload(log logr.Logger, wlKey workload.Reference) {
 	m.Lock()
 	defer m.Unlock()
-	m.deleteWorkloadFromQueueAndClusterQueue(&log, wlKey)
+	m.deleteWorkloadFromAssumedQueueAndClusterQueue(&log, wlKey)
 	m.DeleteSecondPassWithoutLock(wlKey)
 }
 
-func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(log *logr.Logger, wlKey workload.Reference) {
+func (m *Manager) deleteWorkloadFromObsoleteQueues(log *logr.Logger, wlKey workload.Reference, actualQueue queue.LocalQueueReference) {
+	assumedQueue, assumed := m.assumedWorkloads[wlKey]
+	if assumed && assumedQueue != actualQueue {
+		m.deleteWorkloadFromAssumedQueueAndClusterQueue(log, wlKey)
+	}
+
+}
+
+func (m *Manager) deleteWorkloadFromAssumedQueueAndClusterQueue(log *logr.Logger, wlKey workload.Reference) {
 	qKey, ok := m.assumedWorkloads[wlKey]
 	if !ok {
 		return
 	}
-	
+
 	q := m.localQueues[qKey]
 	if q == nil {
+		delete(m.assumedWorkloads, wlKey)
 		return
 	}
+
 	delete(q.items, wlKey)
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
