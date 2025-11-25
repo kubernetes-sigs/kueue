@@ -9021,7 +9021,7 @@ func TestResourcesToReserve(t *testing.T) {
 	}
 }
 
-func TestSchedulerWithRaceCondition(t *testing.T) {
+func TestSchedulerWhenWorkloadModifiedConcurrently(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 
 	ns := utiltesting.MakeNamespaceWrapper("default").Obj()
