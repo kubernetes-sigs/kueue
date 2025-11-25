@@ -8,6 +8,9 @@ endif
 GO_CMD ?= go
 GO_FMT ?= gofmt
 
+ROOT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))/../../..
+BIN_DIR := $(ROOT_DIR)/bin
+
 GIT_TAG ?= $(shell git describe --tags --dirty --always)
 GIT_COMMIT ?= $(shell git rev-parse HEAD)
 HOST_IMAGE_PLATFORM ?= linux/$(shell go env GOARCH)
@@ -80,8 +83,7 @@ kind-image-build: PUSH=--load
 kind-image-build: image-build
 
 # Integration tests
-ROOT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))/../../..
-BIN_DIR := $(ROOT_DIR)/bin
+# Integration tests
 ENVTEST := $(BIN_DIR)/setup-envtest
 GINKGO := $(BIN_DIR)/ginkgo
 GOTESTSUM := $(BIN_DIR)/gotestsum
