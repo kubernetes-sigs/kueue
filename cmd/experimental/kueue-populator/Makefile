@@ -8,9 +8,6 @@ endif
 GO_CMD ?= go
 GO_FMT ?= gofmt
 
-ROOT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))/../../..
-BIN_DIR := $(ROOT_DIR)/bin
-
 GIT_TAG ?= $(shell git describe --tags --dirty --always)
 GIT_COMMIT ?= $(shell git rev-parse HEAD)
 HOST_IMAGE_PLATFORM ?= linux/$(shell go env GOARCH)
@@ -30,6 +27,21 @@ BUILDER_IMAGE ?= $(BASE_BUILDER_IMAGE)
 CGO_ENABLED ?= 0
 
 HELM := $(BIN_DIR)/helm
+
+$(YAML_PROCESSOR):
+	cd $(ROOT_DIR) && $(MAKE) yaml-processor
+
+$(GOTESTSUM):
+	cd $(ROOT_DIR) && $(MAKE) gotestsum
+
+$(ENVTEST):
+	cd $(ROOT_DIR) && $(MAKE) envtest
+
+$(GINKGO):
+	cd $(ROOT_DIR) && $(MAKE) ginkgo
+
+$(HELM):
+	cd $(ROOT_DIR) && $(MAKE) helm
 
 .PHONY: all
 all: fmt vet build
@@ -68,7 +80,8 @@ kind-image-build: PUSH=--load
 kind-image-build: image-build
 
 # Integration tests
-# Integration tests
+ROOT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))/../../..
+BIN_DIR := $(ROOT_DIR)/bin
 ENVTEST := $(BIN_DIR)/setup-envtest
 GINKGO := $(BIN_DIR)/ginkgo
 GOTESTSUM := $(BIN_DIR)/gotestsum
@@ -97,28 +110,12 @@ test-e2e:
 .PHONY: test
 test: $(GOTESTSUM) ## Run unit tests.
 	mkdir -p $(ARTIFACTS)
-	GOWORK=off $(GOTESTSUM) --junitfile $(ARTIFACTS)/junit-unit.xml -- \
+	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit-unit.xml -- \
 		-race -coverpkg=./... -coverprofile $(ARTIFACTS)/cover-unit.out ./pkg/controller/...
-
 
 .PHONY: update-helm
 update-helm: manifests $(YAML_PROCESSOR)
 	$(YAML_PROCESSOR) -zap-log-level=$(YAML_PROCESSOR_LOG_LEVEL) hack/processing-plan.yaml
-
-$(YAML_PROCESSOR):
-	cd $(ROOT_DIR) && $(MAKE) yaml-processor
-
-$(GOTESTSUM):
-	cd $(ROOT_DIR) && $(MAKE) gotestsum
-
-$(ENVTEST):
-	cd $(ROOT_DIR) && $(MAKE) envtest
-
-$(GINKGO):
-	cd $(ROOT_DIR) && $(MAKE) ginkgo
-
-$(HELM):
-	cd $(ROOT_DIR) && $(MAKE) helm
 
 .PHONY: helm-dep-build
 helm-dep-build: $(HELM)
