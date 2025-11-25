@@ -96,6 +96,7 @@ test-e2e:
 
 .PHONY: test
 test: $(GOTESTSUM) ## Run unit tests.
+	mkdir -p $(ARTIFACTS)
 	GOWORK=off $(GOTESTSUM) --junitfile $(ARTIFACTS)/junit-unit.xml -- \
 		-race -coverpkg=./... -coverprofile $(ARTIFACTS)/cover-unit.out ./pkg/controller/...
 
