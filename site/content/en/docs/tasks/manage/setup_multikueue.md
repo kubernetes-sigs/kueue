@@ -133,27 +133,36 @@ For more details about this solution, please refer to this [link](https://github
 
 ## Setup MultiKueue with ClusterProfile API
 
-{{% alert title="Note" color="primary" %}}
-This feature requires Kueue v0.15 or newer and the `v1beta2` API.
-{{% /alert %}}
+{{< feature-state state="alpha" for_version="v0.15" >}}
 
 The [ClusterProfile API](https://multicluster.sigs.k8s.io/concepts/cluster-profile-api/) provides a standardized, vendor-neutral interface for presenting cluster information. It allows defining cluster access information in a standardized `ClusterProfile` object and using credential plugins for authentication.
 
+### Enable MultiKueueClusterProfile feature gate
+Enable the `MultiKueueClusterProfile` feature gate. Refer to the
+[Installation guide](/docs/installation/#change-the-feature-gates-configuration)
+for instructions on configuring feature gates.
+
 ### Create ClusterProfile objects
 
-If you are using a cloud provider, refer to the documentation on how to generate ClusterProfile objects (e.g. [GKE](https://docs.cloud.google.com/kubernetes-engine/fleet-management/docs/generate-inventory-for-integrations)). Alternatively, you can manually create a `ClusterProfile` object for your cluster.
+If you are using a cloud provider, refer to the documentation on how to generate ClusterProfile objects (e.g. [GKE](https://docs.cloud.google.com/kubernetes-engine/fleet-management/docs/generate-inventory-for-integrations)). Alternatively, you can manually install the `ClusterProfile` CRD and objects for your clusters.
 
+To install the `ClusterProfile` CRD, run:
+```bash
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/cluster-inventory-api/refs/heads/main/config/crd/bases/multicluster.x-k8s.io_clusterprofiles.yaml
+```
+
+To create a `ClusterProfile` object for `worker1-cluster`, run:
 ```yaml
 apiVersion: multicluster.x-k8s.io/v1alpha1
 kind: ClusterProfile
 metadata:
-  name: ${WORKER_CLUSTER_NAME}
+  name: worker1-cluster
   namespace: kueue-system
 spec:
   ...
 status:
   accessProviders:
-  - name: ${ACCESS_PROVIDER_NAME}
+  - name: ${PROVIDER_NAME}
     cluster:
       server: https://${SERVER_ENDPOINT}
       certificate-authority-data: ${CERTIFICATE_AUTHORITY_DATA}
@@ -161,15 +170,13 @@ status:
 
 ### Configure Kueue Manager
 
-Next, enable the `MultiKueueClusterProfile` feature gate in your Kueue manager's configuration and define your credentials providers.
+Next, configure the controller manager config map with the credentials providers.
 
 ```yaml
 apiVersion: v1
 data:
   controller_manager_config.yaml: |
     ...
-    featureGates:
-      MultiKueueClusterProfile: true
     multiKueue:
       clusterProfile:
         credentialsProviders:
