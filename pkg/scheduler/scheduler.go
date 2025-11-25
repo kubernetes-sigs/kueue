@@ -787,7 +787,7 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 				updated = true
 			}
 			return wl, updated, nil
-		}); err != nil {
+		}, workload.WithLooseOnApply()); err != nil {
 			log.Error(err, "Could not update Workload status")
 		}
 		s.recorder.Eventf(e.Obj, corev1.EventTypeWarning, "Pending", api.TruncateEventMessage(e.inadmissibleMsg))
