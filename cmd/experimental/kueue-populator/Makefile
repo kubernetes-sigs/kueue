@@ -119,21 +119,25 @@ $(GINKGO):
 $(HELM):
 	cd $(ROOT_DIR) && $(MAKE) helm
 
+.PHONY: helm-dep-build
+helm-dep-build: $(HELM)
+	$(HELM) dependency build charts/kueue-populator
+
 .PHONY: helm-lint
-helm-lint: $(HELM) ## Run Helm chart lint test.
+helm-lint: $(HELM) helm-dep-build ## Run Helm chart lint test.
 	$(HELM) lint charts/kueue-populator
 
 .PHONY: helm-verify
-helm-verify: helm-lint ## run helm template and detect any rendering failures
+helm-verify: $(HELM) helm-dep-build ## Run Helm chart lint test.
 	$(HELM) template charts/kueue-populator > /dev/null
 	$(HELM) template charts/kueue-populator --set image.repository=my-repo --set image.tag=v0.1.0 > /dev/null
 
 .PHONY: helm-unit-test
-helm-unit-test: $(HELM)
+helm-unit-test: $(HELM) helm-dep-build ## Run Helm chart unit tests.
 	$(HELM) unittest charts/kueue-populator --strict --debug
 
 .PHONY: helm-test
-helm-test: $(HELM) ## Run Helm chart integration tests (requires active cluster).
+helm-test: helm-lint helm-verify helm-unit-test ## Run Helm chart integration tests (requires active cluster).
 	$(HELM) test kueue-populator
 
 .PHONY: verify
