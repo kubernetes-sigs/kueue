@@ -215,7 +215,7 @@ See [resources groups](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#re
 ### Pending Admission Checks
 
 When the ClusterQueue has [admission checks](/docs/concepts/admission_check) configured, such as
-[ProvisioningRequest](/docs/admission-check-controllers/provisioning) or [MultiKueue](/docs/concepts/multikueue),
+[ProvisioningRequest](/docs/concepts/admission_check/provisioning_request) or [MultiKueue](/docs/concepts/multikueue),
 a Workload might stay with a status similar to the following, until the admission checks pass:
 
 ```yaml
