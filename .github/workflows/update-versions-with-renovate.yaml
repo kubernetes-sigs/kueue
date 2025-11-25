@@ -14,7 +14,7 @@ jobs:
       pull-requests: write
     steps:
       - name: checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: run renovate (dry-run on PRs)
         uses: renovatebot/github-action@v44.0.4
         with:
