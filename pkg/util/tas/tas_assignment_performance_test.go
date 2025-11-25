@@ -195,10 +195,10 @@ type performanceTestCase struct {
 
 var performanceTestCases = []performanceTestCase{
 	{
-		name: "pool-and-node-based naming (100 node pools)",
+		name: "pool-and-node-based naming (1000 node pools)",
 		naming: poolAndNodeBasedNaming(poolAndNodeBasedNamingConfig{
-			pools:        100, // happens in practice, at least in GKE
-			nodeIDLength: 6,   // reached in AKS
+			pools:        1000, // happens in practice, at least in GKE
+			nodeIDLength: 6,    // reached in AKS
 
 			// reachable in AKS (<pool-name>-<8-char-id>-vmss, then let <pool-name> have 8 chars)
 			poolIDLength: 22,
@@ -207,9 +207,12 @@ var performanceTestCases = []performanceTestCase{
 		}),
 	},
 	{
-		name: "pool-and-node-based naming (1 node pool)",
+		name: "pool-and-node-based naming (10 node pools)",
 		naming: poolAndNodeBasedNaming(poolAndNodeBasedNamingConfig{
-			pools:                      1,
+			// Vendors tend to restrict "node pools" to 4k nodes or less,
+			// so, as we care about 40k+ nodes, it seems 10+ pools will always exist.
+			pools: 10,
+
 			nodeIDLength:               6,
 			poolIDLength:               22,
 			fixedPrefixAndSuffixLength: 20,
