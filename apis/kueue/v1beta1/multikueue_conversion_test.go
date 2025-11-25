@@ -179,7 +179,11 @@ func TestMultiKueueClusterConvertFrom(t *testing.T) {
 			},
 			expected: &MultiKueueCluster{
 				ObjectMeta: defaultObjectMeta,
-				Spec:       MultiKueueClusterSpec{},
+				Spec: MultiKueueClusterSpec{
+					ClusterProfileRef: &ClusterProfileReference{
+						Name: "foobar",
+					},
+				},
 			},
 		},
 		"complete MultiKueueCluster with status": {
@@ -288,6 +292,88 @@ func TestMultiKueueClusterConversion_RoundTrip(t *testing.T) {
 
 			// Verify round-trip
 			if diff := cmp.Diff(tc.v1beta1Obj, roundTripped); diff != "" {
+				t.Errorf("round-trip conversion produced diff (-original +roundtripped):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestMultiKueueClusterConversion_RoundTrip_Reverse(t *testing.T) {
+	testCases := map[string]struct {
+		v1beta2Obj *v1beta2.MultiKueueCluster
+	}{
+		"complete MultiKueueCluster with ClusterProfile and status": {
+			v1beta2Obj: &v1beta2.MultiKueueCluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-multikueuecluster",
+				},
+				Spec: v1beta2.MultiKueueClusterSpec{
+					ClusterSource: v1beta2.ClusterSource{
+						ClusterProfileRef: &v1beta2.ClusterProfileReference{
+							Name: "foobar",
+						},
+					},
+				},
+				Status: v1beta2.MultiKueueClusterStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:   "Active",
+							Status: metav1.ConditionTrue,
+							Reason: "Ready",
+						},
+					},
+				},
+			},
+		},
+		"complete MultiKueueCluster with KubeConfig and status": {
+			v1beta2Obj: &v1beta2.MultiKueueCluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-multikueuecluster",
+				},
+				Spec: v1beta2.MultiKueueClusterSpec{
+					ClusterSource: v1beta2.ClusterSource{
+						KubeConfig: &v1beta2.KubeConfig{
+							Location:     "test-location",
+							LocationType: v1beta2.LocationType(SecretLocationType),
+						},
+					},
+				},
+				Status: v1beta2.MultiKueueClusterStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:   "Active",
+							Status: metav1.ConditionTrue,
+							Reason: "Ready",
+						},
+					},
+				},
+			},
+		},
+		"minimal MultiKueueCluster": {
+			v1beta2Obj: &v1beta2.MultiKueueCluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "minimal-mkc",
+				},
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			// Convert v1beta2 -> v1beta1
+			v1beta1Obj := &MultiKueueCluster{}
+			if err := v1beta1Obj.ConvertFrom(tc.v1beta2Obj); err != nil {
+				t.Fatalf("ConvertFrom failed: %v", err)
+			}
+
+			// Convert v1beta1 -> v1beta2 (round-trip)
+			roundTripped := &v1beta2.MultiKueueCluster{}
+			if err := v1beta1Obj.ConvertTo(roundTripped); err != nil {
+				t.Fatalf("ConvertTo failed: %v", err)
+			}
+
+			// Verify round-trip
+			if diff := cmp.Diff(tc.v1beta2Obj, roundTripped); diff != "" {
 				t.Errorf("round-trip conversion produced diff (-original +roundtripped):\n%s", diff)
 			}
 		})

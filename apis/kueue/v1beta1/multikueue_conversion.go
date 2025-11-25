@@ -43,6 +43,11 @@ func Convert_v1beta2_MultiKueueClusterSpec_To_v1beta1_MultiKueueClusterSpec(in *
 			LocationType: LocationType(in.ClusterSource.KubeConfig.LocationType),
 		}
 	}
+	if in.ClusterSource.ClusterProfileRef != nil {
+		out.ClusterProfileRef = &ClusterProfileReference{
+			Name: in.ClusterSource.ClusterProfileRef.Name,
+		}
+	}
 	return autoConvert_v1beta2_MultiKueueClusterSpec_To_v1beta1_MultiKueueClusterSpec(in, out, s)
 }
 
@@ -53,6 +58,11 @@ func Convert_v1beta1_MultiKueueClusterSpec_To_v1beta2_MultiKueueClusterSpec(in *
 				Location:     in.KubeConfig.Location,
 				LocationType: v1beta2.LocationType(in.KubeConfig.LocationType),
 			},
+		}
+	}
+	if in.ClusterProfileRef != nil {
+		out.ClusterSource.ClusterProfileRef = &v1beta2.ClusterProfileReference{
+			Name: in.ClusterProfileRef.Name,
 		}
 	}
 	return autoConvert_v1beta1_MultiKueueClusterSpec_To_v1beta2_MultiKueueClusterSpec(in, out, s)
