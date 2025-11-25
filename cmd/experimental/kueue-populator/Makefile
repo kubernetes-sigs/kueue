@@ -8,6 +8,9 @@ endif
 GO_CMD ?= go
 GO_FMT ?= gofmt
 
+ROOT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))/../../..
+BIN_DIR := $(ROOT_DIR)/bin
+
 GIT_TAG ?= $(shell git describe --tags --dirty --always)
 GIT_COMMIT ?= $(shell git rev-parse HEAD)
 HOST_IMAGE_PLATFORM ?= linux/$(shell go env GOARCH)
@@ -26,7 +29,7 @@ BASE_BUILDER_IMAGE ?= golang:1.25.0
 BUILDER_IMAGE ?= $(BASE_BUILDER_IMAGE)
 CGO_ENABLED ?= 0
 
-HELM ?= helm
+HELM := $(BIN_DIR)/helm
 
 .PHONY: all
 all: fmt vet build
@@ -37,7 +40,7 @@ fmt: ## Run go fmt against code.
 
 .PHONY: vet
 vet: ## Run go vet against code.
-	$(GO_CMD) vet ./...
+	GOWORK=off $(GO_CMD) vet ./...
 
 .PHONY: build
 build:
@@ -65,8 +68,7 @@ kind-image-build: PUSH=--load
 kind-image-build: image-build
 
 # Integration tests
-ROOT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))/../../..
-BIN_DIR := $(ROOT_DIR)/bin
+# Integration tests
 ENVTEST := $(BIN_DIR)/setup-envtest
 GINKGO := $(BIN_DIR)/ginkgo
 GOTESTSUM := $(BIN_DIR)/gotestsum
@@ -83,7 +85,7 @@ manifests:
 	$(CONTROLLER_GEN) rbac:roleName=kueue-populator-role output:rbac:artifacts:config=config/rbac paths="./pkg/controller/..."
 
 .PHONY: test-integration
-test-integration:
+test-integration: $(ENVTEST) $(GINKGO)
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	PROJECT_DIR=$(ROOT_DIR)/ \
 	GOWORK=off $(GINKGO) -procs=$(INTEGRATION_NPROCS) -v ./test/integration/...
@@ -93,7 +95,7 @@ test-e2e:
 	./run-e2e.sh
 
 .PHONY: test
-test: ## Run unit tests.
+test: $(GOTESTSUM) ## Run unit tests.
 	GOWORK=off $(GOTESTSUM) --junitfile $(ARTIFACTS)/junit-unit.xml -- \
 		-race -coverpkg=./... -coverprofile $(ARTIFACTS)/cover-unit.out ./pkg/controller/...
 
@@ -105,8 +107,20 @@ update-helm: manifests $(YAML_PROCESSOR)
 $(YAML_PROCESSOR):
 	cd $(ROOT_DIR) && $(MAKE) yaml-processor
 
+$(GOTESTSUM):
+	cd $(ROOT_DIR) && $(MAKE) gotestsum
+
+$(ENVTEST):
+	cd $(ROOT_DIR) && $(MAKE) envtest
+
+$(GINKGO):
+	cd $(ROOT_DIR) && $(MAKE) ginkgo
+
+$(HELM):
+	cd $(ROOT_DIR) && $(MAKE) helm
+
 .PHONY: helm-lint
-helm-lint: ## Run Helm chart lint test.
+helm-lint: $(HELM) ## Run Helm chart lint test.
 	$(HELM) lint charts/kueue-populator
 
 .PHONY: helm-verify
@@ -115,11 +129,11 @@ helm-verify: helm-lint ## run helm template and detect any rendering failures
 	$(HELM) template charts/kueue-populator --set image.repository=my-repo --set image.tag=v0.1.0 > /dev/null
 
 .PHONY: helm-unit-test
-helm-unit-test:
+helm-unit-test: $(HELM)
 	$(HELM) unittest charts/kueue-populator --strict --debug
 
 .PHONY: helm-test
-helm-test: ## Run Helm chart integration tests (requires active cluster).
+helm-test: $(HELM) ## Run Helm chart integration tests (requires active cluster).
 	$(HELM) test kueue-populator
 
 .PHONY: verify
