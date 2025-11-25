@@ -176,15 +176,26 @@ func (j *JobSet) Finished(ctx context.Context) (message string, success, finishe
 }
 
 func (j *JobSet) PodsReady(ctx context.Context) bool {
-	var replicas int32
-	for _, replicatedJob := range j.Spec.ReplicatedJobs {
-		replicas += replicatedJob.Replicas
-	}
-	var readyReplicas int32
+	// Get status of jobs
+	jobsStatus := map[string]jobsetapi.ReplicatedJobStatus{}
 	for _, replicatedJobStatus := range j.Status.ReplicatedJobsStatus {
-		readyReplicas += replicatedJobStatus.Ready + replicatedJobStatus.Succeeded
+		jobsStatus[replicatedJobStatus.Name] = replicatedJobStatus
 	}
-	return replicas == readyReplicas
+	var replicas int32
+	var ready int32
+
+	for _, replicatedJob := range j.Spec.ReplicatedJobs {
+		status := jobsStatus[replicatedJob.Name]
+		// Register the amount of expected replicas from jobs that are supposed to ready,
+		// which are the ones that do not dependent on other jobs and the ones that depend on
+		// other jobs but already have the dependency satisfied
+		if len(replicatedJob.DependsOn) == 0 || (len(replicatedJob.DependsOn) > 0 && isJobDependencySatisfied(replicatedJob, jobsStatus)) {
+			replicas += replicatedJob.Replicas
+		}
+		ready += status.Ready + status.Succeeded
+
+	}
+	return replicas == ready
 }
 
 func (j *JobSet) ReclaimablePods(ctx context.Context) ([]kueue.ReclaimablePod, error) {
@@ -242,4 +253,19 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 
 func GetWorkloadNameForJobSet(jobSetName string, jobSetUID types.UID) string {
 	return jobframework.GetWorkloadNameForOwnerWithGVK(jobSetName, jobSetUID, gvk)
+}
+
+func isJobDependencySatisfied(replicatedJob jobsetapi.ReplicatedJob, jobsStatus map[string]jobsetapi.ReplicatedJobStatus) bool {
+	for _, dependsOn := range replicatedJob.DependsOn {
+		if dependsOn.Status == jobsetapi.DependencyReady {
+			if status, found := jobsStatus[dependsOn.Name]; found && status.Ready == 0 {
+				return false
+			}
+		} else if dependsOn.Status == jobsetapi.DependencyComplete {
+			if status, found := jobsStatus[dependsOn.Name]; found && status.Succeeded == 0 {
+				return false
+			}
+		}
+	}
+	return true
 }
