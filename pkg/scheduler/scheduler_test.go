@@ -9138,7 +9138,7 @@ func TestSchedulerWhenWorkloadModifiedConcurrently(t *testing.T) {
 				WithInterceptorFuncs(interceptor.Funcs{
 					SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 						if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" {
-							// Simulate race condition.
+							// Simulate concurrent modification by another controller
 							wlCopy := tc.workload.DeepCopy()
 							if wlCopy.Labels == nil {
 								wlCopy.Labels = make(map[string]string, 1)
