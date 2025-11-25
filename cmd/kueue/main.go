@@ -62,6 +62,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/controller/failurerecovery"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
@@ -204,6 +205,16 @@ func main() {
 		kubeConfig.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(*cfg.ClientConnection.QPS, int(*cfg.ClientConnection.Burst))
 	}
 	setupLog.V(2).Info("K8S Client", "qps", *cfg.ClientConnection.QPS, "burst", *cfg.ClientConnection.Burst)
+
+	// Bootstrap certificates before creating the main manager
+	// This ensures certs are ready and CA bundles are injected into conversion CRDs
+	if cfg.InternalCertManagement != nil && *cfg.InternalCertManagement.Enable {
+		if err := cert.BootstrapCerts(kubeConfig, cfg); err != nil {
+			setupLog.Error(err, "Unable to bootstrap certificates")
+			os.Exit(1)
+		}
+	}
+
 	mgr, err := ctrl.NewManager(kubeConfig, options)
 	if err != nil {
 		setupLog.Error(err, "Unable to start manager")
@@ -265,15 +276,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Cert won't be ready until manager starts, so start a goroutine here which
-	// will block until the cert is ready before setting up the controllers.
-	// Controllers who register after manager starts will start directly.
-	go func() {
-		if err := setupControllers(ctx, mgr, cCache, queues, certsReady, &cfg, serverVersionFetcher); err != nil {
-			setupLog.Error(err, "Unable to setup controllers")
-			os.Exit(1)
-		}
-	}()
+	if err := setupControllers(ctx, mgr, cCache, queues, &cfg, serverVersionFetcher); err != nil {
+		setupLog.Error(err, "Unable to setup controllers")
+		os.Exit(1)
+	}
+
+	if failedWebhook, err := webhooks.Setup(mgr); err != nil {
+		setupLog.Error(err, "Unable to create webhook", "webhook", failedWebhook)
+		os.Exit(1)
+	}
 
 	go queues.CleanUpOnContext(ctx)
 	go cCache.CleanUpOnContext(ctx)
@@ -330,13 +341,14 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 	return jobframework.SetupIndexes(ctx, mgr.GetFieldIndexer(), opts...)
 }
 
-func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Manager, certsReady chan struct{}, cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher) error {
-	// The controllers won't work until the webhooks are operating, and the webhook won't work until the
-	// certs are all in place.
-	cert.WaitForCertsReady(setupLog, certsReady)
-
+func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Manager, cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher) error {
 	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, cfg); err != nil {
 		return fmt.Errorf("unable to create controller %s: %w", failedCtrl, err)
+	}
+	if features.Enabled(features.FailureRecoveryPolicy) {
+		if failedCtrlName, err := failurerecovery.SetupControllers(mgr, cfg); err != nil {
+			return fmt.Errorf("could not setup FailureRecovery controller %s: %w", failedCtrlName, err)
+		}
 	}
 
 	// setup provision admission check controller
@@ -393,10 +405,6 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.C
 		if failedCtrl, err := tas.SetupControllers(mgr, queues, cCache, cfg); err != nil {
 			return fmt.Errorf("could not setup TAS controller %s: %w", failedCtrl, err)
 		}
-	}
-
-	if failedWebhook, err := webhooks.Setup(mgr); err != nil {
-		return fmt.Errorf("unable to create webhook %s: %w", failedWebhook, err)
 	}
 
 	opts := []jobframework.Option{

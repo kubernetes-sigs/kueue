@@ -89,7 +89,7 @@ type ClusterQueue struct {
 	active            bool
 
 	// inadmissibleWorkloads are workloads that have been tried at least once and couldn't be admitted.
-	inadmissibleWorkloads map[workload.Reference]*workload.Info
+	inadmissibleWorkloads inadmissibleWorkloads
 
 	// popCycle identifies the last call to Pop. It's incremented when calling Pop.
 	// popCycle and queueInadmissibleCycle are used to track when there is a requeuing
@@ -142,7 +142,7 @@ func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.
 	lessFunc := queueOrderingFunc(ctx, client, wo, fsResWeights, enableAdmissionFs, afsEntryPenalties, &sw)
 	return &ClusterQueue{
 		heap:                      *heap.New(workloadKey, lessFunc),
-		inadmissibleWorkloads:     make(map[workload.Reference]*workload.Info),
+		inadmissibleWorkloads:     make(inadmissibleWorkloads),
 		queueInadmissibleCycle:    -1,
 		lessFunc:                  lessFunc,
 		rwm:                       sync.RWMutex{},
@@ -190,7 +190,7 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 	defer c.rwm.Unlock()
 	key := workload.Key(wInfo.Obj)
 	c.forgetInflightByKey(key)
-	if oldInfo := c.inadmissibleWorkload(key); oldInfo != nil {
+	if oldInfo := c.inadmissibleWorkloads.get(key); oldInfo != nil {
 		// update in place if the workload was inadmissible and didn't change
 		// to potentially become admissible, unless the Eviction status changed
 		// which can affect the workloads order in the queue.
@@ -200,14 +200,14 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 				apimeta.FindStatusCondition(wInfo.Obj.Status.Conditions, kueue.WorkloadEvicted)) &&
 			equality.Semantic.DeepEqual(apimeta.FindStatusCondition(oldInfo.Obj.Status.Conditions, kueue.WorkloadRequeued),
 				apimeta.FindStatusCondition(wInfo.Obj.Status.Conditions, kueue.WorkloadRequeued)) {
-			c.inadmissibleWorkloads[key] = wInfo
+			c.inadmissibleWorkloads.insert(key, wInfo)
 			return
 		}
 		// otherwise move or update in place in the queue.
-		delete(c.inadmissibleWorkloads, key)
+		c.inadmissibleWorkloads.delete(key)
 	}
 	if c.heap.GetByKey(key) == nil && !c.backoffWaitingTimeExpired(wInfo) {
-		c.inadmissibleWorkloads[key] = wInfo
+		c.inadmissibleWorkloads.insert(key, wInfo)
 		return
 	}
 	c.heap.PushOrUpdate(wInfo)
@@ -248,7 +248,7 @@ func (c *ClusterQueue) Delete(log logr.Logger, w *kueue.Workload) {
 // delete removes the workload from ClusterQueue without lock.
 func (c *ClusterQueue) delete(log logr.Logger, w *kueue.Workload) {
 	key := workload.Key(w)
-	delete(c.inadmissibleWorkloads, key)
+	c.inadmissibleWorkloads.delete(key)
 	c.heap.Delete(key)
 	c.forgetInflightByKey(key)
 	if c.sw.matches(key) {
@@ -266,19 +266,13 @@ func (c *ClusterQueue) DeleteFromLocalQueue(log logr.Logger, q *LocalQueue) {
 	defer c.rwm.Unlock()
 	for _, w := range q.items {
 		key := workload.Key(w.Obj)
-		if c.inadmissibleWorkload(key) != nil {
-			delete(c.inadmissibleWorkloads, key)
+		if c.inadmissibleWorkloads.get(key) != nil {
+			c.inadmissibleWorkloads.delete(key)
 		}
 	}
 	for _, w := range q.items {
 		c.delete(log, w.Obj)
 	}
-}
-
-// inadmissibleWorkload retrieves a workload from inadmissibleWorkloads.
-// Returns the workload if it exists and is non-nil, otherwise returns nil.
-func (c *ClusterQueue) inadmissibleWorkload(key workload.Reference) *workload.Info {
-	return c.inadmissibleWorkloads[key]
 }
 
 // requeueIfNotPresent inserts a workload that cannot be admitted into
@@ -292,14 +286,14 @@ func (c *ClusterQueue) requeueIfNotPresent(wInfo *workload.Info, immediate bool)
 	key := workload.Key(wInfo.Obj)
 	c.forgetInflightByKey(key)
 
-	inadmissibleWl := c.inadmissibleWorkload(key)
+	inadmissibleWl := c.inadmissibleWorkloads.get(key)
 
 	if c.backoffWaitingTimeExpired(wInfo) &&
 		(immediate || c.queueInadmissibleCycle >= c.popCycle || wInfo.LastAssignment.PendingFlavors()) {
 		// If the workload was inadmissible, move it back into the queue.
 		if inadmissibleWl != nil {
 			wInfo = inadmissibleWl
-			delete(c.inadmissibleWorkloads, key)
+			c.inadmissibleWorkloads.delete(key)
 		}
 		return c.heap.PushIfNotPresent(wInfo)
 	}
@@ -312,7 +306,7 @@ func (c *ClusterQueue) requeueIfNotPresent(wInfo *workload.Info, immediate bool)
 		return false
 	}
 
-	c.inadmissibleWorkloads[key] = wInfo
+	c.inadmissibleWorkloads.insert(key, wInfo)
 
 	return true
 }
@@ -329,13 +323,13 @@ func (c *ClusterQueue) QueueInadmissibleWorkloads(ctx context.Context, client cl
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	c.queueInadmissibleCycle = c.popCycle
-	if len(c.inadmissibleWorkloads) == 0 {
+	if c.inadmissibleWorkloads.empty() {
 		return false
 	}
 
 	inadmissibleWorkloads := make(map[workload.Reference]*workload.Info)
 	moved := false
-	for key, wInfo := range c.inadmissibleWorkloads {
+	c.inadmissibleWorkloads.forEach(func(key workload.Reference, wInfo *workload.Info) bool {
 		ns := corev1.Namespace{}
 		err := client.Get(ctx, types.NamespacedName{Name: wInfo.Obj.Namespace}, &ns)
 		if err != nil || !c.namespaceSelector.Matches(labels.Set(ns.Labels)) || !c.backoffWaitingTimeExpired(wInfo) {
@@ -343,9 +337,10 @@ func (c *ClusterQueue) QueueInadmissibleWorkloads(ctx context.Context, client cl
 		} else {
 			moved = c.heap.PushIfNotPresent(wInfo) || moved
 		}
-	}
+		return true
+	})
 
-	c.inadmissibleWorkloads = inadmissibleWorkloads
+	c.inadmissibleWorkloads.replaceAll(inadmissibleWorkloads)
 	return moved
 }
 
@@ -376,7 +371,7 @@ func (c *ClusterQueue) pendingActive() int {
 // workloads that were already tried and are waiting for cluster conditions
 // to change to potentially become admissible.
 func (c *ClusterQueue) pendingInadmissible() int {
-	return len(c.inadmissibleWorkloads)
+	return c.inadmissibleWorkloads.len()
 }
 
 // PendingInLocalQueue returns the number of active and inadmissible pending workloads in LocalQueue.
@@ -405,12 +400,13 @@ func (c *ClusterQueue) pendingActiveInLocalQueue(lqRef utilqueue.LocalQueueRefer
 // workloads that were already tried and are waiting for cluster conditions
 // to change to potentially become admissible.
 func (c *ClusterQueue) pendingInadmissibleInLocalQueue(lqRef utilqueue.LocalQueueReference) (inadmissible int) {
-	for _, wl := range c.inadmissibleWorkloads {
+	c.inadmissibleWorkloads.forEach(func(_ workload.Reference, wl *workload.Info) bool {
 		wlLqKey := utilqueue.KeyFromWorkload(wl.Obj)
 		if wlLqKey == lqRef {
 			inadmissible++
 		}
-	}
+		return true
+	})
 	return
 }
 

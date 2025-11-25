@@ -52,7 +52,7 @@ Type: Label
 
 Example: `kueue.x-k8s.io/managed: "true"`
 
-Used on: [Plain Pods](/docs/tasks/run/plain_pods/) and [ProvisioningRequest](/docs/admission-check-controllers/provisioning.md).
+Used on: [Plain Pods](/docs/tasks/run/plain_pods/) and [ProvisioningRequest](/docs/concepts/admission_check/provisioning_request).
 
 The label key that indicates which pods and ProvisioningRequest are managed by Kueuue.
 

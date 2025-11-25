@@ -28,11 +28,15 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
@@ -84,7 +88,7 @@ func NewTerminatingPodReconciler(
 	client client.Client,
 	recorder record.EventRecorder,
 	opts ...TerminatingPodReconcilerOption,
-) (*TerminatingPodReconciler, error) {
+) *TerminatingPodReconciler {
 	options := defaultOptions
 	for _, opt := range opts {
 		opt(&options)
@@ -95,7 +99,7 @@ func NewTerminatingPodReconciler(
 		clock:                          options.clock,
 		forcefulTerminationGracePeriod: options.forcefulTerminationGracePeriod,
 		recorder:                       recorder,
-	}, nil
+	}
 }
 
 func (r *TerminatingPodReconciler) Generic(event.TypedGenericEvent[*corev1.Pod]) bool {
@@ -197,14 +201,18 @@ func podEligibleForTermination(p *corev1.Pod) bool {
 	return true
 }
 
-func (r *TerminatingPodReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+func (r *TerminatingPodReconciler) SetupWithManager(mgr ctrl.Manager, cfg *configapi.Configuration) (string, error) {
+	return "failure-recovery-pod-termination-controller", ctrl.NewControllerManagedBy(mgr).
+		Named("pod_termination_controller").
 		WatchesRawSource(source.TypedKind(
 			mgr.GetCache(),
 			&corev1.Pod{},
 			&handler.TypedEnqueueRequestForObject[*corev1.Pod]{},
 			r,
 		)).
-		For(&corev1.Pod{}).
-		Complete(r)
+		WithOptions(controller.Options{
+			NeedLeaderElection:      ptr.To(false),
+			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("Pod").GroupKind().String()],
+		}).
+		Complete(core.WithLeadingManager(mgr, r, &corev1.Pod{}, cfg))
 }

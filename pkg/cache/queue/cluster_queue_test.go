@@ -70,7 +70,7 @@ func Test_PushOrUpdate(t *testing.T) {
 	cases := map[string]struct {
 		workload                  *utiltestingapi.WorkloadWrapper
 		wantWorkload              *workload.Info
-		wantInAdmissibleWorkloads map[workload.Reference]*workload.Info
+		wantInAdmissibleWorkloads inadmissibleWorkloads
 	}{
 		"workload doesn't have re-queue state": {
 			workload:     wlBase.Clone(),
@@ -88,7 +88,7 @@ func Test_PushOrUpdate(t *testing.T) {
 					Type:   kueue.WorkloadRequeued,
 					Status: metav1.ConditionFalse,
 				}),
-			wantInAdmissibleWorkloads: map[workload.Reference]*workload.Info{
+			wantInAdmissibleWorkloads: inadmissibleWorkloads{
 				"default/workload-1": workload.NewInfo(wlBase.Clone().
 					ResourceVersion("1").
 					RequeueState(ptr.To[int32](10), ptr.To(metav1.NewTime(minuteLater))).
@@ -115,7 +115,7 @@ func Test_PushOrUpdate(t *testing.T) {
 					Type:   kueue.WorkloadRequeued,
 					Status: metav1.ConditionFalse,
 				}),
-			wantInAdmissibleWorkloads: map[workload.Reference]*workload.Info{
+			wantInAdmissibleWorkloads: inadmissibleWorkloads{
 				"default/workload-1": workload.NewInfo(wlBase.Clone().
 					ResourceVersion("1").
 					Condition(metav1.Condition{

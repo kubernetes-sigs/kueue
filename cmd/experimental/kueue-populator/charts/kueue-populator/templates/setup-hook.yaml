@@ -43,7 +43,6 @@ data:
       - key: "nvidia.com/gpu"
         operator: "Exists"
         effect: NoSchedule
-    ---
 {{- end }}
 {{- if .Values.kueuePopulator.config.clusterQueue }}
     apiVersion: kueue.x-k8s.io/v1beta1

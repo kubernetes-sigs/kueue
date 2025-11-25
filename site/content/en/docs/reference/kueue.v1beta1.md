@@ -826,6 +826,30 @@ policy can be preempted by the borrowing workload.</p>
 
 
 
+## `ClusterProfileReference`     {#kueue-x-k8s-io-v1beta1-ClusterProfileReference}
+    
+
+**Appears in:**
+
+- [MultiKueueClusterSpec](#kueue-x-k8s-io-v1beta1-MultiKueueClusterSpec)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>name of the ClusterProfile.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `ClusterQueuePendingWorkload`     {#kueue-x-k8s-io-v1beta1-ClusterQueuePendingWorkload}
     
 
@@ -1932,6 +1956,15 @@ workloads assigned to this LocalQueue.</p>
 </td>
 <td>
    <p>kubeConfig is information on how to connect to the cluster.</p>
+</td>
+</tr>
+<tr><td><code>clusterProfileRef</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-ClusterProfileReference"><code>ClusterProfileReference</code></a>
+</td>
+<td>
+   <p>clusterProfileRef is the reference to the ClusterProfile object used to connect to the cluster.</p>
+<p>This is only used to prevent data loss when converting between v1beta2 and v1beta1.
+It has no effect in v1beta1.</p>
 </td>
 </tr>
 </tbody>

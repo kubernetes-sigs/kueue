@@ -11,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/apimachinery/pkg/util/version"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils/dashboardclient"
@@ -189,6 +190,25 @@ func ValidateRayClusterSpec(spec *rayv1.RayClusterSpec, annotations map[string]s
 			}
 		}
 	}
+
+	if IsAuthEnabled(spec) {
+		if spec.RayVersion == "" {
+			return fmt.Errorf("authOptions.mode is 'token' but RayVersion was not specified. Ray version 2.52.0 or later is required")
+		}
+
+		rayVersion, err := version.ParseGeneric(spec.RayVersion)
+		if err != nil {
+			return fmt.Errorf("authOptions.mode is 'token' but RayVersion format is invalid: %s, %w", spec.RayVersion, err)
+		}
+
+		// Require minimum Ray version 2.52.0
+		minVersion := version.MustParseGeneric("2.52.0")
+		if rayVersion.LessThan(minVersion) {
+			return fmt.Errorf("authOptions.mode is 'token' but minimum Ray version is 2.52.0, got %s", spec.RayVersion)
+		}
+
+	}
+
 	return nil
 }
 
