@@ -52,7 +52,7 @@ fmt: ## Run go fmt against code.
 
 .PHONY: vet
 vet: ## Run go vet against code.
-	GOWORK=off $(GO_CMD) vet ./...
+	$(GO_CMD) vet ./...
 
 .PHONY: build
 build:
@@ -110,7 +110,7 @@ test-e2e:
 .PHONY: test
 test: $(GOTESTSUM) ## Run unit tests.
 	mkdir -p $(ARTIFACTS)
-	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit-unit.xml -- \
+	GOWORK=off $(GOTESTSUM) --junitfile $(ARTIFACTS)/junit-unit.xml -- \
 		-race -coverpkg=./... -coverprofile $(ARTIFACTS)/cover-unit.out ./pkg/controller/...
 
 .PHONY: update-helm
