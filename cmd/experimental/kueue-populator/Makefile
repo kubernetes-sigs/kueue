@@ -11,6 +11,17 @@ GO_FMT ?= gofmt
 ROOT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))/../../..
 BIN_DIR := $(ROOT_DIR)/bin
 
+HELM := $(BIN_DIR)/helm
+ENVTEST := $(BIN_DIR)/setup-envtest
+GINKGO := $(BIN_DIR)/ginkgo
+GOTESTSUM := $(BIN_DIR)/gotestsum
+ARTIFACTS ?= $(ROOT_DIR)/artifacts
+ENVTEST_K8S_VERSION ?= 1.34
+INTEGRATION_NPROCS ?= 4
+CONTROLLER_GEN := $(BIN_DIR)/controller-gen
+YAML_PROCESSOR = $(BIN_DIR)/yaml-processor
+YAML_PROCESSOR_LOG_LEVEL ?= info
+
 GIT_TAG ?= $(shell git describe --tags --dirty --always)
 GIT_COMMIT ?= $(shell git rev-parse HEAD)
 HOST_IMAGE_PLATFORM ?= linux/$(shell go env GOARCH)
@@ -28,8 +39,6 @@ BASE_IMAGE ?= gcr.io/distroless/static:nonroot
 BASE_BUILDER_IMAGE ?= golang:1.25.0
 BUILDER_IMAGE ?= $(BASE_BUILDER_IMAGE)
 CGO_ENABLED ?= 0
-
-HELM := $(BIN_DIR)/helm
 
 $(YAML_PROCESSOR):
 	cd $(ROOT_DIR) && $(MAKE) yaml-processor
@@ -81,19 +90,6 @@ image-push: image-build
 kind-image-build: PLATFORMS=linux/amd64
 kind-image-build: PUSH=--load
 kind-image-build: image-build
-
-# Integration tests
-# Integration tests
-ENVTEST := $(BIN_DIR)/setup-envtest
-GINKGO := $(BIN_DIR)/ginkgo
-GOTESTSUM := $(BIN_DIR)/gotestsum
-ARTIFACTS ?= $(ROOT_DIR)/artifacts
-ENVTEST_K8S_VERSION ?= 1.34
-INTEGRATION_NPROCS ?= 4
-CONTROLLER_GEN := $(BIN_DIR)/controller-gen
-
-YAML_PROCESSOR = $(BIN_DIR)/yaml-processor
-YAML_PROCESSOR_LOG_LEVEL ?= info
 
 .PHONY: manifests
 manifests:
