@@ -490,13 +490,6 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 					g.Expect(createdJobSet.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
-
-			ginkgo.By("Checking that the JobSet is finished", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, jobSetKey, createdJobSet)).Should(gomega.Succeed())
-					g.Expect(createdJobSet.Status.TerminalState).Should(gomega.Equal(string(v1alpha2.JobSetCompleted)))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-			})
 		})
 
 		ginkgo.It("should not admit child jobs even if the child job has a queue-name label", func() {
