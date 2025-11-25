@@ -7,7 +7,7 @@ kueuePopulator:
     tag: main
     # -- Populator's image pullPolicy.
     # This should be set to 'IfNotPresent' for released version
-    pullPolicy: Always
+    pullPolicy: IfNotPresent
   
   # -- Image pull secrets for the populator
   imagePullSecrets: []
