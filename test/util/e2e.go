@@ -279,6 +279,9 @@ func verifyNoControllerRestarts(ctx context.Context, k8sClient client.Client, ke
 		g.Expect(k8sClient.Get(ctx, key, deployment)).To(gomega.Succeed())
 		g.Expect(k8sClient.List(ctx, pods, client.InNamespace(key.Namespace), client.MatchingLabels(deployment.Spec.Selector.MatchLabels))).To(gomega.Succeed())
 		for _, pod := range pods.Items {
+			if pod.Status.Phase == corev1.PodFailed {
+				return gomega.StopTrying(fmt.Sprintf("%q pod has failed", pod.Name))
+			}
 			for _, cs := range pod.Status.ContainerStatuses {
 				// To make sure that we don't have restarts of controller-manager.
 				// If we have that's mean that something went wrong, and there is
