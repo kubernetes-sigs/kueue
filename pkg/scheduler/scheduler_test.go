@@ -9025,14 +9025,14 @@ func TestSchedulerWhenWorkloadModifiedConcurrently(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 
 	ns := utiltesting.MakeNamespaceWrapper("default").Obj()
-	rf := utiltestingapi.MakeResourceFlavor("rf").Obj()
-	cq := utiltestingapi.MakeClusterQueue("cq").
+	rf := utiltesting.MakeResourceFlavor("rf").Obj()
+	cq := utiltesting.MakeClusterQueue("cq").
 		ResourceGroup(
-			*utiltestingapi.MakeFlavorQuotas(rf.Name).
+			*utiltesting.MakeFlavorQuotas(rf.Name).
 				Resource(corev1.ResourceCPU, "1").
 				Obj(),
 		).Obj()
-	lq := utiltestingapi.MakeLocalQueue("lq", metav1.NamespaceDefault).ClusterQueue(cq.Name).Obj()
+	lq := utiltesting.MakeLocalQueue("lq", metav1.NamespaceDefault).ClusterQueue(cq.Name).Obj()
 
 	testCases := map[string]struct {
 		features      map[featuregate.Feature]bool
@@ -9044,18 +9044,18 @@ func TestSchedulerWhenWorkloadModifiedConcurrently(t *testing.T) {
 			features: map[featuregate.Feature]bool{
 				features.WorkloadRequestUseMergePatch: false,
 			},
-			workload: utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).
+			workload: utiltesting.MakeWorkload("wl", metav1.NamespaceDefault).
 				ResourceVersion("1").
 				Queue(kueue.LocalQueueName(lq.Name)).
-				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+				PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "1").
 					Obj()).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).
+				*utiltesting.MakeWorkload("wl", metav1.NamespaceDefault).
 					ResourceVersion("1").
 					Queue(kueue.LocalQueueName(lq.Name)).
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					ResourceVersion("3").
@@ -9067,8 +9067,8 @@ func TestSchedulerWhenWorkloadModifiedConcurrently(t *testing.T) {
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Admission(
-						utiltestingapi.MakeAdmission(cq.Name).
-							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						utiltesting.MakeAdmission(cq.Name).
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "1").
 								Obj()).
 							Obj(),
@@ -9091,18 +9091,18 @@ func TestSchedulerWhenWorkloadModifiedConcurrently(t *testing.T) {
 			features: map[featuregate.Feature]bool{
 				features.WorkloadRequestUseMergePatch: false,
 			},
-			workload: utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).
+			workload: utiltesting.MakeWorkload("wl", metav1.NamespaceDefault).
 				ResourceVersion("1").
 				Queue(kueue.LocalQueueName(lq.Name)).
-				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+				PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 2).
 					Request(corev1.ResourceCPU, "1").
 					Obj()).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).
+				*utiltesting.MakeWorkload("wl", metav1.NamespaceDefault).
 					ResourceVersion("1").
 					Queue(kueue.LocalQueueName(lq.Name)).
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 2).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					ResourceVersion("3").
