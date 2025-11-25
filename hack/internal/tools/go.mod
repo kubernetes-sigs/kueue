@@ -25,7 +25,7 @@ require (
 	github.com/golangci/golangci-lint/v2 v2.6.2
 	github.com/google/go-cmp v0.7.0
 	github.com/kubernetes-sigs/reference-docs/genref v0.28.0
-	github.com/mikefarah/yq/v4 v4.48.1
+	github.com/mikefarah/yq/v4 v4.49.2
 	github.com/norwoodj/helm-docs v1.14.2
 	github.com/onsi/ginkgo/v2 v2.27.2
 	go.uber.org/mock v0.6.0
@@ -473,6 +473,7 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
+	go.yaml.in/yaml/v4 v4.0.0-rc.3 // indirect
 	gocloud.dev v0.43.0 // indirect
 	golang.org/x/crypto v0.45.0 // indirect
 	golang.org/x/exp v0.0.0-20251113190631-e25ba8c21ef6 // indirect
