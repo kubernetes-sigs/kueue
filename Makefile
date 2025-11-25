@@ -492,16 +492,15 @@ kueueviz-image: kueueviz-image-build
 # Build the kueue-populator image
 .PHONY: kueue-populator-image-build
 kueue-populator-image-build:
-	$(IMAGE_BUILD_CMD) \
-		-t $(IMAGE_TAG_KUEUE_POPULATOR) \
-		-t $(IMAGE_REPO_KUEUE_POPULATOR):$(RELEASE_BRANCH) \
-		--platform=$(PLATFORMS) \
-		--build-arg BASE_IMAGE=$(BASE_IMAGE) \
-		--build-arg BUILDER_IMAGE=$(BUILDER_IMAGE) \
-		--build-arg CGO_ENABLED=$(CGO_ENABLED) \
-		$(PUSH) \
-		$(IMAGE_BUILD_EXTRA_OPTS) \
-		-f ./cmd/experimental/kueue-populator/Dockerfile ./cmd/experimental/kueue-populator
+	$(MAKE) -C cmd/experimental/kueue-populator image-build \
+		IMAGE_REGISTRY=$(IMAGE_REGISTRY) \
+		IMAGE_TAG=$(IMAGE_TAG_KUEUE_POPULATOR) \
+		PLATFORMS="$(PLATFORMS)" \
+		BASE_IMAGE=$(BASE_IMAGE) \
+		BUILDER_IMAGE=$(BUILDER_IMAGE) \
+		CGO_ENABLED=$(CGO_ENABLED) \
+		PUSH=$(PUSH) \
+		IMAGE_BUILD_EXTRA_OPTS="$(IMAGE_BUILD_EXTRA_OPTS) -t $(IMAGE_REPO_KUEUE_POPULATOR):$(RELEASE_BRANCH)"
 
 .PHONY: kueue-populator-image-push
 kueue-populator-image-push: PUSH=--push
