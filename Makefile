@@ -429,21 +429,9 @@ kueue-populator-test-integration: ## Run integration tests for kueue-populator.
 kueue-populator-test-e2e: ## Run e2e tests for kueue-populator.
 	$(MAKE) -C cmd/experimental/kueue-populator test-e2e
 
-.PHONY: kueue-populator-helm-lint
-kueue-populator-helm-lint: ## Run Helm chart lint test for kueue-populator.
-	$(MAKE) -C cmd/experimental/kueue-populator helm-lint
-
-.PHONY: kueue-populator-helm-verify
-kueue-populator-helm-verify: ## Run Helm chart verification for kueue-populator.
-	$(MAKE) -C cmd/experimental/kueue-populator helm-verify
-
-.PHONY: kueue-populator-helm-unit-test
-kueue-populator-helm-unit-test: ## Run Helm chart unit tests for kueue-populator.
-	$(MAKE) -C cmd/experimental/kueue-populator helm-unit-test
-
-.PHONY: kueue-populator-helm-test
-kueue-populator-helm-test: ## Run Helm chart integration tests for kueue-populator.
-	$(MAKE) -C cmd/experimental/kueue-populator helm-test
+.PHONY: kueue-populator-verify
+kueue-populator-verify: ## Run all verification tests for kueue-populator.
+	$(MAKE) -C cmd/experimental/kueue-populator verify
 
 ##@ Debug
 

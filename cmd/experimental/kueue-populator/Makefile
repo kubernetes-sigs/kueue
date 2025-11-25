@@ -121,3 +121,5 @@ helm-unit-test:
 helm-test: ## Run Helm chart integration tests (requires active cluster).
 	$(HELM) test kueue-populator
 
+.PHONY: verify
+verify: vet helm-verify helm-unit-test ## Run all verification tests.
