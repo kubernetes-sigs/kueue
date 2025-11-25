@@ -16,7 +16,7 @@ jobs:
       - name: checkout
         uses: actions/checkout@v5
       - name: run renovate (dry-run on PRs)
-        uses: renovatebot/github-action@v43.0.16
+        uses: renovatebot/github-action@v44.0.4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           configurationFile: renovate.json
