@@ -31,6 +31,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
+	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -105,6 +106,8 @@ type leafDomain struct {
 	// nodeLabels contains the list of labels on the node, only applies for
 	// lowest level of topology, if the lowest level is node
 	nodeLabels map[string]string
+
+	node *corev1.Node
 }
 
 type domainByID map[utiltas.TopologyDomainID]*domain
@@ -173,6 +176,7 @@ func (s *TASFlavorSnapshot) addNode(node corev1.Node) utiltas.TopologyDomainID {
 		if s.isLowestLevelNode() {
 			leafDomain.nodeTaints = slices.Clone(node.Spec.Taints)
 			leafDomain.nodeLabels = node.GetLabels()
+			leafDomain.node = &node
 		}
 		s.leaves[domainID] = &leafDomain
 	}
@@ -684,6 +688,10 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 			return nil, fmt.Sprintf("invalid podSetUpdate for PodSet %s, error: %s", workersTasPodSetRequests.PodSet.Name, err.Error())
 		}
 	}
+	var requiredAffinityNodeSelector *corev1.NodeSelector
+	if info.Affinity != nil && info.Affinity.NodeAffinity != nil && info.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution != nil {
+		requiredAffinityNodeSelector = info.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution
+	}
 	podSetTolerations := info.Tolerations
 	podSetNodeSelectors := info.NodeSelector
 	count := workersTasPodSetRequests.Count
@@ -726,6 +734,16 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	} else {
 		selector = labels.Everything()
 	}
+
+	var affinitySelector *nodeaffinity.NodeSelector
+	var err error
+	if requiredAffinityNodeSelector != nil {
+		affinitySelector, err = nodeaffinity.NewNodeSelector(requiredAffinityNodeSelector)
+		if err != nil {
+			return nil, fmt.Sprintf("invalid affinity node selectors: %s, reason: %s", requiredAffinityNodeSelector, err)
+		}
+	}
+
 	// phase 1 - determine the number of pods and slices which can fit in each topology domain
 	s.fillInCounts(
 		requests,
@@ -736,6 +754,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		simulateEmpty,
 		append(podSetTolerations, s.tolerations...),
 		selector,
+		affinitySelector,
 		requiredReplacementDomain,
 	)
 
@@ -1284,6 +1303,7 @@ func (s *TASFlavorSnapshot) fillInCounts(
 	simulateEmpty bool,
 	tolerations []corev1.Toleration,
 	selector labels.Selector,
+	affinityNodeSelector *nodeaffinity.NodeSelector,
 	requiredReplacementDomain utiltas.TopologyDomainID) {
 	for _, domain := range s.domains {
 		// cleanup the state in case some remaining values are present from computing
@@ -1303,23 +1323,30 @@ func (s *TASFlavorSnapshot) fillInCounts(
 			s.log.V(3).Info("excluding node with untolerated taint", "domainID", leaf.id, "taint", taint)
 			continue
 		}
-		// 2. Check Node Labels against Compiled Selector
-		var nodeLabelSet labels.Set
-		if leaf.nodeLabels != nil {
-			nodeLabelSet = leaf.nodeLabels
-		}
 
-		// 3. While correcting the topologyAssignment with a failed node
+		// 2. While correcting the topologyAssignment with a failed node
 		// check if the leaf belongs to the required domain
 		if !belongsToRequiredDomain(leaf, requiredReplacementDomain) {
 			continue
 		}
 
+		// 3. Check Node Labels against Compiled Selector and Affinity
+		var nodeLabelSet labels.Set
+		if leaf.nodeLabels != nil {
+			nodeLabelSet = leaf.nodeLabels
+		}
 		// isLowestLevelNode() is necessary because we gather node level information only when
 		// node is the lowest level of the topology
-		if s.isLowestLevelNode() && !selector.Matches(nodeLabelSet) {
-			s.log.V(3).Info("excluding node that doesn't match nodeSelectors", "domainID", leaf.id, "nodeLabels", nodeLabelSet)
-			continue
+		if s.isLowestLevelNode() {
+			if !selector.Matches(nodeLabelSet) {
+				s.log.V(3).Info("excluding node that doesn't match nodeSelectors", "domainID", leaf.id, "nodeLabels", nodeLabelSet)
+				continue
+			}
+
+			if affinityNodeSelector != nil && !affinityNodeSelector.Match(leaf.node) {
+				s.log.V(3).Info("excluding node that doesn't match requiredDuringSchedulingIgnoredDuringExecution affinity", "domainID", leaf.id)
+				continue
+			}
 		}
 		remainingCapacity := leaf.freeCapacity.Clone()
 		if !simulateEmpty {
