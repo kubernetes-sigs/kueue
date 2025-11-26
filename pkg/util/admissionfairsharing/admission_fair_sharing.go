@@ -36,7 +36,7 @@ func ResourceWeights(cqAdmissionScope *kueue.AdmissionScope, afsConfig *config.A
 	return enableAdmissionFs, fsResWeights
 }
 
-func CalculateAlphaRate(sampling, halfLifeTime float64) float64 {
+func calculateAlphaRate(sampling, halfLifeTime float64) float64 {
 	if halfLifeTime == 0 {
 		return 0.0
 	}
@@ -45,7 +45,7 @@ func CalculateAlphaRate(sampling, halfLifeTime float64) float64 {
 }
 
 func CalculateEntryPenalty(totalRequests corev1.ResourceList, afs *config.AdmissionFairSharing) corev1.ResourceList {
-	alpha := CalculateAlphaRate(
+	alpha := calculateAlphaRate(
 		afs.UsageSamplingInterval.Seconds(),
 		afs.UsageHalfLifeTime.Seconds(),
 	)
@@ -55,4 +55,12 @@ func CalculateEntryPenalty(totalRequests corev1.ResourceList, afs *config.Admiss
 
 func Enabled(afsConfig *config.AdmissionFairSharing) bool {
 	return afsConfig != nil && features.Enabled(features.AdmissionFairSharing)
+}
+
+func CalculateDecayedConsumed(oldUsage, newUsage corev1.ResourceList, elapsed, halfLifeTime float64) corev1.ResourceList {
+	alpha := calculateAlphaRate(elapsed, halfLifeTime)
+	scaledOldUsage := resource.MulByFloat(oldUsage, 1-alpha)
+	scaledNewUsage := resource.MulByFloat(newUsage, alpha)
+
+	return resource.MergeResourceListKeepSum(scaledOldUsage, scaledNewUsage)
 }

@@ -203,6 +203,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	var snapshotOpts []schdcache.SnapshotOption
 	if afs.Enabled(s.admissionFairSharing) {
 		snapshotOpts = append(snapshotOpts, schdcache.WithAfsEntryPenalties(s.queues.GetAfsEntryPenalties()))
+		snapshotOpts = append(snapshotOpts, schdcache.WithAfsConsumedResources(s.queues.AfsConsumedResources))
 	}
 	snapshot, err := s.cache.Snapshot(ctx, snapshotOpts...)
 	if err != nil {
