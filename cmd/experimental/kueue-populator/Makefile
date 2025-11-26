@@ -21,6 +21,7 @@ INTEGRATION_NPROCS ?= 4
 CONTROLLER_GEN := $(BIN_DIR)/controller-gen
 YAML_PROCESSOR = $(BIN_DIR)/yaml-processor
 YAML_PROCESSOR_LOG_LEVEL ?= info
+YQ := $(BIN_DIR)/yq
 
 GIT_TAG ?= $(shell git describe --tags --dirty --always)
 GIT_COMMIT ?= $(shell git rev-parse HEAD)
@@ -39,6 +40,9 @@ BASE_IMAGE ?= gcr.io/distroless/static:nonroot
 BASE_BUILDER_IMAGE ?= golang:1.25.0
 BUILDER_IMAGE ?= $(BASE_BUILDER_IMAGE)
 CGO_ENABLED ?= 0
+
+$(YQ):
+	cd $(ROOT_DIR) && $(MAKE) yq
 
 $(YAML_PROCESSOR):
 	cd $(ROOT_DIR) && $(MAKE) yaml-processor
@@ -138,11 +142,6 @@ helm-test: helm-lint helm-verify helm-unit-test ## Run Helm chart integration te
 
 .PHONY: verify
 verify: vet helm-verify helm-unit-test ## Run all verification tests.
-
-YQ := $(BIN_DIR)/yq
-
-$(YQ):
-	cd $(ROOT_DIR) && $(MAKE) yq
 
 .PHONY: helm-chart-package
 helm-chart-package: $(HELM) $(YQ) ## Package a chart into a versioned chart archive file.
