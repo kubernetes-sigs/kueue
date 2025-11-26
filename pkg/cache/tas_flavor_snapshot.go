@@ -677,10 +677,6 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 			return nil, fmt.Sprintf("invalid podSetUpdate for PodSet %s, error: %s", workersTasPodSetRequests.PodSet.Name, err.Error())
 		}
 	}
-	var requiredAffinityNodeSelector *corev1.NodeSelector
-	if info.Affinity != nil && info.Affinity.NodeAffinity != nil && info.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution != nil {
-		requiredAffinityNodeSelector = info.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution
-	}
 	podSetTolerations := info.Tolerations
 	podSetNodeSelectors := info.NodeSelector
 	count := workersTasPodSetRequests.Count
@@ -725,11 +721,13 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	}
 
 	var affinitySelector *nodeaffinity.NodeSelector
-	var err error
-	if requiredAffinityNodeSelector != nil {
-		affinitySelector, err = nodeaffinity.NewNodeSelector(requiredAffinityNodeSelector)
-		if err != nil {
-			return nil, fmt.Sprintf("invalid affinity node selectors: %s, reason: %s", requiredAffinityNodeSelector, err)
+	if info.Affinity != nil && info.Affinity.NodeAffinity != nil {
+		if requiredAffinity := info.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution; requiredAffinity != nil {
+			var err error
+			affinitySelector, err = nodeaffinity.NewNodeSelector(requiredAffinity)
+			if err != nil {
+				return nil, fmt.Sprintf("invalid affinity node selectors: %s, reason: %s", requiredAffinity, err)
+			}
 		}
 	}
 
