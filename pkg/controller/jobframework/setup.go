@@ -57,7 +57,7 @@ var (
 // until the webhooks are operating, and the webhook won't work until the
 // certs are all in place.
 func SetupControllers(ctx context.Context, mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
-	go startCRDInformer(ctx, mgr, log)
+	go StartCRDInformer(ctx, mgr, log)
 
 	return manager.setupControllers(ctx, mgr, log, opts...)
 }
@@ -156,7 +156,7 @@ func (m *integrationManager) setupControllerAndWebhook(ctx context.Context, mgr 
 }
 
 func waitForAPI(ctx context.Context, mgr ctrl.Manager, log logr.Logger, gvk schema.GroupVersionKind, action func()) {
-	crdNotifyCh := registerCRDNotifier(gvk)
+	crdNotifyCh := RegisterCRDNotifier(gvk)
 	rateLimiter := workqueue.NewTypedItemExponentialFailureRateLimiter[string](baseBackoffWaitForIntegration, maxBackoffWaitForIntegration)
 	item := gvk.String()
 	for {
@@ -207,8 +207,8 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer, opts ...Opti
 	})
 }
 
-// startCRDInformer watches for CRD additions/updates and notifies waitForAPI immediately
-func startCRDInformer(ctx context.Context, mgr ctrl.Manager, log logr.Logger) {
+// StartCRDInformer watches for CRD additions/updates and notifies waitForAPI immediately
+func StartCRDInformer(ctx context.Context, mgr ctrl.Manager, log logr.Logger) {
 	crdClient, err := clientset.NewForConfig(mgr.GetConfig())
 	if err != nil {
 		log.V(2).Info("Failed to create CRD client for informer, falling back to polling", "error", err)
@@ -292,8 +292,8 @@ func notifyCRDAvailable(crd *apiextensionsv1.CustomResourceDefinition, log logr.
 	}
 }
 
-// registerCRDNotifier registers a channel to be notified when a CRD becomes available
-func registerCRDNotifier(gvk schema.GroupVersionKind) chan struct{} {
+// RegisterCRDNotifier registers a channel to be notified when a CRD becomes available
+func RegisterCRDNotifier(gvk schema.GroupVersionKind) chan struct{} {
 	crdNotifiersMu.Lock()
 	defer crdNotifiersMu.Unlock()
 
