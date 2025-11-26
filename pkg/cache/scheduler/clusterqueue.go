@@ -229,8 +229,6 @@ func (c *clusterQueue) updateQueueStatus(log logr.Logger) {
 			}
 		}
 	}
-	if features.Enabled(features.BudgetsFlavor) {
-	}
 	status := active
 	if c.isStopped ||
 		len(c.missingFlavors) > 0 ||

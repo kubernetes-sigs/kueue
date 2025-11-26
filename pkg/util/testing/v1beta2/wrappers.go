@@ -396,6 +396,11 @@ func (w *WorkloadWrapper) PastAdmittedTime(v int32) *WorkloadWrapper {
 	return w
 }
 
+func (w *WorkloadWrapper) WallTimeSeconds(v int32) *WorkloadWrapper {
+	w.Status.WallTimeSeconds = &v
+	return w
+}
+
 func (w *WorkloadWrapper) SchedulingStatsEviction(evictionState kueue.WorkloadSchedulingStatsEviction) *WorkloadWrapper {
 	if w.Status.SchedulingStats == nil {
 		w.Status.SchedulingStats = &kueue.SchedulingStats{}

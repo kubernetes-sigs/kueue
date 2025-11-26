@@ -1074,6 +1074,177 @@ func TestFlavorResourceUsage(t *testing.T) {
 	}
 }
 
+func TestWallTimeFlavorUsage(t *testing.T) {
+	cases := map[string]struct {
+		enableWallTimeLimits bool
+		info                 *Info
+		want                 resources.FlavorWallTimeQuantities
+	}{
+		"nil": {
+			enableWallTimeLimits: true,
+			want:                 resources.FlavorWallTimeQuantities{},
+		},
+		"one podset, no flavors": {
+			enableWallTimeLimits: true,
+			info: &Info{
+				Obj: &kueue.Workload{
+					Status: kueue.WorkloadStatus{
+						WallTimeSeconds: ptr.To[int32](7200), // 2 hours
+					},
+				},
+				TotalRequests: []PodSetResources{{
+					Requests: resources.Requests{
+						corev1.ResourceCPU: 1_000,
+						"example.com/gpu":  3,
+					},
+				}},
+			},
+			want: resources.FlavorWallTimeQuantities{
+				{Flavor: ""}: 4, // 7200 seconds / 3600 = 2 hours per resource, 2 resources = 4 total
+			},
+		},
+		"one podset, multiple flavors": {
+			enableWallTimeLimits: true,
+			info: &Info{
+				Obj: &kueue.Workload{
+					Status: kueue.WorkloadStatus{
+						WallTimeSeconds: ptr.To[int32](3600), // 1 hour
+					},
+				},
+				TotalRequests: []PodSetResources{{
+					Requests: resources.Requests{
+						corev1.ResourceCPU: 1_000,
+						"example.com/gpu":  3,
+					},
+					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU: "default",
+						"example.com/gpu":  "gpu",
+					},
+				}},
+			},
+			want: resources.FlavorWallTimeQuantities{
+				{Flavor: "default"}: 1, // 1 hour for CPU flavor
+				{Flavor: "gpu"}:     1, // 1 hour for GPU flavor
+			},
+		},
+		"multiple podsets, multiple flavors": {
+			enableWallTimeLimits: true,
+			info: &Info{
+				Obj: &kueue.Workload{
+					Status: kueue.WorkloadStatus{
+						WallTimeSeconds: ptr.To[int32](10800), // 3 hours
+					},
+				},
+				TotalRequests: []PodSetResources{
+					{
+						Requests: resources.Requests{
+							corev1.ResourceCPU: 1_000,
+							"example.com/gpu":  3,
+						},
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: "default",
+							"example.com/gpu":  "model_a",
+						},
+					},
+					{
+						Requests: resources.Requests{
+							corev1.ResourceCPU:    2_000,
+							corev1.ResourceMemory: 2 * utiltesting.Gi,
+						},
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU:    "default",
+							corev1.ResourceMemory: "default",
+						},
+					},
+					{
+						Requests: resources.Requests{
+							"example.com/gpu": 1,
+						},
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							"example.com/gpu": "model_b",
+						},
+					},
+				},
+			},
+			want: resources.FlavorWallTimeQuantities{
+				{Flavor: "default"}: 9, // 3 hours * 3 resources (CPU from podset 1, CPU from podset 2, memory from podset 2)
+				{Flavor: "model_a"}: 3, // 3 hours * 1 resource (GPU from podset 1)
+				{Flavor: "model_b"}: 3, // 3 hours * 1 resource (GPU from podset 3)
+			},
+		},
+		"zero accumulated time": {
+			enableWallTimeLimits: true,
+			info: &Info{
+				Obj: &kueue.Workload{
+					Status: kueue.WorkloadStatus{
+						WallTimeSeconds: ptr.To[int32](0),
+					},
+				},
+				TotalRequests: []PodSetResources{{
+					Requests: resources.Requests{
+						corev1.ResourceCPU: 1_000,
+					},
+					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU: "default",
+					},
+				}},
+			},
+			want: resources.FlavorWallTimeQuantities{
+				{Flavor: "default"}: 0,
+			},
+		},
+		"nil accumulated time": {
+			enableWallTimeLimits: true,
+			info: &Info{
+				Obj: &kueue.Workload{
+					Status: kueue.WorkloadStatus{
+						WallTimeSeconds: nil,
+					},
+				},
+				TotalRequests: []PodSetResources{{
+					Requests: resources.Requests{
+						corev1.ResourceCPU: 1_000,
+						"example.com/gpu":  2,
+					},
+					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU: "default",
+						"example.com/gpu":  "gpu",
+					},
+				}},
+			},
+			want: resources.FlavorWallTimeQuantities{},
+		},
+		"feature gate disabled": {
+			enableWallTimeLimits: false,
+			info: &Info{
+				Obj: &kueue.Workload{
+					Status: kueue.WorkloadStatus{
+						WallTimeSeconds: ptr.To[int32](3600), // 1 hour
+					},
+				},
+				TotalRequests: []PodSetResources{{
+					Requests: resources.Requests{
+						corev1.ResourceCPU: 1_000,
+					},
+					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU: "default",
+					},
+				}},
+			},
+			want: resources.FlavorWallTimeQuantities{},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.WallTimeLimits, tc.enableWallTimeLimits)
+			got := tc.info.WallTimeFlavorUsage()
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("info.WallTimeFlavorUsage() returned (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestAdmissionCheckStrategy(t *testing.T) {
 	cases := map[string]struct {
 		cq                  *kueue.ClusterQueue

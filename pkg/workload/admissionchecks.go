@@ -26,6 +26,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/wait"
 )
@@ -84,6 +85,13 @@ func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 				*w.Status.AccumulatedPastExecutionTimeSeconds += d
 			} else {
 				w.Status.AccumulatedPastExecutionTimeSeconds = &d
+			}
+			if features.Enabled(features.WallTimeLimits) {
+				if w.Status.WallTimeSeconds != nil {
+					*w.Status.WallTimeSeconds += d
+				} else {
+					w.Status.WallTimeSeconds = &d
+				}
 			}
 		}
 	}

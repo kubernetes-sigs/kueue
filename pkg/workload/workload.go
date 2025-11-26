@@ -311,14 +311,18 @@ func (i *Info) FlavorResourceUsage() resources.FlavorResourceQuantities {
 // per flavor (if assigned, otherwise flavor shows as empty string), per resource.
 func (i *Info) WallTimeFlavorUsage() resources.FlavorWallTimeQuantities {
 	total := make(resources.FlavorWallTimeQuantities)
-	if i == nil {
+	if i == nil || i.Obj.Status.WallTimeSeconds == nil {
+		return total
+	}
+
+	if !features.Enabled(features.WallTimeLimits) {
 		return total
 	}
 
 	for _, psReqs := range i.TotalRequests {
 		for res := range psReqs.Requests {
 			flv := psReqs.Flavors[res]
-			seconds := *i.Obj.Status.AccumulatedPastExexcutionTimeSeconds
+			seconds := *i.Obj.Status.WallTimeSeconds
 			hours := int32(seconds / 3600)
 			total[resources.FlavorWallTimeResource{Flavor: flv}] += hours
 		}
