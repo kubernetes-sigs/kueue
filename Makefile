@@ -530,10 +530,14 @@ kueue-populator-image-push: PUSH=--push
 kueue-populator-image-push: kueue-populator-image-build
 
 # Build a docker local us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-populator image
-.PHONY: kueue-populator-image
-kueue-populator-image: PLATFORMS=$(HOST_IMAGE_PLATFORM)
 kueue-populator-image: PUSH=--load
 kueue-populator-image: kueue-populator-image-build
+
+.PHONY: kueue-populator-helm-chart-push
+kueue-populator-helm-chart-push: ## Push kueue-populator helm chart.
+	$(MAKE) -C cmd/experimental/kueue-populator helm-chart-push \
+		IMAGE_REGISTRY=$(IMAGE_REGISTRY) \
+		GIT_TAG=$(GIT_TAG)
 
 .PHONY: kueuectl
 kueuectl:

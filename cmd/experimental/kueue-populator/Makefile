@@ -138,3 +138,19 @@ helm-test: helm-lint helm-verify helm-unit-test ## Run Helm chart integration te
 
 .PHONY: verify
 verify: vet helm-verify helm-unit-test ## Run all verification tests.
+
+YQ := $(BIN_DIR)/yq
+
+$(YQ):
+	cd $(ROOT_DIR) && $(MAKE) yq
+
+.PHONY: helm-chart-package
+helm-chart-package: $(HELM) $(YQ) ## Package a chart into a versioned chart archive file.
+	DEST_CHART_DIR=$(ARTIFACTS) \
+	HELM="$(HELM)" YQ="$(YQ)" GIT_TAG="$(GIT_TAG)" IMAGE_REGISTRY="$(IMAGE_REGISTRY)" \
+	HELM_CHART_PUSH=$(HELM_CHART_PUSH) \
+	./hack/helm-chart-package.sh
+
+.PHONY: helm-chart-push
+helm-chart-push: HELM_CHART_PUSH=true
+helm-chart-push: helm-chart-package
