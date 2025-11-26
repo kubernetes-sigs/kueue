@@ -47,6 +47,8 @@ readonly default_image_repo
 default_image_tag=$(${YQ} ".kueuePopulator.image.tag" charts/kueue-populator/values.yaml)
 readonly default_image_tag
 
+${HELM} dependency build charts/kueue-populator
+
 # Update the image repo, tag and policy
 ${YQ}  e  ".kueuePopulator.image.repository = \"${IMAGE_REGISTRY}/kueue-populator\" | .kueuePopulator.image.tag = \"${GIT_TAG}\" | .kueuePopulator.image.pullPolicy = \"IfNotPresent\"" -i charts/kueue-populator/values.yaml
 
