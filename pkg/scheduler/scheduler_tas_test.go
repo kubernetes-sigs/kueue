@@ -2389,9 +2389,9 @@ func TestScheduleForTAS(t *testing.T) {
 									{
 										MatchExpressions: []corev1.NodeSelectorRequirement{
 											{
-												Key:      "key",
+												Key:      "unused-key",
 												Operator: corev1.NodeSelectorOpIn,
-												Values:   []string{"val"},
+												Values:   []string{"value"},
 											},
 										},
 									},
@@ -2415,7 +2415,7 @@ func TestScheduleForTAS(t *testing.T) {
 				*testingnode.MakeNode("x1").
 					Label("tas-node", "true").
 					Label(corev1.LabelHostname, "x1").
-					Label("key", "val").
+					Label("expected-label", "expected-value").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -2438,9 +2438,9 @@ func TestScheduleForTAS(t *testing.T) {
 									{
 										MatchExpressions: []corev1.NodeSelectorRequirement{
 											{
-												Key:      "key",
+												Key:      "expected-label",
 												Operator: corev1.NodeSelectorOpIn,
-												Values:   []string{"val"},
+												Values:   []string{"expected-value"},
 											},
 										},
 									},
