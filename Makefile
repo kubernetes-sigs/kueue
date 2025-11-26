@@ -530,6 +530,8 @@ kueue-populator-image-push: PUSH=--push
 kueue-populator-image-push: kueue-populator-image-build
 
 # Build a docker local us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-populator image
+.PHONY: kueue-populator-image
+kueue-populator-image: PLATFORMS=$(HOST_IMAGE_PLATFORM)
 kueue-populator-image: PUSH=--load
 kueue-populator-image: kueue-populator-image-build
 
