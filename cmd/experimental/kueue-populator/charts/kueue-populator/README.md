@@ -90,23 +90,10 @@ helm install kueue-populator ./charts/kueue-populator --namespace kueue-system -
 
 ### Installing with Topology and ResourceFlavor
 
-To enable Topology Aware Scheduling and configure the default ResourceFlavor with node labels, you can use `--set` flags.
-
-> When using `--set` for keys containing dots (e.g., `cloud.google.com/gke-nodepool`), you must escape the dots with a backslash.
-
-```bash
-helm install kueue-populator ./charts/kueue-populator \
-  --namespace kueue-system \
-  --create-namespace \
-  --wait \
-  --set kueuePopulator.config.topology.levels[0].nodeLabel="cloud\.google\.com/gke-nodepool" \
-  --set kueuePopulator.config.resourceFlavor.nodeLabels."cloud\.google\.com/gke-nodepool"=default-pool
-```
-
-For complex configurations, it is recommended to use a values file:
+To enable Topology Aware Scheduling and configure the default ResourceFlavor with node labels, it is recommended to use a values file:
 
 ```yaml
-# topology-values.yaml
+# populator-config.yaml
 kueuePopulator:
   config:
     topology:
@@ -118,7 +105,20 @@ kueuePopulator:
 ```
 
 ```bash
-helm install kueue-populator ./charts/kueue-populator --namespace kueue-system --create-namespace --wait -f topology-values.yaml
+helm install kueue-populator ./charts/kueue-populator --namespace kueue-system --create-namespace --wait -f populator-config.yaml
+```
+
+For simple configuration you may also use the minimalistic command:
+
+> When using `--set` for keys containing dots (e.g., `cloud.google.com/gke-nodepool`), you must escape the dots with a backslash.
+
+```bash
+helm install kueue-populator ./charts/kueue-populator \
+  --namespace kueue-system \
+  --create-namespace \
+  --wait \
+  --set kueuePopulator.config.topology.levels[0].nodeLabel="cloud\.google\.com/gke-nodepool" \
+  --set kueuePopulator.config.resourceFlavor.nodeLabels."cloud\.google\.com/gke-nodepool"=default-pool
 ```
 
 ## Configuration
