@@ -535,6 +535,12 @@ kueue-populator-image: PLATFORMS=$(HOST_IMAGE_PLATFORM)
 kueue-populator-image: PUSH=--load
 kueue-populator-image: kueue-populator-image-build
 
+.PHONY: kueue-populator-helm-chart-push
+kueue-populator-helm-chart-push: ## Push kueue-populator helm chart.
+	$(MAKE) -C cmd/experimental/kueue-populator helm-chart-push \
+		IMAGE_REGISTRY=$(IMAGE_REGISTRY) \
+		GIT_TAG=$(GIT_TAG)
+
 .PHONY: kueuectl
 kueuectl:
 	CGO_ENABLED=$(CGO_ENABLED) $(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(BIN_DIR)/kubectl-kueue cmd/kueuectl/main.go
