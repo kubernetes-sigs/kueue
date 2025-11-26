@@ -76,6 +76,40 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
+var DefaultTestPodSetUpdates1 = []kueue.PodSetUpdate{
+	{
+		Name: "ps1",
+		Annotations: map[string]string{
+			"autoscaling.x-k8s.io/consume-provisioning-request": "wl-ac-prov-1",
+			"autoscaling.x-k8s.io/provisioning-class-name":      "provisioning-class",
+		},
+	},
+	{
+		Name: "ps2",
+		Annotations: map[string]string{
+			"autoscaling.x-k8s.io/consume-provisioning-request": "wl-ac-prov-1",
+			"autoscaling.x-k8s.io/provisioning-class-name":      "provisioning-class",
+		},
+	},
+}
+
+var DefaultTestPodSetUpdates2 = []kueue.PodSetUpdate{
+	{
+		Name: "ps1",
+		Annotations: map[string]string{
+			"autoscaling.x-k8s.io/consume-provisioning-request": "wl-ac-prov-2",
+			"autoscaling.x-k8s.io/provisioning-class-name":      "provisioning-class",
+		},
+	},
+	{
+		Name: "ps2",
+		Annotations: map[string]string{
+			"autoscaling.x-k8s.io/consume-provisioning-request": "wl-ac-prov-2",
+			"autoscaling.x-k8s.io/provisioning-class-name":      "provisioning-class",
+		},
+	},
+}
+
 var SetupLogger = sync.OnceFunc(func() {
 	ctrl.SetLogger(NewTestingLogger(ginkgo.GinkgoWriter))
 })
@@ -624,6 +658,16 @@ func ExpectAdmissionChecksWaitTimeMetric(cq *kueue.ClusterQueue, priorityClass s
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(int(v)).Should(gomega.Equal(count))
 	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func ExpectAdmissionCheckState(g gomega.Gomega, updatedWl *kueue.Workload, admissionCheckName string, expectedState kueue.CheckState, expectedMessage string, podSetUpdates ...kueue.PodSetUpdate) {
+	check := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(admissionCheckName))
+	g.ExpectWithOffset(1, check).NotTo(gomega.BeNil())
+	g.ExpectWithOffset(1, check.State).To(gomega.Equal(expectedState))
+	if expectedMessage != "" {
+		g.ExpectWithOffset(1, check.Message).To(gomega.Equal(expectedMessage))
+	}
+	g.ExpectWithOffset(1, check.PodSetUpdates).To(gomega.Equal(podSetUpdates))
 }
 
 func ExpectLQAdmissionChecksWaitTimeMetric(lq *kueue.LocalQueue, priorityClass string, count int) {
