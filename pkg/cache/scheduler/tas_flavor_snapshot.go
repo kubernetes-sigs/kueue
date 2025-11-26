@@ -99,14 +99,7 @@ type leafDomain struct {
 	// tasUsage represents the usage associated with TAS workloads.
 	tasUsage resources.Requests
 
-	// nodeTaints contains the list of taints for the node, only applies for
-	// lowest level of topology, if the lowest level is node
-	nodeTaints []corev1.Taint
-
-	// nodeLabels contains the list of labels on the node, only applies for
-	// lowest level of topology, if the lowest level is node
-	nodeLabels map[string]string
-
+	// node at the leaf, if the lowest level is a node
 	node *corev1.Node
 }
 
@@ -174,8 +167,6 @@ func (s *TASFlavorSnapshot) addNode(node corev1.Node) utiltas.TopologyDomainID {
 			},
 		}
 		if s.isLowestLevelNode() {
-			leafDomain.nodeTaints = slices.Clone(node.Spec.Taints)
-			leafDomain.nodeLabels = node.GetLabels()
 			leafDomain.node = &node
 		}
 		s.leaves[domainID] = &leafDomain
@@ -1315,39 +1306,43 @@ func (s *TASFlavorSnapshot) fillInCounts(
 		domain.leaderState = 0
 	}
 	for _, leaf := range s.leaves {
-		// 1. Check Tolerations against Node Taints
-		taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(leaf.nodeTaints, tolerations, func(t *corev1.Taint) bool {
-			return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
-		})
-		if untolerated {
-			s.log.V(3).Info("excluding node with untolerated taint", "domainID", leaf.id, "taint", taint)
-			continue
-		}
-
-		// 2. While correcting the topologyAssignment with a failed node
-		// check if the leaf belongs to the required domain
-		if !belongsToRequiredDomain(leaf, requiredReplacementDomain) {
-			continue
-		}
-
-		// 3. Check Node Labels against Compiled Selector and Affinity
-		var nodeLabelSet labels.Set
-		if leaf.nodeLabels != nil {
-			nodeLabelSet = leaf.nodeLabels
-		}
 		// isLowestLevelNode() is necessary because we gather node level information only when
 		// node is the lowest level of the topology
 		if s.isLowestLevelNode() {
+			// 1. Check Tolerations against Node Taints
+			nodeTaints := leaf.node.Spec.Taints
+			taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(nodeTaints, tolerations, func(t *corev1.Taint) bool {
+				return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
+			})
+			if untolerated {
+				s.log.V(3).Info("excluding node with untolerated taint", "domainID", leaf.id, "taint", taint)
+				continue
+			}
+
+			// 2. Check Node Labels against Compiled Selector and Affinity
+			var nodeLabelSet labels.Set
+			if nodeLabels := leaf.node.GetLabels(); nodeLabels != nil {
+				nodeLabelSet = nodeLabels
+			}
+
 			if !selector.Matches(nodeLabelSet) {
 				s.log.V(3).Info("excluding node that doesn't match nodeSelectors", "domainID", leaf.id, "nodeLabels", nodeLabelSet)
 				continue
 			}
 
+			// 3. Check Node against Affinity Node Selector
 			if affinityNodeSelector != nil && !affinityNodeSelector.Match(leaf.node) {
 				s.log.V(3).Info("excluding node that doesn't match requiredDuringSchedulingIgnoredDuringExecution affinity", "domainID", leaf.id)
 				continue
 			}
 		}
+
+		// 4. While correcting the topologyAssignment with a failed node
+		// check if the leaf belongs to the required domain
+		if !belongsToRequiredDomain(leaf, requiredReplacementDomain) {
+			continue
+		}
+
 		remainingCapacity := leaf.freeCapacity.Clone()
 		if !simulateEmpty {
 			remainingCapacity.Sub(leaf.tasUsage)
