@@ -18,14 +18,19 @@ package config
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	"k8s.io/client-go/rest"
+	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -34,9 +39,32 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 )
 
+const clusterProfileCRDName = "clusterprofiles.multicluster.x-k8s.io"
+
 var (
-	objectKeySecret = new(corev1.Secret)
+	objectKeySecret         = new(corev1.Secret)
+	objectKeyClusterProfile = new(inventoryv1alpha1.ClusterProfile)
 )
+
+type ConfigHelper struct {
+	CRDClient apiextensionsclient.Interface
+	log       logr.Logger
+}
+
+func NewConfigHelper(log logr.Logger) (*ConfigHelper, error) {
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		return nil, err
+	}
+	client, err := apiextensionsclient.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+	return &ConfigHelper{
+			CRDClient: client,
+			log:       log},
+		nil
+}
 
 // fromFile provides an alternative to the deprecated ctrl.ConfigFile().AtPath(path).OfKind(&cfg)
 func fromFile(path string, scheme *runtime.Scheme, cfg *configapi.Configuration) error {
@@ -53,9 +81,9 @@ func fromFile(path string, scheme *runtime.Scheme, cfg *configapi.Configuration)
 }
 
 // addTo provides an alternative to the deprecated o.AndFrom(&cfg)
-func addTo(o *ctrl.Options, cfg *configapi.Configuration) {
+func (h *ConfigHelper) addTo(ctx context.Context, o *ctrl.Options, cfg *configapi.Configuration) {
 	addLeaderElectionTo(o, cfg)
-	addCacheByObjectTo(o, cfg)
+	h.addCacheByObjectTo(ctx, o, cfg)
 
 	if o.Metrics.BindAddress == "" && cfg.Metrics.BindAddress != "" {
 		o.Metrics.BindAddress = cfg.Metrics.BindAddress
@@ -103,7 +131,7 @@ func addTo(o *ctrl.Options, cfg *configapi.Configuration) {
 	}
 }
 
-func addCacheByObjectTo(o *ctrl.Options, cfg *configapi.Configuration) {
+func (h *ConfigHelper) addCacheByObjectTo(ctx context.Context, o *ctrl.Options, cfg *configapi.Configuration) {
 	if cfg.Namespace == nil {
 		// Invalid source; noop. This should not be reached
 		// due to prior defaulting/validation.
@@ -118,6 +146,16 @@ func addCacheByObjectTo(o *ctrl.Options, cfg *configapi.Configuration) {
 		Namespaces: map[string]ctrlcache.Config{
 			*cfg.Namespace: {},
 		},
+	}
+
+	if err := h.crdExists(ctx, clusterProfileCRDName); err != nil {
+		h.log.Error(err, "Skipping MultiKueue ClusterProfile setup as the ClusterProfile CRD is not installed")
+	} else {
+		o.Cache.ByObject[objectKeyClusterProfile] = ctrlcache.ByObject{
+			Namespaces: map[string]ctrlcache.Config{
+				*cfg.Namespace: {},
+			},
+		}
 	}
 }
 
@@ -180,7 +218,7 @@ func Encode(scheme *runtime.Scheme, cfg *configapi.Configuration) (string, error
 
 // Load returns a set of controller options and configuration from the given file, if the config file path is empty
 // it used the default configapi values.
-func Load(scheme *runtime.Scheme, configFile string) (ctrl.Options, configapi.Configuration, error) {
+func (h *ConfigHelper) Load(ctx context.Context, scheme *runtime.Scheme, configFile string) (ctrl.Options, configapi.Configuration, error) {
 	var err error
 	options := ctrl.Options{
 		Scheme: scheme,
@@ -198,6 +236,11 @@ func Load(scheme *runtime.Scheme, configFile string) (ctrl.Options, configapi.Co
 	if err := validate(&cfg, scheme).ToAggregate(); err != nil {
 		return options, cfg, err
 	}
-	addTo(&options, &cfg)
+	h.addTo(ctx, &options, &cfg)
 	return options, cfg, err
+}
+
+func (h *ConfigHelper) crdExists(ctx context.Context, crdName string) error {
+	_, err := h.CRDClient.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, crdName, metav1.GetOptions{})
+	return err
 }
