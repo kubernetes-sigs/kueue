@@ -138,3 +138,7 @@ helm-test: helm-lint helm-verify helm-unit-test ## Run Helm chart integration te
 
 .PHONY: verify
 verify: vet helm-verify helm-unit-test ## Run all verification tests.
+
+.PHONY: helm-verify-install
+helm-verify-install: ## Run Helm install verification script.
+	./test/verify-helm-install.sh
