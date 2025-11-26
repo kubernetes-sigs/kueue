@@ -369,6 +369,18 @@ func RestartKueueController(ctx context.Context, k8sClient client.Client, kindCl
 	kcmKey := types.NamespacedName{Namespace: kueueNS, Name: "kueue-controller-manager"}
 	rolloutOperatorDeployment(ctx, k8sClient, kcmKey, kindClusterName)
 	WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
+	waitForDeploymentWithOnlyAvailableReplicas(ctx, k8sClient, kcmKey)
+}
+
+func waitForDeploymentWithOnlyAvailableReplicas(ctx context.Context, k8sClient client.Client, key types.NamespacedName) {
+	deployment := &appsv1.Deployment{}
+	waitForAvailableStart := time.Now()
+	ginkgo.By(fmt.Sprintf("Waiting for deployment to have only available replicas: %q", key))
+	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, key, deployment)).To(gomega.Succeed())
+		g.Expect(deployment.Status.Replicas).To(gomega.Equal(deployment.Status.AvailableReplicas))
+	}, LongTimeout, Interval).Should(gomega.Succeed())
+	ginkgo.GinkgoLogr.Info("Deployment has only available replicas in the cluster", "deployment", key, "waitingTime", time.Since(waitForAvailableStart))
 }
 
 func WaitForActivePodsAndTerminate(ctx context.Context, k8sClient client.Client, restClient *rest.RESTClient, cfg *rest.Config, namespace string, activePodsCount, exitCode int, opts ...client.ListOption) {
