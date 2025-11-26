@@ -31,6 +31,7 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
@@ -300,6 +301,123 @@ func TestSetupIndexes(t *testing.T) {
 					cmpopts.SortSlices(func(a, b string) bool { return a < b })); len(diff) != 0 {
 					t.Errorf("Unexpected list workloads (-want,+got):\n%s", diff)
 				}
+			}
+		})
+	}
+}
+
+func TestIsCRDEstablished(t *testing.T) {
+	tests := []struct {
+		name string
+		crd  *apiextensionsv1.CustomResourceDefinition
+		want bool
+	}{
+		{
+			name: "established true",
+			crd: &apiextensionsv1.CustomResourceDefinition{
+				Status: apiextensionsv1.CustomResourceDefinitionStatus{
+					Conditions: []apiextensionsv1.CustomResourceDefinitionCondition{{
+						Type:   apiextensionsv1.Established,
+						Status: apiextensionsv1.ConditionTrue,
+					}},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "not established",
+			crd: &apiextensionsv1.CustomResourceDefinition{
+				Status: apiextensionsv1.CustomResourceDefinitionStatus{
+					Conditions: []apiextensionsv1.CustomResourceDefinitionCondition{{
+						Type:   apiextensionsv1.Established,
+						Status: apiextensionsv1.ConditionFalse,
+					}},
+				},
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			isEstablished := isCRDEstablished(tt.crd)
+			if isEstablished != tt.want {
+				t.Errorf("isCRDEstablished() = %v, want %v", isEstablished, tt.want)
+			}
+		})
+	}
+}
+
+func TestNotifyCRDAvailable(t *testing.T) {
+	tests := []struct {
+		name    string
+		crd     *apiextensionsv1.CustomResourceDefinition
+		wantGVK schema.GroupVersionKind
+	}{
+		{
+			name: "CRD becomes established",
+			crd: &apiextensionsv1.CustomResourceDefinition{
+				Spec: apiextensionsv1.CustomResourceDefinitionSpec{
+					Group: "testgroup",
+					Names: apiextensionsv1.CustomResourceDefinitionNames{
+						Kind:     "TestKind",
+						Plural:   "testkinds",
+						Singular: "testkind",
+					},
+					Versions: []apiextensionsv1.CustomResourceDefinitionVersion{
+						{
+							Name:    "v1",
+							Served:  true,
+							Storage: true,
+						},
+					},
+					Scope: apiextensionsv1.NamespaceScoped,
+				},
+				Status: apiextensionsv1.CustomResourceDefinitionStatus{
+					Conditions: []apiextensionsv1.CustomResourceDefinitionCondition{
+						{
+							Type:   apiextensionsv1.Established,
+							Status: apiextensionsv1.ConditionTrue,
+						},
+					},
+				},
+			},
+			wantGVK: schema.GroupVersionKind{
+				Group:   "testgroup",
+				Version: "v1",
+				Kind:    "TestKind",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, logger := utiltesting.ContextWithLog(t)
+			crdNotifyCh := make(chan struct{}, 1)
+			crdNotifiers[tt.wantGVK] = crdNotifyCh
+
+			notifyCRDAvailable(tt.crd, logger)
+
+			select {
+			case <-crdNotifyCh:
+			case <-time.After(2 * time.Second):
+				t.Errorf("Timeout waiting for CRD notification for %v", tt.wantGVK)
+			}
+
+			wrongGVK := schema.GroupVersionKind{
+				Group:   "wronggroup",
+				Version: "v1",
+				Kind:    "WrongKind",
+			}
+			wrongCh := make(chan struct{}, 1)
+			crdNotifiers[wrongGVK] = wrongCh
+
+			notifyCRDAvailable(tt.crd, logger)
+
+			select {
+			case <-wrongCh:
+				t.Errorf("Notification incorrectly sent for wrong GVK: %v", wrongGVK)
+			case <-time.After(200 * time.Millisecond):
 			}
 		})
 	}

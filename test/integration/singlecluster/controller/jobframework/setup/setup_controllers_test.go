@@ -17,13 +17,21 @@ limitations under the License.
 package job
 
 import (
+	"context"
+	"fmt"
+	"path/filepath"
+	"sync"
+	"time"
+
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -123,5 +131,67 @@ var _ = ginkgo.Describe("Setup Controllers", ginkgo.Label("controller:jobframewo
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
+	})
+})
+
+var _ = ginkgo.Describe("Start Crd Controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	ginkgo.BeforeEach(func() {
+		fwk = &framework.Framework{}
+		cfg = fwk.Init()
+		ctx, k8sClient = fwk.SetupClient(cfg)
+	})
+
+	ginkgo.AfterEach(func() {
+		fwk.StopManager(ctx)
+		fwk.Teardown()
+	})
+
+	ginkgo.It("CRD informer triggers notifications for each installed CRD", func() {
+		mgr, err := ctrl.NewManager(cfg, ctrl.Options{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go func() { gomega.Expect(mgr.Start(ctx)).To(gomega.Succeed()) }()
+
+		go jobframework.StartCRDInformer(ctx, mgr, ginkgo.GinkgoLogr)
+
+		gvks := []schema.GroupVersionKind{
+			{Group: "kubeflow.org", Version: "v2beta1", Kind: "MPIJob"},
+			{Group: "ray.io", Version: "v1", Kind: "RayCluster"},
+		}
+
+		chs := make([]<-chan struct{}, len(gvks))
+		for i, gvk := range gvks {
+			chs[i] = jobframework.RegisterCRDNotifier(gvk)
+		}
+
+		options := envtest.CRDInstallOptions{
+			Paths: []string{
+				filepath.Join(util.GetProjectBaseDir(), "dep-crds", "mpi-operator"),
+				filepath.Join(util.GetProjectBaseDir(), "dep-crds", "ray-operator-crds"),
+			},
+			ErrorIfPathMissing: true,
+			CleanUpAfterUse:    true,
+		}
+		_, err = envtest.InstallCRDs(cfg, options)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		var wg sync.WaitGroup
+		wg.Add(len(chs))
+
+		for i, ch := range chs {
+			go func(index int, ch <-chan struct{}) {
+				defer ginkgo.GinkgoRecover()
+				defer wg.Done()
+				select {
+				case <-ch:
+					ginkgo.GinkgoLogr.Info("Received notification", "gvk", gvks[index])
+				case <-time.After(10 * time.Second):
+					ginkgo.Fail(fmt.Sprintf("Did not receive notification for GVK: %v", gvks[index]))
+				}
+			}(i, ch)
+		}
+		wg.Wait()
+		ginkgo.By("All channels have received notifications")
 	})
 })
