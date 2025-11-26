@@ -1339,7 +1339,7 @@ func (s *TASFlavorSnapshot) fillInCounts(
 				continue
 			}
 
-			// 2. Check Node Labels against Compiled Selector and Affinity
+			// 2. Check Node Labels against Compiled Selector
 			var nodeLabelSet labels.Set
 			if nodeLabels := leaf.node.GetLabels(); nodeLabels != nil {
 				nodeLabelSet = nodeLabels
