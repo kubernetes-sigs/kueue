@@ -682,7 +682,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo
 
 			ginkgo.By("checking no 'quota reseved' event appearing for the workload", func() {
 				gomega.Consistently(func(g gomega.Gomega) {
-					found, err := utiltesting.HasAnyEventAppeared(ctx, k8sClient, func(e *corev1.Event) bool {
+					found, err := utiltesting.HasMatchingEventAppeared(ctx, k8sClient, func(e *corev1.Event) bool {
 						return e.Reason == "QuotaReserved" &&
 							e.Type == corev1.EventTypeNormal &&
 							e.InvolvedObject.Kind == "Workload" &&
