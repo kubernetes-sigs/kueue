@@ -26,45 +26,51 @@ By default, it installs **Kueue v0.14.4**.
 -   If you already have Kueue installed, you can disable the dependency by setting `kueue.enabled=false`.
 -   The dependency is configured to enable `TopologyAwareScheduling` feature gate in Kueue.
 
-## Building the Image
+## Installation
+
+### Installing from OCI Registry
+
+You can install the chart directly from the OCI registry:
+
+```bash
+helm install kueue-populator oci://us-central1-docker.pkg.dev/k8s-staging-images/kueue/charts/kueue-populator \
+  --version 0.1.0 \
+  --namespace kueue-system \
+  --create-namespace \
+  --wait
+```
+
+> The `--wait` flag is required to ensure that the Kueue controller and webhooks are fully ready before the chart attempts to create Kueue resources (like ClusterQueue) via post-install hooks. Without it, the installation may fail.
+
+### Installing from Source
 
 If you want to make changes to the populator and deploy your own version, you need to build and push the image to your own registry.
- 
+
+#### Building the Image
+
 From the `cmd/experimental/kueue-populator` directory:
- 
+
 ```bash
 # Build the image
 make image-build IMAGE_REGISTRY=<YOUR_REGISTRY>
- 
+
 # Push the image
 make image-push IMAGE_REGISTRY=<YOUR_REGISTRY>
 ```
- 
+
 This will build and push an image with the tag `<YOUR_REGISTRY>/kueue-populator:<GIT_TAG>`.
- 
+
 If you want to use a specific tag, you can override `GIT_TAG`:
- 
+
 ```bash
 make image-build image-push IMAGE_REGISTRY=<YOUR_REGISTRY> GIT_TAG=latest
 ```
 
-## Installation
-
-## Installation
-
-The chart is configured to use the official staging image by default.
-
-To install the chart with default settings:
-
-> The `--wait` flag is required to ensure that the Kueue controller and webhooks are fully ready before the chart attempts to create Kueue resources (like ClusterQueue) via post-install hooks. Without it, the installation may fail.
-
-```bash
-helm install kueue-populator ./charts/kueue-populator --namespace kueue-system --create-namespace --wait
-```
-
-### Installing with a Custom Image
+#### Installing with a Custom Image
 
 If you built your own image, you **must** override the image repository and tag.
+
+The following commands assume you are in the `cmd/experimental/kueue-populator` directory.
 
 Example using `--set`:
 
@@ -105,7 +111,12 @@ kueuePopulator:
 ```
 
 ```bash
-helm install kueue-populator ./charts/kueue-populator --namespace kueue-system --create-namespace --wait -f populator-config.yaml
+helm install kueue-populator oci://us-central1-docker.pkg.dev/k8s-staging-images/kueue/charts/kueue-populator \
+  --version 0.1.0 \
+  --namespace kueue-system \
+  --create-namespace \
+  --wait \
+  -f populator-config.yaml
 ```
 
 For simple configuration you may also use the minimalistic command:
@@ -113,7 +124,8 @@ For simple configuration you may also use the minimalistic command:
 > When using `--set` for keys containing dots (e.g., `cloud.google.com/gke-nodepool`), you must escape the dots with a backslash.
 
 ```bash
-helm install kueue-populator ./charts/kueue-populator \
+helm install kueue-populator oci://us-central1-docker.pkg.dev/k8s-staging-images/kueue/charts/kueue-populator \
+  --version 0.1.0 \
   --namespace kueue-system \
   --create-namespace \
   --wait \
