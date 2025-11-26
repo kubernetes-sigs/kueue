@@ -97,7 +97,7 @@ func controlOptionsWithClusterProfile(namespace string) ctrl.Options {
 	return cOpts
 }
 
-func NewFakeClient(objects ...runtime.Object) *ConfigHelper {
+func NewFakeClient(log logr.Logger, objects ...runtime.Object) *ConfigHelper {
 	fakeClient := apiextensionsfake.NewSimpleClientset(
 		objects...,
 	)
@@ -921,7 +921,7 @@ objectRetentionPolicies:
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 			var crdObjs []runtime.Object
 			if tc.withClusterProfile {
 				crdObjs = append(crdObjs,
@@ -932,7 +932,7 @@ objectRetentionPolicies:
 					},
 				)
 			}
-			configHelper := NewFakeClient(crdObjs...)
+			configHelper := NewFakeClient(log, crdObjs...)
 			options, cfg, err := configHelper.Load(ctx, testScheme, tc.configFile)
 			if tc.wantError == nil {
 				if err != nil {

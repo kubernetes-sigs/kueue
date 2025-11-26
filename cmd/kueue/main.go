@@ -26,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/go-logr/logr"
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	schedulingv1 "k8s.io/api/scheduling/v1"
@@ -133,7 +134,7 @@ func main() {
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
 	ctx := ctrl.SetupSignalHandler()
-	options, cfg, err := apply(ctx, configFile)
+	options, cfg, err := apply(ctx, setupLog, configFile)
 	if err != nil {
 		setupLog.Error(err, "Unable to load the configuration")
 		os.Exit(1)
@@ -510,8 +511,8 @@ func podsReadyRequeuingTimestamp(cfg *configapi.Configuration) configapi.Requeui
 	return configapi.EvictionTimestamp
 }
 
-func apply(ctx context.Context, configFile string) (ctrl.Options, configapi.Configuration, error) {
-	configHelper, err := config.NewConfigHelper()
+func apply(ctx context.Context, log logr.Logger, configFile string) (ctrl.Options, configapi.Configuration, error) {
+	configHelper, err := config.NewConfigHelper(log)
 	if err != nil {
 		return ctrl.Options{}, configapi.Configuration{}, err
 	}

@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -47,9 +48,10 @@ var (
 
 type ConfigHelper struct {
 	CRDClient apiextensionsclient.Interface
+	log       logr.Logger
 }
 
-func NewConfigHelper() (*ConfigHelper, error) {
+func NewConfigHelper(log logr.Logger) (*ConfigHelper, error) {
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		return nil, err
@@ -58,7 +60,10 @@ func NewConfigHelper() (*ConfigHelper, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ConfigHelper{CRDClient: client}, nil
+	return &ConfigHelper{
+			CRDClient: client,
+			log:       log},
+		nil
 }
 
 // fromFile provides an alternative to the deprecated ctrl.ConfigFile().AtPath(path).OfKind(&cfg)
@@ -143,7 +148,9 @@ func (h *ConfigHelper) addCacheByObjectTo(ctx context.Context, o *ctrl.Options, 
 		},
 	}
 
-	if h.crdExists(ctx, clusterProfileCRDName) {
+	if err := h.crdExists(ctx, clusterProfileCRDName); err != nil {
+		h.log.Error(err, "Skipping MultiKueue ClusterProfile setup as the ClusterProfile CRD is not installed")
+	} else {
 		o.Cache.ByObject[objectKeyClusterProfile] = ctrlcache.ByObject{
 			Namespaces: map[string]ctrlcache.Config{
 				*cfg.Namespace: {},
@@ -233,7 +240,7 @@ func (h *ConfigHelper) Load(ctx context.Context, scheme *runtime.Scheme, configF
 	return options, cfg, err
 }
 
-func (h *ConfigHelper) crdExists(ctx context.Context, crdName string) bool {
+func (h *ConfigHelper) crdExists(ctx context.Context, crdName string) error {
 	_, err := h.CRDClient.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, crdName, metav1.GetOptions{})
-	return err == nil
+	return err
 }
