@@ -50,6 +50,9 @@ readonly default_image_tag
 # Update the image repo, tag and policy
 ${YQ}  e  ".kueuePopulator.image.repository = \"${IMAGE_REGISTRY}/kueue-populator\" | .kueuePopulator.image.tag = \"${GIT_TAG}\" | .kueuePopulator.image.pullPolicy = \"IfNotPresent\"" -i charts/kueue-populator/values.yaml
 
+
+${HELM} dependency build charts/kueue-populator
+
 # TODO: consider signing it
 ${HELM} package --version "${chart_version}" --app-version "${GIT_TAG}" charts/kueue-populator -d "${DEST_CHART_DIR}"
 
