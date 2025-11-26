@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -382,6 +383,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 		levels             []string
 		nodeLabels         map[string]string
 		podSets            []PodSetTestCase
+		unhealthyNodeLabel string
+		nodeAvoidancePolicy string
 	}{
 		"minimize the number of used racks before optimizing the number of nodes; BestFit": {
 			// Solution by optimizing the number of racks then nodes: [r3]: [x1,x6,x2,x4]
@@ -5578,6 +5581,88 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 		},
+		"node avoidance; prefer no unhealthy": {
+			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					Label("unhealthy", "true").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels:             defaultThreeLevels,
+			unhealthyNodeLabel: "unhealthy",
+			nodeAvoidancePolicy: controllerconsts.NodeAvoidancePolicyPreferNoUnhealthy,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "main",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Preferred: ptr.To(string(tasRackLabel)),
+					},
+					requests: resources.Requests{
+						"example.com/gpu": 1,
+					},
+					count: 1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{
+								Count:  1,
+								Values: []string{"x1"},
+							},
+						},
+					},
+				},
+			},
+		},
+		"node avoidance; disallow unhealthy; all unhealthy": {
+			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					Label("unhealthy", "true").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels:             defaultThreeLevels,
+			unhealthyNodeLabel: "unhealthy",
+			nodeAvoidancePolicy: controllerconsts.NodeAvoidancePolicyDisallowUnhealthy,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "main",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Preferred: ptr.To(string(tasRackLabel)),
+					},
+					requests: resources.Requests{
+						"example.com/gpu": 1,
+					},
+					count:      1,
+					wantReason: "cannot find topology assignment",
+				},
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -5599,7 +5684,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 			client := clientBuilder.Build()
 
-			tasCache := NewTASCache(client)
+			tasCache := NewTASCache(client, tc.unhealthyNodeLabel)
 			topologyInformation := topologyInformation{
 				Levels: tc.levels,
 			}
@@ -5607,7 +5692,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				TopologyName: "default",
 				NodeLabels:   tc.nodeLabels,
 			}
-			tasFlavorCache := tasCache.NewTASFlavorCache(topologyInformation, flavorInformation)
+			tasFlavorCache := tasCache.NewTASFlavorCache(topologyInformation, flavorInformation, tc.unhealthyNodeLabel)
 
 			snapshot, err := tasFlavorCache.snapshot(ctx)
 			if err != nil {
@@ -5647,7 +5732,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				}
 				wantResult[kueue.PodSetReference(ps.podSetName)] = wantPodSetResult
 			}
-			gotResult := snapshot.FindTopologyAssignmentsForFlavor(flavorTASRequests)
+			gotResult := snapshot.FindTopologyAssignmentsForFlavor(flavorTASRequests, func(o *findTopologyAssignmentsOption) {
+				o.nodeAvoidancePolicy = tc.nodeAvoidancePolicy
+			})
 			if diff := cmp.Diff(wantResult, gotResult); diff != "" {
 				t.Errorf("unexpected topology assignment (-want,+got): %s", diff)
 			}

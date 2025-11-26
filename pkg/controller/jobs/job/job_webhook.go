@@ -21,10 +21,13 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/go-logr/logr"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -34,6 +37,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -72,6 +76,7 @@ type JobWebhook struct {
 	managedJobsNamespaceSelector labels.Selector
 	queues                       *qcache.Manager
 	cache                        *schdcache.Cache
+	unhealthyNodeLabel           string
 }
 
 // SetupWebhook configures the webhook for batchJob.
@@ -83,6 +88,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		queues:                       options.Queues,
 		cache:                        options.Cache,
+		unhealthyNodeLabel:           options.UnhealthyNodeLabel,
 	}
 	obj := &batchv1.Job{}
 	return webhook.WebhookManagedBy(mgr).
@@ -110,6 +116,70 @@ func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 
 	applyWorkloadSliceSchedulingGate(job)
 
+	if w.unhealthyNodeLabel != "" {
+		if err := w.applyNodeAffinity(ctx, job, log); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (w *JobWebhook) applyNodeAffinity(ctx context.Context, job *Job, log logr.Logger) error {
+	wpcName := jobframework.WorkloadPriorityClassName(job.Object())
+	if wpcName == "" {
+		return nil
+	}
+	wpc := &kueue.WorkloadPriorityClass{}
+	if err := w.client.Get(ctx, types.NamespacedName{Name: wpcName}, wpc); err != nil {
+		log.V(5).Error(err, "Failed to get WorkloadPriorityClass", "name", wpcName)
+		return nil
+	}
+	policy := wpc.Annotations[controllerconsts.NodeAvoidancePolicyAnnotation]
+	if policy == "" {
+		return nil
+	}
+
+	switch policy {
+	case controllerconsts.NodeAvoidancePolicyPreferNoUnhealthy:
+		if job.Spec.Template.Spec.Affinity == nil {
+			job.Spec.Template.Spec.Affinity = &corev1.Affinity{}
+		}
+		if job.Spec.Template.Spec.Affinity.NodeAffinity == nil {
+			job.Spec.Template.Spec.Affinity.NodeAffinity = &corev1.NodeAffinity{}
+		}
+		nodeAffinity := job.Spec.Template.Spec.Affinity.NodeAffinity
+		nodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution = append(nodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution, corev1.PreferredSchedulingTerm{
+			Weight: 100,
+			Preference: corev1.NodeSelectorTerm{
+				MatchExpressions: []corev1.NodeSelectorRequirement{
+					{
+						Key:      w.unhealthyNodeLabel,
+						Operator: corev1.NodeSelectorOpDoesNotExist,
+					},
+				},
+			},
+		})
+	case controllerconsts.NodeAvoidancePolicyDisallowUnhealthy:
+		if job.Spec.Template.Spec.Affinity == nil {
+			job.Spec.Template.Spec.Affinity = &corev1.Affinity{}
+		}
+		if job.Spec.Template.Spec.Affinity.NodeAffinity == nil {
+			job.Spec.Template.Spec.Affinity.NodeAffinity = &corev1.NodeAffinity{}
+		}
+		nodeAffinity := job.Spec.Template.Spec.Affinity.NodeAffinity
+		if nodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution == nil {
+			nodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution = &corev1.NodeSelector{}
+		}
+		nodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms = append(nodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms, corev1.NodeSelectorTerm{
+			MatchExpressions: []corev1.NodeSelectorRequirement{
+				{
+					Key:      w.unhealthyNodeLabel,
+					Operator: corev1.NodeSelectorOpDoesNotExist,
+				},
+			},
+		})
+	}
 	return nil
 }
 

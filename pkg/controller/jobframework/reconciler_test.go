@@ -150,6 +150,33 @@ func TestReconcileGenericJob(t *testing.T) {
 				*baseWl.Clone().Name("job-test-job-1").ResourceVersion("2").Obj(),
 			},
 		},
+		"handle job with WorkloadPriorityClass having node avoidance policy": {
+			elasticJobsViaWorkloadSlicesEnabled: true,
+			req:                                 baseReq,
+			job: baseJob.Clone().
+				Label(constants.WorkloadPriorityClassLabel, "test-wpc").
+				PriorityClass("test-wpc").
+				Obj(),
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("main", 1).
+					Request(corev1.ResourceCPU, "1").
+					PriorityClass("test-wpc").
+					Obj(),
+			},
+			objs: []client.Object{
+				utiltestingapi.MakeWorkloadPriorityClass("test-wpc").
+					PriorityValue(100).
+					Annotation(constants.NodeAvoidancePolicyAnnotation, "prefer-no-unhealthy").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().Name("job-test-job-ce737").
+					PriorityClass("test-wpc").
+					Priority(100).
+					Annotations(map[string]string{constants.NodeAvoidancePolicyAnnotation: "prefer-no-unhealthy"}).
+					Obj(),
+			},
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {

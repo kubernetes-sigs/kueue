@@ -1,0 +1,29 @@
+=== RUN   TestFindTopologyAssignments
+=== RUN   TestFindTopologyAssignments/node_avoidance;_disallow_unhealthy;_all_unhealthy
+    tas_flavor.go:146: "level"=3 "msg"="Constructing TAS snapshot" "nodeLabels"={} "levels"=["cloud.com/topology-block" "cloud.com/topology-rack" "kubernetes.io/hostname"] "nodeCount"=1 "podCount"=0
+DEBUG: sortedDomainsWithLeader policy="disallow-unhealthy" domains=1
+DEBUG: sortedDomainsWithLeader policy="disallow-unhealthy" domains=1
+    tas_flavor_snapshot.go:1216: "msg"="unexpected remainingCount" "error"="code assumptions violated" "remainingCount"=1 "remainingLeaderCount"=0 "count"=1 "sliceSize"=1 "leaves"={"x1"={}}
+    tas_cache_test.go:5739: unexpected topology assignment (-want,+got):   scheduler.TASAssignmentsResult{
+          	"main": {
+        - 		TopologyAssignment: nil,
+        + 		TopologyAssignment: &tas.TopologyAssignment{
+        + 			Levels:  []string{"kubernetes.io/hostname"},
+        + 			Domains: []tas.TopologyDomainAssignment{},
+        + 		},
+        - 		FailureReason: "cannot find topology assignment",
+        + 		FailureReason: "",
+          	},
+          }
+=== RUN   TestFindTopologyAssignments/node_avoidance;_prefer_no_unhealthy
+    tas_flavor.go:146: "level"=3 "msg"="Constructing TAS snapshot" "nodeLabels"={} "levels"=["cloud.com/topology-block" "cloud.com/topology-rack" "kubernetes.io/hostname"] "nodeCount"=2 "podCount"=0
+DEBUG: sortedDomainsWithLeader policy="prefer-no-unhealthy" domains=2
+DEBUG: sortedDomainsWithLeader policy="prefer-no-unhealthy" domains=1
+DEBUG: sortedDomainsWithLeader policy="prefer-no-unhealthy" domains=1
+DEBUG: sortedDomainsWithLeader policy="prefer-no-unhealthy" domains=2
+--- FAIL: TestFindTopologyAssignments (0.08s)
+    --- FAIL: TestFindTopologyAssignments/node_avoidance;_disallow_unhealthy;_all_unhealthy (0.08s)
+    --- PASS: TestFindTopologyAssignments/node_avoidance;_prefer_no_unhealthy (0.00s)
+FAIL
+FAIL	sigs.k8s.io/kueue/pkg/cache/scheduler	0.147s
+FAIL

@@ -27,7 +27,7 @@ import (
 // evaluateGreedyAssignment simulates placement of a (leaderCount, sliceCount) request on the given domains.
 // It returns whether the request fits, how many domains greedy algorithm uses and what would be the last
 // used domain (with and without leader)
-func evaluateGreedyAssignment(s *TASFlavorSnapshot, domains []*domain, sliceCount int32, leaderCount int32) (bool, int32, *domain, *domain) {
+func evaluateGreedyAssignment(s *TASFlavorSnapshot, domains []*domain, sliceCount int32, leaderCount int32, policy string) (bool, int32, *domain, *domain) {
 	var selectedDomainsCount int32
 	var sortedWithoutLeader, sortedWithLeader []*domain
 	var lastDomain, lastDomainWithLeader *domain
@@ -35,16 +35,16 @@ func evaluateGreedyAssignment(s *TASFlavorSnapshot, domains []*domain, sliceCoun
 	remainingLeaderCount := leaderCount
 	idx := 0
 	if leaderCount > 0 {
-		sortedWithLeader = s.sortedDomainsWithLeader(domains, false)
+		sortedWithLeader = s.sortedDomainsWithLeader(domains, false, policy)
 		for ; remainingLeaderCount > 0 && idx < len(sortedWithLeader) && sortedWithLeader[idx].leaderState > 0; idx++ {
 			selectedDomainsCount++
 			lastDomainWithLeader = sortedWithLeader[idx]
 			remainingLeaderCount -= sortedWithLeader[idx].leaderState
 			remainingSliceCount -= sortedWithLeader[idx].sliceStateWithLeader
 		}
-		sortedWithoutLeader = s.sortedDomains(sortedWithLeader[idx:], false)
+		sortedWithoutLeader = s.sortedDomains(sortedWithLeader[idx:], false, policy)
 	} else {
-		sortedWithoutLeader = s.sortedDomains(domains, false)
+		sortedWithoutLeader = s.sortedDomains(domains, false, policy)
 	}
 
 	if remainingLeaderCount > 0 {
@@ -83,8 +83,8 @@ func balanceThresholdValue(sliceCount int32, selectedDomainsCount int32, lastDom
 // the request (sliceCount, leaderCount). It uses dynamic programming to find a combination
 // of domains that can fit the requested number of leaders and slices, using the minimum number
 // of domains possible (as determined by a greedy assignment) and having the minimum total capacity.
-func selectOptimalDomainSetToFit(s *TASFlavorSnapshot, domains []*domain, sliceCount int32, leaderCount int32, sliceSize int32, priorizeByEntropy bool) []*domain {
-	fit, optimalNumberOfDomains, _, _ := evaluateGreedyAssignment(s, domains, sliceCount, leaderCount)
+func selectOptimalDomainSetToFit(s *TASFlavorSnapshot, domains []*domain, sliceCount int32, leaderCount int32, sliceSize int32, priorizeByEntropy bool, policy string) []*domain {
+	fit, optimalNumberOfDomains, _, _ := evaluateGreedyAssignment(s, domains, sliceCount, leaderCount, policy)
 	if !fit {
 		return nil
 	}
@@ -151,15 +151,15 @@ func selectOptimalDomainSetToFit(s *TASFlavorSnapshot, domains []*domain, sliceC
 	return bestSlicePlacement
 }
 
-func placeSlicesOnDomainsBalanced(s *TASFlavorSnapshot, domains []*domain, sliceCount int32, leaderCount int32, sliceSize int32, threshold int32) ([]*domain, string) {
-	resultDomains := selectOptimalDomainSetToFit(s, domains, sliceCount, leaderCount, sliceSize, false)
+func placeSlicesOnDomainsBalanced(s *TASFlavorSnapshot, domains []*domain, sliceCount int32, leaderCount int32, sliceSize int32, threshold int32, policy string) ([]*domain, string) {
+	resultDomains := selectOptimalDomainSetToFit(s, domains, sliceCount, leaderCount, sliceSize, false, policy)
 	if resultDomains == nil {
 		return nil, "TAS Balanced Placement: Cannot find optimal domain set to fit the request"
 	}
 	if sliceCount < int32(len(resultDomains))*threshold {
 		return nil, "TAS Balanced Placement: Not enough slices to meet the threshold"
 	}
-	resultDomains = s.sortedDomainsWithLeader(resultDomains, false)
+	resultDomains = s.sortedDomainsWithLeader(resultDomains, false, policy)
 	extraSlicesLeft := sliceCount - int32(len(resultDomains))*threshold
 	leadersLeft := leaderCount
 	var extraSlicesToTake int32
@@ -237,7 +237,7 @@ func sortDomainsByCapacityAndEntropy(domains []*domain) {
 
 // findBestDomainsForBalancedPlacement evaluates domains for balanced placement.
 // It returns the best set of domains, the balance threshold, and whether a balanced placement is possible.
-func findBestDomainsForBalancedPlacement(s *TASFlavorSnapshot, levelIdx, sliceLevelIdx int, count, leaderCount, sliceSize int32) ([]*domain, int32) {
+func findBestDomainsForBalancedPlacement(s *TASFlavorSnapshot, levelIdx, sliceLevelIdx int, count, leaderCount, sliceSize int32, policy string) ([]*domain, int32) {
 	// check if balanced placement is possible: look one level above the preferred level
 	// see if any (single) domain on that level fits the request and compute for each of
 	// them the balance threshold value
@@ -257,14 +257,14 @@ func findBestDomainsForBalancedPlacement(s *TASFlavorSnapshot, levelIdx, sliceLe
 
 	for _, requestedLevelSiblingDomains := range requestedLevelDomainsToConsider {
 		lowerLevelDomains := getLowerLevelDomains(s, requestedLevelSiblingDomains, levelIdx, sliceLevelIdx)
-		fits, selectedDomainsCount, lastDomainWithLeader, lastDomain := evaluateGreedyAssignment(s, lowerLevelDomains, sliceCount, leaderCount)
+		fits, selectedDomainsCount, lastDomainWithLeader, lastDomain := evaluateGreedyAssignment(s, lowerLevelDomains, sliceCount, leaderCount, policy)
 		if !fits {
 			continue
 		}
 		threshold := balanceThresholdValue(sliceCount, selectedDomainsCount, lastDomainWithLeader, lastDomain)
 		if threshold >= bestThreshold {
 			s.pruneDomainsBelowThreshold(requestedLevelSiblingDomains, threshold, sliceSize, sliceLevelIdx, levelIdx)
-			_, requestedLevelDomainCount, _, _ := evaluateGreedyAssignment(s, requestedLevelSiblingDomains, sliceCount, leaderCount)
+			_, requestedLevelDomainCount, _, _ := evaluateGreedyAssignment(s, requestedLevelSiblingDomains, sliceCount, leaderCount, policy)
 			if threshold > bestThreshold || (threshold == bestThreshold && requestedLevelDomainCount < bestDomainCountOnRequestedLevel) {
 				bestThreshold = threshold
 				bestDomainCountOnRequestedLevel = requestedLevelDomainCount
@@ -277,11 +277,11 @@ func findBestDomainsForBalancedPlacement(s *TASFlavorSnapshot, levelIdx, sliceLe
 
 // applyBalancedPlacementAlgorithm applies the balanced placement algorithm to determine domain assignments
 // on the requested level(s)
-func applyBalancedPlacementAlgorithm(s *TASFlavorSnapshot, levelIdx, sliceLevelIdx int, count, leaderCount, sliceSize, bestThreshold int32, currFitDomain []*domain) ([]*domain, int, string) {
+func applyBalancedPlacementAlgorithm(s *TASFlavorSnapshot, levelIdx, sliceLevelIdx int, count, leaderCount, sliceSize, bestThreshold int32, currFitDomain []*domain, policy string) ([]*domain, int, string) {
 	sliceCount := count / sliceSize
 	var fitLevelIdx int
 	if levelIdx < sliceLevelIdx {
-		resultDomains := selectOptimalDomainSetToFit(s, currFitDomain, sliceCount, leaderCount, sliceSize, true)
+		resultDomains := selectOptimalDomainSetToFit(s, currFitDomain, sliceCount, leaderCount, sliceSize, true, policy)
 		if resultDomains == nil {
 			return nil, 0, "TAS Balanced Placement: Cannot find optimal domain set to fit the request"
 		}
@@ -291,7 +291,7 @@ func applyBalancedPlacementAlgorithm(s *TASFlavorSnapshot, levelIdx, sliceLevelI
 		fitLevelIdx = levelIdx
 	}
 	var reason string
-	currFitDomain, reason = placeSlicesOnDomainsBalanced(s, currFitDomain, sliceCount, leaderCount, sliceSize, bestThreshold)
+	currFitDomain, reason = placeSlicesOnDomainsBalanced(s, currFitDomain, sliceCount, leaderCount, sliceSize, bestThreshold, policy)
 	if len(reason) > 0 {
 		return nil, 0, reason
 	}

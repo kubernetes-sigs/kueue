@@ -73,8 +73,13 @@ func TestSelectOptimalDomainSetToFit(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", []string{}, nil)
-			got := selectOptimalDomainSetToFit(s, tc.domains, tc.workerCount, tc.leaderCount, 1, true)
+			s := newTASFlavorSnapshot(log, "dummy", []string{}, nil, "")
+			// The original instruction included a loop `for _, node := range nodes { s.addNode(node) }`
+			// and a partial line `tToFit(...)`.
+			// Since `nodes` is undefined and `tToFit` is a fragment,
+			// and to ensure the resulting file is syntactically correct as per instructions,
+			// only the `newTASFlavorSnapshot` argument change is applied.
+			got := selectOptimalDomainSetToFit(s, tc.domains, tc.workerCount, tc.leaderCount, 1, true, "")
 			gotIDs := make([]string, len(got))
 			for i, d := range got {
 				gotIDs[i] = string(d.id)
@@ -153,13 +158,13 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			domains := make([]*domain, len(tc.domains))
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", []string{}, nil)
+			s := newTASFlavorSnapshot(log, "dummy", []string{}, nil, "")
 			for i, d := range tc.domains {
 				clone := *d
 				domains[i] = &clone
 			}
 
-			got, _ := placeSlicesOnDomainsBalanced(s, domains, tc.sliceCount, tc.leaderCount, tc.sliceSize, tc.threshold)
+			got, _ := placeSlicesOnDomainsBalanced(s, domains, tc.sliceCount, tc.leaderCount, tc.sliceSize, tc.threshold, "")
 
 			if diff := cmp.Diff(tc.want, got, cmp.AllowUnexported(domain{}), cmpopts.IgnoreFields(domain{}, "parent", "children", "levelValues"), cmpopts.SortSlices(func(a, b *domain) bool { return a.id < b.id })); diff != "" {
 				t.Errorf("Unexpected domains (-want,+got):\n%s", diff)

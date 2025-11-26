@@ -95,6 +95,12 @@ func WithAdmissionFairSharing(afs *config.AdmissionFairSharing) Option {
 	}
 }
 
+func WithUnhealthyNodeLabel(label string) Option {
+	return func(c *Cache) {
+		c.unhealthyNodeLabel = label
+	}
+}
+
 // Cache keeps track of the Workloads that got admitted through ClusterQueues.
 type Cache struct {
 	sync.RWMutex
@@ -108,6 +114,7 @@ type Cache struct {
 	workloadInfoOptions  []workload.InfoOption
 	fairSharingEnabled   bool
 	admissionFairSharing *config.AdmissionFairSharing
+	unhealthyNodeLabel   string
 
 	hm hierarchy.Manager[*clusterQueue, *cohort]
 
@@ -121,11 +128,11 @@ func New(client client.Client, options ...Option) *Cache {
 		resourceFlavors:  make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
 		admissionChecks:  make(map[kueue.AdmissionCheckReference]AdmissionCheck),
 		hm:               hierarchy.NewManager(newCohort),
-		tasCache:         NewTASCache(client),
 	}
 	for _, option := range options {
 		option(cache)
 	}
+	cache.tasCache = NewTASCache(client, cache.unhealthyNodeLabel)
 	cache.podsReadyCond.L = &cache.RWMutex
 	return cache
 }

@@ -25,8 +25,10 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/tas"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 )
@@ -346,7 +348,7 @@ func TestMergeTopologyAssignments(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", levels, nil)
+			s := newTASFlavorSnapshot(log, "dummy", levels, nil, "")
 			for _, node := range nodes {
 				s.addNode(node)
 			}
@@ -421,10 +423,70 @@ func TestHasLevel(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", levels, nil)
+			s := newTASFlavorSnapshot(log, "dummy", levels, nil, "")
 			got := s.HasLevel(tc.podSetTopologyRequest)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("unexpected HasLevel result (-want,+got): %s", diff)
+			}
+		})
+	}
+}
+
+func TestSortedDomainsWithNodeAvoidance(t *testing.T) {
+	levels := []string{"kubernetes.io/hostname"}
+	unhealthyLabel := "unhealthy"
+	nodes := []corev1.Node{
+		*node.MakeNode("healthy").Label("kubernetes.io/hostname", "healthy").Obj(),
+		*node.MakeNode("unhealthy").Label("kubernetes.io/hostname", "unhealthy").Label(unhealthyLabel, "true").Obj(),
+	}
+
+	cases := map[string]struct {
+		policy string
+		want   []string
+	}{
+		"no policy": {
+			policy: "",
+			want:   []string{"healthy", "unhealthy"},
+		},
+		"prefer no unhealthy": {
+			policy: controllerconsts.NodeAvoidancePolicyPreferNoUnhealthy,
+			want:   []string{"healthy", "unhealthy"},
+		},
+		"disallow unhealthy": {
+			policy: controllerconsts.NodeAvoidancePolicyDisallowUnhealthy,
+			want:   []string{"healthy"},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
+			s := newTASFlavorSnapshot(log, "dummy", levels, nil, unhealthyLabel)
+			for _, node := range nodes {
+				s.addNode(node)
+			}
+			s.initialize()
+
+			// Manually construct domains list for testing sortedDomains
+			domains := []*domain{
+				s.domainsPerLevel[0][utiltas.DomainID([]string{"healthy"})],
+				s.domainsPerLevel[0][utiltas.DomainID([]string{"unhealthy"})],
+			}
+
+			gotDomains := s.sortedDomains(domains, false, tc.policy)
+			gotValues := make([]string, len(gotDomains))
+			for i, d := range gotDomains {
+				gotValues[i] = d.levelValues[0]
+			}
+
+			if tc.policy == controllerconsts.NodeAvoidancePolicyPreferNoUnhealthy {
+				if diff := cmp.Diff(tc.want, gotValues); diff != "" {
+					t.Errorf("unexpected sorted domains (-want,+got): %s", diff)
+				}
+			} else {
+				if diff := cmp.Diff(tc.want, gotValues, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+					t.Errorf("unexpected sorted domains (-want,+got): %s", diff)
+				}
 			}
 		})
 	}

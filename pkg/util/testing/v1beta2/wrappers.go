@@ -144,6 +144,11 @@ func (w *WorkloadWrapper) Active(a bool) *WorkloadWrapper {
 	return w
 }
 
+func (w *WorkloadWrapper) PriorityClass(name string) *WorkloadWrapper {
+	w.Spec.PriorityClassRef = kueue.NewWorkloadPriorityClassRef(name)
+	return w
+}
+
 // SimpleReserveQuota reserves the quota for all the requested resources in one flavor.
 // It assumes one podset with one container.
 func (w *WorkloadWrapper) SimpleReserveQuota(cq, flavor string, now time.Time) *WorkloadWrapper {
@@ -1382,6 +1387,15 @@ func MakeWorkloadPriorityClass(name string) *WorkloadPriorityClassWrapper {
 // PriorityValue updates value of WorkloadPriorityClass.
 func (p *WorkloadPriorityClassWrapper) PriorityValue(v int32) *WorkloadPriorityClassWrapper {
 	p.Value = v
+	return p
+}
+
+// Annotation adds an annotation to the WorkloadPriorityClass.
+func (p *WorkloadPriorityClassWrapper) Annotation(k, v string) *WorkloadPriorityClassWrapper {
+	if p.Annotations == nil {
+		p.Annotations = make(map[string]string)
+	}
+	p.Annotations[k] = v
 	return p
 }
 

@@ -106,6 +106,7 @@ type Options struct {
 	Cache                        *schdcache.Cache
 	Clock                        clock.Clock
 	WorkloadRetentionPolicy      WorkloadRetentionPolicy
+	UnhealthyNodeLabel           string
 }
 
 // Option configures the reconciler.
@@ -221,6 +222,13 @@ func WithObjectRetentionPolicies(value *configapi.ObjectRetentionPolicies) Optio
 		if value != nil && value.Workloads != nil && value.Workloads.AfterDeactivatedByKueue != nil {
 			o.WorkloadRetentionPolicy.AfterDeactivatedByKueue = &value.Workloads.AfterDeactivatedByKueue.Duration
 		}
+	}
+}
+
+// WithUnhealthyNodeLabel adds the unhealthy node label.
+func WithUnhealthyNodeLabel(label string) Option {
+	return func(o *Options) {
+		o.UnhealthyNodeLabel = label
 	}
 }
 
@@ -1288,13 +1296,20 @@ func getCustomPriorityClassFuncFromJob(job GenericJob) func() string {
 }
 
 func PrepareWorkloadPriority(ctx context.Context, c client.Client, obj client.Object, wl *kueue.Workload, customPriorityClassFunc func() string) error {
-	priorityClassRef, priority, err := ExtractPriority(ctx, c, obj, wl.Spec.PodSets, customPriorityClassFunc)
+	priorityClassRef, priority, policy, err := ExtractPriority(ctx, c, obj, wl.Spec.PodSets, customPriorityClassFunc)
 	if err != nil {
 		return err
 	}
 
 	wl.Spec.PriorityClassRef = priorityClassRef
 	wl.Spec.Priority = &priority
+
+	if policy != "" {
+		if wl.Annotations == nil {
+			wl.Annotations = make(map[string]string)
+		}
+		wl.Annotations[controllerconsts.NodeAvoidancePolicyAnnotation] = policy
+	}
 
 	return nil
 }
@@ -1313,14 +1328,16 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 	return nil
 }
 
-func ExtractPriority(ctx context.Context, c client.Client, obj client.Object, podSets []kueue.PodSet, customPriorityClassFunc func() string) (*kueue.PriorityClassRef, int32, error) {
+func ExtractPriority(ctx context.Context, c client.Client, obj client.Object, podSets []kueue.PodSet, customPriorityClassFunc func() string) (*kueue.PriorityClassRef, int32, string, error) {
 	if workloadPriorityClass := WorkloadPriorityClassName(obj); len(workloadPriorityClass) > 0 {
 		return utilpriority.GetPriorityFromWorkloadPriorityClass(ctx, c, workloadPriorityClass)
 	}
 	if customPriorityClassFunc != nil {
-		return utilpriority.GetPriorityFromPriorityClass(ctx, c, customPriorityClassFunc())
+		pRef, p, _, err := utilpriority.GetPriorityFromPriorityClass(ctx, c, customPriorityClassFunc())
+		return pRef, p, "", err
 	}
-	return utilpriority.GetPriorityFromPriorityClass(ctx, c, extractPriorityFromPodSets(podSets))
+	pRef, p, _, err := utilpriority.GetPriorityFromPriorityClass(ctx, c, extractPriorityFromPodSets(podSets))
+	return pRef, p, "", err
 }
 
 func extractPriorityFromPodSets(podSets []kueue.PodSet) string {

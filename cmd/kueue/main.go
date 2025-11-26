@@ -124,6 +124,9 @@ func main() {
 	var featureGates string
 	flag.StringVar(&featureGates, "feature-gates", "", "A set of key=value pairs that describe feature gates for alpha/experimental features.")
 
+	var unhealthyNodeLabel string
+	flag.StringVar(&unhealthyNodeLabel, "unhealthy-node-label", "", "The label key that indicates if a node is unhealthy.")
+
 	opts := zap.Options{
 		TimeEncoder: zapcore.RFC3339NanoTimeEncoder,
 		ZapOpts:     []zaplog.Option{zaplog.AddCaller()},
@@ -276,7 +279,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := setupControllers(ctx, mgr, cCache, queues, &cfg, serverVersionFetcher); err != nil {
+	if err := setupControllers(ctx, mgr, cCache, queues, &cfg, serverVersionFetcher, unhealthyNodeLabel); err != nil {
 		setupLog.Error(err, "Unable to setup controllers")
 		os.Exit(1)
 	}
@@ -341,7 +344,7 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 	return jobframework.SetupIndexes(ctx, mgr.GetFieldIndexer(), opts...)
 }
 
-func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Manager, cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher) error {
+func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Manager, cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher, unhealthyNodeLabel string) error {
 	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, cfg); err != nil {
 		return fmt.Errorf("unable to create controller %s: %w", failedCtrl, err)
 	}
@@ -418,6 +421,7 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.C
 		jobframework.WithCache(cCache),
 		jobframework.WithQueues(queues),
 		jobframework.WithObjectRetentionPolicies(cfg.ObjectRetentionPolicies),
+		jobframework.WithUnhealthyNodeLabel(unhealthyNodeLabel),
 	}
 	nsSelector, err := metav1.LabelSelectorAsSelector(cfg.ManagedJobsNamespaceSelector)
 	if err != nil {

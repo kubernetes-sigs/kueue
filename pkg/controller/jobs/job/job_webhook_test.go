@@ -730,6 +730,7 @@ func TestDefault(t *testing.T) {
 		enableIntegrations                     []string
 		want                                   *batchv1.Job
 		wantErr                                error
+		unhealthyNodeLabel                     string
 	}{
 		"update the suspend field with 'manageJobsWithoutQueueName=false'": {
 			job:  testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
@@ -863,6 +864,135 @@ func TestDefault(t *testing.T) {
 				Queue("default").
 				Obj(),
 		},
+		"node avoidance policy: prefer-no-unhealthy": {
+			job: testingutil.MakeJob("job", "default").
+				WorkloadPriorityClass("wpc-prefer").
+				Obj(),
+			objs: []runtime.Object{
+				&kueue.WorkloadPriorityClass{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "wpc-prefer",
+						Annotations: map[string]string{
+							constants.NodeAvoidancePolicyAnnotation: constants.NodeAvoidancePolicyPreferNoUnhealthy,
+						},
+					},
+				},
+			},
+			unhealthyNodeLabel: "unhealthy",
+			want: withNodeAffinity(testingutil.MakeJob("job", "default").
+				WorkloadPriorityClass("wpc-prefer").
+				Obj(), &corev1.Affinity{
+				NodeAffinity: &corev1.NodeAffinity{
+					PreferredDuringSchedulingIgnoredDuringExecution: []corev1.PreferredSchedulingTerm{
+						{
+							Weight: 100,
+							Preference: corev1.NodeSelectorTerm{
+								MatchExpressions: []corev1.NodeSelectorRequirement{
+									{
+										Key:      "unhealthy",
+										Operator: corev1.NodeSelectorOpDoesNotExist,
+									},
+								},
+							},
+						},
+					},
+				},
+			}),
+		},
+		"node avoidance policy: disallow-unhealthy": {
+			job: testingutil.MakeJob("job", "default").
+				WorkloadPriorityClass("wpc-disallow").
+				Obj(),
+			objs: []runtime.Object{
+				&kueue.WorkloadPriorityClass{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "wpc-disallow",
+						Annotations: map[string]string{
+							constants.NodeAvoidancePolicyAnnotation: constants.NodeAvoidancePolicyDisallowUnhealthy,
+						},
+					},
+				},
+			},
+			unhealthyNodeLabel: "unhealthy",
+			want: withNodeAffinity(testingutil.MakeJob("job", "default").
+				WorkloadPriorityClass("wpc-disallow").
+				Obj(), &corev1.Affinity{
+				NodeAffinity: &corev1.NodeAffinity{
+					RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+						NodeSelectorTerms: []corev1.NodeSelectorTerm{
+							{
+								MatchExpressions: []corev1.NodeSelectorRequirement{
+									{
+										Key:      "unhealthy",
+										Operator: corev1.NodeSelectorOpDoesNotExist,
+									},
+								},
+							},
+						},
+					},
+				},
+			}),
+		},
+		"node avoidance policy: allow-unhealthy": {
+			job: testingutil.MakeJob("job", "default").
+				WorkloadPriorityClass("wpc-allow").
+				Obj(),
+			objs: []runtime.Object{
+				&kueue.WorkloadPriorityClass{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "wpc-allow",
+						Annotations: map[string]string{
+							constants.NodeAvoidancePolicyAnnotation: constants.NodeAvoidancePolicyAllowUnhealthy,
+						},
+					},
+				},
+			},
+			unhealthyNodeLabel: "unhealthy",
+			want: testingutil.MakeJob("job", "default").
+				WorkloadPriorityClass("wpc-allow").
+				Obj(),
+		},
+		"node avoidance policy: no annotation": {
+			job: testingutil.MakeJob("job", "default").
+				WorkloadPriorityClass("wpc-none").
+				Obj(),
+			objs: []runtime.Object{
+				&kueue.WorkloadPriorityClass{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "wpc-none",
+					},
+				},
+			},
+			unhealthyNodeLabel: "unhealthy",
+			want: testingutil.MakeJob("job", "default").
+				WorkloadPriorityClass("wpc-none").
+				Obj(),
+		},
+		"node avoidance policy: no WPC": {
+			job: testingutil.MakeJob("job", "default").
+				Obj(),
+			unhealthyNodeLabel: "unhealthy",
+			want: testingutil.MakeJob("job", "default").
+				Obj(),
+		},
+		"node avoidance policy: no unhealthy label configured": {
+			job: testingutil.MakeJob("job", "default").
+				WorkloadPriorityClass("wpc-prefer").
+				Obj(),
+			objs: []runtime.Object{
+				&kueue.WorkloadPriorityClass{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "wpc-prefer",
+						Annotations: map[string]string{
+							constants.NodeAvoidancePolicyAnnotation: constants.NodeAvoidancePolicyPreferNoUnhealthy,
+						},
+					},
+				},
+			},
+			want: testingutil.MakeJob("job", "default").
+				WorkloadPriorityClass("wpc-prefer").
+				Obj(),
+		},
 	}
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
@@ -908,6 +1038,7 @@ func TestDefault(t *testing.T) {
 				managedJobsNamespaceSelector: labels.Everything(),
 				queues:                       queueManager,
 				cache:                        cqCache,
+				unhealthyNodeLabel:           tc.unhealthyNodeLabel,
 			}
 			gotErr := w.Default(ctx, tc.job)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {

@@ -228,6 +228,11 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/6757
 	// Enabled failure recovery of pods stuck in terminating state.
 	FailureRecoveryPolicy featuregate.Feature = "FailureRecoveryPolicy"
+
+	// owner: @jakubskiba
+	//
+	// Enables failure aware scheduling by injecting node affinity based on workload priority.
+	FailureAwareScheduling featuregate.Feature = "FailureAwareScheduling"
 )
 
 func init() {
@@ -356,6 +361,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	FailureRecoveryPolicy: {
+		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	FailureAwareScheduling: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
