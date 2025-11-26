@@ -57,7 +57,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	qutil "sigs.k8s.io/kueue/pkg/util/queue"
+	"sigs.k8s.io/kueue/pkg/util/resource"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -105,6 +108,13 @@ func WithWorkloadRetention(value *workloadRetentionConfig) Option {
 	}
 }
 
+// WithAdmissionFairSharing allows to specify the admission fair sharing configuration
+func WithAdmissionFairSharing(value *config.AdmissionFairSharing) Option {
+	return func(r *WorkloadReconciler) {
+		r.admissionFSConfig = value
+	}
+}
+
 type WorkloadUpdateWatcher interface {
 	NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload)
 }
@@ -120,6 +130,7 @@ type WorkloadReconciler struct {
 	recorder          record.EventRecorder
 	clock             clock.Clock
 	workloadRetention *workloadRetentionConfig
+	admissionFSConfig *config.AdmissionFairSharing
 }
 
 var _ reconcile.Reconciler = (*WorkloadReconciler)(nil)
@@ -733,6 +744,9 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		if !r.cache.AddOrUpdateWorkload(log, wlCopy) {
 			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 		}
+		if afs.Enabled(r.admissionFSConfig) && status == workload.StatusAdmitted && r.cache.ClusterQueueUsesAdmissionFairSharing(wlCopy.Status.Admission.ClusterQueue) {
+			r.updateAfsConsumedUsage(log, wlCopy)
+		}
 	case (prevStatus == workload.StatusQuotaReserved || prevStatus == workload.StatusAdmitted) && status == workload.StatusPending:
 		var backoff time.Duration
 		if wlCopy.Status.RequeueState != nil && wlCopy.Status.RequeueState.RequeueAt != nil {
@@ -797,6 +811,34 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 func (r *WorkloadReconciler) Generic(e event.TypedGenericEvent[*kueue.Workload]) bool {
 	r.log.V(3).Info("Ignore Workload generic event", "workload", klog.KObj(e.Object))
 	return false
+}
+
+func (r *WorkloadReconciler) updateAfsConsumedUsage(log logr.Logger, wl *kueue.Workload) {
+	lqKey := qutil.KeyFromWorkload(wl)
+	penalty := afs.CalculateEntryPenalty(workload.NewInfo(wl).SumTotalRequests(), r.admissionFSConfig)
+	now := r.clock.Now()
+
+	oldEntry, found := r.queues.AfsConsumedResources.Get(lqKey)
+	if !found {
+		oldEntry.LastUpdate = now
+	}
+
+	cacheLq, err := r.cache.GetCacheLocalQueue(wl.Status.Admission.ClusterQueue, lqKey)
+	if err != nil {
+		log.V(2).Info("Failed to get cache LocalQueue", "error", err)
+		return
+	}
+
+	oldUsage := oldEntry.Resources
+	newUsage := cacheLq.GetAdmittedUsage()
+	elapsed := now.Sub(oldEntry.LastUpdate).Seconds()
+	newConsumed := afs.CalculateDecayedConsumed(oldUsage, newUsage, elapsed, r.admissionFSConfig.UsageHalfLifeTime.Seconds())
+	newConsumed = resource.MergeResourceListKeepSum(newConsumed, penalty)
+
+	r.queues.AfsConsumedResources.Set(lqKey, newConsumed, now)
+	r.queues.SubEntryPenalty(lqKey, penalty)
+
+	log.V(2).Info("Updated AFS consumed usage", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)), "consumed", newConsumed)
 }
 
 func (r *WorkloadReconciler) notifyWatchers(oldWl, newWl *kueue.Workload) {
