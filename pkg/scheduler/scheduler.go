@@ -318,7 +318,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			wl := e.Obj.DeepCopy()
 			if err := workload.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
 				return workload.UnsetQuotaReservationWithCondition(wl, "Waiting", "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now()), nil
-			}, workload.WithLooseOnApply()); err != nil {
+			}, workload.WithLooseOnApply(), workload.WithRetryOnConflictForPatch()); err != nil {
 				log.Error(err, "Could not update Workload status")
 			}
 			s.cache.WaitForPodsReady(ctx)
@@ -634,7 +634,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 				wl.Status.UnhealthyNodes = nil
 			}
 			return true, nil
-		}, workload.WithLooseOnApply())
+		}, workload.WithLooseOnApply(), workload.WithRetryOnConflictForPatch())
 		if err == nil {
 			// Record metrics and events for quota reservation and admission
 			s.recordWorkloadAdmissionMetrics(newWorkload, e.Obj, admission)
@@ -799,7 +799,7 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 				updated = true
 			}
 			return updated, nil
-		}, workload.WithLooseOnApply()); err != nil {
+		}, workload.WithLooseOnApply(), workload.WithRetryOnConflictForPatch()); err != nil {
 			log.Error(err, "Could not update Workload status")
 		}
 		s.recorder.Eventf(e.Obj, corev1.EventTypeWarning, "Pending", api.TruncateEventMessage(e.inadmissibleMsg))

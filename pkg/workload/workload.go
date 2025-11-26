@@ -965,8 +965,9 @@ type PatchAdmissionStatusOption func(*PatchAdmissionStatusOptions)
 // Typically, PatchAdmissionStatusOptions are constructed via DefaultPatchAdmissionStatusOptions and
 // modified using PatchAdmissionStatusOption functions (e.g., WithLoose).
 type PatchAdmissionStatusOptions struct {
-	StrictPatch bool
-	StrictApply bool
+	StrictPatch             bool
+	StrictApply             bool
+	RetryOnConflictForPatch bool
 }
 
 // DefaultPatchAdmissionStatusOptions returns a new PatchAdmissionStatusOptions instance configured with
@@ -1020,6 +1021,14 @@ func WithLooseOnApply() PatchAdmissionStatusOption {
 	}
 }
 
+// WithRetryOnConflictForPatch configures PatchAdmissionStatusOptions to enable retry logic on conflicts.
+// Note: This only works with merge patches.
+func WithRetryOnConflictForPatch() PatchAdmissionStatusOption {
+	return func(o *PatchAdmissionStatusOptions) {
+		o.RetryOnConflictForPatch = true
+	}
+}
+
 // PatchAdmissionStatus updates the admission status of a workload.
 // If the WorkloadRequestUseMergePatch feature is enabled, it uses a Merge Patch with update function.
 // Otherwise, it runs the update function and, if updated, applies the SSA Patch status.
@@ -1034,6 +1043,9 @@ func PatchAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workloa
 		var patchOptions []clientutil.PatchOption
 		if !opts.StrictPatch {
 			patchOptions = append(patchOptions, clientutil.WithLoose())
+		}
+		if opts.RetryOnConflictForPatch {
+			patchOptions = append(patchOptions, clientutil.WithRetryOnConflict())
 		}
 		err = clientutil.PatchStatus(ctx, c, wlCopy, func() (bool, error) {
 			return update(wlCopy)

@@ -17,16 +17,19 @@ limitations under the License.
 package client
 
 import (
+	"context"
 	"errors"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
@@ -72,8 +75,9 @@ func TestPatch(t *testing.T) {
 		options []PatchOption
 	}
 	type want struct {
-		err error
-		obj client.Object // To assert patched object.
+		fetched bool
+		err     error
+		obj     client.Object // To assert patched object.
 	}
 	// clientObject is used to initialize test Client in t.Run().
 	clientObject := newObject("2")
@@ -93,8 +97,27 @@ func TestPatch(t *testing.T) {
 				},
 			},
 			want: want{
-				err: errTestConflict,
-				obj: newObject("2"),
+				fetched: false,
+				err:     errTestConflict,
+				obj:     newObject("2"),
+			},
+		},
+		"Strict_OutdatedLocalObject_RetryOnConflict": {
+			args: args{
+				obj: newObject("1"), // outdated local object.
+				update: func(job *batchv1.Job) UpdateFunc {
+					return func() (bool, error) {
+						job.Spec.Suspend = ptr.To(true)
+						return true, nil
+					}
+				},
+				options: []PatchOption{WithRetryOnConflict()},
+			},
+			want: want{
+				fetched: true,
+				obj: newObject("3", func(job *batchv1.Job) {
+					job.Spec.Suspend = ptr.To(true)
+				}),
 			},
 		},
 		"Strict_CurrentLocalObject": {
@@ -113,6 +136,37 @@ func TestPatch(t *testing.T) {
 					// Change to Spec is applied; Status change is ignored because Patch updates meta and spec only.
 					job.Spec.Suspend = ptr.To(true)
 				}),
+			},
+		},
+		"Strict_ConflictError": {
+			args: args{
+				obj: newObject("2"),
+				update: func(job *batchv1.Job) UpdateFunc {
+					return func() (bool, error) {
+						return false, errTestConflict
+					}
+				},
+			},
+			want: want{
+				fetched: false,
+				err:     errTestConflict,
+				obj:     newObject("2"),
+			},
+		},
+		"Strict_ConflictError_RetryOnConflict": {
+			args: args{
+				obj: newObject("2"),
+				update: func(job *batchv1.Job) UpdateFunc {
+					return func() (bool, error) {
+						return false, errTestConflict
+					}
+				},
+				options: []PatchOption{WithRetryOnConflict()},
+			},
+			want: want{
+				fetched: true,
+				err:     errTestConflict,
+				obj:     newObject("2"),
 			},
 		},
 		"NotStrict_OutdatedLocalObject": {
@@ -180,10 +234,28 @@ func TestPatch(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			clnt := utiltesting.NewClientBuilder().WithObjects(clientObject).Build()
+			fetched := false
+			clnt := utiltesting.NewClientBuilder().WithObjects(clientObject).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						fetched = true
+						return c.Get(ctx, key, obj, opts...)
+					},
+					Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+						return c.Update(ctx, obj, opts...)
+					},
+				}).
+				Build()
 			err := Patch(ctx, clnt, tt.args.obj, tt.args.update(tt.args.obj), tt.args.options...)
-			if diff := cmp.Diff(tt.want.err, err); diff != "" {
+			var errOpts cmp.Options
+			if !apierrors.IsConflict(err) {
+				errOpts = append(errOpts, cmpopts.EquateErrors())
+			}
+			if diff := cmp.Diff(tt.want.err, err, errOpts...); diff != "" {
 				t.Errorf("unexpected error (-want/+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.want.fetched, fetched); diff != "" {
+				t.Errorf("unexpected fetched (-want/+got):\n%s", diff)
 			}
 			if err := clnt.Get(ctx, client.ObjectKeyFromObject(tt.args.obj), tt.args.obj); err != nil {
 				t.Fatalf("Patch() unexpected error getting object: %v", err)
@@ -202,8 +274,9 @@ func TestPatchStatus(t *testing.T) {
 		options []PatchOption
 	}
 	type want struct {
-		err error
-		obj client.Object // To assert patched object.
+		fetched bool
+		err     error
+		obj     client.Object // To assert patched object.
 	}
 	// clientObject is used to initialize test Client in t.Run().
 	clientObject := newObject("2")
@@ -223,8 +296,27 @@ func TestPatchStatus(t *testing.T) {
 				},
 			},
 			want: want{
-				err: errTestConflict,
-				obj: newObject("2"),
+				fetched: false,
+				err:     errTestConflict,
+				obj:     newObject("2"),
+			},
+		},
+		"Strict_OutdatedLocalObject_RetryOnConflict": {
+			args: args{
+				obj: newObject("1"), // outdated local object results in patch error.
+				update: func(job *batchv1.Job) UpdateFunc {
+					return func() (bool, error) {
+						job.Status.Active = 1
+						return true, nil
+					}
+				},
+				options: []PatchOption{WithRetryOnConflict()},
+			},
+			want: want{
+				fetched: true,
+				obj: newObject("3", func(job *batchv1.Job) {
+					job.Status.Active = 1
+				}),
 			},
 		},
 		"Strict_CurrentLocalObject": {
@@ -243,6 +335,37 @@ func TestPatchStatus(t *testing.T) {
 					// Change to Status is applied; Spec change is ignored because Patch updates status only.
 					job.Status.Active = 1
 				}),
+			},
+		},
+		"Strict_ConflictError": {
+			args: args{
+				obj: newObject("2"),
+				update: func(job *batchv1.Job) UpdateFunc {
+					return func() (bool, error) {
+						return false, errTestConflict
+					}
+				},
+			},
+			want: want{
+				fetched: false,
+				err:     errTestConflict,
+				obj:     newObject("2"),
+			},
+		},
+		"Strict_ConflictError_RetryOnConflict": {
+			args: args{
+				obj: newObject("2"),
+				update: func(job *batchv1.Job) UpdateFunc {
+					return func() (bool, error) {
+						return false, errTestConflict
+					}
+				},
+				options: []PatchOption{WithRetryOnConflict()},
+			},
+			want: want{
+				fetched: true,
+				err:     errTestConflict,
+				obj:     newObject("2"),
 			},
 		},
 		"NotStrict_OutdatedLocalObject": {
@@ -311,10 +434,28 @@ func TestPatchStatus(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			clnt := utiltesting.NewClientBuilder().WithObjects(clientObject).Build()
+			fetched := false
+			clnt := utiltesting.NewClientBuilder().WithObjects(clientObject).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						fetched = true
+						return c.Get(ctx, key, obj, opts...)
+					},
+					SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+						return c.Status().Patch(ctx, obj, patch, opts...)
+					},
+				}).
+				Build()
 			err := PatchStatus(ctx, clnt, tt.args.obj, tt.args.update(tt.args.obj), tt.args.options...)
-			if diff := cmp.Diff(tt.want.err, err); diff != "" {
+			var errOpts cmp.Options
+			if !apierrors.IsConflict(err) {
+				errOpts = append(errOpts, cmpopts.EquateErrors())
+			}
+			if diff := cmp.Diff(tt.want.err, err, errOpts...); diff != "" {
 				t.Errorf("unexpected error (-want/+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.want.fetched, fetched); diff != "" {
+				t.Errorf("unexpected fetched (-want/+got):\n%s", diff)
 			}
 			if err := clnt.Get(ctx, client.ObjectKeyFromObject(tt.args.obj), tt.args.obj); err != nil {
 				t.Fatalf("Patch() unexpected error getting object: %v", err)
