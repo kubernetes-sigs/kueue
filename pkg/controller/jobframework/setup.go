@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/go-logr/logr"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -30,20 +29,14 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	tools "k8s.io/client-go/tools/cache"
-	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 )
 
-const (
-	baseBackoffWaitForIntegration = 1 * time.Second
-	maxBackoffWaitForIntegration  = 2 * time.Minute
-)
-
 var (
 	errFailedMappingResource = errors.New("restMapper failed mapping resource")
-	crdNotifiers             = make(map[schema.GroupVersionKind][]chan struct{})
+	crdNotifiers             = make(map[schema.GroupVersionKind]chan struct{})
 	crdNotifiersMu           sync.RWMutex
 )
 
@@ -57,7 +50,7 @@ var (
 // until the webhooks are operating, and the webhook won't work until the
 // certs are all in place.
 func SetupControllers(ctx context.Context, mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
-	go startCRDInformer(ctx, mgr, log)
+	go StartCRDInformer(ctx, mgr, log)
 
 	return manager.setupControllers(ctx, mgr, log, opts...)
 }
@@ -156,13 +149,10 @@ func (m *integrationManager) setupControllerAndWebhook(ctx context.Context, mgr 
 }
 
 func waitForAPI(ctx context.Context, mgr ctrl.Manager, log logr.Logger, gvk schema.GroupVersionKind, action func()) {
-	crdNotifyCh := registerCRDNotifier(gvk)
-	rateLimiter := workqueue.NewTypedItemExponentialFailureRateLimiter[string](baseBackoffWaitForIntegration, maxBackoffWaitForIntegration)
-	item := gvk.String()
+	crdNotifyCh := RegisterCRDNotifier(gvk)
 	for {
 		err := restMappingExists(mgr, gvk)
 		if err == nil {
-			rateLimiter.Forget(item)
 			action()
 			return
 		} else if !meta.IsNoMatchError(err) {
@@ -173,8 +163,6 @@ func waitForAPI(ctx context.Context, mgr ctrl.Manager, log logr.Logger, gvk sche
 			return
 		case <-crdNotifyCh:
 			log.V(2).Info("Received CRD notification, checking API availability", "gvk", gvk)
-			continue
-		case <-time.After(rateLimiter.When(item)):
 			continue
 		}
 	}
@@ -207,8 +195,8 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer, opts ...Opti
 	})
 }
 
-// startCRDInformer watches for CRD additions/updates and notifies waitForAPI immediately
-func startCRDInformer(ctx context.Context, mgr ctrl.Manager, log logr.Logger) {
+// StartCRDInformer watches for CRD additions/updates and notifies waitForAPI immediately
+func StartCRDInformer(ctx context.Context, mgr ctrl.Manager, log logr.Logger) {
 	crdClient, err := clientset.NewForConfig(mgr.GetConfig())
 	if err != nil {
 		log.V(2).Info("Failed to create CRD client for informer, falling back to polling", "error", err)
@@ -280,24 +268,19 @@ func notifyCRDAvailable(crd *apiextensionsv1.CustomResourceDefinition, log logr.
 	crdNotifiersMu.Lock()
 	defer crdNotifiersMu.Unlock()
 
-	if notifiers, exists := crdNotifiers[gvk]; exists {
-		log.V(2).Info("CRD established, notifying waiters", "gvk", gvk, "waiters", len(notifiers))
-		for _, ch := range notifiers {
-			select {
-			case ch <- struct{}{}:
-			default:
-			}
-		}
+	if notifier, exists := crdNotifiers[gvk]; exists {
+		log.V(2).Info("CRD established, notifying waiters", "gvk", gvk)
+		close(notifier)
 		delete(crdNotifiers, gvk)
 	}
 }
 
-// registerCRDNotifier registers a channel to be notified when a CRD becomes available
-func registerCRDNotifier(gvk schema.GroupVersionKind) chan struct{} {
+// RegisterCRDNotifier registers a channel to be notified when a CRD becomes available
+func RegisterCRDNotifier(gvk schema.GroupVersionKind) chan struct{} {
 	crdNotifiersMu.Lock()
 	defer crdNotifiersMu.Unlock()
 
-	ch := make(chan struct{}, 1)
-	crdNotifiers[gvk] = append(crdNotifiers[gvk], ch)
+	ch := make(chan struct{})
+	crdNotifiers[gvk] = ch
 	return ch
 }
