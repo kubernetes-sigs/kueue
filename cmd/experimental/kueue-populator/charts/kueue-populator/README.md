@@ -18,9 +18,17 @@ This Helm chart installs the Kueue Populator, a component designed to automatica
 -   Docker or a compatible container builder.
 -   A container registry to push the image to.
 
+## Dependencies
+
+This chart depends on the [Kueue](https://github.com/kubernetes-sigs/kueue/tree/main/charts/kueue) chart.
+By default, it installs **Kueue v0.14.4**.
+
+-   If you already have Kueue installed, you can disable the dependency by setting `kueue.enabled=false`.
+-   The dependency is configured to enable `TopologyAwareScheduling` feature gate in Kueue.
+
 ## Building the Image
 
-You need to build and push the image to your own registry.
+If you want to make changes to the populator and deploy your own version, you need to build and push the image to your own registry.
  
 From the `cmd/experimental/kueue-populator` directory:
  
@@ -42,9 +50,21 @@ make image-build image-push IMAGE_REGISTRY=<YOUR_REGISTRY> GIT_TAG=latest
 
 ## Installation
 
-To install the chart, you MUST override the image repository and tag with the image you built and pushed.
+## Installation
 
-The following commands assume you are in the `cmd/experimental/kueue-populator` directory.
+The chart is configured to use the official staging image by default.
+
+To install the chart with default settings:
+
+> The `--wait` flag is required to ensure that the Kueue controller and webhooks are fully ready before the chart attempts to create Kueue resources (like ClusterQueue) via post-install hooks. Without it, the installation may fail.
+
+```bash
+helm install kueue-populator ./charts/kueue-populator --namespace kueue-system --create-namespace --wait
+```
+
+### Installing with a Custom Image
+
+If you built your own image, you **must** override the image repository and tag.
 
 Example using `--set`:
 
@@ -53,8 +73,6 @@ helm install kueue-populator ./charts/kueue-populator --namespace kueue-system -
   --set kueuePopulator.image.repository=<YOUR_REGISTRY>/kueue-populator \
   --set kueuePopulator.image.tag=latest
 ```
-
-> The `--wait` flag is required to ensure that the Kueue controller and webhooks are fully ready before the chart attempts to create Kueue resources (like ClusterQueue) via post-install hooks. Without it, the installation may fail.
 
 Example using a custom `my-values.yaml`:
 
@@ -68,6 +86,35 @@ kueuePopulator:
 
 ```bash
 helm install kueue-populator ./charts/kueue-populator --namespace kueue-system --create-namespace --wait -f my-values.yaml
+```
+
+### Installing with Topology and ResourceFlavor
+
+To enable Topology Aware Scheduling and configure the default ResourceFlavor with node labels, you can use `--set` flags.
+
+> When using `--set` for keys containing dots (e.g., `cloud.google.com/gke-nodepool`), you must escape the dots with a backslash.
+
+```bash
+helm install kueue-populator ./charts/kueue-populator \
+  --namespace kueue-system \
+  --create-namespace \
+  --wait \
+  --set kueuePopulator.config.topology.levels[0].nodeLabel="cloud\.google\.com/gke-nodepool" \
+  --set kueuePopulator.config.resourceFlavor.nodeLabels."cloud\.google\.com/gke-nodepool"=default-pool
+```
+
+For complex configurations, it is recommended to use a values file:
+
+```yaml
+# topology-values.yaml
+kueuePopulator:
+  config:
+    topology:
+      levels:
+        - nodeLabel: cloud.google.com/gke-nodepool
+    resourceFlavor:
+      nodeLabels:
+        cloud.google.com/gke-nodepool: "default-pool"
 ```
 
 ## Configuration
