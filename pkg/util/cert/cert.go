@@ -26,7 +26,6 @@ import (
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
-	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -51,10 +50,10 @@ func BootstrapCerts(kubeConfig *rest.Config, cfg config.Configuration) error {
 	log.Info("Creating bootstrap manager for certificate generation")
 	bootstrapMgr, err := ctrl.NewManager(kubeConfig, ctrl.Options{
 		Metrics: metricsserver.Options{
-			BindAddress:    "0",
-			FilterProvider: filters.WithAuthenticationAndAuthorization,
+			BindAddress: "0",
 		},
 		HealthProbeBindAddress: cfg.Health.HealthProbeBindAddress,
+		LivenessEndpointName:   cfg.Health.LivenessEndpointName,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to create bootstrap manager: %w", err)
