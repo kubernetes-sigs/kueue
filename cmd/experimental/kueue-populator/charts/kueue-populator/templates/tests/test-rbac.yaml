@@ -9,20 +9,17 @@ kind: ClusterRole
 metadata:
   name: "{{ .Release.Name }}-test-role"
 rules:
-- apiGroups: [""]
-  resources: ["namespaces", "pods"]
-  verbs: ["get", "list", "watch"]
+- apiGroups: ["kueue.x-k8s.io"]
+  resources: ["clusterqueues", "resourceflavors", "topologies", "localqueues"]
+  verbs: ["get", "list"]
 - apiGroups: ["apps"]
   resources: ["deployments"]
-  verbs: ["get", "list", "watch"]
-- apiGroups: ["kueue.x-k8s.io"]
-  resources: ["clusterqueues", "localqueues", "resourceflavors"]
   verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: "{{ .Release.Name }}-test-rb"
+  name: "{{ .Release.Name }}-test-rolebinding"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
