@@ -132,7 +132,8 @@ func main() {
 	flag.Parse()
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
-	options, cfg, err := apply(configFile)
+	ctx := ctrl.SetupSignalHandler()
+	options, cfg, err := apply(ctx, configFile)
 	if err != nil {
 		setupLog.Error(err, "Unable to load the configuration")
 		os.Exit(1)
@@ -258,7 +259,6 @@ func main() {
 	cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 	queues := qcache.NewManager(mgr.GetClient(), cCache, queueOptions...)
 
-	ctx := ctrl.SetupSignalHandler()
 	if err := setupIndexes(ctx, mgr, &cfg); err != nil {
 		setupLog.Error(err, "Unable to setup indexes")
 		os.Exit(1)
@@ -510,8 +510,12 @@ func podsReadyRequeuingTimestamp(cfg *configapi.Configuration) configapi.Requeui
 	return configapi.EvictionTimestamp
 }
 
-func apply(configFile string) (ctrl.Options, configapi.Configuration, error) {
-	options, cfg, err := config.Load(scheme, configFile)
+func apply(ctx context.Context, configFile string) (ctrl.Options, configapi.Configuration, error) {
+	configHelper, err := config.NewConfigHelper()
+	if err != nil {
+		return ctrl.Options{}, configapi.Configuration{}, err
+	}
+	options, cfg, err := configHelper.Load(ctx, scheme, configFile)
 	if err != nil {
 		return options, cfg, err
 	}

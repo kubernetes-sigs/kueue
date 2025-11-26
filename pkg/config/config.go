@@ -43,9 +43,23 @@ const clusterProfileCRDName = "clusterprofiles.multicluster.x-k8s.io"
 var (
 	objectKeySecret         = new(corev1.Secret)
 	objectKeyClusterProfile = new(inventoryv1alpha1.ClusterProfile)
-
-	crdExistsFunc = crdExists
 )
+
+type ConfigHelper struct {
+	CRDClient apiextensionsclient.Interface
+}
+
+func NewConfigHelper() (*ConfigHelper, error) {
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		return nil, err
+	}
+	client, err := apiextensionsclient.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+	return &ConfigHelper{CRDClient: client}, nil
+}
 
 // fromFile provides an alternative to the deprecated ctrl.ConfigFile().AtPath(path).OfKind(&cfg)
 func fromFile(path string, scheme *runtime.Scheme, cfg *configapi.Configuration) error {
@@ -62,9 +76,9 @@ func fromFile(path string, scheme *runtime.Scheme, cfg *configapi.Configuration)
 }
 
 // addTo provides an alternative to the deprecated o.AndFrom(&cfg)
-func addTo(o *ctrl.Options, cfg *configapi.Configuration) {
+func (h *ConfigHelper) addTo(ctx context.Context, o *ctrl.Options, cfg *configapi.Configuration) {
 	addLeaderElectionTo(o, cfg)
-	addCacheByObjectTo(o, cfg)
+	h.addCacheByObjectTo(ctx, o, cfg)
 
 	if o.Metrics.BindAddress == "" && cfg.Metrics.BindAddress != "" {
 		o.Metrics.BindAddress = cfg.Metrics.BindAddress
@@ -112,7 +126,7 @@ func addTo(o *ctrl.Options, cfg *configapi.Configuration) {
 	}
 }
 
-func addCacheByObjectTo(o *ctrl.Options, cfg *configapi.Configuration) {
+func (h *ConfigHelper) addCacheByObjectTo(ctx context.Context, o *ctrl.Options, cfg *configapi.Configuration) {
 	if cfg.Namespace == nil {
 		// Invalid source; noop. This should not be reached
 		// due to prior defaulting/validation.
@@ -129,7 +143,7 @@ func addCacheByObjectTo(o *ctrl.Options, cfg *configapi.Configuration) {
 		},
 	}
 
-	if crdExistsFunc(clusterProfileCRDName) {
+	if h.crdExists(ctx, clusterProfileCRDName) {
 		o.Cache.ByObject[objectKeyClusterProfile] = ctrlcache.ByObject{
 			Namespaces: map[string]ctrlcache.Config{
 				*cfg.Namespace: {},
@@ -197,7 +211,7 @@ func Encode(scheme *runtime.Scheme, cfg *configapi.Configuration) (string, error
 
 // Load returns a set of controller options and configuration from the given file, if the config file path is empty
 // it used the default configapi values.
-func Load(scheme *runtime.Scheme, configFile string) (ctrl.Options, configapi.Configuration, error) {
+func (h *ConfigHelper) Load(ctx context.Context, scheme *runtime.Scheme, configFile string) (ctrl.Options, configapi.Configuration, error) {
 	var err error
 	options := ctrl.Options{
 		Scheme: scheme,
@@ -215,19 +229,11 @@ func Load(scheme *runtime.Scheme, configFile string) (ctrl.Options, configapi.Co
 	if err := validate(&cfg, scheme).ToAggregate(); err != nil {
 		return options, cfg, err
 	}
-	addTo(&options, &cfg)
+	h.addTo(ctx, &options, &cfg)
 	return options, cfg, err
 }
 
-func crdExists(crdName string) bool {
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		return false
-	}
-	apiExtClient, err := apiextensionsclient.NewForConfig(config)
-	if err != nil {
-		return false
-	}
-	_, err = apiExtClient.ApiextensionsV1().CustomResourceDefinitions().Get(context.TODO(), crdName, metav1.GetOptions{})
+func (h *ConfigHelper) crdExists(ctx context.Context, crdName string) bool {
+	_, err := h.CRDClient.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, crdName, metav1.GetOptions{})
 	return err == nil
 }

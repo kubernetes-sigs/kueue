@@ -29,6 +29,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apiextensionsfake "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	resourcev1 "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -44,6 +46,7 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
@@ -92,6 +95,13 @@ func controlOptionsWithClusterProfile(namespace string) ctrl.Options {
 		},
 	}
 	return cOpts
+}
+
+func NewFakeClient(objects ...runtime.Object) *ConfigHelper {
+	fakeClient := apiextensionsfake.NewSimpleClientset(
+		objects...,
+	)
+	return &ConfigHelper{CRDClient: fakeClient}
 }
 
 func TestLoad(t *testing.T) {
@@ -412,7 +422,7 @@ objectRetentionPolicies:
 		name                 string
 		configFile           string
 		enableClusterProfile bool
-		crdExistsOverride    func(string) bool
+		withClusterProfile   bool
 		wantConfiguration    configapi.Configuration
 		wantOptions          ctrl.Options
 		wantError            error
@@ -809,9 +819,7 @@ objectRetentionPolicies:
 			name:                 "multiKueue config with clusterProfile",
 			configFile:           multiKueueConfig,
 			enableClusterProfile: true,
-			crdExistsOverride: func(string) bool {
-				return true
-			},
+			withClusterProfile:   true,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: configapi.GroupVersion.String(),
@@ -913,13 +921,19 @@ objectRetentionPolicies:
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.crdExistsOverride != nil {
-				crdExistsFunc = tc.crdExistsOverride
-				defer func() {
-					crdExistsFunc = crdExists
-				}()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			var crdObjs []runtime.Object
+			if tc.withClusterProfile {
+				crdObjs = append(crdObjs,
+					&apiextensionsv1.CustomResourceDefinition{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: "clusterprofiles.multicluster.x-k8s.io",
+						},
+					},
+				)
 			}
-			options, cfg, err := Load(testScheme, tc.configFile)
+			configHelper := NewFakeClient(crdObjs...)
+			options, cfg, err := configHelper.Load(ctx, testScheme, tc.configFile)
 			if tc.wantError == nil {
 				if err != nil {
 					t.Errorf("Unexpected error:%s", err)
