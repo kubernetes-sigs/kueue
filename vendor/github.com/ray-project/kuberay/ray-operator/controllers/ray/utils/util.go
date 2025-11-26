@@ -19,6 +19,7 @@ import (
 	meta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/client-go/discovery"
@@ -37,6 +38,7 @@ const (
 	ServeName           = "serve"
 	ClusterDomainEnvKey = "CLUSTER_DOMAIN"
 	DefaultDomainName   = "cluster.local"
+	ContainersNotReady  = "ContainersNotReady"
 )
 
 // TODO (kevin85421): Define CRDType here rather than constant.go to avoid circular dependency.
@@ -102,10 +104,34 @@ func FindHeadPodReadyCondition(headPod *corev1.Pod) metav1.Condition {
 			headPodReadyCondition.Reason = reason
 		}
 
+		// If reason is ContainersNotReady, then replace it with an available
+		// container status that may illuminate why the container is not ready.
+		if reason == ContainersNotReady {
+			reason, message, ok := firstNotReadyContainerStatus(headPod)
+			if ok {
+				if headPodReadyCondition.Message != "" {
+					headPodReadyCondition.Message += "; "
+				}
+				headPodReadyCondition.Message += message
+				headPodReadyCondition.Reason = reason
+			}
+		}
+
 		// Since we're only interested in the PodReady condition, break after processing it
 		break
 	}
 	return headPodReadyCondition
+}
+
+func firstNotReadyContainerStatus(pod *corev1.Pod) (reason string, message string, ok bool) {
+	for _, status := range pod.Status.ContainerStatuses {
+		if status.State.Waiting != nil {
+			return status.State.Waiting.Reason, fmt.Sprintf("%s: %s", status.Name, status.State.Waiting.Message), true
+		} else if status.State.Terminated != nil {
+			return status.State.Terminated.Reason, fmt.Sprintf("%s: %s", status.Name, status.State.Terminated.Message), true
+		}
+	}
+	return "", "", false
 }
 
 // FindRayClusterSuspendStatus returns the current suspend status from two conditions:
@@ -253,6 +279,18 @@ func SafeUint64ToInt64(n uint64) int64 {
 	return int64(n)
 }
 
+// SafeInt64ToInt32 converts int64 to int32, preventing overflow/underflow by
+// bounding the value between [math.MinInt32, math.MaxInt32]
+func SafeInt64ToInt32(n int64) int32 {
+	if n > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	if n < math.MinInt32 {
+		return math.MinInt32
+	}
+	return int32(n)
+}
+
 // GetNamespace return namespace
 func GetNamespace(metaData metav1.ObjectMeta) string {
 	if metaData.Namespace == "" {
@@ -393,15 +431,15 @@ func CalculateMinReplicas(cluster *rayv1.RayCluster) int32 {
 
 // CalculateMaxReplicas calculates max worker replicas at the cluster level
 func CalculateMaxReplicas(cluster *rayv1.RayCluster) int32 {
-	count := int32(0)
+	count := int64(0)
 	for _, nodeGroup := range cluster.Spec.WorkerGroupSpecs {
 		if nodeGroup.Suspend != nil && *nodeGroup.Suspend {
 			continue
 		}
-		count += (*nodeGroup.MaxReplicas * nodeGroup.NumOfHosts)
+		count += int64(*nodeGroup.MaxReplicas) * int64(nodeGroup.NumOfHosts)
 	}
 
-	return count
+	return SafeInt64ToInt32(count)
 }
 
 // CalculateReadyReplicas calculates ready worker replicas at the cluster level
@@ -437,7 +475,7 @@ func CalculateAvailableReplicas(pods corev1.PodList) int32 {
 }
 
 func CalculateDesiredResources(cluster *rayv1.RayCluster) corev1.ResourceList {
-	desiredResourcesList := []corev1.ResourceList{{}}
+	desiredResourcesList := []corev1.ResourceList{}
 	headPodResource := CalculatePodResource(cluster.Spec.HeadGroupSpec.Template.Spec)
 	desiredResourcesList = append(desiredResourcesList, headPodResource)
 	for _, nodeGroup := range cluster.Spec.WorkerGroupSpecs {
@@ -454,7 +492,7 @@ func CalculateDesiredResources(cluster *rayv1.RayCluster) corev1.ResourceList {
 }
 
 func CalculateMinResources(cluster *rayv1.RayCluster) corev1.ResourceList {
-	minResourcesList := []corev1.ResourceList{{}}
+	minResourcesList := []corev1.ResourceList{}
 	headPodResource := CalculatePodResource(cluster.Spec.HeadGroupSpec.Template.Spec)
 	minResourcesList = append(minResourcesList, headPodResource)
 	for _, nodeGroup := range cluster.Spec.WorkerGroupSpecs {
@@ -677,6 +715,11 @@ func IsGCSFaultToleranceEnabled(spec *rayv1.RayClusterSpec, annotations map[stri
 	return (ok && strings.ToLower(v) == "true") || spec.GcsFaultToleranceOptions != nil
 }
 
+// IsAuthEnabled returns whether Ray auth is enabled.
+func IsAuthEnabled(spec *rayv1.RayClusterSpec) bool {
+	return spec.AuthOptions != nil && spec.AuthOptions.Mode == rayv1.AuthModeToken
+}
+
 // GetRayClusterNameFromService returns the name of the RayCluster that the service points to
 func GetRayClusterNameFromService(svc *corev1.Service) string {
 	if svc == nil || svc.Spec.Selector == nil {
@@ -880,6 +923,28 @@ func FetchHeadServiceURL(ctx context.Context, cli client.Client, rayCluster *ray
 func GetRayDashboardClientFunc(mgr manager.Manager, useKubernetesProxy bool) func(rayCluster *rayv1.RayCluster, url string) (dashboardclient.RayDashboardClientInterface, error) {
 	return func(rayCluster *rayv1.RayCluster, url string) (dashboardclient.RayDashboardClientInterface, error) {
 		dashboardClient := &dashboardclient.RayDashboardClient{}
+		var authToken string
+
+		if rayCluster != nil && rayCluster.Spec.AuthOptions != nil && rayCluster.Spec.AuthOptions.Mode == rayv1.AuthModeToken {
+			secretName := CheckName(rayCluster.Name)
+			secret := &corev1.Secret{}
+			secretKey := types.NamespacedName{
+				Name:      secretName,
+				Namespace: rayCluster.Namespace,
+			}
+
+			if err := mgr.GetClient().Get(context.Background(), secretKey, secret); err != nil {
+				return nil, fmt.Errorf("failed to get auth secret %s/%s: %w", rayCluster.Namespace, secretName, err)
+			}
+
+			tokenBytes, exists := secret.Data[RAY_AUTH_TOKEN_SECRET_KEY]
+			if !exists {
+				return nil, fmt.Errorf("auth token key '%q' not found in secret %s/%s", RAY_AUTH_TOKEN_SECRET_KEY, rayCluster.Namespace, secretName)
+			}
+
+			authToken = string(tokenBytes)
+		}
+
 		if useKubernetesProxy {
 			var err error
 			headSvcName := rayCluster.Status.Head.ServiceName
@@ -896,13 +961,19 @@ func GetRayDashboardClientFunc(mgr manager.Manager, useKubernetesProxy bool) fun
 				// configured to communicate with the Kubernetes API server.
 				mgr.GetHTTPClient(),
 				fmt.Sprintf("%s/api/v1/namespaces/%s/services/%s:dashboard/proxy", mgr.GetConfig().Host, rayCluster.Namespace, headSvcName),
+				authToken,
 			)
 			return dashboardClient, nil
 		}
 
-		dashboardClient.InitClient(&http.Client{
-			Timeout: 2 * time.Second,
-		}, "http://"+url)
+		dashboardClient.InitClient(
+			&http.Client{
+				Timeout: 2 * time.Second,
+			},
+			"http://"+url,
+			authToken,
+		)
+
 		return dashboardClient, nil
 	}
 }

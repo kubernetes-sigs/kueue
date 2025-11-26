@@ -19,6 +19,7 @@ package client
 import (
 	"context"
 
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -43,7 +44,8 @@ type PatchOption func(*PatchOptions)
 // Typically, PatchOptions are constructed via DefaultPatchOptions and
 // modified using PatchOption functions (e.g., WithLoose).
 type PatchOptions struct {
-	Strict bool
+	Strict          bool
+	RetryOnConflict bool
 }
 
 // DefaultPatchOptions returns a new PatchOptions instance configured with
@@ -76,6 +78,13 @@ func WithLoose() PatchOption {
 	}
 }
 
+// WithRetryOnConflict is a PatchOption that enables retry on conflict when applying a patch.
+func WithRetryOnConflict() PatchOption {
+	return func(o *PatchOptions) {
+		o.RetryOnConflict = true
+	}
+}
+
 // Patch applies an update to a Kubernetes object using a patch-based workflow.
 //
 // The function first computes the "original" and "modified" states of the object
@@ -103,7 +112,7 @@ func WithLoose() PatchOption {
 //     This clears the ResourceVersion field in the original object to ensure
 //     it is always included in the generated patch.
 func Patch(ctx context.Context, c client.Client, obj client.Object, update UpdateFunc, options ...PatchOption) error {
-	return patchCommon(obj, update, func(patch client.Patch) error {
+	return patchCommon(ctx, c, obj, update, func(patch client.Patch) error {
 		return c.Patch(ctx, obj, patch)
 	}, options...)
 }
@@ -137,7 +146,7 @@ func Patch(ctx context.Context, c client.Client, obj client.Object, update Updat
 //     This clears the ResourceVersion field in the original object to ensure
 //     it is always included in the generated patch.
 func PatchStatus(ctx context.Context, c client.Client, obj client.Object, update UpdateFunc, options ...PatchOption) error {
-	return patchCommon(obj, update, func(patch client.Patch) error {
+	return patchCommon(ctx, c, obj, update, func(patch client.Patch) error {
 		return c.Status().Patch(ctx, obj, patch)
 	}, options...)
 }
@@ -146,10 +155,23 @@ func PatchStatus(ctx context.Context, c client.Client, obj client.Object, update
 // It returns an error if the patch could not be applied.
 type patchFunc func(patch client.Patch) error
 
-func patchCommon(obj client.Object, updateFn UpdateFunc, patchFn patchFunc, options ...PatchOption) error {
+func patchCommon(ctx context.Context, c client.Client, obj client.Object, updateFn UpdateFunc, patchFn patchFunc, options ...PatchOption) error {
 	opts := DefaultPatchOptions()
 	for _, opt := range options {
 		opt(opts)
+	}
+	if opts.RetryOnConflict {
+		fetch := false
+		objKey := client.ObjectKeyFromObject(obj)
+		return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			if fetch {
+				if err := c.Get(ctx, objKey, obj); err != nil {
+					return err
+				}
+			}
+			fetch = true
+			return executePatch(obj, opts, updateFn, patchFn)
+		})
 	}
 	return executePatch(obj, opts, updateFn, patchFn)
 }

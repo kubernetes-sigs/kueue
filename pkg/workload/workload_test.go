@@ -1652,7 +1652,7 @@ func TestPatchAdmissionStatus(t *testing.T) {
 					cl = utiltesting.NewFakeClient(wl)
 				}
 				called := false
-				gotErr := PatchAdmissionStatus(ctx, cl, wl, fakeClock, func() (bool, error) {
+				gotErr := PatchAdmissionStatus(ctx, cl, wl, fakeClock, func(wl *kueue.Workload) (bool, error) {
 					called = true
 					return tc.patchCall.updated, tc.patchCall.err
 				})

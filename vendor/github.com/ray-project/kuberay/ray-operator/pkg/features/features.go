@@ -14,26 +14,28 @@ const (
 	// owner: @rueian @kevin85421 @andrewsykim
 	// rep: https://github.com/ray-project/enhancements/pull/54
 	// alpha: v1.2
+	// beta: v1.3
 	//
 	// Enables new conditions in RayCluster status
 	RayClusterStatusConditions featuregate.Feature = "RayClusterStatusConditions"
 
-	// owner: @andrewsykim
+	// owner: @andrewsykim @seanlaii
 	// rep: N/A
 	// alpha: v1.3
 	//
 	// Enables new deletion policy API in RayJob
 	RayJobDeletionPolicy featuregate.Feature = "RayJobDeletionPolicy"
 
-	// owner: @aaronliang
+	// owner: @aaronliang @ryanaoleary
 	// rep: N/A
-	// alpha: v1.0
+	// alpha: v1.5
+	//
 	// Enables multi-host worker indexing
 	RayMultiHostIndexing featuregate.Feature = "RayMultiHostIndexing"
 
 	// owner: @ryanaoleary
-	// rep: N/A
-	// alpha: v1.0
+	// rep: https://github.com/ray-project/enhancements/pull/58
+	// alpha: v1.5
 	//
 	// Enabled NewClusterWithIncrementalUpgrade type for RayService zero-downtime upgrades.
 	RayServiceIncrementalUpgrade featuregate.Feature = "RayServiceIncrementalUpgrade"

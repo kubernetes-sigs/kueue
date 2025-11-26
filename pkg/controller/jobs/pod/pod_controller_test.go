@@ -5728,8 +5728,9 @@ func TestReconciler(t *testing.T) {
 					t.Fatalf("Could not get Workloads after reconcile: %v", err)
 				}
 
-				// Fake client with patch.Apply can't reset Admission field, patch.Merge can
-				// However other key Status fields indicate that change e.g. Conditions, thuse we choose to ignore the Admission field
+				// The fake client with patch.Apply cannot reset the Admission field (patch.Merge can).
+				// However, other important Status fields (e.g. Conditions) still reflect the change,
+				// so we deliberately ignore the Admission field here.
 				if features.Enabled(features.WorkloadRequestUseMergePatch) {
 					tc.workloadCmpOpts = append(tc.workloadCmpOpts, cmpopts.IgnoreFields(kueue.WorkloadStatus{}, "Admission"))
 				}
@@ -5753,11 +5754,6 @@ func TestReconciler(t *testing.T) {
 
 func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
-	ctx, _ := utiltesting.ContextWithLog(t)
-	clientBuilder := utiltesting.NewClientBuilder()
-	if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
-		t.Fatalf("Could not setup indexes: %v", err)
-	}
 
 	basePodWrapper := testingpod.MakePod("pod", "ns").
 		UID("test-uid").
@@ -5765,101 +5761,19 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 		Request(corev1.ResourceCPU, "1").
 		Image("", nil)
 
-	pod := *basePodWrapper.
-		Clone().
-		ManagedByKueueLabel().
-		KueueFinalizer().
-		StatusPhase(corev1.PodSucceeded).
-		StatusMessage("Job finished successfully").
-		Obj()
-
-	wl := *utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+	baseWl := *utiltestingapi.MakeWorkload("unit-test", "ns").
 		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
-		AdmittedAt(true, now).
-		Obj()
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now)
 
-	reqcount := 0
-	errMock := fmt.Errorf("connection refused: %w", syscall.ECONNREFUSED)
-
-	kcBuilder := clientBuilder.
-		WithObjects(utiltesting.MakeNamespace("ns")).
-		WithObjects(&pod).
-		WithStatusSubresource(&wl).
-		WithInterceptorFuncs(interceptor.Funcs{
-			Patch: func(ctx context.Context, client client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
-				_, isPod := obj.(*corev1.Pod)
-				if isPod {
-					defer func() { reqcount++ }()
-					if reqcount == 0 {
-						// return a connection refused error for the first update request.
-						return errMock
-					}
-					if reqcount == 1 {
-						// Exec a regular update operation for the second request
-						return client.Patch(ctx, obj, patch, opts...)
-					}
-				}
-				return client.Patch(ctx, obj, patch, opts...)
-			},
-			SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
-		})
-
-	kClient := kcBuilder.Build()
-	if err := ctrl.SetControllerReference(&pod, &wl, kClient.Scheme()); err != nil {
-		t.Fatalf("Could not setup owner reference in Workloads: %v", err)
-	}
-	if err := kClient.Create(ctx, &wl); err != nil {
-		t.Fatalf("Could not create workload: %v", err)
-	}
-	recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
-
-	reconciler, err := NewReconciler(ctx, kClient, nil, recorder, jobframework.WithClock(testingclock.NewFakeClock(now)))
-	if err != nil {
-		t.Errorf("Error creating the reconciler: %v", err)
-	}
-
-	podKey := client.ObjectKeyFromObject(&pod)
-	_, err = reconciler.Reconcile(ctx, reconcile.Request{
-		NamespacedName: podKey,
-	})
-
-	if diff := cmp.Diff(errMock, err, cmpopts.EquateErrors()); diff != "" {
-		t.Errorf("Expected reconcile error (-want,+got):\n%s", diff)
-	}
-
-	// Reconcile for the second time
-	_, err = reconciler.Reconcile(ctx, reconcile.Request{
-		NamespacedName: podKey,
-	})
-	if err != nil {
-		t.Errorf("Got unexpected error while running reconcile:\n%v", err)
-	}
-
-	var gotPod corev1.Pod
-	if err := kClient.Get(ctx, podKey, &gotPod); err != nil {
-		t.Fatalf("Could not get Pod after second reconcile: %v", err)
-	}
-	// Validate that pod has no finalizer after the second reconcile
 	wantPod := *basePodWrapper.
 		Clone().
 		ManagedByKueueLabel().
 		StatusPhase(corev1.PodSucceeded).
 		StatusMessage("Job finished successfully").
 		Obj()
-	if diff := cmp.Diff(wantPod, gotPod, podCmpOpts...); diff != "" {
-		t.Errorf("Pod after second reconcile (-want,+got):\n%s", diff)
-	}
-
-	var gotWorkloads kueue.WorkloadList
-	if err := kClient.List(ctx, &gotWorkloads); err != nil {
-		t.Fatalf("Could not get Workloads after second reconcile: %v", err)
-	}
 
 	// Workload should be finished after the second reconcile
-	wantWl := *utiltestingapi.MakeWorkload("unit-test", "ns").
-		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+	wantWl := baseWl.Clone().
 		ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 		Condition(
 			metav1.Condition{
@@ -5887,8 +5801,110 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 		).
 		PastAdmittedTime(0).
 		Obj()
-	if diff := cmp.Diff([]kueue.Workload{wantWl}, gotWorkloads.Items, defaultWorkloadCmpOpts...); diff != "" {
-		t.Errorf("Workloads after second reconcile (-want,+got):\n%s", diff)
+
+	for _, useMergePatch := range []bool{false, true} {
+		t.Run(fmt.Sprintf("WorkloadRequestUseMergePatch enabled: %t", useMergePatch), func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
+
+			ctx, _ := utiltesting.ContextWithLog(t)
+			clientBuilder := utiltesting.NewClientBuilder()
+			if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
+				t.Fatalf("Could not setup indexes: %v", err)
+			}
+
+			pod := *basePodWrapper.
+				Clone().
+				ManagedByKueueLabel().
+				KueueFinalizer().
+				StatusPhase(corev1.PodSucceeded).
+				StatusMessage("Job finished successfully").
+				Obj()
+
+			wl := *baseWl.Clone().AdmittedAt(true, now).Obj()
+
+			reqcount := 0
+			errMock := fmt.Errorf("connection refused: %w", syscall.ECONNREFUSED)
+
+			kcBuilder := clientBuilder.
+				WithObjects(utiltesting.MakeNamespace("ns")).
+				WithObjects(pod.DeepCopy()).
+				WithStatusSubresource(&kueue.Workload{}).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Patch: func(ctx context.Context, client client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						_, isPod := obj.(*corev1.Pod)
+						if isPod {
+							defer func() { reqcount++ }()
+							if reqcount == 0 {
+								// return a connection refused error for the first update request.
+								return errMock
+							}
+							if reqcount == 1 {
+								// Exec a regular update operation for the second request
+								return client.Patch(ctx, obj, patch, opts...)
+							}
+						}
+						return client.Patch(ctx, obj, patch, opts...)
+					},
+					SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
+				})
+
+			kClient := kcBuilder.Build()
+			if err := ctrl.SetControllerReference(&pod, &wl, kClient.Scheme()); err != nil {
+				t.Fatalf("Could not setup owner reference in Workloads: %v", err)
+			}
+			if err := kClient.Create(ctx, &wl); err != nil {
+				t.Fatalf("Could not create workload: %v", err)
+			}
+			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
+
+			reconciler, err := NewReconciler(ctx, kClient, nil, recorder, jobframework.WithClock(testingclock.NewFakeClock(now)))
+			if err != nil {
+				t.Errorf("Error creating the reconciler: %v", err)
+			}
+
+			podKey := client.ObjectKeyFromObject(&pod)
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: podKey,
+			})
+
+			if diff := cmp.Diff(errMock, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Expected reconcile error (-want,+got):\n%s", diff)
+			}
+
+			// Reconcile for the second time
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: podKey,
+			})
+			if err != nil {
+				t.Errorf("Got unexpected error while running reconcile:\n%v", err)
+			}
+
+			var gotPod corev1.Pod
+			if err := kClient.Get(ctx, podKey, &gotPod); err != nil {
+				t.Fatalf("Could not get Pod after second reconcile: %v", err)
+			}
+
+			// Validate that pod has no finalizer after the second reconcile
+			if diff := cmp.Diff(wantPod, gotPod, podCmpOpts...); diff != "" {
+				t.Errorf("Pod after second reconcile (-want,+got):\n%s", diff)
+			}
+
+			var gotWorkloads kueue.WorkloadList
+			if err := kClient.List(ctx, &gotWorkloads); err != nil {
+				t.Fatalf("Could not get Workloads after second reconcile: %v", err)
+			}
+
+			// The fake client with patch.Apply cannot reset the Admission field (patch.Merge can).
+			// However, other important Status fields (e.g. Conditions) still reflect the change,
+			// so we deliberately ignore the Admission field here.
+			if features.Enabled(features.WorkloadRequestUseMergePatch) {
+				defaultWorkloadCmpOpts = append(defaultWorkloadCmpOpts, cmpopts.IgnoreFields(kueue.WorkloadStatus{}, "Admission"))
+			}
+
+			if diff := cmp.Diff([]kueue.Workload{*wantWl}, gotWorkloads.Items, defaultWorkloadCmpOpts...); diff != "" {
+				t.Errorf("Workloads after second reconcile (-want,+got):\n%s", diff)
+			}
+		})
 	}
 }
 

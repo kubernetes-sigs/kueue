@@ -17,6 +17,7 @@ limitations under the License.
 package preemption
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -34,6 +35,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -1813,74 +1815,82 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		},
 	}
 	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			ctx, log := utiltesting.ContextWithLog(t)
-			cl := utiltesting.NewClientBuilder().
-				WithLists(&kueue.WorkloadList{Items: tc.admitted}).
-				WithStatusSubresource(&kueue.Workload{}).
-				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
-				Build()
+		for _, useMergePatch := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s when the WorkloadRequestUseMergePatch feature is %t", name, useMergePatch), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
 
-			cqCache := schdcache.New(cl)
-			for _, flv := range flavors {
-				cqCache.AddOrUpdateResourceFlavor(log, flv)
-			}
-			for _, cq := range tc.clusterQueues {
-				if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
-					t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
+				ctx, log := utiltesting.ContextWithLog(t)
+				cl := utiltesting.NewClientBuilder().
+					WithLists(&kueue.WorkloadList{Items: tc.admitted}).
+					WithStatusSubresource(&kueue.Workload{}).
+					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+					Build()
+
+				cqCache := schdcache.New(cl)
+				for _, flv := range flavors {
+					cqCache.AddOrUpdateResourceFlavor(log, flv)
 				}
-			}
-			for _, cohort := range tc.cohorts {
-				if err := cqCache.AddOrUpdateCohort(cohort); err != nil {
-					t.Fatalf("Couldn't add Cohort to cache: %v", err)
+				for _, cq := range tc.clusterQueues {
+					if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+						t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
+					}
 				}
-			}
+				for _, cohort := range tc.cohorts {
+					if err := cqCache.AddOrUpdateCohort(cohort); err != nil {
+						t.Fatalf("Couldn't add Cohort to cache: %v", err)
+					}
+				}
 
-			broadcaster := record.NewBroadcaster()
-			scheme := runtime.NewScheme()
-			if err := kueue.AddToScheme(scheme); err != nil {
-				t.Fatalf("Failed adding kueue scheme: %v", err)
-			}
-			recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
-			preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now))
+				broadcaster := record.NewBroadcaster()
+				scheme := runtime.NewScheme()
+				if err := kueue.AddToScheme(scheme); err != nil {
+					t.Fatalf("Failed adding kueue scheme: %v", err)
+				}
+				recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
+				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now))
 
-			beforeSnapshot, err := cqCache.Snapshot(ctx)
-			if err != nil {
-				t.Fatalf("unexpected error while building snapshot: %v", err)
-			}
-			// make a working copy of the snapshotWorkingCopy than preemption can temporarily modify
-			snapshotWorkingCopy, err := cqCache.Snapshot(ctx)
-			if err != nil {
-				t.Fatalf("unexpected error while building snapshot: %v", err)
-			}
-			wlInfo := workload.NewInfo(tc.incoming)
-			wlInfo.ClusterQueue = tc.targetCQ
-			targets := preemptor.GetTargets(log, *wlInfo, tc.assignment, snapshotWorkingCopy)
-			preempted, err := preemptor.IssuePreemptions(ctx, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))
-			if err != nil {
-				t.Fatalf("Failed doing preemption")
-			}
-			if preempted != tc.wantPreempted {
-				t.Errorf("Reported %d preemptions, want %d", preempted, tc.wantPreempted)
-			}
+				beforeSnapshot, err := cqCache.Snapshot(ctx)
+				if err != nil {
+					t.Fatalf("unexpected error while building snapshot: %v", err)
+				}
+				// make a working copy of the snapshotWorkingCopy than preemption can temporarily modify
+				snapshotWorkingCopy, err := cqCache.Snapshot(ctx)
+				if err != nil {
+					t.Fatalf("unexpected error while building snapshot: %v", err)
+				}
+				wlInfo := workload.NewInfo(tc.incoming)
+				wlInfo.ClusterQueue = tc.targetCQ
+				targets := preemptor.GetTargets(log, *wlInfo, tc.assignment, snapshotWorkingCopy)
+				preempted, failed, err := preemptor.IssuePreemptions(ctx, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))
+				if err != nil {
+					t.Fatalf("Failed doing preemption")
+				}
+				if preempted != tc.wantPreempted {
+					t.Errorf("Reported %d preemptions, want %d", preempted, tc.wantPreempted)
+				}
+				if failed != 0 {
+					t.Errorf("Reported %d failed preemptions, want 0", failed)
+				}
 
-			workloads := &kueue.WorkloadList{}
-			err = cl.List(ctx, workloads)
-			if err != nil {
-				t.Fatalf("Failed to List workloads: %v", err)
-			}
+				workloads := &kueue.WorkloadList{}
+				err = cl.List(ctx, workloads)
+				if err != nil {
+					t.Fatalf("Failed to List workloads: %v", err)
+				}
 
-			defaultCmpOpts := cmp.Options{
-				cmpopts.EquateEmpty(),
-				cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
-			}
-			if diff := cmp.Diff(tc.wantWorkloads, workloads.Items, defaultCmpOpts); diff != "" {
-				t.Errorf("Unexpected workloads (-want/+got)\n%s", diff)
-			}
+				defaultCmpOpts := cmp.Options{
+					cmpopts.EquateEmpty(),
+					cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
+					cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type }),
+				}
+				if diff := cmp.Diff(tc.wantWorkloads, workloads.Items, defaultCmpOpts); diff != "" {
+					t.Errorf("Unexpected workloads (-want/+got)\n%s", diff)
+				}
 
-			if diff := cmp.Diff(beforeSnapshot, snapshotWorkingCopy, snapCmpOpts); diff != "" {
-				t.Errorf("Snapshot was modified (-initial,+end):\n%s", diff)
-			}
-		})
+				if diff := cmp.Diff(beforeSnapshot, snapshotWorkingCopy, snapCmpOpts); diff != "" {
+					t.Errorf("Snapshot was modified (-initial,+end):\n%s", diff)
+				}
+			})
+		}
 	}
 }

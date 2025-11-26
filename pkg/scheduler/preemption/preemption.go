@@ -154,11 +154,12 @@ func preemptionMessage(preemptor *kueue.Workload, reason, preemptorPath, preempt
 }
 
 // IssuePreemptions marks the target workloads as evicted.
-func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.Info, targets []*Target, snap *schdcache.ClusterQueueSnapshot) (int, error) {
+func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.Info, targets []*Target, snap *schdcache.ClusterQueueSnapshot) (preempted int, failedPreemptions int, exampleError error) {
 	log := ctrl.LoggerFrom(ctx)
 	errCh := routine.NewErrorChannel()
 	ctx, cancel := context.WithCancel(ctx)
 	var successfullyPreempted atomic.Int64
+	var preemptionErrors atomic.Int64
 	defer cancel()
 	workqueue.ParallelizeUntil(ctx, parallelPreemptions, len(targets), func(i int) {
 		target := targets[i]
@@ -168,11 +169,12 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 
 			message := preemptionMessage(preemptor.Obj, target.Reason, preemptorPath, preempteePath)
 			wlCopy := target.WorkloadInfo.Obj.DeepCopy()
-			err := workload.Evict(ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, "", p.clock, workload.WithCustomPrepare(func() {
-				workload.SetPreemptedCondition(wlCopy, p.clock.Now(), target.Reason, message)
+			err := workload.Evict(ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, "", p.clock, workload.WithCustomPrepare(func(wl *kueue.Workload) {
+				workload.SetPreemptedCondition(wl, p.clock.Now(), target.Reason, message)
 			}))
 			if err != nil {
 				errCh.SendErrorWithCancel(err, cancel)
+				preemptionErrors.Add(1)
 				return
 			}
 
@@ -186,7 +188,7 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 		}
 		successfullyPreempted.Add(1)
 	})
-	return int(successfullyPreempted.Load()), errCh.ReceiveError()
+	return int(successfullyPreempted.Load()), int(preemptionErrors.Load()), errCh.ReceiveError()
 }
 
 type preemptionAttemptOpts struct {

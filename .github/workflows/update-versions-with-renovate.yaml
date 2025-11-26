@@ -1,0 +1,26 @@
+name: update-versions-with-renovate
+
+on:
+  schedule:
+    # Once a week
+    - cron: '0 0 * * 0'
+  workflow_dispatch:
+
+jobs:
+  renovate:
+    runs-on: ubuntu-latest
+    if: github.repository == 'kubernetes-sigs/kueue'
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+      - name: run renovate (dry-run on PRs)
+        uses: renovatebot/github-action@v44.0.4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          configurationFile: renovate.json
+        env:
+          LOG_LEVEL: info
+          RENOVATE_REPOSITORIES: ${{ github.repository }}

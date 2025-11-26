@@ -359,7 +359,7 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
-				err := workload.PatchAdmissionStatus(ctx, k8sClient, wl, util.RealClock, func() (bool, error) {
+				err := workload.PatchAdmissionStatus(ctx, k8sClient, wl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
 					return workload.SetQuotaReservation(wl, a, util.RealClock), nil
 				})
 				g.Expect(err).Should(matcher)
@@ -1544,3 +1544,183 @@ var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher In
 		})
 	})
 })
+
+var _ = ginkgo.Describe("TopologyAssignment validation", ginkgo.Ordered, func() {
+	var (
+		wl        *kueue.Workload
+		twoLevels = []string{"block", "rack"}
+	)
+
+	var _ = ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		wl = utiltestingapi.MakeWorkload("wl", ns.Name).
+			Queue(kueue.LocalQueueName("lq1")).
+			PodSets(
+				*utiltestingapi.MakePodSet("ps1", 3).
+					Request(corev1.ResourceCPU, "1").
+					Image("image").
+					Obj(),
+			).
+			Obj()
+		util.MustCreate(ctx, k8sClient, wl)
+	})
+
+	var _ = ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+	})
+
+	ginkgo.BeforeAll(func() {
+		fwk.StartManager(ctx, cfg, managerSetup)
+	})
+
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
+	var _ = ginkgo.DescribeTable("kubebuilder XValidation rule set",
+		func(tasAssignment kueue.TopologyAssignment, expectedOutcome gomegatypes.GomegaMatcher) {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				wl.Status = kueue.WorkloadStatus{
+					Admission: &kueue.Admission{
+						ClusterQueue: "cq1",
+						PodSetAssignments: []kueue.PodSetAssignment{
+							{
+								Name:               "ps1",
+								TopologyAssignment: ptr.To(tasAssignment),
+							},
+						},
+					},
+				}
+				g.Expect(k8sClient.Status().Update(ctx, wl)).To(expectedOutcome)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		},
+		ginkgo.Entry("accepts a TopologyAssignment combining various item counts & patterns of subfield presence",
+			// 2 levels, 5 slices, 3 domains in first slice, 4 domains in second slice
+			// - all these numbers deliberately distinct,
+			// to make sure we don't accidentally require some extra equality
+			kueue.TopologyAssignment{
+				Levels: twoLevels,
+				Slices: []kueue.TopologyAssignmentSlice{
+					{
+						DomainCount: 3,
+						ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
+							{Universal: ptr.To("block-1")},
+							{
+								Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
+									Prefix: ptr.To("rack-1-"),
+									Roots:  []string{"1", "2", "3"},
+								},
+							},
+						},
+						PodCounts: kueue.TopologyAssignmentSlicePodCounts{
+							Universal: ptr.To(int32(1)),
+						},
+					},
+					{
+						DomainCount: 4,
+						ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
+							{
+								Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
+									Prefix: ptr.To("block"),
+									Roots:  []string{"-", "-", "-", "-"},
+									Suffix: ptr.To("2"),
+								},
+							},
+							{
+								Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
+									Roots: []string{"r1", "r2", "r3", "r4"},
+								},
+							},
+						},
+						PodCounts: kueue.TopologyAssignmentSlicePodCounts{
+							Individual: []int32{10, 20, 30, 40},
+						},
+					},
+					validSliceFor(twoLevels, 3),
+					validSliceFor(twoLevels, 4),
+					validSliceFor(twoLevels, 5),
+				},
+			},
+			gomega.Succeed()),
+		ginkgo.Entry("rejects a slice with wrong number of levels",
+			kueue.TopologyAssignment{
+				Levels: twoLevels,
+				Slices: []kueue.TopologyAssignmentSlice{
+					validSliceFor(twoLevels, 1),
+					{
+						DomainCount: 1,
+						ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
+							{Universal: ptr.To("block-2")},
+							// error - missing rack
+						},
+						PodCounts: kueue.TopologyAssignmentSlicePodCounts{
+							Universal: ptr.To(int32(1)),
+						},
+					},
+					validSliceFor(twoLevels, 3),
+				},
+			},
+			gomega.MatchError(gomega.ContainSubstring("valuesPerLevel must have the same length as the number of levels in this TopologyAssignment")),
+		),
+		ginkgo.Entry("rejects a slice with wrong number of individual pod counts",
+			kueue.TopologyAssignment{
+				Levels: twoLevels,
+				Slices: []kueue.TopologyAssignmentSlice{
+					validSliceFor(twoLevels, 1),
+					{
+						DomainCount: 3,
+						ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
+							{Universal: ptr.To("block-2")},
+							{Universal: ptr.To("rack-2")},
+						},
+						PodCounts: kueue.TopologyAssignmentSlicePodCounts{
+							Individual: []int32{10, 20},
+						},
+					},
+					validSliceFor(twoLevels, 3),
+				},
+			},
+			gomega.MatchError(gomega.ContainSubstring("podCounts.individual must have length equal to domainCount")),
+		),
+		ginkgo.Entry("rejects a slice has wrong number of individual assignment values",
+			kueue.TopologyAssignment{
+				Levels: twoLevels,
+				Slices: []kueue.TopologyAssignmentSlice{
+					validSliceFor(twoLevels, 1),
+					{
+						DomainCount: 3,
+						ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
+							{Universal: ptr.To("block-2")},
+							{
+								Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
+									Roots: []string{"rack2-1", "rack2-2"},
+								},
+							},
+						},
+						PodCounts: kueue.TopologyAssignmentSlicePodCounts{
+							Individual: []int32{10, 20, 30},
+						},
+					},
+					validSliceFor(twoLevels, 3),
+				},
+			},
+			gomega.MatchError(gomega.ContainSubstring("valuesPerLevel.individual, if set, must have roots of length equal to domainCount of this TopologyAssignmentSlice")),
+		),
+	)
+})
+
+func validSliceFor(levels []string, suffix int) kueue.TopologyAssignmentSlice {
+	res := kueue.TopologyAssignmentSlice{
+		DomainCount: int32(1),
+		PodCounts: kueue.TopologyAssignmentSlicePodCounts{
+			Universal: ptr.To(int32(1)),
+		},
+	}
+	for _, level := range levels {
+		res.ValuesPerLevel = append(res.ValuesPerLevel, kueue.TopologyAssignmentSliceLevelValues{
+			Universal: ptr.To(fmt.Sprintf("%s-%d", level, suffix)),
+		})
+	}
+	return res
+}

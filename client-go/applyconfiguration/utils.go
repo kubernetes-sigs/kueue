@@ -59,6 +59,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.AdmissionScopeApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("BorrowWithinCohort"):
 		return &kueuev1beta1.BorrowWithinCohortApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("ClusterProfileReference"):
+		return &kueuev1beta1.ClusterProfileReferenceApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ClusterQueue"):
 		return &kueuev1beta1.ClusterQueueApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ClusterQueuePendingWorkload"):
@@ -203,6 +205,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta2.ClusterQueueSpecApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("ClusterQueueStatus"):
 		return &kueuev1beta2.ClusterQueueStatusApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("ClusterSource"):
+		return &kueuev1beta2.ClusterSourceApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("Cohort"):
 		return &kueuev1beta2.CohortApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("CohortSpec"):

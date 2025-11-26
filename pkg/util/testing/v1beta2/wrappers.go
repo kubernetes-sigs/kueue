@@ -1432,17 +1432,16 @@ func (mkc *MultiKueueClusterWrapper) Obj() *kueue.MultiKueueCluster {
 }
 
 func (mkc *MultiKueueClusterWrapper) KubeConfig(locationType kueue.LocationType, location string) *MultiKueueClusterWrapper {
-	mkc.Spec.KubeConfig = &kueue.KubeConfig{
+	mkc.Spec.ClusterSource.KubeConfig = &kueue.KubeConfig{
 		Location:     location,
 		LocationType: locationType,
 	}
 	return mkc
 }
 
-func (mkc *MultiKueueClusterWrapper) ClusterProfile(name string, namespace string) *MultiKueueClusterWrapper {
-	mkc.Spec.ClusterProfile = &kueue.ClusterProfileReference{
-		Name:      name,
-		Namespace: namespace,
+func (mkc *MultiKueueClusterWrapper) ClusterProfile(name string) *MultiKueueClusterWrapper {
+	mkc.Spec.ClusterSource.ClusterProfileRef = &kueue.ClusterProfileReference{
+		Name: name,
 	}
 	return mkc
 }

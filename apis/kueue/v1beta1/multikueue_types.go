@@ -61,6 +61,21 @@ type KubeConfig struct {
 type MultiKueueClusterSpec struct {
 	// kubeConfig is information on how to connect to the cluster.
 	KubeConfig KubeConfig `json:"kubeConfig"`
+
+	// clusterProfileRef is the reference to the ClusterProfile object used to connect to the cluster.
+	//
+	// This is only used to prevent data loss when converting between v1beta2 and v1beta1.
+	// It has no effect in v1beta1.
+	// +optional
+	ClusterProfileRef *ClusterProfileReference `json:"clusterProfileRef,omitempty"`
+}
+
+type ClusterProfileReference struct {
+	// name of the ClusterProfile.
+	// +kubebuilder:validation:MaxLength=256
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Name string `json:"name,omitempty"`
 }
 
 type MultiKueueClusterStatus struct {

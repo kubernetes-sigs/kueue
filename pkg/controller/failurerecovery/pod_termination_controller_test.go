@@ -52,10 +52,7 @@ func TestCreateEventFilter(t *testing.T) {
 	fakeClock := testingclock.NewFakeClock(now)
 	cl := utiltesting.NewFakeClient()
 	recorder := &utiltesting.EventRecorder{}
-	reconciler, err := NewTerminatingPodReconciler(cl, recorder, WithClock(fakeClock))
-	if err != nil {
-		t.Fatalf("could not create reconciler: %v", err)
-	}
+	reconciler := NewTerminatingPodReconciler(cl, recorder, WithClock(fakeClock))
 
 	podToReconcile := testingpod.MakePod("pod", "ns").
 		StatusPhase(corev1.PodRunning).
@@ -89,7 +86,7 @@ func TestCreateEventFilter(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			gotResult := reconciler.Create(event.CreateEvent{Object: tc.pod})
+			gotResult := reconciler.Create(event.TypedCreateEvent[*corev1.Pod]{Object: tc.pod})
 
 			if diff := cmp.Diff(tc.wantResult, gotResult); diff != "" {
 				t.Errorf("unexpected reconcile result (-want/+got):\n%s", diff)
@@ -103,10 +100,7 @@ func TestUpdateEventFilter(t *testing.T) {
 	fakeClock := testingclock.NewFakeClock(now)
 	cl := utiltesting.NewFakeClient()
 	recorder := &utiltesting.EventRecorder{}
-	reconciler, err := NewTerminatingPodReconciler(cl, recorder, WithClock(fakeClock))
-	if err != nil {
-		t.Fatalf("could not create reconciler: %v", err)
-	}
+	reconciler := NewTerminatingPodReconciler(cl, recorder, WithClock(fakeClock))
 
 	oldPod := testingpod.MakePod("pod", "ns").
 		StatusPhase(corev1.PodRunning).
@@ -140,7 +134,7 @@ func TestUpdateEventFilter(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			gotResult := reconciler.Update(event.UpdateEvent{ObjectOld: tc.oldPod, ObjectNew: tc.newPod})
+			gotResult := reconciler.Update(event.TypedUpdateEvent[*corev1.Pod]{ObjectOld: tc.oldPod, ObjectNew: tc.newPod})
 
 			if diff := cmp.Diff(tc.wantResult, gotResult); diff != "" {
 				t.Errorf("unexpected reconcile result (-want/+got):\n%s", diff)
@@ -261,10 +255,7 @@ func TestReconciler(t *testing.T) {
 			clientBuilder := utiltesting.NewClientBuilder().WithObjects(objs...)
 			cl := clientBuilder.Build()
 			recorder := &utiltesting.EventRecorder{}
-			reconciler, err := NewTerminatingPodReconciler(cl, recorder, WithClock(fakeClock))
-			if err != nil {
-				t.Fatalf("could not create reconciler: %v", err)
-			}
+			reconciler := NewTerminatingPodReconciler(cl, recorder, WithClock(fakeClock))
 
 			ctxWithLogger, _ := utiltesting.ContextWithLog(t)
 			ctx, ctxCancel := context.WithCancel(ctxWithLogger)
