@@ -46,6 +46,7 @@ type PodSetInfo struct {
 	Annotations     map[string]string
 	Labels          map[string]string
 	NodeSelector    map[string]string
+	Affinity        *corev1.Affinity
 	Tolerations     []corev1.Toleration
 	SchedulingGates []corev1.PodSchedulingGate
 }
@@ -107,6 +108,7 @@ func FromPodSet(ps *kueue.PodSet) PodSetInfo {
 		Annotations:     maps.Clone(ps.Template.Annotations),
 		Labels:          maps.Clone(ps.Template.Labels),
 		NodeSelector:    maps.Clone(ps.Template.Spec.NodeSelector),
+		Affinity:        ps.Template.Spec.Affinity,
 		Tolerations:     slices.Clone(ps.Template.Spec.Tolerations),
 		SchedulingGates: slices.Clone(ps.Template.Spec.SchedulingGates),
 	}
