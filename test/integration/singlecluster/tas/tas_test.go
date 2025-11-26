@@ -2004,7 +2004,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Expect(k8sClient.Update(ctx, nodeToUpdate)).Should(gomega.Succeed())
 				})
 
-				ginkgo.By("verify the workload gets admitted after label is added", func() {
+				ginkgo.By("verify the workload gets admitted after label with correct key and value is added", func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
 					util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
 					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
@@ -2048,7 +2048,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					util.MustCreate(ctx, k8sClient, wl1)
 				})
 
-				ginkgo.By("verify the workload is inadmissible due to missing label", func() {
+				ginkgo.By("verify the workload with missing label is inadmissible", func() {
 					util.ExpectWorkloadsToBePending(ctx, k8sClient, wl1)
 					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
 				})
@@ -2060,7 +2060,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Expect(k8sClient.Update(ctx, nodeToUpdate)).Should(gomega.Succeed())
 				})
 
-				ginkgo.By("verify the workload is inadmissible due to wrong value in the label", func() {
+				ginkgo.By("verify the workload with the correct label key but wrong value is inadmissible", func() {
 					util.ExpectWorkloadsToBePending(ctx, k8sClient, wl1)
 					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
 				})
