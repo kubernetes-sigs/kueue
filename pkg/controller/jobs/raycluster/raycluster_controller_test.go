@@ -727,8 +727,9 @@ func TestReconciler(t *testing.T) {
 				if err := kClient.List(ctx, &gotWorkloads); err != nil {
 					t.Fatalf("Could not get Workloads after reconcile: %v", err)
 				}
-				// Fake client with patch.Apply can't reset Admission field, patch.Merge can
-				// However other key Status fields indicate that change e.g. Conditions, thuse we choose to ignore the Admission field
+				// The fake client with patch.Apply cannot reset the Admission field (patch.Merge can).
+				// However, other important Status fields (e.g. Conditions) still reflect the change,
+				// so we deliberately ignore the Admission field here.
 				wlCheckOpts := workloadCmpOpts
 				if features.Enabled(features.WorkloadRequestUseMergePatch) {
 					wlCheckOpts = append(wlCheckOpts, cmpopts.IgnoreFields(kueue.WorkloadStatus{}, "Admission"))
