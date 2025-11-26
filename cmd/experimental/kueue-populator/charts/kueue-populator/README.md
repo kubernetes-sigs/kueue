@@ -15,8 +15,8 @@ This Helm chart installs the Kueue Populator, a component designed to automatica
 -   [Helm](https://helm.sh/docs/intro/quickstart/#install-helm)
 -   Kubernetes cluster
 -   (Optional) [Cert-manager](https://cert-manager.io/docs/installation/)
--   Docker or a compatible container builder.
--   A container registry to push the image to.
+-   (Optional) Docker or a compatible container builder.
+-   (Optional) A container registry to push the image to.
 
 ## Dependencies
 
@@ -115,6 +115,10 @@ kueuePopulator:
     resourceFlavor:
       nodeLabels:
         cloud.google.com/gke-nodepool: "default-pool"
+```
+
+```bash
+helm install kueue-populator ./charts/kueue-populator --namespace kueue-system --create-namespace --wait -f topology-values.yaml
 ```
 
 ## Configuration
