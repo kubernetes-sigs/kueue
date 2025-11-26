@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -1091,14 +1092,15 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking if the workload is deactivated, once had Rejected status in the status.admissionCheck[*] field, an event is emitted and a metric is increased", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-
-					g.Expect(updatedWl.Status.AdmissionChecks).To(gomega.ContainElement(gomega.BeComparableTo(
-						kueue.AdmissionCheckState{
-							Name:       kueue.AdmissionCheckReference(ac.Name),
-							State:      kueue.CheckStatePending,
-							Message:    "Reset to Pending after eviction. Previously: Rejected",
-							RetryCount: ptr.To(int32(1)),
-						},
+					wantState := kueue.AdmissionCheckState{
+						Name:    kueue.AdmissionCheckReference(ac.Name),
+						State:   kueue.CheckStatePending,
+						Message: "Reset to Pending after eviction. Previously: Rejected",
+					}
+					if !features.Enabled(features.WorkloadRequestUseMergePatch) {
+						wantState.RetryCount = ptr.To(int32(1))
+					}
+					g.Expect(updatedWl.Status.AdmissionChecks).To(gomega.ContainElement(gomega.BeComparableTo(wantState,
 						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates", "RequeueAfterSeconds"))))
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
 
