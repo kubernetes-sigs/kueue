@@ -696,7 +696,7 @@ type ClusterQueueUsageStats struct {
 	ReservingWorkloads  int
 	AdmittedResources   []kueue.FlavorUsage
 	AdmittedWorkloads   int
-	WeightedShare       int64
+	WeightedShare       float64
 	WallTimeFlavorUsage []kueue.WallTimeFlavorUsage
 }
 
