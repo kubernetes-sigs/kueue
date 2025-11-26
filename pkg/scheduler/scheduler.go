@@ -621,6 +621,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 		PodSetAssignments: e.assignment.ToAPI(),
 	}
 
+	consideredStr := flavorassigner.FormatFlavorAssignmentAttemptsForEvents(e.assignment)
 	cacheWl, err := s.assumeWorkload(log, e, cq, admission)
 	if err != nil {
 		return err
@@ -638,7 +639,8 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 		}, workload.WithLooseOnApply(), workload.WithRetryOnConflictForPatch())
 		if err == nil {
 			// Record metrics and events for quota reservation and admission
-			s.recordWorkloadAdmissionMetrics(newWorkload, e.Obj, admission)
+			s.recordWorkloadAdmissionMetrics(newWorkload, e.Obj, admission, consideredStr)
+
 			log.V(2).Info("Workload successfully admitted and assigned flavors", "assignments", admission.PodSetAssignments)
 			return
 		}
@@ -808,20 +810,25 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 }
 
 // recordWorkloadAdmissionMetrics records metrics and events for workload admission process
-func (s *Scheduler) recordWorkloadAdmissionMetrics(newWorkload, originalWorkload *kueue.Workload, admission *kueue.Admission) {
+func (s *Scheduler) recordWorkloadAdmissionMetrics(newWorkload, originalWorkload *kueue.Workload, admission *kueue.Admission, consideredFlavors string) {
 	waitTime := workload.QueuedWaitTime(newWorkload, s.clock)
 
-	s.recordQuotaReservationMetrics(newWorkload, originalWorkload, admission, waitTime)
+	s.recordQuotaReservationMetrics(newWorkload, originalWorkload, admission, waitTime, consideredFlavors)
 	s.recordWorkloadAdmissionEvents(newWorkload, originalWorkload, admission, waitTime)
 }
 
 // recordQuotaReservationMetrics records metrics and events for quota reservation
-func (s *Scheduler) recordQuotaReservationMetrics(newWorkload, originalWorkload *kueue.Workload, admission *kueue.Admission, waitTime time.Duration) {
+func (s *Scheduler) recordQuotaReservationMetrics(newWorkload, originalWorkload *kueue.Workload, admission *kueue.Admission, waitTime time.Duration, consideredFlavors string) {
 	if workload.HasQuotaReservation(originalWorkload) {
 		return
 	}
 
-	s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "QuotaReserved", "Quota reserved in ClusterQueue %v, wait time since queued was %.0fs", admission.ClusterQueue, waitTime.Seconds())
+	quotaReservedEventMessage := fmt.Sprintf("Quota reserved in ClusterQueue %v, wait time since queued was %.0fs", admission.ClusterQueue, waitTime.Seconds())
+	if consideredFlavors != "" {
+		quotaReservedEventMessage += fmt.Sprintf("; Flavors considered: %s", consideredFlavors)
+	}
+
+	s.recorder.Event(newWorkload, corev1.EventTypeNormal, "QuotaReserved", api.TruncateEventMessage(quotaReservedEventMessage))
 
 	priorityClassName := workload.PriorityClassName(newWorkload)
 	metrics.QuotaReservedWorkload(admission.ClusterQueue, priorityClassName, waitTime)

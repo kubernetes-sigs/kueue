@@ -1478,10 +1478,11 @@ func TestScheduleForTAS(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).
+					Message("Quota reserved in ClusterQueue tas-main, wait time since queued was 9223372037s; Flavors considered: one: default(NoFit;Flavor \"default\" does not support TopologyAwareScheduling)").Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).
+					Message("Admitted by ClusterQueue tas-main, wait time since reservation was 0s").Obj(),
 			},
 		},
 		"workload which does not need TAS skips the TAS flavor": {
@@ -1512,10 +1513,11 @@ func TestScheduleForTAS(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).
+					Message("Quota reserved in ClusterQueue tas-main, wait time since queued was 9223372037s; Flavors considered: one: tas-default(NoFit;Flavor \"tas-default\" supports only TopologyAwareScheduling)").Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).
+					Message("Admitted by ClusterQueue tas-main, wait time since reservation was 0s").Obj(),
 			},
 		},
 		"workload with mixed PodSets (requiring TAS and not)": {
@@ -1559,10 +1561,11 @@ func TestScheduleForTAS(t *testing.T) {
 					).
 					Obj(),
 			},
-			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).
+					Message("Quota reserved in ClusterQueue tas-main, wait time since queued was 9223372037s; Flavors considered: launcher: tas-default(NoFit;Flavor \"tas-default\" supports only TopologyAwareScheduling)").Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).
+					Message("Admitted by ClusterQueue tas-main, wait time since reservation was 0s").Obj(),
 			},
 		},
 		"workload required TAS gets scheduled": {
@@ -1669,10 +1672,11 @@ func TestScheduleForTAS(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).
+					Message(`Quota reserved in ClusterQueue tas-main, wait time since queued was 9223372037s; Flavors considered: one: tas-default(NoFit;Flavor "tas-default" does not contain the requested level)`).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).
+					Message("Admitted by ClusterQueue tas-main, wait time since reservation was 0s").Obj(),
 			},
 		},
 		"workload does not get scheduled as it does not fit within the node capacity": {
@@ -3618,10 +3622,11 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "a1", "QuotaReserved", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "a1", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "a1", "QuotaReserved", corev1.EventTypeNormal).
+					Message("Quota reserved in ClusterQueue tas-cq-a, wait time since queued was 9223372037s; Flavors considered: one: tas-default(Fit;borrow=1)").Obj(),
+				utiltesting.MakeEventRecord("default", "a1", "Admitted", corev1.EventTypeNormal).
+					Message("Admitted by ClusterQueue tas-cq-a, wait time since reservation was 0s").Obj(),
 			},
 		},
 		"reclaim within cohort; single borrowing workload gets preempted": {
@@ -4436,12 +4441,15 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "b1", "QuotaReserved", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "b1", "Admitted", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "a1", "QuotaReserved", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "a1", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "b1", "QuotaReserved", corev1.EventTypeNormal).
+					Message("Quota reserved in ClusterQueue tas-cq-b, wait time since queued was 9223372037s").Obj(),
+				utiltesting.MakeEventRecord("default", "b1", "Admitted", corev1.EventTypeNormal).
+					Message("Admitted by ClusterQueue tas-cq-b, wait time since reservation was 0s").Obj(),
+				utiltesting.MakeEventRecord("default", "a1", "QuotaReserved", corev1.EventTypeNormal).
+					Message("Quota reserved in ClusterQueue tas-cq-a, wait time since queued was 9223372037s; Flavors considered: one: tas-default(Fit;borrow=1)").Obj(),
+				utiltesting.MakeEventRecord("default", "a1", "Admitted", corev1.EventTypeNormal).
+					Message("Admitted by ClusterQueue tas-cq-a, wait time since reservation was 0s").Obj(),
 			},
 		},
 		"two small workloads considered; both get scheduled on the same node": {
@@ -4754,11 +4762,13 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
-				utiltesting.MakeEventRecord("default", "a1", "QuotaReserved", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "a1", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).
+					Message("Workload no longer fits after processing another workload").Obj(),
+				utiltesting.MakeEventRecord("default", "a1", "QuotaReserved", corev1.EventTypeNormal).
+					Message("Quota reserved in ClusterQueue tas-cq-a, wait time since queued was 9223372037s; Flavors considered: one: tas-default(Fit;borrow=1)").Obj(),
+				utiltesting.MakeEventRecord("default", "a1", "Admitted", corev1.EventTypeNormal).
+					Message("Admitted by ClusterQueue tas-cq-a, wait time since reservation was 0s").Obj(),
 			},
 		},
 		"two workloads considered; both overlapping in the initial flavor assignment": {
