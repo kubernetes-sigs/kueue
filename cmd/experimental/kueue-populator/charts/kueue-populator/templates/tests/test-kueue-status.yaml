@@ -16,7 +16,7 @@ spec:
         "wait",
         "--for=condition=Available",
         "--timeout=60s",
-        "deployment/{{ .Release.Name }}-kueue-controller-manager",
+        "deployment/{{ .Release.Name }}-controller-manager",
         "-n", "{{ .Release.Namespace }}"
       ]
     - name: check-kueue-populator
