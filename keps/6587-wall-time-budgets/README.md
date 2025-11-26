@@ -82,9 +82,11 @@ I can configure different ClusterQueues with:
 ### Notes/Constraints/Caveats
 
 - Wall time tracking begins when a workload is admitted and ends when it completes
+- Workloads maintain their own wall time accounting in `WorkloadStatus`, supporting eviction/re-admission scenarios
 - Wall time budgets are enforced at admission time, not during workload execution
 - Budget exhaustion affects the entire ClusterQueue, not individual workloads
-- Wall time usage persists in ClusterQueue status and is not automatically reset
+- Wall time usage persists in both Workload and ClusterQueue status and is not automatically reset
+- Wall time is tracked in seconds at the workload level and converted to hours at the ClusterQueue level
 
 ### Risks and Mitigations
 
@@ -137,7 +139,7 @@ The ClusterQueue status includes wall time usage information:
 ```go
 type ClusterQueueStatus struct {
     // ... existing fields ...
-    
+
     // wallTimeFlavorUsage tracks wall time consumption per flavor.
     WallTimeFlavorUsage []WallTimeFlavorUsage `json:"wallTimeFlavorUsage,omitempty"`
 }
@@ -145,11 +147,47 @@ type ClusterQueueStatus struct {
 type WallTimeFlavorUsage struct {
     // name of the resource flavor.
     Name ResourceFlavorReference `json:"name"`
-    
-    // totalWallTimeConsumed is the cumulative wall time consumed in hours.
-    TotalWallTimeConsumed int32 `json:"totalWallTimeConsumed"`
+
+    // wallTimeAllocated is the total number of hours allocated for this ClusterQueue.
+    WallTimeAllocated int32 `json:"wallTimeAllocated,omitempty"`
+
+    // wallTimeUsed is the number of hours used.
+    WallTimeUsed int32 `json:"wallTimeUsed"`
 }
 ```
+
+#### Workload API Changes
+
+To support wall time tracking, the WorkloadStatus is extended with fields that track wall time consumption at the workload level:
+
+```go
+type WorkloadStatus struct {
+    // ... existing fields ...
+
+    // accumulatedPastExecutionTimeSeconds holds the total time, in seconds, the workload spent
+    // in Admitted state, in the previous `Admit` - `Evict` cycles.
+    //
+    // This field accumulates time from all previous admission periods before the current one.
+    // When a workload is evicted and re-admitted, the time from the previous admission period
+    // is added to this field.
+    AccumulatedPastExecutionTimeSeconds *int32 `json:"accumulatedPastExecutionTimeSeconds,omitempty"`
+
+    // wallTimeSeconds holds the total time, in seconds, the workload spent
+    // in Admitted state.
+    //
+    // This represents the current wall time for an admitted workload. When combined with
+    // accumulatedPastExecutionTimeSeconds, it provides the complete wall time consumption
+    // across all admission cycles.
+    WallTimeSeconds *int32 `json:"wallTimeSeconds,omitempty"`
+}
+```
+
+These fields work together to provide complete wall time tracking:
+- `wallTimeSeconds`: Tracks the current admission period's wall time (from admission to now/eviction)
+- `accumulatedPastExecutionTimeSeconds`: Accumulates wall time from all previous admission cycles
+- **Total wall time** = `wallTimeSeconds` + `accumulatedPastExecutionTimeSeconds`
+
+This design supports workloads that may be evicted and re-admitted multiple times, ensuring accurate wall time accounting across the workload's entire lifecycle.
 
 ### Internal Implementation
 
@@ -157,28 +195,45 @@ The implementation includes:
 
 1. **Wall Time Tracking**: New `WallTimeResourceQuota` and `WallTimeFlavorGroup` types in the scheduler cache to manage wall time budgets and track usage.
 
-2. **Admission Logic**: Extended admission checks to verify wall time budget availability before admitting workloads.
+2. **Workload-level Tracking**: Each workload tracks its own wall time consumption through WorkloadStatus fields:
+   - When a workload is admitted, `wallTimeSeconds` begins tracking the current admission period
+   - When a workload is evicted, the current `wallTimeSeconds` value is added to `accumulatedPastExecutionTimeSeconds`, and `wallTimeSeconds` is reset
+   - When a workload completes, its total wall time (`wallTimeSeconds` + `accumulatedPastExecutionTimeSeconds`) is used to update the ClusterQueue's `WallTimeFlavorUsage`
 
-3. **Usage Updates**: Wall time consumption is calculated and updated when workloads complete or are preempted.
+3. **Admission Logic**: Extended admission checks to verify wall time budget availability before admitting workloads:
+   - Check if the ClusterQueue has a `WallTimePolicy` configured
+   - Verify that sufficient wall time budget remains for the requested resource flavors
+   - Reject admission if budgets are exhausted and the policy requires it
 
-4. **Policy Enforcement**: When budgets are exhausted, the configured `StopPolicy` (Hold or HoldAndDrain) is applied to the ClusterQueue.
+4. **Usage Updates**: Wall time consumption is calculated and updated when workloads complete or are preempted:
+   - Workload controller periodically updates `wallTimeSeconds` for admitted workloads
+   - On eviction, current wall time is accumulated into `accumulatedPastExecutionTimeSeconds`
+   - On completion, total wall time is deducted from the ClusterQueue's budget
+
+5. **Policy Enforcement**: When budgets are exhausted, the configured `ActionWhenWallTimeExhausted` policy (Hold or HoldAndDrain) is applied:
+   - **Hold**: New workloads are queued but existing admitted workloads continue running
+   - **HoldAndDrain**: New workloads are queued and existing admitted workloads are evicted
 
 ### Test Plan
 
 #### Unit Tests
 
 - Wall time quota creation and management
-- Wall time consumption calculation
+- Workload wall time tracking (wallTimeSeconds and accumulatedPastExecutionTimeSeconds)
+- Wall time accumulation across eviction/re-admission cycles
+- Wall time consumption calculation and conversion (seconds to hours)
 - Admission logic with wall time budget checks
 - Policy enforcement (Hold vs HoldAndDrain)
-- ClusterQueue status updates
+- ClusterQueue status updates (WallTimeFlavorUsage)
 
 #### Integration Tests
 
 - End-to-end wall time tracking for admitted workloads
+- Workload status updates during admission, eviction, and completion
+- Wall time accumulation across multiple eviction/re-admission cycles
 - Budget exhaustion scenarios and policy enforcement
-- Integration with existing Kueue scheduling features
-- ClusterQueue status reporting accuracy
+- Integration with existing Kueue scheduling features (preemption, borrowing)
+- ClusterQueue and Workload status reporting accuracy
 
 ### Graduation Criteria
 
