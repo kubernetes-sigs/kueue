@@ -102,7 +102,7 @@ test-integration: $(ENVTEST) $(GINKGO)
 	GOWORK=off $(GINKGO) -procs=$(INTEGRATION_NPROCS) -v ./test/integration/...
 
 .PHONY: test-e2e
-test-e2e:
+test-e2e: helm-verify-install
 	./run-e2e.sh
 
 .PHONY: test
