@@ -2377,10 +2377,10 @@ func TestScheduleForTAS(t *testing.T) {
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("foo", "default").
+				*utiltesting.MakeWorkload("foo", "default").
 					Queue("tas-main").
 					PodSets(
-						*utiltestingapi.MakePodSet("one", 1).
+						*utiltesting.MakePodSet("one", 1).
 							PreferredTopologyRequest(corev1.LabelHostname).
 							RequiredDuringSchedulingIgnoredDuringExecution(
 								[]corev1.NodeSelectorTerm{
@@ -2426,10 +2426,10 @@ func TestScheduleForTAS(t *testing.T) {
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("foo", "default").
+				*utiltesting.MakeWorkload("foo", "default").
 					Queue("tas-main").
 					PodSets(
-						*utiltestingapi.MakePodSet("one", 1).
+						*utiltesting.MakePodSet("one", 1).
 							PreferredTopologyRequest(corev1.LabelHostname).
 							RequiredDuringSchedulingIgnoredDuringExecution(
 								[]corev1.NodeSelectorTerm{
@@ -2450,11 +2450,11 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
-				"default/foo": *utiltestingapi.MakeAdmission("tas-main").
-					PodSets(utiltestingapi.MakePodSetAssignment("one").Count(1).
+				"default/foo": *utiltesting.MakeAdmission("tas-main").
+					PodSets(utiltesting.MakePodSetAssignment("one").Count(1).
 						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
-						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
-							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 							Obj()).
 						Obj()).
 					Obj(),
