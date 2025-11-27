@@ -729,7 +729,8 @@ func (m *Manager) heads() []workload.Info {
 		wlCopy.ClusterQueue = cqName
 		workloads = append(workloads, wlCopy)
 
-		q := m.localQueues[queue.KeyFromWorkload(wl.Obj)]
+		qKey := m.assignedWorkloads[wlKey]
+		q := m.localQueues[qKey]
 		delete(q.items, wlKey)
 		delete(m.assignedWorkloads, wlKey)
 
