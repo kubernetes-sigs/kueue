@@ -324,7 +324,9 @@ func validateFairSharing(c *configapi.Configuration) field.ErrorList {
 		return nil
 	}
 	var allErrs field.ErrorList
-	if len(fs.PreemptionStrategies) > 0 {
+	if len(fs.PreemptionStrategies) == 0 {
+		allErrs = append(allErrs, field.Required(fsPreemptionStrategiesPath, "must be specified"))
+	} else {
 		validStrategy := false
 		for _, s := range validStrategySets {
 			if slices.Equal(s, fs.PreemptionStrategies) {

@@ -181,3 +181,37 @@ func TestConfigurationQueueConversion_RoundTrip(t *testing.T) {
 		})
 	}
 }
+
+func TestFairSharingConvertTo(t *testing.T) {
+	testCases := map[string]struct {
+		v1beta1Obj *Configuration
+		wantConfig *v1beta2.Configuration
+	}{
+		"minimal FairSharing": {
+			v1beta1Obj: &Configuration{
+				FairSharing: &FairSharing{
+					Enable: true,
+				},
+			},
+			wantConfig: &v1beta2.Configuration{
+				FairSharing: &v1beta2.FairSharing{
+					PreemptionStrategies: []v1beta2.PreemptionStrategy{
+						v1beta2.LessThanOrEqualToFinalShare,
+						v1beta2.LessThanInitialShare,
+					},
+				},
+			},
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			result := &v1beta2.Configuration{}
+			if err := tc.v1beta1Obj.ConvertTo(result); err != nil {
+				t.Fatalf("ConvertTo failed: %v", err)
+			}
+			if diff := cmp.Diff(tc.wantConfig, result); diff != "" {
+				t.Errorf("unexpected conversion result (-want, +got):\n%s", diff)
+			}
+		})
+	}
+}
