@@ -12,11 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package queue
+package afs
 
 import (
-	"sync"
-
 	corev1 "k8s.io/api/core/v1"
 
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
@@ -25,33 +23,28 @@ import (
 )
 
 type AfsEntryPenalties struct {
-	sync.RWMutex
 	penalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]
 }
 
-func newPenaltyMap() *AfsEntryPenalties {
+func NewPenaltyMap() *AfsEntryPenalties {
 	return &AfsEntryPenalties{
 		penalties: utilmaps.NewSyncMap[utilqueue.LocalQueueReference, corev1.ResourceList](0),
 	}
 }
 
-func (m *AfsEntryPenalties) push(lqKey utilqueue.LocalQueueReference, penalty corev1.ResourceList) {
-	m.Lock()
-	defer m.Unlock()
-	m.penalties.Add(lqKey, resource.MergeResourceListKeepSum(m.peek(lqKey), penalty))
+func (m *AfsEntryPenalties) Push(lqKey utilqueue.LocalQueueReference, penalty corev1.ResourceList) {
+	m.penalties.Add(lqKey, resource.MergeResourceListKeepSum(m.Peek(lqKey), penalty))
 }
 
-func (m *AfsEntryPenalties) sub(lqKey utilqueue.LocalQueueReference, penalty corev1.ResourceList) {
-	m.Lock()
-	defer m.Unlock()
+func (m *AfsEntryPenalties) Sub(lqKey utilqueue.LocalQueueReference, penalty corev1.ResourceList) {
 	for k, v := range penalty {
 		v.Neg()
 		penalty[k] = v
 	}
-	m.penalties.Add(lqKey, resource.MergeResourceListKeepSum(m.peek(lqKey), penalty))
+	m.penalties.Add(lqKey, resource.MergeResourceListKeepSum(m.Peek(lqKey), penalty))
 }
 
-func (m *AfsEntryPenalties) peek(lqKey utilqueue.LocalQueueReference) corev1.ResourceList {
+func (m *AfsEntryPenalties) Peek(lqKey utilqueue.LocalQueueReference) corev1.ResourceList {
 	penalty, found := m.penalties.Get(lqKey)
 	if !found {
 		return corev1.ResourceList{}
@@ -60,11 +53,11 @@ func (m *AfsEntryPenalties) peek(lqKey utilqueue.LocalQueueReference) corev1.Res
 	return penalty
 }
 
-func (m *AfsEntryPenalties) hasPendingFor(lqKey utilqueue.LocalQueueReference) bool {
+func (m *AfsEntryPenalties) HasPendingFor(lqKey utilqueue.LocalQueueReference) bool {
 	_, found := m.penalties.Get(lqKey)
 	return found
 }
 
-func (m *AfsEntryPenalties) getPenalties() *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList] {
-	return m.penalties
+func (m *AfsEntryPenalties) Delete(lqKey utilqueue.LocalQueueReference) {
+	m.penalties.Delete(lqKey)
 }
