@@ -7,5 +7,5 @@ appVersion: "0.1.0"
 dependencies:
   - name: kueue
     version: "~0.14.4"
-    repository: "oci://registry.k8s.io/kueue/charts"
+    repository: "file://../../../../../charts/kueue"
     condition: kueue.enabled
