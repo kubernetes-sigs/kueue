@@ -323,7 +323,6 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		return fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
 	for _, w := range workloads.Items {
-		m.assignedWorkloads[workload.Key(&w)] = key
 		if !workload.IsActive(&w) || workload.HasQuotaReservation(&w) {
 			continue
 		}
@@ -338,7 +337,8 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		}
 
 		workload.AdjustResources(ctx, m.client, &w)
-		qImpl.AddOrUpdate(workload.NewInfo(&w, m.workloadInfoOptions...))
+
+		m.assignWorkload(workload.Key(&w), workload.NewInfo(&w, m.workloadInfoOptions...), key, qImpl)
 	}
 	cq := m.hm.ClusterQueue(qImpl.ClusterQueue)
 	if cq != nil && cq.AddFromLocalQueue(qImpl) {
@@ -444,11 +444,10 @@ func (m *Manager) ClusterQueueForWorkload(wl *kueue.Workload) (kueue.ClusterQueu
 func (m *Manager) AddOrUpdateWorkload(w *kueue.Workload, opts ...workload.InfoOption) error {
 	m.Lock()
 	defer m.Unlock()
-	var nullLogger *logr.Logger = nil
-	return m.AddOrUpdateWorkloadWithoutLock(nullLogger, w, opts...)
+	return m.AddOrUpdateWorkloadWithoutLock(w, opts...)
 }
 
-func (m *Manager) AddOrUpdateWorkloadWithoutLock(log *logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
+func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload, opts ...workload.InfoOption) error {
 	if !workload.IsActive(w) {
 		return fmt.Errorf("workload %q is inactive and can't be added to a LocalQueue", w.Name)
 	}
@@ -465,10 +464,10 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log *logr.Logger, w *kueue.Work
 	if q == nil {
 		return ErrLocalQueueDoesNotExistOrInactive
 	}
-	m.assignedWorkloads[wlKey] = qKey
 	allOptions := append(m.workloadInfoOptions, opts...)
 	wInfo := workload.NewInfo(w, allOptions...)
-	q.AddOrUpdate(wInfo)
+
+	m.assignWorkload(wlKey, wInfo, qKey, q)
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq == nil {
@@ -507,8 +506,8 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 		return false
 	}
 	info.Update(&w)
-	m.assignedWorkloads[wlKey] = qKey
-	q.AddOrUpdate(info)
+
+	m.assignWorkload(wlKey, info, qKey, q)
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq == nil {
@@ -524,6 +523,11 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 		m.Broadcast()
 	}
 	return added
+}
+
+func (m *Manager) assignWorkload(wlKey workload.Reference, wlInfo *workload.Info, qKey queue.LocalQueueReference, q *LocalQueue) {
+	m.assignedWorkloads[wlKey] = qKey
+	q.AddOrUpdate(wlInfo)
 }
 
 func (m *Manager) DeleteWorkload(wlKey workload.Reference) {
@@ -551,7 +555,6 @@ func (m *Manager) deleteWorkloadFromAssignedQueues(wlKey workload.Reference) {
 		delete(m.assignedWorkloads, wlKey)
 		return
 	}
-
 	delete(q.items, wlKey)
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
@@ -674,10 +677,10 @@ func requeueWorkloadsCohortSubtree(ctx context.Context, m *Manager, cohort *coho
 
 // UpdateWorkload updates the workload to the corresponding queue or adds it if
 // it didn't exist. Returns whether the queue existed.
-func (m *Manager) UpdateWorkload(log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
+func (m *Manager) UpdateWorkload(w *kueue.Workload, opts ...workload.InfoOption) error {
 	m.Lock()
 	defer m.Unlock()
-	return m.AddOrUpdateWorkloadWithoutLock(&log, w, opts...)
+	return m.AddOrUpdateWorkloadWithoutLock(w, opts...)
 }
 
 // CleanUpOnContext tracks the context. When closed, it wakes routines waiting

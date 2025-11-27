@@ -900,7 +900,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(e.ObjectNew) {
 			log.V(2).Info("Skipping queue update for DRA workload - handled in Reconcile")
 		} else {
-			err := r.queues.UpdateWorkload(log, wlCopy)
+			err := r.queues.UpdateWorkload(wlCopy)
 			if err != nil {
 				log.V(2).Info("ignored an error for now", "error", err)
 			}
@@ -938,7 +938,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 				if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(e.ObjectNew) {
 					log.V(2).Info("Skipping immediate requeue for DRA workload - handled in Reconcile")
 				} else {
-					if err := r.queues.AddOrUpdateWorkloadWithoutLock(&log, wlCopy); err != nil {
+					if err := r.queues.AddOrUpdateWorkloadWithoutLock(wlCopy); err != nil {
 						log.V(2).Info("ignored an error for now", "error", err)
 					}
 					r.queues.DeleteSecondPassWithoutLock(workload.Key(wlCopy))
