@@ -706,10 +706,7 @@ func TestFIFOClusterQueue(t *testing.T) {
 		t.Errorf("Popped workload %q want %q", got.Obj.Name, "after")
 	}
 
-	wl := &kueue.Workload{
-		ObjectMeta: metav1.ObjectMeta{Name: "now"},
-	}
-	q.Delete(log, workload.Key(wl))
+	q.Delete(log, workload.NewReference("", "now"))
 	got = q.Pop()
 	if got != nil {
 		t.Errorf("Queue is not empty, popped workload %q", got.Obj.Name)
