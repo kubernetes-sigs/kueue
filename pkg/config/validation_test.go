@@ -246,11 +246,25 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"invalid an empty waitForPodsReady.timeout": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: 0},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "waitForPodsReady.timeout",
+				},
+			},
+		},
 		"negative waitForPodsReady.timeout": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
-					Timeout: &metav1.Duration{
+					Timeout: metav1.Duration{
 						Duration: -1,
 					},
 				},
@@ -282,7 +296,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
-					Timeout: &metav1.Duration{
+					Timeout: metav1.Duration{
 						Duration: 50,
 					},
 					RecoveryTimeout: &metav1.Duration{

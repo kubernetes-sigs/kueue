@@ -219,9 +219,7 @@ type WaitForPodsReady struct {
 	// Timeout defines the time for an admitted workload to reach the
 	// PodsReady=true condition. When the timeout is exceeded, the workload
 	// evicted and requeued in the same cluster queue.
-	// Defaults to 5min.
-	// +optional
-	Timeout *metav1.Duration `json:"timeout,omitempty"`
+	Timeout metav1.Duration `json:"timeout"`
 
 	// BlockAdmission when true, the cluster queue will block admissions for all
 	// subsequent jobs until the jobs reach the PodsReady=true condition.

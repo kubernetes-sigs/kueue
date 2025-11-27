@@ -192,7 +192,10 @@ func validateWaitForPodsReady(c *configapi.Configuration) field.ErrorList {
 	if !waitforpodsready.Enabled(c.WaitForPodsReady) {
 		return allErrs
 	}
-	if c.WaitForPodsReady.Timeout != nil && c.WaitForPodsReady.Timeout.Duration < 0 {
+	if c.WaitForPodsReady.Timeout.Duration == 0 {
+		allErrs = append(allErrs, field.Required(waitForPodsReadyPath.Child("timeout"), "must be specified"))
+	}
+	if c.WaitForPodsReady.Timeout.Duration < 0 {
 		allErrs = append(allErrs, field.Invalid(waitForPodsReadyPath.Child("timeout"),
 			c.WaitForPodsReady.Timeout, apimachineryvalidation.IsNegativeErrorMsg))
 	}
