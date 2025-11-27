@@ -56,6 +56,9 @@ func Convert_v1beta1_Integrations_To_v1beta2_Integrations(in *Integrations, out 
 }
 
 func Convert_v1beta1_FairSharing_To_v1beta2_FairSharing(in *FairSharing, out *v1beta2.FairSharing, s conversionapi.Scope) error {
+	if in != nil && in.Enable && len(in.PreemptionStrategies) == 0 {
+		in.PreemptionStrategies = []PreemptionStrategy{LessThanOrEqualToFinalShare, LessThanInitialShare}
+	}
 	return autoConvert_v1beta1_FairSharing_To_v1beta2_FairSharing(in, out, s)
 }
 
