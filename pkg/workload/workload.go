@@ -1300,12 +1300,15 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 type EvictOption func(*EvictOptions)
 
 type EvictOptions struct {
-	CustomPrepare func(wl *kueue.Workload)
+	CustomPrepare           func(wl *kueue.Workload)
+	StrictApply             bool
+	RetryOnConflictForPatch bool
 }
 
 func DefaultEvictOptions() *EvictOptions {
 	return &EvictOptions{
 		CustomPrepare: nil,
+		StrictApply:   true,
 	}
 }
 
@@ -1314,6 +1317,18 @@ func WithCustomPrepare(customPrepare func(wl *kueue.Workload)) EvictOption {
 		if customPrepare != nil {
 			o.CustomPrepare = customPrepare
 		}
+	}
+}
+
+func EvictWithLooseOnApply() EvictOption {
+	return func(o *EvictOptions) {
+		o.StrictApply = false
+	}
+}
+
+func EvictWithRetryOnConflictForPatch() EvictOption {
+	return func(o *EvictOptions) {
+		o.RetryOnConflictForPatch = true
 	}
 }
 
@@ -1328,6 +1343,16 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 		reportWorkloadEvictedOnce bool
 	)
 
+	var patchOpts []PatchAdmissionStatusOption
+
+	if !opts.StrictApply {
+		patchOpts = append(patchOpts, WithLooseOnApply())
+	}
+
+	if opts.RetryOnConflictForPatch {
+		patchOpts = append(patchOpts, WithRetryOnConflictForPatch())
+	}
+
 	if err := PatchAdmissionStatus(ctx, c, wl, clock, func(wl *kueue.Workload) (bool, error) {
 		if opts.CustomPrepare != nil {
 			opts.CustomPrepare(wl)
@@ -1340,7 +1365,7 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 		prepareForEviction(wl, clock.Now(), evictionReason, msg)
 		reportWorkloadEvictedOnce = workloadEvictionStateInc(wl, reason, underlyingCause)
 		return true, nil
-	}); err != nil {
+	}, patchOpts...); err != nil {
 		return err
 	}
 	if !hadAdmission {
