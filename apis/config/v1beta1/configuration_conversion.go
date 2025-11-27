@@ -66,7 +66,7 @@ func Convert_v1beta2_FairSharing_To_v1beta1_FairSharing(in *v1beta2.FairSharing,
 }
 
 func Convert_v1beta1_WaitForPodsReady_To_v1beta2_WaitForPodsReady(in *WaitForPodsReady, out *v1beta2.WaitForPodsReady, s conversionapi.Scope) error {
-	if in != nil && in.Enable && in.Timeout == nil {
+	if in.Enable && in.Timeout == nil {
 		in.Timeout = &metav1.Duration{Duration: defaultPodsReadyTimeout}
 	}
 	if err := autoConvert_v1beta1_WaitForPodsReady_To_v1beta2_WaitForPodsReady(in, out, s); err != nil {
