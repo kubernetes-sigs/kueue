@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -130,7 +131,7 @@ func TestAddClusterQueueOrphans(t *testing.T) {
 // TestUpdateClusterQueue tests that a ClusterQueue transfers cohorts on update.
 // Inadmissible workloads should become active.
 func TestUpdateClusterQueue(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	clusterQueues := []*kueue.ClusterQueue{
 		utiltestingapi.MakeClusterQueue("cq1").Cohort("alpha").Obj(),
 		utiltestingapi.MakeClusterQueue("cq2").Cohort("beta").Obj(),
@@ -164,7 +165,7 @@ func TestUpdateClusterQueue(t *testing.T) {
 		if err := cl.Create(ctx, w); err != nil {
 			t.Fatalf("Failed adding workload to client: %v", err)
 		}
-		manager.RequeueWorkload(ctx, workload.NewInfo(w), RequeueReasonGeneric)
+		manager.RequeueWorkload(ctx, log, workload.NewInfo(w), RequeueReasonGeneric)
 	}
 
 	// Verify that all workloads are marked as inadmissible after creation.
@@ -217,7 +218,7 @@ func TestUpdateClusterQueue(t *testing.T) {
 }
 
 func TestRequeueWorkloadsCohortCycle(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	cohorts := []*kueue.Cohort{
 		utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj(),
 		utiltestingapi.MakeCohort("cohort-b").Parent("cohort-c").Obj(),
@@ -247,7 +248,7 @@ func TestRequeueWorkloadsCohortCycle(t *testing.T) {
 	}
 	// This test will pass with the removal of this line.
 	// Update once we find a solution to #3066.
-	manager.RequeueWorkload(ctx, workload.NewInfo(wl), RequeueReasonGeneric)
+	manager.RequeueWorkload(ctx, log, workload.NewInfo(wl), RequeueReasonGeneric)
 
 	// This method is where we do a cycle check. We call it to ensure
 	// it behaves properly when a cycle exists
@@ -344,7 +345,7 @@ func TestUpdateLocalQueue(t *testing.T) {
 		}
 	}
 	for _, w := range workloads {
-		if err := manager.AddOrUpdateWorkload(w); err != nil {
+		if err := manager.AddOrUpdateWorkload(log, w); err != nil {
 			t.Errorf("Failed to add or update workload: %v", err)
 		}
 	}
@@ -453,7 +454,7 @@ func TestAddWorkload(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.workload.Name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 			manager := NewManager(utiltesting.NewFakeClient(), nil)
 			cq := utiltestingapi.MakeClusterQueue("cq").Obj()
 			if err := manager.AddClusterQueue(ctx, cq); err != nil {
@@ -468,7 +469,7 @@ func TestAddWorkload(t *testing.T) {
 					t.Fatalf("Failed adding queue %s: %v", q.Name, err)
 				}
 			}
-			err := manager.AddOrUpdateWorkload(tc.workload)
+			err := manager.AddOrUpdateWorkload(log, tc.workload)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Errorf("Unexpected AddWorkload returned error (-want,+got):\n%s", diff)
 			}
@@ -480,7 +481,7 @@ func TestAddWorkload(t *testing.T) {
 }
 
 func TestStatus(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	now := time.Now().Truncate(time.Second)
 
 	queues := []kueue.LocalQueue{
@@ -537,7 +538,7 @@ func TestStatus(t *testing.T) {
 	for _, wl := range workloads {
 		// We ignore the ErrClusterQueueDoesNotExist since we never set up ClusterQueue in this test,
 		// and the error should be occurred.
-		if err := manager.AddOrUpdateWorkload(&wl); err != nil && !errors.Is(err, ErrClusterQueueDoesNotExist) {
+		if err := manager.AddOrUpdateWorkload(log, &wl); err != nil && !errors.Is(err, ErrClusterQueueDoesNotExist) {
 			t.Fatalf("Failed to add or update workloads: %v", err)
 		}
 	}
@@ -642,7 +643,7 @@ func TestRequeueWorkloadStrictFIFO(t *testing.T) {
 		t.Run(tc.workload.Name, func(t *testing.T) {
 			cl := utiltesting.NewFakeClient()
 			manager := NewManager(cl, nil)
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 			if err := manager.AddClusterQueue(ctx, cq); err != nil {
 				t.Fatalf("Failed adding cluster queue %s: %v", cq.Name, err)
 			}
@@ -659,10 +660,10 @@ func TestRequeueWorkloadStrictFIFO(t *testing.T) {
 				}
 			}
 			if tc.inQueue {
-				_ = manager.AddOrUpdateWorkload(tc.workload)
+				_ = manager.AddOrUpdateWorkload(log, tc.workload)
 			}
 			info := workload.NewInfo(tc.workload)
-			if requeued := manager.RequeueWorkload(ctx, info, RequeueReasonGeneric); requeued != tc.wantRequeued {
+			if requeued := manager.RequeueWorkload(ctx, log, info, RequeueReasonGeneric); requeued != tc.wantRequeued {
 				t.Errorf("RequeueWorkload returned %t, want %t", requeued, tc.wantRequeued)
 			}
 		})
@@ -826,7 +827,7 @@ func TestUpdateWorkload(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 			manager := NewManager(utiltesting.NewFakeClient(), nil)
 			for _, cq := range tc.clusterQueues {
 				if err := manager.AddClusterQueue(ctx, cq); err != nil {
@@ -839,14 +840,14 @@ func TestUpdateWorkload(t *testing.T) {
 				}
 			}
 			for _, w := range tc.workloads {
-				_ = manager.AddOrUpdateWorkload(w)
+				_ = manager.AddOrUpdateWorkload(log, w)
 			}
 			if diff := cmp.Diff(tc.assumed, manager.assignedWorkloads); diff != "" {
 				t.Errorf("Unexpected initial state of assumed workloads (-want,+got):\n%s", diff)
 			}
 			wl := tc.workloads[0].DeepCopy()
 			tc.update(wl)
-			err := manager.UpdateWorkload(wl)
+			err := manager.UpdateWorkload(log, wl)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Errorf("Unexpected UpdatedWorkload returned error (-want,+got):\n%s", diff)
 			}
@@ -966,7 +967,7 @@ func TestHeads(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 			ctx, cancel := context.WithTimeout(ctx, headsTimeout)
 			defer cancel()
 			fakeC := &fakeStatusChecker{}
@@ -984,7 +985,7 @@ func TestHeads(t *testing.T) {
 
 			go manager.CleanUpOnContext(ctx)
 			for _, wl := range tc.workloads {
-				if err := manager.AddOrUpdateWorkload(wl); err != nil {
+				if err := manager.AddOrUpdateWorkload(log, wl); err != nil {
 					t.Errorf("Failed to add or update workload: %v", err)
 				}
 			}
@@ -1056,7 +1057,8 @@ func TestHeadsAsync(t *testing.T) {
 					t.Errorf("Failed adding queue: %s", err)
 				}
 				go func() {
-					if err := mgr.AddOrUpdateWorkload(&wl); err != nil {
+					log := logr.FromContextOrDiscard(ctx)
+					if err := mgr.AddOrUpdateWorkload(log, &wl); err != nil {
 						t.Errorf("Failed to add or update workload: %v", err)
 					}
 				}()
@@ -1096,7 +1098,8 @@ func TestHeadsAsync(t *testing.T) {
 					t.Errorf("Failed adding queue: %s", err)
 				}
 				go func() {
-					if err := mgr.AddOrUpdateWorkload(&wl); err != nil {
+					log := logr.FromContextOrDiscard(ctx)
+					if err := mgr.AddOrUpdateWorkload(log, &wl); err != nil {
 						t.Errorf("Failed to add or update workload: %v", err)
 					}
 				}()
@@ -1117,7 +1120,8 @@ func TestHeadsAsync(t *testing.T) {
 					t.Errorf("Failed adding queue: %s", err)
 				}
 				go func() {
-					if err := mgr.UpdateWorkload(&wl); err != nil {
+					log := logr.FromContextOrDiscard(ctx)
+					if err := mgr.UpdateWorkload(log, &wl); err != nil {
 						t.Errorf("Failed to add or update workload: %v", err)
 					}
 				}()
@@ -1141,7 +1145,8 @@ func TestHeadsAsync(t *testing.T) {
 				// Remove the initial workload from the manager.
 				mgr.Heads(ctx)
 				go func() {
-					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination)
+					log := logr.FromContextOrDiscard(ctx)
+					mgr.RequeueWorkload(ctx, log, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination)
 				}()
 			},
 			wantHeads: []workload.Info{
@@ -1169,7 +1174,8 @@ func TestHeadsAsync(t *testing.T) {
 				// Remove the initial workload from the manager.
 				mgr.Heads(ctx)
 				go func() {
-					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination)
+					log := logr.FromContextOrDiscard(ctx)
+					mgr.RequeueWorkload(ctx, log, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination)
 				}()
 			},
 			wantHeads: []workload.Info{
@@ -1201,7 +1207,8 @@ func TestHeadsAsync(t *testing.T) {
 				// Remove the initial workload from the manager.
 				mgr.Heads(ctx)
 				go func() {
-					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination)
+					log := logr.FromContextOrDiscard(ctx)
+					mgr.RequeueWorkload(ctx, log, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination)
 				}()
 			},
 			wantHeads: []workload.Info{
@@ -1270,7 +1277,7 @@ func (c *fakeStatusChecker) ClusterQueueActive(name kueue.ClusterQueueReference)
 }
 
 func TestGetPendingWorkloadsInfo(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	now := time.Now().Truncate(time.Second)
 
 	clusterQueues := []*kueue.ClusterQueue{
@@ -1296,7 +1303,7 @@ func TestGetPendingWorkloadsInfo(t *testing.T) {
 		}
 	}
 	for _, w := range workloads {
-		if err := manager.AddOrUpdateWorkload(w); err != nil {
+		if err := manager.AddOrUpdateWorkload(log, w); err != nil {
 			t.Errorf("Failed to add or update workload: %v", err)
 		}
 	}

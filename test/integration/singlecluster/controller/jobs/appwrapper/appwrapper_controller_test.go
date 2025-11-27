@@ -824,7 +824,7 @@ var _ = ginkgo.Describe("AppWrapper controller interacting with scheduler", gink
 				Should(gomega.Succeed())
 			g.Expect(createdAppWrapper.Spec.Suspend).Should(gomega.BeFalse())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
+			
 		fmt.Println(createdAppWrapper.Spec.Components[0].PodSetInfos[0].NodeSelector)
 		gomega.Expect(createdAppWrapper.Spec.Components[0].PodSetInfos[0].NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
 		gomega.Expect(createdAppWrapper.Spec.Components[1].PodSetInfos[0].NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))

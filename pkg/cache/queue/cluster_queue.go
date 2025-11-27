@@ -21,6 +21,7 @@ import (
 	"slices"
 	"sync"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -239,25 +240,28 @@ func (c *ClusterQueue) backoffWaitingTimeExpired(wInfo *workload.Info) bool {
 }
 
 // Delete removes the workload from ClusterQueue.
-func (c *ClusterQueue) Delete(wlKey workload.Reference) {
+func (c *ClusterQueue) Delete(log logr.Logger, wlKey workload.Reference) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
-	c.delete(wlKey)
+	c.delete(log, wlKey)
 }
 
 // delete removes the workload from ClusterQueue without lock.
-func (c *ClusterQueue) delete(wlKey workload.Reference) {
+func (c *ClusterQueue) delete(log logr.Logger, wlKey workload.Reference) {
 	c.inadmissibleWorkloads.delete(wlKey)
 	c.heap.Delete(wlKey)
 	c.forgetInflightByKey(wlKey)
 	if c.sw.matches(wlKey) {
+		if log.V(5).Enabled() {
+			log.V(5).Info("Clearing sticky workload due to deletion", "clusterQueue", c.name, "workload", wlKey)
+		}
 		c.sw.clear()
 	}
 }
 
 // DeleteFromLocalQueue removes all workloads belonging to this queue from
 // the ClusterQueue.
-func (c *ClusterQueue) DeleteFromLocalQueue(q *LocalQueue) {
+func (c *ClusterQueue) DeleteFromLocalQueue(log logr.Logger, q *LocalQueue) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	for _, w := range q.items {
@@ -267,7 +271,7 @@ func (c *ClusterQueue) DeleteFromLocalQueue(q *LocalQueue) {
 		}
 	}
 	for _, w := range q.items {
-		c.delete(workload.Key(w.Obj))
+		c.delete(log, workload.Key(w.Obj))
 	}
 }
 

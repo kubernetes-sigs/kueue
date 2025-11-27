@@ -357,7 +357,7 @@ func (m *Manager) UpdateLocalQueue(log logr.Logger, q *kueue.LocalQueue) error {
 	if qImpl.ClusterQueue != q.Spec.ClusterQueue {
 		oldCQ := m.hm.ClusterQueue(qImpl.ClusterQueue)
 		if oldCQ != nil {
-			oldCQ.DeleteFromLocalQueue(qImpl)
+			oldCQ.DeleteFromLocalQueue(log, qImpl)
 			oldCQ.deleteLocalQueue(queue.Key(q))
 		}
 		newCQ := m.hm.ClusterQueue(q.Spec.ClusterQueue)
@@ -381,7 +381,7 @@ func (m *Manager) DeleteLocalQueue(log logr.Logger, q *kueue.LocalQueue) {
 	}
 	cq := m.hm.ClusterQueue(qImpl.ClusterQueue)
 	if cq != nil {
-		cq.DeleteFromLocalQueue(qImpl)
+		cq.DeleteFromLocalQueue(log, qImpl)
 		cq.deleteLocalQueue(key)
 	}
 	if features.Enabled(features.LocalQueueMetrics) {
@@ -441,13 +441,13 @@ func (m *Manager) ClusterQueueForWorkload(wl *kueue.Workload) (kueue.ClusterQueu
 
 // AddOrUpdateWorkload adds or updates workload to the corresponding queue.
 // Returns whether the queue existed.
-func (m *Manager) AddOrUpdateWorkload(w *kueue.Workload, opts ...workload.InfoOption) error {
+func (m *Manager) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
 	m.Lock()
 	defer m.Unlock()
-	return m.AddOrUpdateWorkloadWithoutLock(w, opts...)
+	return m.AddOrUpdateWorkloadWithoutLock(log, w, opts...)
 }
 
-func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload, opts ...workload.InfoOption) error {
+func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
 	if !workload.IsActive(w) {
 		return fmt.Errorf("workload %q is inactive and can't be added to a LocalQueue", w.Name)
 	}
@@ -458,7 +458,7 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload, opts ...work
 	wlKey := workload.Key(w)
 	qKey := queue.KeyFromWorkload(w)
 
-	m.deleteWorkloadFromQueuesIfReassigned(wlKey, qKey)
+	m.deleteWorkloadFromQueuesIfReassigned(log, wlKey, qKey)
 
 	q := m.localQueues[qKey]
 	if q == nil {
@@ -485,7 +485,7 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload, opts ...work
 // RequeueWorkload requeues the workload ensuring that the queue and the
 // workload still exist in the client cache and not admitted. It won't
 // requeue if the workload is already in the queue (possible if the workload was updated).
-func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reason RequeueReason) bool {
+func (m *Manager) RequeueWorkload(ctx context.Context, log logr.Logger, info *workload.Info, reason RequeueReason) bool {
 	m.Lock()
 	defer m.Unlock()
 
@@ -499,7 +499,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 
 	qKey := queue.KeyFromWorkload(&w)
 	wlKey := workload.Key(&w)
-	m.deleteWorkloadFromQueuesIfReassigned(wlKey, qKey)
+	m.deleteWorkloadFromQueuesIfReassigned(log, wlKey, qKey)
 
 	q := m.localQueues[qKey]
 	if q == nil {
@@ -530,21 +530,21 @@ func (m *Manager) assignWorkload(wlKey workload.Reference, wlInfo *workload.Info
 	q.AddOrUpdate(wlInfo)
 }
 
-func (m *Manager) DeleteWorkload(wlKey workload.Reference) {
+func (m *Manager) DeleteWorkload(log logr.Logger, wlKey workload.Reference) {
 	m.Lock()
 	defer m.Unlock()
-	m.deleteWorkloadFromAssignedQueues(wlKey)
+	m.deleteWorkloadFromAssignedQueues(log, wlKey)
 	m.DeleteSecondPassWithoutLock(wlKey)
 }
 
-func (m *Manager) deleteWorkloadFromQueuesIfReassigned(wlKey workload.Reference, actualQueue queue.LocalQueueReference) {
+func (m *Manager) deleteWorkloadFromQueuesIfReassigned(log logr.Logger, wlKey workload.Reference, actualQueue queue.LocalQueueReference) {
 	assignedQueue, assigned := m.assignedWorkloads[wlKey]
 	if assigned && assignedQueue != actualQueue {
-		m.deleteWorkloadFromAssignedQueues(wlKey)
+		m.deleteWorkloadFromAssignedQueues(log, wlKey)
 	}
 }
 
-func (m *Manager) deleteWorkloadFromAssignedQueues(wlKey workload.Reference) {
+func (m *Manager) deleteWorkloadFromAssignedQueues(log logr.Logger, wlKey workload.Reference) {
 	qKey, ok := m.assignedWorkloads[wlKey]
 	if !ok {
 		return
@@ -559,7 +559,7 @@ func (m *Manager) deleteWorkloadFromAssignedQueues(wlKey workload.Reference) {
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq != nil {
-		cq.Delete(wlKey)
+		cq.Delete(log, wlKey)
 		m.reportPendingWorkloads(q.ClusterQueue, cq)
 	}
 
@@ -677,10 +677,10 @@ func requeueWorkloadsCohortSubtree(ctx context.Context, m *Manager, cohort *coho
 
 // UpdateWorkload updates the workload to the corresponding queue or adds it if
 // it didn't exist. Returns whether the queue existed.
-func (m *Manager) UpdateWorkload(w *kueue.Workload, opts ...workload.InfoOption) error {
+func (m *Manager) UpdateWorkload(log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
 	m.Lock()
 	defer m.Unlock()
-	return m.AddOrUpdateWorkloadWithoutLock(w, opts...)
+	return m.AddOrUpdateWorkloadWithoutLock(log, w, opts...)
 }
 
 // CleanUpOnContext tracks the context. When closed, it wakes routines waiting

@@ -267,7 +267,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 
 		if workload.IsActive(&wl) && !workload.HasQuotaReservation(&wl) {
-			if err := r.queues.AddOrUpdateWorkload(&wl, queueOptions...); err != nil {
+			if err := r.queues.AddOrUpdateWorkload(log, &wl, queueOptions...); err != nil {
 				log.V(2).Info("Failed to add DRA workload to queue", "error", err)
 				return ctrl.Result{}, err
 			}
@@ -307,7 +307,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 					return ctrl.Result{}, client.IgnoreNotFound(err)
 				}
 
-				if err := r.queues.AddOrUpdateWorkload(wl.DeepCopy()); err != nil {
+				if err := r.queues.AddOrUpdateWorkload(log, wl.DeepCopy()); err != nil {
 					log.V(2).Info("failed to put the workload back into queue", "error", err)
 					return ctrl.Result{}, err
 				}
@@ -803,7 +803,7 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 	}
 
 	if workload.IsActive(e.Object) && !workload.HasQuotaReservation(e.Object) {
-		if err := r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
+		if err := r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
 			log.V(2).Info("ignored an error for now", "error", err)
 		}
 		return true
@@ -844,7 +844,7 @@ func (r *WorkloadReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) b
 
 	// Even if the state is unknown, the last cached state tells us whether the
 	// workload was in the queues and should be cleared from them.
-	r.queues.DeleteWorkload(workload.Key(e.Object))
+	r.queues.DeleteWorkload(log, workload.Key(e.Object))
 
 	return true
 }
@@ -883,7 +883,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			log.V(2).Info("Workload will not be queued because the workload is not active")
 		}
 		// The workload could have been in the queues if we missed an event.
-		r.queues.DeleteWorkload(workload.Key(e.ObjectNew))
+		r.queues.DeleteWorkload(log, workload.Key(e.ObjectNew))
 
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, e.ObjectNew, func() {
@@ -900,13 +900,13 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(e.ObjectNew) {
 			log.V(2).Info("Skipping queue update for DRA workload - handled in Reconcile")
 		} else {
-			err := r.queues.UpdateWorkload(wlCopy)
+			err := r.queues.UpdateWorkload(log, wlCopy)
 			if err != nil {
 				log.V(2).Info("ignored an error for now", "error", err)
 			}
 		}
 	case prevStatus == workload.StatusPending && (status == workload.StatusQuotaReserved || status == workload.StatusAdmitted):
-		r.queues.DeleteWorkload(workload.Key(e.ObjectOld))
+		r.queues.DeleteWorkload(log, workload.Key(e.ObjectOld))
 		if !r.cache.AddOrUpdateWorkload(log, wlCopy) {
 			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 		}
@@ -938,7 +938,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 				if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(e.ObjectNew) {
 					log.V(2).Info("Skipping immediate requeue for DRA workload - handled in Reconcile")
 				} else {
-					if err := r.queues.AddOrUpdateWorkloadWithoutLock(wlCopy); err != nil {
+					if err := r.queues.AddOrUpdateWorkloadWithoutLock(log, wlCopy); err != nil {
 						log.V(2).Info("ignored an error for now", "error", err)
 					}
 					r.queues.DeleteSecondPassWithoutLock(workload.Key(wlCopy))
@@ -1150,7 +1150,7 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, q
 		}
 
 		if workload.IsActive(wlCopy) && !workload.HasQuotaReservation(wlCopy) {
-			if err = h.r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
+			if err = h.r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
 				log.V(2).Info("ignored an error for now", "error", err)
 			}
 		}
