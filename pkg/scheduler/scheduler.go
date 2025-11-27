@@ -579,7 +579,11 @@ func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, sn
 func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, log logr.Logger, wl *kueue.Workload) error {
 	log.V(3).Info("Evicting workload after failed try to find a node replacement; TASFailedNodeReplacementFailFast enabled")
 	msg := fmt.Sprintf("Workload was evicted as there was no replacement for a failed node: %s", wl.Status.UnhealthyNodes[0].Name)
-	if err := workload.Evict(ctx, s.client, s.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, msg, "", s.clock); err != nil {
+	err := workload.Evict(
+		ctx, s.client, s.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, msg, "", s.clock,
+		workload.EvictWithLooseOnApply(), workload.EvictWithRetryOnConflictForPatch(),
+	)
+	if err != nil {
 		return err
 	}
 	return nil
