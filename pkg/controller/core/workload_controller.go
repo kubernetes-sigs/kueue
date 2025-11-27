@@ -844,7 +844,7 @@ func (r *WorkloadReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) b
 
 	// Even if the state is unknown, the last cached state tells us whether the
 	// workload was in the queues and should be cleared from them.
-	r.queues.DeleteWorkload(log, workload.Key(e.Object))
+	r.queues.DeleteWorkload(workload.Key(e.Object))
 
 	return true
 }
@@ -883,7 +883,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			log.V(2).Info("Workload will not be queued because the workload is not active")
 		}
 		// The workload could have been in the queues if we missed an event.
-		r.queues.DeleteWorkload(log, workload.Key(e.ObjectNew))
+		r.queues.DeleteWorkload(workload.Key(e.ObjectNew))
 
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, e.ObjectNew, func() {
@@ -906,7 +906,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			}
 		}
 	case prevStatus == workload.StatusPending && (status == workload.StatusQuotaReserved || status == workload.StatusAdmitted):
-		r.queues.DeleteWorkload(log, workload.Key(e.ObjectOld))
+		r.queues.DeleteWorkload(workload.Key(e.ObjectOld))
 		if !r.cache.AddOrUpdateWorkload(log, wlCopy) {
 			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 		}
