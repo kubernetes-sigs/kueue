@@ -519,28 +519,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 			},
 		},
-		"add default fair sharing configuration when enabled": {
-			original: &Configuration{
-				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
-				},
-				FairSharing: &FairSharing{},
-			},
-			want: &Configuration{
-				Namespace:         ptr.To(DefaultNamespace),
-				ControllerManager: defaultCtrlManagerConfigurationSpec,
-				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
-				},
-				ClientConnection:             defaultClientConnection,
-				Integrations:                 defaultIntegrations,
-				MultiKueue:                   defaultMultiKueue,
-				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				FairSharing: &FairSharing{
-					PreemptionStrategies: []PreemptionStrategy{LessThanOrEqualToFinalShare, LessThanInitialShare},
-				},
-			},
-		},
 		"set object retention policy for workloads": {
 			original: &Configuration{
 				InternalCertManagement: &InternalCertManagement{

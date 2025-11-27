@@ -581,6 +581,18 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"invalid an empty preemption strategy": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				FairSharing:  &configapi.FairSharing{},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "fairSharing.preemptionStrategies",
+				},
+			},
+		},
 		"unsupported preemption strategy": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
