@@ -190,10 +190,6 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	log := ctrl.LoggerFrom(ctx).WithValues("schedulingCycle", s.schedulingCycle)
 	ctx = ctrl.LoggerInto(ctx, log)
 
-	if afs.Enabled(s.admissionFairSharing) {
-		s.queues.HeapifyClusterQueuesWithEntryPenalties()
-	}
-
 	// 1. Get the heads from the queues, including their desired clusterQueue.
 	// This operation blocks while the queues are empty.
 	headWorkloads := s.queues.Heads(ctx)

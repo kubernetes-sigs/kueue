@@ -202,9 +202,13 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 	}
 	addedWorkloads := false
 	for _, q := range queues.Items {
-		qImpl := m.localQueues[queue.Key(&q)]
+		key := queue.Key(&q)
+		qImpl := m.localQueues[key]
 		if qImpl != nil {
 			added := cqImpl.AddFromLocalQueue(qImpl)
+			if added {
+				cqImpl.addLocalQueue(key)
+			}
 			addedWorkloads = addedWorkloads || added
 		}
 	}
@@ -316,6 +320,7 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 	}
 	cq := m.hm.ClusterQueue(qImpl.ClusterQueue)
 	if cq != nil && cq.AddFromLocalQueue(qImpl) {
+		cq.addLocalQueue(key)
 		m.Broadcast()
 	}
 	return nil
@@ -329,12 +334,15 @@ func (m *Manager) UpdateLocalQueue(q *kueue.LocalQueue) error {
 		return ErrLocalQueueDoesNotExistOrInactive
 	}
 	if qImpl.ClusterQueue != q.Spec.ClusterQueue {
+		key := queue.Key(q)
 		oldCQ := m.hm.ClusterQueue(qImpl.ClusterQueue)
 		if oldCQ != nil {
 			oldCQ.DeleteFromLocalQueue(qImpl)
+			oldCQ.deleteLocalQueue(key)
 		}
 		newCQ := m.hm.ClusterQueue(q.Spec.ClusterQueue)
 		if newCQ != nil && newCQ.AddFromLocalQueue(qImpl) {
+			newCQ.addLocalQueue(key)
 			m.Broadcast()
 		}
 	}
@@ -353,6 +361,7 @@ func (m *Manager) DeleteLocalQueue(q *kueue.LocalQueue) {
 	cq := m.hm.ClusterQueue(qImpl.ClusterQueue)
 	if cq != nil {
 		cq.DeleteFromLocalQueue(qImpl)
+		cq.deleteLocalQueue(key)
 	}
 	if features.Enabled(features.LocalQueueMetrics) {
 		namespace, lqName := queue.MustParseLocalQueueReference(key)
@@ -828,22 +837,4 @@ func (m *Manager) NotifyWorkloadUpdateWatchers(oldWorkload, newWorkload *kueue.W
 
 func (m *Manager) AddWorkloadUpdateWatcher(watcher WorkloadUpdateWatcher) {
 	m.workloadUpdateWatchers = append(m.workloadUpdateWatchers, watcher)
-}
-
-func (m *Manager) HeapifyClusterQueuesWithEntryPenalties() {
-	m.Lock()
-	defer m.Unlock()
-
-	clusterQueuesWithPenalties := sets.New[kueue.ClusterQueueReference]()
-	for _, lqKey := range m.AfsEntryPenalties.GetLocalQueueKeysWithPenalties() {
-		if lq, exists := m.localQueues[lqKey]; exists {
-			clusterQueuesWithPenalties.Insert(lq.ClusterQueue)
-		}
-	}
-
-	for cqName := range clusterQueuesWithPenalties {
-		if cq := m.hm.ClusterQueue(cqName); cq != nil {
-			cq.HeapifyAll()
-		}
-	}
 }
