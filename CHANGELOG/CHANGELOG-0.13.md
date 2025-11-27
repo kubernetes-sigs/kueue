@@ -1,3 +1,29 @@
+## v0.13.10
+
+Changes since `v0.13.9`:
+
+## Changes by Kind
+
+### Bug or Regression
+
+- AdmissionFairSharing: Fix the bug that occasionally a workload may get admitted from a busy LocalQueue,
+  bypassing the entry penalties. (#7916, @IrvingMg)
+- Fix a bug that an error during workload preemption could leave the scheduler stuck without retrying. (#7817, @olekzabl)
+- Fix a bug that the cohort client-go lib is for a Namespaced resource, even though the cohort is a Cluster-scoped resource. (#7801, @tenzen-y)
+- Fix integration of `manageJobWithoutQueueName` and `managedJobsNamespaceSelector` with JobSet by ensuring that jobSets without a queue are  not managed by Kueue if are not selected by the  `managedJobsNamespaceSelector`. (#7761, @MaysaMacedo)
+- Fix issue #6711 where an inactive workload could transiently get admitted into a queue. (#7944, @olekzabl)
+- Fix the bug that the kubernetes.io/job-name label was not propagated from the k8s Job to the PodTemplate in
+  the Workload object, and later to the pod template in the ProvisioningRequest.
+
+  As a consequence the ClusterAutoscaler could not properly resolve pod affinities referring to that label,
+  via podAffinity.requiredDuringSchedulingIgnoredDuringExecution.labelSelector. For example,
+  such pod affinities can be used to request ClusterAutoscaler to provision a single node which is large enough
+  to accommodate all Pods on a single Node.
+
+  We also introduce the PropagateBatchJobLabelsToWorkload feature gate to disable the new behavior in case of
+  complications. (#7613, @yaroslava-serdiuk)
+- TAS: Fix the `requiredDuringSchedulingIgnoredDuringExecution` node affinity setting being ignored in topology-aware scheduling. (#7936, @kshalot)
+
 ## v0.13.9
 
 Changes since `v0.13.8`:
