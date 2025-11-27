@@ -1975,7 +1975,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 
 	ginkgo.BeforeAll(func() {
 		waitForPodsReady := &configapi.WaitForPodsReady{
-			Timeout: &metav1.Duration{Duration: util.TinyTimeout},
+			Timeout: metav1.Duration{Duration: util.TinyTimeout},
 			RequeuingStrategy: &configapi.RequeuingStrategy{
 				Timestamp:          ptr.To(configapi.EvictionTimestamp),
 				BackoffLimitCount:  ptr.To[int32](1),
