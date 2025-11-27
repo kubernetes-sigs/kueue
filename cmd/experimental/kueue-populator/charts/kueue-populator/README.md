@@ -21,9 +21,9 @@ This Helm chart installs the Kueue Populator, a component designed to automatica
 ## Dependencies
 
 This chart depends on the [Kueue](https://github.com/kubernetes-sigs/kueue/tree/main/charts/kueue) chart.
-By default, it installs **Kueue v0.14.4**.
+By default, the Kueue dependency is **disabled** (`kueue.enabled=false`).
 
--   If you already have Kueue installed, you can disable the dependency by setting `kueue.enabled=false`.
+-   To install Kueue along with the populator, set `kueue.enabled=true`.
 -   The dependency is configured to enable `TopologyAwareScheduling` feature gate in Kueue.
 
 ## Installation
@@ -155,7 +155,7 @@ The following table lists the configurable parameters under the `kueuePopulator`
 
 This chart includes the official `kueue` chart as a dependency. You can configure it under the `kueue` key in `values.yaml`. Key overrides included in this chart:
 
--   `kueue.enabled: true`: Enables the subchart installation.
+-   `kueue.enabled: false`: Disables the subchart installation by default. Set to `true` to install Kueue.
 -   `kueue.controllerManager.featureGates`: Enables `TopologyAwareScheduling`.
 -   `kueue.managerConfig.controllerManagerConfigYaml`: Provides minimal necessary overrides for `apiVersion` and `managedJobsNamespaceSelector` to ensure compatibility and safe hook execution.
 
