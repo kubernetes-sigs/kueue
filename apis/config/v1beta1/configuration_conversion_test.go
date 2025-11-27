@@ -121,12 +121,15 @@ func TestConfigurationQueueConvertFrom(t *testing.T) {
 		},
 		"with WaitForPodsReady": {
 			input: &v1beta2.Configuration{
-				WaitForPodsReady: &v1beta2.WaitForPodsReady{},
+				WaitForPodsReady: &v1beta2.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: defaultPodsReadyTimeout},
+				},
 			},
 			expected: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
 					Enable:         true,
 					BlockAdmission: ptr.To(false),
+					Timeout:        &metav1.Duration{Duration: defaultPodsReadyTimeout},
 				},
 			},
 		},

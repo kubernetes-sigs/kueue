@@ -234,6 +234,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: 5 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						Timestamp: ptr.To[configapi.RequeuingTimestamp]("NoSupported"),
 					},
@@ -280,6 +281,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: 5 * time.Minute},
 					RecoveryTimeout: &metav1.Duration{
 						Duration: -1,
 					},
@@ -316,6 +318,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: 5 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						BackoffLimitCount: ptr.To[int32](-1),
 					},
@@ -332,6 +335,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: 5 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						BackoffBaseSeconds: ptr.To[int32](-1),
 					},
@@ -348,6 +352,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: 5 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						BackoffMaxSeconds: ptr.To[int32](-1),
 					},
