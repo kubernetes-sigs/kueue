@@ -202,7 +202,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	// 2. Take a snapshot of the cache.
 	var snapshotOpts []schdcache.SnapshotOption
 	if afs.Enabled(s.admissionFairSharing) {
-		snapshotOpts = append(snapshotOpts, schdcache.WithAfsEntryPenalties(s.queues.GetAfsEntryPenalties()))
+		snapshotOpts = append(snapshotOpts, schdcache.WithAfsEntryPenalties(s.queues.AfsEntryPenalties))
 		snapshotOpts = append(snapshotOpts, schdcache.WithAfsConsumedResources(s.queues.AfsConsumedResources))
 	}
 	snapshot, err := s.cache.Snapshot(ctx, snapshotOpts...)
@@ -904,10 +904,10 @@ func (s *Scheduler) updateEntryPenalty(log logr.Logger, e *entry, op usageOp) {
 
 	switch op {
 	case add:
-		s.queues.PushEntryPenalty(lqKey, penalty)
+		s.queues.AfsEntryPenalties.Push(lqKey, penalty)
 		log.V(3).Info("Entry penalty added to localQueue", "localQueue", lqObjRef, "penalty", penalty)
 	case subtract:
-		s.queues.SubEntryPenalty(lqKey, penalty)
+		s.queues.AfsEntryPenalties.Sub(lqKey, penalty)
 		log.V(3).Info("Entry penalty subtracted from localQueue", "localQueue", lqObjRef, "penalty", penalty)
 	}
 }
