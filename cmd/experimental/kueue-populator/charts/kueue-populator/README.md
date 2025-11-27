@@ -33,7 +33,7 @@ By default, it installs **Kueue v0.14.4**.
 You can install the chart directly from the OCI registry:
 
 ```bash
-helm install kueue-populator oci://registry.k8s.io/kueue/charts/kueue-populator \
+helm install kueue-populator oci://us-central1-docker.pkg.dev/k8s-staging-images/kueue/charts/kueue-populator \
   --version <VERSION> \
   --namespace kueue-system \
   --create-namespace \
@@ -111,7 +111,7 @@ kueuePopulator:
 ```
 
 ```bash
-helm install kueue-populator oci://registry.k8s.io/kueue/charts/kueue-populator \
+helm install kueue-populator oci://us-central1-docker.pkg.dev/k8s-staging-images/kueue/charts/kueue-populator \
   --version <VERSION> \
   --namespace kueue-system \
   --create-namespace \
@@ -124,7 +124,7 @@ For simple configuration you may also use the minimalistic command:
 > When using `--set` for keys containing dots (e.g., `cloud.google.com/gke-nodepool`), you must escape the dots with a backslash.
 
 ```bash
-helm install kueue-populator oci://registry.k8s.io/kueue/charts/kueue-populator \
+helm install kueue-populator oci://us-central1-docker.pkg.dev/k8s-staging-images/kueue/charts/kueue-populator \
   --version <VERSION> \
   --namespace kueue-system \
   --create-namespace \
