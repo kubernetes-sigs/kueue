@@ -51,7 +51,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
-	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	utilptr "sigs.k8s.io/kueue/pkg/util/ptr"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/resource"
@@ -305,7 +304,7 @@ func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string)
 	return res
 }
 
-func (i *Info) CalcLocalQueueFSUsage(ctx context.Context, c client.Client, resWeights map[corev1.ResourceName]float64, afsEntryPenalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList], afsConsumedResources *queueafs.AfsConsumedResources) (float64, error) {
+func (i *Info) CalcLocalQueueFSUsage(ctx context.Context, c client.Client, resWeights map[corev1.ResourceName]float64, afsEntryPenalties *queueafs.AfsEntryPenalties, afsConsumedResources *queueafs.AfsConsumedResources) (float64, error) {
 	var usage float64
 	lqKey := utilqueue.KeyFromWorkload(i.Obj)
 
@@ -319,7 +318,7 @@ func (i *Info) CalcLocalQueueFSUsage(ctx context.Context, c client.Client, resWe
 
 	penalty := corev1.ResourceList{}
 	if afsEntryPenalties != nil {
-		penalty, _ = afsEntryPenalties.Get(lqKey)
+		penalty = afsEntryPenalties.Peek(lqKey)
 	}
 
 	allResources := resource.MergeResourceListKeepSum(consumed, penalty)

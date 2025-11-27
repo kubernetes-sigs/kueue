@@ -37,7 +37,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/heap"
-	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -111,6 +110,9 @@ type ClusterQueue struct {
 
 	AdmissionScope *kueue.AdmissionScope
 
+	afsEntryPenalties         *queueafs.AfsEntryPenalties
+	localQueuesInClusterQueue map[utilqueue.LocalQueueReference]bool
+
 	sw *stickyWorkload
 }
 
@@ -122,7 +124,7 @@ func workloadKey(i *workload.Info) workload.Reference {
 	return workload.Key(i.Obj)
 }
 
-func newClusterQueue(ctx context.Context, client client.Client, cq *kueue.ClusterQueue, wo workload.Ordering, afsConfig *config.AdmissionFairSharing, afsEntryPenalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList], afsConsumedResources *queueafs.AfsConsumedResources) (*ClusterQueue, error) {
+func newClusterQueue(ctx context.Context, client client.Client, cq *kueue.ClusterQueue, wo workload.Ordering, afsConfig *config.AdmissionFairSharing, afsEntryPenalties *queueafs.AfsEntryPenalties, afsConsumedResources *queueafs.AfsConsumedResources) (*ClusterQueue, error) {
 	enableAdmissionFs, fsResWeights := afs.ResourceWeights(cq.Spec.AdmissionScope, afsConfig)
 	cqImpl := newClusterQueueImpl(ctx, client, wo, realClock, fsResWeights, enableAdmissionFs, afsEntryPenalties, afsConsumedResources)
 	err := cqImpl.Update(cq)
@@ -132,7 +134,7 @@ func newClusterQueue(ctx context.Context, client client.Client, cq *kueue.Cluste
 	return cqImpl, nil
 }
 
-func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.Ordering, clock clock.Clock, fsResWeights map[corev1.ResourceName]float64, enableAdmissionFs bool, afsEntryPenalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList], afsConsumedResources *queueafs.AfsConsumedResources) *ClusterQueue {
+func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.Ordering, clock clock.Clock, fsResWeights map[corev1.ResourceName]float64, enableAdmissionFs bool, afsEntryPenalties *queueafs.AfsEntryPenalties, afsConsumedResources *queueafs.AfsConsumedResources) *ClusterQueue {
 	sw := stickyWorkload{}
 	lessFunc := queueOrderingFunc(ctx, client, wo, fsResWeights, enableAdmissionFs, afsEntryPenalties, afsConsumedResources, &sw)
 	return &ClusterQueue{
@@ -410,7 +412,6 @@ func (c *ClusterQueue) Pop() *workload.Info {
 	c.inflight = c.heap.Pop()
 	return c.inflight
 }
-
 // Dump produces a dump of the current workloads in the heap of
 // this ClusterQueue. It returns false if the queue is empty,
 // otherwise returns true.
@@ -515,7 +516,7 @@ func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.
 // to sort workloads. The function sorts workloads based on their priority.
 // When priorities are equal, it uses the workload's creation or eviction
 // time.
-func queueOrderingFunc(ctx context.Context, c client.Client, wo workload.Ordering, fsResWeights map[corev1.ResourceName]float64, enableAdmissionFs bool, afsEntryPenalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList], afsConsumedResources *queueafs.AfsConsumedResources, sw *stickyWorkload) func(a, b *workload.Info) bool {
+func queueOrderingFunc(ctx context.Context, c client.Client, wo workload.Ordering, fsResWeights map[corev1.ResourceName]float64, enableAdmissionFs bool, afsEntryPenalties *queueafs.AfsEntryPenalties, afsConsumedResources *queueafs.AfsConsumedResources, sw *stickyWorkload) func(a, b *workload.Info) bool {
 	log := ctrl.LoggerFrom(ctx)
 	return func(a, b *workload.Info) bool {
 		if enableAdmissionFs {

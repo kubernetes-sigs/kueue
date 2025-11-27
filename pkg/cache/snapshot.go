@@ -23,7 +23,6 @@ import (
 	"slices"
 
 	"github.com/go-logr/logr"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -35,7 +34,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
-	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -131,13 +129,13 @@ func (s *Snapshot) Log(log logr.Logger) {
 }
 
 type snapshotOption struct {
-	afsEntryPenalties    *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]
+	afsEntryPenalties    *queueafs.AfsEntryPenalties
 	afsConsumedResources *queueafs.AfsConsumedResources
 }
 
 type SnapshotOption func(*snapshotOption)
 
-func WithAfsEntryPenalties(penalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]) SnapshotOption {
+func WithAfsEntryPenalties(penalties *queueafs.AfsEntryPenalties) SnapshotOption {
 	return func(o *snapshotOption) {
 		o.afsEntryPenalties = penalties
 	}
@@ -213,7 +211,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 
 // snapshotClusterQueue creates a copy of ClusterQueue that includes
 // references to immutable objects and deep copies of changing ones.
-func (c *Cache) snapshotClusterQueue(ctx context.Context, cq *clusterQueue, afsEntryPenalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList], afsConsumedResources *queueafs.AfsConsumedResources) (*ClusterQueueSnapshot, error) {
+func (c *Cache) snapshotClusterQueue(ctx context.Context, cq *clusterQueue, afsEntryPenalties *queueafs.AfsEntryPenalties, afsConsumedResources *queueafs.AfsConsumedResources) (*ClusterQueueSnapshot, error) {
 	log := log.FromContext(ctx)
 	cc := &ClusterQueueSnapshot{
 		Name:                          cq.Name,

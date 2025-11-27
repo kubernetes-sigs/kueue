@@ -182,7 +182,7 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			return ctrl.Result{}, nil
 		}
 		sinceLastUpdate := r.clock.Now().Sub(entry.LastUpdate)
-		if interval := r.admissionFSConfig.UsageSamplingInterval.Duration; !initNeeded && sinceLastUpdate < interval && !r.queues.HasPendingPenaltyFor(lqKey) {
+		if interval := r.admissionFSConfig.UsageSamplingInterval.Duration; !initNeeded && sinceLastUpdate < interval && !r.queues.AfsEntryPenalties.HasPendingFor(lqKey) {
 			return ctrl.Result{RequeueAfter: interval - sinceLastUpdate}, nil
 		}
 		if err := r.reconcileConsumedUsage(ctx, &queueObj); err != nil {
@@ -223,7 +223,9 @@ func (r *LocalQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.LocalQueue
 		metrics.ClearLocalQueueResourceMetrics(localQueueReferenceFromLocalQueue(e.Object))
 	}
 	if afs.Enabled(r.admissionFSConfig) {
-		r.queues.AfsConsumedResources.Delete(utilqueue.Key(e.Object))
+		lqKey := utilqueue.Key(e.Object)
+		r.queues.AfsConsumedResources.Delete(lqKey)
+		r.queues.AfsEntryPenalties.Delete(lqKey)
 	}
 
 	r.log.V(2).Info("LocalQueue delete event", "localQueue", klog.KObj(e.Object))
