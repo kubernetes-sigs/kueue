@@ -95,7 +95,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		DispatcherName:    ptr.To(MultiKueueDispatcherModeAllAtOnce),
 	}
 
-	podsReadyTimeout := metav1.Duration{Duration: defaultPodsReadyTimeout}
 	podsReadyTimeoutOverwrite := metav1.Duration{Duration: time.Minute}
 
 	testCases := map[string]struct {
@@ -355,7 +354,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			want: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
 					BlockAdmission:  ptr.To(false),
-					Timeout:         &podsReadyTimeout,
 					RecoveryTimeout: nil,
 					RequeuingStrategy: &RequeuingStrategy{
 						Timestamp:          ptr.To(EvictionTimestamp),
@@ -377,7 +375,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		"respecting provided waitForPodsReady values": {
 			original: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
-					Timeout: &podsReadyTimeoutOverwrite,
+					Timeout: podsReadyTimeoutOverwrite,
 					RequeuingStrategy: &RequeuingStrategy{
 						Timestamp:          ptr.To(CreationTimestamp),
 						BackoffBaseSeconds: ptr.To[int32](63),
@@ -392,7 +390,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			want: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
 					BlockAdmission:  ptr.To(false),
-					Timeout:         &podsReadyTimeoutOverwrite,
+					Timeout:         podsReadyTimeoutOverwrite,
 					RecoveryTimeout: &metav1.Duration{Duration: time.Minute},
 					RequeuingStrategy: &RequeuingStrategy{
 						Timestamp:          ptr.To(CreationTimestamp),

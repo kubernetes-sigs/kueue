@@ -622,7 +622,7 @@ objectRetentionPolicies:
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
 					BlockAdmission:  ptr.To(true),
-					Timeout:         &metav1.Duration{Duration: 50 * time.Second},
+					Timeout:         metav1.Duration{Duration: 50 * time.Second},
 					RecoveryTimeout: &metav1.Duration{Duration: 3 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						Timestamp:          ptr.To(configapi.CreationTimestamp),
