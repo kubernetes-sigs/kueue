@@ -35,6 +35,7 @@ import (
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
@@ -87,19 +88,19 @@ var _ = ginkgo.Describe("Kueue", func() {
 			clusterQueue *kueue.ClusterQueue
 		)
 		ginkgo.BeforeEach(func() {
-			onDemandRF = testing.MakeResourceFlavor("on-demand").
+			onDemandRF = utiltestingapi.MakeResourceFlavor("on-demand").
 				NodeLabel("instance-type", "on-demand").Obj()
 			util.MustCreate(ctx, k8sClient, onDemandRF)
-			spotRF = testing.MakeResourceFlavor("spot").
+			spotRF = utiltestingapi.MakeResourceFlavor("spot").
 				NodeLabel("instance-type", "spot").Obj()
 			util.MustCreate(ctx, k8sClient, spotRF)
-			clusterQueue = testing.MakeClusterQueue("cluster-queue").
+			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
-					*testing.MakeFlavorQuotas("on-demand").
+					*utiltestingapi.MakeFlavorQuotas("on-demand").
 						Resource(corev1.ResourceCPU, "1").
 						Resource(corev1.ResourceMemory, "1Gi").
 						Obj(),
-					*testing.MakeFlavorQuotas("spot").
+					*utiltestingapi.MakeFlavorQuotas("spot").
 						Resource(corev1.ResourceCPU, "1").
 						Resource(corev1.ResourceMemory, "1Gi").
 						Obj(),
@@ -109,7 +110,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 				}).
 				Obj()
 			util.MustCreate(ctx, k8sClient, clusterQueue)
-			localQueue = testing.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
+			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
 			util.MustCreate(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
@@ -230,11 +231,11 @@ var _ = ginkgo.Describe("Kueue", func() {
 					Obj()
 				testingjob.SetContainerDefaults(&sampleJob.Spec.Template.Spec.Containers[0])
 
-				wl = testing.MakeWorkload("prebuilt-wl", ns.Name).
+				wl = utiltestingapi.MakeWorkload("prebuilt-wl", ns.Name).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Queue(kueue.LocalQueueName(localQueue.Name)).
 					PodSets(
-						*testing.MakePodSet(kueue.DefaultPodSetName, 1).Containers(sampleJob.Spec.Template.Spec.Containers[0]).Obj(),
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Containers(sampleJob.Spec.Template.Spec.Containers[0]).Obj(),
 					).
 					Obj()
 				util.MustCreate(ctx, k8sClient, wl)
@@ -322,7 +323,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 		ginkgo.It("Should readmit preempted job with workloadPriorityClass into a separate flavor", func() {
 			util.MustCreate(ctx, k8sClient, sampleJob)
 
-			highWorkloadPriorityClass := testing.MakeWorkloadPriorityClass("high-workload").PriorityValue(300).Obj()
+			highWorkloadPriorityClass := utiltestingapi.MakeWorkloadPriorityClass("high-workload").PriorityValue(300).Obj()
 			util.MustCreate(ctx, k8sClient, highWorkloadPriorityClass)
 			ginkgo.DeferCleanup(func() {
 				gomega.Expect(k8sClient.Delete(ctx, highWorkloadPriorityClass)).To(gomega.Succeed())
@@ -395,21 +396,21 @@ var _ = ginkgo.Describe("Kueue", func() {
 
 		ginkgo.It("Should allow updating the workload's priority through the job", func() {
 			lowPriority := "low-priority"
-			lowPriorityClass := testing.MakeWorkloadPriorityClass(lowPriority).PriorityValue(100).Obj()
+			lowPriorityClass := utiltestingapi.MakeWorkloadPriorityClass(lowPriority).PriorityValue(100).Obj()
 			util.MustCreate(ctx, k8sClient, lowPriorityClass)
 			ginkgo.DeferCleanup(func() {
 				gomega.Expect(k8sClient.Delete(ctx, lowPriorityClass)).To(gomega.Succeed())
 			})
 
 			midPriority := "mid-priority"
-			midPriorityClass := testing.MakeWorkloadPriorityClass(midPriority).PriorityValue(200).Obj()
+			midPriorityClass := utiltestingapi.MakeWorkloadPriorityClass(midPriority).PriorityValue(200).Obj()
 			util.MustCreate(ctx, k8sClient, midPriorityClass)
 			ginkgo.DeferCleanup(func() {
 				gomega.Expect(k8sClient.Delete(ctx, midPriorityClass)).To(gomega.Succeed())
 			})
 
 			highPriority := "high-priority"
-			highPriorityClass := testing.MakeWorkloadPriorityClass(highPriority).PriorityValue(300).Obj()
+			highPriorityClass := utiltestingapi.MakeWorkloadPriorityClass(highPriority).PriorityValue(300).Obj()
 			util.MustCreate(ctx, k8sClient, highPriorityClass)
 			ginkgo.DeferCleanup(func() {
 				gomega.Expect(k8sClient.Delete(ctx, highPriorityClass)).To(gomega.Succeed())
@@ -600,7 +601,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 
 		ginkgo.It("Should not allow removing the workload's priority through the job", func() {
 			samplePriority := "sample-priority"
-			samplePriorityClass := testing.MakeWorkloadPriorityClass(samplePriority).PriorityValue(100).Obj()
+			samplePriorityClass := utiltestingapi.MakeWorkloadPriorityClass(samplePriority).PriorityValue(100).Obj()
 			util.MustCreate(ctx, k8sClient, samplePriorityClass)
 			ginkgo.DeferCleanup(func() {
 				gomega.Expect(k8sClient.Delete(ctx, samplePriorityClass)).To(gomega.Succeed())
@@ -654,15 +655,15 @@ var _ = ginkgo.Describe("Kueue", func() {
 			check        *kueue.AdmissionCheck
 		)
 		ginkgo.BeforeEach(func() {
-			check = testing.MakeAdmissionCheck("check1").ControllerName("ac-controller").Obj()
+			check = utiltestingapi.MakeAdmissionCheck("check1").ControllerName("ac-controller").Obj()
 			util.MustCreate(ctx, k8sClient, check)
 			util.SetAdmissionCheckActive(ctx, k8sClient, check, metav1.ConditionTrue)
-			onDemandRF = testing.MakeResourceFlavor("on-demand").
+			onDemandRF = utiltestingapi.MakeResourceFlavor("on-demand").
 				NodeLabel("instance-type", "on-demand").Obj()
 			util.MustCreate(ctx, k8sClient, onDemandRF)
-			clusterQueue = testing.MakeClusterQueue("cluster-queue").
+			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
-					*testing.MakeFlavorQuotas("on-demand").
+					*utiltestingapi.MakeFlavorQuotas("on-demand").
 						Resource(corev1.ResourceCPU, "1").
 						Resource(corev1.ResourceMemory, "1Gi").
 						Obj(),
@@ -670,7 +671,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 				AdmissionChecks("check1").
 				Obj()
 			util.MustCreate(ctx, k8sClient, clusterQueue)
-			localQueue = testing.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
+			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
 			util.MustCreate(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {

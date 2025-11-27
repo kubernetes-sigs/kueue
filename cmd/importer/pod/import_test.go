@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/kueue/cmd/importer/util"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
@@ -40,18 +41,18 @@ func TestImportNamespace(t *testing.T) {
 		Image("img", nil).
 		Request(corev1.ResourceCPU, "1")
 
-	baseWlWrapper := utiltesting.MakeWorkload("pod-pod-b17ab", testingNamespace).
+	baseWlWrapper := utiltestingapi.MakeWorkload("pod-pod-b17ab", testingNamespace).
 		ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "pod").
 		Label(controllerconstants.JobUIDLabel, "pod").
 		Finalizers(kueue.ResourceInUseFinalizerName).
 		Queue("lq1").
-		PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 			Image("img").
 			Request(corev1.ResourceCPU, "1").
 			PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 			Obj()).
-		ReserveQuota(utiltesting.MakeAdmission("cq1").
-			PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+		ReserveQuota(utiltestingapi.MakeAdmission("cq1").
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 				Assignment(corev1.ResourceCPU, "f1", "1").
 				Obj()).
 			Obj()).
@@ -68,10 +69,10 @@ func TestImportNamespace(t *testing.T) {
 			Message: "Imported into ClusterQueue cq1",
 		})
 
-	baseLocalQueue := utiltesting.MakeLocalQueue("lq1", testingNamespace).ClusterQueue("cq1")
-	baseClusterQueue := utiltesting.MakeClusterQueue("cq1").
+	baseLocalQueue := utiltestingapi.MakeLocalQueue("lq1", testingNamespace).ClusterQueue("cq1")
+	baseClusterQueue := utiltestingapi.MakeClusterQueue("cq1").
 		ResourceGroup(
-			*utiltesting.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "1", "0").Obj())
+			*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "1", "0").Obj())
 
 	podCmpOpts := cmp.Options{
 		cmpopts.EquateEmpty(),

@@ -31,6 +31,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -56,7 +57,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-metrics-")
 
-		resourceFlavor = utiltesting.MakeResourceFlavor("test-flavor").Obj()
+		resourceFlavor = utiltestingapi.MakeResourceFlavor("test-flavor").Obj()
 		util.MustCreate(ctx, k8sClient, resourceFlavor)
 
 		metricsReaderClusterRoleBinding = &rbacv1.ClusterRoleBinding{
@@ -106,10 +107,10 @@ var _ = ginkgo.Describe("Metrics", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			clusterQueue = utiltesting.MakeClusterQueue("").
+			clusterQueue = utiltestingapi.MakeClusterQueue("").
 				GeneratedName("test-cq-").
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas(resourceFlavor.Name).
+					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
 						Resource(corev1.ResourceCPU, "1").
 						Resource(corev1.ResourceMemory, "1Gi").
 						Obj(),
@@ -117,16 +118,16 @@ var _ = ginkgo.Describe("Metrics", func() {
 				Obj()
 			util.MustCreate(ctx, k8sClient, clusterQueue)
 
-			localQueue = utiltesting.MakeLocalQueue("", ns.Name).
+			localQueue = utiltestingapi.MakeLocalQueue("", ns.Name).
 				GeneratedName("test-lq-").
 				ClusterQueue(clusterQueue.Name).
 				Obj()
 			util.MustCreate(ctx, k8sClient, localQueue)
 
-			workload = utiltesting.MakeWorkload("test-workload", ns.Name).
+			workload = utiltestingapi.MakeWorkload("test-workload", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				PodSets(
-					*utiltesting.MakePodSet("ps1", 1).Obj(),
+					*utiltestingapi.MakePodSet("ps1", 1).Obj(),
 				).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				Obj()
@@ -235,15 +236,15 @@ var _ = ginkgo.Describe("Metrics", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			admissionCheck = utiltesting.MakeAdmissionCheck("check1").ControllerName("ac-controller").Obj()
+			admissionCheck = utiltestingapi.MakeAdmissionCheck("check1").ControllerName("ac-controller").Obj()
 			util.MustCreate(ctx, k8sClient, admissionCheck)
 
 			util.SetAdmissionCheckActive(ctx, k8sClient, admissionCheck, metav1.ConditionTrue)
 
-			clusterQueue = utiltesting.MakeClusterQueue("").
+			clusterQueue = utiltestingapi.MakeClusterQueue("").
 				GeneratedName("test-admission-check-cq-").
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas(resourceFlavor.Name).
+					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
 						Resource(corev1.ResourceCPU, "1").
 						Resource(corev1.ResourceMemory, "1Gi").
 						Obj(),
@@ -252,7 +253,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 				Obj()
 			util.MustCreate(ctx, k8sClient, clusterQueue)
 
-			localQueue = utiltesting.MakeLocalQueue("", ns.Name).
+			localQueue = utiltestingapi.MakeLocalQueue("", ns.Name).
 				GeneratedName("test-admission-checked-lq-").
 				ClusterQueue(clusterQueue.Name).
 				Obj()
@@ -351,11 +352,11 @@ var _ = ginkgo.Describe("Metrics", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			clusterQueue1 = utiltesting.MakeClusterQueue("").
+			clusterQueue1 = utiltestingapi.MakeClusterQueue("").
 				GeneratedName("test-cq-1-").
 				Cohort("test-cohort").
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas(resourceFlavor.Name).
+					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
 						Resource(corev1.ResourceCPU, "2").
 						Obj(),
 				).
@@ -369,11 +370,11 @@ var _ = ginkgo.Describe("Metrics", func() {
 				Obj()
 			util.MustCreate(ctx, k8sClient, clusterQueue1)
 
-			clusterQueue2 = utiltesting.MakeClusterQueue("").
+			clusterQueue2 = utiltestingapi.MakeClusterQueue("").
 				GeneratedName("test-cq-2-").
 				Cohort("test-cohort").
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas(resourceFlavor.Name).
+					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
 						Resource(corev1.ResourceCPU, "3").
 						Obj(),
 				).
@@ -387,13 +388,13 @@ var _ = ginkgo.Describe("Metrics", func() {
 				Obj()
 			util.MustCreate(ctx, k8sClient, clusterQueue2)
 
-			localQueue1 = utiltesting.MakeLocalQueue("", ns.Name).
+			localQueue1 = utiltestingapi.MakeLocalQueue("", ns.Name).
 				GeneratedName("test-lq-1-").
 				ClusterQueue(clusterQueue1.Name).
 				Obj()
 			util.MustCreate(ctx, k8sClient, localQueue1)
 
-			localQueue2 = utiltesting.MakeLocalQueue("", ns.Name).
+			localQueue2 = utiltestingapi.MakeLocalQueue("", ns.Name).
 				GeneratedName("test-lq-2-").
 				ClusterQueue(clusterQueue2.Name).
 				Obj()
@@ -512,11 +513,11 @@ var _ = ginkgo.Describe("Metrics", func() {
 
 			ginkgo.By("Expecting at least one of the high-priority jobs to be admitted", func() {
 				util.ExpectWorkloadsToBeAdmittedCount(ctx, k8sClient, 1,
-					utiltesting.MakeWorkload(
+					utiltestingapi.MakeWorkload(
 						job.GetWorkloadNameForJob(higherJob1.Name, higherJob1.UID),
 						higherJob1.Namespace,
 					).Obj(),
-					utiltesting.MakeWorkload(
+					utiltestingapi.MakeWorkload(
 						job.GetWorkloadNameForJob(higherJob2.Name, higherJob2.UID),
 						higherJob2.Namespace,
 					).Obj(),

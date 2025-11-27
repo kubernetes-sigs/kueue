@@ -40,6 +40,7 @@ import (
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 )
 
 func TestScheduleForAFS(t *testing.T) {
@@ -50,26 +51,26 @@ func TestScheduleForAFS(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	fakeClock := testingclock.NewFakeClock(now)
 	resourceFlavors := []*kueue.ResourceFlavor{
-		utiltesting.MakeResourceFlavor("default").Obj(),
+		utiltestingapi.MakeResourceFlavor("default").Obj(),
 	}
 	clusterQueues := []kueue.ClusterQueue{
-		*utiltesting.MakeClusterQueue("cq1").
-			ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+		*utiltestingapi.MakeClusterQueue("cq1").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
 				Resource(corev1.ResourceCPU, "8").
 				Resource(corev1.ResourceMemory, "8Gi").Obj()).
 			AdmissionMode(kueue.UsageBasedAdmissionFairSharing).
 			Obj(),
 	}
 	queues := []kueue.LocalQueue{
-		*utiltesting.MakeLocalQueue("lq-a", "default").
+		*utiltestingapi.MakeLocalQueue("lq-a", "default").
 			FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
 			ClusterQueue("cq1").
 			Obj(),
-		*utiltesting.MakeLocalQueue("lq-b", "default").
+		*utiltestingapi.MakeLocalQueue("lq-b", "default").
 			FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
 			ClusterQueue("cq1").
 			Obj(),
-		*utiltesting.MakeLocalQueue("lq-c", "default").
+		*utiltestingapi.MakeLocalQueue("lq-c", "default").
 			FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
 			ClusterQueue("cq1").
 			Obj(),
@@ -88,25 +89,25 @@ func TestScheduleForAFS(t *testing.T) {
 				"lq-b": {corev1.ResourceCPU: resource.MustParse("2")},
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("wl-a1", "default").
+				*utiltestingapi.MakeWorkload("wl-a1", "default").
 					Queue("lq-a").
-					PodSets(*utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "8").
 						Obj()).
 					Creation(now).
 					Obj(),
-				*utiltesting.MakeWorkload("wl-b1", "default").
+				*utiltestingapi.MakeWorkload("wl-b1", "default").
 					Queue("lq-b").
-					PodSets(*utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "8").
 						Obj()).
 					Creation(now.Add(1 * time.Second)).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("wl-a1", "default").
+				*utiltestingapi.MakeWorkload("wl-a1", "default").
 					Queue("lq-a").
-					PodSets(*utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "8").
 						Obj()).
 					Creation(now).
@@ -124,9 +125,9 @@ func TestScheduleForAFS(t *testing.T) {
 						},
 					}).
 					Obj(),
-				*utiltesting.MakeWorkload("wl-b1", "default").
+				*utiltestingapi.MakeWorkload("wl-b1", "default").
 					Queue("lq-b").
-					PodSets(*utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "8").
 						Obj()).
 					Creation(now.Add(1 * time.Second)).
@@ -145,9 +146,9 @@ func TestScheduleForAFS(t *testing.T) {
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Admission(
-						utiltesting.MakeAdmission("cq1").
+						utiltestingapi.MakeAdmission("cq1").
 							PodSets(
-								utiltesting.MakePodSetAssignment("one").
+								utiltestingapi.MakePodSetAssignment("one").
 									Assignment(corev1.ResourceCPU, "default", "8").
 									Count(1).
 									Obj(),
@@ -164,25 +165,25 @@ func TestScheduleForAFS(t *testing.T) {
 				"lq-b": {corev1.ResourceCPU: resource.MustParse("2")},
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("wl-a1", "default").
+				*utiltestingapi.MakeWorkload("wl-a1", "default").
 					Queue("lq-a").
-					PodSets(*utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "8").
 						Obj()).
 					Creation(now).
 					Obj(),
-				*utiltesting.MakeWorkload("wl-b1", "default").
+				*utiltestingapi.MakeWorkload("wl-b1", "default").
 					Queue("lq-b").
-					PodSets(*utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "8").
 						Obj()).
 					Creation(now.Add(1 * time.Second)).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("wl-a1", "default").
+				*utiltestingapi.MakeWorkload("wl-a1", "default").
 					Queue("lq-a").
-					PodSets(*utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "8").
 						Obj()).
 					Creation(now).
@@ -201,9 +202,9 @@ func TestScheduleForAFS(t *testing.T) {
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Admission(
-						utiltesting.MakeAdmission("cq1").
+						utiltestingapi.MakeAdmission("cq1").
 							PodSets(
-								utiltesting.MakePodSetAssignment("one").
+								utiltestingapi.MakePodSetAssignment("one").
 									Assignment(corev1.ResourceCPU, "default", "8").
 									Count(1).
 									Obj(),
@@ -211,9 +212,9 @@ func TestScheduleForAFS(t *testing.T) {
 							Obj(),
 					).
 					Obj(),
-				*utiltesting.MakeWorkload("wl-b1", "default").
+				*utiltestingapi.MakeWorkload("wl-b1", "default").
 					Queue("lq-b").
-					PodSets(*utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "8").
 						Obj()).
 					Creation(now.Add(1 * time.Second)).
@@ -240,39 +241,39 @@ func TestScheduleForAFS(t *testing.T) {
 				"lq-b": {corev1.ResourceCPU: resource.MustParse("4")},
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("wl-a1", "default").
+				*utiltestingapi.MakeWorkload("wl-a1", "default").
 					Queue("lq-a").
-					PodSets(*utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "4").
 						Obj()).
 					Creation(now).
 					Obj(),
-				*utiltesting.MakeWorkload("wl-a2", "default").
+				*utiltestingapi.MakeWorkload("wl-a2", "default").
 					Queue("lq-a").
-					PodSets(*utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "4").
 						Obj()).
 					Creation(now.Add(1 * time.Second)).
 					Obj(),
-				*utiltesting.MakeWorkload("wl-b1", "default").
+				*utiltestingapi.MakeWorkload("wl-b1", "default").
 					Queue("lq-b").
-					PodSets(*utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "4").
 						Obj()).
 					Creation(now.Add(2 * time.Second)).
 					Obj(),
-				*utiltesting.MakeWorkload("wl-b2", "default").
+				*utiltestingapi.MakeWorkload("wl-b2", "default").
 					Queue("lq-b").
-					PodSets(*utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "4").
 						Obj()).
 					Creation(now.Add(3 * time.Second)).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("wl-a1", "default").
+				*utiltestingapi.MakeWorkload("wl-a1", "default").
 					Queue("lq-a").
-					PodSets(*utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "4").
 						Obj()).
 					Creation(now).
@@ -291,9 +292,9 @@ func TestScheduleForAFS(t *testing.T) {
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Admission(
-						utiltesting.MakeAdmission("cq1").
+						utiltestingapi.MakeAdmission("cq1").
 							PodSets(
-								utiltesting.MakePodSetAssignment("one").
+								utiltestingapi.MakePodSetAssignment("one").
 									Assignment(corev1.ResourceCPU, "default", "4").
 									Count(1).
 									Obj(),
@@ -301,9 +302,9 @@ func TestScheduleForAFS(t *testing.T) {
 							Obj(),
 					).
 					Obj(),
-				*utiltesting.MakeWorkload("wl-a2", "default").
+				*utiltestingapi.MakeWorkload("wl-a2", "default").
 					Queue("lq-a").
-					PodSets(*utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "4").
 						Obj()).
 					Creation(now.Add(1 * time.Second)).
@@ -321,9 +322,9 @@ func TestScheduleForAFS(t *testing.T) {
 						},
 					}).
 					Obj(),
-				*utiltesting.MakeWorkload("wl-b1", "default").
+				*utiltestingapi.MakeWorkload("wl-b1", "default").
 					Queue("lq-b").
-					PodSets(*utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "4").
 						Obj()).
 					Creation(now.Add(2 * time.Second)).
@@ -342,9 +343,9 @@ func TestScheduleForAFS(t *testing.T) {
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Admission(
-						utiltesting.MakeAdmission("cq1").
+						utiltestingapi.MakeAdmission("cq1").
 							PodSets(
-								utiltesting.MakePodSetAssignment("one").
+								utiltestingapi.MakePodSetAssignment("one").
 									Assignment(corev1.ResourceCPU, "default", "4").
 									Count(1).
 									Obj(),
@@ -352,9 +353,9 @@ func TestScheduleForAFS(t *testing.T) {
 							Obj(),
 					).
 					Obj(),
-				*utiltesting.MakeWorkload("wl-b2", "default").
+				*utiltestingapi.MakeWorkload("wl-b2", "default").
 					Queue("lq-b").
-					PodSets(*utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "4").
 						Obj()).
 					Creation(now.Add(3 * time.Second)).
@@ -382,29 +383,29 @@ func TestScheduleForAFS(t *testing.T) {
 				"lq-c": {corev1.ResourceCPU: resource.MustParse("2")},
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("wl-a1", "default").
+				*utiltestingapi.MakeWorkload("wl-a1", "default").
 					Queue("lq-a").
-					PodSets(*utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "4").
 						Obj()).
 					Obj(),
-				*utiltesting.MakeWorkload("wl-b1", "default").
+				*utiltestingapi.MakeWorkload("wl-b1", "default").
 					Queue("lq-b").
-					PodSets(*utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "3").
 						Obj()).
 					Obj(),
-				*utiltesting.MakeWorkload("wl-c1", "default").
+				*utiltestingapi.MakeWorkload("wl-c1", "default").
 					Queue("lq-c").
-					PodSets(*utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("wl-a1", "default").
+				*utiltestingapi.MakeWorkload("wl-a1", "default").
 					Queue("lq-a").
-					PodSets(*utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "4").
 						Obj()).
 					Condition(metav1.Condition{
@@ -422,9 +423,9 @@ func TestScheduleForAFS(t *testing.T) {
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Admission(
-						utiltesting.MakeAdmission("cq1").
+						utiltestingapi.MakeAdmission("cq1").
 							PodSets(
-								utiltesting.MakePodSetAssignment("one").
+								utiltestingapi.MakePodSetAssignment("one").
 									Assignment(corev1.ResourceCPU, "default", "4").
 									Count(1).
 									Obj(),
@@ -432,9 +433,9 @@ func TestScheduleForAFS(t *testing.T) {
 							Obj(),
 					).
 					Obj(),
-				*utiltesting.MakeWorkload("wl-b1", "default").
+				*utiltestingapi.MakeWorkload("wl-b1", "default").
 					Queue("lq-b").
-					PodSets(*utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "3").
 						Obj()).
 					Condition(metav1.Condition{
@@ -452,9 +453,9 @@ func TestScheduleForAFS(t *testing.T) {
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Admission(
-						utiltesting.MakeAdmission("cq1").
+						utiltestingapi.MakeAdmission("cq1").
 							PodSets(
-								utiltesting.MakePodSetAssignment("one").
+								utiltestingapi.MakePodSetAssignment("one").
 									Assignment(corev1.ResourceCPU, "default", "3").
 									Count(1).
 									Obj(),
@@ -462,9 +463,9 @@ func TestScheduleForAFS(t *testing.T) {
 							Obj(),
 					).
 					Obj(),
-				*utiltesting.MakeWorkload("wl-c1", "default").
+				*utiltestingapi.MakeWorkload("wl-c1", "default").
 					Queue("lq-c").
-					PodSets(*utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					Condition(metav1.Condition{
@@ -482,9 +483,9 @@ func TestScheduleForAFS(t *testing.T) {
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Admission(
-						utiltesting.MakeAdmission("cq1").
+						utiltestingapi.MakeAdmission("cq1").
 							PodSets(
-								utiltesting.MakePodSetAssignment("one").
+								utiltestingapi.MakePodSetAssignment("one").
 									Assignment(corev1.ResourceCPU, "default", "1").
 									Count(1).
 									Obj(),
@@ -500,25 +501,25 @@ func TestScheduleForAFS(t *testing.T) {
 				"lq-a": {corev1.ResourceCPU: resource.MustParse("8")},
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("wl-a1", "default").
+				*utiltestingapi.MakeWorkload("wl-a1", "default").
 					Queue("lq-a").
-					PodSets(*utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "8").
 						Obj()).
 					Creation(now).
 					Obj(),
-				*utiltesting.MakeWorkload("wl-b1", "default").
+				*utiltestingapi.MakeWorkload("wl-b1", "default").
 					Queue("lq-b").
-					PodSets(*utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "8").
 						Obj()).
 					Creation(now.Add(1 * time.Second)).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("wl-a1", "default").
+				*utiltestingapi.MakeWorkload("wl-a1", "default").
 					Queue("lq-a").
-					PodSets(*utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "8").
 						Obj()).
 					Creation(now).
@@ -536,9 +537,9 @@ func TestScheduleForAFS(t *testing.T) {
 						},
 					}).
 					Obj(),
-				*utiltesting.MakeWorkload("wl-b1", "default").
+				*utiltestingapi.MakeWorkload("wl-b1", "default").
 					Queue("lq-b").
-					PodSets(*utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "8").
 						Obj()).
 					Creation(now.Add(1 * time.Second)).
@@ -557,9 +558,9 @@ func TestScheduleForAFS(t *testing.T) {
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Admission(
-						utiltesting.MakeAdmission("cq1").
+						utiltestingapi.MakeAdmission("cq1").
 							PodSets(
-								utiltesting.MakePodSetAssignment("one").
+								utiltestingapi.MakePodSetAssignment("one").
 									Assignment(corev1.ResourceCPU, "default", "8").
 									Count(1).
 									Obj(),

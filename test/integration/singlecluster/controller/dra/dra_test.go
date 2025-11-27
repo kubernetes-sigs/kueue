@@ -30,7 +30,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -63,7 +63,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
-			resourceFlavor = utiltesting.MakeResourceFlavor("").Obj()
+			resourceFlavor = utiltestingapi.MakeResourceFlavor("").Obj()
 			resourceFlavor.GenerateName = "rf-"
 			gomega.Expect(k8sClient.Create(ctx, resourceFlavor)).To(gomega.Succeed())
 
@@ -90,7 +90,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
-			localQueue = utiltesting.MakeLocalQueue("test-lq", ns.Name).
+			localQueue = utiltestingapi.MakeLocalQueue("test-lq", ns.Name).
 				ClusterQueue(clusterQueue.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
 		})
@@ -107,7 +107,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			gomega.Expect(k8sClient.Create(ctx, rc)).To(gomega.Succeed())
 
 			ginkgo.By("Creating a workload with DRA resource claim")
-			wl := utiltesting.MakeWorkload("test-wl", ns.Name).
+			wl := utiltestingapi.MakeWorkload("test-wl", ns.Name).
 				Queue("test-lq").
 				Obj()
 			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -138,7 +138,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			gomega.Expect(k8sClient.Create(ctx, rc)).To(gomega.Succeed())
 
 			ginkgo.By("Creating a workload with large DRA resource claim")
-			wl := utiltesting.MakeWorkload("test-wl-large", ns.Name).
+			wl := utiltestingapi.MakeWorkload("test-wl-large", ns.Name).
 				Queue("test-lq").
 				Obj()
 			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -204,7 +204,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			gomega.Expect(k8sClient.Create(ctx, rct2)).To(gomega.Succeed())
 
 			ginkgo.By("Creating first workload")
-			wl1 := utiltesting.MakeWorkload("test-wl-1", ns.Name).
+			wl1 := utiltestingapi.MakeWorkload("test-wl-1", ns.Name).
 				Queue("test-lq").
 				Obj()
 			wl1.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -219,7 +219,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			gomega.Expect(k8sClient.Create(ctx, wl1)).To(gomega.Succeed())
 
 			ginkgo.By("Creating second workload")
-			wl2 := utiltesting.MakeWorkload("test-wl-2", ns.Name).
+			wl2 := utiltestingapi.MakeWorkload("test-wl-2", ns.Name).
 				Queue("test-lq").
 				Obj()
 			wl2.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -288,7 +288,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
 
 			ginkgo.By("Creating a workload that references the ResourceClaimTemplate")
-			wl := utiltesting.MakeWorkload("test-wl-template", ns.Name).
+			wl := utiltestingapi.MakeWorkload("test-wl-template", ns.Name).
 				Queue("test-lq").
 				Obj()
 			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -363,7 +363,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			gomega.Expect(k8sClient.Create(ctx, rct2)).To(gomega.Succeed())
 
 			ginkgo.By("Creating first workload with ResourceClaimTemplate")
-			wl1 := utiltesting.MakeWorkload("test-wl-template-1", ns.Name).
+			wl1 := utiltestingapi.MakeWorkload("test-wl-template-1", ns.Name).
 				Queue("test-lq").
 				Obj()
 			wl1.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -378,7 +378,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			gomega.Expect(k8sClient.Create(ctx, wl1)).To(gomega.Succeed())
 
 			ginkgo.By("Creating second workload with ResourceClaimTemplate")
-			wl2 := utiltesting.MakeWorkload("test-wl-template-2", ns.Name).
+			wl2 := utiltestingapi.MakeWorkload("test-wl-template-2", ns.Name).
 				Queue("test-lq").
 				Obj()
 			wl2.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -447,7 +447,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
 
 			ginkgo.By("Creating a workload that references the large ResourceClaimTemplate")
-			wl := utiltesting.MakeWorkload("test-wl-template-large", ns.Name).
+			wl := utiltestingapi.MakeWorkload("test-wl-template-large", ns.Name).
 				Queue("test-lq").
 				Obj()
 			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -494,7 +494,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
 
 			ginkgo.By("Creating a workload with unmapped device class")
-			wl := utiltesting.MakeWorkload("test-wl-unmapped", ns.Name).
+			wl := utiltestingapi.MakeWorkload("test-wl-unmapped", ns.Name).
 				Queue("test-lq").
 				Obj()
 			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -580,7 +580,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
 
 			ginkgo.By("Creating a multi-pod workload (parallelism: 3)")
-			wl := utiltesting.MakeWorkload("test-wl-multi-pod", ns.Name).
+			wl := utiltestingapi.MakeWorkload("test-wl-multi-pod", ns.Name).
 				Queue("test-lq").
 				Obj()
 

@@ -34,6 +34,7 @@ import (
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
 )
@@ -199,8 +200,8 @@ func TestValidateCreate(t *testing.T) {
 func TestDefault(t *testing.T) {
 	testNamespace := utiltesting.MakeNamespaceWrapper("ns").Label(corev1.LabelMetadataName, "ns")
 	testTrainJob := testingtrainjob.MakeTrainJob("trainjob", testNamespace.Name).Suspend(false)
-	testClusterQueue := utiltesting.MakeClusterQueue("cluster-queue")
-	testLocalQueue := utiltesting.MakeLocalQueue("local-queue", testNamespace.Name).ClusterQueue(testClusterQueue.Name)
+	testClusterQueue := utiltestingapi.MakeClusterQueue("cluster-queue")
+	testLocalQueue := utiltestingapi.MakeLocalQueue("local-queue", testNamespace.Name).ClusterQueue(testClusterQueue.Name)
 	testCases := map[string]struct {
 		trainJob                     *kftrainerapi.TrainJob
 		defaultQueue                 *kueue.LocalQueue
@@ -290,7 +291,7 @@ func TestDefault(t *testing.T) {
 
 			cq := testClusterQueue.Clone()
 			if tc.withMultiKueueAdmissionCheck {
-				admissionCheck := utiltesting.MakeAdmissionCheck("admission-check").
+				admissionCheck := utiltestingapi.MakeAdmissionCheck("admission-check").
 					ControllerName(kueue.MultiKueueControllerName).
 					Active(metav1.ConditionTrue).
 					Obj()
@@ -307,7 +308,7 @@ func TestDefault(t *testing.T) {
 			}
 
 			if tc.withDefaultLocalQueue {
-				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", testNamespace.Name).
+				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("default", testNamespace.Name).
 					ClusterQueue(cq.Name).Obj()); err != nil {
 					t.Fatalf("failed to create default local queue: %s", err)
 				}

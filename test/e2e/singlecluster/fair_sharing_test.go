@@ -25,7 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	jobtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -45,39 +45,39 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Ordered, ginkgo.ContinueOnFailure
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
 
-		rf = utiltesting.MakeResourceFlavor("rf").Obj()
+		rf = utiltestingapi.MakeResourceFlavor("rf").Obj()
 		util.MustCreate(ctx, k8sClient, rf)
 
-		cq1 = utiltesting.MakeClusterQueue("cq1").
+		cq1 = utiltestingapi.MakeClusterQueue("cq1").
 			Cohort("cohort").
-			ResourceGroup(*utiltesting.MakeFlavorQuotas(rf.Name).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
 				Resource(corev1.ResourceCPU, "9").
 				Resource(corev1.ResourceMemory, "36G").
 				Obj()).
 			Obj()
 		util.MustCreate(ctx, k8sClient, cq1)
-		cq2 = utiltesting.MakeClusterQueue("cq2").
+		cq2 = utiltestingapi.MakeClusterQueue("cq2").
 			Cohort("cohort").
-			ResourceGroup(*utiltesting.MakeFlavorQuotas(rf.Name).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
 				Resource(corev1.ResourceCPU, "9").
 				Resource(corev1.ResourceMemory, "36G").
 				Obj()).
 			Obj()
 		util.MustCreate(ctx, k8sClient, cq2)
-		cq3 = utiltesting.MakeClusterQueue("cq3").
+		cq3 = utiltestingapi.MakeClusterQueue("cq3").
 			Cohort("cohort").
-			ResourceGroup(*utiltesting.MakeFlavorQuotas(rf.Name).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
 				Resource(corev1.ResourceCPU, "9").
 				Resource(corev1.ResourceMemory, "36G").
 				Obj()).
 			Obj()
 		util.MustCreate(ctx, k8sClient, cq3)
 
-		lq1 = utiltesting.MakeLocalQueue("lq1", ns.Name).ClusterQueue(cq1.Name).Obj()
+		lq1 = utiltestingapi.MakeLocalQueue("lq1", ns.Name).ClusterQueue(cq1.Name).Obj()
 		util.MustCreate(ctx, k8sClient, lq1)
-		lq2 = utiltesting.MakeLocalQueue("lq2", ns.Name).ClusterQueue(cq2.Name).Obj()
+		lq2 = utiltestingapi.MakeLocalQueue("lq2", ns.Name).ClusterQueue(cq2.Name).Obj()
 		util.MustCreate(ctx, k8sClient, lq2)
-		lq3 = utiltesting.MakeLocalQueue("lq3", ns.Name).ClusterQueue(cq3.Name).Obj()
+		lq3 = utiltestingapi.MakeLocalQueue("lq3", ns.Name).ClusterQueue(cq3.Name).Obj()
 		util.MustCreate(ctx, k8sClient, lq3)
 	})
 

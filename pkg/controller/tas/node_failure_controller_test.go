@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
@@ -51,15 +52,15 @@ func TestNodeFailureReconciler(t *testing.T) {
 	fakeClock := testingclock.NewFakeClock(testStartTime)
 	wlKey := types.NamespacedName{Name: wlName, Namespace: nsName}
 
-	baseWorkload := utiltesting.MakeWorkload(wlName, nsName).
+	baseWorkload := utiltestingapi.MakeWorkload(wlName, nsName).
 		Finalizers(kueue.ResourceInUseFinalizerName).
-		PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 		ReserveQuota(
-			utiltesting.MakeAdmission("cq").
-				PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+			utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
-					TopologyAssignment(utiltesting.MakeTopologyAssignment([]string{corev1.LabelHostname}).
-						Domains(utiltesting.MakeTopologyDomainAssignment([]string{nodeName}, 1).Obj()).
+					TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{nodeName}, 1).Obj()).
 						Obj()).
 					Obj()).
 				Obj(),
@@ -69,18 +70,18 @@ func TestNodeFailureReconciler(t *testing.T) {
 
 	workloadWithUnhealthyNode := baseWorkload.DeepCopy()
 	workloadWithUnhealthyNode.Status.UnhealthyNodes = []kueue.UnhealthyNode{{Name: nodeName}}
-	workloadWithTwoNodes := utiltesting.MakeWorkload(wlName, nsName).
+	workloadWithTwoNodes := utiltestingapi.MakeWorkload(wlName, nsName).
 		Finalizers(kueue.ResourceInUseFinalizerName).
-		PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
 		ReserveQuota(
-			utiltesting.MakeAdmission("cq").
-				PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+			utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
 					Count(2).
-					TopologyAssignment(utiltesting.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+					TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
 						Domains(
-							utiltesting.MakeTopologyDomainAssignment([]string{nodeName}, 1).Obj(),
-							utiltesting.MakeTopologyDomainAssignment([]string{nodeName2}, 1).Obj(),
+							utiltestingapi.MakeTopologyDomainAssignment([]string{nodeName}, 1).Obj(),
+							utiltestingapi.MakeTopologyDomainAssignment([]string{nodeName2}, 1).Obj(),
 						).
 						Obj()).
 					Obj()).

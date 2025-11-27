@@ -30,7 +30,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
 	cmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 )
 
 func TestClusterQueueRun(t *testing.T) {
@@ -47,14 +47,14 @@ func TestClusterQueueRun(t *testing.T) {
 		"should print active cluster queue list": {
 			args: []string{"--active", "true"},
 			objs: []runtime.Object{
-				utiltesting.MakeClusterQueue("cq1").
+				utiltestingapi.MakeClusterQueue("cq1").
 					Creation(testStartTime.Add(-1*time.Hour).Truncate(time.Second)).
 					Cohort("cohort1").
 					PendingWorkloads(1).
 					AdmittedWorkloads(2).
 					Condition(kueue.ClusterQueueActive, metav1.ConditionTrue, "", "").
 					Obj(),
-				utiltesting.MakeClusterQueue("cq2").
+				utiltestingapi.MakeClusterQueue("cq2").
 					Creation(testStartTime.Add(-2*time.Hour).Truncate(time.Second)).
 					Cohort("cohort2").
 					PendingWorkloads(3).
@@ -69,14 +69,14 @@ cq1    cohort1   1                   2                    true     60m
 		"should print inactive cluster queue list": {
 			args: []string{"--active", "false"},
 			objs: []runtime.Object{
-				utiltesting.MakeClusterQueue("cq1").
+				utiltestingapi.MakeClusterQueue("cq1").
 					Creation(testStartTime.Add(-1*time.Hour).Truncate(time.Second)).
 					Cohort("cohort1").
 					PendingWorkloads(1).
 					AdmittedWorkloads(2).
 					Condition(kueue.ClusterQueueActive, metav1.ConditionTrue, "", "").
 					Obj(),
-				utiltesting.MakeClusterQueue("cq2").
+				utiltestingapi.MakeClusterQueue("cq2").
 					Creation(testStartTime.Add(-2*time.Hour).Truncate(time.Second)).
 					Cohort("cohort2").
 					PendingWorkloads(3).
@@ -91,7 +91,7 @@ cq2    cohort2   3                   4                    false    120m
 		"should print cluster queue list with label selector": {
 			args: []string{"--selector", "key=value1"},
 			objs: []runtime.Object{
-				utiltesting.MakeClusterQueue("cq1").
+				utiltestingapi.MakeClusterQueue("cq1").
 					Creation(testStartTime.Add(-1*time.Hour).Truncate(time.Second)).
 					Cohort("cohort1").
 					PendingWorkloads(1).
@@ -99,7 +99,7 @@ cq2    cohort2   3                   4                    false    120m
 					Condition(kueue.ClusterQueueActive, metav1.ConditionTrue, "", "").
 					Label("key", "value1").
 					Obj(),
-				utiltesting.MakeClusterQueue("cq2").
+				utiltestingapi.MakeClusterQueue("cq2").
 					Creation(testStartTime.Add(-2*time.Hour).Truncate(time.Second)).
 					Cohort("cohort2").
 					PendingWorkloads(3).
@@ -115,7 +115,7 @@ cq1    cohort1   1                   2                    true     60m
 		"should print cluster queue list with label selector (short flag)": {
 			args: []string{"-l", "key=value1"},
 			objs: []runtime.Object{
-				utiltesting.MakeClusterQueue("cq1").
+				utiltestingapi.MakeClusterQueue("cq1").
 					Creation(testStartTime.Add(-1*time.Hour).Truncate(time.Second)).
 					Cohort("cohort1").
 					PendingWorkloads(1).
@@ -123,7 +123,7 @@ cq1    cohort1   1                   2                    true     60m
 					Condition(kueue.ClusterQueueActive, metav1.ConditionTrue, "", "").
 					Label("key", "value1").
 					Obj(),
-				utiltesting.MakeClusterQueue("cq2").
+				utiltestingapi.MakeClusterQueue("cq2").
 					Creation(testStartTime.Add(-2*time.Hour).Truncate(time.Second)).
 					Cohort("cohort2").
 					PendingWorkloads(3).
