@@ -401,7 +401,7 @@ artifacts: clean-artifacts kustomize helm-chart-package prepare-manifests ## Gen
 	CGO_ENABLED=$(CGO_ENABLED) GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_DIR="artifacts" BUILD_NAME=kubectl-kueue PLATFORMS="$(CLI_PLATFORMS)" ./hack/multiplatform-build.sh ./cmd/kueuectl/main.go
 
 .PHONY: prepare-release-branch
-prepare-release-branch: yq kustomize ## Prepare the release branch with the release version.
+prepare-release-branch: kustomize ## Prepare the release branch with the release version.
 	$(SED) -r 's/v[0-9]+\.[0-9]+\.[0-9]+/$(RELEASE_VERSION)/g' -i README.md -i site/hugo.toml -i cmd/kueueviz/INSTALL.md
 	$(SED) -r 's/chart_version = "[0-9]+\.[0-9]+\.[0-9]+/chart_version = "$(APP_VERSION)/g' -i README.md -i site/hugo.toml
 	$(SED) -r 's/--version="[0-9]+\.[0-9]+\.[0-9]+/--version="$(APP_VERSION)/g' -i charts/kueue/README.md.gotmpl -i cmd/kueueviz/INSTALL.md
@@ -411,6 +411,10 @@ prepare-release-branch: yq kustomize ## Prepare the release branch with the rele
 	$(YQ) e '.version = "$(APP_VERSION)" | .packages[""].version = "$(APP_VERSION)"' -i cmd/kueueviz/frontend/package-lock.json
 	$(YQ) e '.version = "$(APP_VERSION)"' -i test/e2e/kueueviz/package.json
 	$(YQ) e '.version = "$(APP_VERSION)" | .packages[""].version = "$(APP_VERSION)"' -i test/e2e/kueueviz/package-lock.json
+	$(YQ) e '.appVersion = "$(RELEASE_VERSION)" | .version = "$(APP_VERSION)"' -i cmd/experimental/kueue-populator/charts/kueue-populator/Chart.yaml
+	$(YQ) e '.kueuePopulator.image.tag = "$(RELEASE_BRANCH)"' -i cmd/experimental/kueue-populator/charts/kueue-populator/values.yaml
+	$(SED) -r 's|oci://us-central1-docker.pkg.dev/k8s-staging-images/kueue/charts/kueue-populator|oci://registry.k8s.io/kueue/charts/kueue-populator|g' -i cmd/experimental/kueue-populator/README.md -i cmd/experimental/kueue-populator/charts/kueue-populator/README.md
+	$(SED) -r 's/<VERSION>/$(APP_VERSION)/g' -i cmd/experimental/kueue-populator/README.md -i cmd/experimental/kueue-populator/charts/kueue-populator/README.md
 	$(MAKE) generate-helm-docs
 
 .PHONY: update-security-insights
