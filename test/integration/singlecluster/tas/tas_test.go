@@ -1945,8 +1945,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					nodes = []corev1.Node{
 						*testingnode.MakeNode("node-missing-label").
 							Label("node-group", "tas").
-							Label(utiltesting.DefaultBlockTopologyLevel, "b1").
-							Label(utiltesting.DefaultRackTopologyLevel, "r1").
+							Label(testing.DefaultBlockTopologyLevel, "b1").
+							Label(testing.DefaultRackTopologyLevel, "r1").
 							Label(corev1.LabelHostname, "node-missing-label").
 							StatusAllocatable(corev1.ResourceList{
 								corev1.ResourceCPU:    resource.MustParse("1"),
@@ -1960,9 +1960,9 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 
 				ginkgo.By("creating a workload requiring the missing label via Affinity", func() {
-					wl1 = utiltestingapi.MakeWorkload("wl-needs-label", ns.Name).
+					wl1 = testing.MakeWorkload("wl-needs-label", ns.Name).
 						Queue(kueue.LocalQueueName(localQueue.Name)).
-						PodSets(*utiltestingapi.MakePodSet("main", 1).
+						PodSets(*testing.MakePodSet("main", 1).
 							RequiredDuringSchedulingIgnoredDuringExecution([]corev1.NodeSelectorTerm{
 								{
 									MatchExpressions: []corev1.NodeSelectorRequirement{
