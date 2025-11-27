@@ -94,6 +94,14 @@ var _ = ginkgo.Describe("Pod groups", func() {
 					To(gomega.ContainElement(corev1.PodSchedulingGate{
 						Name: podconstants.SchedulingGateName}))
 			}
+			ginkgo.By("Verify that the Workload is created", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, gKey, &kueue.Workload{})).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+			ginkgo.By("Verify that the Workload is admitted", func() {
+				util.ExpectWorkloadsToHaveQuotaReservationByKey(ctx, k8sClient, cq.Name, gKey)
+			})
 			ginkgo.By("Starting admission", func() {
 				// Verify that the Pods start with the appropriate selector.
 				gomega.Eventually(func(g gomega.Gomega) {
