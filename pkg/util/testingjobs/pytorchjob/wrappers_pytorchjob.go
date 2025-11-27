@@ -92,7 +92,8 @@ func (j *PyTorchJobWrapper) PyTorchReplicaSpecsOnlyMasterDefault() *PyTorchJobWr
 						},
 					},
 				},
-				NodeSelector: map[string]string{},
+				NodeSelector:                  map[string]string{},
+				TerminationGracePeriodSeconds: ptr.To[int64](1),
 			},
 		},
 	}
@@ -119,7 +120,8 @@ func (j *PyTorchJobWrapper) PyTorchReplicaSpecsDefault() *PyTorchJobWrapper {
 						},
 					},
 				},
-				NodeSelector: map[string]string{},
+				NodeSelector:                  map[string]string{},
+				TerminationGracePeriodSeconds: ptr.To[int64](1),
 			},
 		},
 	}
