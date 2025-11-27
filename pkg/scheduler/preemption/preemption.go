@@ -179,7 +179,7 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 			err := workload.Evict(ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, "", p.clock, workload.WithCustomPrepare(func() (*kueue.Workload, error) {
 				workload.SetPreemptedCondition(wlCopy, p.clock.Now(), target.Reason, message)
 				return wlCopy, nil
-			}))
+			}), workload.EvictWithLooseOnApply())
 			if err != nil {
 				errCh.SendErrorWithCancel(err, cancel)
 				preemptionErrors.Add(1)
