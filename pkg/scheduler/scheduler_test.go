@@ -7452,6 +7452,60 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 			},
 		},
+		"pending admission check with nofit and fit flavors": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("pending-check", "eng-beta").
+					Queue("main").
+					Request(corev1.ResourceCPU, "80").
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStatePending,
+					}).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"eng-beta/pending-check": {
+					ClusterQueue: "eng-beta",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "spot", "80").
+							Obj(),
+					},
+				},
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("pending-check", "eng-beta").
+					Queue("main").
+					Request(corev1.ResourceCPU, "80").
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStatePending,
+					}).
+					Admission(
+						utiltestingapi.MakeAdmission("eng-beta").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+									Assignment(corev1.ResourceCPU, "spot", "80").
+									Obj(),
+							).
+							Obj(),
+					).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadQuotaReserved,
+						Message:            "Quota reserved in ClusterQueue eng-beta",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("eng-beta", "pending-check", "QuotaReserved", corev1.EventTypeNormal).
+					Message("Quota reserved in ClusterQueue eng-beta, wait time since queued was 9223372037s; " +
+						"Flavors considered: main: on-demand(NoFit;insufficient quota for cpu in flavor on-demand, " +
+						"previously considered podsets requests (0) + current podset request (80) > maximum capacity (60)), spot(Fit;borrow=1)").Obj(),
+			},
+		},
 	}
 	for name, tc := range cases {
 		for _, enabled := range []bool{false, true} {

@@ -18,6 +18,7 @@ package flavorassigner
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -48,6 +49,99 @@ var (
 		}))
 	})
 )
+
+// flexAssertConsidered compares Considered Flavors
+// with the actual assignment, but with the rule:
+//
+//   - if actual has ANY Fit for that podset -> we don't require that all wanted
+//     flavors appear; it's OK if actual only returned the "winning" flavor;
+//   - if actual has NO Fit -> we require that all wanted flavors appear.
+func flexAssertConsidered(t *testing.T, want, got Assignment) {
+	wantByName := make(map[string]PodSetAssignment, len(want.PodSets))
+	for _, ps := range want.PodSets {
+		wantByName[string(ps.Name)] = ps
+	}
+	gotByName := make(map[string]PodSetAssignment, len(got.PodSets))
+	for _, ps := range got.PodSets {
+		gotByName[string(ps.Name)] = ps
+	}
+
+	for name, wantPS := range wantByName {
+		gotPS, ok := gotByName[name]
+		if !ok {
+			t.Errorf("podset %q: missing in actual assignment", name)
+			continue
+		}
+
+		if len(wantPS.FlavorAssignmentAttempts) == 0 {
+			continue
+		}
+
+		assertPodSetConsideredFlexible(t, name, wantPS.FlavorAssignmentAttempts, gotPS.FlavorAssignmentAttempts)
+	}
+}
+
+func assertPodSetConsideredFlexible(t *testing.T, podSetName string, want, got []FlavorAssignmentAttempt) {
+	wantByFlavor := make(map[kueue.ResourceFlavorReference]FlavorAssignmentAttempt, len(want))
+	for _, wa := range want {
+		wantByFlavor[wa.Flavor] = wa
+	}
+
+	gotByFlavor := make(map[kueue.ResourceFlavorReference]FlavorAssignmentAttempt, len(got))
+	hasFit := false
+	for _, ga := range got {
+		gotByFlavor[ga.Flavor] = ga
+		if ga.Mode == Fit {
+			hasFit = true
+		}
+	}
+
+	if hasFit {
+		for flavor, ga := range gotByFlavor {
+			wa, ok := wantByFlavor[flavor]
+			if !ok {
+				t.Errorf("podset %q: unexpected flavor %q in FlavorAssignmentAttempts (fit case), got=%#v", podSetName, flavor, ga)
+				continue
+			}
+
+			if ga.Mode == Fit && isDoesNotProvideOnly(wa) {
+				continue
+			}
+
+			if diff := cmp.Diff(wa, ga); diff != "" {
+				t.Errorf("podset %q: flavor %q mismatch (fit case) (-want +got):\n%s", podSetName, flavor, diff)
+			}
+		}
+
+		return
+	}
+
+	for flavor, wa := range wantByFlavor {
+		ga, ok := gotByFlavor[flavor]
+		if !ok {
+			t.Errorf("podset %q: expected flavor %q in FlavorAssignmentAttempts (no-fit case)", podSetName, flavor)
+			continue
+		}
+		if diff := cmp.Diff(wa, ga); diff != "" {
+			t.Errorf("podset %q: flavor %q mismatch (no-fit case) (-want +got):\n%s", podSetName, flavor, diff)
+		}
+	}
+}
+
+func isDoesNotProvideOnly(at FlavorAssignmentAttempt) bool {
+	if at.Mode != NoFit {
+		return false
+	}
+	if len(at.Reasons) == 0 {
+		return false
+	}
+	for _, r := range at.Reasons {
+		if !strings.Contains(r, "does not provide resource") {
+			return false
+		}
+	}
+	return true
+}
 
 type simulationResultForFlavor struct {
 	preemptionPossiblity     preemptioncommon.PreemptionPossibility
@@ -139,7 +233,8 @@ func TestAssignFlavors(t *testing.T) {
 							corev1.ResourceCPU:    resource.MustParse("1"),
 							corev1.ResourceMemory: resource.MustParse("1Mi"),
 						},
-						Count: 1,
+						Count:                    1,
+						FlavorAssignmentAttempts: []FlavorAssignmentAttempt{{Flavor: "default", Mode: Fit}},
 					},
 				},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
@@ -177,6 +272,9 @@ func TestAssignFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("1"),
 					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{Flavor: "tainted", Mode: Fit},
+					},
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
@@ -206,6 +304,9 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourceCPU: resource.MustParse("1"),
 					},
 					Count: 1,
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{Flavor: "taint_and_toleration", Mode: Fit},
+					},
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "taint_and_toleration", Resource: corev1.ResourceCPU}: 1_000,
@@ -238,7 +339,14 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourceCPU: resource.MustParse("2"),
 					},
 					Status: *NewStatus("insufficient unused quota for cpu in flavor default, 1 more needed"),
-					Count:  1,
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "default",
+							Mode:    Preempt,
+							Reasons: []string{"insufficient unused quota for cpu in flavor default, 1 more needed"},
+						},
+					},
+					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "default", Resource: corev1.ResourceCPU}: 2_000,
@@ -282,6 +390,20 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourceCPU:    resource.MustParse("3"),
 						corev1.ResourceMemory: resource.MustParse("10Mi"),
 					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "one",
+							Mode:    NoFit,
+							Reasons: []string{"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (3) > maximum capacity (2)"},
+						},
+						{Flavor: "two", Mode: Fit},
+						{Flavor: "b_one", Mode: Fit},
+						{
+							Flavor:  "b_two",
+							Mode:    NoFit,
+							Reasons: []string{"flavor b_two does not provide resource memory"},
+						},
+					},
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
@@ -322,6 +444,14 @@ func TestAssignFlavors(t *testing.T) {
 						Requests: corev1.ResourceList{
 							corev1.ResourceCPU: resource.MustParse("8"),
 						},
+						FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+							{
+								Flavor:  "one",
+								Mode:    NoFit,
+								Reasons: []string{"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (9) > maximum capacity (4)"},
+							},
+							{Flavor: "two", Mode: Fit},
+						},
 						Count: 4,
 					},
 					{
@@ -331,6 +461,14 @@ func TestAssignFlavors(t *testing.T) {
 						},
 						Requests: corev1.ResourceList{
 							corev1.ResourceCPU: resource.MustParse("1"),
+						},
+						FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+							{
+								Flavor:  "one",
+								Mode:    NoFit,
+								Reasons: []string{"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (9) > maximum capacity (4)"},
+							},
+							{Flavor: "two", Mode: Fit},
 						},
 						Count: 1,
 					}},
@@ -383,6 +521,14 @@ func TestAssignFlavors(t *testing.T) {
 							corev1.ResourceMemory: resource.MustParse("4"),
 							"example.com/gpu":     resource.MustParse("4"),
 						},
+						FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+							{
+								Flavor:  "one",
+								Mode:    NoFit,
+								Reasons: []string{"flavor one does not provide resource example.com/gpu"},
+							},
+							{Flavor: "two", Mode: Fit},
+						},
 						Count: 4,
 					},
 					{
@@ -394,6 +540,14 @@ func TestAssignFlavors(t *testing.T) {
 						Requests: corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
 							corev1.ResourceMemory: resource.MustParse("1"),
+						},
+						FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+							{
+								Flavor:  "one",
+								Mode:    NoFit,
+								Reasons: []string{"flavor one does not provide resource example.com/gpu"},
+							},
+							{Flavor: "two", Mode: Fit},
 						},
 						Count: 1,
 					}},
@@ -441,6 +595,18 @@ func TestAssignFlavors(t *testing.T) {
 							"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (5) > maximum capacity (4)",
 							"insufficient quota for example.com/gpu in flavor two, previously considered podsets requests (0) + current podset request (4) > maximum capacity (0)",
 						),
+						FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+							{
+								Flavor:  "one",
+								Mode:    NoFit,
+								Reasons: []string{"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (5) > maximum capacity (4)"},
+							},
+							{
+								Flavor:  "two",
+								Mode:    NoFit,
+								Reasons: []string{"insufficient quota for example.com/gpu in flavor two, previously considered podsets requests (0) + current podset request (4) > maximum capacity (0)"},
+							},
+						},
 						Count: 4,
 					},
 					{
@@ -452,6 +618,18 @@ func TestAssignFlavors(t *testing.T) {
 							"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (5) > maximum capacity (4)",
 							"insufficient quota for example.com/gpu in flavor two, previously considered podsets requests (0) + current podset request (4) > maximum capacity (0)",
 						),
+						FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+							{
+								Flavor:  "one",
+								Mode:    NoFit,
+								Reasons: []string{"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (5) > maximum capacity (4)"},
+							},
+							{
+								Flavor:  "two",
+								Mode:    NoFit,
+								Reasons: []string{"insufficient quota for example.com/gpu in flavor two, previously considered podsets requests (0) + current podset request (4) > maximum capacity (0)"},
+							},
+						},
 						Count: 1,
 					}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
@@ -489,6 +667,13 @@ func TestAssignFlavors(t *testing.T) {
 					Status: *NewStatus(
 						"insufficient quota for memory in flavor b_one, previously considered podsets requests (0) + current podset request (10Mi) > maximum capacity (1Mi)",
 					),
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "b_one",
+							Mode:    NoFit,
+							Reasons: []string{"insufficient quota for memory in flavor b_one, previously considered podsets requests (0) + current podset request (10Mi) > maximum capacity (1Mi)"},
+						},
+					},
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
@@ -534,6 +719,15 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourceCPU:    resource.MustParse("3"),
 						corev1.ResourceMemory: resource.MustParse("10Mi"),
 						"example.com/gpu":     resource.MustParse("3"),
+					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{Flavor: "b_one", Mode: Fit},
+						{
+							Flavor:  "one",
+							Mode:    NoFit,
+							Reasons: []string{"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (3) > maximum capacity (2)"},
+						},
+						{Flavor: "two", Mode: Fit},
 					},
 					Count: 1,
 				}},
@@ -604,6 +798,23 @@ func TestAssignFlavors(t *testing.T) {
 						"insufficient unused quota for memory in flavor two, 5Mi more needed",
 						"insufficient unused quota for example.com/gpu in flavor b_one, 1 more needed",
 					),
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "b_one",
+							Mode:    Preempt,
+							Reasons: []string{"insufficient unused quota for example.com/gpu in flavor b_one, 1 more needed"},
+						},
+						{
+							Flavor:  "one",
+							Mode:    NoFit,
+							Reasons: []string{"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (3) > maximum capacity (2)"}},
+						{
+							Flavor:  "two",
+							Mode:    Preempt,
+							Borrow:  1,
+							Reasons: []string{"insufficient unused quota for memory in flavor two, 5Mi more needed"},
+						},
+					},
 					Count: 1,
 				}},
 				Borrowing: 1,
@@ -643,6 +854,18 @@ func TestAssignFlavors(t *testing.T) {
 						"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (3) > maximum capacity (2)",
 						"insufficient quota for memory in flavor two, previously considered podsets requests (0) + current podset request (10Mi) > maximum capacity (5Mi)",
 					),
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "one",
+							Mode:    NoFit,
+							Reasons: []string{"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (3) > maximum capacity (2)"},
+						},
+						{
+							Flavor:  "two",
+							Mode:    NoFit,
+							Reasons: []string{"insufficient quota for memory in flavor two, previously considered podsets requests (0) + current podset request (10Mi) > maximum capacity (5Mi)"},
+						},
+					},
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
@@ -672,6 +895,14 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("3"),
+					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "tainted",
+							Mode:    NoFit,
+							Reasons: []string{"untolerated taint {instance spot NoSchedule <nil>} in flavor tainted"},
+						},
+						{Flavor: "two", Mode: Fit},
 					},
 					Count: 1,
 				}},
@@ -722,6 +953,13 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("1"),
+					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor: "one", Mode: NoFit,
+							Reasons: []string{"flavor one doesn't match node affinity"},
+						},
+						{Flavor: "two", Mode: Fit},
 					},
 					Count: 1,
 				}},
@@ -776,6 +1014,14 @@ func TestAssignFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Mi"),
+					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "one",
+							Mode:    NoFit,
+							Reasons: []string{"flavor one doesn't match node affinity"},
+						},
+						{Flavor: "two", Mode: Fit},
 					},
 					Count: 1,
 				}},
@@ -839,6 +1085,9 @@ func TestAssignFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("1"),
 					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{Flavor: "one", Mode: Fit},
+					},
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
@@ -887,6 +1136,17 @@ func TestAssignFlavors(t *testing.T) {
 						"flavor one doesn't match node affinity",
 						"flavor two doesn't match node affinity",
 					),
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{Flavor: "one",
+							Mode:    NoFit,
+							Reasons: []string{"flavor one doesn't match node affinity"},
+						},
+						{
+							Flavor:  "two",
+							Mode:    NoFit,
+							Reasons: []string{"flavor two doesn't match node affinity"},
+						},
+					},
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
@@ -922,6 +1182,14 @@ func TestAssignFlavors(t *testing.T) {
 						Requests: corev1.ResourceList{
 							corev1.ResourceCPU: resource.MustParse("5"),
 						},
+						FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+							{
+								Flavor:  "one",
+								Mode:    NoFit,
+								Reasons: []string{"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (5) > maximum capacity (4)"},
+							},
+							{Flavor: "two", Mode: Fit},
+						},
 						Count: 1,
 					},
 					{
@@ -931,6 +1199,9 @@ func TestAssignFlavors(t *testing.T) {
 						},
 						Requests: corev1.ResourceList{
 							corev1.ResourceCPU: resource.MustParse("3"),
+						},
+						FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+							{Flavor: "one", Mode: Fit},
 						},
 						Count: 1,
 					},
@@ -982,6 +1253,9 @@ func TestAssignFlavors(t *testing.T) {
 							corev1.ResourceCPU:    resource.MustParse("4"),
 							corev1.ResourceMemory: resource.MustParse("1Gi"),
 						},
+						FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+							{Flavor: "default", Mode: Fit, Borrow: 1},
+						},
 						Count: 1,
 					},
 					{
@@ -993,6 +1267,9 @@ func TestAssignFlavors(t *testing.T) {
 						Requests: corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("6"),
 							corev1.ResourceMemory: resource.MustParse("4Gi"),
+						},
+						FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+							{Flavor: "default", Mode: Fit, Borrow: 1},
 						},
 						Count: 1,
 					},
@@ -1034,7 +1311,14 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourceCPU: resource.MustParse("2"),
 					},
 					Status: *NewStatus("insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (2) > maximum capacity (1)"),
-					Count:  1,
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "one",
+							Mode:    NoFit,
+							Reasons: []string{"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (2) > maximum capacity (1)"},
+						},
+					},
+					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
 			},
@@ -1080,7 +1364,15 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourceCPU: resource.MustParse("2"),
 					},
 					Status: *NewStatus("insufficient unused quota for cpu in flavor one, 1 more needed"),
-					Count:  1,
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "one",
+							Mode:    Preempt,
+							Borrow:  1,
+							Reasons: []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
+						},
+					},
+					Count: 1,
 				}},
 				Borrowing: 1,
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
@@ -1114,7 +1406,14 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourceCPU: resource.MustParse("2"),
 					},
 					Status: *NewStatus("insufficient unused quota for cpu in flavor one, 1 more needed"),
-					Count:  1,
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "one",
+							Mode:    Preempt,
+							Reasons: []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
+						},
+					},
+					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: 2_000,
@@ -1161,7 +1460,15 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourceCPU: resource.MustParse("2"),
 					},
 					Status: *NewStatus("insufficient unused quota for cpu in flavor one, 2 more needed"),
-					Count:  1,
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "one",
+							Mode:    Preempt,
+							Borrow:  1,
+							Reasons: []string{"insufficient unused quota for cpu in flavor one, 2 more needed"},
+						},
+					},
+					Count: 1,
 				}},
 				Borrowing: 1,
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
@@ -1204,6 +1511,18 @@ func TestAssignFlavors(t *testing.T) {
 						"flavor one doesn't match node affinity",
 						"insufficient unused quota for cpu in flavor two, 1 more needed",
 					),
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "one",
+							Mode:    NoFit,
+							Reasons: []string{"flavor one doesn't match node affinity"},
+						},
+						{
+							Flavor:  "two",
+							Mode:    Preempt,
+							Reasons: []string{"insufficient unused quota for cpu in flavor two, 1 more needed"},
+						},
+					},
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
@@ -1254,6 +1573,18 @@ func TestAssignFlavors(t *testing.T) {
 							"insufficient unused quota for cpu in flavor one, 1 more needed",
 							"untolerated taint {instance spot NoSchedule <nil>} in flavor tainted",
 						),
+						FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+							{
+								Flavor:  "one",
+								Mode:    Preempt,
+								Reasons: []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
+							},
+							{
+								Flavor:  "tainted",
+								Mode:    NoFit,
+								Reasons: []string{"untolerated taint {instance spot NoSchedule <nil>} in flavor tainted"},
+							},
+						},
 						Count: 1,
 					},
 					{
@@ -1268,6 +1599,18 @@ func TestAssignFlavors(t *testing.T) {
 							"insufficient quota for cpu in flavor one, previously considered podsets requests (2) + current podset request (10) > maximum capacity (4)",
 							"insufficient unused quota for cpu in flavor tainted, 3 more needed",
 						),
+						FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+							{
+								Flavor:  "one",
+								Mode:    NoFit,
+								Reasons: []string{"insufficient quota for cpu in flavor one, previously considered podsets requests (2) + current podset request (10) > maximum capacity (4)"},
+							},
+							{
+								Flavor:  "tainted",
+								Mode:    Preempt,
+								Reasons: []string{"insufficient unused quota for cpu in flavor tainted, 3 more needed"},
+							},
+						},
 						Count: 10,
 					},
 				},
@@ -1327,6 +1670,9 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourceCPU:  resource.MustParse("3"),
 						corev1.ResourcePods: resource.MustParse("3"),
 					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{Flavor: "default", Mode: Fit},
+					},
 					Count: 3,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
@@ -1358,7 +1704,14 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourcePods: resource.MustParse("3"),
 					},
 					Status: *NewStatus("insufficient quota for pods in flavor default, previously considered podsets requests (0) + current podset request (3) > maximum capacity (2)"),
-					Count:  3,
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "default",
+							Mode:    NoFit,
+							Reasons: []string{"insufficient quota for pods in flavor default, previously considered podsets requests (0) + current podset request (3) > maximum capacity (2)"},
+						},
+					},
+					Count: 3,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
 			},
@@ -1393,6 +1746,9 @@ func TestAssignFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("3"),
 						corev1.ResourcePods: resource.MustParse("3"),
+					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{Flavor: "default", Mode: Fit},
 					},
 					Count: 3,
 				}},
@@ -1479,7 +1835,14 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourcePods: resource.MustParse("1"),
 					},
 					Status: *NewStatus("insufficient unused quota for cpu in flavor one, 1 more needed"),
-					Count:  1,
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "one",
+							Mode:    Preempt,
+							Reasons: []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
+						},
+					},
+					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: "cpu"}:  9_000,
@@ -1521,7 +1884,14 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourcePods: resource.MustParse("1"),
 					},
 					Status: *NewStatus("insufficient unused quota for cpu in flavor one, 1 more needed"),
-					Count:  1,
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "one",
+							Mode:    Preempt,
+							Reasons: []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
+						},
+					},
+					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: "cpu"}:  9_000,
@@ -1560,6 +1930,14 @@ func TestAssignFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("9"),
 						corev1.ResourcePods: resource.MustParse("1"),
+					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "one",
+							Mode:    Preempt,
+							Reasons: []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
+						},
+						{Flavor: "two", Mode: Fit},
 					},
 					Count: 1,
 				}},
@@ -1612,6 +1990,13 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourceCPU:  resource.MustParse("9"),
 						corev1.ResourcePods: resource.MustParse("1"),
 					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{Flavor: "one", Mode: Fit, Borrow: 1},
+						{
+							Flavor:  "two",
+							Reasons: []string{"insufficient quota for cpu in flavor two, previously considered podsets requests (0) + current podset request (9) > maximum capacity (1)"},
+						},
+					},
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
@@ -1663,6 +2048,10 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourceCPU:  resource.MustParse("9"),
 						corev1.ResourcePods: resource.MustParse("1"),
 					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{Flavor: "one", Mode: Fit, Borrow: 1},
+						{Flavor: "two", Mode: Fit},
+					},
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
@@ -1712,6 +2101,9 @@ func TestAssignFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("9"),
 						corev1.ResourcePods: resource.MustParse("1"),
+					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{Flavor: "one", Mode: Fit, Borrow: 1},
 					},
 					Count: 1,
 				}},
@@ -1772,6 +2164,14 @@ func TestAssignFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("12"),
 					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "one",
+							Mode:    Preempt,
+							Borrow:  1,
+							Reasons: []string{"insufficient unused quota for cpu in flavor one, 10 more needed"},
+						},
+					},
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
@@ -1829,6 +2229,14 @@ func TestAssignFlavors(t *testing.T) {
 					Status: *NewStatus("insufficient unused quota for cpu in flavor one, 10 more needed"),
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("12"),
+					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "one",
+							Mode:    Preempt,
+							Borrow:  1,
+							Reasons: []string{"insufficient unused quota for cpu in flavor one, 10 more needed"},
+						},
 					},
 					Count: 1,
 				}},
@@ -1888,6 +2296,14 @@ func TestAssignFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("12"),
 					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "one",
+							Mode:    Preempt,
+							Borrow:  1,
+							Reasons: []string{"insufficient unused quota for cpu in flavor one, 10 more needed"},
+						},
+					},
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
@@ -1946,6 +2362,14 @@ func TestAssignFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("12"),
 					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "one",
+							Mode:    Preempt,
+							Borrow:  1,
+							Reasons: []string{"insufficient unused quota for cpu in flavor one, 10 more needed"},
+						},
+					},
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
@@ -1996,6 +2420,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("12"),
+					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{Flavor: "one", Mode: Fit, Borrow: 1},
+						{Flavor: "two", Mode: Fit},
 					},
 					Count: 1,
 				}},
@@ -2048,6 +2476,10 @@ func TestAssignFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("12"),
 					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{Flavor: "one", Mode: Fit, Borrow: 1},
+						{Flavor: "two", Mode: Fit},
+					},
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
@@ -2093,6 +2525,13 @@ func TestAssignFlavors(t *testing.T) {
 						Status: *NewStatus("insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (12) > maximum capacity (11)"),
 						Requests: corev1.ResourceList{
 							corev1.ResourceCPU: resource.MustParse("12"),
+						},
+						FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+							{
+								Flavor:  "one",
+								Mode:    NoFit,
+								Reasons: []string{"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (12) > maximum capacity (11)"},
+							},
 						},
 						Count: 1,
 					},
@@ -2144,6 +2583,10 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourceCPU:  resource.MustParse("9"),
 						corev1.ResourcePods: resource.MustParse("1"),
 					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{Flavor: "one", Mode: Fit, Borrow: 1},
+						{Flavor: "two", Mode: Fit},
+					},
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
@@ -2193,6 +2636,15 @@ func TestAssignFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("9"),
 						corev1.ResourcePods: resource.MustParse("1"),
+					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{Flavor: "one", Mode: Fit, Borrow: 1},
+
+						{
+							Flavor:  "two",
+							Mode:    NoFit,
+							Reasons: []string{"insufficient quota for cpu in flavor two, previously considered podsets requests (0) + current podset request (9) > maximum capacity (1)"},
+						},
 					},
 					Count: 1,
 				}},
@@ -2253,6 +2705,14 @@ func TestAssignFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("2"),
 					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "one",
+							Mode:    Preempt,
+							Reasons: []string{"insufficient unused quota for cpu in flavor one, 2 more needed"},
+						},
+						{Flavor: "two", Mode: Fit, Borrow: 1},
+					},
 					Count: 1,
 				}},
 				Borrowing: 1,
@@ -2311,6 +2771,14 @@ func TestAssignFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("2"),
 					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "one",
+							Mode:    Preempt,
+							Reasons: []string{"insufficient unused quota for cpu in flavor one, 2 more needed"},
+						},
+						{Flavor: "two", Mode: Fit, Borrow: 1},
+					},
 					Count: 1,
 				}},
 				Borrowing: 1,
@@ -2360,7 +2828,15 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourcePods: resource.MustParse("1"),
 					},
 					Status: *NewStatus("insufficient unused quota for cpu in flavor one, 1 more needed"),
-					Count:  1,
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "one",
+							Mode:    Preempt,
+							Borrow:  1,
+							Reasons: []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
+						},
+					},
+					Count: 1,
 				}},
 				Borrowing: 1,
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
@@ -2413,6 +2889,14 @@ func TestAssignFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("12"),
 					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "one",
+							Mode:    Preempt,
+							Borrow:  1,
+							Reasons: []string{"insufficient unused quota for cpu in flavor one, 10 more needed"},
+						},
+					},
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
@@ -2464,6 +2948,14 @@ func TestAssignFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("12"),
 					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "one",
+							Mode:    Preempt,
+							Borrow:  1,
+							Reasons: []string{"insufficient unused quota for cpu in flavor one, 10 more needed"},
+						},
+					},
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
@@ -2512,6 +3004,15 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("12"),
+					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "one",
+							Mode:    NoFit,
+							Borrow:  1,
+							Reasons: []string{"insufficient unused quota for cpu in flavor one, 10 more needed"},
+						},
+						{Flavor: "two", Mode: Fit},
 					},
 					Count: 1,
 				}},
@@ -2562,6 +3063,15 @@ func TestAssignFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("12"),
 					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "one",
+							Mode:    NoFit,
+							Borrow:  1,
+							Reasons: []string{"insufficient unused quota for cpu in flavor one, 10 more needed"},
+						},
+						{Flavor: "two", Mode: Fit},
+					},
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
@@ -2580,7 +3090,7 @@ func TestAssignFlavors(t *testing.T) {
 			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("one").
-						Resource(corev1.ResourceCPU, "2").
+						Resource(corev1.ResourceCPU, "3").
 						Resource(corev1.ResourceMemory, "1Gi").
 						Obj(),
 					*utiltestingapi.MakeFlavorQuotas("two").
@@ -2615,6 +3125,16 @@ func TestAssignFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("3"),
 						corev1.ResourceMemory: resource.MustParse("10Mi"),
+					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor: "one",
+							Mode:   NoFit,
+							Reasons: []string{
+								"could not assign one flavor since the original workload is assigned: two",
+							},
+						},
+						{Flavor: "two", Mode: Fit},
 					},
 					Count: 1,
 				}},
@@ -2672,6 +3192,18 @@ func TestAssignFlavors(t *testing.T) {
 						"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (1) > maximum capacity (500m)",
 						"could not assign two flavor since the original workload is assigned: one",
 					),
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "one",
+							Mode:    NoFit,
+							Reasons: []string{"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (1) > maximum capacity (500m)"},
+						},
+						{
+							Flavor:  "two",
+							Mode:    NoFit,
+							Reasons: []string{"could not assign two flavor since the original workload is assigned: one"},
+						},
+					},
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
 			},
@@ -2723,6 +3255,14 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Status: *NewStatus("insufficient unused quota for cpu in flavor one, 5 more needed"),
 					Count:  1,
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "one",
+							Mode:    Preempt,
+							Reasons: []string{"insufficient unused quota for cpu in flavor one, 5 more needed"},
+						},
+						{Flavor: "two", Mode: Fit, Borrow: 1},
+					},
 				}},
 				Borrowing: 0,
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
@@ -2777,6 +3317,14 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Status: *NewStatus("insufficient unused quota for cpu in flavor one, 5 more needed"),
 					Count:  1,
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "one",
+							Mode:    Preempt,
+							Reasons: []string{"insufficient unused quota for cpu in flavor one, 5 more needed"},
+						},
+						{Flavor: "two", Mode: Fit, Borrow: 1},
+					},
 				}},
 				Borrowing: 0,
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
@@ -2825,6 +3373,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("10"),
+					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{Flavor: "one", Mode: Fit, Borrow: 1},
+						{Flavor: "two", Mode: Fit},
 					},
 					Count: 1,
 				}},
@@ -2906,10 +3458,14 @@ func TestAssignFlavors(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantAssignment, assignment,
 				cmpopts.EquateEmpty(),
-				cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{}), statusComparer, cmpopts.IgnoreFields(Assignment{}, "LastState"),
+				cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{}),
+				statusComparer, cmpopts.IgnoreFields(Assignment{}, "LastState"),
+				cmpopts.IgnoreFields(PodSetAssignment{}, "FlavorAssignmentAttempts"),
 			); diff != "" {
 				t.Errorf("Unexpected assignment (-want,+got):\n%s", diff)
 			}
+
+			flexAssertConsidered(t, tc.wantAssignment, assignment)
 		})
 	}
 }
@@ -3131,6 +3687,14 @@ func TestDeletedFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("3"),
 					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "deleted-flavor",
+							Mode:    NoFit,
+							Reasons: []string{"flavor deleted-flavor not found"},
+						},
+						{Flavor: "flavor", Mode: Fit},
+					},
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
@@ -3158,6 +3722,13 @@ func TestDeletedFlavors(t *testing.T) {
 					},
 					Status: *NewStatus("flavor deleted-flavor not found"),
 					Count:  1,
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:  "deleted-flavor",
+							Mode:    NoFit,
+							Reasons: []string{"flavor deleted-flavor not found"},
+						},
+					},
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
 			},

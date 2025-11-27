@@ -1,10 +1,14 @@
-name: update-versions-with-renovate
+name: Update versions with renovate
 
 on:
   schedule:
     # Once a week
     - cron: '0 0 * * 0'
   workflow_dispatch:
+# TODO: remove once permission issue is resolved
+  pull_request:
+    branches:
+      - main
 
 jobs:
   renovate:
@@ -13,14 +17,15 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      issues: write
     steps:
       - name: checkout
         uses: actions/checkout@v6
-      - name: run renovate (dry-run on PRs)
+      - name: run renovate
         uses: renovatebot/github-action@v44.0.4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           configurationFile: renovate.json
         env:
-          LOG_LEVEL: info
+          LOG_LEVEL: debug
           RENOVATE_REPOSITORIES: ${{ github.repository }}

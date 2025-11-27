@@ -1149,8 +1149,10 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, q
 			continue
 		}
 
-		if err = h.r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
-			log.V(2).Info("ignored an error for now", "error", err)
+		if workload.IsActive(wlCopy) && !workload.HasQuotaReservation(wlCopy) {
+			if err = h.r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
+				log.V(2).Info("ignored an error for now", "error", err)
+			}
 		}
 	}
 }

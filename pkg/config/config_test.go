@@ -29,6 +29,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apiextensionsfake "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	resourcev1 "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -44,6 +46,7 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
@@ -82,6 +85,23 @@ func defaultControlOptions(namespace string) ctrl.Options {
 			},
 		},
 	}
+}
+
+func controlOptionsWithClusterProfile(namespace string) ctrl.Options {
+	cOpts := defaultControlOptions(namespace)
+	cOpts.Cache.ByObject[objectKeyClusterProfile] = ctrlcache.ByObject{
+		Namespaces: map[string]ctrlcache.Config{
+			namespace: {},
+		},
+	}
+	return cOpts
+}
+
+func NewFakeClient(log logr.Logger, objects ...runtime.Object) *ConfigHelper {
+	fakeClient := apiextensionsfake.NewSimpleClientset(
+		objects...,
+	)
+	return &ConfigHelper{CRDClient: fakeClient}
 }
 
 func TestLoad(t *testing.T) {
@@ -399,11 +419,13 @@ objectRetentionPolicies:
 	}
 
 	testcases := []struct {
-		name              string
-		configFile        string
-		wantConfiguration configapi.Configuration
-		wantOptions       ctrl.Options
-		wantError         error
+		name                 string
+		configFile           string
+		enableClusterProfile bool
+		withClusterProfile   bool
+		wantConfiguration    configapi.Configuration
+		wantOptions          ctrl.Options
+		wantError            error
 	}{
 		{
 			name:       "default config",
@@ -794,6 +816,31 @@ objectRetentionPolicies:
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
 		{
+			name:                 "multiKueue config with clusterProfile",
+			configFile:           multiKueueConfig,
+			enableClusterProfile: true,
+			withClusterProfile:   true,
+			wantConfiguration: configapi.Configuration{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: configapi.GroupVersion.String(),
+					Kind:       "Configuration",
+				},
+				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				ManageJobsWithoutQueueName: false,
+				InternalCertManagement:     enableDefaultInternalCertManagement,
+				ClientConnection:           defaultClientConnection,
+				Integrations:               defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					GCInterval:        &metav1.Duration{Duration: 90 * time.Second},
+					Origin:            ptr.To("multikueue-manager1"),
+					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
+					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeIncremental),
+				},
+				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+			},
+			wantOptions: controlOptionsWithClusterProfile(configapi.DefaultNamespace),
+		},
+		{
 			name:       "resourceTransform config",
 			configFile: resourceTransformConfig,
 			wantConfiguration: configapi.Configuration{
@@ -874,7 +921,19 @@ objectRetentionPolicies:
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			options, cfg, err := Load(testScheme, tc.configFile)
+			ctx, log := utiltesting.ContextWithLog(t)
+			var crdObjs []runtime.Object
+			if tc.withClusterProfile {
+				crdObjs = append(crdObjs,
+					&apiextensionsv1.CustomResourceDefinition{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: "clusterprofiles.multicluster.x-k8s.io",
+						},
+					},
+				)
+			}
+			configHelper := NewFakeClient(log, crdObjs...)
+			options, cfg, err := configHelper.Load(ctx, testScheme, tc.configFile)
 			if tc.wantError == nil {
 				if err != nil {
 					t.Errorf("Unexpected error:%s", err)
