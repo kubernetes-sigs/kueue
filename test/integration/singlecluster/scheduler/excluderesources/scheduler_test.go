@@ -77,6 +77,7 @@ var _ = ginkgo.Describe("SchedulerWithExcludeResourcePrefixes", func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("should admit workload ignoring excluded resource", func() {
