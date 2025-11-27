@@ -30,7 +30,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("SchedulerWithExcludeResourcePrefixes", func() {
+var _ = ginkgo.Describe("SchedulerWithExcludeResourcePrefixes", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		defaultFlavor *kueue.ResourceFlavor
 		ns            *corev1.Namespace
@@ -38,7 +38,7 @@ var _ = ginkgo.Describe("SchedulerWithExcludeResourcePrefixes", func() {
 		lq            *kueue.LocalQueue
 	)
 
-	ginkgo.BeforeEach(func() {
+	ginkgo.BeforeAll(func() {
 		configuration := &config.Configuration{
 			Resources: &config.Resources{
 				ExcludeResourcePrefixes: []string{
@@ -48,7 +48,9 @@ var _ = ginkgo.Describe("SchedulerWithExcludeResourcePrefixes", func() {
 			},
 		}
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(configuration))
+	})
 
+	ginkgo.BeforeEach(func() {
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).To(gomega.Succeed())
 
@@ -77,6 +79,9 @@ var _ = ginkgo.Describe("SchedulerWithExcludeResourcePrefixes", func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+	})
+
+	ginkgo.AfterAll(func() {
 		fwk.StopManager(ctx)
 	})
 
