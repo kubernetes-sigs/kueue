@@ -26,10 +26,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/go-logr/logr"
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	schedulingv1 "k8s.io/api/scheduling/v1"
+	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -43,7 +44,9 @@ import (
 	"k8s.io/utils/ptr"
 	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
+	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -133,8 +136,7 @@ func main() {
 	flag.Parse()
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
-	ctx := ctrl.SetupSignalHandler()
-	options, cfg, err := apply(ctx, setupLog, configFile)
+	options, cfg, err := apply(configFile)
 	if err != nil {
 		setupLog.Error(err, "Unable to load the configuration")
 		os.Exit(1)
@@ -208,11 +210,19 @@ func main() {
 	}
 	setupLog.V(2).Info("K8S Client", "qps", *cfg.ClientConnection.QPS, "burst", *cfg.ClientConnection.Burst)
 
+	ctx := ctrl.SetupSignalHandler()
 	// Bootstrap certificates before creating the main manager
 	// This ensures certs are ready and CA bundles are injected into conversion CRDs
 	if cfg.InternalCertManagement != nil && *cfg.InternalCertManagement.Enable {
 		if err := cert.BootstrapCerts(ctx, kubeConfig, cfg); err != nil {
 			setupLog.Error(err, "Unable to bootstrap certificates")
+			os.Exit(1)
+		}
+	}
+
+	if features.Enabled(features.MultiKueueClusterProfile) {
+		if err := configureClusterProfileCache(ctx, &options, kubeConfig, cfg); err != nil {
+			setupLog.Error(err, "Unable to configure cluster profile")
 			os.Exit(1)
 		}
 	}
@@ -511,12 +521,8 @@ func podsReadyRequeuingTimestamp(cfg *configapi.Configuration) configapi.Requeui
 	return configapi.EvictionTimestamp
 }
 
-func apply(ctx context.Context, log logr.Logger, configFile string) (ctrl.Options, configapi.Configuration, error) {
-	configHelper, err := config.NewConfigHelper(log)
-	if err != nil {
-		return ctrl.Options{}, configapi.Configuration{}, err
-	}
-	options, cfg, err := configHelper.Load(ctx, scheme, configFile)
+func apply(configFile string) (ctrl.Options, configapi.Configuration, error) {
+	options, cfg, err := config.Load(scheme, configFile)
 	if err != nil {
 		return options, cfg, err
 	}
@@ -526,4 +532,28 @@ func apply(ctx context.Context, log logr.Logger, configFile string) (ctrl.Option
 	}
 	setupLog.Info("Successfully loaded configuration", "config", cfgStr)
 	return options, cfg, nil
+}
+
+func configureClusterProfileCache(ctx context.Context, options *ctrl.Options, kubeConfig *rest.Config, cfg configapi.Configuration) error {
+	crdClient, err := apiextensionsclient.NewForConfig(kubeConfig)
+	if err != nil {
+		return fmt.Errorf("%w: failed creating the CRD client", err)
+	}
+	if _, err := crdClient.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, "clusterprofiles.multicluster.x-k8s.io", metav1.GetOptions{}); err != nil {
+		if apierrors.IsNotFound(err) {
+			setupLog.Info("Skipping MultiKueue ClusterProfile setup as the ClusterProfile CRD is not installed")
+			return nil
+		}
+		return fmt.Errorf("%w: failed loading the ClusterProfile CRD", err)
+	}
+	objectKeyClusterProfile := new(inventoryv1alpha1.ClusterProfile)
+	if options.Cache.ByObject == nil {
+		options.Cache.ByObject = make(map[ctrlclient.Object]ctrlcache.ByObject)
+	}
+	options.Cache.ByObject[objectKeyClusterProfile] = ctrlcache.ByObject{
+		Namespaces: map[string]ctrlcache.Config{
+			*cfg.Namespace: {},
+		},
+	}
+	return nil
 }
