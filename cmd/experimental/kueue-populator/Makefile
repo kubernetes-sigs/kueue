@@ -16,7 +16,6 @@ ENVTEST := $(BIN_DIR)/setup-envtest
 GINKGO := $(BIN_DIR)/ginkgo
 GOTESTSUM := $(BIN_DIR)/gotestsum
 ARTIFACTS ?= $(ROOT_DIR)/artifacts
-DEST_CHART_DIR ?= $(ARTIFACTS)
 ENVTEST_K8S_VERSION ?= 1.34
 INTEGRATION_NPROCS ?= 4
 CONTROLLER_GEN := $(BIN_DIR)/controller-gen
@@ -146,7 +145,7 @@ verify: vet helm-verify helm-unit-test ## Run all verification tests.
 
 .PHONY: helm-chart-package
 helm-chart-package: $(HELM) $(YQ) ## Package a chart into a versioned chart archive file.
-	DEST_CHART_DIR=$(DEST_CHART_DIR) \
+	DEST_CHART_DIR=$(ARTIFACTS) \
 	HELM="$(HELM)" YQ="$(YQ)" GIT_TAG="$(GIT_TAG)" IMAGE_REGISTRY="$(IMAGE_REGISTRY)" \
 	HELM_CHART_PUSH=$(HELM_CHART_PUSH) \
 	./hack/helm-chart-package.sh
