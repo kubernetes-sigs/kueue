@@ -127,9 +127,51 @@ func workloadKey(i *workload.Info) workload.Reference {
 	return workload.Key(i.Obj)
 }
 
+type clusterQueueOption func(*clusterQueueOptions)
+
+type clusterQueueOptions struct {
+	fsResWeights         map[corev1.ResourceName]float64
+	enableAdmissionFs    bool
+	afsEntryPenalties    *queueafs.AfsEntryPenalties
+	afsConsumedResources *queueafs.AfsConsumedResources
+}
+
+func withFSResWeights(weights map[corev1.ResourceName]float64) clusterQueueOption {
+	return func(o *clusterQueueOptions) {
+		o.fsResWeights = weights
+	}
+}
+
+func withEnableAdmissionFs(enable bool) clusterQueueOption {
+	return func(o *clusterQueueOptions) {
+		o.enableAdmissionFs = enable
+	}
+}
+
+func withAfsEntryPenalties(penalties *queueafs.AfsEntryPenalties) clusterQueueOption {
+	return func(o *clusterQueueOptions) {
+		o.afsEntryPenalties = penalties
+	}
+}
+
+func withAfsConsumedResources(consumed *queueafs.AfsConsumedResources) clusterQueueOption {
+	return func(o *clusterQueueOptions) {
+		o.afsConsumedResources = consumed
+	}
+}
+
 func newClusterQueue(ctx context.Context, client client.Client, cq *kueue.ClusterQueue, wo workload.Ordering, afsConfig *config.AdmissionFairSharing, afsEntryPenalties *queueafs.AfsEntryPenalties, afsConsumedResources *queueafs.AfsConsumedResources) (*ClusterQueue, error) {
 	enableAdmissionFs, fsResWeights := afs.ResourceWeights(cq.Spec.AdmissionScope, afsConfig)
-	cqImpl := newClusterQueueImpl(ctx, client, wo, realClock, fsResWeights, enableAdmissionFs, afsEntryPenalties, afsConsumedResources)
+	cqImpl := newClusterQueueImpl(
+		ctx,
+		client,
+		wo,
+		realClock,
+		withFSResWeights(fsResWeights),
+		withEnableAdmissionFs(enableAdmissionFs),
+		withAfsEntryPenalties(afsEntryPenalties),
+		withAfsConsumedResources(afsConsumedResources),
+	)
 	err := cqImpl.Update(cq)
 	if err != nil {
 		return nil, err
@@ -137,9 +179,13 @@ func newClusterQueue(ctx context.Context, client client.Client, cq *kueue.Cluste
 	return cqImpl, nil
 }
 
-func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.Ordering, clock clock.Clock, fsResWeights map[corev1.ResourceName]float64, enableAdmissionFs bool, afsEntryPenalties *queueafs.AfsEntryPenalties, afsConsumedResources *queueafs.AfsConsumedResources) *ClusterQueue {
+func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.Ordering, clock clock.Clock, opts ...clusterQueueOption) *ClusterQueue {
+	options := &clusterQueueOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
 	sw := stickyWorkload{}
-	lessFunc := queueOrderingFunc(ctx, client, wo, fsResWeights, enableAdmissionFs, afsEntryPenalties, afsConsumedResources, &sw)
+	lessFunc := queueOrderingFunc(ctx, client, wo, options.fsResWeights, options.enableAdmissionFs, options.afsEntryPenalties, options.afsConsumedResources, &sw)
 	return &ClusterQueue{
 		heap:                      *heap.New(workloadKey, lessFunc),
 		inadmissibleWorkloads:     make(inadmissibleWorkloads),
@@ -147,7 +193,7 @@ func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.
 		lessFunc:                  lessFunc,
 		rwm:                       sync.RWMutex{},
 		clock:                     clock,
-		afsEntryPenalties:         afsEntryPenalties,
+		afsEntryPenalties:         options.afsEntryPenalties,
 		localQueuesInClusterQueue: make(map[utilqueue.LocalQueueReference]bool),
 		sw:                        &sw,
 	}
