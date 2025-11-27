@@ -13,7 +13,6 @@ steps:
       - helm-chart-push
       - kueueviz-image-push
       - kueue-populator-image-push
-      - kueue-populator-helm-chart-push
     env:
       - DOCKER_BUILDX_CMD=/buildx-entrypoint
       - GOTOOLCHAIN=auto
