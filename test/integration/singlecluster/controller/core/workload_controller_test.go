@@ -632,16 +632,16 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo
 
 		ginkgo.BeforeEach(func() {
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
-			flavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
+			flavor = testing.MakeResourceFlavor(flavorOnDemand).Obj()
 			util.MustCreate(ctx, k8sClient, flavor)
-			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
-				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavorOnDemand).Resource(corev1.ResourceCPU, "5", "5").Obj()).
+			clusterQueue = testing.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*testing.MakeFlavorQuotas(flavorOnDemand).Resource(corev1.ResourceCPU, "5", "5").Obj()).
 				Cohort("cohort").
 				Obj()
 			util.MustCreate(ctx, k8sClient, clusterQueue)
-			localQueue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 			util.MustCreate(ctx, k8sClient, localQueue)
-			runtimeClass = utiltesting.MakeRuntimeClass(runtimeClassName, "rc-handler-1").Obj()
+			runtimeClass = testing.MakeRuntimeClass(runtimeClassName, "rc-handler-1").Obj()
 			util.MustCreate(ctx, k8sClient, runtimeClass)
 		})
 
@@ -654,7 +654,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo
 
 		ginkgo.It("should not temporarily admit an inactive workload", func() {
 			ginkgo.By("creating an inactive workload", func() {
-				wl = utiltestingapi.MakeWorkload("wl1", ns.Name).
+				wl = testing.MakeWorkload("wl1", ns.Name).
 					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(corev1.ResourceCPU, "1").
 					RuntimeClass(runtimeClassName).
@@ -682,7 +682,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo
 
 			ginkgo.By("checking no 'quota reseved' event appearing for the workload", func() {
 				gomega.Consistently(func(g gomega.Gomega) {
-					found, err := utiltesting.HasMatchingEventAppeared(ctx, k8sClient, func(e *corev1.Event) bool {
+					found, err := testing.HasMatchingEventAppeared(ctx, k8sClient, func(e *corev1.Event) bool {
 						return e.Reason == "QuotaReserved" &&
 							e.Type == corev1.EventTypeNormal &&
 							e.InvolvedObject.Kind == "Workload" &&
