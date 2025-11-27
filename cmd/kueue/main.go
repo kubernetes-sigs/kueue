@@ -211,7 +211,7 @@ func main() {
 	// Bootstrap certificates before creating the main manager
 	// This ensures certs are ready and CA bundles are injected into conversion CRDs
 	if cfg.InternalCertManagement != nil && *cfg.InternalCertManagement.Enable {
-		if err := cert.BootstrapCerts(kubeConfig, cfg); err != nil {
+		if err := cert.BootstrapCerts(ctx, kubeConfig, cfg); err != nil {
 			setupLog.Error(err, "Unable to bootstrap certificates")
 			os.Exit(1)
 		}
