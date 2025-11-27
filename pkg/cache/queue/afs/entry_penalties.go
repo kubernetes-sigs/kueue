@@ -12,11 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package queue
+package afs
 
 import (
-	"sync"
-
 	corev1 "k8s.io/api/core/v1"
 
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
@@ -25,11 +23,10 @@ import (
 )
 
 type AfsEntryPenalties struct {
-	sync.RWMutex
 	penalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]
 }
 
-func newPenaltyMap() *AfsEntryPenalties {
+func NewPenaltyMap() *AfsEntryPenalties {
 	return &AfsEntryPenalties{
 		penalties: utilmaps.NewSyncMap[utilqueue.LocalQueueReference, corev1.ResourceList](0),
 	}
@@ -56,16 +53,12 @@ func (m *AfsEntryPenalties) Peek(lqKey utilqueue.LocalQueueReference) corev1.Res
 	return penalty
 }
 
-func (m *AfsEntryPenalties) hasPendingFor(lqKey utilqueue.LocalQueueReference) bool {
+func (m *AfsEntryPenalties) HasPendingFor(lqKey utilqueue.LocalQueueReference) bool {
 	_, found := m.penalties.Get(lqKey)
-
 	return found
 }
 
 func (m *AfsEntryPenalties) HasAny() bool {
-	m.RLock()
-	defer m.RUnlock()
-
 	return m.penalties.Len() > 0
 }
 
@@ -74,8 +67,9 @@ func (m *AfsEntryPenalties) GetPenalties() *utilmaps.SyncMap[utilqueue.LocalQueu
 }
 
 func (m *AfsEntryPenalties) GetLocalQueueKeysWithPenalties() []utilqueue.LocalQueueReference {
-	m.RLock()
-	defer m.RUnlock()
-
 	return m.penalties.Keys()
+}
+
+func (m *AfsEntryPenalties) Delete(lqKey utilqueue.LocalQueueReference) {
+	m.penalties.Delete(lqKey)
 }
