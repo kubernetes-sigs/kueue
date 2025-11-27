@@ -17,6 +17,8 @@ limitations under the License.
 package customconfigse2e
 
 import (
+	"time"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
@@ -234,6 +236,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 
 		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.WaitForPodsReady = &configapi.WaitForPodsReady{
+				Timeout:         metav1.Duration{Duration: 5 * time.Minute},
 				BlockAdmission:  ptr.To(true),
 				RecoveryTimeout: &metav1.Duration{Duration: util.TinyTimeout},
 				RequeuingStrategy: &configapi.RequeuingStrategy{
@@ -378,6 +381,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 
 		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.WaitForPodsReady = &configapi.WaitForPodsReady{
+				Timeout:         metav1.Duration{Duration: 5 * time.Minute},
 				BlockAdmission:  ptr.To(true),
 				RecoveryTimeout: &metav1.Duration{Duration: util.LongTimeout},
 				RequeuingStrategy: &configapi.RequeuingStrategy{
