@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"sync"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -40,7 +39,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
-	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -124,7 +122,7 @@ type Manager struct {
 	admissionFairSharingConfig *config.AdmissionFairSharing
 	secondPassQueue            *secondPassQueue
 
-	afsEntryPenalties      *AfsEntryPenalties
+	AfsEntryPenalties      *queueafs.AfsEntryPenalties
 	AfsConsumedResources   *queueafs.AfsConsumedResources
 	workloadUpdateWatchers []WorkloadUpdateWatcher
 
@@ -147,7 +145,7 @@ func NewManager(client client.Client, checker StatusChecker, options ...Option) 
 
 		topologyUpdateWatchers: make([]TopologyUpdateWatcher, 0),
 		secondPassQueue:        newSecondPassQueue(),
-		afsEntryPenalties:      newPenaltyMap(),
+		AfsEntryPenalties:      queueafs.NewPenaltyMap(),
 		AfsConsumedResources:   queueafs.NewAfsConsumedResources(),
 	}
 	for _, option := range options {
@@ -193,10 +191,10 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 		return errClusterQueueAlreadyExists
 	}
 
-	var afsEntryPenalties *utilmaps.SyncMap[queue.LocalQueueReference, corev1.ResourceList]
+	var afsEntryPenalties *queueafs.AfsEntryPenalties
 	var afsConsumedResources *queueafs.AfsConsumedResources
 	if afs.Enabled(m.admissionFairSharingConfig) {
-		afsEntryPenalties = m.afsEntryPenalties.getPenalties()
+		afsEntryPenalties = m.AfsEntryPenalties
 		afsConsumedResources = m.AfsConsumedResources
 	}
 	cqImpl, err := newClusterQueue(ctx, m.client, cq, m.workloadOrdering, m.admissionFairSharingConfig, afsEntryPenalties, afsConsumedResources)
@@ -850,22 +848,6 @@ func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload, iterat
 		log.V(3).Info("Workload queued for second pass of scheduling", "workload", workload.Key(w))
 		m.Broadcast()
 	}
-}
-
-func (m *Manager) PushEntryPenalty(lqKey queue.LocalQueueReference, penalty corev1.ResourceList) {
-	m.afsEntryPenalties.push(lqKey, penalty)
-}
-
-func (m *Manager) SubEntryPenalty(lqKey queue.LocalQueueReference, penalty corev1.ResourceList) {
-	m.afsEntryPenalties.sub(lqKey, penalty)
-}
-
-func (m *Manager) HasPendingPenaltyFor(lqKey queue.LocalQueueReference) bool {
-	return m.afsEntryPenalties.hasPendingFor(lqKey)
-}
-
-func (m *Manager) GetAfsEntryPenalties() *utilmaps.SyncMap[queue.LocalQueueReference, corev1.ResourceList] {
-	return m.afsEntryPenalties.getPenalties()
 }
 
 type WorkloadUpdateWatcher interface {
