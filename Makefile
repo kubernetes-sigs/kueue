@@ -411,6 +411,11 @@ prepare-release-branch: yq kustomize ## Prepare the release branch with the rele
 	$(YQ) e '.version = "$(APP_VERSION)" | .packages[""].version = "$(APP_VERSION)"' -i cmd/kueueviz/frontend/package-lock.json
 	$(YQ) e '.version = "$(APP_VERSION)"' -i test/e2e/kueueviz/package.json
 	$(YQ) e '.version = "$(APP_VERSION)" | .packages[""].version = "$(APP_VERSION)"' -i test/e2e/kueueviz/package-lock.json
+	# Update kueue-populator chart version and image tag
+	$(YQ) e '.appVersion = "$(RELEASE_VERSION)" | .version = "$(APP_VERSION)"' -i cmd/experimental/kueue-populator/charts/kueue-populator/Chart.yaml
+	$(YQ) e '.kueuePopulator.image.tag = "$(RELEASE_BRANCH)"' -i cmd/experimental/kueue-populator/charts/kueue-populator/values.yaml
+	$(SED) -r 's|oci://us-central1-docker.pkg.dev/k8s-staging-images/kueue/charts/kueue-populator|oci://registry.k8s.io/kueue/charts/kueue-populator|g' -i cmd/experimental/kueue-populator/README.md -i cmd/experimental/kueue-populator/charts/kueue-populator/README.md
+	$(SED) -r 's/<VERSION>/$(APP_VERSION)/g' -i cmd/experimental/kueue-populator/README.md -i cmd/experimental/kueue-populator/charts/kueue-populator/README.md
 	$(MAKE) generate-helm-docs
 
 .PHONY: update-security-insights
