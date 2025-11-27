@@ -2006,7 +2006,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("verify the workload gets admitted after label with correct key and value is added", func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
-					util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
+					util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 1)
 					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 				})
 			})
