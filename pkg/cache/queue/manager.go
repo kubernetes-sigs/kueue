@@ -450,6 +450,12 @@ func (m *Manager) AddOrUpdateWorkload(w *kueue.Workload, opts ...workload.InfoOp
 }
 
 func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload, opts ...workload.InfoOption) error {
+	if !workload.IsActive(w) {
+		return fmt.Errorf("workload %q is inactive and can't be added to a LocalQueue", w.Name)
+	}
+	if workload.HasQuotaReservation(w) {
+		return fmt.Errorf("workload %q already has quota reserved and can't be added to a LocalQueue", w.Name)
+	}
 	qKey := queue.KeyFromWorkload(w)
 	q := m.localQueues[qKey]
 	if q == nil {
