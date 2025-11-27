@@ -22,13 +22,13 @@ import (
 	"github.com/google/go-cmp/cmp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 func TestCreateLocalQueue(t *testing.T) {
 	testCases := map[string]struct {
 		options  *LocalQueueOptions
-		expected *v1beta1.LocalQueue
+		expected *kueue.LocalQueue
 	}{
 		"success_create": {
 			options: &LocalQueueOptions{
@@ -36,10 +36,10 @@ func TestCreateLocalQueue(t *testing.T) {
 				Namespace:    "ns1",
 				ClusterQueue: "cq1",
 			},
-			expected: &v1beta1.LocalQueue{
-				TypeMeta:   metav1.TypeMeta{APIVersion: "kueue.x-k8s.io/v1beta1", Kind: "LocalQueue"},
+			expected: &kueue.LocalQueue{
+				TypeMeta:   metav1.TypeMeta{APIVersion: "kueue.x-k8s.io/v1beta2", Kind: "LocalQueue"},
 				ObjectMeta: metav1.ObjectMeta{Name: "lq1", Namespace: "ns1"},
-				Spec:       v1beta1.LocalQueueSpec{ClusterQueue: "cq1"},
+				Spec:       kueue.LocalQueueSpec{ClusterQueue: "cq1"},
 			},
 		},
 	}

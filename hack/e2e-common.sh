@@ -44,6 +44,15 @@ if [[ -n ${KUBEFLOW_VERSION:-} ]]; then
     export KUBEFLOW_IMAGE=kubeflow/training-operator:${KUBEFLOW_IMAGE_VERSION}
 fi
 
+if [[ -n ${KUBEFLOW_TRAINER_VERSION:-} ]]; then
+    export KUBEFLOW_TRAINER_MANIFEST=${ROOT_DIR}/dep-crds/kf-trainer/manifests
+    # Extract the Kubeflow Trainer controller manager image version tag (newTag) from the manifest.
+    # This is necessary because the image version tag does not follow the usual package versioning convention.
+    KF_TRAINER_IMAGE_VERSION=$($YQ '.images[] | select(.name | contains("trainer-controller-manager")) | .newTag' "${KUBEFLOW_TRAINER_MANIFEST}/overlays/manager/kustomization.yaml")
+    export KF_TRAINER_IMAGE_VERSION
+    export KF_TRAINER_IMAGE=ghcr.io/kubeflow/trainer/trainer-controller-manager:${KF_TRAINER_IMAGE_VERSION}
+fi
+
 if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
     export KUBEFLOW_MPI_MANIFEST="https://raw.githubusercontent.com/kubeflow/mpi-operator/${KUBEFLOW_MPI_VERSION}/deploy/v2beta1/mpi-operator.yaml"
     export KUBEFLOW_MPI_IMAGE=mpioperator/mpi-operator:${KUBEFLOW_MPI_VERSION/#v}
@@ -61,6 +70,10 @@ fi
 
 if [[ -n "${CERTMANAGER_VERSION:-}" ]]; then
     export CERTMANAGER_MANIFEST="https://github.com/cert-manager/cert-manager/releases/download/${CERTMANAGER_VERSION}/cert-manager.yaml"
+fi
+
+if [[ -n "${KUEUE_UPGRADE_FROM_VERSION:-}" ]]; then
+    export KUEUE_OLD_VERSION_MANIFEST="https://github.com/kubernetes-sigs/kueue/releases/download/${KUEUE_UPGRADE_FROM_VERSION}/manifests.yaml"
 fi
 
 # agnhost image to use for testing.
@@ -114,6 +127,11 @@ function prepare_docker_images {
     if [[ -n ${KUBEFLOW_VERSION:-} ]]; then
         docker pull "${KUBEFLOW_IMAGE}"
     fi
+    
+    if [[ -n ${KUBEFLOW_TRAINER_VERSION:-} ]]; then
+        docker pull "${KF_TRAINER_IMAGE}"
+    fi
+
     if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
         docker pull "${KUBEFLOW_MPI_IMAGE}"
     fi
@@ -127,6 +145,10 @@ function prepare_docker_images {
     if [[ -n ${LEADERWORKERSET_VERSION:-} ]]; then
         docker pull "${LEADERWORKERSET_IMAGE}"
     fi
+    if [[ -n ${KUEUE_UPGRADE_FROM_VERSION:-} ]]; then
+        local current_image="${IMAGE_TAG%:*}:${KUEUE_UPGRADE_FROM_VERSION}"
+        docker pull "${current_image}"
+    fi
 }
 
 # $1 cluster
@@ -134,6 +156,10 @@ function cluster_kind_load {
     cluster_kind_load_image "$1" "${E2E_TEST_AGNHOST_IMAGE_OLD}"
     cluster_kind_load_image "$1" "${E2E_TEST_AGNHOST_IMAGE}"
     cluster_kind_load_image "$1" "$IMAGE_TAG"
+    if [[ -n ${KUEUE_UPGRADE_FROM_VERSION:-} ]]; then
+        local old_image="${IMAGE_TAG%:*}:${KUEUE_UPGRADE_FROM_VERSION}"
+        cluster_kind_load_image "$1" "${old_image}"
+    fi
 }
 
 # $1 cluster
@@ -156,6 +182,11 @@ function kind_load {
         # 2. Training-operator deployment is modified to enable all kubeflow jobs except for mpi -  https://github.com/kubeflow/training-operator/issues/1777
         install_kubeflow "$1" "$2"
     fi
+
+    if [[ -n ${KUBEFLOW_TRAINER_VERSION:-} ]]; then
+        install_kubeflow_trainer "$1" "$2"
+    fi
+
     if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
         install_mpi "$1" "$2"
     fi
@@ -199,6 +230,7 @@ function deploy_with_certmanager() {
         cd "${ROOT_DIR}/config/components/crd" || exit
         $KUSTOMIZE edit add patch --path "patches/cainjection_in_clusterqueues.yaml"
         $KUSTOMIZE edit add patch --path "patches/cainjection_in_cohorts.yaml"
+        $KUSTOMIZE edit add patch --path "patches/cainjection_in_localqueues.yaml"
         $KUSTOMIZE edit add patch --path "patches/cainjection_in_resourceflavors.yaml"
         $KUSTOMIZE edit add patch --path "patches/cainjection_in_workloads.yaml"
     )
@@ -208,6 +240,9 @@ function deploy_with_certmanager() {
         $KUSTOMIZE edit add patch --path "mutating_webhookcainjection_patch.yaml"
         $KUSTOMIZE edit add patch --path "validating_webhookcainjection_patch.yaml"
         $KUSTOMIZE edit add patch --path "cert_metrics_manager_patch.yaml" --kind Deployment
+        $KUSTOMIZE edit add patch --path "cert_visibility_manager_patch.yaml" --kind Deployment
+        $KUSTOMIZE edit add patch --path "apiservice_cainjection_patch.yaml" --kind APIService
+        $KUSTOMIZE edit add patch --path "apiservice_insecure_removal.yaml" --kind APIService
     )
 
     build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/certmanager"
@@ -218,6 +253,12 @@ function deploy_with_certmanager() {
 
 # $1 kubeconfig
 function cluster_kueue_deploy {
+    # Handle upgrade test mode
+    if [[ -n ${KUEUE_UPGRADE_FROM_VERSION:-} ]]; then
+        upgrade_test_flow "$1"
+        return
+    fi
+    # Normal deployment flows
     if [[ -n ${CERTMANAGER_VERSION:-} ]]; then
         kubectl -n cert-manager wait --for condition=ready pod \
             -l app.kubernetes.io/instance=cert-manager \
@@ -252,8 +293,7 @@ function helm_install {
 function build_and_apply_kueue_manifests {
     local build_output
     build_output=$($KUSTOMIZE build "$2")
-    # shellcheck disable=SC2001 # bash parameter substitution does not work on macOS
-    build_output=$(echo "$build_output" | sed "s/kueue-system/$KUEUE_NAMESPACE/g")
+    build_output=${build_output//kueue-system/$KUEUE_NAMESPACE}
     echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side -f -
 }
 
@@ -276,6 +316,26 @@ function install_jobset {
 function install_kubeflow {
     cluster_kind_load_image "${1}" "${KUBEFLOW_IMAGE}"
     kubectl apply --kubeconfig="$2" --server-side -k "${KUBEFLOW_MANIFEST_PATCHED}"
+}
+
+# $1 cluster name
+# $2 kubeconfig option
+function install_kubeflow_trainer {
+    cluster_kind_load_image "${1}" "${KF_TRAINER_IMAGE}"
+    (
+        # Kustomize patches don't work on the Kustomization file itself, they work on the Kubernetes resources that the Kustomization generates.
+        # So in case the jobset controller was already installed, we need to remove the resource from the kustomization file to avoid controller duplications
+        # We do it always since is cheap and more readable than dealing with conditionals
+        manifests_temp_dir=$(mktemp -d) && trap 'rm -rf "$manifests_temp_dir"' EXIT
+        cp -r "${KUBEFLOW_TRAINER_MANIFEST}"/* "$manifests_temp_dir/" && chmod -R 777 "$manifests_temp_dir"
+        if [[ -n ${JOBSET_VERSION:-} ]]; then
+            $YQ eval 'del(.resources[] | select(. == "../../third-party/jobset"))' -i "$manifests_temp_dir/overlays/manager/kustomization.yaml"
+        fi
+        kubectl apply --kubeconfig="$2" --server-side -k "$manifests_temp_dir/overlays/manager"
+    )
+    # In order to install the training runtimes we need to wait for the ClusterTrainingRuntime webhook to be ready
+    kubectl wait --kubeconfig="$2" deploy/kubeflow-trainer-controller-manager -n kubeflow-system --for=condition=available --timeout=5m
+    kubectl apply --kubeconfig="$2" --server-side -k "${KUBEFLOW_TRAINER_MANIFEST}/overlays/runtimes"
 }
 
 # $1 cluster name
@@ -362,4 +422,93 @@ EOF
         --cluster="$kind_name" \
         --user="$kind_name"
     fi
+}
+
+# Upgrade test flow: install old version, create resources, upgrade to current
+# $1 kubeconfig
+function upgrade_test_flow {
+    local old_version="${KUEUE_UPGRADE_FROM_VERSION}"
+    local old_image="${IMAGE_TAG%:*}:${old_version}"
+
+    echo "Upgrade Test: $old_version -> current"
+    echo "Old image: $old_image"
+    echo "New image: $IMAGE_TAG"
+    
+    # Step 1: Install old version
+    echo "Installing $old_version..."
+    echo "  Manifest URL: ${KUEUE_OLD_VERSION_MANIFEST}"
+    echo "  Downloading and modifying manifests..."
+    
+    # Download and modify manifests inline
+    curl -sL "${KUEUE_OLD_VERSION_MANIFEST}" | \
+      sed "s|registry.k8s.io/kueue/kueue:${old_version}|${old_image}|g" | \
+      sed 's|imagePullPolicy: Always|imagePullPolicy: IfNotPresent|g' | \
+      kubectl apply --server-side -f -
+
+    kubectl wait --for=condition=available --timeout=180s deployment/kueue-controller-manager -n kueue-system
+    echo "✓ $old_version ready"
+    
+    # Step 2: Create test resources
+    echo "Creating test resources..."
+    
+    # Create custom namespace for test resources (idempotent)
+    kubectl apply --kubeconfig="$1" -f - <<EOF_NS
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kueue-upgrade-test
+EOF_NS
+    
+    # Apply test resources
+    kubectl apply --kubeconfig="$1" -f - <<EOF
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: upgrade-test-flavor
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: upgrade-test-cq
+spec:
+  namespaceSelector: {}
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
+    flavors:
+    - name: upgrade-test-flavor
+      resources:
+      - name: "cpu"
+        nominalQuota: 10
+      - name: "memory"
+        nominalQuota: 10Gi
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: LocalQueue
+metadata:
+  name: upgrade-test-lq
+  namespace: kueue-upgrade-test
+spec:
+  clusterQueue: upgrade-test-cq
+EOF
+    echo "✓ Resources created"
+    
+    # Step 3: Upgrade to current (rolling update)
+    echo "Upgrading to current..."
+    
+    # Apply upgrade - rolling update will replace pods
+    (
+        set_managers_image
+        trap restore_managers_image EXIT
+        
+        local build_output
+        build_output=$($KUSTOMIZE build "${ROOT_DIR}/test/e2e/config/default")
+        build_output=${build_output//kueue-system/$KUEUE_NAMESPACE}
+        echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side --force-conflicts -f -
+    )
+    
+    # Wait for the rolling update to complete.
+    echo "Waiting for rolling update to complete..."
+    kubectl wait --for=condition=available --timeout=300s deployment/kueue-controller-manager -n "${KUEUE_NAMESPACE}"
+    echo "Upgrade complete (rolling update finished)"
+    echo "========================================="
 }

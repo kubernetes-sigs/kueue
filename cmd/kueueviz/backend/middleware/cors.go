@@ -65,8 +65,8 @@ func ConfigureCORS() (cors.Config, error) {
 
 	if allowedOriginsEnv != "" {
 		// Split comma-separated origins and validate each
-		rawOrigins := strings.Split(allowedOriginsEnv, ",")
-		for _, origin := range rawOrigins {
+		rawOrigins := strings.SplitSeq(allowedOriginsEnv, ",")
+		for origin := range rawOrigins {
 			origin = strings.TrimSpace(origin)
 			if cleanOrigin, valid := validateOrigin(origin); valid {
 				allowedOrigins = append(allowedOrigins, cleanOrigin)

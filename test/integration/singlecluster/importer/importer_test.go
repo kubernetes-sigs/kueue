@@ -17,10 +17,15 @@ limitations under the License.
 package importer
 
 import (
+	"context"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/component-base/metrics/testutil"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -29,7 +34,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	utiltestingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -45,17 +50,17 @@ var _ = ginkgo.Describe("Importer", func() {
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "import-")
 
-		flavor = utiltesting.MakeResourceFlavor("f1").Obj()
+		flavor = utiltestingapi.MakeResourceFlavor("f1").Obj()
 		util.MustCreate(ctx, k8sClient, flavor)
 
-		cq = utiltesting.MakeClusterQueue("cq1").
+		cq = utiltestingapi.MakeClusterQueue("cq1").
 			ResourceGroup(
-				*utiltesting.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "4").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "4").Obj(),
 			).
 			Obj()
 		util.MustCreate(ctx, k8sClient, cq)
 
-		lq = utiltesting.MakeLocalQueue("lq1", ns.Name).ClusterQueue("cq1").Obj()
+		lq = utiltestingapi.MakeLocalQueue("lq1", ns.Name).ClusterQueue("cq1").Obj()
 		util.MustCreate(ctx, k8sClient, lq)
 	})
 
@@ -99,7 +104,8 @@ var _ = ginkgo.Describe("Importer", func() {
 				gomega.Expect(k8sClient.Get(ctx, wl1LookupKey, wl1)).To(gomega.Succeed())
 				gomega.Expect(k8sClient.Get(ctx, wl2LookupKey, wl2)).To(gomega.Succeed())
 
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl2)
+				ginkgo.By("Verify workload2 is correct")
+				exepectWorkladsToBeAdmitted(ctx, k8sClient, wl1, wl2)
 			})
 
 			wl1UID := wl1.UID
@@ -108,7 +114,7 @@ var _ = ginkgo.Describe("Importer", func() {
 			ginkgo.By("Starting kueue, the cluster queue status should account for the imported Workloads", func() {
 				fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
 
-				util.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusActive)
+				expectClusterQueueStatusMetric(cq, metrics.CQStatusActive)
 				gomega.Eventually(func(g gomega.Gomega) {
 					updatedQueue := &kueue.ClusterQueue{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), updatedQueue)).To(gomega.Succeed())
@@ -135,15 +141,15 @@ var _ = ginkgo.Describe("Importer", func() {
 					g.Expect(k8sClient.Get(ctx, wl3LookupKey, wl3)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl3)
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl2)
+				expectWorkloadsToBePending(ctx, k8sClient, wl3)
+				exepectWorkladsToBeAdmitted(ctx, k8sClient, wl1, wl2)
 			})
 
 			ginkgo.By("By finishing an imported pod, the new one's Workload should be admitted", func() {
 				util.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod2)
 
 				util.ExpectWorkloadToFinish(ctx, k8sClient, wl2LookupKey)
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl3)
+				exepectWorkladsToBeAdmitted(ctx, k8sClient, wl1, wl3)
 			})
 
 			ginkgo.By("Checking the imported Workloads are not recreated", func() {
@@ -155,3 +161,50 @@ var _ = ginkgo.Describe("Importer", func() {
 		})
 	})
 })
+
+func exepectWorkladsToBeAdmitted(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		admitted := 0
+		var updatedWorkload kueue.Workload
+		for _, wl := range wls {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
+			if apimeta.IsStatusConditionTrue(updatedWorkload.Status.Conditions, kueue.WorkloadAdmitted) {
+				admitted++
+			}
+		}
+		g.Expect(admitted).Should(gomega.Equal(len(wls)), "Not enough workloads are admitted")
+	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+}
+
+func expectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		pending := 0
+		var updatedWorkload kueue.Workload
+		for _, wl := range wls {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
+			cond := apimeta.FindStatusCondition(updatedWorkload.Status.Conditions, kueue.WorkloadQuotaReserved)
+			if cond == nil {
+				continue
+			}
+			if cond.Status == metav1.ConditionFalse && cond.Reason == "Pending" {
+				pending++
+			}
+		}
+		g.Expect(pending).Should(gomega.Equal(len(wls)), "Not enough workloads are pending")
+	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+}
+
+func expectClusterQueueStatusMetric(cq *kueue.ClusterQueue, status metrics.ClusterQueueStatus) {
+	for i, s := range metrics.CQStatuses {
+		var wantV float64
+		if metrics.CQStatuses[i] == status {
+			wantV = 1
+		}
+		metric := metrics.ClusterQueueByStatus.WithLabelValues(cq.Name, string(s))
+		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+			v, err := testutil.GetGaugeMetricValue(metric)
+			g.Expect(err).ToNot(gomega.HaveOccurred())
+			g.Expect(v).Should(gomega.Equal(wantV), "cluster_queue_status with status=%s", s)
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	}
+}

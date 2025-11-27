@@ -21,13 +21,37 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 type TopologyDomainID string
 
 func DomainID(levelValues []string) TopologyDomainID {
 	return TopologyDomainID(strings.Join(levelValues, ","))
+}
+
+func IsTAS(pod *corev1.Pod) bool {
+	if IsExplicitTAS(pod.Annotations) {
+		return true
+	}
+	if _, ok := pod.Annotations[kueue.PodSetUnconstrainedTopologyAnnotation]; ok {
+		return true
+	}
+	// TODO: remove after 0.16
+	if _, ok := pod.Labels[kueue.TASLabel]; ok {
+		return true
+	}
+	return false
+}
+
+func IsExplicitTAS(annots map[string]string) bool {
+	if _, ok := annots[kueue.PodSetPreferredTopologyAnnotation]; ok {
+		return true
+	}
+	if _, ok := annots[kueue.PodSetRequiredTopologyAnnotation]; ok {
+		return true
+	}
+	return false
 }
 
 func NodeLabelsFromKeysAndValues(keys, values []string) map[string]string {
@@ -46,7 +70,7 @@ func LevelValues(levelKeys []string, objectLabels map[string]string) []string {
 	return levelValues
 }
 
-func Levels(topology *kueuealpha.Topology) []string {
+func Levels(topology *kueue.Topology) []string {
 	result := make([]string, len(topology.Spec.Levels))
 	for i, level := range topology.Spec.Levels {
 		result[i] = level.NodeLabel

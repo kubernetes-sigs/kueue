@@ -27,10 +27,10 @@ import (
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 func TestSyncAdmittedCondition(t *testing.T) {
@@ -344,7 +344,7 @@ func TestSyncAdmittedCondition(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
-			builder := utiltesting.MakeWorkload("foo", "bar").
+			builder := utiltestingapi.MakeWorkload("foo", "bar").
 				Admission(tc.admission).
 				AdmissionChecks(tc.checkStates...).
 				Conditions(tc.conditions...).
@@ -365,12 +365,12 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			}
 
 			if tc.wantAdmittedTime > 0 {
-				if wl.Status.AccumulatedPastExexcutionTimeSeconds == nil {
-					t.Fatalf("Expecting AccumulatedPastExexcutionTimeSeconds not to be nil")
+				if wl.Status.AccumulatedPastExecutionTimeSeconds == nil {
+					t.Fatalf("Expecting AccumulatedPastExecutionTimeSeconds not to be nil")
 				}
 
-				if diff := cmp.Diff(tc.wantAdmittedTime, *wl.Status.AccumulatedPastExexcutionTimeSeconds); diff != "" {
-					t.Errorf("Unexpected AccumulatedPastExexcutionTimeSeconds (- want/+ got):\n%s", diff)
+				if diff := cmp.Diff(tc.wantAdmittedTime, *wl.Status.AccumulatedPastExecutionTimeSeconds); diff != "" {
+					t.Errorf("Unexpected AccumulatedPastExecutionTimeSeconds (- want/+ got):\n%s", diff)
 				}
 			}
 		})
@@ -548,6 +548,130 @@ func TestSetCheckState(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantStates, gotStates, opts...); diff != "" {
 				t.Errorf("Unexpected conditions after sync (- want/+ got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestGetMaxRetryTime(t *testing.T) {
+	baseTime := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	cases := map[string]struct {
+		checkStates   []kueue.AdmissionCheckState
+		wantRetryTime metav1.Time
+	}{
+		"no admission checks": {
+			checkStates:   []kueue.AdmissionCheckState{},
+			wantRetryTime: metav1.NewTime(time.Time{}),
+		},
+		"admission check with nil RequeueAfterSeconds": {
+			checkStates: []kueue.AdmissionCheckState{
+				{
+					Name:                "check1",
+					State:               kueue.CheckStateRetry,
+					LastTransitionTime:  metav1.NewTime(baseTime),
+					RequeueAfterSeconds: nil,
+				},
+			},
+			wantRetryTime: metav1.NewTime(time.Time{}),
+		},
+		"admission check with zero LastTransitionTime": {
+			checkStates: []kueue.AdmissionCheckState{
+				{
+					Name:                "check1",
+					State:               kueue.CheckStateRetry,
+					LastTransitionTime:  metav1.NewTime(time.Time{}),
+					RequeueAfterSeconds: ptr.To[int32](60),
+				},
+			},
+			wantRetryTime: metav1.NewTime(time.Time{}),
+		},
+		"single admission check with valid retry time": {
+			checkStates: []kueue.AdmissionCheckState{
+				{
+					Name:                "check1",
+					State:               kueue.CheckStateRetry,
+					LastTransitionTime:  metav1.NewTime(baseTime),
+					RequeueAfterSeconds: ptr.To[int32](60),
+				},
+			},
+			wantRetryTime: metav1.NewTime(baseTime.Add(60 * time.Second)),
+		},
+		"multiple admission checks, returns max retry time": {
+			checkStates: []kueue.AdmissionCheckState{
+				{
+					Name:                "check1",
+					State:               kueue.CheckStateRetry,
+					LastTransitionTime:  metav1.NewTime(baseTime),
+					RequeueAfterSeconds: ptr.To[int32](60),
+				},
+				{
+					Name:                "check2",
+					State:               kueue.CheckStateRetry,
+					LastTransitionTime:  metav1.NewTime(baseTime),
+					RequeueAfterSeconds: ptr.To[int32](120),
+				},
+				{
+					Name:                "check3",
+					State:               kueue.CheckStateRetry,
+					LastTransitionTime:  metav1.NewTime(baseTime),
+					RequeueAfterSeconds: ptr.To[int32](30),
+				},
+			},
+			wantRetryTime: metav1.NewTime(baseTime.Add(120 * time.Second)),
+		},
+		"multiple checks with mixed nil and valid values": {
+			checkStates: []kueue.AdmissionCheckState{
+				{
+					Name:                "check1",
+					State:               kueue.CheckStateRetry,
+					LastTransitionTime:  metav1.NewTime(baseTime),
+					RequeueAfterSeconds: nil,
+				},
+				{
+					Name:                "check2",
+					State:               kueue.CheckStateRetry,
+					LastTransitionTime:  metav1.NewTime(baseTime),
+					RequeueAfterSeconds: ptr.To[int32](90),
+				},
+				{
+					Name:                "check3",
+					State:               kueue.CheckStateRetry,
+					LastTransitionTime:  metav1.NewTime(time.Time{}),
+					RequeueAfterSeconds: ptr.To[int32](180),
+				},
+			},
+			wantRetryTime: metav1.NewTime(baseTime.Add(90 * time.Second)),
+		},
+		"checks with different base times": {
+			checkStates: []kueue.AdmissionCheckState{
+				{
+					Name:                "check1",
+					State:               kueue.CheckStateRetry,
+					LastTransitionTime:  metav1.NewTime(baseTime),
+					RequeueAfterSeconds: ptr.To[int32](60),
+				},
+				{
+					Name:                "check2",
+					State:               kueue.CheckStateRetry,
+					LastTransitionTime:  metav1.NewTime(baseTime.Add(30 * time.Second)),
+					RequeueAfterSeconds: ptr.To[int32](60),
+				},
+			},
+			wantRetryTime: metav1.NewTime(baseTime.Add(90 * time.Second)),
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			wl := utiltestingapi.MakeWorkload("foo", "bar").
+				AdmissionChecks(tc.checkStates...).
+				Obj()
+
+			gotRetryTime := GetMaxRetryTime(wl)
+
+			if !gotRetryTime.Equal(&tc.wantRetryTime) {
+				t.Errorf("GetMaxRetryTime() = %v, want %v", gotRetryTime, tc.wantRetryTime)
 			}
 		})
 	}

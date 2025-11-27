@@ -32,15 +32,25 @@
   - [Validation](#validation)
     - [PodSet Slice size validation](#podset-slice-size-validation)
   - [Internal APIs](#internal-apis)
+    - [Topology assignment representation](#topology-assignment-representation)
+      - [Until v1beta1](#until-v1beta1)
+      - [Since v1beta2](#since-v1beta2)
     - [Node failures](#node-failures)
+      - [Until v0.13](#until-v013)
+      - [Since v0.14](#since-v014)
   - [Implicit defaulting of TAS annotations](#implicit-defaulting-of-tas-annotations)
   - [Computing the assignment](#computing-the-assignment)
     - [Example](#example)
+    - [Selecting the algorithm](#selecting-the-algorithm)
+      - [Until v0.14](#until-v014)
+      - [Since v0.15](#since-v015)
   - [Two-level Topology Aware scheduling](#two-level-topology-aware-scheduling)
     - [Example](#example-1)
   - [Cross-PodSet Topology Aware scheduling](#cross-podset-topology-aware-scheduling)
     - [Ensure leader and workers end up on the same flavor](#ensure-leader-and-workers-end-up-on-the-same-flavor)
   - [Enforcing the assignment](#enforcing-the-assignment)
+  - [Balanced placement](#balanced-placement)
+    - [Example](#example-2)
   - [Support for ProvisioningRequests](#support-for-provisioningrequests)
     - [Determining the need for second pass](#determining-the-need-for-second-pass)
     - [Targeting the newly provisioned nodes](#targeting-the-newly-provisioned-nodes)
@@ -63,9 +73,9 @@
     - [Drop the topologyAssignment.levels field](#drop-the-topologyassignmentlevels-field)
     - [Rename the topologyAssignment.domains.values field as levelValues](#rename-the-topologyassignmentdomainsvalues-field-as-levelvalues)
   - [Drop dedicated TAS label](#drop-dedicated-tas-label)
-  - [Failed nodes in WorkloadStatus](#failed-nodes-in-workloadstatus)
   - [MostFreeCapacity algorithm](#mostfreecapacity-algorithm)
-    - [Example](#example-2)
+    - [Example](#example-3)
+  - [TopologyAssignmentSlices as separate CRD instances](#topologyassignmentslices-as-separate-crd-instances)
 <!-- /toc -->
 
 ## Summary
@@ -153,7 +163,7 @@ instance is contained within a "rack".
 
 #### Story 3
 
-Similar to [Story 3](#story-3), but I use multi-template Jobs (JobSet, MPIJob,
+Similar to [Story 1](#story-1), but I use multi-template Jobs (JobSet, MPIJob,
 TFJob) and Pods belonging to different templates also need to exchange sizable
 amount of data, impacting the execution time. I would like to be able to
 indicate that (1) all worker Pods are contained within a "rack", but also all
@@ -173,7 +183,7 @@ Extension: support for indicating the order of pods for external Jobs.
 
 #### Story 5
 
-Similar to [Story 2](#story-2), but I want all the Jobs in ReplicatedJob to run 
+Similar to [Story 2](#story-2), but I want all the Jobs in ReplicatedJob to run
 within a "block", but each Job should also run within a "host" within that "block".
 
 #### Story 6
@@ -331,7 +341,7 @@ spec:
               args: ["pause"]
 ```
 
-In this example there will be 8 (2 ReplicatedJob instances with 4 
+In this example there will be 8 (2 ReplicatedJob instances with 4
 "parallelism" each) worker pods and we say that we want to split
 PodSet into slices with 4 pods each (so 2 slices in total) and
 each slice requires "host" topology domain.
@@ -344,7 +354,7 @@ value for it in case of JobSet is `parallelism`.
 ###### JobSet with two-level scheduling
 
 According to [Story 5](#story-5) we noticed that some users would like to
-co-locate all Jobs resulting from ReplicatedJob in JobSet in some 
+co-locate all Jobs resulting from ReplicatedJob in JobSet in some
 higher-level domain (like "block"), but also  co-locate each Job within
 lower-level domain like "host".
 
@@ -399,7 +409,7 @@ In this example there will be 8 worker pods and we say that the PodSet
 corresponding to the worker requires the "block" topology domain for all
 those pods.
 
-However, we also specify that we want to split PodSet into slices with 4 
+However, we also specify that we want to split PodSet into slices with 4
 pods each (so 2 slices in total) and each slice requires "host" topology
 domain.
 
@@ -534,10 +544,10 @@ transition to the `PodsReady=false`, more details in the
 [KEP PR](https://github.com/kubernetes-sigs/kueue/pull/2737). This mechanism
 will also be helpful for regular workloads.
 
-We also propose to recompute the TopologyAdmission upon node removal and/or 
-failure, to find matching replacements for missing nodes. If no such 
+We also propose to recompute the TopologyAdmission upon node removal and/or
+failure, to find matching replacements for missing nodes. If no such
 replacement exists, the workload has to be evicted and rescheduled again.
-This mechanism requires kueue to keep track of any failed or missing nodes 
+This mechanism requires kueue to keep track of any failed or missing nodes
 affecting the scheduled TAS workloads. We propose to initially handle only
 a single node failure and extend it to multiple depending on the feedback
 from the users.
@@ -607,7 +617,7 @@ type TopologySpec struct {
 
 // TopologyLevel defines the desired state of TopologyLevel
 type TopologyLevel struct {
-  // NodeLabel indicates the name of the node label for a specific topology
+  // nodeLabel indicates the name of the node label for a specific topology
   // level. Examples:
   // - cloud.provider.com/topology-block
   // - cloud.provider.com/topology-rack
@@ -710,7 +720,7 @@ the rules is deactivated):
   are mutually exclusive.
 - the value of `kueue.x-k8s.io/podset-slice-required-topology` is one of the labels
   specified in the topology node labels
-- the value of `kueue.x-k8s.io/podset-slice-required-topology` has to represent 
+- the value of `kueue.x-k8s.io/podset-slice-required-topology` has to represent
   a topology "below" the topology defined by `kueue.x-k8s.io/podset-preferred-topology`
   or `kueue.x-k8s.io/podset-required-topology`
 - if `kueue.x-k8s.io/podset-slice-required-topology` is specified then
@@ -718,7 +728,7 @@ the rules is deactivated):
   specified its own default. See [Slice size validation](#slice-size-validation))
 - The value of `kueue.x-k8s.io/podset-slice-size` has to be a numeric value greater or equal
   than 1. It has to evenly divide the size of a PodSet.
-- If `kueue.x-k8s.io/podset-group-name` is specified, the `kueue.x-k8s.io/podset-required-topology` 
+- If `kueue.x-k8s.io/podset-group-name` is specified, the `kueue.x-k8s.io/podset-required-topology`
   or `kueue.x-k8s.io/podset-preferred-topology` has to also be specified in all other
   PodTemplates included in the PodSet Group and it has to have the same value.
 
@@ -770,34 +780,34 @@ type PodSetTopologyRequest struct {
   // +kubebuilder:validation:Type=boolean
   Unconstrained *bool `json:"unconstrained,omitempty"`
 
-  // PodIndexLabel indicates the name of the label indexing the pods.
+  // podIndexLabel indicates the name of the label indexing the pods.
   // For example, in the context of
   // - kubernetes job this is: kubernetes.io/job-completion-index
   // - JobSet: kubernetes.io/job-completion-index (inherited from Job)
   // - Kubeflow: training.kubeflow.org/replica-index
-  PodIndexLabel *string
+  PodIndexLabel *string `json:"podIndexLabel,omitempty"`
 
-  // SubGroupIndexLabel indicates the name of the label indexing the instances of replicated Jobs (groups)
+  // subGroupIndexLabel indicates the name of the label indexing the instances of replicated Jobs (groups)
   // within a PodSet. For example, in the context of JobSet this is jobset.sigs.k8s.io/job-index.
-  SubGroupIndexLabel *string
+  SubGroupIndexLabel *string `json:"subGroupIndexLabel,omitempty"`
 
-  // SubGroupIndexLabel indicates the count of replicated Jobs (groups) within a PodSet.
+  // subGroupCount indicates the count of replicated Jobs (groups) within a PodSet.
   // For example, in the context of JobSet this value is read from jobset.sigs.k8s.io/replicatedjob-replicas.
-  SubGroupCount *int32
+  SubGroupCount *int32 `json:"subGroupCount,omitempty"`
 
-  // PodSetGroupName indicates the name of the group of PodSets to which this PodSet belongs to.
+  // podSetGroupName indicates the name of the group of PodSets to which this PodSet belongs to.
   // PodSets with the same `PodSetGroupName` should be assigned the same ResourceFlavor
   //
   // +optional
   PodSetGroupName *string `json:"podSetGroupName,omitempty"`
-  
-  // PodSetSliceRequiredTopology indicates the topology level required by the PodSet slice, as
+
+  // podSetSliceRequiredTopology indicates the topology level required by the PodSet slice, as
   // indicated by the `kueue.x-k8s.io/podset-slice-required-topology` annotation.
   //
   // +optional
   PodSetSliceRequiredTopology *string `json:"podSetSliceRequiredTopology,omitempty"`
 
-  // PodSetSliceSize indicates the size of a subgroup of pods in a PodSet for which
+  // podSetSliceSize indicates the size of a subgroup of pods in a PodSet for which
   // Kueue finds a requested topology domain on a level defined
   // in `kueue.x-k8s.io/podset-slice-required-topology` annotation.
   //
@@ -813,55 +823,49 @@ at each topology level to the specific subset of nodes.
 type PodSetAssignment struct {
   ...
 
-  // topologyAssignment indicates the topology assignment divided into
-  // topology domains corresponding to the lowest level of the topology.
-  // The assignment specifies the number of Pods to be scheduled per topology
-  // domain and specifies the node selectors for each topology domain, in the
-  // following way: the node selector keys are specified by the levels field
-  // (same for all domains), and the corresponding node selector value is
-  // specified by the domains.values subfield. If the TopologySpec.Levels field contains
-  // "kubernetes.io/hostname" label, topologyAssignment will contain data only for
-  // this label, and omit higher levels in the topology
-  //
-  // Example:
-  //
-  // topologyAssignment:
-  //   levels:
-  //   - cloud.provider.com/topology-block
-  //   - cloud.provider.com/topology-rack
-  //   domains:
-  //   - values: [block-1, rack-1]
-  //     count: 4
-  //   - values: [block-1, rack-2]
-  //     count: 2
-  //
-  // Here:
-  // - 4 Pods are to be scheduled on nodes matching the node selector:
-  //   cloud.provider.com/topology-block: block-1
-  //   cloud.provider.com/topology-rack: rack-1
-  // - 2 Pods are to be scheduled on nodes matching the node selector:
-  //   cloud.provider.com/topology-block: block-1
-  //   cloud.provider.com/topology-rack: rack-2
-  //
-  // Example:
-	// Below there is an equivalent of the above example assuming, Topology
-	// object defines kubernetes.io/hostname as the lowest level in topology.
-	// Hence we omit higher level of topologies, since the hostname label
-	// is sufficient to explicitly identify a proper node.
-  //
-  // topologyAssignment:
-  //   levels:
-  //   - kubernetes.io/hostname
-  //   domains:
-  //   - values: [hostname-1]
-  //     count: 4
-  //   - values: [hostname-2]
-  //     count: 2
-  //
   // +optional
   TopologyAssignment *TopologyAssignment `json:"topologyAssignment,omitempty"`
-}
+```
 
+The format of `TopologyAssignment` depends on the API version; see details [below](#topology-assignment-representation).
+
+Kueue uses the `kueue.x-k8s.io/topology` scheduling gate to delay the
+`nodeSelector` assignment, because different pods in the same PodSet may have
+different values:
+
+```golang
+const (
+  // TopologySchedulingGate is used to delay scheduling of a Pod until the
+  // nodeSelectors corresponding to the assigned topology domain are injected
+  // into the Pod.
+  TopologySchedulingGate = "kueue.x-k8s.io/topology"
+
+  // WorkloadAnnotation is an annotation set on the Job's PodTemplate to
+  // indicate the name of the admitted Workload corresponding to the Job. The
+  // annotation is set when starting the Job, and removed on stopping the Job.
+  WorkloadAnnotation = "kueue.x-k8s.io/workload"
+
+  // TASLabel is a label set on the Job's PodTemplate to indicate that the
+  // PodSet is admitted using TopologyAwareScheduling, and all Pods created
+  // from the Job's PodTemplate also have the label.
+  TASLabel = "kueue.x-k8s.io/tas"
+)
+```
+
+#### Topology assignment representation
+
+`TopologyAssignment` indicates the topology assignment divided into topology domains corresponding to the lowest level of the topology. The assignment specifies the number of Pods to be scheduled per topology domain and the node selectors for each topology domain, in the following way:
+
+- the node selector keys are specified by the `Levels` field (same for all domains),
+- the corresponding node selector values - and the Pod counts - are specified by the other field (`Domains` until v1beta1 or `Slices` since v1beta2).
+
+If the `Levels` field contains `kubernetes.io/hostname` label, the `TopologyAssignment` will contain data only for this label, and omit higher levels in the topology.
+
+##### Until v1beta1
+
+In the older format, each domain assignment is represented by a single entry in the `Domains` list. 
+
+```golang
 type TopologyAssignment struct {
   // levels is an ordered list of keys denoting the levels of the assigned
   // topology (i.e. node label keys), from the highest to the lowest level of
@@ -900,34 +904,209 @@ type TopologyDomainAssignment struct {
 }
 ```
 
-Kueue uses the `kueue.x-k8s.io/topology` scheduling gate to delay the
-`nodeSelector` assignment, because different pods in the same PodSet may have
-different values:
+Example:
+
+```yaml
+topologyAssignment:
+  levels:
+  - cloud.provider.com/topology-block
+  - cloud.provider.com/topology-rack
+  domains:
+  - values: [block-1, rack-1]
+    count: 4
+  - values: [block-1, rack-2]
+    count: 2
+```
+
+Here:
+- 4 Pods are to be scheduled on nodes matching the node selector:
+  ```
+  cloud.provider.com/topology-block: block-1
+  cloud.provider.com/topology-rack: rack-1
+  ```
+- 2 Pods are to be scheduled on nodes matching the node selector:
+  ```
+  cloud.provider.com/topology-block: block-1
+  cloud.provider.com/topology-rack: rack-2
+  ```
+
+Below there is an equivalent of the above example, assuming that the Topology
+object defines `kubernetes.io/hostname` as the lowest level in topology.
+Hence we omit higher topology levels, since the hostname label
+is sufficient to uniquely identify a particular node.
+
+```yaml
+topologyAssignment:
+  levels:
+  - kubernetes.io/hostname
+  domains:
+  - values: [hostname-1]
+    count: 4
+  - values: [hostname-2]
+    count: 2
+```
+
+##### Since v1beta2
+
+In v1beta2, the data format is reshaped, with the main goal of improving handling of huge workloads. The 3 main ideas here are:
+
+- splitting the whole assignment structure into slices,
+- broader use of "parallel lists" which should be "zipped together" to produce their meaning \
+  (just like a _single_ list `Levels` in the old format specified the topology levels used in _every_ domain of the assignment),
+- extracting common prefixes and suffixes of node names.
 
 ```golang
-const (
-  // TopologySchedulingGate is used to delay scheduling of a Pod until the
-  // nodeSelectors corresponding to the assigned topology domain are injected
-  // into the Pod.
-  TopologySchedulingGate = "kueue.x-k8s.io/topology"
+type TopologyAssignment struct {
+  // (same role & comments as in v1beta1)
+  Levels []string `json:"levels,omitempty"`
 
-  // WorkloadAnnotation is an annotation set on the Job's PodTemplate to
-  // indicate the name of the admitted Workload corresponding to the Job. The
-  // annotation is set when starting the Job, and removed on stopping the Job.
-  WorkloadAnnotation = "kueue.x-k8s.io/workload"
+  // slices represent topology assignments for subsets of pods of a workload.
+  // The full assignment is obtained as a union of all slices.
+  // +required
+  // +listType=atomic
+  // +kubebuilder:validation:MaxItems=1000
+  Slices []TopologyAssignmentSlice `json:"slices,omitempty"`
+}
 
-  // TASLabel is a label set on the Job's PodTemplate to indicate that the
-  // PodSet is admitted using TopologyAwareScheduling, and all Pods created
-  // from the Job's PodTemplate also have the label.
-  TASLabel = "kueue.x-k8s.io/tas"
-)
+// TopologyAssignmentSlice fully specifies the topology assignment for a subset of pods of a workload.
+type TopologyAssignmentSlice struct {
+  // domainCount is the number of domains covered by this slice.
+  // +required
+  // +kubebuilder:validation:Minimum=1
+  DomainCount int32 `json:"domainCount,omitempty"`
+
+  // valuesPerLevel has one entry for each of the Levels specified in the TopologyAssignment.
+  // The entry corresponding to a particular level specifies the placement of pods at that level.
+  // +required
+  // +listType=atomic
+  // +kubebuilder:validation:MinItems=1
+  // +kubebuilder:validation:MaxItems=16
+  ValuesPerLevel []TopologyAssignmentSliceLevelValues `json:"valuesPerLevel,omitempty"`
+
+  // podCounts specifies the number of pods allocated per each domain.
+  // +required
+  PodCounts TopologyAssignmentSlicePodCounts `json:"podCounts,omitempty"`
+}
+
+type TopologyAssignmentSliceLevelValues struct {
+  // universal, if set, specifies a single topology placement value (at a particular topology level)
+  // that applies to all pods in the current TopologyAssignmentSlice.
+  // Exactly one of universal, individual must be set.
+  // +optional
+  Universal *string `json:"universal,omitempty"`
+
+  // individual, if set, specifies multiple topology placement values (at a particular topology level)
+  // that apply to the pods in the current TopologyAssignmentSlice.
+  // Exactly one of universal, individual must be set.
+  // +optional
+  Individual *TopologyAssignmentSliceLevelIndividualValues `json:"individual,omitempty"`
+}
+
+type TopologyAssignmentSliceLevelIndividualValues struct {
+  // prefix specifies a common prefix for all values in this slice assignment.
+  // It must be either nil pointer or a non-empty string.
+  // +optional
+  // +kubebuilder:validation:MaxLength=63
+  prefix *string `json:"prefix,omitempty"`
+  // suffix specifies a common suffix for all values in this slice assignment.
+  // It must be either nil pointer or a non-empty string.
+  // +optional
+  // +kubebuilder:validation:MaxLength=63
+  suffix *string `json:"suffix,omitempty"`
+
+  // roots specifies the values in this assignment (excluding prefix and suffix, if non-empty).
+  // Its length must be equal to the "domainCount" field of the TopologyAssignmentSlice.
+  // +required
+  // +listType=atomic
+  // +kubebuilder:validation:MinItems=1
+  // +kubebuilder:validation:MaxItems=100000
+  // +kubebuilder:validation:items:MaxLength=63
+  Roots []string `json:"roots,omitempty"`
+}
+
+type TopologyAssignmentSlicePodCounts struct {
+  // universal, if set, specifies the number of pods allocated in every domain in this slice.
+  // Exactly one of universal, individual must be set.
+  // +optional
+  // +kubebuilder:validation:Minimum=1
+  Universal *int32 `json:"universal,omitempty"`
+
+  // individual, if set, specifies the number of pods allocated in each domain in this slice.
+  // If set, its length must be equal to the "domainCount" field of the TopologyAssignmentSlice.
+  // Exactly one of universal, individual must be set.
+  // +optional
+  // +listType=atomic
+  // +kubebuilder:validation:MinItems=1
+  // +kubebuilder:validation:MaxItems=100000
+  // +kubebuilder:validation:items:Minimum=1
+  Individual []int32 `json:"podCounts,omitempty"`
+}
 ```
+
+The above mentioned cross-validity rules (mutually exclusive fields, equal lengths, etc.) will be all expressed as `kubebuilder:validation:XValidation` rules on the respective "smallest common container types".
+
+Example (representing the same assignment as in the first example for the [old format](#until-v1beta1)):
+
+```yaml
+topologyAssignment:
+  levels:
+  - cloud.provider.com/topology-block
+  - cloud.provider.com/topology-rack
+  slices:
+  - domainCount: 2
+    valuesPerLevel:
+    - universal: block-1
+    - individual:
+        prefix: rack-
+        roots: [1, 2]
+    podCounts:
+      individual: [4, 2]
+```
+
+The above example has one slice, specifying 2 domains on 2 topology levels. On the block level, all domains take the same value (`block-1`), which allows using `universal`. On the rack level, the values diverge (`rack-1`) vs. (`rack-2`) but they still share a relatively long common prefix. The new representation allows deduplicating characters between these.
+
+Multiple slices may be used e.g. for a host-level assignment when the nodes being assigned are split into multiple "node pools". The following example illustrates this for an assignment of 12 pods on 12 nodes (1 per 1), where the nodes come from 2 pools (of size 5 and 7 respectively), with node names looking like `pool-X-node-Y`:
+
+```yaml
+topologyAssignment:
+  levels: [kubernetes.io/hostname]
+  slices:
+  - domainCount: 5
+    valuesPerLevel:
+    - individual:
+        prefix: pool-1-node-
+        roots: [1, 2, 3, 4, 5]
+    podCounts:
+      universal: 1
+  - domainCount: 7
+    valuesPerLevel:
+    - individual:
+        prefix: pool-2-node-
+        roots: [1, 2, 3, 4, 5, 6, 7]
+    podCounts:
+      universal: 1
+```
+
+The main motivation behind the new format is the etcd size limit of 1.5MiB per single resource, which currently restricts the number of nodes that can participate in the assignment for a single workload. (For the v1beta1 format, and the real-life node naming schemes of main K8s vendors, the limit is around 20-30k). The new format helps addressing this problem in 2 time perspectives:
+
+- In the short term, it increases the number of nodes which can fit into 1 etcd entry.
+
+  - By just using a single slice, with extracting common prefix and suffix of all node names, our simulations (for some real-life node naming schemes) suggested a limit of around 60k nodes.
+  
+  - Multiple slices allow optimizing even further, if desired. \
+    Our simulations of more complex algorithms (e.g. heuristic pruning of prefix tree) allowed fitting over 100k nodes. \
+    (However, at that point we reached a tradeoff between bytesize, encoding time, and conceptual simplicity. Resolving that tradeoff is out of scope of this design; the important thing is that the proposed data format supports various specific algorithms).
+
+- In the long term, as the number of nodes grows, at some point we'll inevitably hit the 1.5MiB limit anyway. \
+  When this happens, we foresee a need to store the slices as separate CRD instances (see [description](#topologyassignmentslices-as-separate-crd-instances) in the "Alternatives" section). \
+  While the v1beta2 format does not yet do that, by introducing `Slices` we come much closer to this. \
+  Once there is a need, we can promote (some of) `Slices` to instances of a standalone CRD - but the appropriate type system is already there.
 
 #### Node failures
 
-Initially we plan to support node becoming not ready (as indicated in Node 
-`status.conditions.ready` field) and node being deleted. A new controller will 
-monitor nodes and will update each affected TAS workload with the information 
+Initially we plan to support node becoming not ready (as indicated in Node
+`status.conditions.ready` field) and node being deleted. A new controller will
+monitor nodes and will update each affected TAS workload with the information
 about the failed nodes. This information will then be consumed by a new mechanism
 in scheduler where we will try to find a new topology assignment and replace the
 failed node(s) (by changing the assignment only on the affected pods). Initially we plan
@@ -936,7 +1115,8 @@ is neccessary to fit the workload. Since this mechanism is dedicated
 to only replace nodes, it will only work for Topologies which specify
 `kubernetes.io/hostname` at the lowest level.
 
-We propose to introduce a new Annotation at a Workload level:
+##### Until v0.13
+We use an Annotation at a Workload level:
 
 ```golang
 const (
@@ -944,6 +1124,32 @@ const (
 	// name of a failed node running at least one pod of this workload.
 	NodeToReplaceAnnotation = "alpha.kueue.x-k8s.io/node-to-replace"
 )
+```
+The annotation contains the name of (a single) failed node to replace.
+##### Since v0.14
+We propose to remove the Annotation and replace it with new field in Workload status that will it will contain
+a list of failed nodes:
+
+```golang
+type WorkloadStatus struct {
+  (...)
+    // unhealthyNodes holds the failed nodes running at least one pod of this workload
+    // when Topology-Aware Scheduling is used. This field should not be set by the users.
+    // It indicates Kueue's scheduler is searching for replacements of the failed nodes.
+    // Requires enabling the TASFailedNodeReplacement feature gate.
+    //
+    // +optional
+    UnhealthyNodes []UnhealthyNode `json:"unhealthyNodes,omitempty"`
+}
+
+type UnhealthyNode struct {
+    // name is the name of the unhealthy node.
+    //
+    // +required
+    // +kubebuilder:validation:Required
+    Name string `json:"name"`
+}
+
 ```
 
 Sometimes node failures are only transient and the node might recover, and so reacting
@@ -955,7 +1161,7 @@ For that reason we introduce two heuristics for marking nodes to replace for a g
 or terminating (used when the `TASReplaceNodeOnPodTermination` feature gate is enabled which is
 available starting with Kueue v0.13)
 
-For the future releases we are going to consider API configuration for the approach, but first we 
+For the future releases we are going to consider API configuration for the approach, but first we
 would like to collect more user feedback using the feature gates while in Alpha.
 
 Kueue tries to find a replacement for a failed node until success (or until it gets
@@ -1005,52 +1211,74 @@ For a given PodSet Kueue:
 
 Kueue places pods on domains with different algorithms, depending on the annotation and chosen profile:
 - `LeastFreeCapacity` algorithm - Kueue selects as many domains as needed (if it meets user's requirement) starting from the one with the least free capacity;
-- `BestFit` algorithm (default) - Kueue selects as many domains as needed (if it meets user's requirement) starting from the one with the most free capacity.
+- `BestFit` algorithm - Kueue selects as many domains as needed (if it meets user's requirement) starting from the one with the most free capacity.
 However, it optimizes the selection of the last domain at each level to minimize the remaining free resources.
+- `BalancedPlacement` algorithm - Kueue selects as many domains as needed (if it meets user's requirement)
+and places pods evenly on the selected domains. The balanced placement is performed only at two consecutive
+levels, where the higher of these two levels is indicated by the `preferred` annotation
+(for more details see [Balanced placement](#balanced-placement)).
 
 #### Example
 Consider a rack with four nodes that can accommodate 3, 3, 2, and 1 pod, respectively. A PodSet consists of 7 pods.
 
 BestFit algorithm iterates over the nodes and select the first two nodes,
-each with 3 available pods, as they possess the most free capacity. With 1 pod remaining to schedule, 
+each with 3 available pods, as they possess the most free capacity. With 1 pod remaining to schedule,
 algorithm optimizes the choice of the last node (domain) and selects the node that can accommodate exactly 1 pod.
 
 The `LeastFreeCapacity` algorithm iterates over the nodes in reverse order.
 Consequently, it selects the nodes with 1, 2, 3, and 3 available pods, reserving capacity for only 1 pod on the last node.
 
-Selection of the algorithm depends on TAS profiles expressed by feature gates, and PodSet's annotation:
+#### Selecting the algorithm
+Selection of the algorithm depends on TAS profiles expressed by feature gates, and PodSet's annotation. 
 
-| featuregate/annotation                   | preferred         | required          | unconstrained     |
+The `TASProfile...` feature gates are mutually exclusive.
+
+Eventually, we plan to introduce TAS configuration allowing the user to select the desired algorithm, and then to remove the feature gates.
+
+##### Until v0.14
+Until v0.14, the available feature gates are as follows:
+
+| feature gate / annotation                | preferred         | required          | unconstrained     |
 | ---------------------------------------- | ----------------- | ----------------- | ----------------- |
 | None                                     | BestFit           | BestFit           | BestFit           |
 | TASProfileMixed (deprecated)             | BestFit           | BestFit           | LeastFreeCapacity |
 | TASProfileLeastFreeCapacity (deprecated) | LeastFreeCapacity | LeastFreeCapacity | LeastFreeCapacity |
 
-Feature gates: `TASProfileLeastAllocated`, `TASProfileMixed` and `TASProfileLeastFreeCapacity` are mutually exclusive.
+These reflect our general recommendation of `BestFit` for the topology-aware cases; however, `LeastFreeCapacity` remains an available option, especially for the `unconstrained` topology requests.
 
-We recommend the BestFit algorithm for most of use cases, however we give more flexibility to users with those experimental feature gates.
-Based on the collected feedback we will introduce TAS configuration that would allow user to select the desired algorithm.
-Eventually we'll remove the feature as they will be no longer need when we implement API for TAS configuration.
+##### Since v0.15
+Since v0.15, the available feature gates are as follows:
+
+| feature gate / annotation                  | preferred         | required          | unconstrained     |
+| ------------------------------------------ | ----------------- | ----------------- | ----------------- |
+| None <br/> or TASProfileMixed (default)    | BestFit           | BestFit           | LeastFreeCapacity |
+| TASProfileBestFit (deprecated)             | BestFit           | BestFit           | BestFit           |
+| TASProfileLeastFreeCapacity (deprecated)   | LeastFreeCapacity | LeastFreeCapacity | LeastFreeCapacity |
+| TASBalancedPlacement                       | BalancedPlacement | BestFit           | LeastFreeCapacity |
+
+Based on the user feedback, we decided to make `TASProfileMixed` default starting in v0.15. (The corresponding feature gate is hence obsolete; we formally keep it "deprecated" for backwards compatibility). It differs from the previous default only in the `unconstrained` case - in which Kueue should prioritize minimizing fragmentation which is provided by the `LeastFreeCapacity` algorithm.
+
+For users still preferring the "always BestFit" profile, we introduce the `TASProfileBestFit` feature gate, marking it as deprecated. We will remove it in v0.17 if we see no report indicating a need for that configuration.
 
 ### Two-level Topology Aware scheduling
-In consideration of a [Story 5](#story-5) a two-level scheduling is introduced. 
+In consideration of a [Story 5](#story-5) a two-level scheduling is introduced.
 We introduce a notion of PodSet Slice, which is a subset of PodSet. All slices
-have the same size and evenly divide the PodSet. To simplify implementation we 
-are allowing only for a "required" topology for slice. The requested topology 
+have the same size and evenly divide the PodSet. To simplify implementation we
+are allowing only for a "required" topology for slice. The requested topology
 level for slices has to be on the same or below level of the main topology.
 
-Requesting slice topology changes the way algorithm chooses domains. In all 
+Requesting slice topology changes the way algorithm chooses domains. In all
 modes in [Computing the assignment](#computing-the-assignment) algorithm greedily
 selects domains based on the free capacity (either most or least). However, with
-slices it considers the amount of slices that can fit into a domain as free 
-capacity, but if that number is equal then it prioritizes domains with fewer 
+slices it considers the amount of slices that can fit into a domain as free
+capacity, but if that number is equal then it prioritizes domains with fewer
 remaining resources.
 
 #### Example
-Consider a rack with nodes that can accommodate 6, 5, 4, 3, and 2 pods respectively. 
+Consider a rack with nodes that can accommodate 6, 5, 4, 3, and 2 pods respectively.
 The required topology for slice is "host" and the podset slice size is 2.
 
-As an example let's analyze the assignment based on the size of a podset and selected 
+As an example let's analyze the assignment based on the size of a podset and selected
 mode. See the table below where the numbers are pods assigned to a particular node.
 The header for columns dedicated to nodes correspond node's initial capacity.
 
@@ -1060,7 +1288,7 @@ The header for columns dedicated to nodes correspond node's initial capacity.
 | LeastFreeCapacity | 10         | .   | 2   | 4   | 2   | 2   |
 
 Explanation:
-- `BestFit` - We prioritized 3rd node over 2nd node because 3rd node was a tight fit among all domains that could fit 2 slices. The last domain has been "optimized" to find the tight fit. 
+- `BestFit` - We prioritized 3rd node over 2nd node because 3rd node was a tight fit among all domains that could fit 2 slices. The last domain has been "optimized" to find the tight fit.
 - `LeastFreeCapacity` - We prioritized 3rd node, because it is a tight fit among all domains that could fit 2 slices.
 
 It is worth noting that the tight fit mentioned above does not guarantee that no free capacity will be left within the assigned domains.
@@ -1068,7 +1296,7 @@ It is worth noting that the tight fit mentioned above does not guarantee that no
 ### Cross-PodSet Topology Aware scheduling
 
 In consideration of a [Story 6](#story-6) a cross-podset topology aware scheduling
-is required, due to the fact that leader and workers are separate PodSets. To be able 
+is required, due to the fact that leader and workers are separate PodSets. To be able
 to co-locate leaders with its workers in the same topology domain, we divide the
 problem into subproblems:
 
@@ -1077,18 +1305,18 @@ problem into subproblems:
 
 #### Ensure leader and workers end up on the same flavor
 
-To ensure leader and workers are assigned the same flavor a notion of `PodSet Group` is 
+To ensure leader and workers are assigned the same flavor a notion of `PodSet Group` is
 introduced, indicated by the PodSetTopologyRequest's PodSetGroupName field (see [Internal APIs](#internal-apis)):
 
 This field specifies the name of a group of PodSets that should be placed on the same flavor.
-This field is optional and if a PodSet does not define it, it will be placed on a flavor 
+This field is optional and if a PodSet does not define it, it will be placed on a flavor
 independently of any other PodSets.
 
 If two or more PodSets use the same value in `PodSetGroup`, they will be grouped together.
 Their resource requests will be summed together and the result will be used to find a flavor
 with proper resources and enough quota to fit the whole group.
 
-It is important to mention, that the introduction of `PodSet Group` changes the flavor 
+It is important to mention, that the introduction of `PodSet Group` changes the flavor
 assignment unit to `PodSet Group`.
 
 User can influence the value of `PodSetGroup` by setting `kueue.x-k8s.io/podset-group-name`
@@ -1125,6 +1353,62 @@ to ungate a Pod. The expectation is fulfilled if the Pod is observed as ungated
 or the ungating request fails. We hold ungating if there are pending ungatings
 within the PodSet.
 
+### Balanced placement
+The balanced placement algorithm provides an alternative to the greedy packing strategies. Instead of iterating over the domains sorted from largest to smallest available space (or based on some other criteria) and trying to pack as many pods as possible to each domain until the request fits, it first finds the optimal set of domains that fit the request and then distributes the pods as evenly as possible across these domains. 
+
+Greedy placement strategies (such as `BestFit` and `LeastFreeCapacity`) might result in a placement with a small
+number of pods assigned to the last considered domain (even though the existing algorithms choose the best possible
+last domain). For example 12 pods distributed among domains with capacities (10,10) will be placed (10,2). However,
+in some applications, a more balanced placement (6,6) would be more efficient. Some examples of such cases would be
+all-to-all communication procedures (e.g. Allgather) since more balanced placement leads to more efficient
+cross-domain traffic.
+
+In the first implemetation, we propose to perform the balanced algorithm only on two consequtive levels indicated
+by the user with the `preferred` flag. Let L be the level indicated by the `preferred` flag. We assume that the
+request must fit within a single domain on level L-1 and otherwise we fallback to the standard algorithm. The above
+assumptions are motivated by the application of the balanced placement algorithm to all-to-all communication
+on the specific networking for GPUs. If the concept of balanced placement would be useful in other contexts it
+would be possible to lift these assumptions. This balancing algorithm is enabled by the `TASBalancedPlacement` feature gate.
+
+The algorithm could be summarized as follows:
+
+```
+1. For each domain on level L-1:
+   - check if the entire request fits on this domain
+   - calculate T, the maximum possible minimum number of pods that would be placed on a domain on level L+1 if the request is placed on this domain.
+2. If no domain on level L-1 fits the entire request, fallback to the standard algorithm.
+3. Otherwise, pick a domain D on level L-1 that 
+   - first maximizes the value of T
+   - secondly minimizes the number of domains that need to be used on level L to fit the request 
+4. Prune every descendant of D with capacity below T.
+5. On level L find an optimal subset of children of D that fit the request:
+   - first minimize the size of the subset
+   - secondly minimize the total capacity of the subset
+   - thirdly maximize entropies of children capacities of the subset
+6. On level L+1 find an optimal subset of children of domains from step 5 that fit the request:
+   - first minimize the size of the subset
+   - secondly minimize the total capacity of the subset
+7. For the subset found in step 6, place the pods by first placing T pods on each domain, and then distribute the rest abritrarily.
+```
+
+The balancing algorithm will support all the job types currently supported by TAS including:
+
+ - JobSet. Instead of assigning pods, the balancing algorithm will assign slices.
+ - LeaderWorkerSet. Will co-locate leader with workers while keeping the overall
+ assignment per node balanced.
+
+#### Example
+For a 3-level topology (block, rack, hostname), in the TopologyRequest, the user specifies `preferred = rack`. Then the balanced placement will find the following assignments:
+
+| Capacities |Request | SliceSize | Assignment | Comment|
+| --- | --- | --- | ----------- | --- |
+| [[15], [15]] | 25| 1 | [[13], [12]] |
+| [[15, 13, 10]] | 23| 1 | [[12, 11, 0]] |
+| [[20, 10], [15, 15]] | 22| 1 | [[0, 0], [11, 11]] | prefer rack that leads to higher value of T
+| [[20, 10], [15, 15]] | 20| 1 | [[20, 0], [0, 0]] |
+| [[10, 5], [5, 5, 5]] | 15|1 |  [[0, 0], [5, 5, 5]] | prefer more balanced rack
+| [[15],[15]] [[15, 15]] | 25 | 1 | [[0],[0]] [[13, 12]] | prefer block where the request fits in a single rack
+| [[15], [15], [15, 15]] | 25|5 |  [[0], [0], [15, 10]] | `podset-slice-required-topology = hostname`
 ### Support for ProvisioningRequests
 
 We are going to support autoscaling via ProvisioningRequest AdmissionCheck.
@@ -1276,11 +1560,8 @@ The new validations which are for MVP, but likely will be relaxed in the future:
   for node taints. Some options to consider include virtual level as proposed in
   the [issue](https://github.com/kubernetes-sigs/kueue/issues/3658#issuecomment-2505583333)
   or explicit level added by webhook.
-- introduce configuration for setting TAS profiles/algorithms
-- introduce a performance test for TAS [#4634](https://github.com/kubernetes-sigs/kueue/issues/4634)
 - re-evaluate the need for admin-facing configuration of the second phase
   requeuing for ProvisioningRequests based on user feedback
-- add observability metrics, some ideas are in the [discussion](https://github.com/kubernetes-sigs/kueue/pull/5078#discussion_r2060580973)
 - change how the information about the failed nodes is stored at a Workload from Annotation into a field in workload.Status
 - handle a more comprehensive set of failure scenarios (e.g., including node becoming unschedulable due to a taint)
 - re-evaluate replacing `NodeToReplace` annotation with a status field, to optimize number of requests in scheduler loop. [Discussion](https://github.com/kubernetes-sigs/kueue/issues/5560)
@@ -1297,6 +1578,10 @@ Consider the following improvements and implement if feasible:
 - perform full scheduling simulation rather than just capacity counting
  (including pod affinities and anti-affinities)
 - drop `TASLeastAllocated` feature gate
+- introduce configuration for setting TAS profiles/algorithms: https://github.com/kubernetes-sigs/kueue/issues/4570
+- introduce a performance test for TAS [#4634](https://github.com/kubernetes-sigs/kueue/issues/4634)
+- add observability metrics, some ideas are in the [discussion](https://github.com/kubernetes-sigs/kueue/pull/5078#discussion_r2060580973)
+- introduce configuration for the Node Hot Swap sub-feature: https://github.com/kubernetes-sigs/kueue/issues/6514
 
 ## Implementation History
 
@@ -1422,28 +1707,6 @@ fulfilled with a dedicated indexed virtual field.
 Increased code complexity which could defer the 0.9 release for the Alpha
 version. We will re-evaluate the need for the label before the Beta release.
 
-### Failed nodes in WorkloadStatus
-
-Alternatively, the information about failed nodes could be stored in a dedicated 
-field in WorkloadStatus.
-
-```golang
-// WorkloadStatus defines the observed state of Workload
-type WorkloadStatus struct {
-  ...
-  // nodesToReplace lists the names of failed nodes running pods associated 
-  // with this workload. This field is populated by the node failure controller.
-  // +optional
-  // +listType=set
-  NodesToReplace []string `json:"nodesToReplace,omitempty"`
-}
-```
-**Reasons for discarding/deferring**
-
-Uncertanity about the final shape of the feature and the required format.
-We will decide on the format of this field based on the feedback from the 
-customers on the MVP.
-
 ### MostFreeCapacity algorithm
 
 Alongside the `BestFit` and `LeastFreeCapacity` algorithms, the `MostFreeCapacity`
@@ -1466,9 +1729,9 @@ was independent of PodSet's annotations:
 Consider a rack with four nodes that can accommodate 3, 3, 2, and 1 pod, respectively.
 A PodSet consists of 7 pods.
 
-Both the BestFit and MostFreeCapacity algorithms will initially iterate over the nodes 
+Both the BestFit and MostFreeCapacity algorithms will initially iterate over the nodes
 and select the first two, each with 3 available pods, as they possess the most
-free capacity. With 1 pod remaining to schedule, the difference between the algorithms 
+free capacity. With 1 pod remaining to schedule, the difference between the algorithms
 becomes apparent:
 - The `BestFit` algorithm optimizes the choice of the last node (domain) and selects the node that can accommodate exactly 1 pod.
 - The `MostFreeCapacity` algorithm simply selects the node with the most remaining free capacity, which is 2 in this case.
@@ -1477,3 +1740,16 @@ becomes apparent:
 Due to code simplicity concerns and a lack of use cases for the algorithm,
 the decision was made to remove it in favor of `BestFit`.
 
+### TopologyAssignmentSlices as separate CRD instances
+
+In the [v1beta2 format](#since-v1beta2) for TopologyAssignment, we introduce TopologyAssignmentSlices embedded in the WorkloadStatus. This helps fitting larger workloads within a single etcd entry, but still hits a scalability limit.
+
+One way of going beyond that limit would be to extract the slices into separate instances of a dedicated CRD (analogously to how [EndpointSlice](https://github.com/kubernetes/kubernetes/blob/3b632270e9b866ee8bf62e89377ae95987671b49/pkg/apis/discovery/types.go#L24-L29) has been introduced in K8s core). This would, in practice, allow storing arbitrarily many nodes, though at some cost. (See "Reasons for deferring" below).
+
+For these reasons, if we choose to do it, we would likely extract only "excess" slices, so that the TAS assignment for smaller workloads can be still kept inside WorkloadStatus.
+
+**Reasons for discarding/deferring**
+
+- Decreased UX of the API (some info delegated to other objects).
+- Decreased performance of Kueue scheduler (need to do more etcd reads and writes). \
+  (In particular, even when we end up using slices in separate CRDs, the "compression capabilities" introduced in v1beta2 are going to improve performance by reducing the necessary number of such slices).

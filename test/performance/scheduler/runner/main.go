@@ -45,9 +45,9 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/yaml"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/performance/scheduler/runner/controller"
 	"sigs.k8s.io/kueue/test/performance/scheduler/runner/generator"
@@ -292,9 +292,7 @@ func runCommand(ctx context.Context, workDir, cmdPath, kubeconfig string, withCP
 	}
 	startTime := time.Now()
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		err := cmd.Wait()
 		if err != nil {
 			select {
@@ -325,7 +323,7 @@ func runCommand(ctx context.Context, workDir, cmdPath, kubeconfig string, withCP
 		if err != nil {
 			log.Error(err, "Writing cmd stats")
 		}
-	}()
+	})
 	return nil
 }
 
@@ -346,9 +344,7 @@ func runGenerator(ctx context.Context, cfg *rest.Config, generatorConfig string,
 	}
 
 	statTime := time.Now()
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		defer close(genDone)
 		err := generator.Generate(ctx, c, cohorts)
 		if err != nil {
@@ -357,7 +353,7 @@ func runGenerator(ctx context.Context, cfg *rest.Config, generatorConfig string,
 			return
 		}
 		log.Info("Generator done", "duration", time.Since(statTime))
-	}()
+	})
 
 	log.Info("Generator started", "qps", cfg.QPS, "burst", cfg.Burst)
 	return nil
@@ -366,9 +362,7 @@ func runGenerator(ctx context.Context, cfg *rest.Config, generatorConfig string,
 func startRecorder(ctx context.Context, errCh chan<- error, wg *sync.WaitGroup, genDone <-chan struct{}, recordTimeout time.Duration) (*recorder.Recorder, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("Start recorder")
 	recorder := recorder.New(recordTimeout)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		err := recorder.Run(ctx, genDone)
 		if err != nil {
 			log.Error(err, "Recorder run")
@@ -376,7 +370,7 @@ func startRecorder(ctx context.Context, errCh chan<- error, wg *sync.WaitGroup, 
 			log.Info("Recorder done")
 		}
 		errCh <- err
-	}()
+	})
 
 	log.Info("Recorder started", "timeout", recordTimeout)
 	return recorder, nil
@@ -408,9 +402,7 @@ func runManager(ctx context.Context, cfg *rest.Config, errCh chan<- error, wg *s
 		return err
 	}
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		log.Info("Starting manager")
 		if err := mgr.Start(ctx); err != nil {
 			log.Error(err, "Could not run manager")
@@ -418,7 +410,7 @@ func runManager(ctx context.Context, cfg *rest.Config, errCh chan<- error, wg *s
 		} else {
 			log.Info("End manager")
 		}
-	}()
+	})
 
 	log.Info("Manager started")
 	return nil
@@ -429,9 +421,7 @@ func runScraper(ctx context.Context, interval time.Duration, output, url string,
 
 	s := scraper.NewScraper(interval, url, "%d.prometheus")
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		err := s.Run(ctx, output)
 		if err != nil {
 			log.Error(err, "Running the scraper")
@@ -439,7 +429,7 @@ func runScraper(ctx context.Context, interval time.Duration, output, url string,
 			return
 		}
 		log.Info("Scrape done")
-	}()
+	})
 
 	log.Info("Scrape started")
 	return nil

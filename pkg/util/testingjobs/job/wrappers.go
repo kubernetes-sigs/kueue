@@ -27,9 +27,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 // JobWrapper wraps a Job.
@@ -146,13 +146,14 @@ func (j *JobWrapper) Label(key, value string) *JobWrapper {
 	return j
 }
 
-// QueueNameAnnotation updates the queue name of the job by annotation (deprecated)
-func (j *JobWrapper) QueueNameAnnotation(queue string) *JobWrapper {
-	return j.SetAnnotation(constants.QueueAnnotation, queue)
-}
-
 func (j *JobWrapper) SetAnnotation(key, content string) *JobWrapper {
 	j.Annotations[key] = content
+	return j
+}
+
+// ResourceVersion sets resource version on job object - helpful when using controller-runtime fake client.
+func (j *JobWrapper) ResourceVersion(resourceVersion string) *JobWrapper {
+	j.ObjectMeta.ResourceVersion = resourceVersion
 	return j
 }
 
@@ -211,7 +212,7 @@ func (j *JobWrapper) Image(image string, args []string) *JobWrapper {
 
 // OwnerReference adds a ownerReference to the default container.
 func (j *JobWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *JobWrapper {
-	testing.AppendOwnerReference(&j.Job, ownerGVK, ownerName, ownerName, ptr.To(true), ptr.To(true))
+	utiltesting.AppendOwnerReference(&j.Job, ownerGVK, ownerName, ownerName, ptr.To(true), ptr.To(true))
 	return j
 }
 

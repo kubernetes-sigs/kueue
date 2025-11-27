@@ -17,9 +17,7 @@ limitations under the License.
 package scheduler
 
 import (
-	"k8s.io/apimachinery/pkg/api/resource"
-
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	"sigs.k8s.io/kueue/pkg/resources"
 )
@@ -30,7 +28,7 @@ type CohortSnapshot struct {
 	ResourceNode resourceNode
 	hierarchy.Cohort[*ClusterQueueSnapshot, *CohortSnapshot]
 
-	FairWeight resource.Quantity
+	FairWeight float64
 }
 
 func (c *CohortSnapshot) GetName() kueue.CohortReference {
@@ -69,9 +67,8 @@ func (c *CohortSnapshot) subtreeClusterQueueCount() int {
 	return count
 }
 
-func (c *CohortSnapshot) DominantResourceShare() int {
-	share, _ := dominantResourceShare(c, nil)
-	return share
+func (c *CohortSnapshot) DominantResourceShare() DRS {
+	return dominantResourceShare(c, nil)
 }
 
 // implement flatResourceNode/hierarchicalResourceNode interfaces
@@ -86,8 +83,8 @@ func (c *CohortSnapshot) parentHRN() hierarchicalResourceNode {
 
 // Implements dominantResourceShareNode interface.
 
-func (c *CohortSnapshot) fairWeight() *resource.Quantity {
-	return &c.FairWeight
+func (c *CohortSnapshot) fairWeight() float64 {
+	return c.FairWeight
 }
 
 func (c *CohortSnapshot) BorrowingWith(fr resources.FlavorResource, val int64) bool {

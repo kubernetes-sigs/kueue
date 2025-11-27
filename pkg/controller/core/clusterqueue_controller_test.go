@@ -17,25 +17,22 @@ limitations under the License.
 package core
 
 import (
-	"context"
 	"testing"
-	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/utils/ptr"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 func TestUpdateCqStatusIfChanged(t *testing.T) {
@@ -43,8 +40,8 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 	lqName := "test-lq"
 	defaultWls := &kueue.WorkloadList{
 		Items: []kueue.Workload{
-			*utiltesting.MakeWorkload("alpha", "").Queue(kueue.LocalQueueName(lqName)).Obj(),
-			*utiltesting.MakeWorkload("beta", "").Queue(kueue.LocalQueueName(lqName)).Obj(),
+			*utiltestingapi.MakeWorkload("alpha", "").Queue(kueue.LocalQueueName(lqName)).Obj(),
+			*utiltestingapi.MakeWorkload("beta", "").Queue(kueue.LocalQueueName(lqName)).Obj(),
 		},
 	}
 
@@ -167,7 +164,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 					Message: "Can admit new workloads",
 				}},
 			},
-			newWl:              utiltesting.MakeWorkload("gamma", "").Queue(kueue.LocalQueueName(lqName)).Obj(),
+			newWl:              utiltestingapi.MakeWorkload("gamma", "").Queue(kueue.LocalQueueName(lqName)).Obj(),
 			newConditionStatus: metav1.ConditionTrue,
 			newReason:          "Ready",
 			newMessage:         "Can admit new workloads",
@@ -193,12 +190,12 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			cq := utiltesting.MakeClusterQueue(cqName).
+			cq := utiltestingapi.MakeClusterQueue(cqName).
 				QueueingStrategy(kueue.StrictFIFO).
 				Generation(1).
 				Obj()
 			cq.Status = tc.cqStatus
-			lq := utiltesting.MakeLocalQueue(lqName, "").
+			lq := utiltestingapi.MakeLocalQueue(lqName, "").
 				ClusterQueue(cqName).Obj()
 			ctx, log := utiltesting.ContextWithLog(t)
 
@@ -239,7 +236,6 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			}
 			configCmpOpts := cmp.Options{
 				cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
-				cmpopts.IgnoreFields(kueue.ClusterQueuePendingWorkloadsStatus{}, "LastChangeTime"),
 				cmpopts.EquateEmpty(),
 			}
 			if diff := cmp.Diff(tc.wantCqStatus, cq.Status, configCmpOpts...); len(diff) != 0 {
@@ -281,7 +277,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 			Name: "name",
 		},
 		Spec: kueue.ClusterQueueSpec{
-			Cohort: "cohort",
+			CohortName: "cohort",
 			ResourceGroups: []kueue.ResourceGroup{
 				{
 					CoveredResources: []corev1.ResourceName{corev1.ResourceCPU},
@@ -383,7 +379,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 			},
 			updatedQueue: func() *kueue.ClusterQueue {
 				ret := baseQueue.DeepCopy()
-				ret.Spec.Cohort = "cohort2"
+				ret.Spec.CohortName = "cohort2"
 				return ret
 			}(),
 			wantUpdatedMetrics: cqMetrics{
@@ -514,93 +510,6 @@ func TestRecordResourceMetrics(t *testing.T) {
 			endMetrics := allMetricsForQueue(tc.queue.Name)
 			if len(endMetrics.NominalDPs) != 0 || len(endMetrics.BorrowingDPs) != 0 || len(endMetrics.UsageDPs) != 0 {
 				t.Errorf("Unexpected metrics after cleanup:\n%v", endMetrics)
-			}
-		})
-	}
-}
-
-func TestClusterQueuePendingWorkloadsStatus(t *testing.T) {
-	cqName := "test-cq"
-	lqName := "test-lq"
-	const lowPrio, highPrio = 0, 100
-	defaultWls := &kueue.WorkloadList{
-		Items: []kueue.Workload{
-			*utiltesting.MakeWorkload("one", "").Queue(kueue.LocalQueueName(lqName)).Priority(highPrio).Obj(),
-			*utiltesting.MakeWorkload("two", "").Queue(kueue.LocalQueueName(lqName)).Priority(lowPrio).Obj(),
-		},
-	}
-	testCases := map[string]struct {
-		queueVisibilityUpdateInterval        time.Duration
-		queueVisibilityClusterQueuesMaxCount int32
-		wantPendingWorkloadsStatus           *kueue.ClusterQueuePendingWorkloadsStatus
-		enableQueueVisibility                bool
-	}{
-		"queue visibility is disabled": {},
-		"queue visibility is disabled but maxcount is provided": {
-			queueVisibilityClusterQueuesMaxCount: 2,
-		},
-		"queue visibility is enabled": {
-			queueVisibilityClusterQueuesMaxCount: 2,
-			queueVisibilityUpdateInterval:        10 * time.Millisecond,
-			enableQueueVisibility:                true,
-			wantPendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{
-				Head: []kueue.ClusterQueuePendingWorkload{
-					{Name: "one"}, {Name: "two"},
-				},
-			},
-		},
-		"verify the head of pending workloads when the number of pending workloads exceeds MaxCount": {
-			queueVisibilityClusterQueuesMaxCount: 1,
-			queueVisibilityUpdateInterval:        10 * time.Millisecond,
-			enableQueueVisibility:                true,
-			wantPendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{
-				Head: []kueue.ClusterQueuePendingWorkload{
-					{Name: "one"},
-				},
-			},
-		},
-	}
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.QueueVisibility, tc.enableQueueVisibility)
-
-			cq := utiltesting.MakeClusterQueue(cqName).
-				QueueingStrategy(kueue.StrictFIFO).Obj()
-			lq := utiltesting.MakeLocalQueue(lqName, "").
-				ClusterQueue(cqName).Obj()
-
-			cl := utiltesting.NewClientBuilder().WithLists(defaultWls).WithObjects(lq, cq).WithStatusSubresource(lq, cq).
-				Build()
-			cCache := schdcache.New(cl)
-			qManager := qcache.NewManager(cl, cCache)
-			ctx, _ := utiltesting.ContextWithLog(t)
-			if err := qManager.AddClusterQueue(ctx, cq); err != nil {
-				t.Fatalf("Inserting clusterQueue in manager: %v", err)
-			}
-			if err := qManager.AddLocalQueue(ctx, lq); err != nil {
-				t.Fatalf("Inserting localQueue in manager: %v", err)
-			}
-
-			r := NewClusterQueueReconciler(
-				cl,
-				qManager,
-				cCache,
-				WithQueueVisibilityUpdateInterval(tc.queueVisibilityUpdateInterval),
-				WithQueueVisibilityClusterQueuesMaxCount(tc.queueVisibilityClusterQueuesMaxCount),
-			)
-
-			go func() {
-				if err := r.Start(ctx); err != nil {
-					t.Errorf("error starting the cluster queue reconciler: %v", err)
-				}
-			}()
-
-			diff := ""
-			if err := wait.PollUntilContextTimeout(ctx, time.Second, 10*time.Second, false, func(ctx context.Context) (done bool, err error) {
-				diff = cmp.Diff(tc.wantPendingWorkloadsStatus, r.getWorkloadsStatus(cq), cmpopts.IgnoreFields(kueue.ClusterQueuePendingWorkloadsStatus{}, "LastChangeTime"))
-				return diff == "", nil
-			}); err != nil {
-				t.Fatalf("Failed to get the expected pending workloads status, last diff=%s", diff)
 			}
 		})
 	}

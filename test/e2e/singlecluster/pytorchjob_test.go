@@ -25,9 +25,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/pytorchjob"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	pytorchjobtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -49,12 +49,12 @@ var _ = ginkgo.Describe("PyTorch integration", func() {
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pytorch-e2e-")
 
-		rf = testing.MakeResourceFlavor(resourceFlavorName).Obj()
+		rf = utiltestingapi.MakeResourceFlavor(resourceFlavorName).Obj()
 		util.MustCreate(ctx, k8sClient, rf)
 
-		cq = testing.MakeClusterQueue(clusterQueueName).
+		cq = utiltestingapi.MakeClusterQueue(clusterQueueName).
 			ResourceGroup(
-				*testing.MakeFlavorQuotas(resourceFlavorName).
+				*utiltestingapi.MakeFlavorQuotas(resourceFlavorName).
 					Resource(corev1.ResourceCPU, "5").
 					Resource(corev1.ResourceMemory, "10Gi").
 					Obj(),
@@ -65,7 +65,7 @@ var _ = ginkgo.Describe("PyTorch integration", func() {
 			Obj()
 		util.MustCreate(ctx, k8sClient, cq)
 
-		lq = testing.MakeLocalQueue(localQueueName, ns.Name).ClusterQueue(cq.Name).Obj()
+		lq = utiltestingapi.MakeLocalQueue(localQueueName, ns.Name).ClusterQueue(cq.Name).Obj()
 		util.MustCreate(ctx, k8sClient, lq)
 	})
 	ginkgo.AfterEach(func() {
@@ -82,14 +82,10 @@ var _ = ginkgo.Describe("PyTorch integration", func() {
 				Queue(localQueueName).
 				Suspend(false).
 				SetTypeMeta().
-				PyTorchReplicaSpecsDefault().
-				Parallelism(2).
+				PyTorchReplicaSpecsOnlyMasterDefault().
 				Image(kftraining.PyTorchJobReplicaTypeMaster, util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "1").
 				Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceMemory, "200Mi").
-				Image(kftraining.PyTorchJobReplicaTypeWorker, util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
-				Request(kftraining.PyTorchJobReplicaTypeWorker, corev1.ResourceCPU, "1").
-				Request(kftraining.PyTorchJobReplicaTypeWorker, corev1.ResourceMemory, "200Mi").
 				Obj()
 
 			ginkgo.By("Create a PyTorch", func() {
@@ -107,12 +103,9 @@ var _ = ginkgo.Describe("PyTorch integration", func() {
 					// Check the worker replica status exists
 					masterReplicaStatus, ok := createdPyTorch.Status.ReplicaStatuses[kftraining.PyTorchJobReplicaTypeMaster]
 					g.Expect(ok).To(gomega.BeTrue(), "Master replica status not found in PyTorch status")
-					workerReplicaStatus, ok := createdPyTorch.Status.ReplicaStatuses[kftraining.PyTorchJobReplicaTypeWorker]
-					g.Expect(ok).To(gomega.BeTrue(), "Worker replica status not found in PyTorch status")
 
 					// Check the number of active replicas
 					g.Expect(masterReplicaStatus.Active).To(gomega.Equal(int32(1)), "Unexpected number of active %s replicas", kftraining.PyTorchJobReplicaTypeMaster)
-					g.Expect(workerReplicaStatus.Active).To(gomega.Equal(int32(2)), "Unexpected number of active %s replicas", kftraining.PyTorchJobReplicaTypeWorker)
 
 					// Ensure PyTorch job has "Running" condition with status "True"
 					g.Expect(createdPyTorch.Status.Conditions).To(gomega.ContainElements(
@@ -139,7 +132,7 @@ var _ = ginkgo.Describe("PyTorch integration", func() {
 
 			ginkgo.By("Check workload is finished", func() {
 				// Wait for active pods and terminate them
-				util.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 3, 0, client.InNamespace(ns.Name))
+				util.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 1, 0, client.InNamespace(ns.Name))
 
 				util.ExpectWorkloadToFinish(ctx, k8sClient, wlLookupKey)
 			})

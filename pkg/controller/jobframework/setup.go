@@ -56,7 +56,11 @@ func SetupControllers(ctx context.Context, mgr ctrl.Manager, log logr.Logger, op
 func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
 	options := ProcessOptions(opts...)
 
-	if err := m.checkEnabledListDependencies(options.EnabledFrameworks); err != nil {
+	implicitlyEnabledIntegrations := m.collectImplicitlyEnabledIntegrations(options.EnabledFrameworks)
+	m.setImplicitlyEnabledIntegrations(implicitlyEnabledIntegrations)
+	allEnabledIntegrations := options.EnabledFrameworks.Union(implicitlyEnabledIntegrations)
+
+	if err := m.checkEnabledListDependencies(allEnabledIntegrations); err != nil {
 		return fmt.Errorf("check enabled frameworks list: %w", err)
 	}
 
@@ -69,7 +73,7 @@ func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Mana
 		logger := log.WithValues("jobFrameworkName", name)
 		fwkNamePrefix := fmt.Sprintf("jobFrameworkName %q", name)
 
-		if options.EnabledFrameworks.Has(name) {
+		if allEnabledIntegrations.Has(name) {
 			if cb.CanSupportIntegration != nil {
 				if canSupport, err := cb.CanSupportIntegration(opts...); !canSupport || err != nil {
 					return fmt.Errorf("failed to configure reconcilers: %w", err)
@@ -92,12 +96,12 @@ func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Mana
 				logger.Info("No matching API in the server for job framework, deferring setting up controller")
 				go waitForAPI(ctx, mgr, log, gvk, func() {
 					log.Info("API now available, starting controller", "gvk", gvk)
-					if err := m.setupControllerAndWebhook(mgr, name, fwkNamePrefix, cb, options, opts...); err != nil {
+					if err := m.setupControllerAndWebhook(ctx, mgr, name, fwkNamePrefix, cb, options, opts...); err != nil {
 						log.Error(err, "Failed to setup controller for job framework")
 					}
 				})
 			} else {
-				if err := m.setupControllerAndWebhook(mgr, name, fwkNamePrefix, cb, options, opts...); err != nil {
+				if err := m.setupControllerAndWebhook(ctx, mgr, name, fwkNamePrefix, cb, options, opts...); err != nil {
 					return err
 				}
 			}
@@ -109,20 +113,29 @@ func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Mana
 	})
 }
 
-func (m *integrationManager) setupControllerAndWebhook(mgr ctrl.Manager, name string, fwkNamePrefix string, cb IntegrationCallbacks, options Options, opts ...Option) error {
-	if err := cb.NewReconciler(
+func (m *integrationManager) setupControllerAndWebhook(ctx context.Context, mgr ctrl.Manager, name string, fwkNamePrefix string, cb IntegrationCallbacks, options Options, opts ...Option) error {
+	if r, err := cb.NewReconciler(
+		ctx,
 		mgr.GetClient(),
+		mgr.GetFieldIndexer(),
 		mgr.GetEventRecorderFor(fmt.Sprintf("%s-%s-controller", name, options.ManagerName)),
 		opts...,
-	).SetupWithManager(mgr); err != nil {
+	); err != nil {
+		return fmt.Errorf("%s: %w", fwkNamePrefix, err)
+	} else if err := r.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("%s: %w", fwkNamePrefix, err)
 	}
+
 	for _, rec := range cb.NewAdditionalReconcilers {
-		if err := rec(
+		if r, err := rec(
+			ctx,
 			mgr.GetClient(),
+			mgr.GetFieldIndexer(),
 			mgr.GetEventRecorderFor(fmt.Sprintf("%s-%s-controller", name, options.ManagerName)),
 			opts...,
-		).SetupWithManager(mgr); err != nil {
+		); err != nil {
+			return fmt.Errorf("%s: %w", fwkNamePrefix, err)
+		} else if err := r.SetupWithManager(mgr); err != nil {
 			return fmt.Errorf("%s: %w", fwkNamePrefix, err)
 		}
 	}
@@ -169,8 +182,10 @@ func restMappingExists(mgr ctrl.Manager, gvk schema.GroupVersionKind) error {
 // Note that the second argument, "indexer" needs to be the fieldIndexer obtained from the Manager.
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer, opts ...Option) error {
 	options := ProcessOptions(opts...)
+
+	allEnabledIntegrations := options.EnabledFrameworks.Union(manager.collectImplicitlyEnabledIntegrations(options.EnabledFrameworks))
 	return ForEachIntegration(func(name string, cb IntegrationCallbacks) error {
-		if options.EnabledFrameworks.Has(name) {
+		if allEnabledIntegrations.Has(name) {
 			if err := cb.SetupIndexes(ctx, indexer); err != nil {
 				return fmt.Errorf("jobFrameworkName %q: %w", name, err)
 			}

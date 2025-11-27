@@ -17,12 +17,16 @@ limitations under the License.
 
 package v1beta1
 
+import (
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+)
+
 // WorkloadSchedulingStatsEvictionApplyConfiguration represents a declarative configuration of the WorkloadSchedulingStatsEviction type for use
 // with apply.
 type WorkloadSchedulingStatsEvictionApplyConfiguration struct {
-	Reason          *string `json:"reason,omitempty"`
-	UnderlyingCause *string `json:"underlyingCause,omitempty"`
-	Count           *int32  `json:"count,omitempty"`
+	Reason          *string                               `json:"reason,omitempty"`
+	UnderlyingCause *kueuev1beta1.EvictionUnderlyingCause `json:"underlyingCause,omitempty"`
+	Count           *int32                                `json:"count,omitempty"`
 }
 
 // WorkloadSchedulingStatsEvictionApplyConfiguration constructs a declarative configuration of the WorkloadSchedulingStatsEviction type for use with
@@ -42,7 +46,7 @@ func (b *WorkloadSchedulingStatsEvictionApplyConfiguration) WithReason(value str
 // WithUnderlyingCause sets the UnderlyingCause field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the UnderlyingCause field is set to the value of the last call.
-func (b *WorkloadSchedulingStatsEvictionApplyConfiguration) WithUnderlyingCause(value string) *WorkloadSchedulingStatsEvictionApplyConfiguration {
+func (b *WorkloadSchedulingStatsEvictionApplyConfiguration) WithUnderlyingCause(value kueuev1beta1.EvictionUnderlyingCause) *WorkloadSchedulingStatsEvictionApplyConfiguration {
 	b.UnderlyingCause = &value
 	return b
 }

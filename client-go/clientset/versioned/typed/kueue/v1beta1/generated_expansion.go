@@ -33,6 +33,8 @@ type ProvisioningRequestConfigExpansion interface{}
 
 type ResourceFlavorExpansion interface{}
 
+type TopologyExpansion interface{}
+
 type WorkloadExpansion interface{}
 
 type WorkloadPriorityClassExpansion interface{}

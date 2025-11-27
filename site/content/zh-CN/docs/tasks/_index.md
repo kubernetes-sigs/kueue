@@ -55,6 +55,7 @@ As a serving user, you can learn how to:
 - [Run a Kueue managed Deployment](run/deployment).
 - [Run a Kueue managed StatefulSet](run/statefulset).
 - [Run a Kueue managed LeaderWorkerSet](run/leaderworkerset).
+- [Run a Kueue managed KubeRay RayService](run/rayservices).
 
 ### Platform developer
 

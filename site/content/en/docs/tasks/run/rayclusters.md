@@ -2,9 +2,9 @@
 title: "Run A RayCluster"
 linkTitle: "RayClusters"
 date: 2024-08-07
-weight: 6
+weight: 10
 description: >
-  Run a RayCluster on Kueue.
+  Run a RayCluster with Kueue.
 ---
 
 This page shows how to leverage Kueue's scheduling and resource management capabilities when running [RayCluster](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/raycluster-quick-start.html).
@@ -65,7 +65,22 @@ Note that a RayCluster will hold resource quotas while it exists. For optimal re
 
 ### c. Limitations
 - Limited Worker Groups: Because a Kueue workload can have a maximum of 8 PodSets, the maximum number of `spec.workerGroupSpecs` is 7
-- In-Tree Autoscaling Disabled: Kueue manages resource allocation for the RayCluster; therefore, the cluster's internal autoscaling mechanisms need to be disabled
+- In-Tree Autoscaling Constraints: Autoscaling is only supported for [elastic](/docs/concepts/elastic_workload) RayCluster objects. To enable in-tree autoscaling:
+
+  1. Activate the `ElasticJobsViaWorkloadSlices` feature gate.
+  2. Annotate the RayCluster object with:
+
+     ```yaml
+     metadata:
+       annotations:
+         kueue.x-k8s.io/elastic-job: "true"
+     ```
+  3. Enable the Ray autoscaler of your RayCluster object by setting:
+
+     ```yaml
+     spec:
+       enableInTreeAutoscaling: true
+     ```
 
 ## Example RayCluster
 
@@ -76,6 +91,6 @@ The RayCluster looks like the following:
 You can submit a Ray Job using the [CLI](https://docs.ray.io/en/latest/cluster/running-applications/job-submission/quickstart.html) or log into the Ray Head and execute a job following this [example](https://ray-project.github.io/kuberay/deploy/helm-cluster/#end-to-end-example) with kind cluster.
 
 {{% alert title="Note" color="primary" %}}
-The example above comes from [here](https://raw.githubusercontent.com/ray-project/kuberay/v1.1.1/ray-operator/config/samples/ray-cluster.complete.yaml)
+The example above comes from [here](https://raw.githubusercontent.com/ray-project/kuberay/v1.4.2/ray-operator/config/samples/ray-cluster.complete.yaml)
 and only has the `queue-name` label added and requests updated.
 {{% /alert %}}

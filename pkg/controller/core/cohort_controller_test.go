@@ -28,11 +28,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 func TestCohortReconcileCohortNotFoundDelete(t *testing.T) {
@@ -42,7 +43,7 @@ func TestCohortReconcileCohortNotFoundDelete(t *testing.T) {
 	qManager := qcache.NewManager(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)
 
-	cohort := utiltesting.MakeCohort("cohort").Obj()
+	cohort := utiltestingapi.MakeCohort("cohort").Obj()
 	_ = cache.AddOrUpdateCohort(cohort)
 	qManager.AddOrUpdateCohort(ctx, cohort)
 	snapshot, err := cache.Snapshot(ctx)
@@ -85,7 +86,7 @@ func TestCohortReconcileCohortNotFoundIdempotentDelete(t *testing.T) {
 		t.Fatal("unexpected Cohort in snapshot")
 	}
 
-	cohort := utiltesting.MakeCohort("cohort").Obj()
+	cohort := utiltestingapi.MakeCohort("cohort").Obj()
 	if _, err := reconciler.Reconcile(
 		ctx,
 		reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cohort)},
@@ -103,8 +104,8 @@ func TestCohortReconcileCohortNotFoundIdempotentDelete(t *testing.T) {
 }
 
 func TestCohortReconcileCycleNoError(t *testing.T) {
-	cohortA := utiltesting.MakeCohort("cohort-a").Parent("cohort-b").Obj()
-	cohortB := utiltesting.MakeCohort("cohort-b").Parent("cohort-a").Obj()
+	cohortA := utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj()
+	cohortB := utiltestingapi.MakeCohort("cohort-b").Parent("cohort-a").Obj()
 	cl := utiltesting.NewClientBuilder().
 		WithObjects(cohortA, cohortB).
 		WithStatusSubresource(&kueue.Cohort{}).
@@ -158,7 +159,7 @@ func TestCohortReconcileErrorOtherThanNotFoundNotDeleted(t *testing.T) {
 	cache := schdcache.New(cl)
 	qManager := qcache.NewManager(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)
-	cohort := utiltesting.MakeCohort("cohort").Obj()
+	cohort := utiltestingapi.MakeCohort("cohort").Obj()
 	_ = cache.AddOrUpdateCohort(cohort)
 	qManager.AddOrUpdateCohort(ctx, cohort)
 	snapshot, err := cache.Snapshot(ctx)
@@ -187,8 +188,8 @@ func TestCohortReconcileErrorOtherThanNotFoundNotDeleted(t *testing.T) {
 
 func TestCohortReconcileLifecycle(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
-	cohort := utiltesting.MakeCohort("cohort").ResourceGroup(
-		*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
+	cohort := utiltestingapi.MakeCohort("cohort").ResourceGroup(
+		*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
 	).Obj()
 	cl := utiltesting.NewClientBuilder().WithObjects(cohort).WithStatusSubresource(&kueue.Cohort{}).Build()
 	cache := schdcache.New(cl)
@@ -226,8 +227,8 @@ func TestCohortReconcileLifecycle(t *testing.T) {
 		if err := cl.Get(ctx, client.ObjectKeyFromObject(cohort), cohort); err != nil {
 			t.Fatal("unexpected error")
 		}
-		cohort.Spec.ResourceGroups[0] = utiltesting.ResourceGroup(
-			*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "5").Obj(),
+		cohort.Spec.ResourceGroups[0] = utiltestingapi.ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "5").Obj(),
 		)
 		if err := cl.Update(ctx, cohort); err != nil {
 			t.Fatal("unexpected error updating cohort", err)
@@ -309,51 +310,51 @@ func TestCohortReconcilerFilters(t *testing.T) {
 		want bool
 	}{
 		"unchanged returns false": {
-			old: utiltesting.MakeCohort("cohort").ResourceGroup(
-				*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "5").Obj(),
+			old: utiltestingapi.MakeCohort("cohort").ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "5").Obj(),
 			).Obj(),
-			new: utiltesting.MakeCohort("cohort").ResourceGroup(
-				*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "5").Obj(),
+			new: utiltestingapi.MakeCohort("cohort").ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "5").Obj(),
 			).Obj(),
 			want: false,
 		},
 		"changed resource returns true": {
-			old: utiltesting.MakeCohort("cohort").ResourceGroup(
-				*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "5").Obj(),
+			old: utiltestingapi.MakeCohort("cohort").ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "5").Obj(),
 			).Obj(),
-			new: utiltesting.MakeCohort("cohort").ResourceGroup(
-				*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
+			new: utiltestingapi.MakeCohort("cohort").ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
 			).Obj(),
 			want: true,
 		},
 		"adding parent returns true": {
-			old:  utiltesting.MakeCohort("cohort").Obj(),
-			new:  utiltesting.MakeCohort("cohort").Parent("parent").Obj(),
+			old:  utiltestingapi.MakeCohort("cohort").Obj(),
+			new:  utiltestingapi.MakeCohort("cohort").Parent("parent").Obj(),
 			want: true,
 		},
 		"changing parent returns true": {
-			old:  utiltesting.MakeCohort("cohort").Parent("old").Obj(),
-			new:  utiltesting.MakeCohort("cohort").Parent("new").Obj(),
+			old:  utiltestingapi.MakeCohort("cohort").Parent("old").Obj(),
+			new:  utiltestingapi.MakeCohort("cohort").Parent("new").Obj(),
 			want: true,
 		},
 		"deleting parent returns true": {
-			old:  utiltesting.MakeCohort("cohort").Parent("parent").Obj(),
-			new:  utiltesting.MakeCohort("cohort").Obj(),
+			old:  utiltestingapi.MakeCohort("cohort").Parent("parent").Obj(),
+			new:  utiltestingapi.MakeCohort("cohort").Obj(),
 			want: true,
 		},
 		"adding weight returns true": {
-			old:  utiltesting.MakeCohort("cohort").Obj(),
-			new:  utiltesting.MakeCohort("cohort").FairWeight(resource.MustParse("1")).Obj(),
+			old:  utiltestingapi.MakeCohort("cohort").Obj(),
+			new:  utiltestingapi.MakeCohort("cohort").FairWeight(resource.MustParse("1")).Obj(),
 			want: true,
 		},
 		"deleting weight returns true": {
-			old:  utiltesting.MakeCohort("cohort").FairWeight(resource.MustParse("1")).Obj(),
-			new:  utiltesting.MakeCohort("cohort").Obj(),
+			old:  utiltestingapi.MakeCohort("cohort").FairWeight(resource.MustParse("1")).Obj(),
+			new:  utiltestingapi.MakeCohort("cohort").Obj(),
 			want: true,
 		},
 		"updating weight returns true": {
-			old:  utiltesting.MakeCohort("cohort").FairWeight(resource.MustParse("1")).Obj(),
-			new:  utiltesting.MakeCohort("cohort").FairWeight(resource.MustParse("2")).Obj(),
+			old:  utiltestingapi.MakeCohort("cohort").FairWeight(resource.MustParse("1")).Obj(),
+			new:  utiltestingapi.MakeCohort("cohort").FairWeight(resource.MustParse("2")).Obj(),
 			want: true,
 		},
 	}

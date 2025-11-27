@@ -21,11 +21,13 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
+	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 )
 
 const (
@@ -49,14 +51,11 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		return "LocalQueue", err
 	}
 
-	var fairSharingEnabled bool
-	if cfg.FairSharing != nil {
-		fairSharingEnabled = cfg.FairSharing.Enable
-	}
-
+	fairSharingEnabled := fairsharing.Enabled(cfg.FairSharing)
 	watchers := []ClusterQueueUpdateWatcher{rfRec, acRec}
 	if features.Enabled(features.HierarchicalCohorts) {
-		cohortRec := NewCohortReconciler(mgr.GetClient(), cc, qManager, CohortReconcilerWithFairSharing(fairSharingEnabled))
+		cohortRec := NewCohortReconciler(mgr.GetClient(), cc, qManager,
+			CohortReconcilerWithFairSharing(fairSharingEnabled))
 		if err := cohortRec.SetupWithManager(mgr, cfg); err != nil {
 			return "Cohort", err
 		}
@@ -67,27 +66,27 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		mgr.GetClient(),
 		qManager,
 		cc,
-		WithQueueVisibilityUpdateInterval(queueVisibilityUpdateInterval(cfg)),
 		WithReportResourceMetrics(cfg.Metrics.EnableClusterQueueResources),
-		WithQueueVisibilityClusterQueuesMaxCount(queueVisibilityClusterQueuesMaxCount(cfg)),
 		WithFairSharing(fairSharingEnabled),
 		WithWatchers(watchers...),
 	)
-	if err := mgr.Add(cqRec); err != nil {
-		return "Unable to add ClusterQueue to manager", err
-	}
 	rfRec.AddUpdateWatcher(cqRec)
 	acRec.AddUpdateWatchers(cqRec)
 	if err := cqRec.SetupWithManager(mgr, cfg); err != nil {
 		return "ClusterQueue", err
 	}
 
-	if err := NewWorkloadReconciler(mgr.GetClient(), qManager, cc,
+	workloadRec := NewWorkloadReconciler(mgr.GetClient(), qManager, cc,
 		mgr.GetEventRecorderFor(constants.WorkloadControllerName),
 		WithWorkloadUpdateWatchers(qRec, cqRec),
 		WithWaitForPodsReady(waitForPodsReady(cfg.WaitForPodsReady)),
 		WithWorkloadRetention(workloadRetention(cfg.ObjectRetentionPolicies)),
-	).SetupWithManager(mgr, cfg); err != nil {
+	)
+	if features.Enabled(features.DynamicResourceAllocation) {
+		qManager.SetDRAReconcileChannel(workloadRec.GetDRAReconcileChannel())
+	}
+
+	if err := workloadRec.SetupWithManager(mgr, cfg); err != nil {
 		return "Workload", err
 	}
 	qManager.AddTopologyUpdateWatcher(cqRec)
@@ -96,7 +95,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 }
 
 func waitForPodsReady(cfg *configapi.WaitForPodsReady) *waitForPodsReadyConfig {
-	if cfg == nil || !cfg.Enable {
+	if !waitforpodsready.Enabled(cfg) {
 		return nil
 	}
 	result := waitForPodsReadyConfig{
@@ -122,18 +121,4 @@ func workloadRetention(cfg *configapi.ObjectRetentionPolicies) *workloadRetentio
 	return &workloadRetentionConfig{
 		afterFinished: &cfg.Workloads.AfterFinished.Duration,
 	}
-}
-
-func queueVisibilityUpdateInterval(cfg *configapi.Configuration) time.Duration {
-	if cfg.QueueVisibility != nil {
-		return time.Duration(cfg.QueueVisibility.UpdateIntervalSeconds) * time.Second
-	}
-	return 0
-}
-
-func queueVisibilityClusterQueuesMaxCount(cfg *configapi.Configuration) int32 {
-	if cfg.QueueVisibility != nil && cfg.QueueVisibility.ClusterQueues != nil {
-		return cfg.QueueVisibility.ClusterQueues.MaxCount
-	}
-	return 0
 }

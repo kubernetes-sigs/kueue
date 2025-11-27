@@ -1,10 +1,26 @@
+{{- /*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/ -}}
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "kueue.fullname" . }}-controller-manager
   namespace: '{{ .Release.Namespace }}'
   labels:
-  {{- include "kueue.labels" . | nindent 4 }}
+  {{- include "kueue.controllerManager.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.controllerManager.replicas }}
   selector:
@@ -108,8 +124,6 @@ spec:
       - name: manager-config
         configMap:
           name: {{ include "kueue.fullname" . }}-manager-config
-      - name: visibility
-        emptyDir: {}
       {{- if .Values.enableCertManager }}
       - name: metrics-certs
         secret:
@@ -122,4 +136,18 @@ spec:
             path: tls.crt
           - key: tls.key
             path: tls.key
+      - name: visibility
+        secret:
+          secretName: {{ include "kueue.fullname" . }}-visibility-server-cert
+          optional: false
+          items:
+          - key: ca.crt
+            path: ca.crt
+          - key: tls.crt
+            path: tls.crt
+          - key: tls.key
+            path: tls.key
+      {{- else }}
+      - name: visibility
+        emptyDir: {}
       {{- end }}

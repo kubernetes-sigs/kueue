@@ -52,7 +52,7 @@ Type: Label
 
 Example: `kueue.x-k8s.io/managed: "true"`
 
-Used on: [Plain Pods](/docs/tasks/run/plain_pods/) and [ProvisioningRequest](/docs/admission-check-controllers/provisioning.md).
+Used on: [Plain Pods](/docs/tasks/run/plain_pods/) and [ProvisioningRequest](/docs/concepts/admission_check/provisioning_request).
 
 The label key that indicates which pods and ProvisioningRequest are managed by Kueuue.
 
@@ -198,21 +198,6 @@ The label key in the workload holds the queue name.
 
 Note: Read more about [Setup LocalQueueDefauling](/docs/tasks/manage/enforce_job_management/setup_default_local_queue/)
 in order to automatically set the `kueue.x-k8s.io/queue-name` label.
-
-### kueue.x-k8s.io/queue-name (deprecated)
-
-Type: Annotation
-
-Example: `kueue.x-k8s.io/queue-name: "my-local-queue"`
-
-Used on: Kueue-managed Jobs.
-
-The annotation key in the workload holds the queue name.
-
-{{% alert title="Warning" color="warning" %}}
-Starting from `v1beta1` this annotation is deprecated.
-Please use [kueue.x-k8s.io/queue-name label](#kueuex-k8sioqueue-name) instead.
-{{% /alert %}}
 
 ### kueue.x-k8s.io/retriable-in-group
 

@@ -34,7 +34,7 @@ const (
 
 // ProvisioningRequestConfigSpec defines the desired state of ProvisioningRequestConfig
 type ProvisioningRequestConfigSpec struct {
-	// ProvisioningClassName describes the different modes of provisioning the resources.
+	// provisioningClassName describes the different modes of provisioning the resources.
 	// Check autoscaling.x-k8s.io ProvisioningRequestSpec.ProvisioningClassName for details.
 	//
 	// +kubebuilder:validation:Required
@@ -42,7 +42,7 @@ type ProvisioningRequestConfigSpec struct {
 	// +kubebuilder:validation:MaxLength=253
 	ProvisioningClassName string `json:"provisioningClassName"`
 
-	// Parameters contains all other parameters classes may require.
+	// parameters contains all other parameters classes may require.
 	//
 	// +optional
 	// +kubebuilder:validation:MaxProperties=100
@@ -118,7 +118,7 @@ type ProvisioningRequestPodSetUpdatesNodeSelector struct {
 }
 
 type ProvisioningRequestRetryStrategy struct {
-	// BackoffLimitCount defines the maximum number of re-queuing retries.
+	// backoffLimitCount defines the maximum number of re-queuing retries.
 	// Once the number is reached, the workload is deactivated (`.spec.activate`=`false`).
 	//
 	// Every backoff duration is about "b*2^(n-1)+Rand" where:
@@ -134,7 +134,7 @@ type ProvisioningRequestRetryStrategy struct {
 	// +kubebuilder:default=3
 	BackoffLimitCount *int32 `json:"backoffLimitCount,omitempty"`
 
-	// BackoffBaseSeconds defines the base for the exponential backoff for
+	// backoffBaseSeconds defines the base for the exponential backoff for
 	// re-queuing an evicted workload.
 	//
 	// Defaults to 60.
@@ -142,7 +142,7 @@ type ProvisioningRequestRetryStrategy struct {
 	// +kubebuilder:default=60
 	BackoffBaseSeconds *int32 `json:"backoffBaseSeconds,omitempty"`
 
-	// BackoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.
+	// backoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.
 	//
 	// Defaults to 1800.
 	// +optional
@@ -162,9 +162,11 @@ type Parameter string
 
 // ProvisioningRequestConfig is the Schema for the provisioningrequestconfig API
 type ProvisioningRequestConfig struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// metadata is the standard object metadata.
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
+	// spec is the specification of the ProvisioningRequestConfig.
 	Spec ProvisioningRequestConfigSpec `json:"spec,omitempty"`
 }
 

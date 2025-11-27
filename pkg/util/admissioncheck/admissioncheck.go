@@ -28,13 +28,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 var (
 	ErrNilParametersRef = errors.New("missing parameters reference")
 	ErrBadParametersRef = errors.New("bad parameters reference")
+	ErrNoActiveClusters = errors.New("no active clusters")
 )
 
 type objAsPtr[T any] interface {
@@ -45,6 +46,12 @@ type objAsPtr[T any] interface {
 type ConfigHelper[PtrT objAsPtr[T], T any] struct {
 	gk     schema.GroupKind
 	client client.Client
+}
+
+type MultiKueueStoreHelper = ConfigHelper[*kueue.MultiKueueConfig, kueue.MultiKueueConfig]
+
+func NewMultiKueueStoreHelper(c client.Client) (*MultiKueueStoreHelper, error) {
+	return NewConfigHelper[*kueue.MultiKueueConfig](c)
 }
 
 func NewConfigHelper[PtrT objAsPtr[T], T any](c client.Client) (*ConfigHelper[PtrT, T], error) {
@@ -156,21 +163,32 @@ func FilterProvReqAnnotations(annotations map[string]string) map[string]string {
 	return res
 }
 
-// NewAdmissionChecks aggregates AdmissionChecks from .spec.AdmissionChecks and .spec.AdmissionChecksStrategy
+// NewAdmissionChecks aggregates AdmissionChecks from .spec.AdmissionChecksStrategy
 func NewAdmissionChecks(cq *kueue.ClusterQueue) map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference] {
 	var checks map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference]
 	if cq.Spec.AdmissionChecksStrategy != nil {
 		checks = make(map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference], len(cq.Spec.AdmissionChecksStrategy.AdmissionChecks))
 		for _, check := range cq.Spec.AdmissionChecksStrategy.AdmissionChecks {
-			checks[check.Name] = sets.New(check.OnFlavors...)
+			if len(check.OnFlavors) > 0 {
+				checks[check.Name] = sets.New(check.OnFlavors...)
+			} else {
+				checks[check.Name] = allFlavors(cq)
+			}
 		}
 	} else {
-		checks = make(map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference], len(cq.Spec.AdmissionChecks))
-		for _, checkName := range cq.Spec.AdmissionChecks {
-			checks[checkName] = sets.New[kueue.ResourceFlavorReference]()
-		}
+		checks = make(map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference], 0)
 	}
 	return checks
+}
+
+func allFlavors(cq *kueue.ClusterQueue) sets.Set[kueue.ResourceFlavorReference] {
+	flavors := sets.New[kueue.ResourceFlavorReference]()
+	for _, rg := range cq.Spec.ResourceGroups {
+		for _, fv := range rg.Flavors {
+			flavors.Insert(fv.Name)
+		}
+	}
+	return flavors
 }
 
 // FindAdmissionCheck - returns a pointer to the check identified by checkName if found in checks.
@@ -182,4 +200,34 @@ func FindAdmissionCheck(checks []kueue.AdmissionCheckState, checkName kueue.Admi
 	}
 
 	return nil
+}
+
+func GetMultiKueueAdmissionCheck(ctx context.Context, c client.Client, wl *kueue.Workload) (*kueue.AdmissionCheckState, error) {
+	relevantChecks, err := FilterForController(ctx, c, wl.Status.AdmissionChecks, kueue.MultiKueueControllerName)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(relevantChecks) == 0 {
+		return nil, nil
+	}
+
+	for _, check := range wl.Status.AdmissionChecks {
+		if check.Name == relevantChecks[0] {
+			return &check, nil
+		}
+	}
+	return nil, nil
+}
+
+func GetRemoteClusters(ctx context.Context, helper *MultiKueueStoreHelper, acName kueue.AdmissionCheckReference) (sets.Set[string], error) {
+	cfg, err := helper.ConfigForAdmissionCheck(ctx, acName)
+	if err != nil {
+		return nil, err
+	}
+	if len(cfg.Spec.Clusters) == 0 {
+		return nil, ErrNoActiveClusters
+	}
+
+	return sets.New(cfg.Spec.Clusters...), nil
 }

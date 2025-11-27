@@ -14,7 +14,7 @@ description: >
 `LocalQueue` 定义如下所示：
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: LocalQueue
 metadata:
   namespace: team-a 

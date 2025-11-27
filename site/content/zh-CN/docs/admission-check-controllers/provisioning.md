@@ -46,7 +46,7 @@ Kueue 为您的作业创建 ProvisioningRequests 有两种配置方式：
 一个 `ProvisioningRequestConfig` 如下所示：
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ProvisioningRequestConfig
 metadata:
   name: prov-test-config

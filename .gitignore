@@ -7,6 +7,7 @@
 *.dylib
 bin
 artifacts
+config/components/crd/_output
 testbin/*
 .DS_Store
 go.work*

@@ -56,7 +56,7 @@ admissionFairSharing:
 通过在 ClusterQueue 中添加 AdmissionScope 来启用准入公平共享：
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: sample-queue
@@ -72,7 +72,7 @@ spec:
 您可以在 LocalQueue 中定义 `fairSharing` 部分，以调整其在公平共享计算中的权重（默认为 `1`）：
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: LocalQueue
 metadata:
   name: team-a-queue

@@ -29,7 +29,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -101,7 +101,7 @@ func (j *RayCluster) PodLabelSelector() string {
 	return fmt.Sprintf("%s=%s", rayutils.RayClusterLabelKey, j.Name)
 }
 
-func (j *RayCluster) PodSets() ([]kueue.PodSet, error) {
+func (j *RayCluster) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	// len = workerGroups + head
 	podSets := make([]kueue.PodSet, len(j.Spec.WorkerGroupSpecs)+1)
 
@@ -148,7 +148,7 @@ func (j *RayCluster) PodSets() ([]kueue.PodSet, error) {
 	return podSets, nil
 }
 
-func (j *RayCluster) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
+func (j *RayCluster) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
 	expectedLen := len(j.Spec.WorkerGroupSpecs) + 1
 	if len(podSetsInfo) != expectedLen {
 		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
@@ -193,12 +193,12 @@ func (j *RayCluster) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 	return changed
 }
 
-func (j *RayCluster) Finished() (message string, success, finished bool) {
+func (j *RayCluster) Finished(ctx context.Context) (message string, success, finished bool) {
 	// Technically a RayCluster is never "finished"
 	return j.Status.Reason, j.Status.State != rayv1.Failed, false
 }
 
-func (j *RayCluster) PodsReady() bool {
+func (j *RayCluster) PodsReady(ctx context.Context) bool {
 	return j.Status.State == rayv1.Ready
 }
 

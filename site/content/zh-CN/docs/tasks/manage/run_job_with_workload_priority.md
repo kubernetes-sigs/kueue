@@ -26,7 +26,7 @@ description: >
 首先应该创建 WorkloadPriorityClass。
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: WorkloadPriorityClass
 metadata:
   name: sample-priority
@@ -68,7 +68,7 @@ Kueue 为上述作业生成了以下 `Workload`。
 工作负载的 `PriorityClassSource` 和 `PriorityClassName` 字段是不可变的。
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: Workload
 metadata:
   name: job-sample-job-7f173

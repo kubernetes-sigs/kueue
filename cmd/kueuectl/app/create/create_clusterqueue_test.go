@@ -24,14 +24,14 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 func TestCreateClusterQueue(t *testing.T) {
 	testCases := map[string]struct {
 		options  *ClusterQueueOptions
-		expected *v1beta1.ClusterQueue
+		expected *kueue.ClusterQueue
 	}{
 		"success_create": {
 			options: &ClusterQueueOptions{
@@ -43,11 +43,11 @@ func TestCreateClusterQueue(t *testing.T) {
 				},
 				ReclaimWithinCohort:          "Any",
 				PreemptionWithinClusterQueue: "LowerPriority",
-				ResourceGroups: []v1beta1.ResourceGroup{
+				ResourceGroups: []kueue.ResourceGroup{
 					{
 						CoveredResources: []corev1.ResourceName{},
-						Flavors: []v1beta1.FlavorQuotas{
-							*utiltesting.MakeFlavorQuotas("alpha").
+						Flavors: []kueue.FlavorQuotas{
+							*utiltestingapi.MakeFlavorQuotas("alpha").
 								Resource("cpu", "0", "0", "0").
 								Resource("memory", "0", "0", "0").
 								Obj(),
@@ -55,24 +55,24 @@ func TestCreateClusterQueue(t *testing.T) {
 					},
 				},
 			},
-			expected: &v1beta1.ClusterQueue{
-				TypeMeta:   metav1.TypeMeta{APIVersion: "kueue.x-k8s.io/v1beta1", Kind: "ClusterQueue"},
+			expected: &kueue.ClusterQueue{
+				TypeMeta:   metav1.TypeMeta{APIVersion: "kueue.x-k8s.io/v1beta2", Kind: "ClusterQueue"},
 				ObjectMeta: metav1.ObjectMeta{Name: "cq1"},
-				Spec: v1beta1.ClusterQueueSpec{
-					Cohort:           "cohort",
-					QueueingStrategy: v1beta1.StrictFIFO,
+				Spec: kueue.ClusterQueueSpec{
+					CohortName:       "cohort",
+					QueueingStrategy: kueue.StrictFIFO,
 					NamespaceSelector: &metav1.LabelSelector{
 						MatchLabels: map[string]string{"foo": "bar"},
 					},
-					Preemption: &v1beta1.ClusterQueuePreemption{
-						ReclaimWithinCohort: v1beta1.PreemptionPolicyAny,
-						WithinClusterQueue:  v1beta1.PreemptionPolicyLowerPriority,
+					Preemption: &kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 					},
-					ResourceGroups: []v1beta1.ResourceGroup{
+					ResourceGroups: []kueue.ResourceGroup{
 						{
 							CoveredResources: []corev1.ResourceName{},
-							Flavors: []v1beta1.FlavorQuotas{
-								*utiltesting.MakeFlavorQuotas("alpha").
+							Flavors: []kueue.FlavorQuotas{
+								*utiltestingapi.MakeFlavorQuotas("alpha").
 									Resource("cpu", "0", "0", "0").
 									Resource("memory", "0", "0", "0").
 									Obj(),
@@ -99,15 +99,15 @@ func TestParseResourceQuotas(t *testing.T) {
 		borrowingArgs      []string
 		lendingArgs        []string
 		wantErr            error
-		wantResourceGroups []v1beta1.ResourceGroup
+		wantResourceGroups []kueue.ResourceGroup
 	}{
 		"should create one resource group with one flavor and nominalQuota set": {
 			quotaArgs: []string{"alpha-2.0:cpu=1;memory=1;example-1.org/memory=5Gi"},
-			wantResourceGroups: []v1beta1.ResourceGroup{
+			wantResourceGroups: []kueue.ResourceGroup{
 				{
 					CoveredResources: []corev1.ResourceName{"cpu", "memory", "example-1.org/memory"},
-					Flavors: []v1beta1.FlavorQuotas{
-						*utiltesting.MakeFlavorQuotas("alpha-2.0").
+					Flavors: []kueue.FlavorQuotas{
+						*utiltestingapi.MakeFlavorQuotas("alpha-2.0").
 							Resource("cpu", "1").
 							Resource("memory", "1").
 							Resource("example-1.org/memory", "5Gi").
@@ -118,11 +118,11 @@ func TestParseResourceQuotas(t *testing.T) {
 		},
 		"should create one resource group with one flavor and borrowingLimit set": {
 			borrowingArgs: []string{"alpha:cpu=1;memory=1"},
-			wantResourceGroups: []v1beta1.ResourceGroup{
+			wantResourceGroups: []kueue.ResourceGroup{
 				{
 					CoveredResources: []corev1.ResourceName{"cpu", "memory"},
-					Flavors: []v1beta1.FlavorQuotas{
-						*utiltesting.MakeFlavorQuotas("alpha").
+					Flavors: []kueue.FlavorQuotas{
+						*utiltestingapi.MakeFlavorQuotas("alpha").
 							Resource("cpu", "0", "1").
 							Resource("memory", "0", "1").
 							Obj(),
@@ -132,11 +132,11 @@ func TestParseResourceQuotas(t *testing.T) {
 		},
 		"should create one resource group with one flavor and lendingLimit set": {
 			lendingArgs: []string{"alpha:cpu=1;memory=1"},
-			wantResourceGroups: []v1beta1.ResourceGroup{
+			wantResourceGroups: []kueue.ResourceGroup{
 				{
 					CoveredResources: []corev1.ResourceName{"cpu", "memory"},
-					Flavors: []v1beta1.FlavorQuotas{
-						*utiltesting.MakeFlavorQuotas("alpha").
+					Flavors: []kueue.FlavorQuotas{
+						*utiltestingapi.MakeFlavorQuotas("alpha").
 							Resource("cpu", "0", "", "1").
 							Resource("memory", "0", "", "1").
 							Obj(),
@@ -146,14 +146,14 @@ func TestParseResourceQuotas(t *testing.T) {
 		},
 		"should create one resource group with two flavors and nominalQuota set": {
 			quotaArgs: []string{"alpha:example.com/gpu=1", "beta:example.com/gpu=2"},
-			wantResourceGroups: []v1beta1.ResourceGroup{
+			wantResourceGroups: []kueue.ResourceGroup{
 				{
 					CoveredResources: []corev1.ResourceName{"example.com/gpu"},
-					Flavors: []v1beta1.FlavorQuotas{
-						*utiltesting.MakeFlavorQuotas("alpha").
+					Flavors: []kueue.FlavorQuotas{
+						*utiltestingapi.MakeFlavorQuotas("alpha").
 							Resource("example.com/gpu", "1").
 							Obj(),
-						*utiltesting.MakeFlavorQuotas("beta").
+						*utiltestingapi.MakeFlavorQuotas("beta").
 							Resource("example.com/gpu", "2").
 							Obj(),
 					},
@@ -162,15 +162,15 @@ func TestParseResourceQuotas(t *testing.T) {
 		},
 		"should create one resource group when flavors listing resources in different order": {
 			quotaArgs: []string{"alpha:cpu=1;memory=1", "beta:memory=2;cpu=2"},
-			wantResourceGroups: []v1beta1.ResourceGroup{
+			wantResourceGroups: []kueue.ResourceGroup{
 				{
 					CoveredResources: []corev1.ResourceName{"cpu", "memory"},
-					Flavors: []v1beta1.FlavorQuotas{
-						*utiltesting.MakeFlavorQuotas("alpha").
+					Flavors: []kueue.FlavorQuotas{
+						*utiltestingapi.MakeFlavorQuotas("alpha").
 							Resource("cpu", "1").
 							Resource("memory", "1").
 							Obj(),
-						*utiltesting.MakeFlavorQuotas("beta").
+						*utiltestingapi.MakeFlavorQuotas("beta").
 							Resource("memory", "2").
 							Resource("cpu", "2").
 							Obj(),
@@ -180,11 +180,11 @@ func TestParseResourceQuotas(t *testing.T) {
 		},
 		"should create two resource groups with one flavor each and nominalQuota set": {
 			quotaArgs: []string{"alpha:cpu=1;memory=1", "beta:example.com/gpu=2"},
-			wantResourceGroups: []v1beta1.ResourceGroup{
+			wantResourceGroups: []kueue.ResourceGroup{
 				{
 					CoveredResources: []corev1.ResourceName{"cpu", "memory"},
-					Flavors: []v1beta1.FlavorQuotas{
-						*utiltesting.MakeFlavorQuotas("alpha").
+					Flavors: []kueue.FlavorQuotas{
+						*utiltestingapi.MakeFlavorQuotas("alpha").
 							Resource("cpu", "1").
 							Resource("memory", "1").
 							Obj(),
@@ -192,8 +192,8 @@ func TestParseResourceQuotas(t *testing.T) {
 				},
 				{
 					CoveredResources: []corev1.ResourceName{"example.com/gpu"},
-					Flavors: []v1beta1.FlavorQuotas{
-						*utiltesting.MakeFlavorQuotas("beta").
+					Flavors: []kueue.FlavorQuotas{
+						*utiltestingapi.MakeFlavorQuotas("beta").
 							Resource("example.com/gpu", "2").
 							Obj(),
 					},
@@ -202,15 +202,15 @@ func TestParseResourceQuotas(t *testing.T) {
 		},
 		"should create two resource groups with multiple flavors and nominalQuota set": {
 			quotaArgs: []string{"alpha:cpu=1;memory=1", "beta:example.com/gpu=2", "gamma:cpu=2;memory=2"},
-			wantResourceGroups: []v1beta1.ResourceGroup{
+			wantResourceGroups: []kueue.ResourceGroup{
 				{
 					CoveredResources: []corev1.ResourceName{"cpu", "memory"},
-					Flavors: []v1beta1.FlavorQuotas{
-						*utiltesting.MakeFlavorQuotas("alpha").
+					Flavors: []kueue.FlavorQuotas{
+						*utiltestingapi.MakeFlavorQuotas("alpha").
 							Resource("cpu", "1").
 							Resource("memory", "1").
 							Obj(),
-						*utiltesting.MakeFlavorQuotas("gamma").
+						*utiltestingapi.MakeFlavorQuotas("gamma").
 							Resource("cpu", "2").
 							Resource("memory", "2").
 							Obj(),
@@ -218,8 +218,8 @@ func TestParseResourceQuotas(t *testing.T) {
 				},
 				{
 					CoveredResources: []corev1.ResourceName{"example.com/gpu"},
-					Flavors: []v1beta1.FlavorQuotas{
-						*utiltesting.MakeFlavorQuotas("beta").
+					Flavors: []kueue.FlavorQuotas{
+						*utiltestingapi.MakeFlavorQuotas("beta").
 							Resource("example.com/gpu", "2").
 							Obj(),
 					},
@@ -230,11 +230,11 @@ func TestParseResourceQuotas(t *testing.T) {
 			quotaArgs:     []string{"alpha:cpu=1;memory=2"},
 			borrowingArgs: []string{"alpha:cpu=1;memory=2"},
 			lendingArgs:   []string{"alpha:cpu=1;memory=2"},
-			wantResourceGroups: []v1beta1.ResourceGroup{
+			wantResourceGroups: []kueue.ResourceGroup{
 				{
 					CoveredResources: []corev1.ResourceName{"cpu", "memory"},
-					Flavors: []v1beta1.FlavorQuotas{
-						*utiltesting.MakeFlavorQuotas("alpha").
+					Flavors: []kueue.FlavorQuotas{
+						*utiltestingapi.MakeFlavorQuotas("alpha").
 							Resource("cpu", "1", "1", "1").
 							Resource("memory", "2", "2", "2").
 							Obj(),
@@ -246,14 +246,14 @@ func TestParseResourceQuotas(t *testing.T) {
 			quotaArgs:     []string{"alpha:example.com/gpu=1", "beta:example.com/gpu=2"},
 			borrowingArgs: []string{"alpha:example.com/gpu=1", "beta:example.com/gpu=2"},
 			lendingArgs:   []string{"alpha:example.com/gpu=1", "beta:example.com/gpu=2"},
-			wantResourceGroups: []v1beta1.ResourceGroup{
+			wantResourceGroups: []kueue.ResourceGroup{
 				{
 					CoveredResources: []corev1.ResourceName{"example.com/gpu"},
-					Flavors: []v1beta1.FlavorQuotas{
-						*utiltesting.MakeFlavorQuotas("alpha").
+					Flavors: []kueue.FlavorQuotas{
+						*utiltestingapi.MakeFlavorQuotas("alpha").
 							Resource("example.com/gpu", "1", "1", "1").
 							Obj(),
-						*utiltesting.MakeFlavorQuotas("beta").
+						*utiltestingapi.MakeFlavorQuotas("beta").
 							Resource("example.com/gpu", "2", "2", "2").
 							Obj(),
 					},
@@ -264,11 +264,11 @@ func TestParseResourceQuotas(t *testing.T) {
 			quotaArgs:     []string{"alpha:cpu=1;memory=1", "beta:example.com/gpu=2"},
 			borrowingArgs: []string{"alpha:cpu=1;memory=1", "beta:example.com/gpu=2"},
 			lendingArgs:   []string{"alpha:cpu=1;memory=1", "beta:example.com/gpu=2"},
-			wantResourceGroups: []v1beta1.ResourceGroup{
+			wantResourceGroups: []kueue.ResourceGroup{
 				{
 					CoveredResources: []corev1.ResourceName{"cpu", "memory"},
-					Flavors: []v1beta1.FlavorQuotas{
-						*utiltesting.MakeFlavorQuotas("alpha").
+					Flavors: []kueue.FlavorQuotas{
+						*utiltestingapi.MakeFlavorQuotas("alpha").
 							Resource("cpu", "1", "1", "1").
 							Resource("memory", "1", "1", "1").
 							Obj(),
@@ -276,8 +276,8 @@ func TestParseResourceQuotas(t *testing.T) {
 				},
 				{
 					CoveredResources: []corev1.ResourceName{"example.com/gpu"},
-					Flavors: []v1beta1.FlavorQuotas{
-						*utiltesting.MakeFlavorQuotas("beta").
+					Flavors: []kueue.FlavorQuotas{
+						*utiltestingapi.MakeFlavorQuotas("beta").
 							Resource("example.com/gpu", "2", "2", "2").
 							Obj(),
 					},
@@ -288,15 +288,15 @@ func TestParseResourceQuotas(t *testing.T) {
 			quotaArgs:     []string{"alpha:cpu=1;memory=1", "beta:example.com/gpu=2", "gamma:cpu=2;memory=2"},
 			borrowingArgs: []string{"alpha:cpu=1;memory=1", "beta:example.com/gpu=2", "gamma:cpu=2;memory=2"},
 			lendingArgs:   []string{"alpha:cpu=1;memory=1", "beta:example.com/gpu=2", "gamma:cpu=2;memory=2"},
-			wantResourceGroups: []v1beta1.ResourceGroup{
+			wantResourceGroups: []kueue.ResourceGroup{
 				{
 					CoveredResources: []corev1.ResourceName{"cpu", "memory"},
-					Flavors: []v1beta1.FlavorQuotas{
-						*utiltesting.MakeFlavorQuotas("alpha").
+					Flavors: []kueue.FlavorQuotas{
+						*utiltestingapi.MakeFlavorQuotas("alpha").
 							Resource("cpu", "1", "1", "1").
 							Resource("memory", "1", "1", "1").
 							Obj(),
-						*utiltesting.MakeFlavorQuotas("gamma").
+						*utiltestingapi.MakeFlavorQuotas("gamma").
 							Resource("cpu", "2", "2", "2").
 							Resource("memory", "2", "2", "2").
 							Obj(),
@@ -304,8 +304,8 @@ func TestParseResourceQuotas(t *testing.T) {
 				},
 				{
 					CoveredResources: []corev1.ResourceName{"example.com/gpu"},
-					Flavors: []v1beta1.FlavorQuotas{
-						*utiltesting.MakeFlavorQuotas("beta").
+					Flavors: []kueue.FlavorQuotas{
+						*utiltestingapi.MakeFlavorQuotas("beta").
 							Resource("example.com/gpu", "2", "2", "2").
 							Obj(),
 					},

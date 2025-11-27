@@ -31,8 +31,13 @@ fi
 
 declare -r RELEASE_VERSION="$1"
 
-if [[ ! "$RELEASE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "!!! Invalid release version. It should be semantic version like v0.13.2"
+if [[ ! "$RELEASE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+\.[0-9]+)?$ ]]; then
+  echo "!!! Invalid release version. It should be semantic version like v0.13.2 or v0.13.2-rc.0"
+  exit 1
+fi
+
+if ! command -v gcloud >/dev/null 2>&1; then
+  echo "!!! gcloud is not installed. Please install the Google Cloud SDK. See https://cloud.google.com/sdk/docs/install for details."
   exit 1
 fi
 

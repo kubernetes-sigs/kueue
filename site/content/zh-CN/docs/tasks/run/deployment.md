@@ -1,40 +1,38 @@
 ---
-title: "Run Deployment"
+title: "运行 Deployment"
 linkTitle: "Deployment"
 date: 2024-07-25
 weight: 6
 description: >
-  Run a Deployment as a Kueue-managed workload.
+  将 Deployment 作为 Kueue 管理的工作负载运行。
 ---
 
-This page shows how to leverage Kueue's scheduling and resource management
-capabilities when running Deployments.
-Although Kueue does not yet support managing a Deployment as a single Workload, 
-it's still possible to leverage Kueue's scheduling and resource management capabilities for the individual Pods of the Deployment.
+本页面展示了在运行 Deployment 时如何利用 Kueue 的调度和资源管理能力。
+虽然 Kueue 尚不支持将 Deployment 作为单个工作负载进行管理，
+但仍然可以利用 Kueue 的调度和资源管理能力来管理 Deployment 中的各个 Pod。
 
-We demonstrate how to support scheduling Deployments in Kueue based on the Plain Pod integration,
-where every Pod from a Deployment is represented as a single independent Plain Pod.
-This approach allows independent resource management for the Pods, and thus scale-out and scale-in of the Deployment.
+我们演示了如何基于 Plain Pod 集成在 Kueue 中支持调度 Deployment，
+其中 Deployment 中的每个 Pod 都被表示为一个独立的 Plain Pod。
+这种方法允许对 Pod 进行独立的资源管理，从而实现 Deployment 的扩容和缩容。
 
-This guide is for [serving users](/docs/tasks#serving-user) that have a basic understanding of Kueue.
-For more information, see [Kueue's overview](/docs/overview).
+本指南适用于对 Kueue 有基本了解的[服务用户](/zh-CN/docs/tasks#serving-user)。
+更多信息，请参见 [Kueue 概述](/zh-CN/docs/overview)。
 
-## Before you begin
+## 开始之前
 
-1. Learn how to [install Kueue with a custom manager configuration](/docs/installation/#install-a-custom-configured-released-version).
+1. 学习如何[使用自定义管理器配置来安装 Kueue](/docs/installation/#install-a-custom-configured-released-version)。
 
-2. Follow steps in [Run Plain Pods](/docs/tasks/run/plain_pods/#before-you-begin)
-to learn how to enable and configure the `pod` integration.
+2. 按照[运行 Plain Pod](/zh-CN/docs/tasks/run/plain_pods/#before-you-begin)中的步骤学习如何启用和配置 `pod` 集成。
 
-3. Check [Administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial Kueue setup.
+3. 查看[管理集群配额](/zh-CN/docs/tasks/manage/administer_cluster_quotas)了解初始 Kueue 设置的详细信息。
 
-## Running a Deployment admitted by Kueue
+## 运行由 Kueue 准入的 Deployment
 
-When running Deployment on Kueue, take into consideration the following aspects:
+在 Kueue 上运行 Deployment 时，需要考虑以下方面：
 
-### a. Queue selection
+### a. 队列选择
 
-The target [local queue](/docs/concepts/local_queue) should be specified in the `metadata.labels` section of the Deployment configuration.
+目标[本地队列](/zh-CN/docs/concepts/local_queue)应在 Deployment 配置的 `metadata.labels` 部分中指定。
 
 ```yaml
 metadata:
@@ -42,9 +40,9 @@ metadata:
     kueue.x-k8s.io/queue-name: user-queue
 ```
 
-### b. Configure the resource needs
+### b. 配置资源需求
 
-The resource needs of the workload can be configured in the `spec.template.spec.containers`.
+工作负载的资源需求可以在 `spec.template.spec.containers` 中配置。
 
 ```yaml
     - resources:
@@ -52,28 +50,28 @@ The resource needs of the workload can be configured in the `spec.template.spec.
           cpu: 3
 ```
 
-### c. Scaling
+### c. 扩缩容
 
-You may perform scale up or scale down operations on Deployments.
-On scale-in, the excess Pods are deleted, and the quota is freed.
-On scale-out, new Pods are created, and remain suspended until their corresponding workloads get admitted.
-If there is not enough quota in your cluster, the Deployment might run only a subset of Pods. 
-So, if your workloads are business-critical, 
-you can consider reserving the quota only for the serving workloads by the ClusterQueue `lendingLimit`. 
-The `lendingLimit` allows you to rapidly scale out the critical serving workload.
-For more `lendingLimit` details, please see the [ClusterQueue page](docs/concepts/cluster_queue#lendinglimit).
+您可以对 Deployment 执行扩容或缩容操作。
+在缩容时，多余的 Pod 会被删除，配额会被释放。
+在扩容时，会创建新的 Pod，这些 Pod 会保持挂起状态，直到相应的工作负载被准入。
+如果集群中没有足够的配额，Deployment 可能只运行部分 Pod。
+因此，如果您的工作负载对业务至关重要，
+您可以考虑通过 ClusterQueue 的 `lendingLimit` 仅为服务工作负载保留配额。
+`lendingLimit` 允许您快速扩容关键的服务工作负载。
+有关 `lendingLimit` 的更多详细信息，请参见 [ClusterQueue 页面](/zh-CN/docs/concepts/cluster_queue#lendinglimit)。
 
-### d. Limitations
+### d. 限制
 
-- The scope for Deployments is implied by the pod integration's namespace selector. There's no independent control for deployments.
+- Deployment 的范围由 `pod` 集成的命名空间选择器所默示。不能独立控制 Deployment。
 
-## Example
+## 示例
 
-Here is a sample Deployment:
+以下是一个示例 Deployment：
 
 {{< include "examples/serving-workloads/sample-deployment.yaml" "yaml" >}}
 
-You can create the Deployment using the following command:
+您可以使用以下命令创建 Deployment：
 ```sh
 kubectl create -f sample-deployment.yaml
 ```

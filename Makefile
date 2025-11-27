@@ -40,10 +40,12 @@ IMAGE_REGISTRY ?= $(STAGING_IMAGE_REGISTRY)
 IMAGE_REPO := $(IMAGE_REGISTRY)/kueue
 IMAGE_REPO_KUEUEVIZ_BACKEND := $(IMAGE_REGISTRY)/kueueviz-backend
 IMAGE_REPO_KUEUEVIZ_FRONTEND := $(IMAGE_REGISTRY)/kueueviz-frontend
+IMAGE_REPO_KUEUE_POPULATOR := $(IMAGE_REGISTRY)/kueue-populator
 
 IMAGE_TAG := $(IMAGE_REPO):$(GIT_TAG)
 IMAGE_TAG_KUEUEVIZ_BACKEND := $(IMAGE_REPO_KUEUEVIZ_BACKEND):$(GIT_TAG)
 IMAGE_TAG_KUEUEVIZ_FRONTEND := $(IMAGE_REPO_KUEUEVIZ_FRONTEND):$(GIT_TAG)
+IMAGE_TAG_KUEUE_POPULATOR := $(IMAGE_REPO_KUEUE_POPULATOR):$(GIT_TAG)
 
 RAY_VERSION := 2.41.0
 RAYMINI_VERSION ?= 0.0.1
@@ -52,11 +54,13 @@ PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 BIN_DIR ?= $(PROJECT_DIR)/bin
 ARTIFACTS ?= $(BIN_DIR)
 TOOLS_DIR := $(PROJECT_DIR)/hack/internal/tools
+MOCKS_DIR := internal/mocks
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
 BASE_IMAGE ?= gcr.io/distroless/static:nonroot
-BUILDER_IMAGE ?= golang:$(GO_VERSION)
+BASE_BUILDER_IMAGE ?= golang
+BUILDER_IMAGE ?= $(BASE_BUILDER_IMAGE):$(GO_VERSION)
 CGO_ENABLED ?= 0
 
 YAML_PROCESSOR_LOG_LEVEL ?= info
@@ -85,7 +89,7 @@ LD_FLAGS += -X '$(version_pkg).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.13.3
+RELEASE_VERSION=v0.14.4
 RELEASE_BRANCH=main
 # Application version for Helm and npm (strips leading 'v' from RELEASE_VERSION)
 APP_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)
@@ -125,18 +129,30 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 		rbac:roleName=manager-role output:rbac:artifacts:config=config/components/rbac\
 		webhook output:webhook:artifacts:config=config/components/webhook\
 		paths="./pkg/controller/...;./pkg/webhooks/...;./pkg/util/cert/...;./pkg/visibility/..."
+	$(MAKE) compile-crd-manifests
+
+.PHONY: compile-crd-manifests
+compile-crd-manifests: kustomize
+	@mkdir -p config/components/crd/_output
+	$(KUSTOMIZE) build config/components/crd > config/components/crd/_output/crds-with-webhooks.yaml
 
 .PHONY: update-helm
 update-helm: manifests yq yaml-processor
 	$(BIN_DIR)/yaml-processor -zap-log-level=$(YAML_PROCESSOR_LOG_LEVEL) hack/processing-plan.yaml
 
 .PHONY: generate
-generate: gomod-download generate-apiref generate-code generate-kueuectl-docs generate-helm-docs
+generate: gomod-download generate-mocks generate-apiref generate-code generate-kueuectl-docs generate-helm-docs generate-metrics-tables
 
 .PHONY: generate-code
 generate-code: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations and client-go libraries.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./apis/..."
 	TOOLS_DIR=${TOOLS_DIR} ./hack/update-codegen.sh $(GO_CMD)
+
+.PHONY: generate-mocks
+generate-mocks: mockgen ## Generate mockgen mocks
+	# Clean up previously generated mocks to keep generated mocks up-to-date.
+	rm -rf $(MOCKS_DIR)
+	$(MOCKGEN) -destination=$(MOCKS_DIR)/controller/jobframework/interface.go -package mocks sigs.k8s.io/kueue/pkg/controller/jobframework GenericJob,JobWithCustomValidation,JobWithManagedBy,JobWithCustomWorkloadActivation
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -228,6 +244,14 @@ ci-lint: golangci-lint
 lint-fix: GOLANGCI_LINT_FIX=--fix
 lint-fix: ci-lint
 
+.PHONY: lint-api
+lint-api: golangci-lint-kal
+	$(GOLANGCI_LINT_KAL) run -v --config $(PROJECT_DIR)/.golangci-kal.yml ${GOLANGCI_LINT_FIX}
+
+.PHONY: lint-api-fix
+lint-api-fix: GOLANGCI_LINT_FIX=--fix
+lint-api-fix: lint-api
+
 .PHONY: shell-lint
 shell-lint: ## Run shell linting.
 	$(PROJECT_DIR)/hack/shellcheck/verify.sh
@@ -238,7 +262,7 @@ sync-hugo-version:
 
 PATHS_TO_VERIFY := config/components apis charts/kueue client-go site/ netlify.toml
 .PHONY: verify
-verify: gomod-verify ci-lint fmt-verify shell-lint toc-verify manifests generate update-helm helm-verify helm-unit-test prepare-release-branch sync-hugo-version npm-depcheck
+verify: gomod-verify ci-lint lint-api fmt-verify shell-lint toc-verify manifests generate update-helm helm-verify helm-unit-test prepare-release-branch sync-hugo-version npm-depcheck
 	git --no-pager diff --exit-code $(PATHS_TO_VERIFY)
 	if git ls-files --exclude-standard --others $(PATHS_TO_VERIFY) | grep -q . ; then exit 1; fi
 
@@ -309,6 +333,11 @@ kind-image-build: kind image-build
 yaml-processor:
 	cd $(TOOLS_DIR)/yaml-processor && \
 	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(BIN_DIR)/yaml-processor
+
+.PHONY: metricsdoc
+metricsdoc:
+	cd $(TOOLS_DIR)/metricsdoc && \
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(BIN_DIR)/metricsdoc
 
 ##@ Deployment
 
@@ -393,6 +422,24 @@ update-security-insights: yq
 	$(YQ) e '.distribution-points[0] = "https://github.com/kubernetes-sigs/kueue/releases/download/$(GIT_TAG)/manifests.yaml"' -i SECURITY-INSIGHTS.yaml
 	$(YQ) e '.dependencies.sbom[0].sbom-file = "https://github.com/kubernetes-sigs/kueue/releases/download/$(GIT_TAG)/kueue-$(GIT_TAG).spdx.json"' -i SECURITY-INSIGHTS.yaml
 
+##@ Kueue Populator
+
+.PHONY: kueue-populator-test
+kueue-populator-test: ## Run unit tests for kueue-populator.
+	$(MAKE) -C cmd/experimental/kueue-populator test
+
+.PHONY: kueue-populator-test-integration
+kueue-populator-test-integration: ## Run integration tests for kueue-populator.
+	$(MAKE) -C cmd/experimental/kueue-populator test-integration
+
+.PHONY: kueue-populator-test-e2e
+kueue-populator-test-e2e: ## Run e2e tests for kueue-populator.
+	$(MAKE) -C cmd/experimental/kueue-populator test-e2e
+
+.PHONY: kueue-populator-verify
+kueue-populator-verify: ## Run all verification tests for kueue-populator.
+	$(MAKE) -C cmd/experimental/kueue-populator verify
+
 ##@ Debug
 
 # Build an image that can be used with kubectl debug
@@ -465,6 +512,35 @@ kueueviz-image: VIZ_PLATFORMS=$(HOST_IMAGE_PLATFORM)
 kueueviz-image: PUSH=--load
 kueueviz-image: kueueviz-image-build
 
+# Build the kueue-populator image
+.PHONY: kueue-populator-image-build
+kueue-populator-image-build:
+	$(MAKE) -C cmd/experimental/kueue-populator image-build \
+		IMAGE_REGISTRY=$(IMAGE_REGISTRY) \
+		IMAGE_TAG=$(IMAGE_TAG_KUEUE_POPULATOR) \
+		PLATFORMS="$(PLATFORMS)" \
+		BASE_IMAGE=$(BASE_IMAGE) \
+		BUILDER_IMAGE=$(BUILDER_IMAGE) \
+		CGO_ENABLED=$(CGO_ENABLED) \
+		PUSH=$(PUSH) \
+		IMAGE_BUILD_EXTRA_OPTS="$(IMAGE_BUILD_EXTRA_OPTS) -t $(IMAGE_REPO_KUEUE_POPULATOR):$(RELEASE_BRANCH)"
+
+.PHONY: kueue-populator-image-push
+kueue-populator-image-push: PUSH=--push
+kueue-populator-image-push: kueue-populator-image-build
+
+# Build a docker local us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-populator image
+.PHONY: kueue-populator-image
+kueue-populator-image: PLATFORMS=$(HOST_IMAGE_PLATFORM)
+kueue-populator-image: PUSH=--load
+kueue-populator-image: kueue-populator-image-build
+
+.PHONY: kueue-populator-helm-chart-push
+kueue-populator-helm-chart-push: ## Push kueue-populator helm chart.
+	$(MAKE) -C cmd/experimental/kueue-populator helm-chart-push \
+		IMAGE_REGISTRY=$(IMAGE_REGISTRY) \
+		GIT_TAG=$(GIT_TAG)
+
 .PHONY: kueuectl
 kueuectl:
 	CGO_ENABLED=$(CGO_ENABLED) $(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(BIN_DIR)/kubectl-kueue cmd/kueuectl/main.go
@@ -483,6 +559,10 @@ generate-kueuectl-docs: kueuectl-docs
 .PHONY: generate-helm-docs
 generate-helm-docs: helm-docs
 	$(HELM_DOCS) -c $(PROJECT_DIR)/charts/kueue
+
+.PHONY: generate-metrics-tables
+generate-metrics-tables: metricsdoc
+	$(BIN_DIR)/metricsdoc --metrics-package=pkg/metrics --out=site/content/en/docs/reference/metrics.md
 
 # Build the ray-project-mini image
 .PHONY: ray-project-mini-image-build

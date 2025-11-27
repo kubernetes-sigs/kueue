@@ -28,9 +28,9 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -50,11 +50,11 @@ var _ = ginkgo.Describe("Kueuectl Stop", ginkgo.Ordered, ginkgo.ContinueOnFailur
 
 	ginkgo.When("Stopping the Workload", func() {
 		ginkgo.It("Should stop the Workload", func() {
-			wl := testing.MakeWorkload("wl", ns.Name).Active(true).Obj()
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).Active(true).Obj()
 			ginkgo.By("Create a Workload")
 			util.MustCreate(ctx, k8sClient, wl)
 
-			createdWorkload := &v1beta1.Workload{}
+			createdWorkload := &kueue.Workload{}
 
 			ginkgo.By("Get the created Workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -84,18 +84,18 @@ var _ = ginkgo.Describe("Kueuectl Stop", ginkgo.Ordered, ginkgo.ContinueOnFailur
 
 	ginkgo.When("Stopping a LocalQueue", func() {
 		ginkgo.DescribeTable("Should stop a LocalQueue",
-			func(name string, stopCmdArgs []string, wantStopPolicy v1beta1.StopPolicy) {
-				lq := testing.MakeLocalQueue(name, ns.Name).Obj()
+			func(name string, stopCmdArgs []string, wantStopPolicy kueue.StopPolicy) {
+				lq := utiltestingapi.MakeLocalQueue(name, ns.Name).Obj()
 
 				ginkgo.By("Create a LocalQueue", func() {
 					util.MustCreate(ctx, k8sClient, lq)
 				})
 
-				createdLocalQueue := &v1beta1.LocalQueue{}
+				createdLocalQueue := &kueue.LocalQueue{}
 				ginkgo.By("Get created LocalQueue", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), createdLocalQueue)).To(gomega.Succeed())
-						g.Expect(ptr.Deref(createdLocalQueue.Spec.StopPolicy, v1beta1.None)).Should(gomega.Equal(v1beta1.None))
+						g.Expect(ptr.Deref(createdLocalQueue.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.None))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
@@ -112,26 +112,26 @@ var _ = ginkgo.Describe("Kueuectl Stop", ginkgo.Ordered, ginkgo.ContinueOnFailur
 				ginkgo.By("Check that the LocalQueue is successfully stopped", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdLocalQueue), createdLocalQueue)).To(gomega.Succeed())
-						g.Expect(ptr.Deref(createdLocalQueue.Spec.StopPolicy, v1beta1.None)).Should(gomega.Equal(wantStopPolicy))
+						g.Expect(ptr.Deref(createdLocalQueue.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(wantStopPolicy))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 			},
 			ginkgo.Entry("Stop a LocalQueue and drain workloads",
 				"lq-1",
 				[]string{},
-				v1beta1.HoldAndDrain,
+				kueue.HoldAndDrain,
 			),
 			ginkgo.Entry("Stop a LocalQueue and let the admitted workloads finish",
 				"lq-2",
 				[]string{"--keep-already-running"},
-				v1beta1.Hold,
+				kueue.Hold,
 			),
 		)
 	})
 
 	ginkgo.When("Stopping a ClusterQueue", func() {
 		ginkgo.DescribeTable("Should stop a ClusterQueue",
-			func(cq *v1beta1.ClusterQueue, stopCmdArgs []string, wantStopPolicy v1beta1.StopPolicy) {
+			func(cq *kueue.ClusterQueue, stopCmdArgs []string, wantStopPolicy kueue.StopPolicy) {
 				ginkgo.By("Create a ClusterQueue", func() {
 					util.MustCreate(ctx, k8sClient, cq)
 				})
@@ -140,11 +140,11 @@ var _ = ginkgo.Describe("Kueuectl Stop", ginkgo.Ordered, ginkgo.ContinueOnFailur
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 				})
 
-				createdClusterQueue := &v1beta1.ClusterQueue{}
+				createdClusterQueue := &kueue.ClusterQueue{}
 				ginkgo.By("Get created ClusterQueue", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), createdClusterQueue)).To(gomega.Succeed())
-						g.Expect(ptr.Deref(createdClusterQueue.Spec.StopPolicy, v1beta1.None)).Should(gomega.Equal(v1beta1.None))
+						g.Expect(ptr.Deref(createdClusterQueue.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.None))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
@@ -161,19 +161,19 @@ var _ = ginkgo.Describe("Kueuectl Stop", ginkgo.Ordered, ginkgo.ContinueOnFailur
 				ginkgo.By("Check that the ClusterQueue is successfully stopped", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdClusterQueue), createdClusterQueue)).To(gomega.Succeed())
-						g.Expect(ptr.Deref(createdClusterQueue.Spec.StopPolicy, v1beta1.None)).Should(gomega.Equal(wantStopPolicy))
+						g.Expect(ptr.Deref(createdClusterQueue.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(wantStopPolicy))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 			},
 			ginkgo.Entry("Stop a ClusterQueue and drain workloads",
-				testing.MakeClusterQueue("cq-1").Obj(),
+				utiltestingapi.MakeClusterQueue("cq-1").Obj(),
 				[]string{},
-				v1beta1.HoldAndDrain,
+				kueue.HoldAndDrain,
 			),
 			ginkgo.Entry("Stop a ClusterQueue and let the admitted workloads finish",
-				testing.MakeClusterQueue("cq-2").Obj(),
+				utiltestingapi.MakeClusterQueue("cq-2").Obj(),
 				[]string{"--keep-already-running"},
-				v1beta1.Hold,
+				kueue.Hold,
 			),
 		)
 	})

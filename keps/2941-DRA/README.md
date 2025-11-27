@@ -31,13 +31,19 @@ tags, and then generate with `hack/update-toc.sh`.
   - [User Stories (Optional)](#user-stories-optional)
     - [Story 1](#story-1)
     - [Story 2](#story-2)
+    - [Story 3](#story-3)
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
-  - [DynamicResourceAllocationConfig API](#dynamicresourceallocationconfig-api)
-  - [Device Class Resolution and Ambiguity Handling](#device-class-resolution-and-ambiguity-handling)
-    - [Device Class Mapping Ambiguity](#device-class-mapping-ambiguity)
+  - [Configuration API Extension for DRA](#configuration-api-extension-for-dra)
+  - [Device Class Resolution and Conflict Prevention](#device-class-resolution-and-conflict-prevention)
+    - [Device Class Mapping Uniqueness](#device-class-mapping-uniqueness)
+  - [RBAC Requirements](#rbac-requirements)
   - [Workloads](#workloads)
+    - [DRA-Specific Workload Processing](#dra-specific-workload-processing)
+    - [Workload Processing Flow](#workload-processing-flow)
+  - [Architecture Details](#architecture-details)
+    - [Queue Manager Extensions](#queue-manager-extensions)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
@@ -55,7 +61,7 @@ tags, and then generate with `hack/update-toc.sh`.
   - [Using a CEL expression](#using-a-cel-expression)
   - [Defining DeviceClass mapping in ClusterQuota](#defining-deviceclass-mapping-in-clusterquota)
   - [Using ResourceFlavor for DeviceClass Mapping](#using-resourceflavor-for-deviceclass-mapping)
-  - [Using ConfigMap for DeviceClass Mapping](#using-configmap-for-deviceclass-mapping)
+  - [Creating a new CRD for device class mapping](#creating-a-new-crd-for-device-class-mapping)
 <!-- /toc -->
 
 ## Summary
@@ -170,13 +176,17 @@ a simple device class named `gpu.example.com`. This will be the way to enforce q
 
 ## Proposal
 
-This proposal is to extend the APIs for allowing workloads using DRA APIs to be tallied against quota management,
-borrowing and preemptable scheduling. This includes:
-1. Introducing a new API to allow creating a mapping of resource name -> device class names list
-2. Allowing admins to refer to resource name defined in DynamicResourceAllocationConfig in ClusterQueue to define
-   nominalQuota. The nominalQuota here will be applied to workloads requesting devices from any DeviceClasses mentioned
-   in the deviceClassNames list for the specific resource name. More details are documented in
-   [Design Details](#design-details)
+This proposal extends Kueue to support workloads using DRA APIs for quota management, borrowing and preemptable
+scheduling. This includes:
+
+1. Extending the existing Kueue Configuration API with `DeviceClassMappings` to map device classes to logical resource
+   names
+2. Supporting workloads that use ResourceClaimTemplates (ResourceClaims are not supported in alpha)
+3. Allowing admins to define quota for DRA resources in ClusterQueues using the logical resource names from device class
+   mappings
+4. Implementing validation to prevent device class conflicts and ensure predictable quota behavior
+
+More details are documented in [Design Details](#design-details)
 
 ### User Stories (Optional)
 
@@ -189,13 +199,20 @@ As a Kueue user, I want to use DRA devices for batch workloads in Kubernetes usi
 As an administrator of Kueue with ClusterQueue, I have a DRA driver installed in the cluster. I would like to enforce
 queuing, quota management and preemptable workloads for cluster users.
 
+#### Story 3
+
+As a cluster administrator, I want clear validation feedback when I misconfigure device class mappings so I can quickly
+identify and fix configuration conflicts before they affect workload scheduling.
+
 ### Notes/Constraints/Caveats (Optional)
 
 - The `ResourceClaims` and `ResourceClaimTemplates` APIs for DRA in k8s are immutable.
-- Device classes mapping to multiple resource names can create ambiguity during quota enforcement and requires careful
-  handling.
+- ResourceClaims are not supported in alpha - workloads must use ResourceClaimTemplates.
+  Direct ResourceClaim references will result in inadmissible workloads.
+- Device class uniqueness is enforced - each device class can only map to one resource name to prevent quota ambiguity.
+- Configuration-based approach - device class mappings are configured through the Kueue Configuration API
 - This design does not work with Kueue's Topology Aware Scheduling feature and will be addressed in future work.
-- This implementation focuses on structured parameters (beta in 1.32 and 1.33) and does not support alpha DRA features
+- This implementation focuses on structured parameters (GA in 1.34) and does not support alpha DRA features
   like DRADeviceTaints, DRAAdminAccess, DRAPrioritizedLists, and DRAPartitionableDevices.
 
 ### Risks and Mitigations
@@ -219,73 +236,77 @@ In order to mitigate this risk, Kueue can take the following approach:
 A new feature gate DynamicResourceAllocation will be introduced, allowing users to test it in dev environments while
 making the changes dormant for production users. The following sections will explain the design in detail.
 
-### DynamicResourceAllocationConfig API
+### Configuration API Extension for DRA
+
+DRA device class mappings are configured through the existing Kueue Configuration API rather than a standalone CRD.
+This approach provides a centralized configuration mechanism and avoids the complexity of managing additional CRDs.
 
 ```golang
-// +genclient
-// +kubebuilder:object:root=true
-// +kubebuilder:storageversion
-// DynamicResourceAllocationConfig is a singleton CRD that maps resource names to device classes
-// used in ClusterQueue resource quotas. It is singleton as "default" is the only allowed named for the CRD instance in
-// Kueue namespace.
-type DynamicResourceAllocationConfig struct {
-    metav1.TypeMeta   `json:",inline"`
-    metav1.ObjectMeta `json:"metadata,omitempty"`
-
-    // Spec defines the desired state of DynamicResourceAllocationConfig
-    Spec DynamicResourceAllocationConfigSpec `json:"spec"`
+// Resources struct in the Configuration API
+type Resources struct {
+    // DeviceClassMappings defines mappings from device classes to logical resources
+    // for Dynamic Resource Allocation support.
+    // +optional
+    DeviceClassMappings []DeviceClassMapping `json:"deviceClassMappings,omitempty"`
 }
 
-// DynamicResourceAllocationConfigSpec defines the mappings between resource names and device classes
-type DynamicResourceAllocationConfigSpec struct {
-    // Resources is a list of mappings from resource name to device classes
-    // +listType=map
-    // +listMapKey=name
-    // +kubebuilder:validation:MaxItems=16
-    Resources []DynamicResource `json:"resources"`
-}
-
-// DynamicResource defines a mapping from a resource name to a list of device classes
-type DynamicResource struct {
-    // Name is the resource name that will be referred to in ClusterQueue and Workload admission status.
+// DeviceClassMapping holds device class to logical resource mappings
+// for Dynamic Resource Allocation support.
+type DeviceClassMapping struct {
+    // Name is referenced in ClusterQueue.nominalQuota and Workload status.
+    // Must be a valid fully qualified name consisting of an optional DNS subdomain prefix
+    // followed by a slash and a DNS label, or just a DNS label.
+    // DNS labels consist of lower-case alphanumeric characters or hyphens,
+    // and must start and end with an alphanumeric character.
+    // DNS subdomain prefixes follow the same rules as DNS labels but can contain periods.
+    // The total length must not exceed 253 characters.
     Name corev1.ResourceName `json:"name"`
 
-    // DeviceClassNames lists the names of all the device classes that will count against
-    // the quota defined for this resource name
-    // +listType=set
-    // +kubebuilder:validation:MaxItems=8
+    // DeviceClassNames enumerates the DeviceClasses represented by this resource name.
+    // Each device class name must be a valid qualified name consisting of an optional DNS subdomain prefix
+    // followed by a slash and a DNS label, or just a DNS label.
+    // DNS labels consist of lower-case alphanumeric characters or hyphens,
+    // and must start and end with an alphanumeric character.
+    // DNS subdomain prefixes follow the same rules as DNS labels but can contain periods.
+    // The total length of each name must not exceed 253 characters.
     DeviceClassNames []corev1.ResourceName `json:"deviceClassNames"`
 }
 ```
 
-The ResourceFlavor spec will have a field called dynamicResource. The cluster admin has to define the list of
-deviceClasses that will be represented by a resource name and can be used to define quotas in cluster queue. With this
-a ClusterQueue with nominalQuota can be defined as follows:
+The cluster admin defines the mappings from device classes to logical resource names, which can then be used to
+define quotas in ClusterQueues.
 
+**Configuration Example:**
 ```yaml
-apiVersion: kueue.x-k8s.io/v1alpha1
-kind: DynamicResourceAllocationConfig
+apiVersion: v1
+kind: ConfigMap
 metadata:
-  name: "default"  # Fixed name - singleton CR, only one instance allowed
-  namespace: "kueue-system"
-spec:
-  resources:
-  - name: whole-gpus
-    deviceClassNames:
-    - gpu.example.com
-  - name: shared-gpus
-    deviceClassNames:
-    - ts-shard-gpus.example.com
-    - sp-shared-gpus.example.com
+  name: kueue-controller-manager-config
+  namespace: kueue-system
+data:
+  config.yaml: |
+    apiVersion: config.kueue.x-k8s.io/v1beta2
+    kind: Configuration
+    namespace: kueue-system
+    manageJobsWithoutQueueName: false
+    resources:
+      deviceClassMappings:
+      - name: whole-gpus
+        deviceClassNames:
+        - gpu.example.com
+      - name: shared-gpus
+        deviceClassNames:
+        - ts-shard-gpus.example.com
+        - sp-shared-gpus.example.com
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ResourceFlavor
 metadata:
   name: "default-gpu-flavor"
 spec:
   # No changed needed here
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "gpus-cluster-queue"
@@ -310,98 +331,183 @@ example
 GPUs, and half quota configured for GPUs that are shared by workloads. Similarly, when DRAPartitionableDevices feature
 is supported in kubernetes, GPUs partitions can be represented by a single device class.
 
-### Device Class Resolution and Ambiguity Handling
+### Device Class Resolution and Conflict Prevention
 
-#### Device Class Mapping Ambiguity
+#### Device Class Mapping Uniqueness
 
-Ambiguity occurs when a device class appears in multiple mappings within the DynamicResourceAllocationConfig CR. This
-creates uncertainty at admission time about which resource name and corresponding quota should be used.
+To ensure predictable and deterministic quota enforcement, Kueue enforces strict uniqueness constraints on device class
+mappings. Each device class can only map to one resource name across all device class mappings in the configuration.
 
-Example of ambiguous configuration:
+Kueue prevents ambiguous configurations through validation at configuration load time. The following configuration
+would be rejected:
+
 ```yaml
-# Configuration allowing device class to map to multiple resource names
-apiVersion: kueue.x-k8s.io/v1alpha1
-kind: DynamicResourceAllocationConfig
+# INVALID - This configuration will be rejected during validation
+apiVersion: v1
+kind: ConfigMap
 metadata:
-  name: "default"
-  namespace: "kueue-system"
-spec:
-  resources:
-  - name: whole-gpus
-    deviceClassNames:
-    - gpus.example.com          # Appears here
-  - name: fast-gpus
-    deviceClassNames:
-    - gpus.example.com          # And also here - creates ambiguity
----
-# ClusterQueue using resource names from the DynamicResourceAllocationConfig
-apiVersion: kueue.x-k8s.io/v1beta1
-kind: ClusterQueue
-metadata:
-  name: multi-zone-queue
-spec:
-  resourceGroups:
-  - coveredResources: ["cpu", "memory", "whole-gpus", "fast-gpus"]
-    flavors:
-    - name: zone-a-flavor
-      resources:
+  name: kueue-controller-manager-config
+  namespace: kueue-system
+data:
+  config.yaml: |
+    apiVersion: config.kueue.x-k8s.io/v1beta2
+    kind: Configuration
+    resources:
+      deviceClassMappings:
       - name: whole-gpus
-        nominalQuota: 2
-    - name: zone-b-flavor
-      resources:
+        deviceClassNames:
+        - gpus.example.com          # Appears here
       - name: fast-gpus
-        nominalQuota: 3
+        deviceClassNames:
+        - gpus.example.com          # ERROR: Duplicate device class name
+``
+
+Example of valid configuration:
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kueue-controller-manager-config
+  namespace: kueue-system
+data:
+  config.yaml: |
+    apiVersion: config.kueue.x-k8s.io/v1beta2
+    kind: Configuration
+    resources:
+      deviceClassMappings:
+      - name: whole-gpus
+        deviceClassNames:
+        - whole-gpus.example.com     # Unique device class
+      - name: fast-gpus
+        deviceClassNames:
+        - fast-gpus.example.com      # Different device class
 ```
 
-When a device class like `gpus.example.com` maps to multiple resource names (`whole-gpus` and `fast-gpus`), Kueue must
-determine which quota to use for admission.
+This validation approach eliminates ambiguity at configuration time rather than requiring complex runtime resolution logic, ensuring predictable and efficient workload admission.
 
-Kueue resolves this ambiguity using a top-down flavor matching process:
+### RBAC Requirements
 
-1. Examine flavors in the order they are listed in the ClusterQueue spec
-2. For each flavor, check if any of its resources match the resource names that correspond to the requested device
-   class
-3. Select the first flavor that contains a resource mapping to the device class and has sufficient quota available
+DRA support requires additional RBAC permissions for the Kueue controller to access DRA resources:
 
-For example, when a workload requests `gpus.example.com`:
-- First check `zone-a-flavor` for available `whole-gpus` quota
-- If `zone-a-flavor` is exhausted, check `zone-b-flavor` for available `fast-gpus` quota
-- If no flavors have available quota, the workload waits in queue
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kueue-controller-role
+rules:
+# ... existing permissions ...
 
-This approach ensures predictable behavior where the ClusterQueue flavor ordering determines quota evaluation priority.
+# DRA-specific permissions
+- apiGroups: ["resource.k8s.io"]
+  resources: ["resourceclaims"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["resource.k8s.io"]
+  resources: ["resourceclaimtemplates"]
+  verbs: ["get", "list", "watch"]
+```
+
+**Required Permissions:**
+- `resourceclaims`: Read access to validate ResourceClaim references (though not supported for quota)
+- `resourceclaimtemplates`: Read access to process ResourceClaimTemplates and extract device class information
+
+**Security Considerations:**
+- Kueue only requires read permissions - no create, update, or delete access to DRA resources
+- Permissions are cluster-scoped to allow processing workloads across all namespaces
+- No elevated privileges required beyond standard Kueue controller permissions
 
 ### Workloads
 
-When a user submits a workload and DynamicResourceAllocation feature gate is on, Kueue will do the following:
+#### DRA-Specific Workload Processing
 
-1. Claims will be read from podSpec.resourceClaims in the PodTemplateSpec.
-2. ResourceClaimSpec will be looked up either by using:
-    1. the name of the ResourceClaimTemplate or
-    2. the name of the ResourceClaim
+DRA workloads require special handling to ensure proper resource validation and quota enforcement. Unlike standard
+workloads that are processed immediately in event handlers, DRA workloads are processed in the controller's Reconcile
+loop to enable proper error handling and retry logic.
 
-   Both ResourceClaimTemplate or ResourceClaim will be in the same namespace as the workload.
-3. From the ResourceClaimSpec, the deviceClassName will be read.
-4. Every claim, deviceClassName for each request will be looked at
-    1. For the workload a deviceClassMap will be created by:
-        1. Retrieving the singleton DynamicResourceAllocationConfig resource (named "default")
-        2. Creating a map from DeviceClass names to resource names using the
-           DynamicResourceAllocationConfig.spec.resources entries
-        3. For resource claims that are already allocated, Kueue will maintain a mapping called `admittedResourceClaims`
-           where the key follows the format `{clusterQueueName}/{resourceClaimNamespace}/{resourceClaimName}`
-        4. If a workload is using an already allocated resource claim and the key
-           `{targetClusterQueueName}/{resourceClaimNamespace}/{resourceClaimName}` exists in the
-           `admittedResourceClaims`
-           map, Kueue will skip counting that claim against quota and automatically admit the workload
-        5. This approach ensures that within a single cluster queue, reusing allocated resource claims doesn't consume
-           additional quota, while still enforcing quota boundaries between different cluster queues
-    2. For each device class the resource name will be looked up from the deviceClassMap and resource will be
-       counted against it.
-5. Once the Kueue counts and admits the workloads, it saves the count in workload status. This does not require any API
-   change.
 
-All the step above are reflect in the YAMLs below:
+1. Event Handler Behavior: When a DRA workload is created or updated, the event handlers detect the presence of
+   ResourceClaimTemplates or ResourceClaims and if feature gate is enabled, skip normal queue operations, deferring
+   processing to the Reconcile loop.
+2. Reconcile Loop Processing: The Reconcile method handles all DRA-specific logic including:
+   - Feature gate validation
+   - ResourceClaim vs ResourceClaimTemplate support validation
+   - Device class mapping resolution
+   - Resource preprocessing and queue admission
+3. Error Handling: DRA processing errors are properly handled with exponential backoff retry logic.
+
+#### Workload Processing Flow
+
+When a user submits a workload and DynamicResourceAllocation feature gate is enabled, Kueue processes it as follows:
+1. DRA Detection: Kueue detects DRA workloads by checking for ResourceClaimTemplates or ResourceClaims in
+   podSpec.resourceClaims.
+2. Feature Gate Validation: Verify that the DynamicResourceAllocation feature gate is enabled. If disabled, continue
+   with legacy behavior.
+3. ResourceClaim Support Validation: Check if the workload uses ResourceClaims (not supported in alpha) or
+   ResourceClaimTemplates (supported):
+   - ResourceClaims: Mark workload as inadmissible with an error message
+   - ResourceClaimTemplates: Continue processing
+4. Device Class Resolution: For each ResourceClaimTemplate:
+   - Read the ResourceClaimTemplate from the same namespace as the workload
+   - Extract deviceClassName from each request in the template spec
+   - Look up the corresponding resource name using the device class mappings from the Configuration API
+5. Resource Preprocessing:
+   - Calculate total device count per device class across all containers and init containers
+   - Map device classes to resource names using the configuration
+   - Generate preprocessed resource requests for queue admission
+6. Queue Admission: Add the workload to the queue with preprocessed DRA resources.
+7. Status Update: Once admitted, the workload status reflects the assigned flavors and resource usage including DRA resources.
+
+The steps above are reflected in the complete configuration and workload example below:
+
 ```yaml
+# Step 1: Configure device class mappings in Kueue Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kueue-controller-manager-config
+  namespace: kueue-system
+data:
+  config.yaml: |
+    apiVersion: config.kueue.x-k8s.io/v1beta2
+    kind: Configuration
+    namespace: kueue-system
+    resources:
+      deviceClassMappings:
+      - name: whole-gpus
+        deviceClassNames:
+        - gpu.example.com # Maps gpu.example.com -> whole-gpus
 ---
+# Step 2: Define ClusterQueue with DRA resource quotas
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: "gpus-cluster-queue"
+spec:
+  resourceGroups:
+  - coveredResources: ["cpu", "memory", "whole-gpus"]
+    flavors:
+    - name: "default-gpu-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: 9
+      - name: "memory"
+        nominalQuota: "1200Mi"
+      - name: 'whole-gpus' # References the resource name from Configuration
+        nominalQuota: 2
+---
+# Step 3: Create ResourceClaimTemplate (only templates are supported)
+apiVersion: resource.k8s.io/v1alpha3
+kind: ResourceClaimTemplate
+metadata:
+  namespace: gpu-test1
+  name: single-gpu
+spec:
+  spec:
+    devices:
+      requests:
+      - name: gpu
+        deviceClassName: gpu.example.com # Device class from the mapping
+---
+# Step 4: Submit workload using ResourceClaimTemplate
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -421,83 +527,59 @@ spec:
         args: ["export; sleep 9999"]
         resources:
           claims:
-          - name: gpu # 1) read the claim from resources.claims
+          - name: gpu # Reference to the resource claim
           requests:
             cpu: 1
             memory: "200Mi"
       resourceClaims:
-      - name: gpu # use the name read from #1
-        resourceClaimTemplateName: single-gpu # 2.1) the name for resource claim template
----
-apiVersion: resource.k8s.io/v1alpha3
-kind: ResourceClaimTemplate
-metadata:
-  namespace: gpu-test1
-  name: single-gpu
-spec:
-  spec:
-    devices:
-      requests:
       - name: gpu
-        deviceClassName: gpu.example.com # 3) the name of the device class
+        resourceClaimTemplateName: single-gpu # Must use template, not direct claim
 ---
-apiVersion: kueue.x-k8s.io/v1alpha1
-kind: DynamicResourceAllocationConfig # 4.1.1) Singleton CR that defines all device class mappings
-metadata:
-  name: "default"
-  namespace: "kueue-system"
-spec:
-  resources:
-  - name: whole-gpus
-    deviceClassNames:
-    - gpu.example.com # 4.1.2) Creating map{"gpu.example.com" -> "whole-gpus"}
----
-apiVersion: kueue.x-k8s.io/v1beta1
-kind: ClusterQueue
-metadata:
-  name: "gpus-cluster-queue"
-spec:
-  resourceGroups:
-  - coveredResources: ["cpu", "memory", "whole-gpus"]
-    flavors:
-    - name: "default-gpu-flavor"
-      resources:
-      - name: "cpu"
-        nominalQuota: 9
-      - name: "memory"
-        nominalQuota: "1200Mi"
-      - name: 'whole-gpus' # 4.2) The resource name from DynamicResourceAllocationConfig
-        nominalQuota: 2
----
-apiVersion: kueue.x-k8s.io/v1beta1
-kind: ResourceFlavor
-metadata:
-  name: "default-gpu-flavor"
-spec:
-  # No resources field - mapping is now in DynamicResourceAllocationConfig CR
----
-apiVersion: kueue.x-k8s.io/v1beta1
+# Step 5: Resulting Workload status after admission
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: Workload
 metadata:
   name: job-job0-6f46e
   namespace: gpu-test1
-...
-...
+# ... spec omitted for brevity ...
 status:
   admission:
-    clusterQueue: single-gpus-cluster-queue
+    clusterQueue: gpus-cluster-queue
     podSetAssignments:
-    - count: 2
+    - count: 1
       flavors:
-        cpu: whole-gpu-flavor
-        memory: whole-gpu-flavor
-        whole-gpus: default-gpu-flavor # 5) selected flavor is reflected here in workload status
+        cpu: default-gpu-flavor
+        memory: default-gpu-flavor
+        whole-gpus: default-gpu-flavor # DRA resource assigned to flavor
       name: main
       resourceUsage:
         cpu: "1"
-        memory: 400Mi
-        whole-gpus: "1" # 5) selected device count is reflected here in workload status
+        memory: "200Mi"
+        whole-gpus: "1" # DRA device count reflected in status
 ```
+
+### Architecture Details
+
+#### Queue Manager Extensions
+
+The queue manager has been extended to support DRA resource preprocessing through the InfoOption pattern:
+
+```golang
+// Extended method signatures
+func (m *Manager) AddOrUpdateWorkload(wl *kueue.Workload, opts ...workload.InfoOption) error
+func (m *Manager) UpdateWorkload(oldWl, newWl *kueue.Workload, opts ...workload.InfoOption) error
+
+// DRA-specific InfoOption
+func WithPreprocessedDRAResources(resources map[kueue.PodSetReference]corev1.ResourceList) workload.InfoOption
+```
+
+Processing Flow:
+1. DRA Preprocessing: Controller processes ResourceClaimTemplates and calculates resource requirements
+2. InfoOption Creation: Preprocessed resources are wrapped in `WithPreprocessedDRAResources` option
+3. Queue Integration: Queue manager receives workload with preprocessed DRA data
+4. Scheduler Access: Scheduler gets workload with DRA resources already calculated and validated
+
+This architecture separates concerns between DRA processing (controller) and queue management (scheduler), enabling robust error handling and retry logic for DRA-specific operations.
 
 ### Test Plan
 
@@ -530,9 +612,11 @@ in the form of:
 This can inform certain test coverage improvements that we want to do before
 extending the production code to implement this enhancement.
 -->
-
-TBD
-- `<package>`: `<date>` - `<test coverage>`
+- pkg/cache/queue/manager.go: 09/17/2025 - 61.5%
+- pkg/config/validation.go: 09/17/2025 - 97.3%
+- pkg/controller/core/workload_controller.go: 09/17/2025 - 55.8%
+- pkg/dra/claims.go: 09/17/2025 - 83.3%
+- pkg/workload/workload.go: 09/17/2025 - 72.3%
 
 #### Integration tests
 
@@ -540,13 +624,20 @@ Integration tests in Kueue use controller-runtime's envtest framework, which pro
 without requiring kubelet or other cluster components. While DRA device allocation requires kubelet plugins, the core
 DRA integration functionality for Kueue can be tested at the integration level by:
 
-- Testing DynamicResourceAllocationConfig CRD creation and validation
-- Verifying workload admission logic with DRA resource claims
+- Testing Configuration API validation for device class mappings
+- Verifying workload admission logic with DRA ResourceClaimTemplates
 - Testing quota enforcement against device class mappings
 - Validating resource counting and flavor assignment for DRA resources
+- Testing error scenarios (feature gate disabled, unsupported ResourceClaims, unmapped device classes)
+- Verifying DRA workload processing in Reconcile loop vs event handlers
 
-The integration tests would focus on Kueue's quota management and admission logic rather than actual device allocation,
-using mock ResourceClaims and DeviceClasses to simulate DRA workloads.
+The integration tests focus on Kueue's quota management and admission logic rather than actual device allocation,
+using mock ResourceClaimTemplates and DeviceClasses to simulate DRA workloads. Key test scenarios include:
+
+- Configuration validation: Testing device class conflict detection
+- Workload inadmissibility: Testing various error conditions and proper WorkloadInadmissible condition setting
+- Resource preprocessing: Verifying correct device count calculation from ResourceClaimTemplates
+- Queue integration: Testing workload admission with preprocessed DRA resources
 
 #### E2E Test
 
@@ -577,12 +668,24 @@ Use existing dra-example-driver or Kubernetes test driver for e2e testing.
 ## Implementation History
 
 - Initial draft on September 16th 2024 by @kannon92
-- Polished on April 25th 2025 by @alaypatel07
+- Implementation development: September-December 2024
+- Design evolution from standalone CRD to Configuration API approach: October 2024
+- Alpha implementation completed: December 2024
+- KEP updated to reflect actual implementation: September 2025 by @alaypatel07
+
+**Key Design Evolution:**
+- **Original Design**: Standalone DynamicResourceAllocationConfig CRD with runtime ambiguity resolution
+- **Final Implementation**: Configuration API extension with strict validation and conflict prevention
+- **Architecture Decision**: DRA processing moved to Reconcile loop for proper error handling
+- **Scope Refinement**: ResourceClaims support removed, focus on ResourceClaimTemplates only
 
 ## Drawbacks
 
-NA. Kueue should be able to schedule devices following what upstream is proposing.
-The only drawbacks are that workloads will have to fetch the resource claim if they are specifying resource claims.
+**Configuration Restart Requirement**: Changes to device class mappings require controller restart, which may cause brief service interruption. This is acceptable for alpha feature but should be addressed in future versions.
+
+**ResourceClaims Not Supported**: Users with existing ResourceClaim-based workloads cannot use Kueue quota management and must migrate to ResourceClaimTemplates.
+
+**Limited Dynamic Reconfiguration**: Unlike some other Kueue features, DRA configuration cannot be changed dynamically and requires controller restart.
 
 ## Alternatives
 
@@ -750,11 +853,38 @@ administrators because the same resource name would have different meanings depe
 referenced. The singleton DynamicResourceAllocationConfig CRD approach addresses this by providing a single source of
 truth for all device class mappings in the cluster.
 
-### Using ConfigMap for DeviceClass Mapping
+### Creating a new CRD for device class mapping
 
-The existing configmap which holds the configuration for `kueue-controller-manager` could be used to define the resource
-name to device class mappings. This would be a single source of truth for all the device class mappings in the cluster.
-
-However, this approach is not ideal because:
-1. The global configuration prevents dynamic Kueue configuration changes without needing to restart kueue-controller-manager
-2. The configmap is already in beta, adding changes for alpha level feature to it is not preferred
+```golang
+// +genclient
+// +kubebuilder:object:root=true
+// +kubebuilder:storageversion
+// DynamicResourceAllocationConfig is a singleton CRD that maps resource names to device classes
+// used in ClusterQueue resource quotas. It is singleton as "default" is the only allowed named for the CRD instance in
+// Kueue namespace.
+type DynamicResourceAllocationConfig struct {
+    metav1.TypeMeta   `json:",inline"`
+    metav1.ObjectMeta `json:"metadata,omitempty"`
+    // Spec defines the desired state of DynamicResourceAllocationConfig
+    Spec DynamicResourceAllocationConfigSpec `json:"spec"`
+}
+// DynamicResourceAllocationConfigSpec defines the mappings between resource names and device classes
+type DynamicResourceAllocationConfigSpec struct {
+    // Resources is a list of mappings from resource name to device classes
+    // +listType=map
+    // +listMapKey=name
+    // +kubebuilder:validation:MaxItems=16
+    Resources []DynamicResource `json:"resources"`
+}
+// DynamicResource defines a mapping from a resource name to a list of device classes
+type DynamicResource struct {
+    // Name is the resource name that will be referred to in ClusterQueue and Workload admission status.
+    Name corev1.ResourceName `json:"name"`
+    // DeviceClassNames lists the names of all the device classes that will count against
+    // the quota defined for this resource name
+    // +listType=set
+    // +kubebuilder:validation:MaxItems=8 
+    DeviceClassNames []corev1.ResourceName `json:"deviceClassNames"`
+}
+```
+However, this approach was introducing a significant amount of complexity in implementing the feature so it was rejected.

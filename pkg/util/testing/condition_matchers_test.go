@@ -38,7 +38,7 @@ func TestHaveConditionStatusAndReason(t *testing.T) {
 			conditionType: "TestCondition",
 			conditions:    "invalid type",
 			want:          false,
-			wantErr:       "Condition matcher expects a []metav1.Condition. Got:\n    <string>: invalid type",
+			wantErr:       "condition matcher expects a []metav1.Condition. Got:\n    <string>: invalid type",
 		},
 		"success": {
 			conditionType: "TestCondition",

@@ -99,7 +99,7 @@ fi
 
 RELEASE_ISSUE_NAME="Release ${RELEASE_VERSION}"
 
-RELEASE_ISSUE_NUMBER=$(gh issue list --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" | grep "${RELEASE_ISSUE_NAME}" | awk '{print $1}' || true)
+RELEASE_ISSUE_NUMBER=$(gh issue list --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" --search "in:title ${RELEASE_ISSUE_NAME}" | awk '{print $1}' || true)
 if [ -z "$RELEASE_ISSUE_NUMBER" ]; then
   echo "!!! No release issue found for version ${RELEASE_VERSION}. Please create 'Release ${RELEASE_VERSION}' issue first."
   exit 1
@@ -201,6 +201,11 @@ function prepare_local_branch() {
     fi
   } > "$tmpfile"
   mv "$tmpfile" "${CHANGELOG_FILE}"
+
+  # Update security insights only for main branch PRs.
+  if [ "$1" = "main" ]; then
+    make update-security-insights GIT_TAG="${RELEASE_VERSION}"
+  fi
 
   git add .
   git commit -m "$3"

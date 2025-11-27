@@ -29,7 +29,7 @@ import (
 	"k8s.io/cli-runtime/pkg/printers"
 	"k8s.io/utils/clock"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 type listResourceFlavorPrinter struct {
@@ -42,7 +42,7 @@ var _ printers.ResourcePrinter = (*listResourceFlavorPrinter)(nil)
 func (p *listResourceFlavorPrinter) PrintObj(obj runtime.Object, out io.Writer) error {
 	printer := printers.NewTablePrinter(p.printOptions)
 
-	list, ok := obj.(*v1beta1.ResourceFlavorList)
+	list, ok := obj.(*kueue.ResourceFlavorList)
 	if !ok {
 		return errors.New("invalid object type")
 	}
@@ -75,7 +75,7 @@ func newResourceFlavorTablePrinter() *listResourceFlavorPrinter {
 	}
 }
 
-func (p *listResourceFlavorPrinter) printResourceFlavorList(list *v1beta1.ResourceFlavorList) []metav1.TableRow {
+func (p *listResourceFlavorPrinter) printResourceFlavorList(list *kueue.ResourceFlavorList) []metav1.TableRow {
 	rows := make([]metav1.TableRow, len(list.Items))
 	for index := range list.Items {
 		rows[index] = p.printResourceFlavor(&list.Items[index])
@@ -83,7 +83,7 @@ func (p *listResourceFlavorPrinter) printResourceFlavorList(list *v1beta1.Resour
 	return rows
 }
 
-func (p *listResourceFlavorPrinter) printResourceFlavor(resourceFlavor *v1beta1.ResourceFlavor) metav1.TableRow {
+func (p *listResourceFlavorPrinter) printResourceFlavor(resourceFlavor *kueue.ResourceFlavor) metav1.TableRow {
 	row := metav1.TableRow{Object: runtime.RawExtension{Object: resourceFlavor}}
 	nodeLabels := make([]string, 0, len(resourceFlavor.Spec.NodeLabels))
 	for key, value := range resourceFlavor.Spec.NodeLabels {

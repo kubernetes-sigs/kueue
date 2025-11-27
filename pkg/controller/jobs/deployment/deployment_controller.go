@@ -38,13 +38,13 @@ const (
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:   SetupIndexes,
-		NewReconciler:  jobframework.NewNoopReconcilerFactory(gvk),
-		GVK:            gvk,
-		SetupWebhook:   SetupWebhook,
-		JobType:        &appsv1.Deployment{},
-		AddToScheme:    appsv1.AddToScheme,
-		DependencyList: []string{"pod"},
+		SetupIndexes:                    SetupIndexes,
+		NewReconciler:                   jobframework.NewNoopReconcilerFactory(gvk),
+		GVK:                             gvk,
+		SetupWebhook:                    SetupWebhook,
+		JobType:                         &appsv1.Deployment{},
+		AddToScheme:                     appsv1.AddToScheme,
+		ImplicitlyEnabledFrameworkNames: []string{"pod"},
 	}))
 }
 

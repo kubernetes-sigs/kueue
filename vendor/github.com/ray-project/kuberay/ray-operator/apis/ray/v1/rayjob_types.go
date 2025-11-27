@@ -45,15 +45,16 @@ func IsJobTerminal(status JobStatus) bool {
 type JobDeploymentStatus string
 
 const (
-	JobDeploymentStatusNew          JobDeploymentStatus = ""
-	JobDeploymentStatusInitializing JobDeploymentStatus = "Initializing"
-	JobDeploymentStatusRunning      JobDeploymentStatus = "Running"
-	JobDeploymentStatusComplete     JobDeploymentStatus = "Complete"
-	JobDeploymentStatusFailed       JobDeploymentStatus = "Failed"
-	JobDeploymentStatusSuspending   JobDeploymentStatus = "Suspending"
-	JobDeploymentStatusSuspended    JobDeploymentStatus = "Suspended"
-	JobDeploymentStatusRetrying     JobDeploymentStatus = "Retrying"
-	JobDeploymentStatusWaiting      JobDeploymentStatus = "Waiting"
+	JobDeploymentStatusNew              JobDeploymentStatus = ""
+	JobDeploymentStatusInitializing     JobDeploymentStatus = "Initializing"
+	JobDeploymentStatusRunning          JobDeploymentStatus = "Running"
+	JobDeploymentStatusComplete         JobDeploymentStatus = "Complete"
+	JobDeploymentStatusFailed           JobDeploymentStatus = "Failed"
+	JobDeploymentStatusValidationFailed JobDeploymentStatus = "ValidationFailed"
+	JobDeploymentStatusSuspending       JobDeploymentStatus = "Suspending"
+	JobDeploymentStatusSuspended        JobDeploymentStatus = "Suspended"
+	JobDeploymentStatusRetrying         JobDeploymentStatus = "Retrying"
+	JobDeploymentStatusWaiting          JobDeploymentStatus = "Waiting"
 )
 
 // IsJobDeploymentTerminal returns true if the given JobDeploymentStatus
@@ -74,6 +75,7 @@ const (
 	DeadlineExceeded                                 JobFailedReason = "DeadlineExceeded"
 	AppFailed                                        JobFailedReason = "AppFailed"
 	JobDeploymentStatusTransitionGracePeriodExceeded JobFailedReason = "JobDeploymentStatusTransitionGracePeriodExceeded"
+	ValidationFailed                                 JobFailedReason = "ValidationFailed"
 )
 
 type JobSubmissionMode string
@@ -82,15 +84,95 @@ const (
 	K8sJobMode      JobSubmissionMode = "K8sJobMode"      // Submit job via Kubernetes Job
 	HTTPMode        JobSubmissionMode = "HTTPMode"        // Submit job via HTTP request
 	InteractiveMode JobSubmissionMode = "InteractiveMode" // Don't submit job in KubeRay. Instead, wait for user to submit job and provide the job submission ID.
+	SidecarMode     JobSubmissionMode = "SidecarMode"     // Submit job via a sidecar container in the Ray head Pod
 )
 
-type DeletionPolicy string
+// DeletionStrategy configures automated cleanup after the RayJob reaches a terminal state.
+// Two mutually exclusive styles are supported:
+//
+//	Legacy: provide both onSuccess and onFailure (deprecated; removal planned for 1.6.0). May be combined with shutdownAfterJobFinishes and (optionally) global TTLSecondsAfterFinished.
+//	Rules: provide deletionRules (non-empty list). Rules mode is incompatible with shutdownAfterJobFinishes, legacy fields, and the global TTLSecondsAfterFinished (use per‑rule condition.ttlSeconds instead).
+//
+// Semantics:
+//   - A non-empty deletionRules selects rules mode; empty lists are treated as unset.
+//   - Legacy requires both onSuccess and onFailure; specifying only one is invalid.
+//   - Global TTLSecondsAfterFinished > 0 requires shutdownAfterJobFinishes=true; therefore it cannot be used with rules mode or with legacy alone (no shutdown).
+//   - Feature gate RayJobDeletionPolicy must be enabled when this block is present.
+//
+// Validation:
+//   - CRD XValidations prevent mixing legacy fields with deletionRules and enforce legacy completeness.
+//   - Controller logic enforces rules vs shutdown exclusivity and TTL constraints.
+//   - onSuccess/onFailure are deprecated; migration to deletionRules is encouraged.
+//
+// +kubebuilder:validation:XValidation:rule="!((has(self.onSuccess) || has(self.onFailure)) && has(self.deletionRules))",message="legacy policies (onSuccess/onFailure) and deletionRules cannot be used together within the same deletionStrategy"
+// +kubebuilder:validation:XValidation:rule="((has(self.onSuccess) && has(self.onFailure)) || has(self.deletionRules))",message="deletionStrategy requires either BOTH onSuccess and onFailure, OR the deletionRules field (cannot be empty)"
+type DeletionStrategy struct {
+	// OnSuccess is the deletion policy for a successful RayJob.
+	// Deprecated: Use `deletionRules` instead for more flexible, multi-stage deletion strategies.
+	// This field will be removed in release 1.6.0.
+	// +optional
+	OnSuccess *DeletionPolicy `json:"onSuccess,omitempty"`
+
+	// OnFailure is the deletion policy for a failed RayJob.
+	// Deprecated: Use `deletionRules` instead for more flexible, multi-stage deletion strategies.
+	// This field will be removed in release 1.6.0.
+	// +optional
+	OnFailure *DeletionPolicy `json:"onFailure,omitempty"`
+
+	// DeletionRules is a list of deletion rules, processed based on their trigger conditions.
+	// While the rules can be used to define a sequence, if multiple rules are overdue (e.g., due to controller downtime),
+	// the most impactful rule (e.g., DeleteSelf) will be executed first to prioritize resource cleanup.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
+	DeletionRules []DeletionRule `json:"deletionRules,omitempty"`
+}
+
+// DeletionRule defines a single deletion action and its trigger condition.
+// This is the new, recommended way to define deletion behavior.
+type DeletionRule struct {
+	// Policy is the action to take when the condition is met. This field is required.
+	// +kubebuilder:validation:Enum=DeleteCluster;DeleteWorkers;DeleteSelf;DeleteNone
+	Policy DeletionPolicyType `json:"policy"`
+
+	// The condition under which this deletion rule is triggered. This field is required.
+	Condition DeletionCondition `json:"condition"`
+}
+
+// DeletionCondition specifies the trigger conditions for a deletion action.
+type DeletionCondition struct {
+	// JobStatus is the terminal status of the RayJob that triggers this condition. This field is required.
+	// For the initial implementation, only "SUCCEEDED" and "FAILED" are supported.
+	// +kubebuilder:validation:Enum=SUCCEEDED;FAILED
+	JobStatus JobStatus `json:"jobStatus"`
+
+	// TTLSeconds is the time in seconds from when the JobStatus
+	// reaches the specified terminal state to when this deletion action should be triggered.
+	// The value must be a non-negative integer.
+	// +kubebuilder:default=0
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	TTLSeconds int32 `json:"ttlSeconds,omitempty"`
+}
+
+// DeletionPolicy is the legacy single-stage deletion policy.
+// Deprecated: This struct is part of the legacy API. Use DeletionRule for new configurations.
+type DeletionPolicy struct {
+	// Policy is the action to take when the condition is met.
+	// This field is logically required when using the legacy OnSuccess/OnFailure policies.
+	// It is marked as '+optional' at the API level to allow the 'deletionRules' field to be used instead.
+	// +kubebuilder:validation:Enum=DeleteCluster;DeleteWorkers;DeleteSelf;DeleteNone
+	// +optional
+	Policy *DeletionPolicyType `json:"policy,omitempty"`
+}
+
+type DeletionPolicyType string
 
 const (
-	DeleteClusterDeletionPolicy DeletionPolicy = "DeleteCluster" // Deletion policy to delete the entire RayCluster custom resource on job completion.
-	DeleteWorkersDeletionPolicy DeletionPolicy = "DeleteWorkers" // Deletion policy to delete only the workers on job completion.
-	DeleteSelfDeletionPolicy    DeletionPolicy = "DeleteSelf"    // Deletion policy to delete the RayJob custom resource (and all associated resources) on job completion.
-	DeleteNoneDeletionPolicy    DeletionPolicy = "DeleteNone"    // Deletion policy to delete no resources on job completion.
+	DeleteCluster DeletionPolicyType = "DeleteCluster" // To delete the entire RayCluster custom resource on job completion.
+	DeleteWorkers DeletionPolicyType = "DeleteWorkers" // To delete only the workers on job completion.
+	DeleteSelf    DeletionPolicyType = "DeleteSelf"    // To delete the RayJob custom resource (and all associated resources) on job completion.
+	DeleteNone    DeletionPolicyType = "DeleteNone"    // To delete no resources on job completion.
 )
 
 type SubmitterConfig struct {
@@ -144,13 +226,14 @@ type RayJobSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self in ['ray.io/kuberay-operator', 'kueue.x-k8s.io/multikueue']",message="the managedBy field value must be either 'ray.io/kuberay-operator' or 'kueue.x-k8s.io/multikueue'"
 	// +optional
 	ManagedBy *string `json:"managedBy,omitempty"`
-	// DeletionPolicy indicates what resources of the RayJob are deleted upon job completion.
-	// Valid values are 'DeleteCluster', 'DeleteWorkers', 'DeleteSelf' or 'DeleteNone'.
-	// If unset, deletion policy is based on 'spec.shutdownAfterJobFinishes'.
-	// This field requires the RayJobDeletionPolicy feature gate to be enabled.
-	// +kubebuilder:validation:XValidation:rule="self in ['DeleteCluster', 'DeleteWorkers', 'DeleteSelf', 'DeleteNone']",message="the deletionPolicy field value must be either 'DeleteCluster', 'DeleteWorkers', 'DeleteSelf', or 'DeleteNone'"
+	// DeletionStrategy automates post-completion cleanup.
+	// Choose one style or omit:
+	//   - Legacy: both onSuccess & onFailure (deprecated; may combine with shutdownAfterJobFinishes and TTLSecondsAfterFinished).
+	//   - Rules: deletionRules (non-empty) — incompatible with shutdownAfterJobFinishes, legacy fields, and global TTLSecondsAfterFinished (use per-rule condition.ttlSeconds).
+	// Global TTLSecondsAfterFinished > 0 requires shutdownAfterJobFinishes=true.
+	// Feature gate RayJobDeletionPolicy must be enabled when this field is set.
 	// +optional
-	DeletionPolicy *DeletionPolicy `json:"deletionPolicy,omitempty"`
+	DeletionStrategy *DeletionStrategy `json:"deletionStrategy,omitempty"`
 	// Entrypoint represents the command to start execution.
 	// +optional
 	Entrypoint string `json:"entrypoint,omitempty"`
@@ -165,6 +248,7 @@ type RayJobSpec struct {
 	// In "K8sJobMode", the KubeRay operator creates a submitter Kubernetes Job to submit the Ray job.
 	// In "HTTPMode", the KubeRay operator sends a request to the RayCluster to create a Ray job.
 	// In "InteractiveMode", the KubeRay operator waits for a user to submit a job to the Ray cluster.
+	// In "SidecarMode", the KubeRay operator injects a container into the Ray head Pod that acts as the job submitter to submit the Ray job.
 	// +kubebuilder:default:=K8sJobMode
 	// +optional
 	SubmissionMode JobSubmissionMode `json:"submissionMode,omitempty"`

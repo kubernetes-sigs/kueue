@@ -24,6 +24,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/clock"
 )
 
 const (
@@ -57,13 +58,16 @@ var (
 )
 
 var (
-	AutoscalerCrds       = filepath.Join(GetProjectBaseDir(), "dep-crds", "cluster-autoscaler")
-	JobsetCrds           = filepath.Join(GetProjectBaseDir(), "dep-crds", "jobset-operator")
-	TrainingOperatorCrds = filepath.Join(GetProjectBaseDir(), "dep-crds", "training-operator-crds")
-	MpiOperatorCrds      = filepath.Join(GetProjectBaseDir(), "dep-crds", "mpi-operator")
-	AppWrapperCrds       = filepath.Join(GetProjectBaseDir(), "dep-crds", "appwrapper-crds")
-	RayOperatorCrds      = filepath.Join(GetProjectBaseDir(), "dep-crds", "ray-operator-crds")
-	WebhookPath          = filepath.Join(GetProjectBaseDir(), "config", "components", "webhook")
+	AutoscalerCrds           = filepath.Join(GetProjectBaseDir(), "dep-crds", "cluster-autoscaler")
+	JobsetCrds               = filepath.Join(GetProjectBaseDir(), "dep-crds", "jobset-operator")
+	TrainingOperatorCrds     = filepath.Join(GetProjectBaseDir(), "dep-crds", "training-operator-crds")
+	KfTrainerCrds            = filepath.Join(GetProjectBaseDir(), "dep-crds", "kf-trainer-crds")
+	KfTrainerClusterRuntimes = filepath.Join(GetProjectBaseDir(), "dep-crds", "kf-trainer-runtimes")
+	MpiOperatorCrds          = filepath.Join(GetProjectBaseDir(), "dep-crds", "mpi-operator")
+	AppWrapperCrds           = filepath.Join(GetProjectBaseDir(), "dep-crds", "appwrapper-crds")
+	RayOperatorCrds          = filepath.Join(GetProjectBaseDir(), "dep-crds", "ray-operator-crds")
+	WebhookPath              = filepath.Join(GetProjectBaseDir(), "config", "components", "webhook")
+	ClusterProfileCrds       = filepath.Join(GetProjectBaseDir(), "dep-crds", "clusterprofile")
 )
 
 var (
@@ -80,3 +84,5 @@ var (
 	// The agnhost container will print args passed and `exit 0`
 	BehaviorExitFast = []string{"entrypoint-tester"}
 )
+
+var RealClock = clock.RealClock{}

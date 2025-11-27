@@ -69,12 +69,12 @@ const ClusterQueueDetail = () => {
       </Typography>
       <Grid container spacing={2}>
         <Grid item xs={12} sm={6}>
-          <Tooltip title="Determines whether to try the next flavor if a workload can borrow in the current one. Possible values: Borrow, TryNextFlavor.">
-            <Typography variant="body1"><strong>When Can Borrow:</strong> {clusterQueue.spec?.flavorFungibility?.whenCanBorrow || 'Default (Borrow)'}</Typography>
+          <Tooltip title="Determines whether to try the next flavor if a workload can borrow in the current one. Possible values: MayStopSearch, TryNextFlavor, Borrow.">
+            <Typography variant="body1"><strong>When Can Borrow:</strong> {clusterQueue.spec?.flavorFungibility?.whenCanBorrow || 'Default (MayStopSearch)'}</Typography>
           </Tooltip>
         </Grid>
         <Grid item xs={12} sm={6}>
-          <Tooltip title="Determines whether to try the next flavor if preemption fails in the current one. Possible values: Preempt, TryNextFlavor.">
+          <Tooltip title="Determines whether to try the next flavor if preemption fails in the current one. Possible values: MayStopSearch, TryNextFlavor, Preempt.">
             <Typography variant="body1"><strong>When Can Preempt:</strong> {clusterQueue.spec?.flavorFungibility?.whenCanPreempt || 'Default (TryNextFlavor)'}</Typography>
           </Tooltip>
         </Grid>

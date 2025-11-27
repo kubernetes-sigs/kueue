@@ -16,7 +16,7 @@ limitations under the License.
 
 package constants
 
-import kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+import kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 
 const (
 	// QueueLabel is the label key in the workload that holds the queue name.
@@ -25,11 +25,6 @@ const (
 	// DefaultLocalQueueName is the name for default LocalQueue that is applied
 	// if the feature LocalQueueDefaulting is enabled and QueueLabel is not specified.
 	DefaultLocalQueueName kueue.LocalQueueName = "default"
-
-	// QueueAnnotation is the annotation key in the workload that holds the queue name.
-	//
-	// Deprecated: Use QueueLabel as a label key.
-	QueueAnnotation = QueueLabel
 
 	// PrebuiltWorkloadLabel is the label key of the job holding the name of the pre-built workload to use.
 	PrebuiltWorkloadLabel = "kueue.x-k8s.io/prebuilt-workload-name"
@@ -49,8 +44,8 @@ const (
 	// MaxExecTimeSecondsLabel is the label key in the job that holds the maximum execution time.
 	MaxExecTimeSecondsLabel = `kueue.x-k8s.io/max-exec-time-seconds`
 
-	// PodSetLabel is a label set on the Job's PodTemplate to indicate the name
-	// of the PodSet of the admitted Workload corresponding to the PodTemplate.
-	// The label is set when starting the Job, and removed on stopping the Job.
-	PodSetLabel = "kueue.x-k8s.io/podset"
+	// SafeToForcefullyTerminateAnnotationKey is the annotation key that controls whether a pod opted in to FailureRecoveryPolicy.
+	SafeToForcefullyTerminateAnnotationKey = "kueue.x-k8s.io/safe-to-forcefully-terminate"
+	// SafeToForcefullyTerminateAnnotationValue is the value of that annotation that enables FailureRecoveryPolicy for that pod.
+	SafeToForcefullyTerminateAnnotationValue = "true"
 )

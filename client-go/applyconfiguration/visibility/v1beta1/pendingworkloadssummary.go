@@ -39,6 +39,7 @@ func PendingWorkloadsSummary() *PendingWorkloadsSummaryApplyConfiguration {
 	b.WithAPIVersion("visibility.kueue.x-k8s.io/v1beta1")
 	return b
 }
+func (b PendingWorkloadsSummaryApplyConfiguration) IsApplyConfiguration() {}
 
 // WithKind sets the Kind field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
@@ -211,8 +212,24 @@ func (b *PendingWorkloadsSummaryApplyConfiguration) WithItems(values ...*Pending
 	return b
 }
 
+// GetKind retrieves the value of the Kind field in the declarative configuration.
+func (b *PendingWorkloadsSummaryApplyConfiguration) GetKind() *string {
+	return b.TypeMetaApplyConfiguration.Kind
+}
+
+// GetAPIVersion retrieves the value of the APIVersion field in the declarative configuration.
+func (b *PendingWorkloadsSummaryApplyConfiguration) GetAPIVersion() *string {
+	return b.TypeMetaApplyConfiguration.APIVersion
+}
+
 // GetName retrieves the value of the Name field in the declarative configuration.
 func (b *PendingWorkloadsSummaryApplyConfiguration) GetName() *string {
 	b.ensureObjectMetaApplyConfigurationExists()
 	return b.ObjectMetaApplyConfiguration.Name
+}
+
+// GetNamespace retrieves the value of the Namespace field in the declarative configuration.
+func (b *PendingWorkloadsSummaryApplyConfiguration) GetNamespace() *string {
+	b.ensureObjectMetaApplyConfigurationExists()
+	return b.ObjectMetaApplyConfiguration.Namespace
 }

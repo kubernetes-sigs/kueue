@@ -25,8 +25,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 func TestReconcileAdmissionCheck(t *testing.T) {
@@ -36,12 +37,12 @@ func TestReconcileAdmissionCheck(t *testing.T) {
 		wantCondition *metav1.Condition
 	}{
 		"unrelated check": {
-			check: utiltesting.MakeAdmissionCheck("check1").
+			check: utiltestingapi.MakeAdmissionCheck("check1").
 				ControllerName("other-controller").
 				Obj(),
 		},
 		"no parameters specified": {
-			check: utiltesting.MakeAdmissionCheck("check1").
+			check: utiltestingapi.MakeAdmissionCheck("check1").
 				ControllerName(kueue.ProvisioningRequestControllerName).
 				Generation(1).
 				Obj(),
@@ -54,7 +55,7 @@ func TestReconcileAdmissionCheck(t *testing.T) {
 			},
 		},
 		"bad ref group": {
-			check: utiltesting.MakeAdmissionCheck("check1").
+			check: utiltestingapi.MakeAdmissionCheck("check1").
 				Parameters("bad.group", ConfigKind, "config1").
 				ControllerName(kueue.ProvisioningRequestControllerName).
 				Generation(1).
@@ -68,7 +69,7 @@ func TestReconcileAdmissionCheck(t *testing.T) {
 			},
 		},
 		"bad ref kind": {
-			check: utiltesting.MakeAdmissionCheck("check1").
+			check: utiltestingapi.MakeAdmissionCheck("check1").
 				Parameters(kueue.GroupVersion.Group, "BadKind", "config1").
 				ControllerName(kueue.ProvisioningRequestControllerName).
 				Generation(1).
@@ -82,7 +83,7 @@ func TestReconcileAdmissionCheck(t *testing.T) {
 			},
 		},
 		"config missing": {
-			check: utiltesting.MakeAdmissionCheck("check1").
+			check: utiltestingapi.MakeAdmissionCheck("check1").
 				Parameters(kueue.GroupVersion.Group, ConfigKind, "config1").
 				ControllerName(kueue.ProvisioningRequestControllerName).
 				Generation(1).
@@ -96,12 +97,12 @@ func TestReconcileAdmissionCheck(t *testing.T) {
 			},
 		},
 		"config found": {
-			check: utiltesting.MakeAdmissionCheck("check1").
+			check: utiltestingapi.MakeAdmissionCheck("check1").
 				Parameters(kueue.GroupVersion.Group, ConfigKind, "config1").
 				ControllerName(kueue.ProvisioningRequestControllerName).
 				Generation(1).
 				Obj(),
-			configs: []kueue.ProvisioningRequestConfig{*utiltesting.MakeProvisioningRequestConfig("config1").Obj()},
+			configs: []kueue.ProvisioningRequestConfig{*utiltestingapi.MakeProvisioningRequestConfig("config1").Obj()},
 			wantCondition: &metav1.Condition{
 				Type:               kueue.AdmissionCheckActive,
 				Status:             metav1.ConditionTrue,

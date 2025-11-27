@@ -11,6 +11,9 @@ import (
 
 // RayClusterSpec defines the desired state of RayCluster
 type RayClusterSpec struct {
+	// AuthOptions specifies the authentication options for the RayCluster.
+	// +optional
+	AuthOptions *AuthOptions `json:"authOptions,omitempty"`
 	// Suspend indicates whether a RayCluster should be suspended.
 	// A suspended RayCluster will have head pods and worker pods deleted.
 	// +optional
@@ -46,6 +49,26 @@ type RayClusterSpec struct {
 	WorkerGroupSpecs []WorkerGroupSpec `json:"workerGroupSpecs,omitempty"`
 }
 
+// AuthMode describes the authentication mode for the Ray cluster.
+type AuthMode string
+
+const (
+	// AuthModeDisabled disables authentication.
+	AuthModeDisabled AuthMode = "disabled"
+	// AuthModeToken enables token-based authentication.
+	AuthModeToken AuthMode = "token"
+)
+
+// AuthOptions defines the authentication options for a RayCluster.
+type AuthOptions struct {
+	// Mode specifies the authentication mode.
+	// Supported values are "disabled" and "token".
+	// Defaults to "token".
+	// +kubebuilder:validation:Enum=disabled;token
+	// +optional
+	Mode AuthMode `json:"mode,omitempty"`
+}
+
 // GcsFaultToleranceOptions contains configs for GCS FT
 type GcsFaultToleranceOptions struct {
 	// +optional
@@ -75,6 +98,16 @@ type HeadGroupSpec struct {
 	// EnableIngress indicates whether operator should create ingress object for head service or not.
 	// +optional
 	EnableIngress *bool `json:"enableIngress,omitempty"`
+	// Resources specifies the resource quantities for the head group.
+	// These values override the resources passed to `rayStartParams` for the group, but
+	// have no effect on the resources set at the K8s Pod container level.
+	// +optional
+	Resources map[string]string `json:"resources,omitempty"`
+	// Labels specifies the Ray node labels for the head group.
+	// These labels will also be added to the Pods of this head group and override the `--labels`
+	// argument passed to `rayStartParams`.
+	// +optional
+	Labels map[string]string `json:"labels,omitempty"`
 	// RayStartParams are the params of the start command: node-manager-port, object-store-memory, ...
 	// +optional
 	RayStartParams map[string]string `json:"rayStartParams"`
@@ -87,7 +120,7 @@ type HeadGroupSpec struct {
 type WorkerGroupSpec struct {
 	// Suspend indicates whether a worker group should be suspended.
 	// A suspended worker group will have all pods deleted.
-	// This is not a user-facing API and is only used by RayJob DeletionPolicy.
+	// This is not a user-facing API and is only used by RayJob DeletionStrategy.
 	// +optional
 	Suspend *bool `json:"suspend,omitempty"`
 	// we can have multiple worker groups, we distinguish them by name
@@ -106,6 +139,16 @@ type WorkerGroupSpec struct {
 	// This value is only used with the Ray Autoscaler enabled and defaults to the value set by the AutoscalingConfig if not specified for this worker group.
 	// +optional
 	IdleTimeoutSeconds *int32 `json:"idleTimeoutSeconds,omitempty"`
+	// Resources specifies the resource quantities for this worker group.
+	// These values override the resources passed to `rayStartParams` for the group, but
+	// have no effect on the resources set at the K8s Pod container level.
+	// +optional
+	Resources map[string]string `json:"resources,omitempty"`
+	// Labels specifies the Ray node labels for this worker group.
+	// These labels will also be added to the Pods of this worker group and override the `--labels`
+	// argument passed to `rayStartParams`.
+	// +optional
+	Labels map[string]string `json:"labels,omitempty"`
 	// RayStartParams are the params of the start command: address, object-store-memory, ...
 	// +optional
 	RayStartParams map[string]string `json:"rayStartParams"`

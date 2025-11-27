@@ -19,7 +19,7 @@ examples
 bin
 artifacts
 testbin/*
-.DS_Store
+**/.DS_Store
 go.work*
 # Test binary, build with `go test -c`
 *.test
@@ -34,9 +34,9 @@ build_logs
 .idea
 .vscode
 *.nix
-*.swp
-*.swo
-*~
+**/*.swp
+**/*.swo
+**/*~
 
 # Local Netlify folder
 .netlify
@@ -45,4 +45,4 @@ build_logs
 dep-crds
 
 kueue.yaml
-node_modules
+**/node_modules

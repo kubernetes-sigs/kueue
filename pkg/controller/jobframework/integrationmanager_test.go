@@ -49,8 +49,8 @@ func (t *testReconciler) SetupWithManager(mgr ctrlmgr.Manager) error {
 
 var _ JobReconcilerInterface = (*testReconciler)(nil)
 
-func testNewReconciler(client.Client, record.EventRecorder, ...Option) JobReconcilerInterface {
-	return &testReconciler{}
+func testNewReconciler(context.Context, client.Client, client.FieldIndexer, record.EventRecorder, ...Option) (JobReconcilerInterface, error) {
+	return &testReconciler{}, nil
 }
 
 func testSetupWebhook(ctrl.Manager, ...Option) error {
@@ -357,7 +357,7 @@ func TestForEach(t *testing.T) {
 
 func TestGetJobTypeForOwner(t *testing.T) {
 	dontManage := IntegrationCallbacks{
-		NewReconciler: func(client.Client, record.EventRecorder, ...Option) JobReconcilerInterface {
+		NewReconciler: func(context.Context, client.Client, client.FieldIndexer, record.EventRecorder, ...Option) (JobReconcilerInterface, error) {
 			panic("not implemented")
 		},
 		SetupWebhook: func(ctrl.Manager, ...Option) error { panic("not implemented") },
@@ -458,14 +458,14 @@ func TestEnabledIntegrationsDependencies(t *testing.T) {
 			enabled:   []string{"i1"},
 			wantError: errIntegrationNotFound,
 		},
-		"dependecncy not enabled": {
+		"dependency not enabled": {
 			integrationsDependencies: map[string][]string{
 				"i1": {"i2"},
 			},
 			enabled:   []string{"i1"},
 			wantError: errDependencyIntegrationNotEnabled,
 		},
-		"dependecncy not found": {
+		"dependency not found": {
 			integrationsDependencies: map[string][]string{
 				"i1": {"i2"},
 			},
@@ -486,14 +486,70 @@ func TestEnabledIntegrationsDependencies(t *testing.T) {
 			manager := integrationManager{
 				integrations: map[string]IntegrationCallbacks{},
 			}
-			for inegration, deps := range tc.integrationsDependencies {
-				manager.integrations[inegration] = IntegrationCallbacks{
+			for integration, deps := range tc.integrationsDependencies {
+				manager.integrations[integration] = IntegrationCallbacks{
 					DependencyList: deps,
 				}
 			}
 			gotError := manager.checkEnabledListDependencies(sets.New(tc.enabled...))
 			if diff := cmp.Diff(tc.wantError, gotError, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Unexpected check error (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestImplicitlyEnabledIntegrations(t *testing.T) {
+	cases := map[string]struct {
+		integrationsImplicit map[string][]string
+		enabled              []string
+		wantImplicit         []string
+	}{
+		"empty": {},
+		"no implicit dependencies": {
+			integrationsImplicit: map[string][]string{
+				"i1": nil,
+			},
+			enabled:      []string{"i1"},
+			wantImplicit: []string{},
+		},
+		"single implicit dependency": {
+			integrationsImplicit: map[string][]string{
+				"i1": {"i2"},
+			},
+			enabled:      []string{"i1"},
+			wantImplicit: []string{"i2"},
+		},
+		"multiple implicit dependencies": {
+			integrationsImplicit: map[string][]string{
+				"i1": {"i2", "i3"},
+			},
+			enabled:      []string{"i1"},
+			wantImplicit: []string{"i2", "i3"},
+		},
+		"nested implicit dependencies": {
+			integrationsImplicit: map[string][]string{
+				"i1": {"i2", "i3"},
+				"i2": {"i3"},
+				"i3": nil,
+			},
+			enabled:      []string{"i1", "i2"},
+			wantImplicit: []string{"i3"},
+		},
+	}
+	for tcName, tc := range cases {
+		t.Run(tcName, func(t *testing.T) {
+			mgr := integrationManager{
+				integrations: map[string]IntegrationCallbacks{},
+			}
+			for integration, implicitDeps := range tc.integrationsImplicit {
+				mgr.integrations[integration] = IntegrationCallbacks{
+					ImplicitlyEnabledFrameworkNames: implicitDeps,
+				}
+			}
+			gotImplicit := mgr.collectImplicitlyEnabledIntegrations(sets.New(tc.enabled...))
+			if diff := cmp.Diff(sets.New(tc.wantImplicit...), gotImplicit); diff != "" {
+				t.Errorf("Unexpected implicitly enabled integrations (-want +got):\n%s", diff)
 			}
 		})
 	}

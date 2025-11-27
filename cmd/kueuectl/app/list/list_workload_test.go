@@ -43,12 +43,12 @@ import (
 	kubetesting "k8s.io/client-go/testing"
 	testingclock "k8s.io/utils/clock/testing"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
 	cmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
@@ -70,18 +70,18 @@ func TestWorkloadCmd(t *testing.T) {
 		"should print workload list with namespace filter": {
 			ns: "ns1",
 			objs: []runtime.Object{
-				utiltesting.MakeWorkload("wl1", "ns1").
+				utiltestingapi.MakeWorkload("wl1", "ns1").
 					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j1", "test-uid").
 					Queue("lq1").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq1").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Obj(),
-				utiltesting.MakeWorkload("wl2", "ns2").
+				utiltestingapi.MakeWorkload("wl2", "ns2").
 					OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "j2", "test-uid").
 					Queue("lq2").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq2").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq2").Obj()).
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
@@ -92,18 +92,18 @@ wl1               j1         lq1          cq1            PENDING                
 		"should print workload list with localqueue filter": {
 			args: []string{"--localqueue", "lq1"},
 			objs: []runtime.Object{
-				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
 					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j1", "test-uid").
 					Queue("lq1").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq1").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Obj(),
-				utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).
 					OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "j2", "test-uid").
 					Queue("lq2").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq2").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq2").Obj()).
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
@@ -114,18 +114,18 @@ wl1               j1         lq1          cq1            PENDING                
 		"should print workload list with localqueue filter (short flag)": {
 			args: []string{"-q", "lq1"},
 			objs: []runtime.Object{
-				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
 					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j1", "test-uid").
 					Queue("lq1").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq1").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Obj(),
-				utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).
 					OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "j2", "test-uid").
 					Queue("lq2").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq2").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq2").Obj()).
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
@@ -136,18 +136,18 @@ wl1               j1         lq1          cq1            PENDING                
 		"should print workload list with clusterqueue filter": {
 			args: []string{"--clusterqueue", "cq1"},
 			objs: []runtime.Object{
-				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
 					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j1", "test-uid").
 					Queue("lq1").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq1").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Obj(),
-				utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).
 					OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "j2", "test-uid").
 					Queue("lq2").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq2").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq2").Obj()).
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
@@ -158,18 +158,18 @@ wl1               j1         lq1          cq1            PENDING                
 		"should print workload list with clusterqueue filter (short flag)": {
 			args: []string{"-c", "cq1"},
 			objs: []runtime.Object{
-				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
 					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j1", "test-uid").
 					Queue("lq1").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq1").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Obj(),
-				utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).
 					OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "j2", "test-uid").
 					Queue("lq2").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq2").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq2").Obj()).
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
@@ -180,18 +180,18 @@ wl1               j1         lq1          cq1            PENDING                
 		"should print workload list with all status flag": {
 			args: []string{"--status", "all"},
 			objs: []runtime.Object{
-				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
 					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j1", "test-uid").
 					Queue("lq1").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq1").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Obj(),
-				utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).
 					OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "j2", "test-uid").
 					Queue("lq2").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq2").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq2").Obj()).
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Conditions([]metav1.Condition{
 						{
@@ -201,11 +201,11 @@ wl1               j1         lq1          cq1            PENDING                
 						},
 					}...).
 					Obj(),
-				utiltesting.MakeWorkload("wl3", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl3", metav1.NamespaceDefault).
 					OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "j3", "test-uid").
 					Queue("lq3").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq3").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq3").Obj()).
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Conditions([]metav1.Condition{
 						{
@@ -215,11 +215,11 @@ wl1               j1         lq1          cq1            PENDING                
 						},
 					}...).
 					Obj(),
-				utiltesting.MakeWorkload("wl4", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl4", metav1.NamespaceDefault).
 					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j4", "test-uid").
 					Queue("lq4").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq4").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq4").Obj()).
 					Creation(testStartTime.Add(-3 * time.Hour).Truncate(time.Second)).
 					Conditions([]metav1.Condition{
 						{
@@ -234,11 +234,11 @@ wl1               j1         lq1          cq1            PENDING                
 						},
 					}...).
 					Obj(),
-				utiltesting.MakeWorkload("wl5", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl5", metav1.NamespaceDefault).
 					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j5", "test-uid").
 					Queue("lq5").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq5").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq5").Obj()).
 					Creation(testStartTime.Add(-3 * time.Hour).Truncate(time.Second)).
 					Conditions([]metav1.Condition{
 						{
@@ -265,18 +265,18 @@ wl5               j5         lq5          cq5            ADMITTED               
 		"should print workload list with only admitted and finished status flags": {
 			args: []string{"--status", "admitted", "--status", "finished"},
 			objs: []runtime.Object{
-				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
 					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j1", "test-uid").
 					Queue("lq1").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq1").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Obj(),
-				utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).
 					OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "j2", "test-uid").
 					Queue("lq2").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq2").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq2").Obj()).
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Conditions([]metav1.Condition{
 						{
@@ -286,11 +286,11 @@ wl5               j5         lq5          cq5            ADMITTED               
 						},
 					}...).
 					Obj(),
-				utiltesting.MakeWorkload("wl3", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl3", metav1.NamespaceDefault).
 					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j3", "test-uid").
 					Queue("lq3").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq3").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq3").Obj()).
 					Creation(testStartTime.Add(-3 * time.Hour).Truncate(time.Second)).
 					Conditions([]metav1.Condition{
 						{
@@ -314,18 +314,18 @@ wl3               j3         lq3          cq3            FINISHED               
 		"should print workload list with only pending filter": {
 			args: []string{"--status", "pending"},
 			objs: []runtime.Object{
-				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
 					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j1", "test-uid").
 					Queue("lq1").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq1").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Obj(),
-				utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).
 					OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "j2", "test-uid").
 					Queue("lq2").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq2").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq2").Obj()).
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Conditions([]metav1.Condition{
 						{
@@ -342,11 +342,11 @@ wl1               j1         lq1          cq1            PENDING                
 		"should print workload list with only quotareserved filter": {
 			args: []string{"--status", "quotareserved"},
 			objs: []runtime.Object{
-				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
 					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j1", "test-uid").
 					Queue("lq1").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq1").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Conditions([]metav1.Condition{
 						{
@@ -355,11 +355,11 @@ wl1               j1         lq1          cq1            PENDING                
 						},
 					}...).
 					Obj(),
-				utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).
 					OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "j2", "test-uid").
 					Queue("lq2").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq2").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq2").Obj()).
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Conditions([]metav1.Condition{
 						{
@@ -376,11 +376,11 @@ wl1               j1         lq1          cq1            QUOTARESERVED          
 		"should print workload list with only admitted filter": {
 			args: []string{"--status", "admitted"},
 			objs: []runtime.Object{
-				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
 					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j1", "test-uid").
 					Queue("lq1").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq1").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Conditions([]metav1.Condition{
 						{
@@ -390,11 +390,11 @@ wl1               j1         lq1          cq1            QUOTARESERVED          
 						},
 					}...).
 					Obj(),
-				utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).
 					OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "j2", "test-uid").
 					Queue("lq2").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq2").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq2").Obj()).
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Conditions([]metav1.Condition{
 						{
@@ -412,11 +412,11 @@ wl1               j1         lq1          cq1            ADMITTED               
 		"should print workload list with only finished status filter": {
 			args: []string{"--status", "finished"},
 			objs: []runtime.Object{
-				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
 					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j1", "test-uid").
 					Queue("lq1").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq1").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Conditions([]metav1.Condition{
 						{
@@ -431,11 +431,11 @@ wl1               j1         lq1          cq1            ADMITTED               
 						},
 					}...).
 					Obj(),
-				utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).
 					OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "j2", "test-uid").
 					Queue("lq2").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq2").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq2").Obj()).
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Conditions([]metav1.Condition{
 						{
@@ -458,19 +458,19 @@ wl1               j1         lq1          cq1            FINISHED               
 		"should print workload list with label selector filter": {
 			args: []string{"--selector", "key=value1"},
 			objs: []runtime.Object{
-				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
 					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j1", "test-uid").
 					Queue("lq1").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq1").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
 					Creation(testStartTime.Add(-1*time.Hour).Truncate(time.Second)).
 					Label("key", "value1").
 					Obj(),
-				utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).
 					OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "j2", "test-uid").
 					Queue("lq2").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq2").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq2").Obj()).
 					Creation(testStartTime.Add(-2*time.Hour).Truncate(time.Second)).
 					Label("key", "value2").
 					Obj(),
@@ -482,19 +482,19 @@ wl1               j1         lq1          cq1            PENDING                
 		"should print workload list with label selector filter (short flag)": {
 			args: []string{"-l", "key=value1"},
 			objs: []runtime.Object{
-				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
 					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j1", "test-uid").
 					Queue("lq1").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq1").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
 					Creation(testStartTime.Add(-1*time.Hour).Truncate(time.Second)).
 					Label("key", "value1").
 					Obj(),
-				utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).
 					OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "j2", "test-uid").
 					Queue("lq2").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq2").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq2").Obj()).
 					Creation(testStartTime.Add(-2*time.Hour).Truncate(time.Second)).
 					Label("key", "value2").
 					Obj(),
@@ -536,25 +536,25 @@ wl1               j1         lq1          cq1            PENDING                
 				},
 			},
 			objs: []runtime.Object{
-				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
 					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j1", "test-uid").
 					Queue("lq1").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq1").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Obj(),
-				utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).
 					OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "j2", "test-uid").
 					Queue("lq2").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq2").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq2").Obj()).
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
-				utiltesting.MakeWorkload("wl3", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl3", metav1.NamespaceDefault).
 					OwnerReference(kftraining.SchemeGroupVersion.WithKind(kftraining.PyTorchJobKind), "j3", "test-uid").
 					Queue("lq3").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq3").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq3").Obj()).
 					Creation(testStartTime.Add(-3 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
@@ -579,12 +579,12 @@ wl3    pytorchjob.kubeflow....   j3         lq3          cq3            PENDING 
 				},
 			},
 			objs: []runtime.Object{
-				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
 					Label(constants.JobUIDLabel, "job-test-uid").
 					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job-test", "test-uid").
 					Queue("lq1").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq1").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadQuotaReserved,
 						Status: metav1.ConditionFalse,
@@ -592,11 +592,11 @@ wl3    pytorchjob.kubeflow....   j3         lq3          cq3            PENDING 
 					}).
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
-				utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).
 					OwnerReference(kftraining.SchemeGroupVersion.WithKind(kftraining.PyTorchJobKind), "job-test", "test-uid").
 					Queue("lq2").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq2").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq2").Obj()).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadQuotaReserved,
 						Status: metav1.ConditionFalse,
@@ -645,12 +645,12 @@ wl1    job.batch   job-test   lq1          cq1            PENDING               
 				},
 			},
 			objs: []runtime.Object{
-				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
 					Label(constants.JobUIDLabel, "job-test-uid").
 					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job-test", "test-uid").
 					Queue("lq1").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq1").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadQuotaReserved,
 						Status: metav1.ConditionFalse,
@@ -658,11 +658,11 @@ wl1    job.batch   job-test   lq1          cq1            PENDING               
 					}).
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
-				utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod-test-1", "pod-test-uid-1").
 					Queue("lq2").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq2").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq2").Obj()).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadQuotaReserved,
 						Status: metav1.ConditionFalse,
@@ -708,12 +708,12 @@ wl2    pod        pod-test-1   lq2          cq2            PENDING              
 				},
 			},
 			objs: []runtime.Object{
-				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
 					Label(constants.JobUIDLabel, "job-test-uid-1").
 					OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "job-test", "test-uid").
 					Queue("lq1").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq1").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadQuotaReserved,
 						Status: metav1.ConditionFalse,
@@ -721,12 +721,12 @@ wl2    pod        pod-test-1   lq2          cq2            PENDING              
 					}).
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
-				utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).
 					Label(constants.JobUIDLabel, "job-test-uid-2").
 					OwnerReference(kftraining.SchemeGroupVersion.WithKind(kftraining.PyTorchJobKind), "job-test", "test-uid").
 					Queue("lq2").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq2").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq2").Obj()).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadQuotaReserved,
 						Status: metav1.ConditionFalse,
@@ -776,12 +776,12 @@ wl1    rayjob.ray.io   job-test   lq1          cq1            PENDING           
 				},
 			},
 			objs: []runtime.Object{
-				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
 					Label(constants.JobUIDLabel, "job-test-uid-1").
 					OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "job-test", "test-uid").
 					Queue("lq1").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq1").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadQuotaReserved,
 						Status: metav1.ConditionFalse,
@@ -789,12 +789,12 @@ wl1    rayjob.ray.io   job-test   lq1          cq1            PENDING           
 					}).
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
-				utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).
 					Label(constants.JobUIDLabel, "job-test-uid-2").
 					OwnerReference(kftraining.SchemeGroupVersion.WithKind(kftraining.PyTorchJobKind), "job-test", "test-uid").
 					Queue("lq2").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq2").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq2").Obj()).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadQuotaReserved,
 						Status: metav1.ConditionFalse,
@@ -843,18 +843,18 @@ wl1    rayjob.ray.io   job-test   lq1          cq1            PENDING           
 				},
 			},
 			objs: []runtime.Object{
-				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
 					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j1", "test-uid").
 					Queue("lq1").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq1").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Obj(),
-				utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).
+				utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).
 					OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "j2", "test-uid").
 					Queue("lq2").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq2").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq2").Obj()).
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},

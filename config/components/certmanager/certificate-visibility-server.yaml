@@ -1,0 +1,18 @@
+# The following manifests contain a visibility server certificate CR.
+# More document can be found at https://docs.cert-manager.io
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: visibility-server-cert  # this name should match the one appeared in kustomizeconfig.yaml
+  namespace: kueue-system
+spec:
+  commonName: visibility-server
+  dnsNames:
+  # VISIBILITY_SERVICE_NAME and VISIBILITY_SERVICE_NAMESPACE will be substituted by kustomize
+  # replacements in the config/default/kustomization.yaml file.
+  - $(VISIBILITY_SERVICE_NAME).$(VISIBILITY_SERVICE_NAMESPACE).svc
+  - $(VISIBILITY_SERVICE_NAME).$(VISIBILITY_SERVICE_NAMESPACE).svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: selfsigned-issuer
+  secretName: visibility-server-cert

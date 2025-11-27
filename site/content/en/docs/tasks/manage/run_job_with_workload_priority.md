@@ -25,7 +25,7 @@ Make sure the following conditions are met:
 The WorkloadPriorityClass should be created first.
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: WorkloadPriorityClass
 metadata:
   name: sample-priority
@@ -66,7 +66,7 @@ Workload's `Priority` field is always mutable because it might be useful for the
 Workload's `PriorityClassSource` and `PriorityClassName` fields are immutable.
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: Workload
 metadata:
   name: job-sample-job-7f173

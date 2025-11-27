@@ -37,5 +37,5 @@ if one wants to use CertManager.
 
 Kueue can also support optional helm values for Cert Manager enablement.
 
-1. Disable `internalCertManager` in the kueue configuration.
+1. Disable `internalCertManagement` in the kueue configuration.
 2. set `enableCertManager` in your values.yaml file to true.

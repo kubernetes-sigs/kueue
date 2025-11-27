@@ -18,11 +18,19 @@ package queue
 
 import (
 	"sync"
+	"time"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/util/wait"
 	"sigs.k8s.io/kueue/pkg/workload"
+)
+
+const (
+	initialBackoff = time.Second
+	backoffFactor  = 2
+	maxBackoff     = 30 * time.Second
 )
 
 type secondPassQueue struct {
@@ -30,12 +38,15 @@ type secondPassQueue struct {
 
 	prequeued sets.Set[workload.Reference]
 	queued    map[workload.Reference]*workload.Info
+
+	backoff wait.Backoff
 }
 
 func newSecondPassQueue() *secondPassQueue {
 	return &secondPassQueue{
 		prequeued: sets.New[workload.Reference](),
 		queued:    make(map[workload.Reference]*workload.Info),
+		backoff:   wait.NewBackoff(initialBackoff, maxBackoff, backoffFactor, 0),
 	}
 }
 
@@ -77,4 +88,8 @@ func (q *secondPassQueue) deleteByKey(key workload.Reference) {
 
 	delete(q.queued, key)
 	q.prequeued.Delete(key)
+}
+
+func (q *secondPassQueue) nextDelay(iteration int) time.Duration {
+	return q.backoff.WaitTime(iteration)
 }

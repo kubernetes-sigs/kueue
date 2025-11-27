@@ -21,10 +21,9 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
-	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -55,15 +54,11 @@ var _ = ginkgo.Describe("JobSet Webhook", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				Obj()
 			err := k8sClient.Create(ctx, job)
 			gomega.Expect(err).Should(gomega.HaveOccurred())
-			gomega.Expect(err).Should(testing.BeForbiddenError())
+			gomega.Expect(err).Should(utiltesting.BeForbiddenError())
 		})
 	})
 
-	ginkgo.When("with TopologyAwareScheduling enabled", func() {
-		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
-		})
-
+	ginkgo.When("with TopologyAwareScheduling", func() {
 		ginkgo.It("shouldn't create JobSet if both kueue.x-k8s.io/podset-required-topology and kueue.x-k8s.io/podset-preferred-topology annotations are set", func() {
 			job := testingjob.MakeJobSet("jobset", ns.Name).
 				Queue("indexed_job").
@@ -71,15 +66,15 @@ var _ = ginkgo.Describe("JobSet Webhook", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					testingjob.ReplicatedJobRequirements{
 						Name: "leader",
 						PodAnnotations: map[string]string{
-							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
-							kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
 						},
 					},
 				).
 				Obj()
 			err := k8sClient.Create(ctx, job)
 			gomega.Expect(err).Should(gomega.HaveOccurred())
-			gomega.Expect(err).Should(testing.BeForbiddenError())
+			gomega.Expect(err).Should(utiltesting.BeForbiddenError())
 		})
 
 		ginkgo.It("should reject a JobSet whose pod‑slice size exceeds total pod count", func() {
@@ -97,9 +92,9 @@ var _ = ginkgo.Describe("JobSet Webhook", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					Parallelism: parallelism,
 					Completions: parallelism,
 					PodAnnotations: map[string]string{
-						kueuealpha.PodSetPreferredTopologyAnnotation:     testing.DefaultBlockTopologyLevel,
-						kueuealpha.PodSetSliceRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
-						kueuealpha.PodSetSliceSizeAnnotation:             invalidSliceSize,
+						kueue.PodSetPreferredTopologyAnnotation:     utiltesting.DefaultBlockTopologyLevel,
+						kueue.PodSetSliceRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
+						kueue.PodSetSliceSizeAnnotation:             invalidSliceSize,
 					},
 				}).
 				RequestAndLimit("replicated-job-1", "example.com/gpu", "1").

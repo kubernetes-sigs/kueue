@@ -32,13 +32,13 @@ import (
 
 // HasGate checks if the pod has a scheduling gate with a specified name.
 func HasGate(pod *corev1.Pod, gateName string) bool {
-	return gateIndex(pod, gateName) >= 0
+	return gateIndex(&pod.Spec, gateName) >= 0
 }
 
 // Ungate removes scheduling gate from the Pod if present.
 // Returns true if the pod has been updated and false otherwise.
 func Ungate(pod *corev1.Pod, gateName string) bool {
-	if idx := gateIndex(pod, gateName); idx >= 0 {
+	if idx := gateIndex(&pod.Spec, gateName); idx >= 0 {
 		pod.Spec.SchedulingGates = slices.Delete(pod.Spec.SchedulingGates, idx, idx+1)
 		return true
 	}
@@ -48,8 +48,20 @@ func Ungate(pod *corev1.Pod, gateName string) bool {
 // Gate adds scheduling gate from the Pod if present.
 // Returns true if the pod has been updated and false otherwise.
 func Gate(pod *corev1.Pod, gateName string) bool {
-	if !HasGate(pod, gateName) {
-		pod.Spec.SchedulingGates = append(pod.Spec.SchedulingGates, corev1.PodSchedulingGate{
+	return gateSpec(&pod.Spec, gateName)
+}
+
+// GateTemplate adds scheduling gate to the PodTemplate.
+// Returns true if the PodTemplate has been updated and false otherwise.
+func GateTemplate(template *corev1.PodTemplateSpec, gateName string) bool {
+	return gateSpec(&template.Spec, gateName)
+}
+
+// Gate adds scheduling gate to the PodSpec.
+// Returns true if the PodSpec has been updated and false otherwise.
+func gateSpec(podSpec *corev1.PodSpec, gateName string) bool {
+	if gateIndex(podSpec, gateName) < 0 {
+		podSpec.SchedulingGates = append(podSpec.SchedulingGates, corev1.PodSchedulingGate{
 			Name: gateName,
 		})
 		return true
@@ -59,8 +71,8 @@ func Gate(pod *corev1.Pod, gateName string) bool {
 
 // gateIndex returns the index of the Kueue scheduling gate for corev1.Pod.
 // If the scheduling gate is not found, returns -1.
-func gateIndex(p *corev1.Pod, gateName string) int {
-	return slices.IndexFunc(p.Spec.SchedulingGates, func(g corev1.PodSchedulingGate) bool {
+func gateIndex(spec *corev1.PodSpec, gateName string) int {
+	return slices.IndexFunc(spec.SchedulingGates, func(g corev1.PodSchedulingGate) bool {
 		return g.Name == gateName
 	})
 }

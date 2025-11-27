@@ -40,6 +40,7 @@ type PreemptionOracle struct {
 // preemption and reclaim are possible in this flavor resource.
 func (p *PreemptionOracle) SimulatePreemption(log logr.Logger, cq *schdcache.ClusterQueueSnapshot, wl workload.Info, fr resources.FlavorResource, quantity int64) (preemptioncommon.PreemptionPossibility, int) {
 	candidates := p.preemptor.getTargets(&preemptionCtx{
+		clock:             p.preemptor.clock,
 		log:               log,
 		preemptor:         wl,
 		preemptorCQ:       p.snapshot.ClusterQueue(wl.ClusterQueue),
@@ -57,7 +58,7 @@ func (p *PreemptionOracle) SimulatePreemption(log logr.Logger, cq *schdcache.Clu
 	for i, c := range candidates {
 		workloadsToPreempt[i] = c.WorkloadInfo
 	}
-	revertRemoval := cq.SimulateWorkloadRemoval(workloadsToPreempt)
+	revertRemoval := p.snapshot.SimulateWorkloadRemoval(workloadsToPreempt)
 	borrowAfterPreemptions, _ := classical.FindHeightOfLowestSubtreeThatFits(cq, fr, quantity)
 	revertRemoval()
 

@@ -35,8 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -44,6 +43,7 @@ import (
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/paddlejob"
@@ -358,11 +358,11 @@ func TestDefault(t *testing.T) {
 			namespaceSelector:             defaultNamespaceSelector,
 			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
-				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, "block").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
 				Obj(),
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
-				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, "block").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
 				ManagedByKueueLabel().
 				KueueFinalizer().
 				RoleHash("a9f06f3a").
@@ -378,15 +378,15 @@ func TestDefault(t *testing.T) {
 			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
 				Label("test-label", "test-value").
-				Annotation(kueuealpha.PodGroupPodIndexLabelAnnotation, "test-label").
-				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, "block").
+				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
 				Obj(),
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
-				Annotation(kueuealpha.PodGroupPodIndexLabelAnnotation, "test-label").
-				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, "block").
+				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
 				Label("test-label", "test-value").
-				Label(kueuealpha.PodGroupPodIndexLabel, "test-value").
+				Label(kueue.PodGroupPodIndexLabel, "test-value").
 				ManagedByKueueLabel().
 				RoleHash("a9f06f3a").
 				KueueFinalizer().
@@ -535,7 +535,7 @@ func TestDefault(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			if tc.defaultLqExist {
-				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", defaultNamespace.Name).
+				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("default", defaultNamespace.Name).
 					ClusterQueue("cluster-queue").Obj()); err != nil {
 					t.Fatalf("failed to create default local queue: %s", err)
 				}
@@ -732,14 +732,14 @@ func TestValidateCreate(t *testing.T) {
 		"valid topology request": {
 			pod: testingpod.MakePod("test-pod", "test-ns").
 				ManagedByKueueLabel().
-				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				Obj(),
 		},
 		"invalid topology request": {
 			pod: testingpod.MakePod("test-pod", "test-ns").
 				ManagedByKueueLabel().
-				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
-				Annotation(kueuealpha.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				Annotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
 				Obj(),
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -979,59 +979,6 @@ func TestValidateUpdate(t *testing.T) {
 			}
 			if diff := cmp.Diff(warns, tc.wantWarns); diff != "" {
 				t.Errorf("Expected different list of warnings (-want,+got):\n%s", diff)
-			}
-		})
-	}
-}
-
-func TestGetPodOptions(t *testing.T) {
-	cases := map[string]struct {
-		integrationOpts map[string]any
-		wantOpts        *configapi.PodIntegrationOptions
-		wantError       error
-	}{
-		"proper podIntegrationOptions exists": {
-			integrationOpts: map[string]any{
-				corev1.SchemeGroupVersion.WithKind("Pod").String(): &configapi.PodIntegrationOptions{
-					PodSelector: &metav1.LabelSelector{
-						MatchLabels: map[string]string{"podKey": "podValue"},
-					},
-					NamespaceSelector: &metav1.LabelSelector{
-						MatchLabels: map[string]string{"nsKey": "nsValue"},
-					},
-				},
-				batchv1.SchemeGroupVersion.WithKind("Job").String(): nil,
-			},
-			wantOpts: &configapi.PodIntegrationOptions{
-				PodSelector: &metav1.LabelSelector{
-					MatchLabels: map[string]string{"podKey": "podValue"},
-				},
-				NamespaceSelector: &metav1.LabelSelector{
-					MatchLabels: map[string]string{"nsKey": "nsValue"},
-				},
-			},
-		},
-		"integrationOptions doesn't have podIntegrationOptions": {
-			integrationOpts: map[string]any{
-				batchv1.SchemeGroupVersion.WithKind("Job").String(): nil,
-			},
-			wantOpts: nil,
-		},
-		"podIntegrationOptions isn't of type PodIntegrationOptions": {
-			integrationOpts: map[string]any{
-				corev1.SchemeGroupVersion.WithKind("Pod").String(): &configapi.WaitForPodsReady{},
-			},
-			wantError: errPodOptsTypeAssertion,
-		},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			gotOpts, gotError := getPodOptions(tc.integrationOpts)
-			if diff := cmp.Diff(tc.wantError, gotError, cmpopts.EquateErrors()); len(diff) != 0 {
-				t.Errorf("Unexpected error from getPodOptions (-want,+got):\n%s", diff)
-			}
-			if diff := cmp.Diff(tc.wantOpts, gotOpts, cmpopts.EquateEmpty()); len(diff) != 0 {
-				t.Errorf("Unexpected podIntegrationOptions from gotPodOptions (-want,+got):\n%s", diff)
 			}
 		})
 	}

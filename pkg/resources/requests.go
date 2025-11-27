@@ -108,13 +108,33 @@ func ResourceQuantity(name corev1.ResourceName, v int64) resource.Quantity {
 	case corev1.ResourceCPU:
 		return *resource.NewMilliQuantity(v, resource.DecimalSI)
 	case corev1.ResourceMemory, corev1.ResourceEphemeralStorage:
-		return *resource.NewQuantity(v, resource.BinarySI)
+		return newCanonicalQuantity(v, resource.BinarySI)
 	default:
 		if strings.HasPrefix(string(name), corev1.ResourceHugePagesPrefix) {
-			return *resource.NewQuantity(v, resource.BinarySI)
+			return newCanonicalQuantity(v, resource.BinarySI)
 		}
 		return *resource.NewQuantity(v, resource.DecimalSI)
 	}
+}
+
+// newCanonicalQuantity returns a Quantity that will successfully round-trip.
+//
+// This means the returned quantity can be serialized then deserialized back to
+// an identical quantity.
+//
+// If the value can round-trip using the preferred format, that one will be used.
+// Otherwise, the format will be automatically determined.
+//
+// For example, if preferred format is BinarySI, 128000 will use BinarySI format
+// (because it can be represented as 125Ki), but 100000 will use DecimalSI format.
+func newCanonicalQuantity(v int64, preferredFormat resource.Format) resource.Quantity {
+	preferred := *resource.NewQuantity(v, preferredFormat)
+	final, err := resource.ParseQuantity(preferred.String())
+	if err != nil {
+		// Should never happen
+		return preferred
+	}
+	return final
 }
 
 func ResourceQuantityString(name corev1.ResourceName, v int64) string {

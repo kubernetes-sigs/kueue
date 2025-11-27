@@ -23,15 +23,19 @@ For more information, see [Kueue's overview](/docs/overview).
 
 2. Ensure that you have the v1/statefulset integration enabled, for example:
    ```yaml
-   apiVersion: config.kueue.x-k8s.io/v1beta1
+   apiVersion: config.kueue.x-k8s.io/v1beta2
    kind: Configuration
    integrations:
      frameworks:
-      - "pod" # required by statefulset
       - "statefulset"
    ```
-   Also, follow steps in [Run Plain Pods](/docs/tasks/run/plain_pods/#before-you-begin)
-   to learn how to enable and configure the `pod` integration.
+   {{% alert title="Pod integration requirements" color="primary" %}}
+   Since Kueue v0.15, you don't need to explicitly enable `"pod"` integration to use the `"statefulset"` integration.
+
+   For Kueue v0.14 and earlier, `"pod"` integration must be explicitly enabled.
+
+   See [Run Plain Pods](/docs/tasks/run/plain_pods/#before-you-begin) for configuration details.
+   {{% /alert %}}
 
 3. Check [Administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial Kueue setup.
 

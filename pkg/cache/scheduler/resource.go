@@ -21,9 +21,10 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
+	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
 type ResourceGroup struct {
@@ -72,4 +73,14 @@ func createResourceQuotas(kueueRgs []kueue.ResourceGroup) map[resources.FlavorRe
 		}
 	}
 	return quotas
+}
+
+func AllFlavors(rgs []ResourceGroup) sets.Set[kueue.ResourceFlavorReference] {
+	return utilslices.Reduce(
+		rgs,
+		func(acc sets.Set[kueue.ResourceFlavorReference], rg ResourceGroup) sets.Set[kueue.ResourceFlavorReference] {
+			return acc.Insert(rg.Flavors...)
+		},
+		sets.New[kueue.ResourceFlavorReference](),
+	)
 }

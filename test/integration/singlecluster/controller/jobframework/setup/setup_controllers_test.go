@@ -27,10 +27,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -52,18 +52,18 @@ var _ = ginkgo.Describe("Setup Controllers", ginkgo.Ordered, ginkgo.ContinueOnFa
 
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
 
-		flavor = testing.MakeResourceFlavor("on-demand").Obj()
+		flavor = utiltestingapi.MakeResourceFlavor("on-demand").Obj()
 		util.MustCreate(ctx, k8sClient, flavor)
 
-		clusterQueue = testing.MakeClusterQueue("cluster-queue").
+		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 			ResourceGroup(
-				*testing.MakeFlavorQuotas(flavor.Name).
+				*utiltestingapi.MakeFlavorQuotas(flavor.Name).
 					Resource(corev1.ResourceCPU, "5").
 					Obj(),
 			).Obj()
 
 		util.MustCreate(ctx, k8sClient, clusterQueue)
-		localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		localQueue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 	})
 
 	ginkgo.AfterEach(func() {

@@ -42,7 +42,7 @@ Please do not remove items from the checklist
       via UI or `gh release --repo kubernetes-sigs/kueue upload $VERSION artifacts/*`.
 - [ ] Submit a PR against [k8s.io](https://github.com/kubernetes/k8s.io) to
       [promote the container images and Helm Chart](https://github.com/kubernetes/k8s.io/tree/main/registry.k8s.io#image-promoter)
-      to production: <!-- example kubernetes/k8s.io#7899 -->
+      to production: <!-- K8S_IO_PULL --> <!-- example kubernetes/k8s.io#7899 -->
   - [ ] Update `registry.k8s.io/images/k8s-staging-kueue/images.yaml`.
 - [ ] Wait for the PR to be merged and verify that the image `registry.k8s.io/kueue/kueue:$VERSION` is available.
 - [ ] Publish the draft release prepared at the [GitHub releases page](https://github.com/kubernetes-sigs/kueue/releases).
@@ -65,9 +65,9 @@ Please do not remove items from the checklist
         This ensures that the devel builds on the `main` branch will have a meaningful version number.
   - [ ] Create a milestone for the next minor release and update prow to set it automatically for new PRs:
         <!-- example https://github.com/kubernetes/test-infra/pull/30222 -->
-  - [ ] Create the presubmits and the periodic jobs for the next patch release:
+  - [ ] Create the presubmits and the periodic jobs for the next patch release: <!-- CI_PULL -->
         <!-- example: https://github.com/kubernetes/test-infra/pull/34561 -->
-  - [ ] Drop CI Jobs for testing the out-of-support branch:
+  - [ ] Drop CI Jobs for testing the out-of-support branch: <!-- CI_PULL -->
         <!-- example: https://github.com/kubernetes/test-infra/pull/34562 -->
 
 

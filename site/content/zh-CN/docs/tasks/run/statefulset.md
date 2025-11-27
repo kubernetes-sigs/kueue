@@ -20,7 +20,7 @@ description: 将 StatefulSet 作为 Kueue 管理的工作负载运行。
 
 2. 确保你启用了 v1/statefulset 集成，例如：
    ```yaml
-   apiVersion: config.kueue.x-k8s.io/v1beta1
+   apiVersion: config.kueue.x-k8s.io/v1beta2
    kind: Configuration
    integrations:
      frameworks:

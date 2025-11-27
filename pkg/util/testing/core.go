@@ -60,16 +60,23 @@ func CheckEventRecordedFor(ctx context.Context, k8sClient client.Client,
 		len(events.Items), eventReason, eventType, eventMessage, ref.Namespace)
 }
 
-// HasEventAppeared returns if an event has been emitted
-func HasEventAppeared(ctx context.Context, k8sClient client.Client, event corev1.Event) (bool, error) {
+// HasMatchingEventAppeared returns if an event has been emitted
+func HasMatchingEventAppeared(ctx context.Context, k8sClient client.Client, matcher func(*corev1.Event) bool) (bool, error) {
 	events := &corev1.EventList{}
 	if err := k8sClient.List(ctx, events, &client.ListOptions{}); err != nil {
 		return false, err
 	}
 	for _, item := range events.Items {
-		if item.Reason == event.Reason && item.Type == event.Type && item.Message == event.Message {
+		if matcher(&item) {
 			return true, nil
 		}
 	}
 	return false, nil
+}
+
+// HasEventAppeared returns if an event has been emitted
+func HasEventAppeared(ctx context.Context, k8sClient client.Client, event corev1.Event) (bool, error) {
+	return HasMatchingEventAppeared(ctx, k8sClient, func(item *corev1.Event) bool {
+		return item.Reason == event.Reason && item.Type == event.Type && item.Message == event.Message
+	})
 }

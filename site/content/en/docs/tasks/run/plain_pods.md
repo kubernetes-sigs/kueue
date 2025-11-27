@@ -25,7 +25,7 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 
    One approach is to only enable management only for specific namespaces:
    ```yaml
-   apiVersion: config.kueue.x-k8s.io/v1beta1
+   apiVersion: config.kueue.x-k8s.io/v1beta2
    kind: Configuration
    managedJobsNamespaceSelector:
      matchLabels:
@@ -36,7 +36,7 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
    ```
    An alternate approach is to exempt system namespaces from management:
    ```yaml
-   apiVersion: config.kueue.x-k8s.io/v1beta1
+   apiVersion: config.kueue.x-k8s.io/v1beta2
    kind: Configuration
    managedJobsNamespaceSelector:
       matchExpressions:
@@ -118,7 +118,7 @@ Here is a sample Pod that just sleeps for a few seconds:
 You can create the Pod using the following command:
 ```sh
 # Create the pod
-kubectl create -f kueue-pod.yaml
+kubectl create -f https://kueue.sigs.k8s.io/examples/pods-kueue/kueue-pod.yaml
 ```
 
 ## Running a group of Pods to be admitted together
@@ -177,7 +177,7 @@ Here is a sample Pod group that just sleeps for a few seconds:
 
 You can create the Pod group using the following command:
 ```sh
-kubectl create -f kueue-pod-group.yaml
+kubectl create -f https://kueue.sigs.k8s.io/examples/pods-kueue/kueue-pod-group.yaml
 ```
 
 The name of the associated Workload created by Kueue equals the name of the Pod

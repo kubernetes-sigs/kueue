@@ -29,8 +29,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	"sigs.k8s.io/kueue/pkg/features"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
@@ -52,12 +53,35 @@ func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 	cq.RemoveUsage(wl.Usage())
 }
 
-// AddWorkload adds a workload from its corresponding ClusterQueue and
+// AddWorkload adds a workload to its corresponding ClusterQueue and
 // updates resource usage.
 func (s *Snapshot) AddWorkload(wl *workload.Info) {
 	cq := s.ClusterQueue(wl.ClusterQueue)
 	cq.Workloads[workload.Key(wl.Obj)] = wl
 	cq.AddUsage(wl.Usage())
+}
+
+// SimulateWorkloadRemoval modifies the snapshot by removing the usage
+// corresponding to the list of workloads from workloads' respective
+// ClusterQueues. It returns a function which can be used to restore
+// this usage.
+func (s *Snapshot) SimulateWorkloadRemoval(workloads []*workload.Info) func() {
+	type cqUsage struct {
+		cq    kueue.ClusterQueueReference
+		usage workload.Usage
+	}
+	cqUsages := make([]cqUsage, 0, len(workloads))
+	for _, w := range workloads {
+		cqUsages = append(cqUsages, cqUsage{cq: w.ClusterQueue, usage: w.Usage()})
+	}
+	for _, cqUsage := range cqUsages {
+		s.ClusterQueue(cqUsage.cq).RemoveUsage(cqUsage.usage)
+	}
+	return func() {
+		for _, cqUsage := range cqUsages {
+			s.ClusterQueue(cqUsage.cq).AddUsage(cqUsage.usage)
+		}
+	}
 }
 
 func (s *Snapshot) Log(log logr.Logger) {
@@ -107,7 +131,8 @@ func (s *Snapshot) Log(log logr.Logger) {
 }
 
 type snapshotOption struct {
-	afsEntryPenalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]
+	afsEntryPenalties    *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]
+	afsConsumedResources *queueafs.AfsConsumedResources
 }
 
 type SnapshotOption func(*snapshotOption)
@@ -115,6 +140,12 @@ type SnapshotOption func(*snapshotOption)
 func WithAfsEntryPenalties(penalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]) SnapshotOption {
 	return func(o *snapshotOption) {
 		o.afsEntryPenalties = penalties
+	}
+}
+
+func WithAfsConsumedResources(consumedResources *queueafs.AfsConsumedResources) SnapshotOption {
+	return func(o *snapshotOption) {
+		o.afsConsumedResources = consumedResources
 	}
 }
 
@@ -159,7 +190,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 			snap.InactiveClusterQueueSets.Insert(cq.Name)
 			continue
 		}
-		cqSnapshot, err := c.snapshotClusterQueue(ctx, cq, opts.afsEntryPenalties)
+		cqSnapshot, err := c.snapshotClusterQueue(ctx, cq, opts.afsEntryPenalties, opts.afsConsumedResources)
 		if err != nil {
 			return nil, err
 		}
@@ -182,7 +213,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 
 // snapshotClusterQueue creates a copy of ClusterQueue that includes
 // references to immutable objects and deep copies of changing ones.
-func (c *Cache) snapshotClusterQueue(ctx context.Context, cq *clusterQueue, afsEntryPenalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]) (*ClusterQueueSnapshot, error) {
+func (c *Cache) snapshotClusterQueue(ctx context.Context, cq *clusterQueue, afsEntryPenalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList], afsConsumedResources *queueafs.AfsConsumedResources) (*ClusterQueueSnapshot, error) {
 	log := log.FromContext(ctx)
 	cc := &ClusterQueueSnapshot{
 		Name:                          cq.Name,
@@ -199,6 +230,7 @@ func (c *Cache) snapshotClusterQueue(ctx context.Context, cq *clusterQueue, afsE
 		TASFlavors:                    make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot),
 		tasOnly:                       cq.isTASOnly(),
 		flavorsForProvReqACs:          cq.flavorsWithProvReqAdmissionCheck(),
+		hasMultiKueueAC:               cq.hasMultiKueueAdmissionCheck(),
 	}
 	for i, rg := range cq.ResourceGroups {
 		cc.ResourceGroups[i] = rg.Clone()
@@ -212,12 +244,12 @@ func (c *Cache) snapshotClusterQueue(ctx context.Context, cq *clusterQueue, afsE
 			return cc, nil
 		}
 		for _, wl := range cc.Workloads {
-			usage, err := wl.CalcLocalQueueFSUsage(ctx, c.client, resourceWeights, afsEntryPenalties)
+			usage, err := wl.CalcLocalQueueFSUsage(ctx, c.client, resourceWeights, afsEntryPenalties, afsConsumedResources)
 			if err != nil {
 				return nil, fmt.Errorf("failed to calculate LocalQueue FS usage for LocalQueue %v", client.ObjectKey{Namespace: wl.Obj.Namespace, Name: string(wl.Obj.Spec.QueueName)})
 			}
 			wl.LocalQueueFSUsage = &usage
-			log.V(3).Info("Calculated LocalQueueFSUsage for workload", "workload", klog.KObj(wl.Obj), "queue", wl.Obj.Spec.QueueName, "usage", usage)
+			log.V(5).Info("Calculated LocalQueueFSUsage for workload", "workload", klog.KObj(wl.Obj), "queue", wl.Obj.Spec.QueueName, "usage", usage)
 		}
 	}
 	return cc, nil

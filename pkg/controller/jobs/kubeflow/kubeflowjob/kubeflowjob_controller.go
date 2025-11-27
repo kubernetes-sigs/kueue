@@ -17,6 +17,8 @@ limitations under the License.
 package kubeflowjob
 
 import (
+	"context"
+
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -24,7 +26,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -52,7 +54,7 @@ func (j *KubeflowJob) Suspend() {
 	j.KFJobControl.RunPolicy().Suspend = ptr.To(true)
 }
 
-func (j *KubeflowJob) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
+func (j *KubeflowJob) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
 	j.KFJobControl.RunPolicy().Suspend = ptr.To(false)
 	orderedReplicaTypes := j.OrderedReplicaTypes()
 
@@ -83,7 +85,7 @@ func (j *KubeflowJob) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 	return changed
 }
 
-func (j *KubeflowJob) Finished() (message string, success, finished bool) {
+func (j *KubeflowJob) Finished(ctx context.Context) (message string, success, finished bool) {
 	if j.KFJobControl.JobStatus() == nil {
 		return "", false, false
 	}
@@ -97,7 +99,7 @@ func (j *KubeflowJob) Finished() (message string, success, finished bool) {
 	return "", true, false
 }
 
-func (j *KubeflowJob) PodSets() ([]kueue.PodSet, error) {
+func (j *KubeflowJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	replicaTypes := j.OrderedReplicaTypes()
 	podSets := make([]kueue.PodSet, len(replicaTypes))
 	for index, replicaType := range replicaTypes {
@@ -128,7 +130,7 @@ func (j *KubeflowJob) IsActive() bool {
 	return false
 }
 
-func (j *KubeflowJob) PodsReady() bool {
+func (j *KubeflowJob) PodsReady(ctx context.Context) bool {
 	for _, c := range j.KFJobControl.JobStatus().Conditions {
 		if c.Type == kftraining.JobRunning && c.Status == corev1.ConditionTrue {
 			return true
@@ -180,12 +182,12 @@ func (j *KubeflowJob) OrderedReplicaTypes() []kftraining.ReplicaType {
 	return result
 }
 
-func (j *KubeflowJob) ValidateOnCreate() (field.ErrorList, error) {
+func (j *KubeflowJob) ValidateOnCreate(ctx context.Context) (field.ErrorList, error) {
 	if !features.Enabled(features.TopologyAwareScheduling) {
 		return nil, nil
 	}
 
-	podSets, podSetsErr := j.PodSets()
+	podSets, podSetsErr := jobframework.JobPodSets(ctx, j)
 
 	var allErrs field.ErrorList
 	replicaTypes := j.OrderedReplicaTypes()
@@ -215,8 +217,8 @@ func (j *KubeflowJob) ValidateOnCreate() (field.ErrorList, error) {
 	return nil, podSetsErr
 }
 
-func (j *KubeflowJob) ValidateOnUpdate(_ jobframework.GenericJob) (field.ErrorList, error) {
-	return j.ValidateOnCreate()
+func (j *KubeflowJob) ValidateOnUpdate(ctx context.Context, _ jobframework.GenericJob) (field.ErrorList, error) {
+	return j.ValidateOnCreate(ctx)
 }
 
 func podsCount(replicaSpecs map[kftraining.ReplicaType]*kftraining.ReplicaSpec, replicaType kftraining.ReplicaType) int32 {

@@ -1,0 +1,9 @@
+# This patch add annotation to APIService to inject CA from the visibility-server cert.
+# The variables $(VISIBILITY_CERTIFICATE_NAMESPACE) and $(VISIBILITY_SERVICE_NAME) will be substituted by kustomize.
+
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1beta1.visibility.kueue.x-k8s.io
+  annotations:
+    cert-manager.io/inject-ca-from: $(VISIBILITY_CERTIFICATE_NAMESPACE)/$(VISIBILITY_CERTIFICATE_NAME)

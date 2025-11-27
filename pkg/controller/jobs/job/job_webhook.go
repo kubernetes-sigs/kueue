@@ -19,11 +19,9 @@ package job
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strconv"
 
 	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -33,12 +31,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 	"sigs.k8s.io/kueue/pkg/features"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -64,13 +63,7 @@ func applyWorkloadSliceSchedulingGate(job *Job) {
 	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) || !workloadslicing.Enabled(job.Object()) {
 		return
 	}
-	workloadSliceSchedulingGate := corev1.PodSchedulingGate{
-		Name: kueue.ElasticJobSchedulingGate,
-	}
-	if slices.Contains(job.Spec.Template.Spec.SchedulingGates, workloadSliceSchedulingGate) {
-		return
-	}
-	job.Spec.Template.Spec.SchedulingGates = append(job.Spec.Template.Spec.SchedulingGates, workloadSliceSchedulingGate)
+	utilpod.GateTemplate(&job.Spec.Template, kueue.ElasticJobSchedulingGate)
 }
 
 type JobWebhook struct {
@@ -129,20 +122,20 @@ func (w *JobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (ad
 	job := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.V(5).Info("Validating create")
-	validationErrs, err := w.validateCreate(job)
+	validationErrs, err := w.validateCreate(ctx, job)
 	if err != nil {
 		return nil, err
 	}
 	return nil, validationErrs.ToAggregate()
 }
 
-func (w *JobWebhook) validateCreate(job *Job) (field.ErrorList, error) {
+func (w *JobWebhook) validateCreate(ctx context.Context, job *Job) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(job)...)
 	allErrs = append(allErrs, w.validatePartialAdmissionCreate(job)...)
 	allErrs = append(allErrs, w.validateSyncCompletionCreate(job)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
-		validationErrs, err := w.validateTopologyRequest(job)
+		validationErrs, err := w.validateTopologyRequest(ctx, job)
 		if err != nil {
 			return nil, err
 		}
@@ -189,14 +182,14 @@ func (w *JobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.
 	newJob := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.V(5).Info("Validating update")
-	validationErrs, err := w.validateUpdate(oldJob, newJob)
+	validationErrs, err := w.validateUpdate(ctx, oldJob, newJob)
 	if err != nil {
 		return nil, err
 	}
 	return nil, validationErrs.ToAggregate()
 }
 
-func (w *JobWebhook) validateUpdate(oldJob, newJob *Job) (field.ErrorList, error) {
+func (w *JobWebhook) validateUpdate(ctx context.Context, oldJob, newJob *Job) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(newJob)...)
 	if newJob.Annotations[JobMinParallelismAnnotation] != oldJob.Annotations[JobMinParallelismAnnotation] {
@@ -206,7 +199,7 @@ func (w *JobWebhook) validateUpdate(oldJob, newJob *Job) (field.ErrorList, error
 	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist)...)
 	allErrs = append(allErrs, validatePartialAdmissionUpdate(oldJob, newJob)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
-		validationErrs, err := w.validateTopologyRequest(newJob)
+		validationErrs, err := w.validateTopologyRequest(ctx, newJob)
 		if err != nil {
 			return nil, err
 		}
@@ -228,13 +221,13 @@ func validatePartialAdmissionUpdate(oldJob, newJob *Job) field.ErrorList {
 	return allErrs
 }
 
-func (w *JobWebhook) validateTopologyRequest(job *Job) (field.ErrorList, error) {
+func (w *JobWebhook) validateTopologyRequest(ctx context.Context, job *Job) (field.ErrorList, error) {
 	validationErrs := jobframework.ValidateTASPodSetRequest(replicaMetaPath, &job.Spec.Template.ObjectMeta)
 	if validationErrs != nil {
 		return validationErrs, nil
 	}
 
-	podSets, err := job.PodSets()
+	podSets, err := jobframework.JobPodSets(ctx, job)
 	if err != nil {
 		return nil, err
 	}

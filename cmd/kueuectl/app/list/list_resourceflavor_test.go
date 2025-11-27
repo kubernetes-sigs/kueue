@@ -28,7 +28,7 @@ import (
 
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
 	cmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 func TestResourceFlavorCmd(t *testing.T) {
@@ -43,10 +43,10 @@ func TestResourceFlavorCmd(t *testing.T) {
 	}{
 		"should print resource flavor list": {
 			objs: []runtime.Object{
-				utiltesting.MakeResourceFlavor("rf1").
+				utiltestingapi.MakeResourceFlavor("rf1").
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Obj(),
-				utiltesting.MakeResourceFlavor("rf2").
+				utiltestingapi.MakeResourceFlavor("rf2").
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
@@ -57,12 +57,12 @@ rf2                  120m
 		},
 		"should print resource flavor list with node labels": {
 			objs: []runtime.Object{
-				utiltesting.MakeResourceFlavor("rf1").
+				utiltestingapi.MakeResourceFlavor("rf1").
 					Creation(testStartTime.Add(-1*time.Hour).Truncate(time.Second)).
 					NodeLabel("key1", "value1").
 					NodeLabel("key2", "value2").
 					Obj(),
-				utiltesting.MakeResourceFlavor("rf2").
+				utiltestingapi.MakeResourceFlavor("rf2").
 					Creation(testStartTime.Add(-2*time.Hour).Truncate(time.Second)).
 					NodeLabel("key3", "value3").
 					NodeLabel("key4", "value4").
@@ -76,11 +76,11 @@ rf2    key3=value3, key4=value4   120m
 		"should print resource flavor list with label selector filter": {
 			args: []string{"--selector", "key=value1"},
 			objs: []runtime.Object{
-				utiltesting.MakeResourceFlavor("rf1").
+				utiltestingapi.MakeResourceFlavor("rf1").
 					Label("key", "value1").
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Obj(),
-				utiltesting.MakeResourceFlavor("rf2").
+				utiltestingapi.MakeResourceFlavor("rf2").
 					Creation(testStartTime.Add(-2*time.Hour).Truncate(time.Second)).
 					Label("key", "value2").
 					Obj(),
@@ -92,11 +92,11 @@ rf1                  60m
 		"should print resource flavor list with label selector filter (short flag)": {
 			args: []string{"-l", "foo=bar"},
 			objs: []runtime.Object{
-				utiltesting.MakeResourceFlavor("rf1").
+				utiltestingapi.MakeResourceFlavor("rf1").
 					Label("foo", "bar").
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Obj(),
-				utiltesting.MakeResourceFlavor("rf2").
+				utiltestingapi.MakeResourceFlavor("rf2").
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},

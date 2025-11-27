@@ -27,12 +27,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 // StatefulSetWrapper wraps a StatefulSet.
@@ -108,7 +108,7 @@ func (ss *StatefulSetWrapper) UID(uid string) *StatefulSetWrapper {
 
 // OwnerReference adds a ownerReference to the StatefulSet.
 func (ss *StatefulSetWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *StatefulSetWrapper {
-	testing.AppendOwnerReference(&ss.StatefulSet, ownerGVK, ownerName, ownerName, ptr.To(true), ptr.To(true))
+	utiltesting.AppendOwnerReference(&ss.StatefulSet, ownerGVK, ownerName, ownerName, ptr.To(true), ptr.To(true))
 	return ss
 }
 
@@ -199,7 +199,7 @@ func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupServingAnnotation() *Statef
 }
 
 func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupPodIndexLabelAnnotation(labelName string) *StatefulSetWrapper {
-	return ss.PodTemplateSpecAnnotation(v1alpha1.PodGroupPodIndexLabelAnnotation, labelName)
+	return ss.PodTemplateSpecAnnotation(kueue.PodGroupPodIndexLabelAnnotation, labelName)
 }
 
 func (ss *StatefulSetWrapper) Image(image string, args []string) *StatefulSetWrapper {

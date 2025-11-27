@@ -39,6 +39,8 @@ type Interface interface {
 	ProvisioningRequestConfigs() ProvisioningRequestConfigInformer
 	// ResourceFlavors returns a ResourceFlavorInformer.
 	ResourceFlavors() ResourceFlavorInformer
+	// Topologies returns a TopologyInformer.
+	Topologies() TopologyInformer
 	// Workloads returns a WorkloadInformer.
 	Workloads() WorkloadInformer
 	// WorkloadPriorityClasses returns a WorkloadPriorityClassInformer.
@@ -68,7 +70,7 @@ func (v *version) ClusterQueues() ClusterQueueInformer {
 
 // Cohorts returns a CohortInformer.
 func (v *version) Cohorts() CohortInformer {
-	return &cohortInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+	return &cohortInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
 // LocalQueues returns a LocalQueueInformer.
@@ -94,6 +96,11 @@ func (v *version) ProvisioningRequestConfigs() ProvisioningRequestConfigInformer
 // ResourceFlavors returns a ResourceFlavorInformer.
 func (v *version) ResourceFlavors() ResourceFlavorInformer {
 	return &resourceFlavorInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+}
+
+// Topologies returns a TopologyInformer.
+func (v *version) Topologies() TopologyInformer {
+	return &topologyInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
 // Workloads returns a WorkloadInformer.

@@ -19,12 +19,13 @@ package flavorassigner
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"k8s.io/utils/ptr"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -38,7 +39,7 @@ func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info, cq *schdcache.
 				// There is no resource quota assignment for the PodSet - no need to check TAS.
 				continue
 			}
-			if psAssignment.TopologyAssignment != nil && !psAssignment.HasFailedNode(wl) {
+			if psAssignment.TopologyAssignment != nil && !psAssignment.HasUnhealthyNode(wl) {
 				// skip if already computed and doesn't need recomputing
 				// if it already has an assignment but needs recomputing due to a failed node
 				// we add it to the list of TASRequests
@@ -56,17 +57,10 @@ func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info, cq *schdcache.
 	return tasRequests
 }
 
-func (psa *PodSetAssignment) HasFailedNode(wl *workload.Info) bool {
-	if !workload.HasNodeToReplace(wl.Obj) {
-		return false
-	}
-	failedNode := wl.Obj.Annotations[kueuealpha.NodeToReplaceAnnotation]
-	for _, domain := range psa.TopologyAssignment.Domains {
-		if domain.Values[len(domain.Values)-1] == failedNode {
-			return true
-		}
-	}
-	return false
+func (psa *PodSetAssignment) HasUnhealthyNode(wl *workload.Info) bool {
+	return workload.HasUnhealthyNodes(wl.Obj) && slices.ContainsFunc(psa.TopologyAssignment.Domains, func(domain tas.TopologyDomainAssignment) bool {
+		return workload.HasUnhealthyNode(wl.Obj, domain.Values[len(domain.Values)-1])
+	})
 }
 
 func podSetTopologyRequest(psAssignment *PodSetAssignment,
@@ -84,9 +78,9 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 	if err != nil {
 		return nil, err
 	}
-	if !workload.HasQuotaReservation(wl.Obj) && cq.HasProvRequestAdmissionCheck(*tasFlvr) {
-		// We delay TAS as this is the first scheduling pass, and there is a
-		// ProvisioningRequest admission check used for the flavor.
+	if cq.HasMultiKueueAdmissionCheck() || (!workload.HasQuotaReservation(wl.Obj) && cq.HasProvRequestAdmissionCheck(*tasFlvr)) {
+		// Delay TAS when MultiKueue is used (topology always assigned on worker cluster).
+		// For ProvisioningRequest, delay TAS on first scheduling pass only (topology assigned after provisioning).
 		psAssignment.DelayedTopologyRequest = ptr.To(kueue.DelayedTopologyRequestStatePending)
 		return nil, nil
 	}

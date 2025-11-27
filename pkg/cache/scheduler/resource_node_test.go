@@ -23,24 +23,25 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 func TestCohortLendable(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	cache := New(utiltesting.NewFakeClient())
 
-	cq1 := utiltesting.MakeClusterQueue("cq1").
+	cq1 := utiltestingapi.MakeClusterQueue("cq1").
 		ResourceGroup(
-			*utiltesting.MakeFlavorQuotas("default").
+			*utiltestingapi.MakeFlavorQuotas("default").
 				ResourceQuotaWrapper("cpu").NominalQuota("8").LendingLimit("8").Append().
 				ResourceQuotaWrapper("example.com/gpu").NominalQuota("3").LendingLimit("3").Append().
 				Obj(),
 		).Cohort("test-cohort").
 		ClusterQueue
 
-	cq2 := utiltesting.MakeClusterQueue("cq2").
+	cq2 := utiltestingapi.MakeClusterQueue("cq2").
 		ResourceGroup(
-			*utiltesting.MakeFlavorQuotas("default").
+			*utiltestingapi.MakeFlavorQuotas("default").
 				ResourceQuotaWrapper("cpu").NominalQuota("2").LendingLimit("2").Append().
 				Obj(),
 		).Cohort("test-cohort").

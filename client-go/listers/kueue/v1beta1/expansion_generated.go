@@ -29,10 +29,6 @@ type ClusterQueueListerExpansion interface{}
 // CohortLister.
 type CohortListerExpansion interface{}
 
-// CohortNamespaceListerExpansion allows custom methods to be added to
-// CohortNamespaceLister.
-type CohortNamespaceListerExpansion interface{}
-
 // LocalQueueListerExpansion allows custom methods to be added to
 // LocalQueueLister.
 type LocalQueueListerExpansion interface{}
@@ -56,6 +52,10 @@ type ProvisioningRequestConfigListerExpansion interface{}
 // ResourceFlavorListerExpansion allows custom methods to be added to
 // ResourceFlavorLister.
 type ResourceFlavorListerExpansion interface{}
+
+// TopologyListerExpansion allows custom methods to be added to
+// TopologyLister.
+type TopologyListerExpansion interface{}
 
 // WorkloadListerExpansion allows custom methods to be added to
 // WorkloadLister.

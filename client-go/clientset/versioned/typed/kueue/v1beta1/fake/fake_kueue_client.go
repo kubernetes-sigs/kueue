@@ -35,8 +35,8 @@ func (c *FakeKueueV1beta1) ClusterQueues() v1beta1.ClusterQueueInterface {
 	return newFakeClusterQueues(c)
 }
 
-func (c *FakeKueueV1beta1) Cohorts(namespace string) v1beta1.CohortInterface {
-	return newFakeCohorts(c, namespace)
+func (c *FakeKueueV1beta1) Cohorts() v1beta1.CohortInterface {
+	return newFakeCohorts(c)
 }
 
 func (c *FakeKueueV1beta1) LocalQueues(namespace string) v1beta1.LocalQueueInterface {
@@ -57,6 +57,10 @@ func (c *FakeKueueV1beta1) ProvisioningRequestConfigs() v1beta1.ProvisioningRequ
 
 func (c *FakeKueueV1beta1) ResourceFlavors() v1beta1.ResourceFlavorInterface {
 	return newFakeResourceFlavors(c)
+}
+
+func (c *FakeKueueV1beta1) Topologies() v1beta1.TopologyInterface {
+	return newFakeTopologies(c)
 }
 
 func (c *FakeKueueV1beta1) Workloads(namespace string) v1beta1.WorkloadInterface {

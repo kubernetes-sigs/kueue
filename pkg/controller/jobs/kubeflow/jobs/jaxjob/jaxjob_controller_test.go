@@ -26,10 +26,10 @@ import (
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingJAXjob "sigs.k8s.io/kueue/pkg/util/testingjobs/jaxjob"
 )
 
@@ -126,8 +126,9 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 			wantPodSets: func(job *kftraining.JAXJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.JAXJobReplicaTypeWorker)), 1).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.JAXJobReplicaTypeWorker)), 1).
 						PodSpec(job.Spec.JAXReplicaSpecs[kftraining.JAXJobReplicaTypeWorker].Template.Spec).
+						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 						Obj(),
 				}
 			},
@@ -139,16 +140,16 @@ func TestPodSets(t *testing.T) {
 						ReplicaType:  kftraining.JAXJobReplicaTypeWorker,
 						ReplicaCount: 1,
 						Annotations: map[string]string{
-							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 				).
 				Obj(),
 			wantPodSets: func(job *kftraining.JAXJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.JAXJobReplicaTypeWorker)), 1).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.JAXJobReplicaTypeWorker)), 1).
 						PodSpec(job.Spec.JAXReplicaSpecs[kftraining.JAXJobReplicaTypeWorker].Template.Spec).
-						Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+						Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 						PreferredTopologyRequest("cloud.com/block").
 						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 						Obj(),
@@ -164,7 +165,8 @@ func TestPodSets(t *testing.T) {
 			for _, gate := range tc.enableFeatureGates {
 				features.SetFeatureGateDuringTest(t, gate, true)
 			}
-			gotPodSets, err := fromObject(tc.job).PodSets()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotPodSets, err := fromObject(tc.job).PodSets(ctx)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -199,7 +201,7 @@ func TestValidate(t *testing.T) {
 						ReplicaType:  kftraining.JAXJobReplicaTypeWorker,
 						ReplicaCount: 3,
 						Annotations: map[string]string{
-							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 				).
@@ -213,8 +215,8 @@ func TestValidate(t *testing.T) {
 						ReplicaType:  kftraining.JAXJobReplicaTypeWorker,
 						ReplicaCount: 3,
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/rack",
-							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/rack",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 				).
@@ -237,9 +239,9 @@ func TestValidate(t *testing.T) {
 						ReplicaType:  kftraining.JAXJobReplicaTypeWorker,
 						ReplicaCount: 3,
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
-							kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
-							kueuealpha.PodSetSliceSizeAnnotation:             "20",
+							kueue.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
+							kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetSliceSizeAnnotation:             "20",
 						},
 					},
 				).
@@ -260,7 +262,8 @@ func TestValidate(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
 
-			gotValidationErrs, gotErr := fromObject(tc.job).ValidateOnCreate()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotValidationErrs, gotErr := fromObject(tc.job).ValidateOnCreate(ctx)
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("validate create error list mismatch (-want +got):\n%s", diff)
 			}
@@ -268,7 +271,7 @@ func TestValidate(t *testing.T) {
 				t.Errorf("validate create validation errors list mismatch (-want +got):\n%s", diff)
 			}
 
-			gotValidationErrs, gotErr = fromObject(tc.job).ValidateOnUpdate(nil)
+			gotValidationErrs, gotErr = fromObject(tc.job).ValidateOnUpdate(ctx, nil)
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("validate create error list mismatch (-want +got):\n%s", diff)
 			}

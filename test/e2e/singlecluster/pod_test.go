@@ -28,12 +28,13 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	podtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -46,7 +47,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-e2e-")
-		onDemandRF = testing.MakeResourceFlavor("on-demand").NodeLabel("instance-type", "on-demand").Obj()
+		onDemandRF = utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel("instance-type", "on-demand").Obj()
 		util.MustCreate(ctx, k8sClient, onDemandRF)
 	})
 	ginkgo.AfterEach(func() {
@@ -62,16 +63,16 @@ var _ = ginkgo.Describe("Pod groups", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			cq = testing.MakeClusterQueue("cq").
+			cq = utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
-					*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
 				).
 				Preemption(kueue.ClusterQueuePreemption{
 					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 				}).
 				Obj()
 			util.MustCreate(ctx, k8sClient, cq)
-			lq = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			lq = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 			util.MustCreate(ctx, k8sClient, lq)
 		})
 		ginkgo.AfterEach(func() {
@@ -116,7 +117,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					for _, p := range group {
 						var pCopy corev1.Pod
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &pCopy)).To(testing.BeNotFoundError())
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &pCopy)).To(utiltesting.BeNotFoundError())
 					}
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				util.ExpectWorkloadsFinalizedOrGone(ctx, k8sClient, gKey)
@@ -150,7 +151,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					for _, origPod := range group[:2] {
 						var p corev1.Pod
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(testing.BeNotFoundError())
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(utiltesting.BeNotFoundError())
 					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -355,7 +356,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 					var p corev1.Pod
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rep), &p)).To(gomega.Succeed())
 					g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(group[0]), &p)).To(testing.BeNotFoundError())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(group[0]), &p)).To(utiltesting.BeNotFoundError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -394,7 +395,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					for _, p := range group {
 						var pCopy corev1.Pod
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &pCopy)).To(testing.BeNotFoundError())
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &pCopy)).To(utiltesting.BeNotFoundError())
 					}
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				util.ExpectWorkloadsFinalizedOrGone(ctx, k8sClient, gKey)
@@ -412,7 +413,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				eventWatcher.Stop()
 			})
 
-			highPriorityClass := testing.MakePriorityClass("high").PriorityValue(100).Obj()
+			highPriorityClass := utiltesting.MakePriorityClass("high").PriorityValue(100).Obj()
 			util.MustCreate(ctx, k8sClient, highPriorityClass)
 			ginkgo.DeferCleanup(func() {
 				gomega.Expect(k8sClient.Delete(ctx, highPriorityClass)).To(gomega.Succeed())
@@ -504,7 +505,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 					var p corev1.Pod
 					for _, origPod := range defaultPriorityGroup {
 						origKey := client.ObjectKeyFromObject(origPod)
-						g.Expect(k8sClient.Get(ctx, origKey, &p)).To(testing.BeNotFoundError())
+						g.Expect(k8sClient.Get(ctx, origKey, &p)).To(utiltesting.BeNotFoundError())
 					}
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -608,7 +609,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				gomega.Expect(k8sClient.Delete(ctx, &p)).To(gomega.Succeed())
 
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, pKey, &corev1.Pod{})).To(testing.BeNotFoundError())
+					g.Expect(k8sClient.Get(ctx, pKey, &corev1.Pod{})).To(utiltesting.BeNotFoundError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gKey := client.ObjectKey{Namespace: ns.Name, Name: "test-group"}

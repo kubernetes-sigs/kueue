@@ -24,7 +24,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 // JobWrapper wraps a RayJob.
@@ -41,7 +41,7 @@ func MakeJob(name, ns string) *JobWrapper {
 		Spec: rayv1.RayJobSpec{
 			ShutdownAfterJobFinishes: true,
 			RayClusterSpec: &rayv1.RayClusterSpec{
-				RayVersion: testing.TestRayVersion(),
+				RayVersion: utiltesting.TestRayVersion(),
 				HeadGroupSpec: rayv1.HeadGroupSpec{
 					RayStartParams: map[string]string{},
 					Template: corev1.PodTemplateSpec{
@@ -144,6 +144,11 @@ func (j *JobWrapper) ClusterSelector(value map[string]string) *JobWrapper {
 
 func (j *JobWrapper) WithEnableAutoscaling(value *bool) *JobWrapper {
 	j.Spec.RayClusterSpec.EnableInTreeAutoscaling = value
+	return j
+}
+
+func (j *JobWrapper) RayClusterSpec(spec *rayv1.RayClusterSpec) *JobWrapper {
+	j.Spec.RayClusterSpec = spec
 	return j
 }
 

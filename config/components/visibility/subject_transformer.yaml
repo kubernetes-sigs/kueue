@@ -1,0 +1,12 @@
+apiVersion: builtin
+kind: PrefixSuffixTransformer
+metadata:
+  name: add-prefix-to-subject-name
+prefix: kueue-
+fieldSpecs:
+- kind: RoleBinding
+  group: rbac.authorization.k8s.io
+  path: subjects/name
+- kind: RoleBinding
+  group: rbac.authorization.k8s.io
+  path: subjects/namespace

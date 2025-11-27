@@ -14,7 +14,7 @@ This feature is useful for these cases:
 A sample WorkloadPriorityClass looks like the following:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: WorkloadPriorityClass
 metadata:
   name: sample-priority
@@ -47,7 +47,7 @@ a `priorityClassSource` field has the `kueue.x-k8s.io/workloadpriorityclass` val
 When using `PriorityClass`, a `priorityClassSource` field has the `scheduling.k8s.io/priorityclass` value.
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: Workload
 metadata:
   name: job-sample-job-7f173

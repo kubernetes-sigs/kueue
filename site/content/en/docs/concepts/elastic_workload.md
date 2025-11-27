@@ -62,7 +62,9 @@ metadata:
 
 ## Limitations
 
-* Currently available only for `batch/v1.Job` workloads.
+* Currently available only for the following workloads: 
+   * `batch/v1.Job`
+   * `ray.io/v1.RayCluster`
 * Elastic workloads are not supported for jobs with partial admission enabled.
 
     * Attempting to scale jobs with partial admission enabled will result in an admission validation error similar to the following:

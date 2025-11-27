@@ -32,7 +32,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -75,8 +75,8 @@ func init() {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
 // +kubebuilder:rbac:groups=workload.codeflare.dev,resources=appwrappers/finalizers,verbs=get;update
-//+kubebuilder:webhook:path=/mutate-workload-codeflare-dev-v1beta2-appwrapper,mutating=true,failurePolicy=fail,sideEffects=None,groups=workload.codeflare.dev,resources=appwrappers,verbs=create,versions=v1beta2,name=mappwrapper.kb.io,admissionReviewVersions=v1
-//+kubebuilder:webhook:path=/validate-workload-codeflare-dev-v1beta2-appwrapper,mutating=false,failurePolicy=fail,sideEffects=None,groups=workload.codeflare.dev,resources=appwrappers,verbs=create;update,versions=v1beta2,name=vappwrapper.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-workload-codeflare-dev-v1beta2-appwrapper,mutating=true,failurePolicy=fail,sideEffects=None,groups=workload.codeflare.dev,resources=appwrappers,verbs=create,versions=v1beta2,name=mappwrapper.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-workload-codeflare-dev-v1beta2-appwrapper,mutating=false,failurePolicy=fail,sideEffects=None,groups=workload.codeflare.dev,resources=appwrappers,verbs=create;update,versions=v1beta2,name=vappwrapper.kb.io,admissionReviewVersions=v1
 
 func NewJob() jobframework.GenericJob {
 	return &AppWrapper{}
@@ -115,10 +115,11 @@ func (j *AppWrapper) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
-func (j *AppWrapper) PodSets() ([]kueue.PodSet, error) {
+func (j *AppWrapper) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
+	log := ctrl.LoggerFrom(ctx)
 	podSpecTemplates, awPodSets, err := awutils.GetComponentPodSpecs((*awv1beta2.AppWrapper)(j))
 	if err != nil {
-		ctrl.Log.Error(err, "Error returned from awutils.GetComponentPodSpecs", "appwrapper", j)
+		log.Error(err, "Error returned from awutils.GetComponentPodSpecs", "appwrapper", j)
 		return nil, err
 	}
 	podSets := make([]kueue.PodSet, len(podSpecTemplates))
@@ -136,7 +137,7 @@ func (j *AppWrapper) PodSets() ([]kueue.PodSet, error) {
 			if count, err := strconv.Atoi(annotation); err == nil {
 				subGroupCount = ptr.To(int32(count))
 			} else {
-				ctrl.Log.Error(err, "Malformed annotation ignored",
+				log.Error(err, "Malformed annotation ignored",
 					"annotationKey", awutils.PodSetAnnotationTASSubGroupCount,
 					"annotationValue", annotation)
 			}
@@ -159,7 +160,7 @@ func (j *AppWrapper) PodSets() ([]kueue.PodSet, error) {
 	return podSets, nil
 }
 
-func (j *AppWrapper) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
+func (j *AppWrapper) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
 	awPodSetsInfo := make([]awv1beta2.AppWrapperPodSetInfo, len(podSetsInfo))
 	for idx := range podSetsInfo {
 		awPodSetsInfo[idx].Annotations = podSetsInfo[idx].Annotations
@@ -180,7 +181,7 @@ func (j *AppWrapper) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 	return awutils.ClearPodSetInfos((*awv1beta2.AppWrapper)(j))
 }
 
-func (j *AppWrapper) Finished() (message string, success, finished bool) {
+func (j *AppWrapper) Finished(ctx context.Context) (message string, success, finished bool) {
 	switch j.Status.Phase {
 	case awv1beta2.AppWrapperSucceeded:
 		return "AppWrapper finished successfully", true, true
@@ -195,7 +196,7 @@ func (j *AppWrapper) Finished() (message string, success, finished bool) {
 	return "", false, false
 }
 
-func (j *AppWrapper) PodsReady() bool {
+func (j *AppWrapper) PodsReady(ctx context.Context) bool {
 	return meta.IsStatusConditionTrue(j.Status.Conditions, string(awv1beta2.PodsReady))
 }
 

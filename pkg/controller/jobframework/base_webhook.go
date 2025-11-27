@@ -83,7 +83,7 @@ func (w *BaseWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (a
 	log.V(5).Info("Validating create")
 	allErrs := ValidateJobOnCreate(job)
 	if jobWithValidation, ok := job.(JobWithCustomValidation); ok {
-		validationErrs, err := jobWithValidation.ValidateOnCreate()
+		validationErrs, err := jobWithValidation.ValidateOnCreate(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -100,7 +100,7 @@ func (w *BaseWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime
 	log.Info("Validating update")
 	allErrs := ValidateJobOnUpdate(oldJob, newJob, w.Queues.DefaultLocalQueueExist)
 	if jobWithValidation, ok := newJob.(JobWithCustomValidation); ok {
-		validationErrs, err := jobWithValidation.ValidateOnUpdate(oldJob)
+		validationErrs, err := jobWithValidation.ValidateOnUpdate(ctx, oldJob)
 		if err != nil {
 			return nil, err
 		}

@@ -25,7 +25,7 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -61,6 +61,6 @@ var _ = ginkgo.Describe("AppWrapper Webhook", ginkgo.Ordered, func() {
 		appwrapper := testingaw.MakeAppWrapper("aw-with-invalid-queue", ns.Name).Queue("indexed_job").Obj()
 		err := k8sClient.Create(ctx, appwrapper)
 		gomega.Expect(err).Should(gomega.HaveOccurred())
-		gomega.Expect(err).Should(testing.BeForbiddenError())
+		gomega.Expect(err).Should(utiltesting.BeForbiddenError())
 	})
 })

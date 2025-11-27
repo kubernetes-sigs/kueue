@@ -42,7 +42,7 @@ Use [kube-prometheus](https://github.com/prometheus-operator/kube-prometheus)
 if you don't have your own monitoring system.
 
 The webhook server in kueue uses an internal cert management for provisioning certificates. If you want to use
-a third-party one, e.g. [cert-manager](https://github.com/cert-manager/cert-manager), follow the [cert manage guide](/docs/tasks/manage/installation).
+a third-party one, e.g. [cert-manager](https://github.com/cert-manager/cert-manager), follow the [cert manager guide](/docs/tasks/manage/productization/cert_manager).
 
 [feature_gate]: https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/
 
@@ -140,7 +140,7 @@ metadata:
   namespace: kueue-system
 data:
   controller_manager_config.yaml: |
-    apiVersion: config.kueue.x-k8s.io/v1beta1
+    apiVersion: config.kueue.x-k8s.io/v1beta2
     kind: Configuration
     namespace: kueue-system
     health:
@@ -156,7 +156,6 @@ data:
       webhookServiceName: kueue-webhook-service
       webhookSecretName: kueue-webhook-server-cert
     waitForPodsReady:
-      enable: true
       timeout: 10m
     integrations:
       frameworks:
@@ -237,7 +236,25 @@ To install and configure Kueue with [Helm](https://helm.sh/), follow the [instru
 
 Kueue uses a similar mechanism to configure features as described in [Kubernetes Feature Gates](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates).
 
-In order to change the default of a feature, you need to edit the `kueue-controller-manager` deployment within the kueue installation namespace and change the `manager` container arguments to include
+You can edit the `kueue-manager-config` `ConfigMap` and add the feature gate you would like to manage, for example:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+  name: kueue-manager-config
+  namespace: kueue-system
+data:
+  controller_manager_config.yaml: |
+    apiVersion: config.kueue.x-k8s.io/v1beta1
+    kind: Configuration
+    featureGates:
+      ManagedJobsNamespaceSelectorAlwaysRespected: true
+  ...
+```
+
+After changing the `ConfigMap`, you need to restart the `kueue-controller-manager` deployment to have the change enforced, for example using: `kubectl rollout restart deploy kueue-controller-manager -n kueue-system`.
+
+Alternatively, you can edit the `kueue-controller-manager` deployment within the kueue installation namespace and change the `manager` container arguments to include
 
 ```
 --feature-gates=...,<FeatureName>=<true|false>
@@ -268,7 +285,8 @@ spec:
 | `FlavorFungibility`                           | `true`  | Beta  | 0.5   |       |
 | `MultiKueue`                                  | `false` | Alpha | 0.6   | 0.8   |
 | `MultiKueue`                                  | `true`  | Beta  | 0.9   |       |
-| `MultiKueueBatchJobWithManagedBy`             | `false` | Alpha | 0.8   |       |
+| `MultiKueueBatchJobWithManagedBy`             | `false` | Alpha | 0.8   | 0.15  |
+| `MultiKueueBatchJobWithManagedBy`             | `true`  | Beta  | 0.15  |       |
 | `PartialAdmission`                            | `false` | Alpha | 0.4   | 0.4   |
 | `PartialAdmission`                            | `true`  | Beta  | 0.5   |       |
 | `VisibilityOnDemand`                          | `false` | Alpha | 0.6   | 0.8   |
@@ -276,37 +294,49 @@ spec:
 | `PrioritySortingWithinCohort`                 | `true`  | Beta  | 0.6   |       |
 | `LendingLimit`                                | `false` | Alpha | 0.6   | 0.8   |
 | `LendingLimit`                                | `true`  | Beta  | 0.9   |       |
-| `TopologyAwareScheduling`                     | `false` | Alpha | 0.9   |       |
-| `ConfigurableResourceTransformations`         | `false` | Alpha | 0.9   | 0.9   |
-| `ConfigurableResourceTransformations`         | `true`  | Beta  | 0.10  |       |
+| `TopologyAwareScheduling`                     | `false` | Alpha | 0.9   | 0.13  |
+| `TopologyAwareScheduling`                     | `true`  | Beta  | 0.14  |       |
 | `LocalQueueDefaulting`                        | `false` | Alpha | 0.10  | 0.11  |
 | `LocalQueueDefaulting`                        | `true`  | Beta  | 0.12  |       |
 | `LocalQueueMetrics`                           | `false` | Alpha | 0.10  |       |
 | `HierarchicalCohort`                          | `true`  | Beta  | 0.11  |       |
 | `ObjectRetentionPolicies`                     | `false` | Alpha | 0.12  | 0.12  |
 | `ObjectRetentionPolicies`                     | `true`  | Beta  | 0.13  |       |
-| `TASFailedNodeReplacement`                    | `false` | Alpha | 0.12  |       |
+| `TASFailedNodeReplacement`                    | `false` | Alpha | 0.12  | 0.13  |
+| `TASFailedNodeReplacement`                    | `true`  | Beta  | 0.14  |       |
 | `AdmissionFairSharing`                        | `false` | Alpha | 0.12  |       |
-| `TASFailedNodeReplacementFailFast`            | `false` | Alpha | 0.12  |       |
-| `TASReplaceNodeOnPodTermination`              | `false` | Alpha | 0.13  |       |
+| `AdmissionFairSharing`                        | `true`  | Beta  | 0.15  |       |
+| `TASFailedNodeReplacementFailFast`            | `false` | Alpha | 0.12  | 0.13  |
+| `TASFailedNodeReplacementFailFast`            | `true`  | Beta  | 0.14  |       |
+| `TASReplaceNodeOnPodTermination`              | `false` | Alpha | 0.13  | 0.13  |
+| `TASReplaceNodeOnPodTermination`              | `true`  | Beta  | 0.14  |       |
 | `ElasticJobsViaWorkloadSlices`                | `false` | Alpha | 0.13  |       |
-| `ManagedJobsNamespaceSelectorAlwaysRespected` | `false` | Alpha | 0.13  |       |
-| `FlavorFungibilityImplicitPreferenceDefault`  | `false` | Alpha | 0.13  |       |
+| `ManagedJobsNamespaceSelectorAlwaysRespected` | `false` | Alpha | 0.13  | 0.15  |
+| `ManagedJobsNamespaceSelectorAlwaysRespected` | `true`  | Beta  | 0.15  |       |
+| `FlavorFungibilityImplicitPreferenceDefault`  | `false` | Alpha | 0.13  | 0.16  |
+| `WorkloadRequestUseMergePatch`                | `false` | Alpha | 0.14  |       |
+| `SanitizePodSets`                             | `true`  | Beta  | 0.13  |       |
+| `MultiKueueAllowInsecureKubeconfigs`          | `false` | Alpha | 0.13  |       |
+| `ReclaimablePods`                             | `true`  | Beta  | 0.15  |       |
+| `MultiKueueAdaptersForCustomJobs`             | `false` | Alpha | 0.14  | 0.14  |
+| `MultiKueueAdaptersForCustomJobs`             | `true`  | Beta  | 0.15  |       |
+| `PropagateBatchJobLabelsToWorkload`           | `true`  | Beta  | 0.15  |       |
+
+{{% alert title="Note" color="primary" %}}
+The SanitizePodSets and MultiKueueAllowInsecureKubeconfigs features are available starting from versions 0.13.8 and 0.14.3.
+The PropagateBatchJobLabelsToWorkload feature is available starting from versions 0.13.10 and 0.14.5.
+{{% /alert %}}
 
 ### Feature gates for graduated or deprecated features
 
-| Feature                        | Default | Stage      | Since | Until |
-| ------------------------------ | ------- | ---------- | ----- | ----- |
-| `ManagedJobsNamespaceSelector` | `true`  | Beta       | 0.10  | 0.13  |
-| `ManagedJobsNamespaceSelector` | `true`  | GA         | 0.13  |       |
-| `ProvisioningACC`              | `false` | Alpha      | 0.5   | 0.6   |
-| `ProvisioningACC`              | `true`  | Beta       | 0.7   |       |
-| `ProvisioningACC`              | `true`  | GA         | 0.14  |       |
-| `QueueVisibility`              | `false` | Alpha      | 0.5   | 0.9   |
-| `QueueVisibility`              | `false` | Deprecated | 0.9   |       |
-| `TASProfileMostFreeCapacity`   | `false` | Deprecated | 0.11  | 0.13  |
-| `TASProfileLeastFreeCapacity`  | `false` | Deprecated | 0.11  |       |
-| `TASProfileMixed`              | `false` | Deprecated | 0.11  |       |
+| Feature                               | Default | Stage      | Since | Until |
+| ------------------------------------- | ------- | ---------- | ----- | ----- |
+| `ConfigurableResourceTransformations` | `false` | Alpha      | 0.9   | 0.9   |
+| `ConfigurableResourceTransformations` | `true`  | Beta       | 0.10  | 0.13  |
+| `ConfigurableResourceTransformations` | `true`  | GA         | 0.14  |       |
+| `TASProfileMostFreeCapacity`          | `false` | Deprecated | 0.11  | 0.13  |
+| `TASProfileLeastFreeCapacity`         | `false` | Deprecated | 0.11  |       |
+| `TASProfileMixed`                     | `false` | Deprecated | 0.11  |       |
 
 ## What's next
 

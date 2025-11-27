@@ -15,6 +15,7 @@ limitations under the License.
 */
 
 // +kubebuilder:object:generate=true
+// +k8s:conversion-gen=sigs.k8s.io/kueue/apis/kueue/v1beta2
 // +groupName=kueue.x-k8s.io
 
 package v1beta1

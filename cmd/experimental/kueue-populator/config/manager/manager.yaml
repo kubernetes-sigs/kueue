@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kueue-populator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      control-plane: kueue-populator
+  template:
+    metadata:
+      labels:
+        control-plane: kueue-populator
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - args:
+        - "--config=/etc/kueue/controller_manager_config.yaml"
+        - "--zap-log-level=2"
+        imagePullPolicy: IfNotPresent
+        image: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-populator:latest
+        name: manager
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 100m
+            memory: 100Mi
+          requests:
+            cpu: 100m
+            memory: 100Mi
+        volumeMounts:
+        - mountPath: /etc/kueue
+          name: manager-config
+      serviceAccountName: kueue-populator
+      terminationGracePeriodSeconds: 10
+      volumes:
+      - configMap:
+          name: kueue-populator-config
+        name: manager-config

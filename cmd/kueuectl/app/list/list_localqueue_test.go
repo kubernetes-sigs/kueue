@@ -28,37 +28,37 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	testingclock "k8s.io/utils/clock/testing"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
 	cmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 func TestLocalQueueFilter(t *testing.T) {
 	testCases := map[string]struct {
 		options *LocalQueueOptions
-		in      *v1beta1.LocalQueueList
-		out     *v1beta1.LocalQueueList
+		in      *kueue.LocalQueueList
+		out     *kueue.LocalQueueList
 	}{
 		"shouldn't filter": {
 			options: &LocalQueueOptions{},
-			in: &v1beta1.LocalQueueList{
-				Items: []v1beta1.LocalQueue{
+			in: &kueue.LocalQueueList{
+				Items: []kueue.LocalQueue{
 					{
-						Spec: v1beta1.LocalQueueSpec{ClusterQueue: "cq1"},
+						Spec: kueue.LocalQueueSpec{ClusterQueue: "cq1"},
 					},
 					{
-						Spec: v1beta1.LocalQueueSpec{ClusterQueue: "cq2"},
+						Spec: kueue.LocalQueueSpec{ClusterQueue: "cq2"},
 					},
 				},
 			},
-			out: &v1beta1.LocalQueueList{
-				Items: []v1beta1.LocalQueue{
+			out: &kueue.LocalQueueList{
+				Items: []kueue.LocalQueue{
 					{
-						Spec: v1beta1.LocalQueueSpec{ClusterQueue: "cq1"},
+						Spec: kueue.LocalQueueSpec{ClusterQueue: "cq1"},
 					},
 					{
-						Spec: v1beta1.LocalQueueSpec{ClusterQueue: "cq2"},
+						Spec: kueue.LocalQueueSpec{ClusterQueue: "cq2"},
 					},
 				},
 			},
@@ -67,20 +67,20 @@ func TestLocalQueueFilter(t *testing.T) {
 			options: &LocalQueueOptions{
 				ClusterQueueFilter: "cq1",
 			},
-			in: &v1beta1.LocalQueueList{
-				Items: []v1beta1.LocalQueue{
+			in: &kueue.LocalQueueList{
+				Items: []kueue.LocalQueue{
 					{
-						Spec: v1beta1.LocalQueueSpec{ClusterQueue: "cq1"},
+						Spec: kueue.LocalQueueSpec{ClusterQueue: "cq1"},
 					},
 					{
-						Spec: v1beta1.LocalQueueSpec{ClusterQueue: "cq2"},
+						Spec: kueue.LocalQueueSpec{ClusterQueue: "cq2"},
 					},
 				},
 			},
-			out: &v1beta1.LocalQueueList{
-				Items: []v1beta1.LocalQueue{
+			out: &kueue.LocalQueueList{
+				Items: []kueue.LocalQueue{
 					{
-						Spec: v1beta1.LocalQueueSpec{ClusterQueue: "cq1"},
+						Spec: kueue.LocalQueueSpec{ClusterQueue: "cq1"},
 					},
 				},
 			},
@@ -110,13 +110,13 @@ func TestLocalQueueCmd(t *testing.T) {
 		"should print local queue list with namespace filter": {
 			ns: "ns1",
 			objs: []runtime.Object{
-				utiltesting.MakeLocalQueue("lq1", "ns1").
+				utiltestingapi.MakeLocalQueue("lq1", "ns1").
 					ClusterQueue("cq1").
 					PendingWorkloads(1).
 					AdmittedWorkloads(1).
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Obj(),
-				utiltesting.MakeLocalQueue("lq2", "ns2").
+				utiltestingapi.MakeLocalQueue("lq2", "ns2").
 					ClusterQueue("cq2").
 					PendingWorkloads(2).
 					AdmittedWorkloads(2).
@@ -130,13 +130,13 @@ lq1    cq1            1                   1                    60m
 		"should print local queue list with clusterqueue filter": {
 			args: []string{"--clusterqueue", "cq1"},
 			objs: []runtime.Object{
-				utiltesting.MakeLocalQueue("lq1", metav1.NamespaceDefault).
+				utiltestingapi.MakeLocalQueue("lq1", metav1.NamespaceDefault).
 					ClusterQueue("cq1").
 					PendingWorkloads(1).
 					AdmittedWorkloads(1).
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Obj(),
-				utiltesting.MakeLocalQueue("lq2", metav1.NamespaceDefault).
+				utiltestingapi.MakeLocalQueue("lq2", metav1.NamespaceDefault).
 					ClusterQueue("cq2").
 					PendingWorkloads(2).
 					AdmittedWorkloads(2).
@@ -150,14 +150,14 @@ lq1    cq1            1                   1                    60m
 		"should print local queue list with label selector filter": {
 			args: []string{"--selector", "key=value1"},
 			objs: []runtime.Object{
-				utiltesting.MakeLocalQueue("lq1", metav1.NamespaceDefault).
+				utiltestingapi.MakeLocalQueue("lq1", metav1.NamespaceDefault).
 					ClusterQueue("cq1").
 					PendingWorkloads(1).
 					AdmittedWorkloads(1).
 					Label("key", "value1").
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Obj(),
-				utiltesting.MakeLocalQueue("lq2", metav1.NamespaceDefault).
+				utiltestingapi.MakeLocalQueue("lq2", metav1.NamespaceDefault).
 					ClusterQueue("cq2").
 					PendingWorkloads(2).
 					AdmittedWorkloads(2).
@@ -172,14 +172,14 @@ lq1    cq1            1                   1                    60m
 		"should print local queue list with label selector filter (short flag)": {
 			args: []string{"-l", "foo=bar"},
 			objs: []runtime.Object{
-				utiltesting.MakeLocalQueue("lq1", metav1.NamespaceDefault).
+				utiltestingapi.MakeLocalQueue("lq1", metav1.NamespaceDefault).
 					ClusterQueue("cq1").
 					PendingWorkloads(1).
 					AdmittedWorkloads(1).
 					Label("foo", "bar").
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Obj(),
-				utiltesting.MakeLocalQueue("lq2", metav1.NamespaceDefault).
+				utiltestingapi.MakeLocalQueue("lq2", metav1.NamespaceDefault).
 					ClusterQueue("cq2").
 					PendingWorkloads(2).
 					AdmittedWorkloads(2).

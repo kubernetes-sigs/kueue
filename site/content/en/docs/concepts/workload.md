@@ -23,7 +23,7 @@ the decisions and statuses.
 The manifest for a Workload looks like the following:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: Workload
 metadata:
   name: sample-job
@@ -172,7 +172,32 @@ If `maximumExecutionTimeSeconds` is not specified, the workload has no execution
 
 You can configure the `maximumExecutionTimeSeconds` of the Workload associated with any supported Kueue Job by specifying the desired value as `kueue.x-k8s.io/max-exec-time-seconds` label of the job. 
 
+## Workload updates by Kueue
 
+{{< feature-state state="alpha" for_version="v0.14" >}}
+
+{{% alert title="Note" color="primary" %}}
+`WorkloadRequestUseMergePatch` is currently an alpha feature and is disabled by default.
+
+You can enable it by editing the `WorkloadRequestUseMergePatch` feature gate. Refer to the
+[Installation guide](/docs/installation/#change-the-feature-gates-configuration)
+for instructions on configuring feature gates.
+{{% /alert %}}
+
+
+By default Workload status updates are performed by Kueue using the [Server-Side Apply (SSA)](https://kubernetes.io/docs/reference/using-api/server-side-apply/). 
+
+However due to the limitations of SSA ([missing support for duplicated key/value pairs](https://github.com/kubernetes/kubernetes/issues/113482)) we also offer to enable updating the Workload status
+with Merge Patches, by enabling the `WorkloadRequestUseMergePatch` feature gate. 
+
+In particular, this allows users of Kueue to handle the following two issues:
+- [Add option to disable strict pod spec validation](https://github.com/kubernetes-sigs/kueue/issues/3540) 
+Switching from ServerSideApply to Merge Patch allows partial updates without requiring the entire resource specification.
+This can bypass the strict validation rules causing issues with duplicated environment variables, aligning Kueue's behavior more closely with plain Kubernetes
+- [MultiKueue: remove the limitation that the external dispatches need to use kueue-admission field manager ](https://github.com/kubernetes-sigs/kueue/issues/6185)
+Using ServerSideApply blocked the ability for Workload Status to be modified from external controllers.
+Once the field e.g. `.status.nominatedClusterNames` was modified and owned by the controller (regardless if Kueue or external one) it can not be modified or cleared by the other.
+This effectively prevent External Dispatching mechanism to work properly in multi cluster enviroment.
 
 ## What's next
 

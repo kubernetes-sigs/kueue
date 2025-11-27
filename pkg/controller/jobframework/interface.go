@@ -29,7 +29,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
@@ -46,20 +46,20 @@ type GenericJob interface {
 	// Suspend will suspend the job.
 	Suspend()
 	// RunWithPodSetsInfo will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
-	RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error
+	RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error
 	// RestorePodSetsInfo will restore the original node affinity and podSet counts of the job.
 	// Returns whether any change was done.
 	RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool
 	// Finished means whether the job is completed/failed or not,
 	// condition represents the workload finished condition.
 	// Observed generation of the workload is set by the jobframework.
-	Finished() (message string, success, finished bool)
+	Finished(ctx context.Context) (message string, success, finished bool)
 	// PodSets will build workload podSets corresponding to the job.
-	PodSets() ([]kueue.PodSet, error)
+	PodSets(ctx context.Context) ([]kueue.PodSet, error)
 	// IsActive returns true if there are any running pods.
 	IsActive() bool
 	// PodsReady instructs whether job derived pods are all ready now.
-	PodsReady() bool
+	PodsReady(ctx context.Context) bool
 	// GVK returns GVK (Group Version Kind) for the job.
 	GVK() schema.GroupVersionKind
 }
@@ -74,7 +74,7 @@ type JobWithPodLabelSelector interface {
 
 type JobWithReclaimablePods interface {
 	// ReclaimablePods returns the list of reclaimable pods.
-	ReclaimablePods() ([]kueue.ReclaimablePod, error)
+	ReclaimablePods(ctx context.Context) ([]kueue.ReclaimablePod, error)
 }
 
 type StopReason string
@@ -102,7 +102,7 @@ type JobWithFinalize interface {
 // JobWithSkip interface should be implemented by generic jobs,
 // when reconciliation should be skipped depending on the job's state
 type JobWithSkip interface {
-	Skip() bool
+	Skip(ctx context.Context) bool
 }
 
 type JobWithPriorityClass interface {
@@ -114,9 +114,9 @@ type JobWithPriorityClass interface {
 // for Jobs that use BaseWebhook.
 type JobWithCustomValidation interface {
 	// ValidateOnCreate returns list of webhook create validation errors.
-	ValidateOnCreate() (field.ErrorList, error)
+	ValidateOnCreate(ctx context.Context) (field.ErrorList, error)
 	// ValidateOnUpdate returns list of webhook update validation errors.
-	ValidateOnUpdate(oldJob GenericJob) (field.ErrorList, error)
+	ValidateOnUpdate(ctx context.Context, oldJob GenericJob) (field.ErrorList, error)
 }
 
 // ComposableJob interface should be implemented by generic jobs that
@@ -153,6 +153,12 @@ type JobWithCustomWorkloadConditions interface {
 	CustomWorkloadConditions(wl *kueue.Workload) ([]metav1.Condition, bool)
 }
 
+// JobWithCustomWorkloadActivation interface should be implemented by generic jobs,
+// when custom logic is needed to determine if the workload is active.
+type JobWithCustomWorkloadActivation interface {
+	IsWorkloadActive() bool
+}
+
 // JobWithManagedBy interface should be implemented by generic jobs
 // that implement the managedBy protocol for Multi-Kueue
 type JobWithManagedBy interface {
@@ -177,11 +183,7 @@ func QueueName(job GenericJob) kueue.LocalQueueName {
 }
 
 func QueueNameForObject(object client.Object) kueue.LocalQueueName {
-	if queueLabel := object.GetLabels()[constants.QueueLabel]; queueLabel != "" {
-		return kueue.LocalQueueName(queueLabel)
-	}
-	// fallback to the annotation (deprecated)
-	return kueue.LocalQueueName(object.GetAnnotations()[constants.QueueAnnotation])
+	return kueue.LocalQueueName(object.GetLabels()[constants.QueueLabel])
 }
 
 func MaximumExecutionTimeSeconds(job GenericJob) *int32 {

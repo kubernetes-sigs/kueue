@@ -19,6 +19,7 @@
     - [Unit Tests](#unit-tests)
     - [Integration tests](#integration-tests)
   - [Graduation Criteria](#graduation-criteria)
+    - [GA](#ga)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
@@ -566,9 +567,15 @@ the transformations, so if a resource both matches an exclusion prefix and is an
 to a transformation the transformation will never apply.  This could be detected when validating
 the configuration and reported as a configuration error.
 
+#### GA
+
+* Address all reported bugs
+* Feature gate locked as enabled by default
+
 ## Implementation History
 
 2024-09-30: KEP Merged
+2025-09-08: Promoted to GA.
 
 ## Drawbacks
 

@@ -26,7 +26,10 @@ milestone:
 # List the feature gate name and the components for which it must be enabled
 feature-gates:
   - FlavorFungibility
-  - FlavorFungibilityImplicitPreferenceDefault
+  # FlavorFungibilityImplicitPreferenceDefault is a deprecated gate that keeps the
+  # implicit borrow-vs-preempt ordering until v0.16 when it will be removed in
+  # favor of configuring spec.flavorFungibility.preference per ClusterQueue.
+  # See https://github.com/kubernetes-sigs/kueue/issues/6184 and PR #6133.
 disable-supported: true
 
 # The following PRR answers are required at beta release

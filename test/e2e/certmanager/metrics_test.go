@@ -26,8 +26,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -43,7 +44,7 @@ const (
 var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 	var (
 		ns             *corev1.Namespace
-		resourceFlavor *v1beta1.ResourceFlavor
+		resourceFlavor *kueue.ResourceFlavor
 
 		metricsReaderClusterRoleBinding *rbacv1.ClusterRoleBinding
 
@@ -54,7 +55,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-metrics-")
 
-		resourceFlavor = utiltesting.MakeResourceFlavor("test-flavor").Obj()
+		resourceFlavor = utiltestingapi.MakeResourceFlavor("test-flavor").Obj()
 		util.MustCreate(ctx, k8sClient, resourceFlavor)
 
 		metricsReaderClusterRoleBinding = &rbacv1.ClusterRoleBinding{
@@ -128,16 +129,16 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 
 	ginkgo.When("workload is admitted", func() {
 		var (
-			clusterQueue *v1beta1.ClusterQueue
-			localQueue   *v1beta1.LocalQueue
-			workload     *v1beta1.Workload
+			clusterQueue *kueue.ClusterQueue
+			localQueue   *kueue.LocalQueue
+			workload     *kueue.Workload
 		)
 
 		ginkgo.BeforeEach(func() {
-			clusterQueue = utiltesting.MakeClusterQueue("").
+			clusterQueue = utiltestingapi.MakeClusterQueue("").
 				GeneratedName("test-cq-").
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas(resourceFlavor.Name).
+					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
 						Resource(corev1.ResourceCPU, "1").
 						Resource(corev1.ResourceMemory, "1Gi").
 						Obj(),
@@ -145,16 +146,16 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 
-			localQueue = utiltesting.MakeLocalQueue("", ns.Name).
+			localQueue = utiltestingapi.MakeLocalQueue("", ns.Name).
 				GeneratedName("test-lq-").
 				ClusterQueue(clusterQueue.Name).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
 
-			workload = utiltesting.MakeWorkload("test-workload", ns.Name).
-				Queue(v1beta1.LocalQueueName(localQueue.Name)).
+			workload = utiltestingapi.MakeWorkload("test-workload", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
 				PodSets(
-					*utiltesting.MakePodSet("ps1", 1).Obj(),
+					*utiltestingapi.MakePodSet("ps1", 1).Obj(),
 				).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				Obj()
