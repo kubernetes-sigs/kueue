@@ -419,6 +419,7 @@ prepare-release-branch: yq kustomize ## Prepare the release branch with the rele
 	$(YQ) e '.appVersion = "$(RELEASE_VERSION)" | .version = "$(APP_VERSION)" | .dependencies[0].version = "~$(APP_VERSION)"' -i cmd/experimental/kueue-populator/charts/kueue-populator/Chart.yaml
 	$(YQ) e '.kueuePopulator.image.tag = "$(RELEASE_BRANCH)"' -i cmd/experimental/kueue-populator/charts/kueue-populator/values.yaml
 	$(SED) -r 's|oci://us-central1-docker.pkg.dev/k8s-staging-images/kueue/charts/kueue-populator|oci://registry.k8s.io/kueue/charts/kueue-populator|g' -i cmd/experimental/kueue-populator/README.md -i cmd/experimental/kueue-populator/charts/kueue-populator/README.md
+	$(SED) -r 's|us-central1-docker.pkg.dev/k8s-staging-images/kueue|registry.k8s.io/kueue|g' -i cmd/experimental/kueue-populator/charts/kueue-populator/values.yaml
 	$(SED) -r 's/<VERSION>/$(APP_VERSION)/g' -i cmd/experimental/kueue-populator/README.md -i cmd/experimental/kueue-populator/charts/kueue-populator/README.md
 	$(MAKE) generate-helm-docs
 
