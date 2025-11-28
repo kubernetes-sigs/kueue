@@ -113,12 +113,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		util.MustCreate(ctx, k8sManagerClient, multiKueueAc)
 
 		ginkgo.By("wait for check active", func() {
-			updatedAc := kueue.AdmissionCheck{}
-			acKey := client.ObjectKeyFromObject(multiKueueAc)
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sManagerClient.Get(ctx, acKey, &updatedAc)).To(gomega.Succeed())
-				g.Expect(updatedAc.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.AdmissionCheckActive))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectAdmissionChecksToBeActive(ctx, k8sManagerClient, multiKueueAc)
 		})
 		managerFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		util.MustCreate(ctx, k8sManagerClient, managerFlavor)
