@@ -17,8 +17,31 @@ limitations under the License.
 package handlers
 
 import (
+	"context"
+
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlmanager "sigs.k8s.io/controller-runtime/pkg/manager"
 )
+
+type Client interface {
+	ctrlclient.Reader
+
+	GetInformerForKind(ctx context.Context, gvk schema.GroupVersionKind, opts ...cache.InformerGetOption) (cache.Informer, error)
+}
+
+type client struct {
+	ctrlclient.Reader
+	cache.Informers
+}
+
+func NewClientFromManager(manager ctrlmanager.Manager) Client {
+	return &client{
+		Reader:    manager.GetClient(),
+		Informers: manager.GetCache(),
+	}
+}
 
 // ClusterQueuesGVR defines the GroupVersionResource for ClusterQueues
 func ClusterQueuesGVR() schema.GroupVersionResource {

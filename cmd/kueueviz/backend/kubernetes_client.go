@@ -17,18 +17,33 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 
+	corev1 "k8s.io/api/core/v1"
+	schedulingv1 "k8s.io/api/scheduling/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/kubernetes"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+
+	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+)
+
+var (
+	scheme = runtime.NewScheme()
 )
 
 // createK8sClient initializes Kubernetes clients, checking for in-cluster or local kubeconfig
-func createK8sClient() (*kubernetes.Clientset, dynamic.Interface, error) {
+func createK8sClient(ctx context.Context) (dynamic.Interface, manager.Manager, error) {
 	var config *rest.Config
 	var err error
 
@@ -53,17 +68,35 @@ func createK8sClient() (*kubernetes.Clientset, dynamic.Interface, error) {
 		fmt.Printf("Using kubeconfig: %s\n", kubeconfig)
 	}
 
-	// Create the Kubernetes clientset
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create Kubernetes clientset: %v", err)
-	}
-
 	// Create the dynamic client
 	dynamicClient, err := dynamic.NewForConfig(config)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create dynamic client: %v", err)
 	}
 
-	return clientset, dynamicClient, nil
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(schedulingv1.AddToScheme(scheme))
+	utilruntime.Must(corev1.AddToScheme(scheme))
+	utilruntime.Must(kueueapi.AddToScheme(scheme))
+
+	opts := ctrl.Options{
+		Scheme:  scheme,
+		Metrics: metricsserver.Options{BindAddress: "0"}, // Disable metrics serving
+	}
+
+	mngr, err := ctrl.NewManager(config, opts)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create controller-runtime manager: %v", err)
+	}
+
+	err = mngr.GetFieldIndexer().IndexField(ctx, &corev1.Event{}, "involvedObject.name", func(object client.Object) []string {
+		event, _ := object.(*corev1.Event)
+		return []string{event.InvolvedObject.Name}
+	})
+
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to index events by involvedObject.name: %v", err)
+	}
+
+	return dynamicClient, mngr, nil
 }
