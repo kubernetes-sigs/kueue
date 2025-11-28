@@ -84,16 +84,11 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 						Obj(),
 				).
 				Obj()
-			util.MustCreate(ctx, k8sClient, clusterQueue)
-			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 			localQueueA = utiltestingapi.MakeLocalQueue("a", nsA.Name).ClusterQueue(clusterQueue.Name).Obj()
-			util.MustCreate(ctx, k8sClient, localQueueA)
-			util.ExpectLocalQueuesToBeActive(ctx, k8sClient, localQueueA)
-
 			localQueueB = utiltestingapi.MakeLocalQueue("b", nsA.Name).ClusterQueue(clusterQueue.Name).Obj()
-			util.MustCreate(ctx, k8sClient, localQueueB)
-			util.ExpectLocalQueuesToBeActive(ctx, k8sClient, localQueueB)
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueueA, localQueueB)
 
 			highPriorityClass = utiltesting.MakePriorityClass("high").PriorityValue(100).Obj()
 			util.MustCreate(ctx, k8sClient, highPriorityClass)
@@ -443,8 +438,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 		ginkgo.It("Should allow fetching information about position of pending workloads from different LocalQueues from different Namespaces", func() {
 			ginkgo.By("Create a LocalQueue in a different Namespace", func() {
 				localQueueB = utiltestingapi.MakeLocalQueue("b", nsB.Name).ClusterQueue(clusterQueue.Name).Obj()
-				util.MustCreate(ctx, k8sClient, localQueueB)
-				util.ExpectLocalQueuesToBeActive(ctx, k8sClient, localQueueB)
+				util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueueB)
 			})
 
 			ginkgo.By("Schedule three different jobs with different priorities and different LocalQueues in different Namespaces", func() {
