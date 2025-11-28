@@ -116,13 +116,13 @@ var _ = ginkgo.Describe("Metrics", func() {
 						Obj(),
 				).
 				Obj()
-			util.MustCreate(ctx, k8sClient, clusterQueue)
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 			localQueue = utiltestingapi.MakeLocalQueue("", ns.Name).
 				GeneratedName("test-lq-").
 				ClusterQueue(clusterQueue.Name).
 				Obj()
-			util.MustCreate(ctx, k8sClient, localQueue)
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 
 			workload = utiltestingapi.MakeWorkload("test-workload", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
@@ -251,13 +251,13 @@ var _ = ginkgo.Describe("Metrics", func() {
 				).
 				AdmissionChecks(kueue.AdmissionCheckReference(admissionCheck.Name)).
 				Obj()
-			util.MustCreate(ctx, k8sClient, clusterQueue)
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 			localQueue = utiltestingapi.MakeLocalQueue("", ns.Name).
 				GeneratedName("test-admission-checked-lq-").
 				ClusterQueue(clusterQueue.Name).
 				Obj()
-			util.MustCreate(ctx, k8sClient, localQueue)
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 
 			createdJob = testingjob.MakeJob("admission-checked-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
@@ -361,8 +361,6 @@ var _ = ginkgo.Describe("Metrics", func() {
 					},
 				}).
 				Obj()
-			util.MustCreate(ctx, k8sClient, clusterQueue1)
-
 			clusterQueue2 = utiltestingapi.MakeClusterQueue("").
 				GeneratedName("test-cq-2-").
 				Cohort("test-cohort").
@@ -379,19 +377,17 @@ var _ = ginkgo.Describe("Metrics", func() {
 					},
 				}).
 				Obj()
-			util.MustCreate(ctx, k8sClient, clusterQueue2)
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue1, clusterQueue2)
 
 			localQueue1 = utiltestingapi.MakeLocalQueue("", ns.Name).
 				GeneratedName("test-lq-1-").
 				ClusterQueue(clusterQueue1.Name).
 				Obj()
-			util.MustCreate(ctx, k8sClient, localQueue1)
-
 			localQueue2 = utiltestingapi.MakeLocalQueue("", ns.Name).
 				GeneratedName("test-lq-2-").
 				ClusterQueue(clusterQueue2.Name).
 				Obj()
-			util.MustCreate(ctx, k8sClient, localQueue2)
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue1, localQueue2)
 
 			highPriorityClass = utiltesting.MakePriorityClass("high").PriorityValue(100).Obj()
 			util.MustCreate(ctx, k8sClient, highPriorityClass)

@@ -71,11 +71,10 @@ var _ = ginkgo.Describe("Pod groups", func() {
 					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 				}).
 				Obj()
-			util.MustCreate(ctx, k8sClient, cq)
-			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
 			lq = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
-			util.MustCreate(ctx, k8sClient, lq)
-			util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteAllPodsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
