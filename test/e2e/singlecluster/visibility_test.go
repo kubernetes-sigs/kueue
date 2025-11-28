@@ -89,9 +89,11 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 
 			localQueueA = utiltestingapi.MakeLocalQueue("a", nsA.Name).ClusterQueue(clusterQueue.Name).Obj()
 			util.MustCreate(ctx, k8sClient, localQueueA)
+			util.ExpectLocalQueuesToBeActive(ctx, k8sClient, localQueueA)
 
 			localQueueB = utiltestingapi.MakeLocalQueue("b", nsA.Name).ClusterQueue(clusterQueue.Name).Obj()
 			util.MustCreate(ctx, k8sClient, localQueueB)
+			util.ExpectLocalQueuesToBeActive(ctx, k8sClient, localQueueB)
 
 			highPriorityClass = testing.MakePriorityClass("high").PriorityValue(100).Obj()
 			util.MustCreate(ctx, k8sClient, highPriorityClass)
@@ -137,9 +139,11 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 
 		ginkgo.It("Should allow fetching information about pending workloads in ClusterQueue", func() {
 			ginkgo.By("Verify there are zero pending workloads", func() {
-				info, err := visibilityClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, clusterQueue.Name, metav1.GetOptions{})
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				gomega.Expect(info.Items).Should(gomega.BeEmpty())
+				gomega.Eventually(func(g gomega.Gomega) {
+					info, err := visibilityClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, clusterQueue.Name, metav1.GetOptions{})
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(info.Items).Should(gomega.BeEmpty())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Schedule a job which is pending due to lower priority", func() {
@@ -258,9 +262,11 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 
 		ginkgo.It("Should allow fetching information about pending workloads in LocalQueue", func() {
 			ginkgo.By("Verify there are zero pending workloads", func() {
-				info, err := visibilityClient.LocalQueues(nsA.Name).GetPendingWorkloadsSummary(ctx, localQueueA.Name, metav1.GetOptions{})
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				gomega.Expect(info.Items).Should(gomega.BeEmpty())
+				gomega.Eventually(func(g gomega.Gomega) {
+					info, err := visibilityClient.LocalQueues(nsA.Name).GetPendingWorkloadsSummary(ctx, localQueueA.Name, metav1.GetOptions{})
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(info.Items).Should(gomega.BeEmpty())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Schedule a job which is pending due to lower priority", func() {
@@ -390,6 +396,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 			ginkgo.By("Create a LocalQueue in a different Namespace", func() {
 				localQueueB = utiltestingapi.MakeLocalQueue("b", nsB.Name).ClusterQueue(clusterQueue.Name).Obj()
 				util.MustCreate(ctx, k8sClient, localQueueB)
+				util.ExpectLocalQueuesToBeActive(ctx, k8sClient, localQueueB)
 			})
 
 			ginkgo.By("Schedule three different jobs with different priorities and different LocalQueues in different Namespaces", func() {
