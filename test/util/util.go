@@ -1062,11 +1062,21 @@ func ExpectAdmissionChecksToBeActive(ctx context.Context, c client.Client, acs .
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
-func ExpectJobUnsuspendedWithNodeSelectors(ctx context.Context, c client.Client, key types.NamespacedName, nodeSelector map[string]string) {
+func ExpectJobUnsuspended(ctx context.Context, c client.Client, key types.NamespacedName) {
+	ginkgo.GinkgoHelper()
 	job := &batchv1.Job{}
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(c.Get(ctx, key, job)).To(gomega.Succeed())
 		g.Expect(job.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func ExpectJobUnsuspendedWithNodeSelectors(ctx context.Context, c client.Client, key types.NamespacedName, nodeSelector map[string]string) {
+	ginkgo.GinkgoHelper()
+	ExpectJobUnsuspended(ctx, c, key)
+	job := &batchv1.Job{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(c.Get(ctx, key, job)).To(gomega.Succeed())
 		g.Expect(job.Spec.Template.Spec.NodeSelector).Should(gomega.Equal(nodeSelector))
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
@@ -1328,4 +1338,28 @@ func ExpectNewWorkloadSlice(ctx context.Context, k8sClient client.Client, oldWor
 		}
 	}, Timeout, Interval).Should(gomega.Succeed())
 	return newWorkload
+}
+
+func ExpectJobToBeRunning(ctx context.Context, c client.Client, job *batchv1.Job) {
+	ginkgo.GinkgoHelper()
+	createdJob := &batchv1.Job{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
+		g.Expect(createdJob.Status.StartTime).NotTo(gomega.BeNil())
+		g.Expect(createdJob.Status.CompletionTime).To(gomega.BeNil())
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func ExpectJobToBeCompleted(ctx context.Context, c client.Client, job *batchv1.Job) {
+	ginkgo.GinkgoHelper()
+	createdJob := &batchv1.Job{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
+		g.Expect(createdJob.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
+			batchv1.JobCondition{
+				Type:   batchv1.JobComplete,
+				Status: corev1.ConditionTrue,
+			},
+			cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime", "Reason", "Message"))))
+	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
