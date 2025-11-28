@@ -183,6 +183,16 @@ toc-update: mdtoc
 toc-verify: mdtoc
 	./hack/verify-toc.sh
 
+##@ Documentation
+
+.PHONY: featuregates-update
+featuregates-update: ## Regenerate feature-gate YAML and site data.
+	$(PROJECT_DIR)/hack/update-featuregates.sh
+
+.PHONY: featuregates-verify
+featuregates-verify: ## Ensure feature-gate YAML and docs are in sync.
+	$(PROJECT_DIR)/hack/verify-featuregates.sh
+
 .PHONY: helm-lint
 helm-lint: helm ## Run Helm chart lint test.
 	${HELM} lint charts/kueue
@@ -262,7 +272,7 @@ sync-hugo-version:
 
 PATHS_TO_VERIFY := config/components apis charts/kueue client-go site/ netlify.toml
 .PHONY: verify
-verify: gomod-verify ci-lint lint-api fmt-verify shell-lint toc-verify manifests generate update-helm helm-verify helm-unit-test prepare-release-branch sync-hugo-version npm-depcheck
+verify: gomod-verify ci-lint lint-api fmt-verify shell-lint toc-verify featuregates-verify manifests generate update-helm helm-verify helm-unit-test prepare-release-branch sync-hugo-version npm-depcheck
 	git --no-pager diff --exit-code $(PATHS_TO_VERIFY)
 	if git ls-files --exclude-standard --others $(PATHS_TO_VERIFY) | grep -q . ; then exit 1; fi
 

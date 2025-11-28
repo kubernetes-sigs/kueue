@@ -41,6 +41,12 @@ const (
 	// Enables flavor fungibility.
 	FlavorFungibility featuregate.Feature = "FlavorFungibility"
 
+	// owner: @trasc
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/1136-provisioning-request-support
+	//
+	// Enables Provisioning Admission Check Controller.
+	ProvisioningACC featuregate.Feature = "ProvisioningACC"
+
 	// owner: @pbundyra
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/168-2-pending-workloads-visibility
 	//
@@ -95,6 +101,12 @@ const (
 	//
 	// Enable to set default LocalQueue.
 	LocalQueueDefaulting featuregate.Feature = "LocalQueueDefaulting"
+
+	// owner: @pbundyra
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	//
+	// Enable to set use MostFreeCapacity algorithm for TAS
+	TASProfileMostFreeCapacity featuregate.Feature = "TASProfileMostFreeCapacity"
 
 	// owner: @pbundyra
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
@@ -228,6 +240,12 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/6757
 	// Enabled failure recovery of pods stuck in terminating state.
 	FailureRecoveryPolicy featuregate.Feature = "FailureRecoveryPolicy"
+
+	// owner: @dgrove-oss
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/3589-manage-jobs-selectively
+	//
+	// Enable namespace-based control of manageJobsWithoutQueueNames for all Job integrations
+	ManagedJobsNamespaceSelector featuregate.Feature = "ManagedJobsNamespaceSelector"
 )
 
 func init() {
@@ -245,7 +263,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.4"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.5"), Default: true, PreRelease: featuregate.Beta},
 	},
-
 	FlavorFungibility: {
 		{Version: version.MustParse("0.5"), Default: true, PreRelease: featuregate.Beta},
 	},
@@ -288,6 +305,14 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.11"), Default: false, PreRelease: featuregate.Deprecated},
 	},
+	// Missing, but present on the website:
+	// TASProfileMostFreeCapacity	false	Deprecated	0.11	0.13
+	TASProfileMostFreeCapacity: {
+		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.11"), Default: false, PreRelease: featuregate.Deprecated},
+	},
+
+	// On the website: TASProfileMixed	false	Deprecated	0.11
 	TASProfileMixed: {
 		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
@@ -311,6 +336,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	TASFailedNodeReplacementFailFast: {
+		// On the website: TASFailedNodeReplacementFailFast	false	Alpha	0.12	0.13
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.Beta},
 	},
@@ -318,10 +344,28 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.Beta},
 	},
+	// Missing, but present on the website:
+	// ManagedJobsNamespaceSelector	true	Beta	0.10	0.13
+	// ManagedJobsNamespaceSelector	true	GA	0.13
+	ManagedJobsNamespaceSelector: {
+		{Version: version.MustParse("0.10"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.13"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.16
+	},
+
 	ManagedJobsNamespaceSelectorAlwaysRespected: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
+	// Missing, but present on the website:
+	// ProvisioningACC	false	Alpha	0.5	0.6
+	// ProvisioningACC	true	Beta	0.7
+	// ProvisioningACC	true	GA	0.14
+	ProvisioningACC: {
+		{Version: version.MustParse("0.5"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.7"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.GA},
+	},
+
 	FlavorFungibilityImplicitPreferenceDefault: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Deprecated}, // remove in 0.16
@@ -342,6 +386,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	SanitizePodSets: {
 		{Version: version.MustParse("0.13"), Default: true, PreRelease: featuregate.Beta},
 	},
+	// On the website: MultiKueueAllowInsecureKubeconfigs	false	Alpha	0.13
 	MultiKueueAllowInsecureKubeconfigs: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
@@ -349,6 +394,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
 	// PropagateBatchJobLabelsToWorkload is anabled from 0.13.10 and 0.14.5.
+	// why not 0.13
 	PropagateBatchJobLabelsToWorkload: {
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
