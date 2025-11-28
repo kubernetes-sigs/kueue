@@ -132,10 +132,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			).
 			AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAc.Name)).
 			Obj()
-		util.MustCreate(ctx, k8sManagerClient, managerCq)
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sManagerClient, managerCq)
 
 		managerLq = utiltestingapi.MakeLocalQueue(managerCq.Name, managerNs.Name).ClusterQueue(managerCq.Name).Obj()
-		util.MustCreate(ctx, k8sManagerClient, managerLq)
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sManagerClient, managerLq)
 
 		worker1Flavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		util.MustCreate(ctx, k8sWorker1Client, worker1Flavor)
@@ -148,10 +148,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					Obj(),
 			).
 			Obj()
-		util.MustCreate(ctx, k8sWorker1Client, worker1Cq)
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sWorker1Client, worker1Cq)
 
 		worker1Lq = utiltestingapi.MakeLocalQueue(worker1Cq.Name, worker1Ns.Name).ClusterQueue(worker1Cq.Name).Obj()
-		util.MustCreate(ctx, k8sWorker1Client, worker1Lq)
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sWorker1Client, worker1Lq)
 
 		worker2Flavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		util.MustCreate(ctx, k8sWorker2Client, worker2Flavor)
@@ -164,10 +164,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					Obj(),
 			).
 			Obj()
-		util.MustCreate(ctx, k8sWorker2Client, worker2Cq)
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sWorker2Client, worker2Cq)
 
 		worker2Lq = utiltestingapi.MakeLocalQueue(worker2Cq.Name, worker2Ns.Name).ClusterQueue(worker2Cq.Name).Obj()
-		util.MustCreate(ctx, k8sWorker2Client, worker2Lq)
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sWorker2Client, worker2Lq)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -984,7 +984,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Obj(),
 				).
 				Obj()
-			util.MustCreate(ctx, k8sWorker1Client, worker1Cq2)
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sWorker1Client, worker1Cq2)
 
 			worker1Container := fmt.Sprintf("%s-control-plane", worker1ClusterName)
 			worker1ClusterKey := client.ObjectKeyFromObject(workerCluster1)
