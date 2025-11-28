@@ -60,10 +60,10 @@ var _ = ginkgo.Describe("Kuberay", func() {
 				*utiltestingapi.MakeFlavorQuotas(rf.Name).
 					Resource(corev1.ResourceCPU, "1").Obj()).
 			Obj()
-		gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 
 		lq = utiltestingapi.MakeLocalQueue(localQueueName, ns.Name).ClusterQueue(cq.Name).Obj()
-		gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())

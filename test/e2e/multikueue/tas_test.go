@@ -121,10 +121,10 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 			).
 			AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAc.Name)).
 			Obj()
-		util.MustCreate(ctx, k8sManagerClient, managerCq)
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sManagerClient, managerCq)
 
 		managerLq = utiltestingapi.MakeLocalQueue(managerCq.Name, managerNs.Name).ClusterQueue(managerCq.Name).Obj()
-		util.MustCreate(ctx, k8sManagerClient, managerLq)
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sManagerClient, managerLq)
 
 		worker1Topology = utiltestingapi.MakeTopology("default").Levels(corev1.LabelHostname).Obj()
 		util.MustCreate(ctx, k8sWorker1Client, worker1Topology)
@@ -143,10 +143,10 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 					Obj(),
 			).
 			Obj()
-		util.MustCreate(ctx, k8sWorker1Client, worker1Cq)
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sWorker1Client, worker1Cq)
 
 		worker1Lq = utiltestingapi.MakeLocalQueue(worker1Cq.Name, worker1Ns.Name).ClusterQueue(worker1Cq.Name).Obj()
-		util.MustCreate(ctx, k8sWorker1Client, worker1Lq)
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sWorker1Client, worker1Lq)
 
 		worker2Topology = utiltestingapi.MakeTopology("default").Levels(corev1.LabelHostname).Obj()
 		util.MustCreate(ctx, k8sWorker2Client, worker2Topology)
@@ -165,10 +165,10 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 					Obj(),
 			).
 			Obj()
-		util.MustCreate(ctx, k8sWorker2Client, worker2Cq)
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sWorker2Client, worker2Cq)
 
 		worker2Lq = utiltestingapi.MakeLocalQueue(worker2Cq.Name, worker2Ns.Name).ClusterQueue(worker2Cq.Name).Obj()
-		util.MustCreate(ctx, k8sWorker2Client, worker2Lq)
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sWorker2Client, worker2Lq)
 	})
 
 	ginkgo.AfterEach(func() {

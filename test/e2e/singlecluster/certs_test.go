@@ -28,7 +28,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -59,16 +58,10 @@ var _ = ginkgo.Describe("Kueue Certs", func() {
 					Obj(),
 			).
 			Obj()
-		util.MustCreate(ctx, k8sClient, clusterQueue)
-		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 		localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
-		util.MustCreate(ctx, k8sClient, localQueue)
-		gomega.Eventually(func(g gomega.Gomega) {
-			// await for the LQ to be active using LongTimeout
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), localQueue)).To(gomega.Succeed())
-			g.Expect(localQueue.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.LocalQueueActive))
-		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 	})
 
 	ginkgo.AfterEach(func() {

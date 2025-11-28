@@ -66,9 +66,10 @@ var _ = ginkgo.Describe("Auto-Enablement of Pod Integration for Pod-Dependent Fr
 				*utiltestingapi.MakeFlavorQuotas(defaultRf.Name).
 					Resource(corev1.ResourceCPU, "2").
 					Resource(corev1.ResourceMemory, "2G").Obj()).Obj()
-		util.MustCreate(ctx, k8sClient, clusterQueue)
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+
 		localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
-		util.MustCreate(ctx, k8sClient, localQueue)
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 	})
 
 	ginkgo.AfterEach(func() {
