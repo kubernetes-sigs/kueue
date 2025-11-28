@@ -254,6 +254,10 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 }
 
 func (w *wlReconciler) validateCacheDeletion(ctx context.Context, wl *kueue.Workload, mkAc *kueue.AdmissionCheckState) (bool, error) {
+	if mkAc == nil {
+		return true, nil
+	}
+
 	clients, err := w.remoteClientsForAC(ctx, mkAc.Name)
 	if err != nil {
 		if errors.Is(err, admissioncheck.ErrNoActiveClusters) {
