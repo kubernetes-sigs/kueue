@@ -19,7 +19,7 @@ set -o nounset
 set -o pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MOD_FILE="${REPO_ROOT}/hack/tools/go.mod"
+MOD_FILE="${REPO_ROOT}/hack/internal/tools/go.mod"
 K8S_TOOL_PKG="k8s.io/kubernetes/test/compatibility_lifecycle"
 REFERENCE_DIR="${REPO_ROOT}/test/compatibility_lifecycle/reference"
 REFERENCE_FILE="${REFERENCE_DIR}/versioned_feature_list.yaml"
