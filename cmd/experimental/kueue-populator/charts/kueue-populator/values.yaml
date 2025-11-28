@@ -2,7 +2,7 @@
 kueuePopulator:
   image:
     # -- Populator's image repository
-    repository: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-populator
+    repository: registry.k8s.io/kueue/kueue-populator
     # -- Populator's image tag
     tag: release-0.15
     # -- Populator's image pullPolicy.
