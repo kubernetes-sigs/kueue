@@ -226,7 +226,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 				qManager: qManager,
 			}
 			if tc.newWl != nil {
-				if err := r.qManager.AddOrUpdateWorkload(tc.newWl); err != nil {
+				if err := r.qManager.AddOrUpdateWorkload(log, tc.newWl); err != nil {
 					t.Fatalf("Failed to add or update workload : %v", err)
 				}
 			}

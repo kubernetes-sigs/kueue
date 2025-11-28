@@ -319,7 +319,7 @@ func TestPendingWorkloadsInCQ(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			manager := qcache.NewManager(utiltesting.NewFakeClient(), nil)
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 			ctx, cancel := context.WithCancel(ctx)
 			defer cancel()
 			go manager.CleanUpOnContext(ctx)
@@ -335,7 +335,7 @@ func TestPendingWorkloadsInCQ(t *testing.T) {
 				}
 			}
 			for _, w := range tc.workloads {
-				if err := manager.AddOrUpdateWorkload(w); err != nil {
+				if err := manager.AddOrUpdateWorkload(log, w); err != nil {
 					t.Fatalf("Failed to add or update workload %q: %v", w.Name, err)
 				}
 			}
