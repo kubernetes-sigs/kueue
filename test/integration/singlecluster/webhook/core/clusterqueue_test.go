@@ -233,6 +233,10 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", ginkgo.Ordered, func() {
 				utiltestingapi.MakeClusterQueue("cluster-queue").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "-1").Obj()).
 					Obj(),
+				testing.BeForbiddenError()),
+			ginkgo.Entry("Should allow a resource group with no flavors",
+				testing.MakeClusterQueue("cluster-queue").ResourceGroup().Obj(),
+				gomega.Succeed()),
 				utiltesting.BeForbiddenError()),
 			ginkgo.Entry("Should have at least one flavor",
 				utiltestingapi.MakeClusterQueue("cluster-queue").ResourceGroup().Obj(),
@@ -401,6 +405,11 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", ginkgo.Ordered, func() {
 							Resource("example.com/gpu", "0").
 							Obj(),
 					).
+					Obj(),
+				gomega.Succeed()),
+			ginkgo.Entry("Should allow to create clusterQueue with empty resource groups",
+				testing.MakeClusterQueue("cluster-queue-empty-resource-groups").
+					ResourceGroup().
 					Obj(),
 				gomega.Succeed()),
 			ginkgo.Entry("Should forbid to create clusterQueue with resources in a flavor in different order",

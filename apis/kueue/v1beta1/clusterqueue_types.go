@@ -195,7 +195,7 @@ type ResourceGroup struct {
 	// 256 total flavors across all resource groups in the ClusterQueue.
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MinItems=0
 	// +kubebuilder:validation:MaxItems=64
 	Flavors []FlavorQuotas `json:"flavors"`
 }
