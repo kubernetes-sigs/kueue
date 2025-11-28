@@ -89,7 +89,7 @@ LD_FLAGS += -X '$(version_pkg).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.14.4
+RELEASE_VERSION=v0.15.0
 RELEASE_BRANCH=main
 # Application version for Helm and npm (strips leading 'v' from RELEASE_VERSION)
 APP_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)
@@ -350,7 +350,9 @@ clean-manifests = \
 		$(KUSTOMIZE) edit set image controller=$(STAGING_IMAGE_REGISTRY)/kueue:$(RELEASE_BRANCH)) && \
 	(cd config/components/kueueviz && \
   		$(KUSTOMIZE) edit set image backend=$(STAGING_IMAGE_REGISTRY)/kueueviz-backend:$(RELEASE_BRANCH) && \
-  		$(KUSTOMIZE) edit set image frontend=$(STAGING_IMAGE_REGISTRY)/kueueviz-frontend:$(RELEASE_BRANCH))
+  		$(KUSTOMIZE) edit set image frontend=$(STAGING_IMAGE_REGISTRY)/kueueviz-frontend:$(RELEASE_BRANCH)) && \
+	(cd cmd/experimental/kueue-populator/config && \
+    	$(KUSTOMIZE) edit set image controller=$(STAGING_IMAGE_REGISTRY)/kueue-populator:$(RELEASE_BRANCH))
 
 .PHONY: install
 install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
@@ -387,6 +389,7 @@ prepare-manifests:
 	cd config/components/manager && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG)
 	cd config/components/kueueviz && $(KUSTOMIZE) edit set image backend=$(IMAGE_TAG_KUEUEVIZ_BACKEND)
 	cd config/components/kueueviz && $(KUSTOMIZE) edit set image frontend=$(IMAGE_TAG_KUEUEVIZ_FRONTEND)
+	cd cmd/experimental/kueue-populator/config && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG_KUEUE_POPULATOR)
 
 .PHONY: artifacts
 artifacts: DEST_CHART_DIR="artifacts"
@@ -397,6 +400,7 @@ artifacts: clean-artifacts kustomize helm-chart-package prepare-manifests ## Gen
 	$(KUSTOMIZE) build config/prometheus -o artifacts/prometheus.yaml
 	$(KUSTOMIZE) build config/visibility-apf -o artifacts/visibility-apf.yaml
 	$(KUSTOMIZE) build config/kueueviz -o artifacts/kueueviz.yaml
+	$(KUSTOMIZE) build cmd/experimental/kueue-populator/config -o artifacts/kueue-populator.yaml
 	@$(call clean-manifests)
 	CGO_ENABLED=$(CGO_ENABLED) GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_DIR="artifacts" BUILD_NAME=kubectl-kueue PLATFORMS="$(CLI_PLATFORMS)" ./hack/multiplatform-build.sh ./cmd/kueuectl/main.go
 
@@ -411,6 +415,11 @@ prepare-release-branch: yq kustomize ## Prepare the release branch with the rele
 	$(YQ) e '.version = "$(APP_VERSION)" | .packages[""].version = "$(APP_VERSION)"' -i cmd/kueueviz/frontend/package-lock.json
 	$(YQ) e '.version = "$(APP_VERSION)"' -i test/e2e/kueueviz/package.json
 	$(YQ) e '.version = "$(APP_VERSION)" | .packages[""].version = "$(APP_VERSION)"' -i test/e2e/kueueviz/package-lock.json
+	# Update kueue-populator chart version and image tag
+	$(YQ) e '.appVersion = "$(RELEASE_VERSION)" | .version = "$(APP_VERSION)" | .dependencies[0].version = "~$(APP_VERSION)"' -i cmd/experimental/kueue-populator/charts/kueue-populator/Chart.yaml
+	$(YQ) e '.kueuePopulator.image.tag = "$(RELEASE_BRANCH)"' -i cmd/experimental/kueue-populator/charts/kueue-populator/values.yaml
+	$(SED) -r 's|oci://us-central1-docker.pkg.dev/k8s-staging-images/kueue/charts/kueue-populator|oci://registry.k8s.io/kueue/charts/kueue-populator|g' -i cmd/experimental/kueue-populator/README.md -i cmd/experimental/kueue-populator/charts/kueue-populator/README.md
+	$(SED) -r 's/<VERSION>/$(APP_VERSION)/g' -i cmd/experimental/kueue-populator/README.md -i cmd/experimental/kueue-populator/charts/kueue-populator/README.md
 	$(MAKE) generate-helm-docs
 
 .PHONY: update-security-insights
@@ -534,12 +543,6 @@ kueue-populator-image-push: kueue-populator-image-build
 kueue-populator-image: PLATFORMS=$(HOST_IMAGE_PLATFORM)
 kueue-populator-image: PUSH=--load
 kueue-populator-image: kueue-populator-image-build
-
-.PHONY: kueue-populator-helm-chart-push
-kueue-populator-helm-chart-push: ## Push kueue-populator helm chart.
-	$(MAKE) -C cmd/experimental/kueue-populator helm-chart-push \
-		IMAGE_REGISTRY=$(IMAGE_REGISTRY) \
-		GIT_TAG=$(GIT_TAG)
 
 .PHONY: kueuectl
 kueuectl:

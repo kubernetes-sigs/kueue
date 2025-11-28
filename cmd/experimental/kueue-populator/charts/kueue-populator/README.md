@@ -21,9 +21,9 @@ This Helm chart installs the Kueue Populator, a component designed to automatica
 ## Dependencies
 
 This chart depends on the [Kueue](https://github.com/kubernetes-sigs/kueue/tree/main/charts/kueue) chart.
-By default, it installs **Kueue v0.14.4**.
+By default, the Kueue dependency is **disabled** (`kueue.enabled=false`).
 
--   If you already have Kueue installed, you can disable the dependency by setting `kueue.enabled=false`.
+-   To install Kueue along with the populator, set `kueue.enabled=true`.
 -   The dependency is configured to enable `TopologyAwareScheduling` feature gate in Kueue.
 
 ## Installation
@@ -32,11 +32,9 @@ By default, it installs **Kueue v0.14.4**.
 
 You can install the chart directly from the OCI registry:
 
-> Note: Replace `<VERSION>` with the desired version of the chart. Check the available versions in the [registry](https://us-central1-docker.pkg.dev/k8s-staging-images/kueue).
-
 ```bash
-helm install kueue-populator oci://us-central1-docker.pkg.dev/k8s-staging-images/kueue/charts/kueue-populator \
-  --version <VERSION> \
+helm install kueue-populator oci://registry.k8s.io/kueue/charts/kueue-populator \
+  --version 0.14.5 \
   --namespace kueue-system \
   --create-namespace \
   --wait
@@ -113,8 +111,8 @@ kueuePopulator:
 ```
 
 ```bash
-helm install kueue-populator oci://us-central1-docker.pkg.dev/k8s-staging-images/kueue/charts/kueue-populator \
-  --version <VERSION> \
+helm install kueue-populator oci://registry.k8s.io/kueue/charts/kueue-populator \
+  --version 0.14.5 \
   --namespace kueue-system \
   --create-namespace \
   --wait \
@@ -126,8 +124,8 @@ For simple configuration you may also use the minimalistic command:
 > When using `--set` for keys containing dots (e.g., `cloud.google.com/gke-nodepool`), you must escape the dots with a backslash.
 
 ```bash
-helm install kueue-populator oci://us-central1-docker.pkg.dev/k8s-staging-images/kueue/charts/kueue-populator \
-  --version <VERSION> \
+helm install kueue-populator oci://registry.k8s.io/kueue/charts/kueue-populator \
+  --version 0.14.5 \
   --namespace kueue-system \
   --create-namespace \
   --wait \
@@ -157,7 +155,7 @@ The following table lists the configurable parameters under the `kueuePopulator`
 
 This chart includes the official `kueue` chart as a dependency. You can configure it under the `kueue` key in `values.yaml`. Key overrides included in this chart:
 
--   `kueue.enabled: true`: Enables the subchart installation.
+-   `kueue.enabled: false`: Disables the subchart installation by default. Set to `true` to install Kueue.
 -   `kueue.controllerManager.featureGates`: Enables `TopologyAwareScheduling`.
 -   `kueue.managerConfig.controllerManagerConfigYaml`: Provides minimal necessary overrides for `apiVersion` and `managedJobsNamespaceSelector` to ensure compatibility and safe hook execution.
 

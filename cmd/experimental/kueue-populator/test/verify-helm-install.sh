@@ -57,6 +57,7 @@ echo "Installing kueue-populator with Topology and ResourceFlavor..."
 "$HELM" upgrade --install kueue-populator charts/kueue-populator \
   --namespace kueue-system \
   --create-namespace \
+  --set kueue.enabled=true  \
   --set image.tag="$GIT_TAG" \
   --set image.pullPolicy=IfNotPresent \
   --set kueuePopulator.config.topology.levels[0].nodeLabel="cloud.google.com/gke-nodepool" \

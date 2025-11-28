@@ -69,7 +69,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 		configuration := &config.Configuration{
 			WaitForPodsReady: &config.WaitForPodsReady{
 				BlockAdmission: ptr.To(true),
-				Timeout:        &metav1.Duration{Duration: podsReadyTimeout},
+				Timeout:        metav1.Duration{Duration: podsReadyTimeout},
 				RequeuingStrategy: &config.RequeuingStrategy{
 					Timestamp:          ptr.To(requeuingTimestamp),
 					BackoffLimitCount:  requeueingBackoffLimitCount,
@@ -603,7 +603,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 		configuration := &config.Configuration{
 			WaitForPodsReady: &config.WaitForPodsReady{
 				BlockAdmission: ptr.To(false),
-				Timeout:        &metav1.Duration{Duration: podsReadyTimeout},
+				Timeout:        metav1.Duration{Duration: podsReadyTimeout},
 				RequeuingStrategy: &config.RequeuingStrategy{
 					Timestamp:          ptr.To(requeuingTimestamp),
 					BackoffLimitCount:  requeueingBackoffLimitCount,

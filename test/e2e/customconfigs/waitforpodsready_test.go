@@ -17,6 +17,8 @@ limitations under the License.
 package customconfigse2e
 
 import (
+	"time"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
@@ -79,7 +81,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with tiny Timeout and no RecoveryTimeo
 		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.WaitForPodsReady = &configapi.WaitForPodsReady{
 				BlockAdmission:  ptr.To(true),
-				Timeout:         &metav1.Duration{Duration: util.TinyTimeout},
+				Timeout:         metav1.Duration{Duration: util.TinyTimeout},
 				RecoveryTimeout: nil,
 				RequeuingStrategy: &configapi.RequeuingStrategy{
 					Timestamp:          ptr.To(configapi.EvictionTimestamp),
@@ -112,10 +114,10 @@ var _ = ginkgo.Describe("WaitForPodsReady with tiny Timeout and no RecoveryTimeo
 		cq = utiltestingapi.MakeClusterQueue("cq").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).Resource(corev1.ResourceCPU, "10").Obj()).
 			Obj()
-		util.MustCreate(ctx, k8sClient, cq)
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 
 		lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
-		util.MustCreate(ctx, k8sClient, lq)
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -234,6 +236,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 
 		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.WaitForPodsReady = &configapi.WaitForPodsReady{
+				Timeout:         metav1.Duration{Duration: 5 * time.Minute},
 				BlockAdmission:  ptr.To(true),
 				RecoveryTimeout: &metav1.Duration{Duration: util.TinyTimeout},
 				RequeuingStrategy: &configapi.RequeuingStrategy{
@@ -267,10 +270,10 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 		cq = utiltestingapi.MakeClusterQueue("cq").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).Resource(corev1.ResourceCPU, "10").Obj()).
 			Obj()
-		util.MustCreate(ctx, k8sClient, cq)
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 
 		lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
-		util.MustCreate(ctx, k8sClient, lq)
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -378,6 +381,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 
 		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.WaitForPodsReady = &configapi.WaitForPodsReady{
+				Timeout:         metav1.Duration{Duration: 5 * time.Minute},
 				BlockAdmission:  ptr.To(true),
 				RecoveryTimeout: &metav1.Duration{Duration: util.LongTimeout},
 				RequeuingStrategy: &configapi.RequeuingStrategy{
@@ -411,10 +415,10 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 		cq = utiltestingapi.MakeClusterQueue("cq").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).Resource(corev1.ResourceCPU, "10").Obj()).
 			Obj()
-		util.MustCreate(ctx, k8sClient, cq)
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 
 		lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
-		util.MustCreate(ctx, k8sClient, lq)
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 	})
 
 	ginkgo.AfterEach(func() {

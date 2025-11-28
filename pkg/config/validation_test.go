@@ -234,6 +234,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: 5 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						Timestamp: ptr.To[configapi.RequeuingTimestamp]("NoSupported"),
 					},
@@ -246,11 +247,25 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"invalid an empty waitForPodsReady.timeout": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: 0},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "waitForPodsReady.timeout",
+				},
+			},
+		},
 		"negative waitForPodsReady.timeout": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
-					Timeout: &metav1.Duration{
+					Timeout: metav1.Duration{
 						Duration: -1,
 					},
 				},
@@ -266,6 +281,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: 5 * time.Minute},
 					RecoveryTimeout: &metav1.Duration{
 						Duration: -1,
 					},
@@ -282,7 +298,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
-					Timeout: &metav1.Duration{
+					Timeout: metav1.Duration{
 						Duration: 50,
 					},
 					RecoveryTimeout: &metav1.Duration{
@@ -302,6 +318,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: 5 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						BackoffLimitCount: ptr.To[int32](-1),
 					},
@@ -318,6 +335,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: 5 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						BackoffBaseSeconds: ptr.To[int32](-1),
 					},
@@ -334,6 +352,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: 5 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						BackoffMaxSeconds: ptr.To[int32](-1),
 					},
@@ -578,6 +597,18 @@ func TestValidate(t *testing.T) {
 							},
 						},
 					},
+				},
+			},
+		},
+		"invalid an empty preemption strategy": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				FairSharing:  &configapi.FairSharing{},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "fairSharing.preemptionStrategies",
 				},
 			},
 		},

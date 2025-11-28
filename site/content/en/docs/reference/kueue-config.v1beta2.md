@@ -452,8 +452,7 @@ as high as possible.</li>
 with the incoming workload is strictly less than the share of the preemptee CQ.
 This strategy doesn't depend on the share usage of the workload being preempted.
 As a result, the strategy chooses to preempt workloads with the lowest priority and
-newest start time first.
-The default strategy is [&quot;LessThanOrEqualToFinalShare&quot;, &quot;LessThanInitialShare&quot;].</li>
+newest start time first.</li>
 </ul>
 </td>
 </tr>
@@ -895,14 +894,13 @@ which is used to ensure that all Pods are ready within the specified time.</p>
 <tbody>
     
   
-<tr><td><code>timeout</code><br/>
+<tr><td><code>timeout</code> <B>[Required]</B><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
 </td>
 <td>
    <p>Timeout defines the time for an admitted workload to reach the
 PodsReady=true condition. When the timeout is exceeded, the workload
-evicted and requeued in the same cluster queue.
-Defaults to 5min.</p>
+evicted and requeued in the same cluster queue.</p>
 </td>
 </tr>
 <tr><td><code>blockAdmission</code><br/>

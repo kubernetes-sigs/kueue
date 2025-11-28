@@ -39,11 +39,9 @@ The `kueue-populator` can be deployed to a Kubernetes cluster using the Kustomiz
 
 You can also install the `kueue-populator` using the provided Helm chart.
 
-> Note: Replace `<VERSION>` with the desired version of the chart. Check the available versions in the [registry](https://us-central1-docker.pkg.dev/k8s-staging-images/kueue).
-
 ```bash
-helm install kueue-populator oci://us-central1-docker.pkg.dev/k8s-staging-images/kueue/charts/kueue-populator \
-  --version <VERSION> \
+helm install kueue-populator oci://registry.k8s.io/kueue/charts/kueue-populator \
+  --version 0.14.5 \
   --namespace kueue-system \
   --create-namespace \
   --wait

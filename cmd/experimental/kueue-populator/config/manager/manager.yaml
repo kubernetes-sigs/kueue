@@ -21,7 +21,7 @@ spec:
         - "--config=/etc/kueue/controller_manager_config.yaml"
         - "--zap-log-level=2"
         imagePullPolicy: IfNotPresent
-        image: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-populator:latest
+        image: controller:latest
         name: manager
         securityContext:
           allowPrivilegeEscalation: false

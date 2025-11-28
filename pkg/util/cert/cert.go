@@ -43,7 +43,7 @@ const (
 
 // BootstrapCerts creates a minimal manager to generate certificates and inject CA bundles.
 // This function blocks until certificates are ready and CA bundles are injected into CRDs.
-func BootstrapCerts(kubeConfig *rest.Config, cfg config.Configuration) error {
+func BootstrapCerts(ctx context.Context, kubeConfig *rest.Config, cfg config.Configuration) error {
 	log := ctrl.Log.WithName("cert-bootstrap")
 
 	// Create a minimal bootstrap manager with leader election.
@@ -72,7 +72,7 @@ func BootstrapCerts(kubeConfig *rest.Config, cfg config.Configuration) error {
 		return fmt.Errorf("unable to add cert rotator to bootstrap manager: %w", err)
 	}
 
-	bootstrapCtx, bootstrapCancel := context.WithCancel(context.Background())
+	bootstrapCtx, bootstrapCancel := context.WithCancel(ctx)
 	defer bootstrapCancel()
 
 	managerStopped := make(chan struct{})

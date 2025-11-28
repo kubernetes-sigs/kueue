@@ -1003,7 +1003,7 @@ func (r *WorkloadReconciler) updateAfsConsumedUsage(log logr.Logger, wl *kueue.W
 	newConsumed = resource.MergeResourceListKeepSum(newConsumed, penalty)
 
 	r.queues.AfsConsumedResources.Set(lqKey, newConsumed, now)
-	r.queues.SubEntryPenalty(lqKey, penalty)
+	r.queues.AfsEntryPenalties.Sub(lqKey, penalty)
 
 	log.V(2).Info("Updated AFS consumed usage", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)), "consumed", newConsumed)
 }
@@ -1149,8 +1149,10 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, q
 			continue
 		}
 
-		if err = h.r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
-			log.V(2).Info("ignored an error for now", "error", err)
+		if workload.IsActive(wlCopy) && !workload.HasQuotaReservation(wlCopy) {
+			if err = h.r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
+				log.V(2).Info("ignored an error for now", "error", err)
+			}
 		}
 	}
 }

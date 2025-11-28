@@ -67,6 +67,7 @@ function check_images() {
       kueue
       kueueviz-backend
       kueueviz-frontend
+      kueue-populator
   )
 
   for image in "${images[@]}"; do
