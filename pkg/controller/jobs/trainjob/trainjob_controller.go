@@ -21,12 +21,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 
 	kftrainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	kftrainerruntime "github.com/kubeflow/trainer/v2/pkg/runtime"
 	kftrainerruntimecore "github.com/kubeflow/trainer/v2/pkg/runtime/core"
 	kftrainerjobset "github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/jobset"
+	trainjobutil "github.com/kubeflow/trainer/v2/pkg/util/trainjob"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -40,7 +40,8 @@ import (
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 	jobsetapplyapi "sigs.k8s.io/jobset/client-go/applyconfiguration/jobset/v1alpha2"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -53,11 +54,6 @@ var (
 	gvk                    = kftrainer.GroupVersion.WithKind("TrainJob")
 	FrameworkName          = "trainer.kubeflow.org/trainjob"
 	TrainJobControllerName = "trainer.kubeflow.org/trainjob-controller"
-)
-
-const (
-	// This is alpha level annotation
-	firstOverrideIdx = "kueue.x-k8s.io/trainjob-override-idx"
 )
 
 func init() {
@@ -79,7 +75,6 @@ func init() {
 // +kubebuilder:rbac:groups=trainer.kubeflow.org,resources=clustertrainingruntimes,verbs=get;list;watch
 
 type trainJobReconciler struct {
-	ctx      context.Context
 	jr       *jobframework.JobReconciler
 	runtimes map[string]kftrainerruntime.Runtime
 	client   client.Client
@@ -94,7 +89,6 @@ func NewReconciler(ctx context.Context, client client.Client, indexer client.Fie
 		return nil, err
 	}
 	reconciler = trainJobReconciler{
-		ctx:      ctx,
 		jr:       jobframework.NewReconciler(client, eventRecorder, opts...),
 		client:   client,
 		runtimes: runtimes,
@@ -137,7 +131,8 @@ func (t *TrainJob) IsSuspended() bool {
 
 func (t *TrainJob) IsActive() bool {
 	for i := range t.Status.JobsStatus {
-		if t.Status.JobsStatus[i].Active > 0 {
+		active := ptr.Deref(t.Status.JobsStatus[i].Active, 0)
+		if active > 0 {
 			return true
 		}
 	}
@@ -160,7 +155,7 @@ func (t *TrainJob) PodLabelSelector() string {
 	return fmt.Sprintf("%s=%s", jobsetapi.JobSetNameKey, t.Name)
 }
 
-func getChildJobSet(t *TrainJob) (*jobsetapi.JobSet, error) {
+func getChildJobSet(ctx context.Context, t *TrainJob) (*jobsetapi.JobSet, error) {
 	runtimeRefGK := kftrainerruntime.RuntimeRefToRuntimeRegistryKey(t.Spec.RuntimeRef)
 	runtime, ok := reconciler.runtimes[runtimeRefGK]
 	if !ok {
@@ -168,7 +163,7 @@ func getChildJobSet(t *TrainJob) (*jobsetapi.JobSet, error) {
 	}
 
 	trainJob := (*kftrainer.TrainJob)(t)
-	trSpec, err := getRuntimeSpec(trainJob)
+	trSpec, err := getRuntimeSpec(ctx, trainJob)
 	if err != nil {
 		return nil, fmt.Errorf("runtime '%s' not found", trainJob.Spec.RuntimeRef.Name)
 	}
@@ -200,29 +195,20 @@ func jobsetApplyToJobset(jobsetApply *jobsetapplyapi.JobSetApplyConfiguration) (
 		return nil, err
 	}
 
-	// Run a dry-run patch to set the jobset defaults
-	// Defaults must be applied here because Kueue later compares podsets to match workloads.
-	// Workloads coming from the API server are already defaulted, so without defaulting this JobSet, matching would fail.
-	if err = reconciler.client.Patch(reconciler.ctx, jobset, client.Apply, &client.PatchOptions{
-		FieldManager: "defaulter",
-		DryRun:       []string{metav1.DryRunAll},
-	}); err != nil {
-		return nil, err
-	}
 	return jobset, nil
 }
 
-func getRuntimeSpec(trainJob *kftrainer.TrainJob) (*kftrainer.TrainingRuntimeSpec, error) {
-	if *trainJob.Spec.RuntimeRef.Kind == kftrainer.ClusterTrainingRuntimeKind {
+func getRuntimeSpec(ctx context.Context, trainJob *kftrainer.TrainJob) (*kftrainer.TrainingRuntimeSpec, error) {
+	if trainjobutil.RuntimeRefIsClusterTrainingRuntime(trainJob.Spec.RuntimeRef) {
 		var ctr kftrainer.ClusterTrainingRuntime
-		err := reconciler.client.Get(reconciler.ctx, client.ObjectKey{Name: trainJob.Spec.RuntimeRef.Name}, &ctr)
+		err := reconciler.client.Get(ctx, client.ObjectKey{Name: trainJob.Spec.RuntimeRef.Name}, &ctr)
 		if err != nil {
 			return nil, err
 		}
 		return &ctr.Spec, nil
 	} else {
 		var tr kftrainer.TrainingRuntime
-		err := reconciler.client.Get(reconciler.ctx, client.ObjectKey{Namespace: trainJob.Namespace, Name: trainJob.Spec.RuntimeRef.Name}, &tr)
+		err := reconciler.client.Get(ctx, client.ObjectKey{Namespace: trainJob.Namespace, Name: trainJob.Spec.RuntimeRef.Name}, &tr)
 		if err != nil {
 			return nil, err
 		}
@@ -230,16 +216,34 @@ func getRuntimeSpec(trainJob *kftrainer.TrainJob) (*kftrainer.TrainingRuntimeSpe
 	}
 }
 
-func (t *TrainJob) PodSets() ([]kueue.PodSet, error) {
-	jobset, err := getChildJobSet(t)
+func podSets(ctx context.Context, t *TrainJob) ([]kueue.PodSet, error) {
+	jobset, err := getChildJobSet(ctx, t)
 	if err != nil {
 		return nil, err
 	}
-	return (*workloadjobset.JobSet)(jobset).PodSets()
+
+	return (*workloadjobset.JobSet)(jobset).PodSets(ctx)
 }
 
-func (t *TrainJob) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
-	jobset, err := getChildJobSet(t)
+func (t *TrainJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
+	podsets, err := podSets(ctx, t)
+	if err != nil {
+		return nil, err
+	}
+
+	// Run a dry-run patch of a throwaway workload to set the podset defaults
+	// Podsets must be defaulted because Kueue later uses them to match workloads.
+	// Workloads coming from the API server are already defaulted, so without defaulting these podsets, matching would fail.
+	wl := jobframework.NewWorkload(t.Name, t.Object(), podsets, []string{})
+	if err := reconciler.client.Create(ctx, wl, &client.CreateOptions{DryRun: []string{metav1.DryRunAll}}); err != nil {
+		return nil, err
+	}
+
+	return wl.Spec.PodSets, nil
+}
+
+func (t *TrainJob) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
+	jobset, err := getChildJobSet(ctx, t)
 	if err != nil {
 		return err
 	}
@@ -248,31 +252,31 @@ func (t *TrainJob) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
 		return podset.BadPodSetsInfoLenError(len(jobset.Spec.ReplicatedJobs), len(podSetsInfo))
 	}
 
-	if t.Spec.PodSpecOverrides == nil {
-		t.Spec.PodSpecOverrides = []kftrainer.PodSpecOverride{}
+	if t.Spec.PodTemplateOverrides == nil {
+		t.Spec.PodTemplateOverrides = []kftrainer.PodTemplateOverride{}
 	}
 	if t.Annotations == nil {
 		t.Annotations = map[string]string{}
 	}
-	t.Annotations[firstOverrideIdx] = strconv.Itoa(len(t.Spec.PodSpecOverrides))
 	for _, info := range podSetsInfo {
 		// The trainjob controller merges each podSpecOverride sequentially, so any existing user provided override will be processed first
-		t.Spec.PodSpecOverrides = append(t.Spec.PodSpecOverrides, kftrainer.PodSpecOverride{
-			TargetJobs: []kftrainer.PodSpecOverrideTargetJob{
+		t.Spec.PodTemplateOverrides = append(t.Spec.PodTemplateOverrides, kftrainer.PodTemplateOverride{
+			TargetJobs: []kftrainer.PodTemplateOverrideTargetJob{
 				{Name: string(info.Name)},
 			},
-			// TODO: Set the labels/annotations when supported. See https://github.com/kubeflow/trainer/pull/2785
-			//
-			// NOTE: Due to the issue above, in TAS mode, missing PodSet-specific labels and annotations
-			//       prevent removal of the scheduling gate, leaving the Pod in a Pending state.
-			NodeSelector:    info.NodeSelector,
-			Tolerations:     info.Tolerations,
-			SchedulingGates: info.SchedulingGates,
+			Metadata: &metav1.ObjectMeta{
+				Annotations: info.Annotations,
+				Labels:      info.Labels,
+			},
+			Spec: &kftrainer.PodTemplateSpecOverride{
+				NodeSelector:    info.NodeSelector,
+				Tolerations:     info.Tolerations,
+				SchedulingGates: info.SchedulingGates,
+			},
 		})
 	}
 	// Update the podSpecOverrides while the job is suspended, since is a requirement from the trainjob admission webhook
-	// TODO: Ideally we should be using the parent function context here
-	err = reconciler.client.Update(reconciler.ctx, t.Object())
+	err = reconciler.client.Update(ctx, t.Object())
 	if err != nil {
 		return err
 	}
@@ -293,12 +297,11 @@ func (t *TrainJob) Stop(ctx context.Context, c client.Client, podSetsInfo []pods
 		return false, errors.New("jobs are still active")
 	}
 
-	if err := clientutil.Patch(ctx, reconciler.client, t.Object(), func() (client.Object, bool, error) {
+	if err := clientutil.Patch(ctx, reconciler.client, t.Object(), func() (bool, error) {
 		if !t.RestorePodSetsInfo(podSetsInfo) {
-			return t.Object(), false, errors.New("error restoring info to the trainjob")
+			return false, errors.New("error restoring info to the trainjob")
 		}
-		delete(t.Annotations, firstOverrideIdx)
-		return t.Object(), true, nil
+		return true, nil
 	}); err != nil {
 		return false, err
 	}
@@ -306,20 +309,20 @@ func (t *TrainJob) Stop(ctx context.Context, c client.Client, podSetsInfo []pods
 }
 
 func (t *TrainJob) RestorePodSetsInfo(_ []podset.PodSetInfo) bool {
-	idx, ok := t.Annotations[firstOverrideIdx]
-	if !ok {
-		// Kueue didn't inject any config yet
-		return true
+	for i, o := range t.Spec.PodTemplateOverrides {
+		if o.Metadata != nil {
+			_, exists := o.Metadata.Labels[constants.PodSetLabel]
+			if exists {
+				t.Spec.PodTemplateOverrides = t.Spec.PodTemplateOverrides[:i]
+				break
+			}
+		}
 	}
-	idxInt, err := strconv.Atoi(idx)
-	if err != nil {
-		return false
-	}
-	t.Spec.PodSpecOverrides = t.Spec.PodSpecOverrides[:idxInt]
+
 	return true
 }
 
-func (t *TrainJob) Finished() (message string, success, finished bool) {
+func (t *TrainJob) Finished(ctx context.Context) (message string, success, finished bool) {
 	if c := apimeta.FindStatusCondition(t.Status.Conditions, kftrainer.TrainJobComplete); c != nil && c.Status == metav1.ConditionTrue {
 		return c.Message, true, true
 	}
@@ -329,8 +332,8 @@ func (t *TrainJob) Finished() (message string, success, finished bool) {
 	return message, success, false
 }
 
-func (t *TrainJob) PodsReady() bool {
-	jobset, err := getChildJobSet(t)
+func (t *TrainJob) PodsReady(ctx context.Context) bool {
+	jobset, err := getChildJobSet(ctx, t)
 	if err != nil {
 		return false
 	}
@@ -341,16 +344,16 @@ func (t *TrainJob) PodsReady() bool {
 	}
 	var readyReplicas int32
 	for _, jobStatus := range t.Status.JobsStatus {
-		readyReplicas += jobStatus.Ready + jobStatus.Succeeded
+		readyReplicas += ptr.Deref(jobStatus.Ready, 0) + ptr.Deref(jobStatus.Succeeded, 0)
 	}
 	return replicas == readyReplicas
 }
 
-func (t *TrainJob) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
+func (t *TrainJob) ReclaimablePods(ctx context.Context) ([]kueue.ReclaimablePod, error) {
 	if len(t.Status.JobsStatus) == 0 {
 		return nil, nil
 	}
-	jobset, err := getChildJobSet(t)
+	jobset, err := getChildJobSet(ctx, t)
 	if err != nil {
 		return nil, err
 	}
@@ -360,11 +363,12 @@ func (t *TrainJob) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
 
 	for i := range jobset.Spec.ReplicatedJobs {
 		spec := &jobset.Spec.ReplicatedJobs[i]
-		if status, found := statuses[spec.Name]; found && status.Succeeded > 0 {
-			if status.Succeeded > 0 && status.Succeeded <= spec.Replicas {
+		if status, found := statuses[spec.Name]; found {
+			succeeded := ptr.Deref(status.Succeeded, 0)
+			if succeeded > 0 && succeeded <= spec.Replicas {
 				ret = append(ret, kueue.ReclaimablePod{
 					Name:  kueue.NewPodSetReference(spec.Name),
-					Count: status.Succeeded * workloadjobset.PodsCountPerReplica(spec),
+					Count: succeeded * workloadjobset.PodsCountPerReplica(spec),
 				})
 			}
 		}

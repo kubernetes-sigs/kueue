@@ -34,7 +34,7 @@ import (
 	"github.com/onsi/gomega"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
-	resourcev1beta2 "k8s.io/api/resource/v1beta2"
+	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -49,12 +49,22 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	"sigs.k8s.io/kueue/test/util"
 )
 
 type ManagerSetup func(context.Context, manager.Manager)
+
+type ManagerOption func(*manager.Options)
+
+func WithNewClient(c client.NewClientFunc) ManagerOption {
+	return func(o *manager.Options) {
+		o.NewClient = c
+	}
+}
 
 type Framework struct {
 	DepCRDPaths            []string
@@ -74,11 +84,19 @@ func (f *Framework) Init() *rest.Config {
 
 	var cfg *rest.Config
 	ginkgo.By("bootstrapping test environment", func() {
-		baseCrdPath := filepath.Join(util.GetProjectBaseDir(), "config", "components", "crd", "bases")
+		baseCrdPath := filepath.Join(util.GetProjectBaseDir(), "config", "components", "crd", "_output")
 		f.testEnv = &envtest.Environment{
 			CRDDirectoryPaths:     append(f.DepCRDPaths, baseCrdPath),
 			ErrorIfCRDPathMissing: true,
 		}
+		var err error
+		f.testEnv.Scheme = scheme.Scheme
+		err = kueue.AddToScheme(f.testEnv.Scheme)
+		gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+		err = kueuev1beta1.AddToScheme(f.testEnv.Scheme)
+		gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
 		if len(f.WebhookPath) > 0 {
 			f.testEnv.WebhookInstallOptions.Paths = []string{f.WebhookPath}
 		}
@@ -97,7 +115,6 @@ func (f *Framework) Init() *rest.Config {
 			f.testEnv.ControlPlane.GetAPIServer().Err = ginkgo.GinkgoWriter
 		}
 
-		var err error
 		cfg, err = f.testEnv.Start()
 		gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 		gomega.ExpectWithOffset(1, cfg).NotTo(gomega.BeNil())
@@ -107,11 +124,14 @@ func (f *Framework) Init() *rest.Config {
 	return cfg
 }
 
-func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.Client) {
+func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.WithWatch) {
 	err := config.AddToScheme(f.scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = kueue.AddToScheme(f.scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = kueuev1beta1.AddToScheme(f.scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = awv1beta2.AddToScheme(f.scheme)
@@ -135,10 +155,10 @@ func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.Clien
 	err = kftrainer.AddToScheme(f.scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
-	err = resourcev1beta2.AddToScheme(f.scheme)
+	err = resourcev1.AddToScheme(f.scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
-	k8sClient, err := client.New(cfg, client.Options{Scheme: f.scheme})
+	k8sClient, err := client.NewWithWatch(cfg, client.Options{Scheme: f.scheme})
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 	gomega.ExpectWithOffset(1, k8sClient).NotTo(gomega.BeNil())
 
@@ -148,10 +168,10 @@ func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.Clien
 	return ctx, k8sClient
 }
 
-func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerSetup ManagerSetup) {
+func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerSetup ManagerSetup, opts ...ManagerOption) {
 	ginkgo.By("starting the manager", func() {
 		webhookInstallOptions := &f.testEnv.WebhookInstallOptions
-		mgrOpts := manager.Options{
+		mgrOptions := manager.Options{
 			Scheme: f.scheme,
 			Metrics: metricsserver.Options{
 				BindAddress: "0", // disable metrics to avoid conflicts between packages.
@@ -166,7 +186,10 @@ func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerS
 				SkipNameValidation: ptr.To(true),
 			},
 		}
-		mgr, err := ctrl.NewManager(cfg, mgrOpts)
+		for _, opt := range opts {
+			opt(&mgrOptions)
+		}
+		mgr, err := ctrl.NewManager(cfg, mgrOptions)
 		gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "failed to create manager")
 
 		managerCtx, managerCancel := context.WithCancel(ctx)

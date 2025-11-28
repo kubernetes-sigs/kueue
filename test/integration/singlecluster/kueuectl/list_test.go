@@ -28,10 +28,10 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	testingclock "k8s.io/utils/clock/testing"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/list"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -49,19 +49,19 @@ var _ = ginkgo.Describe("Kueuectl List", ginkgo.Ordered, ginkgo.ContinueOnFailur
 
 	ginkgo.When("List LocalQueue", func() {
 		var (
-			lq1 *v1beta1.LocalQueue
-			lq2 *v1beta1.LocalQueue
-			lq3 *v1beta1.LocalQueue
+			lq1 *kueue.LocalQueue
+			lq2 *kueue.LocalQueue
+			lq3 *kueue.LocalQueue
 		)
 
 		ginkgo.JustBeforeEach(func() {
-			lq1 = testing.MakeLocalQueue("lq1", ns.Name).ClusterQueue("cq1").Obj()
+			lq1 = utiltestingapi.MakeLocalQueue("lq1", ns.Name).ClusterQueue("cq1").Obj()
 			util.MustCreate(ctx, k8sClient, lq1)
 
-			lq2 = testing.MakeLocalQueue("lq2", ns.Name).ClusterQueue("very-long-cluster-queue-name").Obj()
+			lq2 = utiltestingapi.MakeLocalQueue("lq2", ns.Name).ClusterQueue("very-long-cluster-queue-name").Obj()
 			util.MustCreate(ctx, k8sClient, lq2)
 
-			lq3 = testing.MakeLocalQueue("very-long-local-queue-name", ns.Name).ClusterQueue("cq1").Obj()
+			lq3 = utiltestingapi.MakeLocalQueue("very-long-local-queue-name", ns.Name).ClusterQueue("cq1").Obj()
 			util.MustCreate(ctx, k8sClient, lq3)
 		})
 
@@ -114,15 +114,15 @@ very-long-local-queue-name   cq1                            0                   
 
 	ginkgo.When("List ClusterQueue", func() {
 		var (
-			cq1 *v1beta1.ClusterQueue
-			cq2 *v1beta1.ClusterQueue
+			cq1 *kueue.ClusterQueue
+			cq2 *kueue.ClusterQueue
 		)
 
 		ginkgo.JustBeforeEach(func() {
-			cq1 = testing.MakeClusterQueue("cq1").Obj()
+			cq1 = utiltestingapi.MakeClusterQueue("cq1").Obj()
 			util.MustCreate(ctx, k8sClient, cq1)
 
-			cq2 = testing.MakeClusterQueue("very-long-cluster-queue-name").Obj()
+			cq2 = utiltestingapi.MakeClusterQueue("very-long-cluster-queue-name").Obj()
 			util.MustCreate(ctx, k8sClient, cq2)
 
 			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq1, cq2)
@@ -177,19 +177,19 @@ very-long-cluster-queue-name            0                   0                   
 
 	ginkgo.When("List Workloads", func() {
 		var (
-			wl1 *v1beta1.Workload
-			wl2 *v1beta1.Workload
-			wl3 *v1beta1.Workload
+			wl1 *kueue.Workload
+			wl2 *kueue.Workload
+			wl3 *kueue.Workload
 		)
 
 		ginkgo.JustBeforeEach(func() {
-			wl1 = testing.MakeWorkload("wl1", ns.Name).Queue("lq1").Obj()
+			wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).Queue("lq1").Obj()
 			util.MustCreate(ctx, k8sClient, wl1)
 
-			wl2 = testing.MakeWorkload("wl2", ns.Name).Queue("very-long-local-queue-name").Obj()
+			wl2 = utiltestingapi.MakeWorkload("wl2", ns.Name).Queue("very-long-local-queue-name").Obj()
 			util.MustCreate(ctx, k8sClient, wl2)
 
-			wl3 = testing.MakeWorkload("very-long-workload-name", ns.Name).Queue("lq1").Obj()
+			wl3 = utiltestingapi.MakeWorkload("very-long-workload-name", ns.Name).Queue("lq1").Obj()
 			util.MustCreate(ctx, k8sClient, wl3)
 		})
 
@@ -239,15 +239,15 @@ wl2                                             very-long-local-queue-name      
 
 	ginkgo.When("List ResourceFlavors", func() {
 		var (
-			rf1 *v1beta1.ResourceFlavor
-			rf2 *v1beta1.ResourceFlavor
+			rf1 *kueue.ResourceFlavor
+			rf2 *kueue.ResourceFlavor
 		)
 
 		ginkgo.JustBeforeEach(func() {
-			rf1 = testing.MakeResourceFlavor("rf1").Obj()
+			rf1 = utiltestingapi.MakeResourceFlavor("rf1").Obj()
 			util.MustCreate(ctx, k8sClient, rf1)
 
-			rf2 = testing.MakeResourceFlavor("very-long-resource-flavor-name").Obj()
+			rf2 = utiltestingapi.MakeResourceFlavor("very-long-resource-flavor-name").Obj()
 			util.MustCreate(ctx, k8sClient, rf2)
 		})
 

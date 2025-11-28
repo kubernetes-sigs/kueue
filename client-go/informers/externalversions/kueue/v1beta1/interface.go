@@ -70,7 +70,7 @@ func (v *version) ClusterQueues() ClusterQueueInformer {
 
 // Cohorts returns a CohortInformer.
 func (v *version) Cohorts() CohortInformer {
-	return &cohortInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+	return &cohortInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
 // LocalQueues returns a LocalQueueInformer.

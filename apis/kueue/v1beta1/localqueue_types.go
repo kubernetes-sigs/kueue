@@ -56,6 +56,7 @@ type LocalQueueSpec struct {
 	FairSharing *FairSharing `json:"fairSharing,omitempty"`
 }
 
+// Deprecated: LocalQueueFlavorStatus is deprecated and marked for removal in v1beta2.
 type LocalQueueFlavorStatus struct {
 	// name of the flavor.
 	// +required
@@ -104,7 +105,7 @@ type TopologyInfo struct {
 	// +listType=atomic
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:MaxItems=16
 	Levels []string `json:"levels"`
 }
 
@@ -154,6 +155,8 @@ type LocalQueueStatus struct {
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=16
 	// +optional
+	//
+	// Deprecated: Flavors is deprecated and marked for removal in v1beta2.
 	Flavors []LocalQueueFlavorStatus `json:"flavors,omitempty"`
 
 	// fairSharing contains the information about the current status of fair sharing.

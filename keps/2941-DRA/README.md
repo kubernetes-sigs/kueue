@@ -285,7 +285,7 @@ metadata:
   namespace: kueue-system
 data:
   config.yaml: |
-    apiVersion: config.kueue.x-k8s.io/v1beta1
+    apiVersion: config.kueue.x-k8s.io/v1beta2
     kind: Configuration
     namespace: kueue-system
     manageJobsWithoutQueueName: false
@@ -299,14 +299,14 @@ data:
         - ts-shard-gpus.example.com
         - sp-shared-gpus.example.com
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ResourceFlavor
 metadata:
   name: "default-gpu-flavor"
 spec:
   # No changed needed here
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "gpus-cluster-queue"
@@ -350,7 +350,7 @@ metadata:
   namespace: kueue-system
 data:
   config.yaml: |
-    apiVersion: config.kueue.x-k8s.io/v1beta1
+    apiVersion: config.kueue.x-k8s.io/v1beta2
     kind: Configuration
     resources:
       deviceClassMappings:
@@ -371,7 +371,7 @@ metadata:
   namespace: kueue-system
 data:
   config.yaml: |
-    apiVersion: config.kueue.x-k8s.io/v1beta1
+    apiVersion: config.kueue.x-k8s.io/v1beta2
     kind: Configuration
     resources:
       deviceClassMappings:
@@ -467,7 +467,7 @@ metadata:
   namespace: kueue-system
 data:
   config.yaml: |
-    apiVersion: config.kueue.x-k8s.io/v1beta1
+    apiVersion: config.kueue.x-k8s.io/v1beta2
     kind: Configuration
     namespace: kueue-system
     resources:
@@ -477,7 +477,7 @@ data:
         - gpu.example.com # Maps gpu.example.com -> whole-gpus
 ---
 # Step 2: Define ClusterQueue with DRA resource quotas
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "gpus-cluster-queue"
@@ -536,7 +536,7 @@ spec:
         resourceClaimTemplateName: single-gpu # Must use template, not direct claim
 ---
 # Step 5: Resulting Workload status after admission
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: Workload
 metadata:
   name: job-job0-6f46e

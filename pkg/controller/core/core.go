@@ -21,11 +21,13 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
+	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 )
 
 const (
@@ -49,14 +51,11 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		return "LocalQueue", err
 	}
 
-	var fairSharingEnabled bool
-	if cfg.FairSharing != nil {
-		fairSharingEnabled = cfg.FairSharing.Enable
-	}
-
+	fairSharingEnabled := fairsharing.Enabled(cfg.FairSharing)
 	watchers := []ClusterQueueUpdateWatcher{rfRec, acRec}
 	if features.Enabled(features.HierarchicalCohorts) {
-		cohortRec := NewCohortReconciler(mgr.GetClient(), cc, qManager, CohortReconcilerWithFairSharing(fairSharingEnabled))
+		cohortRec := NewCohortReconciler(mgr.GetClient(), cc, qManager,
+			CohortReconcilerWithFairSharing(fairSharingEnabled))
 		if err := cohortRec.SetupWithManager(mgr, cfg); err != nil {
 			return "Cohort", err
 		}
@@ -96,7 +95,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 }
 
 func waitForPodsReady(cfg *configapi.WaitForPodsReady) *waitForPodsReadyConfig {
-	if cfg == nil || !cfg.Enable {
+	if !waitforpodsready.Enabled(cfg) {
 		return nil
 	}
 	result := waitForPodsReadyConfig{

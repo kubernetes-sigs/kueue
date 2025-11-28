@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	kueuebeta "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -40,7 +40,7 @@ import (
 
 var (
 	headGroupSpecsPath   = field.NewPath("spec", "rayClusterSpec", "headGroupSpec")
-	headGroupMetaPath    = headGroupSpecsPath.Child("template, metadata")
+	headGroupMetaPath    = headGroupSpecsPath.Child("template", "metadata")
 	workerGroupSpecsPath = field.NewPath("spec", "rayClusterSpec", "workerGroupSpecs")
 )
 
@@ -96,29 +96,46 @@ func (w *RayJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) 
 	job := obj.(*rayv1.RayJob)
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
 	log.Info("Validating create")
-	validationErrs, err := w.validateCreate(job)
+	validationErrs, err := w.validateCreate(ctx, job)
 	if err != nil {
 		return nil, err
 	}
 	return nil, validationErrs.ToAggregate()
 }
 
-func (w *RayJobWebhook) validateCreate(job *rayv1.RayJob) (field.ErrorList, error) {
+func (w *RayJobWebhook) validateCreate(ctx context.Context, job *rayv1.RayJob) (field.ErrorList, error) {
 	var allErrors field.ErrorList
 	kueueJob := (*RayJob)(job)
 
 	if w.manageJobsWithoutQueueName || jobframework.QueueName(kueueJob) != "" {
 		spec := &job.Spec
 		specPath := field.NewPath("spec")
+		hasClusterSelector := len(spec.ClusterSelector) > 0
+		hasRayClusterSpec := spec.RayClusterSpec != nil
+
+		// Validate the combination of clusterSelector and RayClusterSpec
+		if hasClusterSelector && hasRayClusterSpec {
+			// len(spec.ClusterSelector)>0 && spec.RayClusterSpec != nil -> validation error
+			allErrors = append(allErrors, field.Invalid(specPath.Child("clusterSelector"), spec.ClusterSelector, "a kueue managed job should not use an existing cluster"))
+			return allErrors, nil
+		}
+
+		if hasClusterSelector && !hasRayClusterSpec {
+			// len(spec.ClusterSelector)>0 && spec.RayClusterSpec == nil -> valid (skip validation)
+			// RayJobs using existing clusters are not managed by Kueue
+			return allErrors, nil
+		}
+
+		if !hasClusterSelector && !hasRayClusterSpec {
+			// len(spec.ClusterSelector)==0 && spec.RayClusterSpec == nil -> validation error
+			allErrors = append(allErrors, field.Required(specPath.Child("rayClusterSpec"), "rayClusterSpec is required for Kueue-managed jobs that don't use clusterSelector"))
+			return allErrors, nil
+		}
+		// len(spec.ClusterSelector)==0 && spec.RayClusterSpec != nil -> valid + perform additional validation
 
 		// Should always delete the cluster after the job has ended, otherwise it will continue to the queue's resources.
 		if !spec.ShutdownAfterJobFinishes {
 			allErrors = append(allErrors, field.Invalid(specPath.Child("shutdownAfterJobFinishes"), spec.ShutdownAfterJobFinishes, "a kueue managed job should delete the cluster after finishing"))
-		}
-
-		// Should not want existing cluster. Kueue (workload) should be able to control the admission of the actual work, not only the trigger.
-		if len(spec.ClusterSelector) > 0 {
-			allErrors = append(allErrors, field.Invalid(specPath.Child("clusterSelector"), spec.ClusterSelector, "a kueue managed job should not use an existing cluster"))
 		}
 
 		clusterSpec := spec.RayClusterSpec
@@ -144,7 +161,7 @@ func (w *RayJobWebhook) validateCreate(job *rayv1.RayJob) (field.ErrorList, erro
 
 	allErrors = append(allErrors, jobframework.ValidateJobOnCreate(kueueJob)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
-		validationErrs, err := w.validateTopologyRequest(job)
+		validationErrs, err := w.validateTopologyRequest(ctx, job)
 		if err != nil {
 			return nil, err
 		}
@@ -154,19 +171,20 @@ func (w *RayJobWebhook) validateCreate(job *rayv1.RayJob) (field.ErrorList, erro
 	return allErrors, nil
 }
 
-func (w *RayJobWebhook) validateTopologyRequest(rayJob *rayv1.RayJob) (field.ErrorList, error) {
+func (w *RayJobWebhook) validateTopologyRequest(ctx context.Context, rayJob *rayv1.RayJob) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	if rayJob.Spec.RayClusterSpec == nil {
 		return allErrs, nil
 	}
 
-	podSets, podSetsErr := (*RayJob)(rayJob).PodSets()
+	podSets, podSetsErr := jobframework.JobPodSets(ctx, (*RayJob)(rayJob))
 
 	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(headGroupMetaPath, &rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.ObjectMeta)...)
 
 	if podSetsErr == nil {
 		headGroupPodSetName := podset.FindPodSetByName(podSets, headGroupPodSetName)
 		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(headGroupMetaPath, &rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.ObjectMeta, headGroupPodSetName)...)
+		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, buildPodSetAnnotationsPathByNameMap(rayJob))...)
 	}
 
 	for i, wgs := range rayJob.Spec.RayClusterSpec.WorkerGroupSpecs {
@@ -177,7 +195,7 @@ func (w *RayJobWebhook) validateTopologyRequest(rayJob *rayv1.RayJob) (field.Err
 			continue
 		}
 
-		workerPodSetName := podset.FindPodSetByName(podSets, kueuebeta.NewPodSetReference(wgs.GroupName))
+		workerPodSetName := podset.FindPodSetByName(podSets, kueue.NewPodSetReference(wgs.GroupName))
 		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(workerGroupMetaPath, &rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[i].Template.ObjectMeta, workerPodSetName)...)
 	}
 
@@ -188,6 +206,16 @@ func (w *RayJobWebhook) validateTopologyRequest(rayJob *rayv1.RayJob) (field.Err
 	return nil, podSetsErr
 }
 
+func buildPodSetAnnotationsPathByNameMap(rayJob *rayv1.RayJob) map[kueue.PodSetReference]*field.Path {
+	podSetAnnotationsPathByName := make(map[kueue.PodSetReference]*field.Path)
+	podSetAnnotationsPathByName[headGroupPodSetName] = headGroupMetaPath.Child("annotations")
+	podSetAnnotationsPathByName[submitterJobPodSetName] = field.NewPath("spec", "submitterPodTemplate", "metadata", "annotations")
+	for i, wgs := range rayJob.Spec.RayClusterSpec.WorkerGroupSpecs {
+		podSetAnnotationsPathByName[kueue.PodSetReference(wgs.GroupName)] = workerGroupSpecsPath.Index(i).Child("template", "metadata", "annotations")
+	}
+	return podSetAnnotationsPathByName
+}
+
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *RayJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
 	oldJob := oldObj.(*rayv1.RayJob)
@@ -196,7 +224,7 @@ func (w *RayJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runti
 	if w.manageJobsWithoutQueueName || jobframework.QueueName((*RayJob)(newJob)) != "" {
 		log.Info("Validating update")
 		allErrors := jobframework.ValidateJobOnUpdate((*RayJob)(oldJob), (*RayJob)(newJob), w.queues.DefaultLocalQueueExist)
-		validationErrs, err := w.validateCreate(newJob)
+		validationErrs, err := w.validateCreate(ctx, newJob)
 		if err != nil {
 			return nil, err
 		}

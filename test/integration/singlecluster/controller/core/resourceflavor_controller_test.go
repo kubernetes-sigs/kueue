@@ -22,8 +22,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -51,9 +51,9 @@ var _ = ginkgo.Describe("ResourceFlavor controller", ginkgo.Ordered, ginkgo.Cont
 		var clusterQueue *kueue.ClusterQueue
 
 		ginkgo.BeforeEach(func() {
-			resourceFlavor = utiltesting.MakeResourceFlavor("flavor").Obj()
-			clusterQueue = utiltesting.MakeClusterQueue("foo").
-				ResourceGroup(*utiltesting.MakeFlavorQuotas("flavor").Resource(corev1.ResourceCPU, "5").Obj()).
+			resourceFlavor = utiltestingapi.MakeResourceFlavor("flavor").Obj()
+			clusterQueue = utiltestingapi.MakeClusterQueue("foo").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor").Resource(corev1.ResourceCPU, "5").Obj()).
 				Obj()
 
 			util.MustCreate(ctx, k8sClient, resourceFlavor)
@@ -83,7 +83,7 @@ var _ = ginkgo.Describe("ResourceFlavor controller", ginkgo.Ordered, ginkgo.Cont
 			var cq kueue.ClusterQueue
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &cq)).To(gomega.Succeed())
-				cq.Spec.Cohort = "foo-cohort"
+				cq.Spec.CohortName = "foo-cohort"
 				g.Expect(k8sClient.Update(ctx, &cq)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 

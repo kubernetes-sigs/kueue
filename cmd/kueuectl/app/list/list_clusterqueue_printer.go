@@ -26,7 +26,7 @@ import (
 	"k8s.io/cli-runtime/pkg/printers"
 	"k8s.io/utils/clock"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 type listClusterQueuePrinter struct {
@@ -39,7 +39,7 @@ var _ printers.ResourcePrinter = (*listClusterQueuePrinter)(nil)
 func (p *listClusterQueuePrinter) PrintObj(obj runtime.Object, out io.Writer) error {
 	printer := printers.NewTablePrinter(p.printOptions)
 
-	list, ok := obj.(*v1beta1.ClusterQueueList)
+	list, ok := obj.(*kueue.ClusterQueueList)
 	if !ok {
 		return errors.New("invalid object type")
 	}
@@ -75,7 +75,7 @@ func newClusterQueueTablePrinter() *listClusterQueuePrinter {
 	}
 }
 
-func (p *listClusterQueuePrinter) printClusterQueueList(list *v1beta1.ClusterQueueList) []metav1.TableRow {
+func (p *listClusterQueuePrinter) printClusterQueueList(list *kueue.ClusterQueueList) []metav1.TableRow {
 	rows := make([]metav1.TableRow, len(list.Items))
 	for index := range list.Items {
 		rows[index] = p.printClusterQueue(&list.Items[index])
@@ -83,13 +83,13 @@ func (p *listClusterQueuePrinter) printClusterQueueList(list *v1beta1.ClusterQue
 	return rows
 }
 
-func (p *listClusterQueuePrinter) printClusterQueue(clusterQueue *v1beta1.ClusterQueue) metav1.TableRow {
+func (p *listClusterQueuePrinter) printClusterQueue(clusterQueue *kueue.ClusterQueue) metav1.TableRow {
 	row := metav1.TableRow{
 		Object: runtime.RawExtension{Object: clusterQueue},
 	}
 	row.Cells = []any{
 		clusterQueue.Name,
-		clusterQueue.Spec.Cohort,
+		clusterQueue.Spec.CohortName,
 		clusterQueue.Status.PendingWorkloads,
 		clusterQueue.Status.AdmittedWorkloads,
 		isActiveStatus(clusterQueue),

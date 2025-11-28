@@ -58,8 +58,8 @@ type CohortSpec struct {
 	// Cohort has a parent.  Otherwise, the Cohort create/update
 	// will be rejected by the webhook.
 	//
-	//+listType=atomic
-	//+kubebuilder:validation:MaxItems=16
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=16
 	ResourceGroups []ResourceGroup `json:"resourceGroups,omitempty"`
 
 	// fairSharing defines the properties of the Cohort when
@@ -79,6 +79,7 @@ type CohortStatus struct {
 }
 
 // +genclient
+// +genclient:nonNamespaced
 // +kubebuilder:object:root=true
 // +kubebuilder:storageversion
 // +kubebuilder:resource:scope=Cluster

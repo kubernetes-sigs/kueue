@@ -120,7 +120,6 @@ func ValidateLabelAsCRDName(obj client.Object, crdNameLabel string) field.ErrorL
 func ValidateQueueName(obj client.Object) field.ErrorList {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, ValidateLabelAsCRDName(obj, constants.QueueLabel)...)
-	allErrs = append(allErrs, ValidateAnnotationAsCRDName(obj, constants.QueueAnnotation)...)
 	return allErrs
 }
 
@@ -149,11 +148,7 @@ func validateUpdateForPrebuiltWorkload(oldJob, newJob GenericJob) field.ErrorLis
 }
 
 func validateJobUpdateForWorkloadPriorityClassName(oldJob, newJob GenericJob) field.ErrorList {
-	var allErrs field.ErrorList
-	if !newJob.IsSuspended() || IsWorkloadPriorityClassNameEmpty(newJob.Object()) {
-		allErrs = append(allErrs, ValidateUpdateForWorkloadPriorityClassName(oldJob.Object(), newJob.Object())...)
-	}
-	return allErrs
+	return ValidateUpdateForWorkloadPriorityClassName(newJob.IsSuspended(), oldJob.Object(), newJob.Object())
 }
 
 // validatedUpdateForEnabledWorkloadSlice validates that the workload-slicing toggle remains immutable on update.
@@ -169,9 +164,11 @@ func validatedUpdateForEnabledWorkloadSlice(oldJob, newJob GenericJob) field.Err
 	return nil
 }
 
-func ValidateUpdateForWorkloadPriorityClassName(oldObj, newObj client.Object) field.ErrorList {
-	allErrs := apivalidation.ValidateImmutableField(WorkloadPriorityClassName(newObj), WorkloadPriorityClassName(oldObj), workloadPriorityClassNamePath)
-	return allErrs
+func ValidateUpdateForWorkloadPriorityClassName(isSuspended bool, oldObj, newObj client.Object) field.ErrorList {
+	if !isSuspended && IsWorkloadPriorityClassNameEmpty(oldObj) || IsWorkloadPriorityClassNameEmpty(newObj) {
+		return apivalidation.ValidateImmutableField(WorkloadPriorityClassName(newObj), WorkloadPriorityClassName(oldObj), workloadPriorityClassNamePath)
+	}
+	return nil
 }
 
 func validateCreateForMaxExecTime(job GenericJob) field.ErrorList {

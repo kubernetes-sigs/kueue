@@ -29,7 +29,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	mocks "sigs.k8s.io/kueue/internal/mocks/controller/jobframework"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	utiljob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 )
 
@@ -120,23 +121,23 @@ func TestBaseWebhookDefault(t *testing.T) {
 			cqCache := schdcache.New(cl)
 			queueManager := qcache.NewManager(cl, cqCache)
 			if tc.defaultLqExist {
-				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", metav1.NamespaceDefault).
+				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("default", metav1.NamespaceDefault).
 					ClusterQueue("cluster-queue").Obj()); err != nil {
 					t.Fatalf("failed to create default local queue: %s", err)
 				}
 			}
 			if tc.enableMultiKueue {
-				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("multikueue", metav1.NamespaceDefault).
+				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("multikueue", metav1.NamespaceDefault).
 					ClusterQueue("cluster-queue").Obj()); err != nil {
 					t.Fatalf("failed to create default local queue: %s", err)
 				}
-				cq := *utiltesting.MakeClusterQueue("cluster-queue").
+				cq := *utiltestingapi.MakeClusterQueue("cluster-queue").
 					AdmissionChecks("admission-check").
 					Obj()
 				if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
 					t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
 				}
-				ac := utiltesting.MakeAdmissionCheck("admission-check").
+				ac := utiltestingapi.MakeAdmissionCheck("admission-check").
 					ControllerName(kueue.MultiKueueControllerName).
 					Active(metav1.ConditionTrue).
 					Obj()
@@ -248,7 +249,7 @@ func TestValidateOnCreate(t *testing.T) {
 				MockJobWithCustomValidation: mocks.NewMockJobWithCustomValidation(mockctrl),
 			}
 			job.MockGenericJob.EXPECT().Object().Return(tc.job).AnyTimes()
-			job.MockJobWithCustomValidation.EXPECT().ValidateOnCreate().Return(tc.customValidationFailure, tc.customValidationError).AnyTimes()
+			job.MockJobWithCustomValidation.EXPECT().ValidateOnCreate(gomock.Any()).Return(tc.customValidationFailure, tc.customValidationError).AnyTimes()
 
 			w := &jobframework.BaseWebhook{
 				FromObject: func(object runtime.Object) jobframework.GenericJob {
@@ -334,7 +335,7 @@ func TestValidateOnUpdate(t *testing.T) {
 				}
 				mj.MockGenericJob.EXPECT().Object().Return(job).AnyTimes()
 				mj.MockGenericJob.EXPECT().IsSuspended().Return(ptr.Deref(job.Spec.Suspend, false)).AnyTimes()
-				mj.MockJobWithCustomValidation.EXPECT().ValidateOnUpdate(gomock.Any()).Return(customValidationFailure, customValidationError).AnyTimes()
+				mj.MockJobWithCustomValidation.EXPECT().ValidateOnUpdate(gomock.Any(), gomock.Any()).Return(customValidationFailure, customValidationError).AnyTimes()
 				return mj
 			}
 

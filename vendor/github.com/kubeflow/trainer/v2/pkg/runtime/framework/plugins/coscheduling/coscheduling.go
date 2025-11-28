@@ -18,8 +18,6 @@ package coscheduling
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"slices"
 
 	"github.com/go-logr/logr"
@@ -47,6 +45,7 @@ import (
 	trainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	"github.com/kubeflow/trainer/v2/pkg/runtime"
 	"github.com/kubeflow/trainer/v2/pkg/runtime/framework"
+	index "github.com/kubeflow/trainer/v2/pkg/runtime/indexer"
 	runtimeindexer "github.com/kubeflow/trainer/v2/pkg/runtime/indexer"
 )
 
@@ -61,24 +60,13 @@ var _ framework.EnforcePodGroupPolicyPlugin = (*CoScheduling)(nil)
 var _ framework.WatchExtensionPlugin = (*CoScheduling)(nil)
 var _ framework.ComponentBuilderPlugin = (*CoScheduling)(nil)
 
-var (
-	ErrorCanNotSetupTrainingRuntimeRuntimeClassIndexer        = errors.New("setting index on runtimeClass for TrainingRuntime")
-	ErrorCanNotSetupClusterTrainingRuntimeRuntimeClassIndexer = errors.New("setting index on runtimeClass for ClusterTrainingRuntime")
-)
-
 const Name = "CoScheduling"
 
 // +kubebuilder:rbac:groups=scheduling.x-k8s.io,resources=podgroups,verbs=create;get;list;watch;update;patch
+// +kubebuilder:rbac:groups=node.k8s.io,resources=runtimeclasses,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=limitranges,verbs=get;list;watch
 
-func New(ctx context.Context, client client.Client, indexer client.FieldIndexer) (framework.Plugin, error) {
-	if err := indexer.IndexField(ctx, &trainer.TrainingRuntime{}, TrainingRuntimeContainerRuntimeClassKey,
-		IndexTrainingRuntimeContainerRuntimeClass); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrorCanNotSetupTrainingRuntimeRuntimeClassIndexer, err)
-	}
-	if err := indexer.IndexField(ctx, &trainer.ClusterTrainingRuntime{}, ClusterTrainingRuntimeContainerRuntimeClassKey,
-		IndexClusterTrainingRuntimeContainerRuntimeClass); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrorCanNotSetupClusterTrainingRuntimeRuntimeClassIndexer, err)
-	}
+func New(_ context.Context, client client.Client, _ client.FieldIndexer) (framework.Plugin, error) {
 	return &CoScheduling{
 		client:     client,
 		restMapper: client.RESTMapper(),
@@ -91,7 +79,7 @@ func (c *CoScheduling) Name() string {
 }
 
 func (c *CoScheduling) EnforcePodGroupPolicy(info *runtime.Info, trainJob *trainer.TrainJob) error {
-	if info == nil || info.RuntimePolicy.PodGroupPolicy == nil || trainJob == nil {
+	if info == nil || info.RuntimePolicy.PodGroupPolicy == nil || info.RuntimePolicy.PodGroupPolicy.Coscheduling == nil || trainJob == nil {
 		return nil
 	}
 
@@ -102,7 +90,7 @@ func (c *CoScheduling) EnforcePodGroupPolicy(info *runtime.Info, trainJob *train
 	return nil
 }
 
-func (c *CoScheduling) Build(ctx context.Context, info *runtime.Info, trainJob *trainer.TrainJob) ([]any, error) {
+func (c *CoScheduling) Build(ctx context.Context, info *runtime.Info, trainJob *trainer.TrainJob) ([]apiruntime.ApplyConfiguration, error) {
 	if info == nil || info.RuntimePolicy.PodGroupPolicy == nil || info.RuntimePolicy.PodGroupPolicy.Coscheduling == nil || trainJob == nil {
 		return nil, nil
 	}
@@ -147,7 +135,7 @@ func (c *CoScheduling) Build(ctx context.Context, info *runtime.Info, trainJob *
 		WithController(true).
 		WithBlockOwnerDeletion(true))
 
-	return []any{podGroup}, nil
+	return []apiruntime.ApplyConfiguration{podGroup}, nil
 }
 
 type PodGroupRuntimeClassHandler struct {
@@ -185,11 +173,11 @@ func (h *PodGroupRuntimeClassHandler) Generic(context.Context, event.TypedGeneri
 
 func (h *PodGroupRuntimeClassHandler) queueSuspendedTrainJobs(ctx context.Context, runtimeClass *nodev1.RuntimeClass, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
 	var trainingRuntimes trainer.TrainingRuntimeList
-	if err := h.client.List(ctx, &trainingRuntimes, client.MatchingFields{TrainingRuntimeContainerRuntimeClassKey: runtimeClass.Name}); err != nil {
+	if err := h.client.List(ctx, &trainingRuntimes, client.MatchingFields{index.TrainingRuntimeContainerRuntimeClassKey: runtimeClass.Name}); err != nil {
 		return err
 	}
 	var clusterTrainingRuntimes trainer.ClusterTrainingRuntimeList
-	if err := h.client.List(ctx, &clusterTrainingRuntimes, client.MatchingFields{ClusterTrainingRuntimeContainerRuntimeClassKey: runtimeClass.Name}); err != nil {
+	if err := h.client.List(ctx, &clusterTrainingRuntimes, client.MatchingFields{index.ClusterTrainingRuntimeContainerRuntimeClassKey: runtimeClass.Name}); err != nil {
 		return err
 	}
 

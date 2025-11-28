@@ -23,7 +23,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/version"
@@ -64,6 +64,8 @@ var (
 
 	// Metrics tied to the scheduler
 
+	// +metricsdoc:group=health
+	// +metricsdoc:labels=result="possible values are `success` or `inadmissible`"
 	AdmissionAttemptsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
@@ -76,6 +78,8 @@ The label 'result' can have the following values:
 		}, []string{"result"},
 	)
 
+	// +metricsdoc:group=health
+	// +metricsdoc:labels=result="possible values are `success` or `inadmissible`"
 	admissionAttemptDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
@@ -87,6 +91,8 @@ The label 'result' can have the following values:
 		}, []string{"result"},
 	)
 
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue"
 	AdmissionCyclePreemptionSkips = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -98,6 +104,8 @@ The label 'result' can have the following values:
 
 	// Metrics tied to the queue system.
 
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=git_version="git version",git_commit="git commit",build_date="build date",go_version="go version",compiler="compiler",platform="platform"
 	buildInfo = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -107,6 +115,8 @@ The label 'result' can have the following values:
 		[]string{"git_version", "git_commit", "build_date", "go_version", "compiler", "platform"},
 	)
 
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",status="status label (varies by metric)"
 	PendingWorkloads = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -118,6 +128,8 @@ The label 'result' can have the following values:
 		}, []string{"cluster_queue", "status"},
 	)
 
+	// +metricsdoc:group=localqueue
+	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",status="status label (varies by metric)"
 	LocalQueuePendingWorkloads = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -129,6 +141,8 @@ The label 'result' can have the following values:
 		}, []string{"name", "namespace", "status"},
 	)
 
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",priority_class="the priority class name"
 	QuotaReservedWorkloadsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
@@ -137,6 +151,8 @@ The label 'result' can have the following values:
 		}, []string{"cluster_queue", "priority_class"},
 	)
 
+	// +metricsdoc:group=localqueue
+	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",priority_class="the priority class name"
 	LocalQueueQuotaReservedWorkloadsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
@@ -145,6 +161,8 @@ The label 'result' can have the following values:
 		}, []string{"name", "namespace", "priority_class"},
 	)
 
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",priority_class="the priority class name"
 	QuotaReservedWaitTime = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
@@ -154,6 +172,8 @@ The label 'result' can have the following values:
 		}, []string{"cluster_queue", "priority_class"},
 	)
 
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",reason="eviction or preemption reason",underlying_cause="root cause for eviction"
 	PodsReadyToEvictedTimeSeconds = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
@@ -176,6 +196,8 @@ The label 'underlying_cause' can have the following values:
 		}, []string{"cluster_queue", "reason", "underlying_cause"},
 	)
 
+	// +metricsdoc:group=localqueue
+	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",priority_class="the priority class name"
 	LocalQueueQuotaReservedWaitTime = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
@@ -185,6 +207,8 @@ The label 'underlying_cause' can have the following values:
 		}, []string{"name", "namespace", "priority_class"},
 	)
 
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",priority_class="the priority class name"
 	AdmittedWorkloadsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
@@ -193,6 +217,8 @@ The label 'underlying_cause' can have the following values:
 		}, []string{"cluster_queue", "priority_class"},
 	)
 
+	// +metricsdoc:group=localqueue
+	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",priority_class="the priority class name"
 	LocalQueueAdmittedWorkloadsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
@@ -201,6 +227,8 @@ The label 'underlying_cause' can have the following values:
 		}, []string{"name", "namespace", "priority_class"},
 	)
 
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",priority_class="the priority class name"
 	AdmissionWaitTime = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
@@ -210,6 +238,8 @@ The label 'underlying_cause' can have the following values:
 		}, []string{"cluster_queue", "priority_class"},
 	)
 
+	// +metricsdoc:group=optional_wait_for_pods_ready
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",priority_class="the priority class name"
 	QueuedUntilReadyWaitTime = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
@@ -219,6 +249,8 @@ The label 'underlying_cause' can have the following values:
 		}, []string{"cluster_queue", "priority_class"},
 	)
 
+	// +metricsdoc:group=optional_wait_for_pods_ready
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",priority_class="the priority class name"
 	AdmittedUntilReadyWaitTime = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
@@ -228,6 +260,8 @@ The label 'underlying_cause' can have the following values:
 		}, []string{"cluster_queue", "priority_class"},
 	)
 
+	// +metricsdoc:group=localqueue
+	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",priority_class="the priority class name"
 	LocalQueueAdmissionWaitTime = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
@@ -237,6 +271,8 @@ The label 'underlying_cause' can have the following values:
 		}, []string{"name", "namespace", "priority_class"},
 	)
 
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",priority_class="the priority class name"
 	AdmissionChecksWaitTime = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
@@ -246,6 +282,8 @@ The label 'underlying_cause' can have the following values:
 		}, []string{"cluster_queue", "priority_class"},
 	)
 
+	// +metricsdoc:group=localqueue
+	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",priority_class="the priority class name"
 	LocalQueueAdmissionChecksWaitTime = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
@@ -255,6 +293,8 @@ The label 'underlying_cause' can have the following values:
 		}, []string{"name", "namespace", "priority_class"},
 	)
 
+	// +metricsdoc:group=optional_wait_for_pods_ready
+	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",priority_class="the priority class name"
 	LocalQueueQueuedUntilReadyWaitTime = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
@@ -264,6 +304,8 @@ The label 'underlying_cause' can have the following values:
 		}, []string{"name", "namespace", "priority_class"},
 	)
 
+	// +metricsdoc:group=optional_wait_for_pods_ready
+	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",priority_class="the priority class name"
 	LocalQueueAdmittedUntilReadyWaitTime = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
@@ -273,6 +315,8 @@ The label 'underlying_cause' can have the following values:
 		}, []string{"name", "namespace", "priority_class"},
 	)
 
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",reason="eviction or preemption reason",underlying_cause="root cause for eviction",priority_class="the priority class name"
 	EvictedWorkloadsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
@@ -294,6 +338,8 @@ The label 'underlying_cause' can have the following values:
 		}, []string{"cluster_queue", "reason", "underlying_cause", "priority_class"},
 	)
 
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue"
 	ReplacedWorkloadSlicesTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
@@ -302,6 +348,8 @@ The label 'underlying_cause' can have the following values:
 		}, []string{"cluster_queue"},
 	)
 
+	// +metricsdoc:group=localqueue
+	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",reason="eviction or preemption reason",underlying_cause="root cause for eviction",priority_class="the priority class name"
 	LocalQueueEvictedWorkloadsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
@@ -323,6 +371,8 @@ The label 'underlying_cause' can have the following values:
 		}, []string{"name", "namespace", "reason", "underlying_cause", "priority_class"},
 	)
 
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",reason="eviction or preemption reason",detailed_reason="finer-grained eviction cause",priority_class="the priority class name"
 	EvictedWorkloadsOnceTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
@@ -346,6 +396,8 @@ The label 'detailed_reason' can have the following values:
 		}, []string{"cluster_queue", "reason", "detailed_reason", "priority_class"},
 	)
 
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=preempting_cluster_queue="the ClusterQueue executing preemption",reason="eviction or preemption reason"
 	PreemptedWorkloadsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
@@ -361,6 +413,8 @@ The label 'reason' can have the following values:
 
 	// Metrics tied to the cache.
 
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue"
 	ReservingActiveWorkloads = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -369,6 +423,8 @@ The label 'reason' can have the following values:
 		}, []string{"cluster_queue"},
 	)
 
+	// +metricsdoc:group=localqueue
+	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue"
 	LocalQueueReservingActiveWorkloads = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -377,6 +433,8 @@ The label 'reason' can have the following values:
 		}, []string{"name", "namespace"},
 	)
 
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue"
 	AdmittedActiveWorkloads = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -385,6 +443,8 @@ The label 'reason' can have the following values:
 		}, []string{"cluster_queue"},
 	)
 
+	// +metricsdoc:group=localqueue
+	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue"
 	LocalQueueAdmittedActiveWorkloads = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -393,6 +453,8 @@ The label 'reason' can have the following values:
 		}, []string{"name", "namespace"},
 	)
 
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",status="one of `pending`, `active`, or `terminated`"
 	ClusterQueueByStatus = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -402,6 +464,8 @@ For a ClusterQueue, the metric only reports a value of 1 for one of the statuses
 		}, []string{"cluster_queue", "status"},
 	)
 
+	// +metricsdoc:group=localqueue
+	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",active="one of `True`, `False`, or `Unknown`"
 	LocalQueueByStatus = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -413,6 +477,8 @@ For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`
 
 	// Optional cluster queue metrics
 
+	// +metricsdoc:group=optional_clusterqueue_resources
+	// +metricsdoc:labels=cohort="the name of the Cohort",cluster_queue="the name of the ClusterQueue",flavor="the resource flavor name",resource="the resource name"
 	ClusterQueueResourceReservations = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -421,6 +487,8 @@ For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`
 		}, []string{"cohort", "cluster_queue", "flavor", "resource"},
 	)
 
+	// +metricsdoc:group=optional_clusterqueue_resources
+	// +metricsdoc:labels=cohort="the name of the Cohort",cluster_queue="the name of the ClusterQueue",flavor="the resource flavor name",resource="the resource name"
 	ClusterQueueResourceUsage = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -429,6 +497,8 @@ For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`
 		}, []string{"cohort", "cluster_queue", "flavor", "resource"},
 	)
 
+	// +metricsdoc:group=localqueue
+	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",flavor="the resource flavor name",resource="the resource name"
 	LocalQueueResourceReservations = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -437,6 +507,8 @@ For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`
 		}, []string{"name", "namespace", "flavor", "resource"},
 	)
 
+	// +metricsdoc:group=localqueue
+	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",flavor="the resource flavor name",resource="the resource name"
 	LocalQueueResourceUsage = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -445,6 +517,8 @@ For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`
 		}, []string{"name", "namespace", "flavor", "resource"},
 	)
 
+	// +metricsdoc:group=optional_clusterqueue_resources
+	// +metricsdoc:labels=cohort="the name of the Cohort",cluster_queue="the name of the ClusterQueue",flavor="the resource flavor name",resource="the resource name"
 	ClusterQueueResourceNominalQuota = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -453,6 +527,8 @@ For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`
 		}, []string{"cohort", "cluster_queue", "flavor", "resource"},
 	)
 
+	// +metricsdoc:group=optional_clusterqueue_resources
+	// +metricsdoc:labels=cohort="the name of the Cohort",cluster_queue="the name of the ClusterQueue",flavor="the resource flavor name",resource="the resource name"
 	ClusterQueueResourceBorrowingLimit = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -461,6 +537,8 @@ For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`
 		}, []string{"cohort", "cluster_queue", "flavor", "resource"},
 	)
 
+	// +metricsdoc:group=optional_clusterqueue_resources
+	// +metricsdoc:labels=cohort="the name of the Cohort",cluster_queue="the name of the ClusterQueue",flavor="the resource flavor name",resource="the resource name"
 	ClusterQueueResourceLendingLimit = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -469,6 +547,8 @@ For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`
 		}, []string{"cohort", "cluster_queue", "flavor", "resource"},
 	)
 
+	// +metricsdoc:group=optional_clusterqueue_resources
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",cohort="the name of the Cohort"
 	ClusterQueueWeightedShare = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -477,11 +557,12 @@ For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`
 quota to the lendable resources in the cohort, among all the resources provided by
 the ClusterQueue, and divided by the weight.
 If zero, it means that the usage of the ClusterQueue is below the nominal quota.
-If the ClusterQueue has a weight of zero and is borrowing, this will return 9223372036854775807,
-the maximum possible share value.`,
-		}, []string{"cluster_queue"},
+If the ClusterQueue has a weight of zero and is borrowing, this will return NaN.`,
+		}, []string{"cluster_queue", "cohort"},
 	)
 
+	// +metricsdoc:group=cohort
+	// +metricsdoc:labels=cohort="the name of the Cohort"
 	CohortWeightedShare = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -490,8 +571,7 @@ the maximum possible share value.`,
 quota to the lendable resources in the Cohort, among all the resources provided by
 the Cohort, and divided by the weight.
 If zero, it means that the usage of the Cohort is below the nominal quota.
-If the Cohort has a weight of zero and is borrowing, this will return 9223372036854775807,
-the maximum possible share value.`,
+If the Cohort has a weight of zero and is borrowing, this will return NaN.`,
 		}, []string{"cohort"},
 	)
 )
@@ -685,12 +765,12 @@ func ReportLocalQueueResourceUsage(lq LocalQueueReference, flavor, resource stri
 	LocalQueueResourceUsage.WithLabelValues(string(lq.Name), lq.Namespace, flavor, resource).Set(usage)
 }
 
-func ReportClusterQueueWeightedShare(cq string, weightedShare int64) {
-	ClusterQueueWeightedShare.WithLabelValues(cq).Set(float64(weightedShare))
+func ReportClusterQueueWeightedShare(cq, cohort string, weightedShare float64) {
+	ClusterQueueWeightedShare.WithLabelValues(cq, cohort).Set(weightedShare)
 }
 
-func ReportCohortWeightedShare(cohort string, weightedShare int64) {
-	CohortWeightedShare.WithLabelValues(cohort).Set(float64(weightedShare))
+func ReportCohortWeightedShare(cohort string, weightedShare float64) {
+	CohortWeightedShare.WithLabelValues(cohort).Set(weightedShare)
 }
 
 func ClearClusterQueueResourceMetrics(cqName string) {

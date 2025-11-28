@@ -3,6 +3,7 @@ kep-number: 2724
 authors:
   - "@mimowo"
   - "@mwielgus"
+  - "@olekzabl"
   - "@pbundyra"
 status: provisional
 creation-date: 2023-07-30
@@ -23,7 +24,7 @@ stage: beta
 # The most recent milestone for which work toward delivery of this KEP has been
 # done. This can be the current (upcoming) milestone, if it is being actively
 # worked on.
-latest-milestone: "v0.14"
+latest-milestone: "v0.15"
 
 # The milestone at which this feature was, or is targeted to be, at each stage.
 milestone:
@@ -36,11 +37,13 @@ milestone:
 feature-gates:
   - name: TopologyAwareScheduling
   - name: TASProfileMixed
+  - name: TASProfileBestFit
   - name: TASProfileLeastFreeCapacity
   - name: TASProfileMostFreeCapacity # deleted in 0.13
   - name: TASFailedNodeReplacement
   - name: TASFailedNodeReplacementFailFast
   - name: TASReplaceNodeOnPodTermination
+  - name: TASBalancedPlacement
 disable-supported: true
 
 # The following PRR answers are required at beta release

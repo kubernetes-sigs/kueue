@@ -30,11 +30,11 @@ type fakeCohorts struct {
 	Fake *FakeKueueV1beta1
 }
 
-func newFakeCohorts(fake *FakeKueueV1beta1, namespace string) typedkueuev1beta1.CohortInterface {
+func newFakeCohorts(fake *FakeKueueV1beta1) typedkueuev1beta1.CohortInterface {
 	return &fakeCohorts{
 		gentype.NewFakeClientWithListAndApply[*v1beta1.Cohort, *v1beta1.CohortList, *kueuev1beta1.CohortApplyConfiguration](
 			fake.Fake,
-			namespace,
+			"",
 			v1beta1.SchemeGroupVersion.WithResource("cohorts"),
 			v1beta1.SchemeGroupVersion.WithKind("Cohort"),
 			func() *v1beta1.Cohort { return &v1beta1.Cohort{} },

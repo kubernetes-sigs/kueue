@@ -14,7 +14,7 @@ description: >
 一个示例 WorkloadPriorityClass 如下所示：
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: WorkloadPriorityClass
 metadata:
   name: sample-priority
@@ -46,7 +46,7 @@ Kueue 会为上述 Job 生成如下 `Workload`。
 字段为 `scheduling.k8s.io/priorityclass`。
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: Workload
 metadata:
   name: job-sample-job-7f173

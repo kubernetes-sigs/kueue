@@ -32,36 +32,36 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	apimachineryutilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/utils/ptr"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podworkload "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/features"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
+	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 )
 
 var (
-	integrationsPath                     = field.NewPath("integrations")
-	integrationsFrameworksPath           = integrationsPath.Child("frameworks")
-	integrationsExternalFrameworkPath    = integrationsPath.Child("externalFrameworks")
-	podOptionsPath                       = integrationsPath.Child("podOptions")
-	podOptionsNamespaceSelectorPath      = podOptionsPath.Child("namespaceSelector")
-	managedJobsNamespaceSelectorPath     = field.NewPath("managedJobsNamespaceSelector")
-	waitForPodsReadyPath                 = field.NewPath("waitForPodsReady")
-	requeuingStrategyPath                = waitForPodsReadyPath.Child("requeuingStrategy")
-	multiKueuePath                       = field.NewPath("multiKueue")
-	fsPreemptionStrategiesPath           = field.NewPath("fairSharing", "preemptionStrategies")
-	afsResourceWeightsPath               = field.NewPath("admissionFairSharing", "resourceWeights")
-	afsPath                              = field.NewPath("admissionFairSharing")
-	internalCertManagementPath           = field.NewPath("internalCertManagement")
-	resourceTransformationPath           = field.NewPath("resources", "transformations")
-	dynamicResourceAllocationPath        = field.NewPath("resources", "deviceClassMappings")
-	objectRetentionPoliciesPath          = field.NewPath("objectRetentionPolicies")
-	objectRetentionPoliciesWorkloadsPath = objectRetentionPoliciesPath.Child("workloads")
-	log                                  = ctrl.Log.WithName("config")
+	integrationsPath                             = field.NewPath("integrations")
+	integrationsFrameworksPath                   = integrationsPath.Child("frameworks")
+	integrationsExternalFrameworkPath            = integrationsPath.Child("externalFrameworks")
+	managedJobsNamespaceSelectorPath             = field.NewPath("managedJobsNamespaceSelector")
+	waitForPodsReadyPath                         = field.NewPath("waitForPodsReady")
+	requeuingStrategyPath                        = waitForPodsReadyPath.Child("requeuingStrategy")
+	multiKueuePath                               = field.NewPath("multiKueue")
+	clusterProfileCredentialProvidersPath        = multiKueuePath.Child("clusterProfile").Child("credentialsProviders")
+	clusterProfileCredentialProvidersExecCfgPath = clusterProfileCredentialProvidersPath.Child("execConfig")
+	fsPreemptionStrategiesPath                   = field.NewPath("fairSharing", "preemptionStrategies")
+	afsResourceWeightsPath                       = field.NewPath("admissionFairSharing", "resourceWeights")
+	afsPath                                      = field.NewPath("admissionFairSharing")
+	internalCertManagementPath                   = field.NewPath("internalCertManagement")
+	resourceTransformationPath                   = field.NewPath("resources", "transformations")
+	dynamicResourceAllocationPath                = field.NewPath("resources", "deviceClassMappings")
+	objectRetentionPoliciesPath                  = field.NewPath("objectRetentionPolicies")
+	objectRetentionPoliciesWorkloadsPath         = objectRetentionPoliciesPath.Child("workloads")
 )
 
 func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorList {
@@ -149,19 +149,53 @@ func validateMultiKueue(c *configapi.Configuration) field.ErrorList {
 				}
 			}
 		}
+
+		if cp := c.MultiKueue.ClusterProfile; cp != nil {
+			for _, provider := range cp.CredentialsProviders {
+				if len(provider.Name) == 0 {
+					allErrs = append(allErrs, field.Required(clusterProfileCredentialProvidersPath.Child("name"), "must be specified"))
+				}
+
+				// The following execConfig validations almost stolen from
+				// https://github.com/kubernetes/client-go/blob/45e0decafa9b847c983f55c84b4f6ce5617f8f69/tools/clientcmd/validation.go#L308-L335
+				if len(provider.ExecConfig.Command) == 0 {
+					allErrs = append(allErrs, field.Required(clusterProfileCredentialProvidersExecCfgPath.Child("command"), "must be specified"))
+				}
+				if len(provider.ExecConfig.APIVersion) == 0 {
+					allErrs = append(allErrs, field.Required(clusterProfileCredentialProvidersExecCfgPath.Child("apiVersion"), "must be specified"))
+				}
+				for _, v := range provider.ExecConfig.Env {
+					if len(v.Name) == 0 {
+						allErrs = append(allErrs, field.Required(clusterProfileCredentialProvidersExecCfgPath.Child("env").Child("name"), "must be specified"))
+					}
+				}
+				switch provider.ExecConfig.InteractiveMode {
+				case "":
+					allErrs = append(allErrs, field.Required(clusterProfileCredentialProvidersExecCfgPath.Child("interactiveMode"), "must be specified"))
+				case clientcmdapi.NeverExecInteractiveMode, clientcmdapi.IfAvailableExecInteractiveMode, clientcmdapi.AlwaysExecInteractiveMode:
+					// These are valid
+				default:
+					allErrs = append(allErrs, field.NotSupported(
+						clusterProfileCredentialProvidersExecCfgPath.Child("interactiveMode"),
+						provider.ExecConfig.InteractiveMode,
+						[]clientcmdapi.ExecInteractiveMode{clientcmdapi.NeverExecInteractiveMode, clientcmdapi.IfAvailableExecInteractiveMode, clientcmdapi.AlwaysExecInteractiveMode},
+					))
+				}
+			}
+		}
 	}
 	return allErrs
 }
 
 func validateWaitForPodsReady(c *configapi.Configuration) field.ErrorList {
 	var allErrs field.ErrorList
-	if !WaitForPodsReadyIsEnabled(c) {
-		if c.WaitForPodsReady != nil && (c.WaitForPodsReady.Timeout != nil || c.WaitForPodsReady.BlockAdmission != nil || c.WaitForPodsReady.RequeuingStrategy != nil || c.WaitForPodsReady.RecoveryTimeout != nil) {
-			log.Info("enable is set to false in waitForPodsReady, ignoring the rest of its configuration")
-		}
+	if !waitforpodsready.Enabled(c.WaitForPodsReady) {
 		return allErrs
 	}
-	if c.WaitForPodsReady.Timeout != nil && c.WaitForPodsReady.Timeout.Duration < 0 {
+	if c.WaitForPodsReady.Timeout.Duration == 0 {
+		allErrs = append(allErrs, field.Required(waitForPodsReadyPath.Child("timeout"), "must be specified"))
+	}
+	if c.WaitForPodsReady.Timeout.Duration < 0 {
 		allErrs = append(allErrs, field.Invalid(waitForPodsReadyPath.Child("timeout"),
 			c.WaitForPodsReady.Timeout, apimachineryvalidation.IsNegativeErrorMsg))
 	}
@@ -255,19 +289,9 @@ func validatePodIntegrationOptions(c *configapi.Configuration) field.ErrorList {
 		return allErrs
 	}
 
-	// At least one namespace selector must be non-nil and enabled.
-	// It is ok for both to be non-nil; pods will only be managed if all non-nil selectors match
-	hasNamespaceSelector := false
 	if c.ManagedJobsNamespaceSelector != nil {
 		allErrs = validateNamespaceSelectorForPodIntegration(c, c.ManagedJobsNamespaceSelector, managedJobsNamespaceSelectorPath, allErrs)
-		hasNamespaceSelector = true
-	}
-	if c.Integrations.PodOptions != nil && c.Integrations.PodOptions.NamespaceSelector != nil {
-		allErrs = validateNamespaceSelectorForPodIntegration(c, c.Integrations.PodOptions.NamespaceSelector, podOptionsNamespaceSelectorPath, allErrs)
-		hasNamespaceSelector = true
-	}
-
-	if !hasNamespaceSelector {
+	} else {
 		allErrs = append(allErrs, field.Required(managedJobsNamespaceSelectorPath, "cannot be empty when pod integration is enabled"))
 	}
 
@@ -303,7 +327,9 @@ func validateFairSharing(c *configapi.Configuration) field.ErrorList {
 		return nil
 	}
 	var allErrs field.ErrorList
-	if len(fs.PreemptionStrategies) > 0 {
+	if len(fs.PreemptionStrategies) == 0 {
+		allErrs = append(allErrs, field.Required(fsPreemptionStrategiesPath, "must be specified"))
+	} else {
 		validStrategy := false
 		for _, s := range validStrategySets {
 			if slices.Equal(s, fs.PreemptionStrategies) {

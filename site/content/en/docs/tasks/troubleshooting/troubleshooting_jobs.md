@@ -81,7 +81,7 @@ kubectl describe workload -n my-namespace job-my-job-19797
 The output should be similar to the following:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: Workload
 ...
 status:
@@ -135,7 +135,7 @@ kubectl get workload -n my-namespace my-workload -o yaml
 If your Job is admitted, the Workload should have a status similar to the following:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: Workload
 ...
 status:
@@ -195,7 +195,7 @@ $ kubectl get jobs job-0-9-size-6 -o json | jq -r .spec.template.spec.containers
 If your ClusterQueue does not have a definition for the `requests`, Kueue cannot admit the job. For the job above, you should define `cpu` quotas under `resourceGroups`. A ClusterQueue defining `cpu` quota looks like the following:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"

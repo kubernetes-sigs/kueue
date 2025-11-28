@@ -22,6 +22,11 @@ import (
 	"net"
 	"strings"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	validatingadmissionpolicy "k8s.io/apiserver/pkg/admission/plugin/policy/validating"
 	"k8s.io/apiserver/pkg/admission/plugin/resourcequota"
 	mutatingwebhook "k8s.io/apiserver/pkg/admission/plugin/webhook/mutating"
@@ -29,18 +34,23 @@ import (
 	openapinamer "k8s.io/apiserver/pkg/endpoints/openapi"
 	genericapiserver "k8s.io/apiserver/pkg/server"
 	genericoptions "k8s.io/apiserver/pkg/server/options"
+	"k8s.io/client-go/rest"
 	"k8s.io/component-base/compatibility"
 	"k8s.io/component-base/version"
 
 	generatedopenapi "sigs.k8s.io/kueue/apis/visibility/openapi"
 	visibilityv1beta1 "sigs.k8s.io/kueue/apis/visibility/v1beta1"
+	visibilityv1beta2 "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
-	"sigs.k8s.io/kueue/pkg/visibility/api"
+	"sigs.k8s.io/kueue/pkg/visibility/storage"
 
 	_ "k8s.io/component-base/metrics/prometheus/restclient" // for client-go metrics registration
 )
 
 var (
+	scheme         = runtime.NewScheme()
+	codecs         = serializer.NewCodecFactory(scheme)
+	parameterCodec = runtime.NewParameterCodec(scheme)
 	// Admission plugins that are enabled by default in the kubeapi server
 	// but are not required for the visibility server.
 	disabledPlugins = []string{
@@ -52,13 +62,19 @@ var (
 	certDir = "/visibility"
 )
 
+func init() {
+	utilruntime.Must(visibilityv1beta2.AddToScheme(scheme))
+	utilruntime.Must(visibilityv1beta1.AddToScheme(scheme))
+	metav1.AddToGroupVersion(scheme, schema.GroupVersion{Version: "v1"})
+}
+
 // +kubebuilder:rbac:groups=flowcontrol.apiserver.k8s.io,resources=prioritylevelconfigurations,verbs=list;watch
 // +kubebuilder:rbac:groups=flowcontrol.apiserver.k8s.io,resources=flowschemas,verbs=list;watch
 // +kubebuilder:rbac:groups=flowcontrol.apiserver.k8s.io,resources=flowschemas/status,verbs=patch
 
-// CreateAndStartVisibilityServer creates visibility server injecting KueueManager and starts it
-func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manager, enableInternalCertManagement bool) error {
-	config := newVisibilityServerConfig()
+// CreateAndStartVisibilityServer creates a visibility server injecting KueueManager and starts it
+func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manager, enableInternalCertManagement bool, kubeConfig *rest.Config) error {
+	config := newVisibilityServerConfig(kubeConfig)
 	if err := applyVisibilityServerOptions(config, enableInternalCertManagement); err != nil {
 		return fmt.Errorf("unable to apply VisibilityServerOptions: %w", err)
 	}
@@ -68,7 +84,7 @@ func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manage
 		return fmt.Errorf("unable to create visibility server: %w", err)
 	}
 
-	if err := api.Install(visibilityServer, kueueMgr); err != nil {
+	if err := install(visibilityServer, kueueMgr); err != nil {
 		return fmt.Errorf("unable to install visibility.kueue.x-k8s.io API: %w", err)
 	}
 
@@ -80,7 +96,10 @@ func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manage
 }
 
 func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, enableInternalCertManagement bool) error {
-	o := genericoptions.NewRecommendedOptions("", api.Codecs.LegacyCodec(visibilityv1beta1.SchemeGroupVersion))
+	o := genericoptions.NewRecommendedOptions("", codecs.LegacyCodec(
+		visibilityv1beta2.SchemeGroupVersion,
+		visibilityv1beta1.SchemeGroupVersion,
+	))
 	o.Etcd = nil
 	o.SecureServing.BindPort = 8082
 	if enableInternalCertManagement {
@@ -97,20 +116,31 @@ func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, en
 	return o.ApplyTo(config)
 }
 
-func newVisibilityServerConfig() *genericapiserver.RecommendedConfig {
-	c := genericapiserver.NewRecommendedConfig(api.Codecs)
+func newVisibilityServerConfig(kubeConfig *rest.Config) *genericapiserver.RecommendedConfig {
+	c := genericapiserver.NewRecommendedConfig(codecs)
 	versionInfo := version.Get()
 	version := strings.Split(versionInfo.String(), "-")[0]
 	// enable OpenAPI schemas
 	c.EffectiveVersion = compatibility.NewEffectiveVersionFromString(version, "", "")
-	c.OpenAPIConfig = genericapiserver.DefaultOpenAPIConfig(generatedopenapi.GetOpenAPIDefinitions, openapinamer.NewDefinitionNamer(api.Scheme))
-	c.OpenAPIV3Config = genericapiserver.DefaultOpenAPIV3Config(generatedopenapi.GetOpenAPIDefinitions, openapinamer.NewDefinitionNamer(api.Scheme))
+	c.OpenAPIConfig = genericapiserver.DefaultOpenAPIConfig(generatedopenapi.GetOpenAPIDefinitions, openapinamer.NewDefinitionNamer(scheme))
+	c.OpenAPIV3Config = genericapiserver.DefaultOpenAPIV3Config(generatedopenapi.GetOpenAPIDefinitions, openapinamer.NewDefinitionNamer(scheme))
 	c.OpenAPIConfig.Info.Title = "Kueue visibility-server"
 	c.OpenAPIV3Config.Info.Title = "Kueue visibility-server"
 	c.OpenAPIConfig.Info.Version = version
 	c.OpenAPIV3Config.Info.Version = version
 
 	c.EnableMetrics = true
+	c.ClientConfig = rest.CopyConfig(kubeConfig)
 
 	return c
+}
+
+// install installs API scheme and registers storages
+func install(server *genericapiserver.GenericAPIServer, kueueMgr *qcache.Manager) error {
+	apiGroupInfo := genericapiserver.NewDefaultAPIGroupInfo(visibilityv1beta2.GroupVersion.Group, scheme, parameterCodec, codecs)
+	storage := storage.NewStorage(kueueMgr)
+	apiGroupInfo.VersionedResourcesStorageMap[visibilityv1beta2.GroupVersion.Version] = storage
+	apiGroupInfo.VersionedResourcesStorageMap[visibilityv1beta1.GroupVersion.Version] = storage
+	apiGroupInfo.PrioritizedVersions = []schema.GroupVersion{visibilityv1beta2.GroupVersion, visibilityv1beta1.GroupVersion}
+	return server.InstallAPIGroups(&apiGroupInfo)
 }

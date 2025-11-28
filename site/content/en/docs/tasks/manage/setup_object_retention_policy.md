@@ -53,7 +53,6 @@ It contains the following optional fields:
       afterFinished: "1m"
       afterDeactivatedByKueue: "1m"
   waitForPodsReady:
-    enable: true
     timeout: 2m
     recoveryTimeout: 1m
     blockAdmission: false
@@ -68,7 +67,7 @@ It contains the following optional fields:
 1. **Submit** a simple Workload that should finish normally:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: successful-cq
@@ -82,7 +81,7 @@ spec:
       - name: cpu
         nominalQuota: "2"
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: LocalQueue
 metadata:
   namespace: default
@@ -138,7 +137,7 @@ kubectl get jobs -n default
 2. **Submit** a Workload that requests more than is available on the node:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: limited-cq
@@ -152,7 +151,7 @@ spec:
       - name: cpu
         nominalQuota: "100" # more than is available on the node
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: LocalQueue
 metadata:
   namespace: default

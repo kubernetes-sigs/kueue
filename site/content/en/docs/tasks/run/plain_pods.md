@@ -25,7 +25,7 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 
    One approach is to only enable management only for specific namespaces:
    ```yaml
-   apiVersion: config.kueue.x-k8s.io/v1beta1
+   apiVersion: config.kueue.x-k8s.io/v1beta2
    kind: Configuration
    managedJobsNamespaceSelector:
      matchLabels:
@@ -36,7 +36,7 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
    ```
    An alternate approach is to exempt system namespaces from management:
    ```yaml
-   apiVersion: config.kueue.x-k8s.io/v1beta1
+   apiVersion: config.kueue.x-k8s.io/v1beta2
    kind: Configuration
    managedJobsNamespaceSelector:
       matchExpressions:

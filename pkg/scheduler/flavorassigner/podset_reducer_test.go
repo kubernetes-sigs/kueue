@@ -19,8 +19,8 @@ package flavorassigner
 import (
 	"testing"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 func TestSearch(t *testing.T) {
@@ -38,8 +38,8 @@ func TestSearch(t *testing.T) {
 		},
 		"partial not available": {
 			podSets: []kueue.PodSet{
-				*utiltesting.MakePodSet("ps1", 1).Obj(),
-				*utiltesting.MakePodSet("ps2", 2).SetMinimumCount(2).Obj(),
+				*utiltestingapi.MakePodSet("ps1", 1).Obj(),
+				*utiltestingapi.MakePodSet("ps2", 2).SetMinimumCount(2).Obj(),
 			},
 			countLimit: 2,
 			wantFound:  false,
@@ -47,10 +47,10 @@ func TestSearch(t *testing.T) {
 		},
 		"partial available": {
 			podSets: []kueue.PodSet{
-				*utiltesting.MakePodSet("ps1", 5).SetMinimumCount(3).Obj(),
-				*utiltesting.MakePodSet("ps2", 5).SetMinimumCount(4).Obj(),
-				*utiltesting.MakePodSet("ps3", 5).SetMinimumCount(1).Obj(),
-				*utiltesting.MakePodSet("ps4", 5).SetMinimumCount(2).Obj(),
+				*utiltestingapi.MakePodSet("ps1", 5).SetMinimumCount(3).Obj(),
+				*utiltestingapi.MakePodSet("ps2", 5).SetMinimumCount(4).Obj(),
+				*utiltestingapi.MakePodSet("ps3", 5).SetMinimumCount(1).Obj(),
+				*utiltestingapi.MakePodSet("ps4", 5).SetMinimumCount(2).Obj(),
 			},
 			countLimit: 15,
 			wantFound:  true,
@@ -58,10 +58,10 @@ func TestSearch(t *testing.T) {
 		},
 		"one partial available": {
 			podSets: []kueue.PodSet{
-				*utiltesting.MakePodSet("ps1", 5).SetMinimumCount(3).Obj(),
-				*utiltesting.MakePodSet("ps2", 5).Obj(),
-				*utiltesting.MakePodSet("ps3", 5).Obj(),
-				*utiltesting.MakePodSet("ps4", 5).Obj(),
+				*utiltestingapi.MakePodSet("ps1", 5).SetMinimumCount(3).Obj(),
+				*utiltestingapi.MakePodSet("ps2", 5).Obj(),
+				*utiltestingapi.MakePodSet("ps3", 5).Obj(),
+				*utiltestingapi.MakePodSet("ps4", 5).Obj(),
 			},
 			countLimit: 19,
 			wantFound:  true,
@@ -69,10 +69,10 @@ func TestSearch(t *testing.T) {
 		},
 		"to min": {
 			podSets: []kueue.PodSet{
-				*utiltesting.MakePodSet("ps1", 5).SetMinimumCount(3).Obj(),
-				*utiltesting.MakePodSet("ps2", 5).SetMinimumCount(4).Obj(),
-				*utiltesting.MakePodSet("ps3", 5).SetMinimumCount(1).Obj(),
-				*utiltesting.MakePodSet("ps4", 5).SetMinimumCount(2).Obj(),
+				*utiltestingapi.MakePodSet("ps1", 5).SetMinimumCount(3).Obj(),
+				*utiltestingapi.MakePodSet("ps2", 5).SetMinimumCount(4).Obj(),
+				*utiltestingapi.MakePodSet("ps3", 5).SetMinimumCount(1).Obj(),
+				*utiltestingapi.MakePodSet("ps4", 5).SetMinimumCount(2).Obj(),
 			},
 			countLimit: 10,
 			wantFound:  true,
@@ -80,10 +80,10 @@ func TestSearch(t *testing.T) {
 		},
 		"to max": {
 			podSets: []kueue.PodSet{
-				*utiltesting.MakePodSet("ps1", 5).SetMinimumCount(3).Obj(),
-				*utiltesting.MakePodSet("ps2", 5).SetMinimumCount(4).Obj(),
-				*utiltesting.MakePodSet("ps3", 5).SetMinimumCount(1).Obj(),
-				*utiltesting.MakePodSet("ps4", 5).SetMinimumCount(2).Obj(),
+				*utiltestingapi.MakePodSet("ps1", 5).SetMinimumCount(3).Obj(),
+				*utiltestingapi.MakePodSet("ps2", 5).SetMinimumCount(4).Obj(),
+				*utiltestingapi.MakePodSet("ps3", 5).SetMinimumCount(1).Obj(),
+				*utiltestingapi.MakePodSet("ps4", 5).SetMinimumCount(2).Obj(),
 			},
 			countLimit: 20,
 			wantFound:  true,
@@ -91,14 +91,14 @@ func TestSearch(t *testing.T) {
 		},
 		"no overflow": {
 			podSets: []kueue.PodSet{
-				*utiltesting.MakePodSet("ps1", 150_000).SetMinimumCount(1).Obj(),
-				*utiltesting.MakePodSet("ps2", 150_000).SetMinimumCount(1).Obj(),
-				*utiltesting.MakePodSet("ps3", 150_000).SetMinimumCount(1).Obj(),
-				*utiltesting.MakePodSet("ps4", 150_000).SetMinimumCount(1).Obj(),
-				*utiltesting.MakePodSet("ps5", 150_000).SetMinimumCount(1).Obj(),
-				*utiltesting.MakePodSet("ps6", 150_000).SetMinimumCount(1).Obj(),
-				*utiltesting.MakePodSet("ps7", 150_000).SetMinimumCount(1).Obj(),
-				*utiltesting.MakePodSet("ps8", 150_000).SetMinimumCount(1).Obj(),
+				*utiltestingapi.MakePodSet("ps1", 150_000).SetMinimumCount(1).Obj(),
+				*utiltestingapi.MakePodSet("ps2", 150_000).SetMinimumCount(1).Obj(),
+				*utiltestingapi.MakePodSet("ps3", 150_000).SetMinimumCount(1).Obj(),
+				*utiltestingapi.MakePodSet("ps4", 150_000).SetMinimumCount(1).Obj(),
+				*utiltestingapi.MakePodSet("ps5", 150_000).SetMinimumCount(1).Obj(),
+				*utiltestingapi.MakePodSet("ps6", 150_000).SetMinimumCount(1).Obj(),
+				*utiltestingapi.MakePodSet("ps7", 150_000).SetMinimumCount(1).Obj(),
+				*utiltestingapi.MakePodSet("ps8", 150_000).SetMinimumCount(1).Obj(),
 			},
 			countLimit: 150_000,
 			wantFound:  true,
@@ -106,14 +106,14 @@ func TestSearch(t *testing.T) {
 		},
 		"max pods on 1.27": {
 			podSets: []kueue.PodSet{
-				*utiltesting.MakePodSet("ps1", 150_000).SetMinimumCount(1).Obj(),
-				*utiltesting.MakePodSet("ps2", 1).Obj(),
-				*utiltesting.MakePodSet("ps3", 1).Obj(),
-				*utiltesting.MakePodSet("ps4", 1).Obj(),
-				*utiltesting.MakePodSet("ps5", 1).Obj(),
-				*utiltesting.MakePodSet("ps6", 1).Obj(),
-				*utiltesting.MakePodSet("ps7", 1).Obj(),
-				*utiltesting.MakePodSet("ps8", 1).Obj(),
+				*utiltestingapi.MakePodSet("ps1", 150_000).SetMinimumCount(1).Obj(),
+				*utiltestingapi.MakePodSet("ps2", 1).Obj(),
+				*utiltestingapi.MakePodSet("ps3", 1).Obj(),
+				*utiltestingapi.MakePodSet("ps4", 1).Obj(),
+				*utiltestingapi.MakePodSet("ps5", 1).Obj(),
+				*utiltestingapi.MakePodSet("ps6", 1).Obj(),
+				*utiltestingapi.MakePodSet("ps7", 1).Obj(),
+				*utiltestingapi.MakePodSet("ps8", 1).Obj(),
 			},
 			countLimit: 150_000,
 			wantFound:  true,
@@ -121,7 +121,7 @@ func TestSearch(t *testing.T) {
 		},
 		"podset with replica count 0": {
 			podSets: []kueue.PodSet{
-				*utiltesting.MakePodSet("ps1", 0).SetMinimumCount(0).Obj(),
+				*utiltestingapi.MakePodSet("ps1", 0).SetMinimumCount(0).Obj(),
 			},
 			countLimit: 0,
 			wantFound:  false,

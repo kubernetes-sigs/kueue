@@ -40,8 +40,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
-	kueueconfig "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueueconfig "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadaw "sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
@@ -55,6 +55,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -96,16 +97,16 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		worker1Ns = util.CreateNamespaceWithLog(ctx, k8sWorker1Client, managerNs.Name)
 		worker2Ns = util.CreateNamespaceWithLog(ctx, k8sWorker2Client, managerNs.Name)
 
-		workerCluster1 = utiltesting.MakeMultiKueueCluster("worker1").KubeConfig(kueue.SecretLocationType, "multikueue1").Obj()
+		workerCluster1 = utiltestingapi.MakeMultiKueueCluster("worker1").KubeConfig(kueue.SecretLocationType, "multikueue1").Obj()
 		util.MustCreate(ctx, k8sManagerClient, workerCluster1)
 
-		workerCluster2 = utiltesting.MakeMultiKueueCluster("worker2").KubeConfig(kueue.SecretLocationType, "multikueue2").Obj()
+		workerCluster2 = utiltestingapi.MakeMultiKueueCluster("worker2").KubeConfig(kueue.SecretLocationType, "multikueue2").Obj()
 		util.MustCreate(ctx, k8sManagerClient, workerCluster2)
 
-		multiKueueConfig = utiltesting.MakeMultiKueueConfig("multikueueconfig").Clusters("worker1", "worker2").Obj()
+		multiKueueConfig = utiltestingapi.MakeMultiKueueConfig("multikueueconfig").Clusters("worker1", "worker2").Obj()
 		util.MustCreate(ctx, k8sManagerClient, multiKueueConfig)
 
-		multiKueueAc = utiltesting.MakeAdmissionCheck("ac1").
+		multiKueueAc = utiltestingapi.MakeAdmissionCheck("ac1").
 			ControllerName(kueue.MultiKueueControllerName).
 			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", multiKueueConfig.Name).
 			Obj()
@@ -119,12 +120,12 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				g.Expect(updatedAc.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.AdmissionCheckActive))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
-		managerFlavor = utiltesting.MakeResourceFlavor("default").Obj()
+		managerFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		util.MustCreate(ctx, k8sManagerClient, managerFlavor)
 
-		managerCq = utiltesting.MakeClusterQueue("q1").
+		managerCq = utiltestingapi.MakeClusterQueue("q1").
 			ResourceGroup(
-				*utiltesting.MakeFlavorQuotas(managerFlavor.Name).
+				*utiltestingapi.MakeFlavorQuotas(managerFlavor.Name).
 					Resource(corev1.ResourceCPU, "2").
 					Resource(corev1.ResourceMemory, "2G").
 					Obj(),
@@ -133,15 +134,15 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			Obj()
 		util.MustCreate(ctx, k8sManagerClient, managerCq)
 
-		managerLq = utiltesting.MakeLocalQueue(managerCq.Name, managerNs.Name).ClusterQueue(managerCq.Name).Obj()
+		managerLq = utiltestingapi.MakeLocalQueue(managerCq.Name, managerNs.Name).ClusterQueue(managerCq.Name).Obj()
 		util.MustCreate(ctx, k8sManagerClient, managerLq)
 
-		worker1Flavor = utiltesting.MakeResourceFlavor("default").Obj()
+		worker1Flavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		util.MustCreate(ctx, k8sWorker1Client, worker1Flavor)
 
-		worker1Cq = utiltesting.MakeClusterQueue("q1").
+		worker1Cq = utiltestingapi.MakeClusterQueue("q1").
 			ResourceGroup(
-				*utiltesting.MakeFlavorQuotas(worker1Flavor.Name).
+				*utiltestingapi.MakeFlavorQuotas(worker1Flavor.Name).
 					Resource(corev1.ResourceCPU, "2").
 					Resource(corev1.ResourceMemory, "1G").
 					Obj(),
@@ -149,15 +150,15 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			Obj()
 		util.MustCreate(ctx, k8sWorker1Client, worker1Cq)
 
-		worker1Lq = utiltesting.MakeLocalQueue(worker1Cq.Name, worker1Ns.Name).ClusterQueue(worker1Cq.Name).Obj()
+		worker1Lq = utiltestingapi.MakeLocalQueue(worker1Cq.Name, worker1Ns.Name).ClusterQueue(worker1Cq.Name).Obj()
 		util.MustCreate(ctx, k8sWorker1Client, worker1Lq)
 
-		worker2Flavor = utiltesting.MakeResourceFlavor("default").Obj()
+		worker2Flavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		util.MustCreate(ctx, k8sWorker2Client, worker2Flavor)
 
-		worker2Cq = utiltesting.MakeClusterQueue("q1").
+		worker2Cq = utiltestingapi.MakeClusterQueue("q1").
 			ResourceGroup(
-				*utiltesting.MakeFlavorQuotas(worker2Flavor.Name).
+				*utiltestingapi.MakeFlavorQuotas(worker2Flavor.Name).
 					Resource(corev1.ResourceCPU, "1").
 					Resource(corev1.ResourceMemory, "2G").
 					Obj(),
@@ -165,7 +166,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			Obj()
 		util.MustCreate(ctx, k8sWorker2Client, worker2Cq)
 
-		worker2Lq = utiltesting.MakeLocalQueue(worker2Cq.Name, worker2Ns.Name).ClusterQueue(worker2Cq.Name).Obj()
+		worker2Lq = utiltestingapi.MakeLocalQueue(worker2Cq.Name, worker2Ns.Name).ClusterQueue(worker2Cq.Name).Obj()
 		util.MustCreate(ctx, k8sWorker2Client, worker2Lq)
 	})
 
@@ -673,18 +674,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						ReplicaCount:  1,
 						RestartPolicy: "Never",
 					},
-					testingpytorchjob.PyTorchReplicaSpecRequirement{
-						ReplicaType:   kftraining.PyTorchJobReplicaTypeWorker,
-						ReplicaCount:  1,
-						RestartPolicy: "OnFailure",
-					},
 				).
-				RequestAndLimit(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "0.2").
-				RequestAndLimit(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceMemory, "800M").
-				RequestAndLimit(kftraining.PyTorchJobReplicaTypeWorker, corev1.ResourceCPU, "0.5").
-				RequestAndLimit(kftraining.PyTorchJobReplicaTypeWorker, corev1.ResourceMemory, "800M").
+				RequestAndLimit(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "1").
+				RequestAndLimit(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceMemory, "1600M").
 				Image(kftraining.PyTorchJobReplicaTypeMaster, util.GetAgnHostImage(), util.BehaviorExitFast).
-				Image(kftraining.PyTorchJobReplicaTypeWorker, util.GetAgnHostImage(), util.BehaviorExitFast).
 				Obj()
 
 			ginkgo.By("Creating the PyTorchJob", func() {
@@ -983,9 +976,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 	ginkgo.When("The connection to a worker cluster is unreliable", func() {
 		ginkgo.It("Should update the cluster status to reflect the connection state", func() {
-			worker1Cq2 := utiltesting.MakeClusterQueue("q2").
+			worker1Cq2 := utiltestingapi.MakeClusterQueue("q2").
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas(worker1Flavor.Name).
+					*utiltestingapi.MakeFlavorQuotas(worker1Flavor.Name).
 						Resource(corev1.ResourceCPU, "2").
 						Resource(corev1.ResourceMemory, "1G").
 						Obj(),
@@ -1038,9 +1031,12 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Waiting for Kueue and kube-system pods to become active again", func() {
+			ginkgo.By("Waiting for kube-system to become available again", func() {
 				util.WaitForKubeSystemControllersAvailability(ctx, k8sWorker1Client, worker1Container)
-				util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sWorker1Client)
+			})
+
+			ginkgo.By("Restart Kueue and wait for availability again", func() {
+				util.RestartKueueController(ctx, k8sWorker1Client, worker1ClusterName)
 			})
 
 			ginkgo.By("Checking that the Kueue is operational after reconnection", func() {

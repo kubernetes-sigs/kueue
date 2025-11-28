@@ -24,8 +24,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 func TestValidateResourceFlavor(t *testing.T) {
@@ -37,11 +37,11 @@ func TestValidateResourceFlavor(t *testing.T) {
 	}{
 		{
 			name: "empty",
-			rf:   utiltesting.MakeResourceFlavor("resource-flavor").Obj(),
+			rf:   utiltestingapi.MakeResourceFlavor("resource-flavor").Obj(),
 		},
 		{
 			name: "valid",
-			rf: utiltesting.MakeResourceFlavor("resource-flavor").
+			rf: utiltestingapi.MakeResourceFlavor("resource-flavor").
 				NodeLabel("foo", "bar").
 				Taint(corev1.Taint{
 					Key:    "spot",
@@ -51,7 +51,7 @@ func TestValidateResourceFlavor(t *testing.T) {
 		},
 		{
 			name: "invalid label name",
-			rf:   utiltesting.MakeResourceFlavor("resource-flavor").NodeLabel("@abc", "foo").Obj(),
+			rf:   utiltestingapi.MakeResourceFlavor("resource-flavor").NodeLabel("@abc", "foo").Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("spec", "nodeLabels"), "@abc", "").
 					WithOrigin("labelKey"),
@@ -59,7 +59,7 @@ func TestValidateResourceFlavor(t *testing.T) {
 		},
 		{
 			name: "invalid label value",
-			rf:   utiltesting.MakeResourceFlavor("resource-flavor").NodeLabel("foo", "@abc").Obj(),
+			rf:   utiltestingapi.MakeResourceFlavor("resource-flavor").NodeLabel("foo", "@abc").Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("spec", "nodeLabels"), "@abc", ""),
 			},

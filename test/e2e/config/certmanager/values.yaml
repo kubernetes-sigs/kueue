@@ -44,8 +44,10 @@ managerConfig:
         LocalQueue.kueue.x-k8s.io: 1
         ClusterQueue.kueue.x-k8s.io: 1
         ResourceFlavor.kueue.x-k8s.io: 1
-    fairSharing:
-      enable: true
+    fairSharing: 
+      enable: false
+    waitForPodsReady: 
+      enable: false
     internalCertManagement:
       enable: false
     clientConnection:

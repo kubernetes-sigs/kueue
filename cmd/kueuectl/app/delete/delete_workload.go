@@ -34,9 +34,9 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
-	kueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1"
+	kueuev1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
@@ -65,7 +65,7 @@ type WorkloadOptions struct {
 
 	DryRunStrategy util.DryRunStrategy
 
-	Client        kueuev1beta1.KueueV1beta1Interface
+	Client        kueuev1beta2.KueueV1beta2Interface
 	DynamicClient dynamic.Interface
 	RestMapper    meta.RESTMapper
 
@@ -158,7 +158,7 @@ func (o *WorkloadOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Co
 		return err
 	}
 
-	o.Client = clientset.KueueV1beta1()
+	o.Client = clientset.KueueV1beta2()
 
 	o.DynamicClient, err = clientGetter.DynamicClient()
 	if err != nil {
@@ -189,7 +189,7 @@ func GroupVersionResourceWithName(gvr schema.GroupVersionResource, name string) 
 // Run delete a resource
 func (o *WorkloadOptions) Run(ctx context.Context) error {
 	var (
-		workloads               []*v1beta1.Workload
+		workloads               []*kueue.Workload
 		haveAssociatedResources bool
 		err                     error
 	)
@@ -233,7 +233,7 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 	return nil
 }
 
-func (o *WorkloadOptions) getAllWorkloads(ctx context.Context) ([]*v1beta1.Workload, bool, error) {
+func (o *WorkloadOptions) getAllWorkloads(ctx context.Context) ([]*kueue.Workload, bool, error) {
 	var namespace string
 	if !o.AllNamespaces {
 		namespace = o.Namespace
@@ -246,7 +246,7 @@ func (o *WorkloadOptions) getAllWorkloads(ctx context.Context) ([]*v1beta1.Workl
 
 	var haveAssociatedWorkloads bool
 
-	workloads := make([]*v1beta1.Workload, 0, len(list.Items))
+	workloads := make([]*kueue.Workload, 0, len(list.Items))
 	for index := range list.Items {
 		wl := &list.Items[index]
 		workloads = append(workloads, wl)
@@ -258,10 +258,10 @@ func (o *WorkloadOptions) getAllWorkloads(ctx context.Context) ([]*v1beta1.Workl
 	return workloads, haveAssociatedWorkloads, nil
 }
 
-func (o *WorkloadOptions) getWorkloads(ctx context.Context) ([]*v1beta1.Workload, bool, error) {
+func (o *WorkloadOptions) getWorkloads(ctx context.Context) ([]*kueue.Workload, bool, error) {
 	var haveAssociatedWorkloads bool
 
-	workloads := make([]*v1beta1.Workload, 0, len(o.Names))
+	workloads := make([]*kueue.Workload, 0, len(o.Names))
 
 	for _, name := range o.Names {
 		wl, err := o.Client.Workloads(o.Namespace).Get(ctx, name, metav1.GetOptions{})
@@ -282,8 +282,8 @@ func (o *WorkloadOptions) getWorkloads(ctx context.Context) ([]*v1beta1.Workload
 	return workloads, haveAssociatedWorkloads, nil
 }
 
-func (o *WorkloadOptions) getWorkloadResources(workloads []*v1beta1.Workload) (map[*v1beta1.Workload][]GroupVersionResourceName, error) {
-	workloadResources := make(map[*v1beta1.Workload][]GroupVersionResourceName, len(workloads))
+func (o *WorkloadOptions) getWorkloadResources(workloads []*kueue.Workload) (map[*kueue.Workload][]GroupVersionResourceName, error) {
+	workloadResources := make(map[*kueue.Workload][]GroupVersionResourceName, len(workloads))
 
 	for _, wl := range workloads {
 		workloadResources[wl] = make([]GroupVersionResourceName, 0, len(wl.OwnerReferences))
@@ -306,7 +306,7 @@ func (o *WorkloadOptions) getWorkloadResources(workloads []*v1beta1.Workload) (m
 	return workloadResources, nil
 }
 
-func (o *WorkloadOptions) generateConfirmationMessage(workloadResources map[*v1beta1.Workload][]GroupVersionResourceName) string {
+func (o *WorkloadOptions) generateConfirmationMessage(workloadResources map[*kueue.Workload][]GroupVersionResourceName) string {
 	associatedResources := make([]string, 0, len(workloadResources))
 
 	for wl, resources := range workloadResources {
@@ -341,7 +341,7 @@ func (o *WorkloadOptions) confirmation(message string) bool {
 	return strings.EqualFold(input, "y")
 }
 
-func (o *WorkloadOptions) deleteWorkloads(ctx context.Context, workloadNameResources map[*v1beta1.Workload][]GroupVersionResourceName) error {
+func (o *WorkloadOptions) deleteWorkloads(ctx context.Context, workloadNameResources map[*kueue.Workload][]GroupVersionResourceName) error {
 	for wl, nrs := range workloadNameResources {
 		deleteOptions := metav1.DeleteOptions{}
 

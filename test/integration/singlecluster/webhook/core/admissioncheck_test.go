@@ -17,28 +17,22 @@ limitations under the License.
 package core
 
 import (
-	"context"
-
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
 )
 
 var _ = ginkgo.Describe("AdmissionCheck Webhook", ginkgo.Ordered, func() {
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, func(ctx context.Context, mgr manager.Manager) {
-			managerSetup(ctx, mgr, config.MultiKueueDispatcherModeAllAtOnce)
-		})
+		fwk.StartManager(ctx, cfg, managerSetup)
 	})
 	ginkgo.AfterAll(func() {
 		fwk.StopManager(ctx)
@@ -67,8 +61,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", ginkgo.Ordered, func() {
 						Name: "foo",
 					},
 					Spec: kueue.AdmissionCheckSpec{
-						ControllerName:    "ac-controller",
-						RetryDelayMinutes: ptr.To[int64](15),
+						ControllerName: "ac-controller",
 					},
 				},
 			),
@@ -93,7 +86,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", ginkgo.Ordered, func() {
 						},
 					},
 				},
-				testing.BeInvalidError(),
+				utiltesting.BeInvalidError(),
 			),
 			ginkgo.Entry("Should fail to create AdmissionCheck with bad ref api group",
 				kueue.AdmissionCheck{
@@ -106,7 +99,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", ginkgo.Ordered, func() {
 						},
 					},
 				},
-				testing.BeInvalidError(),
+				utiltesting.BeInvalidError(),
 			),
 			ginkgo.Entry("Should fail to create AdmissionCheck with no ref api group",
 				kueue.AdmissionCheck{
@@ -118,7 +111,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", ginkgo.Ordered, func() {
 						},
 					},
 				},
-				testing.BeInvalidError(),
+				utiltesting.BeInvalidError(),
 			),
 			ginkgo.Entry("Should fail to create AdmissionCheck with bad ref kind",
 				kueue.AdmissionCheck{
@@ -131,7 +124,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", ginkgo.Ordered, func() {
 						},
 					},
 				},
-				testing.BeInvalidError(),
+				utiltesting.BeInvalidError(),
 			),
 			ginkgo.Entry("Should fail to create AdmissionCheck with no ref kind",
 				kueue.AdmissionCheck{
@@ -143,7 +136,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", ginkgo.Ordered, func() {
 						},
 					},
 				},
-				testing.BeInvalidError(),
+				utiltesting.BeInvalidError(),
 			),
 			ginkgo.Entry("Should fail to create AdmissionCheck with bad ref name",
 				kueue.AdmissionCheck{
@@ -156,7 +149,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", ginkgo.Ordered, func() {
 						},
 					},
 				},
-				testing.BeInvalidError(),
+				utiltesting.BeInvalidError(),
 			),
 			ginkgo.Entry("Should fail to create AdmissionCheck with no ref name",
 				kueue.AdmissionCheck{
@@ -168,7 +161,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", ginkgo.Ordered, func() {
 						},
 					},
 				},
-				testing.BeInvalidError(),
+				utiltesting.BeInvalidError(),
 			),
 			ginkgo.Entry("Should allow to create AdmissionCheck with no parameters",
 				kueue.AdmissionCheck{
@@ -202,7 +195,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", ginkgo.Ordered, func() {
 
 	ginkgo.It("Should allow to update AdmissionCheck when changing parameters", func() {
 		ginkgo.By("Creating a new AdmissionCheck")
-		ac := testing.MakeAdmissionCheck("admission-check").
+		ac := utiltestingapi.MakeAdmissionCheck("admission-check").
 			ControllerName("controller-name").
 			Parameters("ref.api.group", "RefKind", "ref-name").
 			Obj()
@@ -224,7 +217,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", ginkgo.Ordered, func() {
 
 	ginkgo.It("Should allow to update AdmissionCheck when removing parameters", func() {
 		ginkgo.By("Creating a new AdmissionCheck")
-		ac := testing.MakeAdmissionCheck("admission-check").
+		ac := utiltestingapi.MakeAdmissionCheck("admission-check").
 			ControllerName("controller-name").
 			Parameters("ref.api.group", "RefKind", "ref-name").
 			Obj()
@@ -244,7 +237,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", ginkgo.Ordered, func() {
 
 	ginkgo.It("Should fail to update AdmissionCheck when breaking parameters", func() {
 		ginkgo.By("Creating a new AdmissionCheck")
-		ac := testing.MakeAdmissionCheck("admission-check").
+		ac := utiltestingapi.MakeAdmissionCheck("admission-check").
 			ControllerName("controller-name").
 			Parameters("ref.api.group", "RefKind", "ref-name").
 			Obj()
@@ -258,13 +251,13 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", ginkgo.Ordered, func() {
 			var updateAC kueue.AdmissionCheck
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(ac), &updateAC)).Should(gomega.Succeed())
 			updateAC.Spec.Parameters.Name = ""
-			g.Expect(k8sClient.Update(ctx, &updateAC)).Should(testing.BeInvalidError())
+			g.Expect(k8sClient.Update(ctx, &updateAC)).Should(utiltesting.BeInvalidError())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("Should fail to update AdmissionCheck when breaking parameters", func() {
 		ginkgo.By("Creating a new AdmissionCheck")
-		ac := testing.MakeAdmissionCheck("admission-check").
+		ac := utiltestingapi.MakeAdmissionCheck("admission-check").
 			ControllerName("controller-name").
 			Parameters("ref.api.group", "RefKind", "ref-name").
 			Obj()
@@ -278,7 +271,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", ginkgo.Ordered, func() {
 			var updateAC kueue.AdmissionCheck
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(ac), &updateAC)).Should(gomega.Succeed())
 			updateAC.Spec.ControllerName = "controller-name2"
-			g.Expect(k8sClient.Update(ctx, &updateAC)).Should(testing.BeInvalidError())
+			g.Expect(k8sClient.Update(ctx, &updateAC)).Should(utiltesting.BeInvalidError())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 })

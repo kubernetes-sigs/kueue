@@ -30,11 +30,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/constants"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 )
 
@@ -203,10 +203,10 @@ func TestPodSets(t *testing.T) {
 		"no annotations": {
 			job: (*MPIJob)(jobTemplate.DeepCopy()),
 			wantPodSets: []kueue.PodSet{
-				*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeLauncher)), 1).
+				*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeLauncher)), 1).
 					PodSpec(jobTemplate.Clone().Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher].Template.Spec).
 					Obj(),
-				*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeWorker)), 3).
+				*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeWorker)), 3).
 					PodSpec(jobTemplate.Clone().Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template.Spec).
 					Obj(),
 			},
@@ -227,13 +227,13 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 			),
 			wantPodSets: []kueue.PodSet{
-				*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeLauncher)), 1).
+				*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeLauncher)), 1).
 					PodSpec(jobTemplate.Clone().Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher].Template.Spec).
 					Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 					RequiredTopologyRequest("cloud.com/block").
 					PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
 					Obj(),
-				*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeWorker)), 3).
+				*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeWorker)), 3).
 					PodSpec(jobTemplate.Clone().Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template.Spec).
 					Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 					RequiredTopologyRequest("cloud.com/block").
@@ -257,13 +257,13 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 			),
 			wantPodSets: []kueue.PodSet{
-				*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeLauncher)), 1).
+				*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeLauncher)), 1).
 					PodSpec(jobTemplate.Clone().Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher].Template.Spec).
 					Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 					PreferredTopologyRequest("cloud.com/block").
 					PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
 					Obj(),
-				*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeWorker)), 3).
+				*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeWorker)), 3).
 					PodSpec(jobTemplate.Clone().Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template.Spec).
 					Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 					PreferredTopologyRequest("cloud.com/block").
@@ -287,11 +287,11 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 			),
 			wantPodSets: []kueue.PodSet{
-				*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeLauncher)), 1).
+				*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeLauncher)), 1).
 					PodSpec(jobTemplate.Clone().Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher].Template.Spec).
 					Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 					Obj(),
-				*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeWorker)), 3).
+				*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeWorker)), 3).
 					PodSpec(jobTemplate.Clone().Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template.Spec).
 					Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 					Obj(),
@@ -313,11 +313,11 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 			),
 			wantPodSets: []kueue.PodSet{
-				*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeLauncher)), 1).
+				*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeLauncher)), 1).
 					PodSpec(jobTemplate.Clone().Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher].Template.Spec).
 					Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 					Obj(),
-				*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeWorker)), 3).
+				*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeWorker)), 3).
 					PodSpec(jobTemplate.Clone().Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template.Spec).
 					Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 					Obj(),
@@ -328,7 +328,8 @@ func TestPodSets(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
-			gotPodSets, err := tc.job.PodSets()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotPodSets, err := tc.job.PodSets(ctx)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -354,7 +355,7 @@ var (
 )
 
 func TestReconciler(t *testing.T) {
-	baseWPCWrapper := utiltesting.MakeWorkloadPriorityClass("test-wpc").
+	baseWPCWrapper := utiltestingapi.MakeWorkloadPriorityClass("test-wpc").
 		PriorityValue(100)
 	basePCWrapper := utiltesting.MakePriorityClass("test-pc").
 		PriorityValue(200)
@@ -375,12 +376,12 @@ func TestReconciler(t *testing.T) {
 			job:     testingmpijob.MakeMPIJob("mpijob", "ns").GenericLauncherAndWorker().Parallelism(2).Obj(),
 			wantJob: testingmpijob.MakeMPIJob("mpijob", "ns").GenericLauncherAndWorker().Parallelism(2).Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("mpijob", "ns").
+				*utiltestingapi.MakeWorkload("mpijob", "ns").
 					PodSets(
-						*utiltesting.MakePodSet("launcher", 1).
+						*utiltestingapi.MakePodSet("launcher", 1).
 							PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
 							Obj(),
-						*utiltesting.MakePodSet("worker", 2).
+						*utiltestingapi.MakePodSet("worker", 2).
 							PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
 							Obj(),
 					).
@@ -398,16 +399,17 @@ func TestReconciler(t *testing.T) {
 			},
 			wantJob: testingmpijob.MakeMPIJob("mpijob", "ns").GenericLauncherAndWorker().Parallelism(2).WorkloadPriorityClass("test-wpc").Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("mpijob", "ns").
+				*utiltestingapi.MakeWorkload("mpijob", "ns").
 					PodSets(
-						*utiltesting.MakePodSet("launcher", 1).
+						*utiltestingapi.MakePodSet("launcher", 1).
 							PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
 							Obj(),
-						*utiltesting.MakePodSet("worker", 2).
+						*utiltestingapi.MakePodSet("worker", 2).
 							PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
 							Obj(),
-					).PriorityClass("test-wpc").Priority(100).
-					PriorityClassSource(constants.WorkloadPriorityClassSource).
+					).
+					WorkloadPriorityClassRef("test-wpc").
+					Priority(100).
 					Obj(),
 			},
 		},
@@ -422,16 +424,17 @@ func TestReconciler(t *testing.T) {
 			},
 			wantJob: testingmpijob.MakeMPIJob("mpijob", "ns").GenericLauncherAndWorker().Parallelism(2).PriorityClass("test-pc").Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("mpijob", "ns").
+				*utiltestingapi.MakeWorkload("mpijob", "ns").
 					PodSets(
-						*utiltesting.MakePodSet("launcher", 1).
+						*utiltestingapi.MakePodSet("launcher", 1).
 							PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
 							Obj(),
-						*utiltesting.MakePodSet("worker", 2).
+						*utiltestingapi.MakePodSet("worker", 2).
 							PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
 							Obj(),
-					).PriorityClass("test-pc").Priority(200).
-					PriorityClassSource(constants.PodPriorityClassSource).
+					).
+					PodPriorityClassRef("test-pc").
+					Priority(200).
 					Obj(),
 			},
 		},
@@ -448,16 +451,17 @@ func TestReconciler(t *testing.T) {
 			wantJob: testingmpijob.MakeMPIJob("mpijob", "ns").GenericLauncherAndWorker().Parallelism(2).
 				WorkloadPriorityClass("test-wpc").PriorityClass("test-pc").Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("mpijob", "ns").
+				*utiltestingapi.MakeWorkload("mpijob", "ns").
 					PodSets(
-						*utiltesting.MakePodSet("launcher", 1).
+						*utiltestingapi.MakePodSet("launcher", 1).
 							PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
 							Obj(),
-						*utiltesting.MakePodSet("worker", 2).
+						*utiltestingapi.MakePodSet("worker", 2).
 							PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
 							Obj(),
-					).PriorityClass("test-wpc").Priority(100).
-					PriorityClassSource(constants.WorkloadPriorityClassSource).
+					).
+					WorkloadPriorityClassRef("test-wpc").
+					Priority(100).
 					Obj(),
 			},
 		},

@@ -136,7 +136,7 @@ fi
 
 RELEASE_ISSUE_NAME="Release ${RELEASE_VERSION}"
 
-RELEASE_ISSUE_NUMBER=$(gh issue list --repo="${KUBERNETES_SIGS_KUEUE_MAIN_REPO_ORG}/${KUBERNETES_SIGS_KUEUE_MAIN_REPO_NAME}" | grep "${RELEASE_ISSUE_NAME}" | awk '{print $1}' || true)
+RELEASE_ISSUE_NUMBER=$(gh issue list --repo="${KUBERNETES_SIGS_KUEUE_MAIN_REPO_ORG}/${KUBERNETES_SIGS_KUEUE_MAIN_REPO_NAME}" --search "in:title ${RELEASE_ISSUE_NAME}" | awk '{print $1}' || true)
 if [ -z "$RELEASE_ISSUE_NUMBER" ]; then
   echo "!!! No release issue found for version ${RELEASE_VERSION}. Please create 'Release ${RELEASE_VERSION}' issue first."
   exit 1
@@ -252,11 +252,6 @@ EOF
 # $3 - local branch
 # $4 - pr name
 function push_and_create_pr() {
-  if [[ -n "${DRY_RUN}" ]]; then
-    echo "!!! Skipping git push and PR creation because you set DRY_RUN."
-    return
-  fi
-
   echo
   echo "+++ I'm about to do the following to push to GitHub (and I'm assuming ${KUBERNETES_TEST_INFRA_FORK_REMOTE} is your personal fork):"
   echo
@@ -280,6 +275,12 @@ CI_PR_NAME="Kueue: CI for ${MAJOR_MINOR}"
 declare -r CI_PR_NAME
 
 prepare_local_branch master "${CI_BRANCH_UNIQUE}" "${CI_PR_NAME}"
+
+if [[ -n "${DRY_RUN}" ]]; then
+  echo "!!! Skipping git push, PR creation and update issue because you set DRY_RUN."
+  exit 0
+fi
+
 push_and_create_pr master "${CI_BRANCH}" "${CI_BRANCH_UNIQUE}" "${CI_PR_NAME}"
 
 CI_PR_NUMBER=$(gh pr list --repo="${KUBERNETES_TEST_INFRA_MAIN_REPO_ORG}/${KUBERNETES_TEST_INFRA_MAIN_REPO_NAME}" | grep "${CI_PR_NAME}" | awk '{print $1}' || true)

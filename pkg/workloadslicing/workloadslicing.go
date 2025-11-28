@@ -27,9 +27,10 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -98,19 +99,12 @@ func ReplacementForKey(wl *kueue.Workload) *workload.Reference {
 // 1. It checks if the "Finished" condition is already applied. If true, it returns immediately, doing nothing.
 // 2. If the "Finished" condition is not set, it patches the workload slice's status to add the "Finished" condition.
 // 3. If the patch fails, it returns an error.
-func Finish(ctx context.Context, clnt client.Client, workloadSlice *kueue.Workload, reason, message string) error {
+func Finish(ctx context.Context, clnt client.Client, clk clock.Clock, workloadSlice *kueue.Workload, reason, message string) error {
 	// NOOP if the workload already has "Finished" condition (irrespective of reason and message values).
 	if apimeta.IsStatusConditionTrue(workloadSlice.Status.Conditions, kueue.WorkloadFinished) {
 		return nil
 	}
-	if err := clientutil.PatchStatus(ctx, clnt, workloadSlice, func() (client.Object, bool, error) {
-		return workloadSlice, apimeta.SetStatusCondition(&workloadSlice.Status.Conditions, metav1.Condition{
-			Type:    kueue.WorkloadFinished,
-			Status:  metav1.ConditionTrue,
-			Reason:  reason,
-			Message: message,
-		}), nil
-	}); err != nil {
+	if err := workload.Finish(ctx, clnt, workloadSlice, reason, message, clk); err != nil {
 		return fmt.Errorf("failed to patch workload slice status: %w", err)
 	}
 	return nil
@@ -171,7 +165,7 @@ func ScaledUp(workload *kueue.Workload) bool {
 // - *Workload, true, nil: when a compatible workload exists or a new slice is needed.
 // - nil, false, nil: when an incompatible workload exists and no update is performed.
 // - error: on failure to fetch, update, or deactivate a workload slice.
-func EnsureWorkloadSlices(ctx context.Context, clnt client.Client, jobPodSets []kueue.PodSet, jobObject client.Object, jobObjectGVK schema.GroupVersionKind) (*kueue.Workload, bool, error) {
+func EnsureWorkloadSlices(ctx context.Context, clnt client.Client, clk clock.Clock, jobPodSets []kueue.PodSet, jobObject client.Object, jobObjectGVK schema.GroupVersionKind) (*kueue.Workload, bool, error) {
 	jobPodSetsCounts := workload.ExtractPodSetCounts(jobPodSets)
 
 	workloads, err := FindNotFinishedWorkloads(ctx, clnt, jobObject, jobObjectGVK)
@@ -225,7 +219,7 @@ func EnsureWorkloadSlices(ctx context.Context, clnt client.Client, jobPodSets []
 		// explicitly evicted.
 		if evictedCondition := apimeta.FindStatusCondition(oldWorkload.Status.Conditions, kueue.WorkloadEvicted); !workload.HasQuotaReservation(&oldWorkload) || evictedCondition != nil {
 			// Finish the old workload slice as out of sync.
-			if err := Finish(ctx, clnt, &oldWorkload, kueue.WorkloadFinishedReasonOutOfSync, "The workload slice is out of sync with its parent job"); err != nil {
+			if err := Finish(ctx, clnt, clk, &oldWorkload, kueue.WorkloadFinishedReasonOutOfSync, "The workload slice is out of sync with its parent job"); err != nil {
 				return nil, true, err
 			}
 		}
@@ -281,8 +275,8 @@ func StartWorkloadSlicePods(ctx context.Context, clnt client.Client, object clie
 		return fmt.Errorf("failed to list job pods: %w", err)
 	}
 	for i := range list.Items {
-		if err := clientutil.Patch(ctx, clnt, &list.Items[i], func() (client.Object, bool, error) {
-			return &list.Items[i], pod.Ungate(&list.Items[i], kueue.ElasticJobSchedulingGate), nil
+		if err := clientutil.Patch(ctx, clnt, &list.Items[i], func() (bool, error) {
+			return pod.Ungate(&list.Items[i], kueue.ElasticJobSchedulingGate), nil
 		}); err != nil {
 			return fmt.Errorf("failed to patch pod: %w", err)
 		}

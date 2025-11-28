@@ -26,7 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -83,9 +83,7 @@ func managerAndSchedulerSetup(configuration *config.Configuration) framework.Man
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if configuration.WaitForPodsReady != nil {
-			podsReadyTracking := configuration.WaitForPodsReady.Enable &&
-				configuration.WaitForPodsReady.BlockAdmission != nil &&
-				*configuration.WaitForPodsReady.BlockAdmission
+			podsReadyTracking := configuration.WaitForPodsReady.BlockAdmission != nil && *configuration.WaitForPodsReady.BlockAdmission
 			cacheOpts = append(cacheOpts, schdcache.WithPodsReadyTracking(podsReadyTracking))
 
 			if configuration.WaitForPodsReady.RequeuingStrategy != nil && configuration.WaitForPodsReady.RequeuingStrategy.Timestamp != nil {
@@ -101,7 +99,7 @@ func managerAndSchedulerSetup(configuration *config.Configuration) framework.Man
 		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
-		failedWebhook, err := webhooks.Setup(mgr, config.MultiKueueDispatcherModeAllAtOnce)
+		failedWebhook, err := webhooks.Setup(mgr)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 		err = workloadjob.SetupIndexes(ctx, mgr.GetFieldIndexer())

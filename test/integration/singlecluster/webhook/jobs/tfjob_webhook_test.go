@@ -22,9 +22,9 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/tfjob"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjobstfjob "sigs.k8s.io/kueue/pkg/util/testingjobs/tfjob"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -54,8 +54,8 @@ var _ = ginkgo.Describe("TFJob Webhook", ginkgo.Ordered, func() {
 						ReplicaType:  kftraining.TFJobReplicaTypeChief,
 						ReplicaCount: 1,
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/rack",
-							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/rack",
+							kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/rack",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/rack",
 						},
 					},
 				).
@@ -63,7 +63,7 @@ var _ = ginkgo.Describe("TFJob Webhook", ginkgo.Ordered, func() {
 				Obj()
 			err := k8sClient.Create(ctx, job)
 			gomega.Expect(err).Should(gomega.HaveOccurred())
-			gomega.Expect(err).Should(testing.BeForbiddenError(), "error: %v", err)
+			gomega.Expect(err).Should(utiltesting.BeForbiddenError(), "error: %v", err)
 		})
 	})
 })

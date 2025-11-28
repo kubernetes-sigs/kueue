@@ -22,8 +22,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	utiltestting "sigs.k8s.io/kueue/pkg/util/testing"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 func TestComparePodSetSlices(t *testing.T) {
@@ -34,27 +34,27 @@ func TestComparePodSetSlices(t *testing.T) {
 		wantEquivalent    bool
 	}{
 		"different name": {
-			a:              []kueue.PodSet{*utiltestting.MakePodSet("ps", 10).SetMinimumCount(5).Obj()},
-			b:              []kueue.PodSet{*utiltestting.MakePodSet("ps2", 10).SetMinimumCount(5).Obj()},
+			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Obj()},
+			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps2", 10).SetMinimumCount(5).Obj()},
 			wantEquivalent: true,
 		},
 		"different min count": {
-			a:              []kueue.PodSet{*utiltestting.MakePodSet("ps", 10).SetMinimumCount(5).Obj()},
-			b:              []kueue.PodSet{*utiltestting.MakePodSet("ps", 10).SetMinimumCount(2).Obj()},
+			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Obj()},
+			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(2).Obj()},
 			wantEquivalent: false,
 		},
 		"different node selector": {
-			a:              []kueue.PodSet{*utiltestting.MakePodSet("ps", 10).SetMinimumCount(5).Obj()},
-			b:              []kueue.PodSet{*utiltestting.MakePodSet("ps", 10).SetMinimumCount(5).NodeSelector(map[string]string{"key": "val"}).Obj()},
+			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Obj()},
+			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).NodeSelector(map[string]string{"key": "val"}).Obj()},
 			wantEquivalent: true,
 		},
 		"different requests": {
-			a:              []kueue.PodSet{*utiltestting.MakePodSet("ps", 10).SetMinimumCount(5).Request("res", "1").Obj()},
-			b:              []kueue.PodSet{*utiltestting.MakePodSet("ps", 10).SetMinimumCount(5).Request("res", "2").Obj()},
+			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Request("res", "1").Obj()},
+			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Request("res", "2").Obj()},
 			wantEquivalent: false,
 		},
 		"different requests in init containers": {
-			a: []kueue.PodSet{*utiltestting.MakePodSet("ps", 10).SetMinimumCount(5).InitContainers(corev1.Container{
+			a: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).InitContainers(corev1.Container{
 				Image: "img1",
 				Resources: corev1.ResourceRequirements{
 					Requests: corev1.ResourceList{
@@ -62,7 +62,7 @@ func TestComparePodSetSlices(t *testing.T) {
 					},
 				},
 			}).Obj()},
-			b: []kueue.PodSet{*utiltestting.MakePodSet("ps", 10).SetMinimumCount(5).InitContainers(corev1.Container{
+			b: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).InitContainers(corev1.Container{
 				Image: "img1",
 				Resources: corev1.ResourceRequirements{
 					Requests: corev1.ResourceList{
@@ -73,13 +73,13 @@ func TestComparePodSetSlices(t *testing.T) {
 			wantEquivalent: false,
 		},
 		"different requests in toleration": {
-			a: []kueue.PodSet{*utiltestting.MakePodSet("ps", 10).SetMinimumCount(5).Toleration(corev1.Toleration{
+			a: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Toleration(corev1.Toleration{
 				Key:      "instance",
 				Operator: corev1.TolerationOpEqual,
 				Value:    "spot",
 				Effect:   corev1.TaintEffectNoSchedule,
 			}).Obj()},
-			b: []kueue.PodSet{*utiltestting.MakePodSet("ps", 10).SetMinimumCount(5).Toleration(corev1.Toleration{
+			b: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Toleration(corev1.Toleration{
 				Key:      "instance",
 				Operator: corev1.TolerationOpEqual,
 				Value:    "demand",
@@ -88,8 +88,8 @@ func TestComparePodSetSlices(t *testing.T) {
 			wantEquivalent: false,
 		},
 		"different count": {
-			a:              []kueue.PodSet{*utiltestting.MakePodSet("ps", 10).SetMinimumCount(5).Obj()},
-			b:              []kueue.PodSet{*utiltestting.MakePodSet("ps", 20).SetMinimumCount(5).Obj()},
+			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Obj()},
+			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 20).SetMinimumCount(5).Obj()},
 			wantEquivalent: false,
 		},
 		"different slice len": {
@@ -99,7 +99,7 @@ func TestComparePodSetSlices(t *testing.T) {
 		},
 		"different requests in toleration, ignore tolerations": {
 			a: []kueue.PodSet{
-				*utiltestting.MakePodSet("ps", 10).
+				*utiltestingapi.MakePodSet("ps", 10).
 					SetMinimumCount(5).
 					Toleration(corev1.Toleration{
 						Key:      "instance",
@@ -109,7 +109,7 @@ func TestComparePodSetSlices(t *testing.T) {
 					}).Obj(),
 			},
 			b: []kueue.PodSet{
-				*utiltestting.MakePodSet("ps", 10).
+				*utiltestingapi.MakePodSet("ps", 10).
 					SetMinimumCount(5).
 					Toleration(corev1.Toleration{
 						Key:      "instance",
@@ -123,13 +123,13 @@ func TestComparePodSetSlices(t *testing.T) {
 		},
 		"different requests in node selector": {
 			a: []kueue.PodSet{
-				*utiltestting.MakePodSet("ps", 10).
+				*utiltestingapi.MakePodSet("ps", 10).
 					SetMinimumCount(5).
 					NodeSelector(map[string]string{"key": "val"}).
 					Obj(),
 			},
 			b: []kueue.PodSet{
-				*utiltestting.MakePodSet("ps", 10).
+				*utiltestingapi.MakePodSet("ps", 10).
 					SetMinimumCount(5).
 					NodeSelector(map[string]string{"key": "val2"}).
 					Obj(),

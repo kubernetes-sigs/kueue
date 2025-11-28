@@ -14,70 +14,40 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package dra_test
+package dra
 
 import (
-	"context"
 	"reflect"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
-	resourcev1beta2 "k8s.io/api/resource/v1beta2"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/dra"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 func Test_GetResourceRequests(t *testing.T) {
-	scheme := runtime.NewScheme()
-	_ = clientgoscheme.AddToScheme(scheme)
-	_ = kueuev1beta1.AddToScheme(scheme)
-	_ = resourcev1beta2.AddToScheme(scheme)
+	tmpl := utiltesting.MakeResourceClaimTemplate("claim-tmpl-1", "ns1").
+		DeviceRequest("device-request", "test-deviceclass-1", 2).
+		Obj()
 
-	tmpl := &resourcev1beta2.ResourceClaimTemplate{
-		ObjectMeta: metav1.ObjectMeta{Name: "claim-tmpl-1", Namespace: "ns1"},
-		Spec: resourcev1beta2.ResourceClaimTemplateSpec{
-			Spec: resourcev1beta2.ResourceClaimSpec{
-				Devices: resourcev1beta2.DeviceClaim{
-					Requests: []resourcev1beta2.DeviceRequest{{
-						Exactly: &resourcev1beta2.ExactDeviceRequest{
-							AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
-							Count:           2,
-							DeviceClassName: "test-deviceclass-1",
-						},
-					}},
-				},
-			},
-		},
-	}
+	claim := utiltesting.MakeResourceClaim("claim-2", "ns1").
+		DeviceRequest("device-request", "test-deviceclass-2", 1).
+		Obj()
 
-	claim := &resourcev1beta2.ResourceClaim{
-		ObjectMeta: metav1.ObjectMeta{Name: "claim-2", Namespace: "ns1"},
-		Spec: resourcev1beta2.ResourceClaimSpec{
-			Devices: resourcev1beta2.DeviceClaim{
-				Requests: []resourcev1beta2.DeviceRequest{{
-					Exactly: &resourcev1beta2.ExactDeviceRequest{
-						AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
-						Count:           1,
-						DeviceClassName: "test-deviceclass-2",
-					},
-				}},
-			},
-		},
-	}
-
-	wl := &kueuev1beta1.Workload{
+	wl := &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
-		Spec: kueuev1beta1.WorkloadSpec{
-			PodSets: []kueuev1beta1.PodSet{{
+		Spec: kueue.WorkloadSpec{
+			PodSets: []kueue.PodSet{{
 				Name:  "main",
 				Count: 1,
 				Template: corev1.PodTemplateSpec{
@@ -93,13 +63,25 @@ func Test_GetResourceRequests(t *testing.T) {
 		},
 	}
 
+	// Common lookup functions for reuse across test cases
+	defaultLookup := func(dc corev1.ResourceName) (corev1.ResourceName, bool) {
+		if dc == "test-deviceclass-1" {
+			return "res-1", true
+		}
+		return "", false
+	}
+
+	noLookup := func(corev1.ResourceName) (corev1.ResourceName, bool) {
+		return "", false
+	}
+
 	tests := []struct {
 		name         string
-		modifyWL     func(w *kueuev1beta1.Workload)
+		modifyWL     func(w *kueue.Workload)
 		extraObjects []runtime.Object
 		lookup       func(corev1.ResourceName) (corev1.ResourceName, bool)
-		want         map[kueuev1beta1.PodSetReference]corev1.ResourceList
-		wantErr      bool
+		want         map[kueue.PodSetReference]corev1.ResourceList
+		wantErr      field.ErrorList
 	}{
 		{
 			name: "Single claim template with single device",
@@ -111,20 +93,22 @@ func Test_GetResourceRequests(t *testing.T) {
 				lr, ok := m[dc]
 				return lr, ok
 			},
-			want: map[kueuev1beta1.PodSetReference]corev1.ResourceList{
+			want: map[kueue.PodSetReference]corev1.ResourceList{
 				"main": {
 					"res-1": resource.MustParse("2"),
 				},
 			},
 		},
 		{
-			name:    "Unmapped DeviceClass returns error",
-			lookup:  func(corev1.ResourceName) (corev1.ResourceName, bool) { return "", false },
-			wantErr: true,
+			name:   "Unmapped DeviceClass returns error",
+			lookup: noLookup,
+			wantErr: field.ErrorList{
+				field.NotFound(field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("resourceClaimTemplateName"), ""),
+			},
 		},
 		{
 			name: "Two containers each using different claim templates",
-			modifyWL: func(w *kueuev1beta1.Workload) {
+			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.Containers = []corev1.Container{
 					{
 						Name:  "c1",
@@ -147,21 +131,20 @@ func Test_GetResourceRequests(t *testing.T) {
 				}
 			},
 			extraObjects: []runtime.Object{
-				&resourcev1beta2.ResourceClaimTemplate{
-					ObjectMeta: metav1.ObjectMeta{Name: "claim-tmpl-2", Namespace: "ns1"},
-					Spec:       resourcev1beta2.ResourceClaimTemplateSpec{Spec: resourcev1beta2.ResourceClaimSpec{Devices: resourcev1beta2.DeviceClaim{Requests: []resourcev1beta2.DeviceRequest{{Exactly: &resourcev1beta2.ExactDeviceRequest{AllocationMode: resourcev1beta2.DeviceAllocationModeExactCount, Count: 1, DeviceClassName: "test-deviceclass-2"}}}}}},
-				},
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-2", "ns1").
+					DeviceRequest("device-request", "test-deviceclass-2", 1).
+					Obj(),
 			},
 			lookup: func(dc corev1.ResourceName) (corev1.ResourceName, bool) {
 				m := map[corev1.ResourceName]corev1.ResourceName{"test-deviceclass-1": "res-1", "test-deviceclass-2": "res-2"}
 				lr, ok := m[dc]
 				return lr, ok
 			},
-			want: map[kueuev1beta1.PodSetReference]corev1.ResourceList{"main": {"res-1": resource.MustParse("2"), "res-2": resource.MustParse("1")}},
+			want: map[kueue.PodSetReference]corev1.ResourceList{"main": {"res-1": resource.MustParse("2"), "res-2": resource.MustParse("1")}},
 		},
 		{
 			name: "Two containers sharing one claim template",
-			modifyWL: func(w *kueuev1beta1.Workload) {
+			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.Containers = []corev1.Container{
 					{
 						Name:  "c1",
@@ -182,23 +165,17 @@ func Test_GetResourceRequests(t *testing.T) {
 					{Name: "req-a", ResourceClaimTemplateName: ptr.To("claim-tmpl-1")},
 				}
 			},
-			lookup: func(dc corev1.ResourceName) (corev1.ResourceName, bool) {
-				if dc == "test-deviceclass-1" {
-					return "res-1", true
-				}
-				return "", false
-			},
-			want: map[kueuev1beta1.PodSetReference]corev1.ResourceList{"main": {"res-1": resource.MustParse("2")}},
+			lookup: defaultLookup,
+			want:   map[kueue.PodSetReference]corev1.ResourceList{"main": {"res-1": resource.MustParse("2")}},
 		},
 		{
 			name: "Single template requesting two devices",
 			extraObjects: []runtime.Object{
-				&resourcev1beta2.ResourceClaimTemplate{
-					ObjectMeta: metav1.ObjectMeta{Name: "claim-tmpl-3", Namespace: "ns1"},
-					Spec:       resourcev1beta2.ResourceClaimTemplateSpec{Spec: resourcev1beta2.ResourceClaimSpec{Devices: resourcev1beta2.DeviceClaim{Requests: []resourcev1beta2.DeviceRequest{{Exactly: &resourcev1beta2.ExactDeviceRequest{AllocationMode: resourcev1beta2.DeviceAllocationModeExactCount, Count: 2, DeviceClassName: "test-deviceclass-1"}}}}}},
-				},
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-3", "ns1").
+					DeviceRequest("device-request", "test-deviceclass-1", 2).
+					Obj(),
 			},
-			modifyWL: func(w *kueuev1beta1.Workload) {
+			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.Containers = []corev1.Container{
 					{
 						Name:  "c",
@@ -212,17 +189,12 @@ func Test_GetResourceRequests(t *testing.T) {
 					{Name: "req-x", ResourceClaimTemplateName: ptr.To("claim-tmpl-3")},
 				}
 			},
-			lookup: func(dc corev1.ResourceName) (corev1.ResourceName, bool) {
-				if dc == "test-deviceclass-1" {
-					return "res-1", true
-				}
-				return "", false
-			},
-			want: map[kueuev1beta1.PodSetReference]corev1.ResourceList{"main": {"res-1": resource.MustParse("2")}},
+			lookup: defaultLookup,
+			want:   map[kueue.PodSetReference]corev1.ResourceList{"main": {"res-1": resource.MustParse("2")}},
 		},
 		{
 			name: "Init and regular container sharing one template",
-			modifyWL: func(w *kueuev1beta1.Workload) {
+			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.InitContainers = []corev1.Container{
 					{
 						Name:  "init",
@@ -245,13 +217,116 @@ func Test_GetResourceRequests(t *testing.T) {
 					{Name: "rc", ResourceClaimTemplateName: ptr.To("claim-tmpl-1")},
 				}
 			},
-			lookup: func(dc corev1.ResourceName) (corev1.ResourceName, bool) {
-				if dc == "test-deviceclass-1" {
-					return "res-1", true
-				}
-				return "", false
+			lookup: defaultLookup,
+			want:   map[kueue.PodSetReference]corev1.ResourceList{"main": {"res-1": resource.MustParse("2")}},
+		},
+		{
+			name: "AllocationMode All returns error",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-all", "ns1").
+					DeviceRequest("device-request", "test-deviceclass-1", 0).
+					AllocationModeAll().
+					Obj(),
 			},
-			want: map[kueuev1beta1.PodSetReference]corev1.ResourceList{"main": {"res-1": resource.MustParse("2")}},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-all", ResourceClaimTemplateName: ptr.To("claim-tmpl-all")},
+				}
+			},
+			lookup: defaultLookup,
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0).Child("exactly", "allocationMode"), "", ""),
+			},
+		},
+		{
+			name: "CEL selectors returns error",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel", "ns1").
+					DeviceRequest("req", "test-deviceclass-1", 1).
+					WithCELSelectors("device.driver == \"test-driver\"").
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-cel", ResourceClaimTemplateName: ptr.To("claim-tmpl-cel")},
+				}
+			},
+			lookup: defaultLookup,
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0).Child("exactly", "selectors"), "", ""),
+			},
+		},
+		{
+			name: "Device constraints returns error",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-constraints", "ns1").
+					DeviceRequest("gpu-1", "test-deviceclass-1", 1).
+					DeviceRequest("gpu-2", "test-deviceclass-1", 1).
+					WithDeviceConstraints([]string{"gpu-1", "gpu-2"}, "numa-node").
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-constraints", ResourceClaimTemplateName: ptr.To("claim-tmpl-constraints")},
+				}
+			},
+			lookup: defaultLookup,
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "constraints"), "", ""),
+			},
+		},
+		{
+			name: "FirstAvailable returns error",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-first", "ns1").
+					FirstAvailableRequest("req", "test-deviceclass-1").
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-first", ResourceClaimTemplateName: ptr.To("claim-tmpl-first")},
+				}
+			},
+			lookup: defaultLookup,
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0), "", ""),
+			},
+		},
+		{
+			name: "AdminAccess returns error",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-admin", "ns1").
+					DeviceRequest("req", "test-deviceclass-1", 1).
+					WithAdminAccess(true).
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-admin", ResourceClaimTemplateName: ptr.To("claim-tmpl-admin")},
+				}
+			},
+			lookup: defaultLookup,
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0).Child("exactly", "adminAccess"), "", ""),
+			},
+		},
+		{
+			name: "Device config returns error",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-config", "ns1").
+					DeviceRequest("req", "test-deviceclass-1", 1).
+					WithDeviceConfig("req", "", nil).
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-config", ResourceClaimTemplateName: ptr.To("claim-tmpl-config")},
+				}
+			},
+			lookup: defaultLookup,
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "config"), "", ""),
+			},
 		},
 	}
 
@@ -271,7 +346,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				if tc.name == "Unmapped DeviceClass returns error" {
 					mappings = []configapi.DeviceClassMapping{}
 				}
-				err := dra.CreateMapperFromConfiguration(mappings)
+				err := CreateMapperFromConfiguration(mappings)
 				if err != nil {
 					t.Fatalf("Failed to initialize DRA mapper: %v", err)
 				}
@@ -283,22 +358,24 @@ func Test_GetResourceRequests(t *testing.T) {
 					objs = append(objs, o.(client.Object))
 				}
 			}
-			baseClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+			baseClient := utiltesting.NewClientBuilder().WithObjects(objs...).Build()
 
 			wlCopy := wl.DeepCopy()
 			if tc.modifyWL != nil {
 				tc.modifyWL(wlCopy)
 			}
 
-			got, err := dra.GetResourceRequestsForResourceClaimTemplates(context.Background(), baseClient, wlCopy)
-			if (err != nil) != tc.wantErr {
-				t.Fatalf("unexpected error status: gotErr=%v wantErr=%v, err=%v", err != nil, tc.wantErr, err)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			got, err := GetResourceRequestsForResourceClaimTemplates(ctx, baseClient, wlCopy)
+
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
+				t.Errorf("GetResourceRequestsForResourceClaimTemplates() error mismatch (-want +got):\n%s", diff)
 			}
-			if tc.wantErr {
-				return
-			}
-			if !reflect.DeepEqual(got, tc.want) {
-				t.Fatalf("unexpected result; got=%v want=%v", got, tc.want)
+
+			if err == nil {
+				if !reflect.DeepEqual(got, tc.want) {
+					t.Fatalf("unexpected result; got=%v want=%v", got, tc.want)
+				}
 			}
 		})
 	}

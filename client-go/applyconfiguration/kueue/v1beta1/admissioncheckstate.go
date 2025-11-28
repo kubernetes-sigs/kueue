@@ -25,11 +25,13 @@ import (
 // AdmissionCheckStateApplyConfiguration represents a declarative configuration of the AdmissionCheckState type for use
 // with apply.
 type AdmissionCheckStateApplyConfiguration struct {
-	Name               *kueuev1beta1.AdmissionCheckReference `json:"name,omitempty"`
-	State              *kueuev1beta1.CheckState              `json:"state,omitempty"`
-	LastTransitionTime *v1.Time                              `json:"lastTransitionTime,omitempty"`
-	Message            *string                               `json:"message,omitempty"`
-	PodSetUpdates      []PodSetUpdateApplyConfiguration      `json:"podSetUpdates,omitempty"`
+	Name                *kueuev1beta1.AdmissionCheckReference `json:"name,omitempty"`
+	State               *kueuev1beta1.CheckState              `json:"state,omitempty"`
+	LastTransitionTime  *v1.Time                              `json:"lastTransitionTime,omitempty"`
+	Message             *string                               `json:"message,omitempty"`
+	RequeueAfterSeconds *int32                                `json:"requeueAfterSeconds,omitempty"`
+	RetryCount          *int32                                `json:"retryCount,omitempty"`
+	PodSetUpdates       []PodSetUpdateApplyConfiguration      `json:"podSetUpdates,omitempty"`
 }
 
 // AdmissionCheckStateApplyConfiguration constructs a declarative configuration of the AdmissionCheckState type for use with
@@ -67,6 +69,22 @@ func (b *AdmissionCheckStateApplyConfiguration) WithLastTransitionTime(value v1.
 // If called multiple times, the Message field is set to the value of the last call.
 func (b *AdmissionCheckStateApplyConfiguration) WithMessage(value string) *AdmissionCheckStateApplyConfiguration {
 	b.Message = &value
+	return b
+}
+
+// WithRequeueAfterSeconds sets the RequeueAfterSeconds field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the RequeueAfterSeconds field is set to the value of the last call.
+func (b *AdmissionCheckStateApplyConfiguration) WithRequeueAfterSeconds(value int32) *AdmissionCheckStateApplyConfiguration {
+	b.RequeueAfterSeconds = &value
+	return b
+}
+
+// WithRetryCount sets the RetryCount field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the RetryCount field is set to the value of the last call.
+func (b *AdmissionCheckStateApplyConfiguration) WithRetryCount(value int32) *AdmissionCheckStateApplyConfiguration {
+	b.RetryCount = &value
 	return b
 }
 

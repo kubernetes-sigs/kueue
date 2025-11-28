@@ -53,8 +53,8 @@ func (c *KueueV1beta1Client) ClusterQueues() ClusterQueueInterface {
 	return newClusterQueues(c)
 }
 
-func (c *KueueV1beta1Client) Cohorts(namespace string) CohortInterface {
-	return newCohorts(c, namespace)
+func (c *KueueV1beta1Client) Cohorts() CohortInterface {
+	return newCohorts(c)
 }
 
 func (c *KueueV1beta1Client) LocalQueues(namespace string) LocalQueueInterface {

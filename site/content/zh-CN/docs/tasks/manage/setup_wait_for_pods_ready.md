@@ -138,12 +138,12 @@ echo $TOTAL_ALLOCATABLE
 将以下 cluster queues 配置保存为 `cluster-queues.yaml`：
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ResourceFlavor
 metadata:
   name: "default-flavor"
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"
@@ -157,7 +157,7 @@ spec:
       - name: "memory"
         nominalQuota: 16858Mi # double the value of allocatable memory in the cluster
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: LocalQueue
 metadata:
   namespace: "default"

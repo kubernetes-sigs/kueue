@@ -21,6 +21,8 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -36,11 +38,14 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
+	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -50,8 +55,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 const (
@@ -71,7 +77,12 @@ func retryAfter(failedAttempts uint) time.Duration {
 	return (1 << (min(failedAttempts, retryMaxSteps) - 1)) * retryIncrement
 }
 
-type clientWithWatchBuilder func(config []byte, options client.Options) (client.WithWatch, error)
+type clientWithWatchBuilder func(config *clientConfig, options client.Options) (client.WithWatch, error)
+
+type clientConfig struct {
+	Kubeconfig []byte
+	RestConfig *rest.Config
+}
 
 type remoteClient struct {
 	clusterName  string
@@ -80,7 +91,7 @@ type remoteClient struct {
 	wlUpdateCh   chan<- event.GenericEvent
 	watchEndedCh chan<- event.GenericEvent
 	watchCancel  func()
-	kubeconfig   []byte
+	config       *clientConfig
 	origin       string
 	adapters     map[string]jobframework.MultiKueueAdapter
 
@@ -106,8 +117,11 @@ func newRemoteClient(localClient client.Client, wlUpdateCh, watchEndedCh chan<- 
 	return rc
 }
 
-func newClientWithWatch(kubeconfig []byte, options client.Options) (client.WithWatch, error) {
-	restConfig, err := clientcmd.RESTConfigFromKubeConfig(kubeconfig)
+func newClientWithWatch(config *clientConfig, options client.Options) (client.WithWatch, error) {
+	if config.RestConfig != nil {
+		return client.NewWithWatch(config.RestConfig, options)
+	}
+	restConfig, err := clientcmd.RESTConfigFromKubeConfig(config.Kubeconfig)
 	if err != nil {
 		return nil, err
 	}
@@ -133,15 +147,15 @@ func (*workloadKueueWatcher) WorkloadKeyFor(o runtime.Object) (types.NamespacedN
 // setConfig - will try to recreate the k8s client and restart watching if the new config is different than
 // the one currently used or a reconnect was requested.
 // If the encountered error is not permanent the duration after which a retry should be done is returned.
-func (rc *remoteClient) setConfig(watchCtx context.Context, kubeconfig []byte) (*time.Duration, error) {
-	configChanged := !equality.Semantic.DeepEqual(kubeconfig, rc.kubeconfig)
+func (rc *remoteClient) setConfig(watchCtx context.Context, config *clientConfig) (*time.Duration, error) {
+	configChanged := !equality.Semantic.DeepEqual(config, rc.config)
 	if !configChanged && !rc.connecting.Load() {
 		return nil, nil
 	}
 
 	rc.StopWatchers()
 	if configChanged {
-		rc.kubeconfig = kubeconfig
+		rc.config = config
 		rc.failedConnAttempts = 0
 	}
 
@@ -149,7 +163,7 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, kubeconfig []byte) (
 	if rc.builderOverride != nil {
 		builder = rc.builderOverride
 	}
-	remoteClient, err := builder(kubeconfig, client.Options{Scheme: rc.localClient.Scheme()})
+	remoteClient, err := builder(config, client.Options{Scheme: rc.localClient.Scheme()})
 	if err != nil {
 		return nil, err
 	}
@@ -336,6 +350,12 @@ type clustersReconciler struct {
 	fsWatcher *KubeConfigFSWatcher
 
 	adapters map[string]jobframework.MultiKueueAdapter
+
+	clusterProfileCreds clusterProfileCreds
+}
+
+type clusterProfileCreds interface {
+	BuildConfigFromCP(clusterprofile *inventoryv1alpha1.ClusterProfile) (*rest.Config, error)
 }
 
 var _ manager.Runnable = (*clustersReconciler)(nil)
@@ -356,7 +376,7 @@ func (c *clustersReconciler) stopAndRemoveCluster(clusterName string) {
 	}
 }
 
-func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterName string, kubeconfig []byte, origin string) (*time.Duration, error) {
+func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterName string, config *clientConfig, origin string) (*time.Duration, error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -372,7 +392,7 @@ func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterN
 	clientLog := ctrl.LoggerFrom(c.rootContext).WithValues("clusterName", clusterName)
 	clientCtx := ctrl.LoggerInto(c.rootContext, clientLog)
 
-	if retryAfter, err := client.setConfig(clientCtx, kubeconfig); err != nil {
+	if retryAfter, err := client.setConfig(clientCtx, config); err != nil {
 		ctrl.LoggerFrom(ctx).Error(err, "failed to set kubeConfig in the remote client")
 		return retryAfter, err
 	}
@@ -403,19 +423,18 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 		return reconcile.Result{}, nil //nolint:nilerr // nil is intentional, as either the cluster is deleted, or not found
 	}
 
-	// get the kubeconfig
-	kubeConfig, retry, err := c.getKubeConfig(ctx, &cluster.Spec.KubeConfig)
-	if retry {
-		return reconcile.Result{}, err
-	}
+	clientConfig, reason, err := c.loadClientConfig(ctx, cluster)
 	if err != nil {
-		log.Error(err, "reading kubeconfig")
+		log.Error(err, "loading client config failed")
 		c.stopAndRemoveCluster(req.Name)
-		return reconcile.Result{}, c.updateStatus(ctx, cluster, false, "BadConfig", err.Error())
+		if updateErr := c.updateStatus(ctx, cluster, false, reason, fmt.Sprintf("load client config failed: %v", err)); updateErr != nil {
+			return reconcile.Result{}, fmt.Errorf("failed to update MultiKueueCluster status: %w after failing to load client config: %w", updateErr, err)
+		}
+		return reconcile.Result{}, fmt.Errorf("failed to load client config, reason: %s, error: %w", reason, err)
 	}
 
-	if retryAfter, err := c.setRemoteClientConfig(ctx, cluster.Name, kubeConfig, c.origin); err != nil {
-		log.Error(err, "setting kubeconfig", "retryAfter", retryAfter)
+	if retryAfter, err := c.setRemoteClientConfig(ctx, cluster.Name, clientConfig, c.origin); err != nil {
+		log.Error(err, "setting client config", "retryAfter", retryAfter)
 		if err := c.updateStatus(ctx, cluster, false, "ClientConnectionFailed", err.Error()); err != nil {
 			return reconcile.Result{}, err
 		} else {
@@ -426,7 +445,132 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 	return reconcile.Result{}, client.IgnoreNotFound(c.updateStatus(ctx, cluster, true, "Active", "Connected"))
 }
 
-func (c *clustersReconciler) getKubeConfig(ctx context.Context, ref *kueue.KubeConfig) ([]byte, bool, error) {
+func (c *clustersReconciler) loadClientConfig(ctx context.Context, cluster *kueue.MultiKueueCluster) (*clientConfig, string, error) {
+	log := ctrl.LoggerFrom(ctx)
+	if cluster.Spec.ClusterSource.ClusterProfileRef != nil {
+		if !features.Enabled(features.MultiKueueClusterProfile) {
+			return nil, "MultiKueueClusterProfileFeatureDisabled", errors.New("MultiKueueClusterProfile feature gate is disabled")
+		}
+		restConfig, err := c.getRestConfigFromClusterProfile(ctx, cluster.Spec.ClusterSource.ClusterProfileRef)
+		if err != nil {
+			return nil, "BadClusterProfile", err
+		}
+		opts := validateRestConfigOptions{
+			// ExecProvider is allowed for ClusterProfile credentials plugins.
+			allowExecProvider: true,
+		}
+		if err := validateRestConfig(restConfig, opts); err != nil {
+			return nil, "BadRestConfig", err
+		}
+		return &clientConfig{RestConfig: restConfig}, "", nil
+	}
+
+	kubeConfig, err := c.getKubeConfig(ctx, cluster.Spec.ClusterSource.KubeConfig)
+	if err != nil {
+		return nil, "BadKubeConfig", err
+	}
+
+	if features.Enabled(features.MultiKueueAllowInsecureKubeconfigs) {
+		log.V(3).Info("Feature MultiKueueAllowInsecureKubeconfigs is enabled, skipping kubeconfig validation")
+		return &clientConfig{Kubeconfig: kubeConfig}, "", nil
+	}
+	if err := validateKubeconfig(kubeConfig); err != nil {
+		return nil, "InsecureKubeConfig", err
+	}
+	return &clientConfig{Kubeconfig: kubeConfig}, "", nil
+}
+
+// validateKubeconfig checks that the provided kubeconfig content is safe to use
+// in a MultiKueueCluster context.
+func validateKubeconfig(kubeconfig []byte) error {
+	// Parse the raw kubeconfig
+	config, err := clientcmd.Load(kubeconfig)
+	if err != nil {
+		return fmt.Errorf("failed to parse kubeconfig(apiconfig): %v", err)
+	}
+	if config.AuthInfos != nil {
+		for _, authInfo := range config.AuthInfos {
+			// Token is allowed due to service account tokens usage
+			if authInfo.TokenFile != "" {
+				return errors.New("tokenFile is not allowed")
+			}
+		}
+	}
+	// Validate each cluster config
+	for name, cluster := range config.Clusters {
+		// Require TLS
+		if cluster.InsecureSkipTLSVerify {
+			return fmt.Errorf("insecure TLS verification is not allowed for cluster %s", name)
+		}
+		// Require CA cert data (not file paths)
+		if cluster.CertificateAuthority != "" {
+			return fmt.Errorf("certificate-authority file paths are not allowed, use certificate-authority-data for cluster %s", name)
+		}
+		// Validate server URL
+		if cluster.Server == "" {
+			return fmt.Errorf("server URL is required for cluster %s", name)
+		}
+	}
+
+	// Get the restconfig to validate the final settings
+	restConfig, err := clientcmd.RESTConfigFromKubeConfig(kubeconfig)
+	if err != nil {
+		return err
+	}
+
+	return validateRestConfig(restConfig, validateRestConfigOptions{})
+}
+
+type validateRestConfigOptions struct {
+	allowExecProvider bool
+}
+
+func validateRestConfig(restConfig *rest.Config, opts validateRestConfigOptions) error {
+	// Block dangerous auth mechanisms
+	// BearerTokenFile is not allowed.
+	// Instead BearerToken is allowed due to service account tokens usage.
+	if restConfig.BearerTokenFile != "" {
+		return errors.New("bearerTokenFile is not allowed")
+	}
+	// lowercase the host to allow FQDN with uppercase letters
+	if !isValidHostname(strings.ToLower(restConfig.Host)) {
+		return errors.New("untrusted server endpoint")
+	}
+	if restConfig.Username != "" || restConfig.Password != "" {
+		return errors.New("basic auth is not allowed")
+	}
+	if restConfig.ExecProvider != nil && !opts.allowExecProvider {
+		return errors.New("exec plugins are not allowed")
+	}
+	if restConfig.AuthProvider != nil {
+		return errors.New("auth providers are not allowed")
+	}
+	return nil
+}
+
+func isValidHostname(server string) bool {
+	u, err := url.Parse(server)
+	if err != nil {
+		return false
+	}
+	host, _, err := net.SplitHostPort(u.Host)
+	if err != nil {
+		host = u.Host // If no port is present
+	}
+	// Check if host is a valid IP
+	if net.ParseIP(host) != nil {
+		return true
+	}
+	// Check if host is a valid DNS hostname
+	errs := validation.IsDNS1123Subdomain(host)
+	return len(errs) == 0
+}
+
+func (c *clustersReconciler) getKubeConfig(ctx context.Context, ref *kueue.KubeConfig) ([]byte, error) {
+	if ref == nil {
+		return nil, errors.New("kubeconfig reference is nil")
+	}
+
 	if ref.LocationType == kueue.SecretLocationType {
 		return c.getKubeConfigFromSecret(ctx, ref.Location)
 	}
@@ -434,7 +578,16 @@ func (c *clustersReconciler) getKubeConfig(ctx context.Context, ref *kueue.KubeC
 	return c.getKubeConfigFromPath(ref.Location)
 }
 
-func (c *clustersReconciler) getKubeConfigFromSecret(ctx context.Context, secretName string) ([]byte, bool, error) {
+func (c *clustersReconciler) getRestConfigFromClusterProfile(ctx context.Context, profileRef *kueue.ClusterProfileReference) (*rest.Config, error) {
+	cp := &inventoryv1alpha1.ClusterProfile{}
+	if err := c.localClient.Get(ctx, types.NamespacedName{Name: profileRef.Name, Namespace: c.configNamespace}, cp); err != nil {
+		return nil, err
+	}
+
+	return c.clusterProfileCreds.BuildConfigFromCP(cp)
+}
+
+func (c *clustersReconciler) getKubeConfigFromSecret(ctx context.Context, secretName string) ([]byte, error) {
 	sec := corev1.Secret{}
 	secretObjKey := types.NamespacedName{
 		Namespace: c.configNamespace,
@@ -442,20 +595,19 @@ func (c *clustersReconciler) getKubeConfigFromSecret(ctx context.Context, secret
 	}
 	err := c.localClient.Get(ctx, secretObjKey, &sec)
 	if err != nil {
-		return nil, !apierrors.IsNotFound(err), err
+		return nil, err
 	}
 
 	kconfigBytes, found := sec.Data[kueue.MultiKueueConfigSecretKey]
 	if !found {
-		return nil, false, fmt.Errorf("key %q not found in secret %q", kueue.MultiKueueConfigSecretKey, secretName)
+		return nil, fmt.Errorf("key %q not found in secret %q", kueue.MultiKueueConfigSecretKey, secretName)
 	}
 
-	return kconfigBytes, false, nil
+	return kconfigBytes, nil
 }
 
-func (c *clustersReconciler) getKubeConfigFromPath(path string) ([]byte, bool, error) {
-	content, err := os.ReadFile(path)
-	return content, false, err
+func (c *clustersReconciler) getKubeConfigFromPath(path string) ([]byte, error) {
+	return os.ReadFile(path)
 }
 
 func (c *clustersReconciler) updateStatus(ctx context.Context, cluster *kueue.MultiKueueCluster, active bool, reason, message string) error {
@@ -511,17 +663,18 @@ func (c *clustersReconciler) getRemoteClients() []*remoteClient {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueclusters/status,verbs=get;update;patch
 
-func newClustersReconciler(c client.Client, namespace string, gcInterval time.Duration, origin string, fsWatcher *KubeConfigFSWatcher, adapters map[string]jobframework.MultiKueueAdapter) *clustersReconciler {
+func newClustersReconciler(c client.Client, namespace string, gcInterval time.Duration, origin string, fsWatcher *KubeConfigFSWatcher, adapters map[string]jobframework.MultiKueueAdapter, cpCreds clusterProfileCreds) *clustersReconciler {
 	return &clustersReconciler{
-		localClient:     c,
-		configNamespace: namespace,
-		remoteClients:   make(map[string]*remoteClient),
-		wlUpdateCh:      make(chan event.GenericEvent, eventChBufferSize),
-		gcInterval:      gcInterval,
-		origin:          origin,
-		watchEndedCh:    make(chan event.GenericEvent, eventChBufferSize),
-		fsWatcher:       fsWatcher,
-		adapters:        adapters,
+		localClient:         c,
+		configNamespace:     namespace,
+		remoteClients:       make(map[string]*remoteClient),
+		wlUpdateCh:          make(chan event.GenericEvent, eventChBufferSize),
+		gcInterval:          gcInterval,
+		origin:              origin,
+		watchEndedCh:        make(chan event.GenericEvent, eventChBufferSize),
+		fsWatcher:           fsWatcher,
+		adapters:            adapters,
+		clusterProfileCreds: cpCreds,
 	}
 }
 
@@ -552,8 +705,8 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 	filter := predicate.Funcs{
 		CreateFunc: func(ce event.CreateEvent) bool {
 			if cluster, isCluster := ce.Object.(*kueue.MultiKueueCluster); isCluster {
-				if cluster.Spec.KubeConfig.LocationType == kueue.PathLocationType {
-					err := c.fsWatcher.AddOrUpdate(cluster.Name, cluster.Spec.KubeConfig.Location)
+				if cluster.Spec.ClusterSource.KubeConfig != nil && cluster.Spec.ClusterSource.KubeConfig.LocationType == kueue.PathLocationType {
+					err := c.fsWatcher.AddOrUpdate(cluster.Name, cluster.Spec.ClusterSource.KubeConfig.Location)
 					if err != nil {
 						filterLog.Error(err, "AddOrUpdate FS watch", "cluster", klog.KObj(cluster))
 					}
@@ -568,15 +721,17 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 				return true
 			}
 
-			if clusterNew.Spec.KubeConfig.LocationType == kueue.SecretLocationType && clusterOld.Spec.KubeConfig.LocationType == kueue.PathLocationType {
+			clusterNewHasKubeConfigPath := clusterNew.Spec.ClusterSource.KubeConfig != nil && clusterNew.Spec.ClusterSource.KubeConfig.LocationType == kueue.PathLocationType
+			clusterOldHasKubeConfigPath := clusterOld.Spec.ClusterSource.KubeConfig != nil && clusterOld.Spec.ClusterSource.KubeConfig.LocationType == kueue.PathLocationType
+			if clusterOldHasKubeConfigPath && !clusterNewHasKubeConfigPath {
 				err := c.fsWatcher.Remove(clusterOld.Name)
 				if err != nil {
 					filterLog.Error(err, "Remove FS watch", "cluster", klog.KObj(clusterOld))
 				}
 			}
 
-			if clusterNew.Spec.KubeConfig.LocationType == kueue.PathLocationType {
-				err := c.fsWatcher.AddOrUpdate(clusterNew.Name, clusterNew.Spec.KubeConfig.Location)
+			if clusterNewHasKubeConfigPath {
+				err := c.fsWatcher.AddOrUpdate(clusterNew.Name, clusterNew.Spec.ClusterSource.KubeConfig.Location)
 				if err != nil {
 					filterLog.Error(err, "AddOrUpdate FS watch", "cluster", klog.KObj(clusterNew))
 				}
@@ -585,7 +740,7 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 		},
 		DeleteFunc: func(de event.DeleteEvent) bool {
 			if cluster, isCluster := de.Object.(*kueue.MultiKueueCluster); isCluster {
-				if cluster.Spec.KubeConfig.LocationType == kueue.PathLocationType {
+				if cluster.Spec.ClusterSource.KubeConfig != nil && cluster.Spec.ClusterSource.KubeConfig.LocationType == kueue.PathLocationType {
 					err := c.fsWatcher.Remove(cluster.Name)
 					if err != nil {
 						filterLog.Error(err, "Remove FS watch", "cluster", klog.KObj(cluster))

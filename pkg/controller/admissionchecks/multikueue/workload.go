@@ -34,6 +34,7 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -42,13 +43,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
-	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
@@ -328,7 +327,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	// - Workload doesn't have quota reservation as a result of scale-up, i.e., scaling-up in progress.
 	if group.IsElasticWorkload() &&
 		((group.IsFinished() && workloadslicing.IsReplaced(group.local.Status)) ||
-			(!workload.HasQuotaReservation(group.local) && workloadslicing.ScaledUp(group.local))) {
+			(!group.IsFinished() && !workload.HasQuotaReservation(group.local) && workloadslicing.ScaledUp(group.local))) {
 		return reconcile.Result{}, nil
 	}
 
@@ -358,24 +357,8 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			log.V(3).Info("Group with no adapter, skip owner status copy", "workerCluster", remote)
 		}
 
-		// copy the status to the local one
-		finishCond := metav1.Condition{
-			Type:               kueue.WorkloadFinished,
-			Status:             metav1.ConditionTrue,
-			Reason:             remoteFinishedCond.Reason,
-			Message:            remoteFinishedCond.Message,
-			LastTransitionTime: metav1.NewTime(w.clock.Now()),
-		}
-		if features.Enabled(features.WorkloadRequestUseMergePatch) {
-			return reconcile.Result{}, clientutil.PatchStatus(ctx, w.client, group.local, func() (client.Object, bool, error) {
-				apimeta.SetStatusCondition(&group.local.Status.Conditions, finishCond)
-				return group.local, true, nil
-			})
-		}
-
-		wlPatch := workload.BaseSSAWorkload(group.local, false)
-		apimeta.SetStatusCondition(&wlPatch.Status.Conditions, finishCond)
-		return reconcile.Result{}, w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName+"-finish"), client.ForceOwnership)
+		// finish workload and copy the status to the local one
+		return reconcile.Result{}, workload.Finish(ctx, w.client, group.local, remoteFinishedCond.Reason, remoteFinishedCond.Message, w.clock)
 	}
 
 	// 2. delete all workloads that are out of sync (other than scaled-down elastic workloads)
@@ -420,28 +403,8 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			return reconcile.Result{}, err
 		}
 
-		if acs.State != kueue.CheckStateRetry && acs.State != kueue.CheckStateRejected {
-			if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func() (*kueue.Workload, bool, error) {
-				if group.jobAdapter.KeepAdmissionCheckPending() {
-					acs.State = kueue.CheckStatePending
-				} else {
-					acs.State = kueue.CheckStateReady
-				}
-				// update the message
-				acs.Message = fmt.Sprintf("The workload got reservation on %q", reservingRemote)
-				// update the transition time since is used to detect the lost worker state.
-				acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
-
-				workload.SetAdmissionCheckState(&group.local.Status.AdmissionChecks, *acs, w.clock)
-				// Set the cluster name to the reserving remote and clear the nominated clusters.
-				group.local.Status.ClusterName = &reservingRemote
-				group.local.Status.NominatedClusterNames = nil
-				return group.local, true, nil
-			}); err != nil {
-				log.V(2).Error(err, "Failed to patch workload", "workload", klog.KObj(group.local))
-				return reconcile.Result{}, err
-			}
-			w.recorder.Eventf(group.local, corev1.EventTypeNormal, "MultiKueue", acs.Message)
+		if err := w.syncReservingRemoteState(ctx, group, reservingRemote, acs); err != nil {
+			return reconcile.Result{}, err
 		}
 		return reconcile.Result{RequeueAfter: w.workerLostTimeout}, nil
 	} else if acs.State == kueue.CheckStateReady {
@@ -480,9 +443,9 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 			nominatedWorkers = append(nominatedWorkers, workerName)
 		}
 		if group.local.Status.ClusterName == nil && !equality.Semantic.DeepEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
-			if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func() (*kueue.Workload, bool, error) {
-				group.local.Status.NominatedClusterNames = nominatedWorkers
-				return group.local, true, nil
+			if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+				wl.Status.NominatedClusterNames = nominatedWorkers
+				return true, nil
 			}); err != nil {
 				log.V(2).Error(err, "Failed to patch nominated clusters", "workload", klog.KObj(group.local))
 				return reconcile.Result{}, err
@@ -559,6 +522,65 @@ func newWlReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelp
 	return r
 }
 
+type configHandler struct {
+	client            client.Client
+	eventsBatchPeriod time.Duration
+}
+
+func (c *configHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	// no-op as we don't need to react to new configs
+}
+
+func (c *configHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	oldConfig, isOldConfig := e.ObjectOld.(*kueue.MultiKueueConfig)
+	newConfig, isNewConfig := e.ObjectNew.(*kueue.MultiKueueConfig)
+	if !isOldConfig || !isNewConfig {
+		return
+	}
+	if equality.Semantic.DeepEqual(oldConfig.Spec.Clusters, newConfig.Spec.Clusters) {
+		return
+	}
+	if err := c.queueWorkloadsForConfig(ctx, oldConfig.Name, q); err != nil {
+		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to queue workloads on config update", "multiKueueConfig", klog.KObj(oldConfig))
+	}
+}
+
+func (c *configHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	config, isConfig := e.Object.(*kueue.MultiKueueConfig)
+	if !isConfig {
+		return
+	}
+	if err := c.queueWorkloadsForConfig(ctx, config.Name, q); err != nil {
+		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to queue workloads on config deletion", "multiKueueConfig", klog.KObj(config))
+	}
+}
+
+func (c *configHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	// no-op as we don't need to react to generic
+}
+
+func (c *configHandler) queueWorkloadsForConfig(ctx context.Context, configName string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
+	admissionChecks := &kueue.AdmissionCheckList{}
+	var errs []error
+
+	if err := c.client.List(ctx, admissionChecks, client.MatchingFields{AdmissionCheckUsingConfigKey: configName}); err != nil {
+		errs = append(errs, err)
+		return errors.Join(errs...)
+	}
+
+	for _, admissionCheck := range admissionChecks.Items {
+		workloads := &kueue.WorkloadList{}
+		if err := c.client.List(ctx, workloads, client.MatchingFields{WorkloadsWithAdmissionCheckKey: admissionCheck.Name}); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		for _, workload := range workloads.Items {
+			q.AddAfter(reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&workload)}, c.eventsBatchPeriod)
+		}
+	}
+	return errors.Join(errs...)
+}
+
 func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 	syncHndl := handler.Funcs{
 		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -573,8 +595,112 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Named("multikueue_workload").
 		For(&kueue.Workload{}).
 		WatchesRawSource(source.Channel(w.clusters.wlUpdateCh, syncHndl)).
+		Watches(&kueue.MultiKueueConfig{}, &configHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod}).
 		WithEventFilter(w).
 		Complete(w)
+}
+
+func findPodSetAssignment(assignments []kueue.PodSetAssignment, name kueue.PodSetReference) *kueue.PodSetAssignment {
+	for i := range assignments {
+		if assignments[i].Name == name {
+			return &assignments[i]
+		}
+	}
+	return nil
+}
+
+func needsDelayedTopologyUpdate(local, remote *kueue.Workload) bool {
+	if remote == nil || remote.Status.Admission == nil || local == nil || local.Status.Admission == nil {
+		return false
+	}
+
+	for _, remotePSA := range remote.Status.Admission.PodSetAssignments {
+		if remotePSA.TopologyAssignment == nil {
+			continue
+		}
+
+		localPSA := findPodSetAssignment(local.Status.Admission.PodSetAssignments, remotePSA.Name)
+		if localPSA == nil {
+			continue
+		}
+
+		if localPSA.TopologyAssignment == nil {
+			return true
+		}
+
+		if localPSA.DelayedTopologyRequest != nil &&
+			*localPSA.DelayedTopologyRequest == kueue.DelayedTopologyRequestStatePending {
+			return true
+		}
+	}
+	return false
+}
+
+func (w *wlReconciler) syncReservingRemoteState(ctx context.Context, group *wlGroup, reservingRemote string, acs *kueue.AdmissionCheckState) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	needsTopologyUpdate := needsDelayedTopologyUpdate(group.local, group.remotes[reservingRemote])
+	needsACUpdate := acs.State != kueue.CheckStateRetry && acs.State != kueue.CheckStateRejected
+
+	if !needsTopologyUpdate && !needsACUpdate {
+		return nil
+	}
+
+	if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+		if needsTopologyUpdate {
+			updateDelayedTopologyRequest(wl, group.remotes[reservingRemote])
+		}
+
+		if needsACUpdate {
+			if group.jobAdapter.KeepAdmissionCheckPending() {
+				acs.State = kueue.CheckStatePending
+			} else {
+				acs.State = kueue.CheckStateReady
+			}
+			// update the message
+			acs.Message = fmt.Sprintf("The workload got reservation on %q", reservingRemote)
+			// update the transition time since is used to detect the lost worker state.
+			acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
+
+			workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *acs, w.clock)
+			// Set the cluster name to the reserving remote and clear the nominated clusters.
+			wl.Status.ClusterName = &reservingRemote
+			wl.Status.NominatedClusterNames = nil
+		}
+
+		return true, nil
+	}); err != nil {
+		log.V(2).Error(err, "Failed to patch workload", "workload", klog.KObj(group.local))
+		return err
+	}
+
+	if needsACUpdate {
+		w.recorder.Eventf(group.local, corev1.EventTypeNormal, "MultiKueue", acs.Message)
+	}
+
+	return nil
+}
+
+func updateDelayedTopologyRequest(local, remote *kueue.Workload) {
+	if remote == nil || remote.Status.Admission == nil || local == nil || local.Status.Admission == nil {
+		return
+	}
+
+	for _, remotePSA := range remote.Status.Admission.PodSetAssignments {
+		if remotePSA.TopologyAssignment == nil {
+			continue
+		}
+
+		localPSA := findPodSetAssignment(local.Status.Admission.PodSetAssignments, remotePSA.Name)
+		if localPSA == nil {
+			continue
+		}
+
+		if localPSA.DelayedTopologyRequest != nil &&
+			*localPSA.DelayedTopologyRequest == kueue.DelayedTopologyRequestStatePending {
+			localPSA.DelayedTopologyRequest = ptr.To(kueue.DelayedTopologyRequestStateReady)
+		}
+	}
 }
 
 func cloneForCreate(orig *kueue.Workload, origin string) *kueue.Workload {

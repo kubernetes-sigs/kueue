@@ -64,7 +64,7 @@ Workload 的保留策略在 `.objectRetentionPolicies.workloads` 字段下定义
 1. **提交** 一个应能正常完成的简单 Workload：
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: successful-cq
@@ -78,7 +78,7 @@ spec:
       - name: cpu
         nominalQuota: "2"
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: LocalQueue
 metadata:
   namespace: default
@@ -135,7 +135,7 @@ kubectl get jobs -n default
 2. **提交** 一个请求量超过节点可用资源的 Workload：
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: limited-cq
@@ -149,7 +149,7 @@ spec:
       - name: cpu
         nominalQuota: "100" # 超过节点可用量
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: LocalQueue
 metadata:
   namespace: default

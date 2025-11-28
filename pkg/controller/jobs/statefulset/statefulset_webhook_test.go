@@ -42,6 +42,7 @@ import (
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingappwrapper "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	testingleaderworkerset "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
@@ -184,7 +185,7 @@ func TestDefault(t *testing.T) {
 			cqCache := schdcache.New(cli)
 			queueManager := qcache.NewManager(cli, cqCache)
 			if tc.defaultLqExist {
-				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", "default").
+				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("default", "default").
 					ClusterQueue("cluster-queue").Obj()); err != nil {
 					t.Fatalf("failed to create default local queue: %s", err)
 				}
@@ -375,6 +376,35 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			},
 		},
+		"set in priority class label when replicas ready": {
+			oldObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel: "queue1",
+					},
+				},
+				Status: appsv1.StatefulSetStatus{
+					ReadyReplicas: int32(1),
+				},
+			},
+			newObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel:                 "queue1",
+						constants.WorkloadPriorityClassLabel: "priority2",
+					},
+				},
+				Status: appsv1.StatefulSetStatus{
+					ReadyReplicas: int32(1),
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: priorityClassNameLabelPath.String(),
+				},
+			}.ToAggregate(),
+		},
 		"change in priority class label when replicas ready": {
 			oldObj: &appsv1.StatefulSet{
 				ObjectMeta: metav1.ObjectMeta{
@@ -396,6 +426,90 @@ func TestValidateUpdate(t *testing.T) {
 				},
 				Status: appsv1.StatefulSetStatus{
 					ReadyReplicas: int32(1),
+				},
+			},
+			wantErr: field.ErrorList{}.ToAggregate(),
+		},
+		"delete in priority class label when replicas ready": {
+			oldObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel:                 "queue1",
+						constants.WorkloadPriorityClassLabel: "priority1",
+					},
+				},
+				Status: appsv1.StatefulSetStatus{
+					ReadyReplicas: int32(1),
+				},
+			},
+			newObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel: "queue1",
+					},
+				},
+				Status: appsv1.StatefulSetStatus{
+					ReadyReplicas: int32(1),
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: priorityClassNameLabelPath.String(),
+				},
+			}.ToAggregate(),
+		},
+		"set in priority class label when replicas not ready": {
+			oldObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel: "queue1",
+					},
+				},
+			},
+			newObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel:                 "queue1",
+						constants.WorkloadPriorityClassLabel: "priority2",
+					},
+				},
+			},
+			wantErr: field.ErrorList{}.ToAggregate(),
+		},
+		"change in priority class label when replicas not ready": {
+			oldObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel:                 "queue1",
+						constants.WorkloadPriorityClassLabel: "priority1",
+					},
+				},
+			},
+			newObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel:                 "queue1",
+						constants.WorkloadPriorityClassLabel: "priority2",
+					},
+				},
+			},
+			wantErr: field.ErrorList{}.ToAggregate(),
+		},
+		"delete in priority class label when replicas not ready": {
+			oldObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel:                 "queue1",
+						constants.WorkloadPriorityClassLabel: "priority1",
+					},
+				},
+			},
+			newObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel: "queue1",
+					},
 				},
 			},
 			wantErr: field.ErrorList{
@@ -665,6 +779,37 @@ func TestValidateUpdate(t *testing.T) {
 					Field: podSpecPath.Child("containers").Index(0).Child("resources", "requests").String(),
 				},
 			}.ToAggregate(),
+		},
+		"scale up from zero blocked by existing workload": {
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload(GetWorkloadName("test-statefulset"), "test-ns").Obj(),
+			},
+			oldObj: testingstatefulset.MakeStatefulSet("test-statefulset", "test-ns").
+				Queue("test-queue").
+				Replicas(0).
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-statefulset", "test-ns").
+				Queue("test-queue").
+				Replicas(3).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: replicasPath.String(),
+				},
+			}.ToAggregate(),
+		},
+		"scale up from zero allowed when workload does not exist": {
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				UID("test-sts-uid").
+				Queue("test-queue").
+				Replicas(0).
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				UID("test-sts-uid").
+				Queue("test-queue").
+				Replicas(3).
+				Obj(),
 		},
 	}
 

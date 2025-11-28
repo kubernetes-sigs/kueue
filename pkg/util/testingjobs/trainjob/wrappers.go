@@ -53,9 +53,9 @@ func (t *TrainJobWrapper) Clone() *TrainJobWrapper {
 	return &TrainJobWrapper{TrainJob: *t.DeepCopy()}
 }
 
-// PodSpecOverrides sets the custom pod spec overrides to be set to the TrainJob jobset jobs
-func (t *TrainJobWrapper) PodSpecOverrides(overrides []kftrainerapi.PodSpecOverride) *TrainJobWrapper {
-	t.Spec.PodSpecOverrides = overrides
+// PodTemplateOverrides sets the custom pod template overrides to be set to the TrainJob jobset jobs
+func (t *TrainJobWrapper) PodTemplateOverrides(overrides []kftrainerapi.PodTemplateOverride) *TrainJobWrapper {
+	t.Spec.PodTemplateOverrides = overrides
 	return t
 }
 
@@ -171,4 +171,36 @@ func MakeTrainingRuntime(name, ns string, jobsetSpec jobsetapi.JobSetSpec) *kftr
 			},
 		},
 	}
+}
+
+type JobStatusWrapper struct{ kftrainerapi.JobStatus }
+
+func MakeJobStatusWrapper(name string) *JobStatusWrapper {
+	return &JobStatusWrapper{kftrainerapi.JobStatus{
+		Name:      name,
+		Ready:     ptr.To(int32(0)),
+		Succeeded: ptr.To(int32(0)),
+		Failed:    ptr.To(int32(0)),
+		Active:    ptr.To(int32(0)),
+		Suspended: ptr.To(int32(0)),
+	}}
+}
+
+func (s *JobStatusWrapper) Active(v int32) *JobStatusWrapper {
+	s.JobStatus.Active = ptr.To(v)
+	return s
+}
+
+func (s *JobStatusWrapper) Ready(v int32) *JobStatusWrapper {
+	s.JobStatus.Ready = ptr.To(v)
+	return s
+}
+
+func (s *JobStatusWrapper) Succeeded(v int32) *JobStatusWrapper {
+	s.JobStatus.Succeeded = ptr.To(v)
+	return s
+}
+
+func (s *JobStatusWrapper) Obj() kftrainerapi.JobStatus {
+	return s.JobStatus
 }

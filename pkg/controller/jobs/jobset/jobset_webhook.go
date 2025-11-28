@@ -27,7 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -95,7 +95,7 @@ func (w *JobSetWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) 
 	jobSet := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
 	log.Info("Validating create")
-	validationErrs, err := w.validateCreate(jobSet)
+	validationErrs, err := w.validateCreate(ctx, jobSet)
 	if err != nil {
 		return nil, err
 	}
@@ -108,17 +108,17 @@ func (w *JobSetWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runti
 	newJobSet := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
 	log.Info("Validating update")
-	validationErrs, err := w.validateUpdate(oldJobSet, newJobSet)
+	validationErrs, err := w.validateUpdate(ctx, oldJobSet, newJobSet)
 	if err != nil {
 		return nil, err
 	}
 	return nil, validationErrs.ToAggregate()
 }
 
-func (w *JobSetWebhook) validateUpdate(oldJob, newJob *JobSet) (field.ErrorList, error) {
+func (w *JobSetWebhook) validateUpdate(ctx context.Context, oldJob, newJob *JobSet) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist)...)
-	validationErrs, err := w.validateCreate(newJob)
+	validationErrs, err := w.validateCreate(ctx, newJob)
 	if err != nil {
 		return nil, err
 	}
@@ -126,11 +126,11 @@ func (w *JobSetWebhook) validateUpdate(oldJob, newJob *JobSet) (field.ErrorList,
 	return allErrs, nil
 }
 
-func (w *JobSetWebhook) validateCreate(jobSet *JobSet) (field.ErrorList, error) {
+func (w *JobSetWebhook) validateCreate(ctx context.Context, jobSet *JobSet) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(jobSet)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
-		validationErrs, err := w.validateTopologyRequest(jobSet)
+		validationErrs, err := w.validateTopologyRequest(ctx, jobSet)
 		if err != nil {
 			return nil, err
 		}
@@ -139,21 +139,25 @@ func (w *JobSetWebhook) validateCreate(jobSet *JobSet) (field.ErrorList, error) 
 	return allErrs, nil
 }
 
-func (w *JobSetWebhook) validateTopologyRequest(jobSet *JobSet) (field.ErrorList, error) {
+func (w *JobSetWebhook) validateTopologyRequest(ctx context.Context, jobSet *JobSet) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 
-	podSets, podSetsErr := jobSet.PodSets()
+	podSets, podSetsErr := jobframework.JobPodSets(ctx, jobSet)
+
+	if podSetsErr == nil {
+		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, buildPodSetAnnotationsPathByNameMap(jobSet))...)
+	}
 
 	for i, rj := range jobSet.Spec.ReplicatedJobs {
-		replicaMetaPath := replicatedJobsPath.Index(i).Child("template", "metadata")
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(replicaMetaPath, &jobSet.Spec.ReplicatedJobs[i].Template.Spec.Template.ObjectMeta)...)
+		replicaJobTemplateMetaPath := replicatedJobsPath.Index(i).Child("template", "spec", "template", "metadata")
+		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(replicaJobTemplateMetaPath, &jobSet.Spec.ReplicatedJobs[i].Template.Spec.Template.ObjectMeta)...)
 
 		if podSetsErr != nil {
 			continue
 		}
 
 		podSet := podset.FindPodSetByName(podSets, kueue.NewPodSetReference(rj.Name))
-		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(replicaMetaPath, &jobSet.Spec.ReplicatedJobs[i].Template.Spec.Template.ObjectMeta, podSet)...)
+		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(replicaJobTemplateMetaPath, &jobSet.Spec.ReplicatedJobs[i].Template.Spec.Template.ObjectMeta, podSet)...)
 	}
 
 	if len(allErrs) > 0 {
@@ -161,6 +165,14 @@ func (w *JobSetWebhook) validateTopologyRequest(jobSet *JobSet) (field.ErrorList
 	}
 
 	return nil, podSetsErr
+}
+
+func buildPodSetAnnotationsPathByNameMap(jobSet *JobSet) map[kueue.PodSetReference]*field.Path {
+	podSetAnnotationsPathByName := make(map[kueue.PodSetReference]*field.Path)
+	for i, job := range jobSet.Spec.ReplicatedJobs {
+		podSetAnnotationsPathByName[kueue.PodSetReference(job.Name)] = replicatedJobsPath.Index(i).Child("template", "spec", "template", "metadata", "annotations")
+	}
+	return podSetAnnotationsPathByName
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type

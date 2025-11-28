@@ -95,7 +95,7 @@ managerConfig:
   # ControllerManager utilizes this yaml via manager-config Configmap.
   # @default -- controllerManagerConfigYaml
   controllerManagerConfigYaml: |-
-    apiVersion: config.kueue.x-k8s.io/v1beta1
+    apiVersion: config.kueue.x-k8s.io/v1beta2
     kind: Configuration
     health:
       healthProbeBindAddress: :8081
@@ -120,7 +120,6 @@ managerConfig:
       burst: 100
     #pprofBindAddress: :8083
     #waitForPodsReady:
-    #  enable: false
     #  timeout: 5m
     #  recoveryTimeout: 3m
     #  blockAdmission: false
@@ -160,7 +159,6 @@ managerConfig:
     #  externalFrameworks:
     #  - "Foo.v1.example.com"
     #fairSharing:
-    #  enable: true
     #  preemptionStrategies: [LessThanOrEqualToFinalShare, LessThanInitialShare]
     #admissionFairSharing:
     #  usageHalfLifeTime: "168h" # 7 days

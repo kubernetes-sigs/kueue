@@ -43,7 +43,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
@@ -157,7 +157,7 @@ type Pod struct {
 var (
 	_ jobframework.GenericJob                      = (*Pod)(nil)
 	_ jobframework.JobWithFinalize                 = (*Pod)(nil)
-	_ jobframework.JobWithFinalize                 = (*Pod)(nil)
+	_ jobframework.JobWithSkip                     = (*Pod)(nil)
 	_ jobframework.ComposableJob                   = (*Pod)(nil)
 	_ jobframework.JobWithCustomWorkloadConditions = (*Pod)(nil)
 	_ jobframework.TopLevelJob                     = (*Pod)(nil)
@@ -264,8 +264,8 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 			return nil
 		}
 
-		if err := clientutil.Patch(ctx, c, &p.pod, func() (client.Object, bool, error) {
-			return &p.pod, true, prepare(&p.pod, podSetsInfo[0])
+		if err := clientutil.Patch(ctx, c, &p.pod, func() (bool, error) {
+			return true, prepare(&p.pod, podSetsInfo[0])
 		}); err != nil {
 			return err
 		}
@@ -284,27 +284,27 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 			return nil
 		}
 
-		if err := clientutil.Patch(ctx, c, pod, func() (client.Object, bool, error) {
+		if err := clientutil.Patch(ctx, c, pod, func() (bool, error) {
 			roleHash, err := getRoleHash(*pod)
 			if err != nil {
-				return nil, false, err
+				return false, err
 			}
 
 			podSetIndex := slices.IndexFunc(podSetsInfo, func(info podset.PodSetInfo) bool {
 				return string(info.Name) == roleHash
 			})
 			if podSetIndex == -1 {
-				return nil, false, fmt.Errorf("%w: podSetInfo with the name '%s' is not found", podset.ErrInvalidPodsetInfo, roleHash)
+				return false, fmt.Errorf("%w: podSetInfo with the name '%s' is not found", podset.ErrInvalidPodsetInfo, roleHash)
 			}
 
 			err = prepare(pod, podSetsInfo[podSetIndex])
 			if err != nil {
-				return nil, false, err
+				return false, err
 			}
 
 			log.V(3).Info("Starting pod in group", "podInGroup", klog.KObj(pod))
 
-			return pod, true, nil
+			return true, nil
 		}); err != nil {
 			return err
 		}
@@ -321,7 +321,7 @@ func (p *Pod) IsTopLevel() bool {
 }
 
 // RunWithPodSetsInfo will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
-func (p *Pod) RunWithPodSetsInfo(_ []podset.PodSetInfo) error {
+func (p *Pod) RunWithPodSetsInfo(_ context.Context, _ []podset.PodSetInfo) error {
 	// Not implemented because this is not called when JobWithCustomRun is implemented.
 	return errors.New("RunWithPodSetsInfo is not implemented for the Pod object")
 }
@@ -334,11 +334,11 @@ func (p *Pod) RestorePodSetsInfo(_ []podset.PodSetInfo) bool {
 
 // Finished means whether the job is completed/failed or not,
 // condition represents the workload finished condition.
-func (p *Pod) Finished() (message string, success, finished bool) {
+func (p *Pod) Finished(ctx context.Context) (message string, success, finished bool) {
 	if p.isServing() {
 		return "", true, false
 	}
-
+	log := ctrl.LoggerFrom(ctx)
 	finished = true
 	success = true
 
@@ -354,7 +354,7 @@ func (p *Pod) Finished() (message string, success, finished bool) {
 
 	groupTotalCount, err := p.groupTotalCount()
 	if err != nil {
-		ctrl.Log.V(2).Error(err, "failed to check if pod group is finished")
+		log.V(2).Error(err, "failed to check if pod group is finished")
 		message = "failed to check if pod group is finished"
 		return message, success, false
 	}
@@ -380,7 +380,7 @@ func (p *Pod) Finished() (message string, success, finished bool) {
 }
 
 // PodSets will build workload podSets corresponding to the job.
-func (p *Pod) PodSets() ([]kueue.PodSet, error) {
+func (p *Pod) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	if !p.isGroup {
 		return constructPodSets(&p.pod)
 	} else {
@@ -435,7 +435,7 @@ func hasPodReadyTrue(conds []corev1.PodCondition) bool {
 }
 
 // PodsReady instructs whether job derived pods are all ready now.
-func (p *Pod) PodsReady() bool {
+func (p *Pod) PodsReady(ctx context.Context) bool {
 	if !p.isGroup {
 		return hasPodReadyTrue(p.pod.Status.Conditions)
 	}
@@ -554,15 +554,22 @@ func (p *Pod) Finalize(ctx context.Context, c client.Client) error {
 
 	return parallelize.Until(ctx, len(podsInGroup.Items), func(i int) error {
 		pod := &podsInGroup.Items[i]
-		return clientutil.Patch(ctx, c, pod, func() (client.Object, bool, error) {
-			return pod, controllerutil.RemoveFinalizer(pod, podconstants.PodFinalizer), nil
+		return clientutil.Patch(ctx, c, pod, func() (bool, error) {
+			return controllerutil.RemoveFinalizer(pod, podconstants.PodFinalizer), nil
 		}, clientutil.WithLoose())
 	})
 }
 
-func (p *Pod) Skip() bool {
+func (p *Pod) Skip(ctx context.Context) bool {
+	log := ctrl.LoggerFrom(ctx)
 	// Skip pod reconciliation, if pod is found, and it's managed label is not set or incorrect.
 	if v, ok := p.pod.GetLabels()[constants.ManagedByKueueLabelKey]; p.isFound && (!ok || v != constants.ManagedByKueueLabelValue) {
+		log.V(3).Info("Skipping pod, not managed by Kueue", constants.ManagedByKueueLabelKey, v, "labelSet", ok)
+		return true
+	}
+	if jobframework.HasImplicitlyEnabledFramework(p.pod.GroupVersionKind()) &&
+		p.pod.GetAnnotations()[podconstants.SuspendedByParentAnnotation] == "" {
+		log.V(3).Info("Pod Integration was implicitly enabled but object lacks parent annotation, skipping")
 		return true
 	}
 	return false
@@ -913,12 +920,12 @@ func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r record.Ev
 	// Finalize and delete the active pods created last
 	err := parallelize.Until(ctx, len(extraPods), func(i int) error {
 		pod := extraPods[i]
-		if err := clientutil.Patch(ctx, c, &pod, func() (client.Object, bool, error) {
+		if err := clientutil.Patch(ctx, c, &pod, func() (bool, error) {
 			removed := controllerutil.RemoveFinalizer(&pod, podconstants.PodFinalizer)
 			if removed {
 				log.V(3).Info("Finalizing excess pod in group", "excessPod", klog.KObj(&pod))
 			}
-			return &pod, removed, nil
+			return removed, nil
 		}, clientutil.WithLoose()); err != nil {
 			// We won't observe this cleanup in the event handler.
 			p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
@@ -955,12 +962,12 @@ func (p *Pod) finalizePods(ctx context.Context, c client.Client, extraPods []cor
 	err := parallelize.Until(ctx, len(extraPods), func(i int) error {
 		pod := extraPods[i]
 		var removed bool
-		if err := clientutil.Patch(ctx, c, &pod, func() (client.Object, bool, error) {
+		if err := clientutil.Patch(ctx, c, &pod, func() (bool, error) {
 			removed = controllerutil.RemoveFinalizer(&pod, podconstants.PodFinalizer)
 			if removed {
 				log.V(3).Info("Finalizing pod in group", "Pod", klog.KObj(&pod))
 			}
-			return &pod, removed, nil
+			return removed, nil
 		}, clientutil.WithLoose()); err != nil {
 			// We won't observe this cleanup in the event handler.
 			p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
@@ -1056,7 +1063,7 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		p.list.Items = activePods[:len(activePods)-excessPodsCount]
 	}
 
-	podSets, err := p.PodSets()
+	podSets, err := jobframework.JobPodSets(ctx, p)
 	if err != nil {
 		if jobframework.IsUnretryableError(err) {
 			r.Eventf(p.Object(), corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, err.Error())
@@ -1266,7 +1273,7 @@ func (p *Pod) isReclaimable() bool {
 	return p.isGroup && !p.isServing()
 }
 
-func (p *Pod) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
+func (p *Pod) ReclaimablePods(ctx context.Context) ([]kueue.ReclaimablePod, error) {
 	if !p.isReclaimable() {
 		return []kueue.ReclaimablePod{}, nil
 	}

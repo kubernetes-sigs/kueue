@@ -32,7 +32,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -51,7 +51,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	localJob := batchv1.Job{}
 	err := localClient.Get(ctx, key, &localJob)
 	if err != nil {
-		fmt.Println("PROD: LOCAL JOB ERROR", err, key)
+		log.Error(err, "Failed to get local job", "job", key)
 		return err
 	}
 
@@ -69,9 +69,9 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 				log.V(2).Info("Skipping the sync since the local job is still suspended")
 				return nil
 			}
-			return clientutil.PatchStatus(ctx, localClient, &localJob, func() (client.Object, bool, error) {
+			return clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
 				localJob.Status = remoteJob.Status
-				return &localJob, true, nil
+				return true, nil
 			})
 		}
 		remoteFinished := false
@@ -82,9 +82,9 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 			}
 		}
 		if remoteFinished {
-			return clientutil.PatchStatus(ctx, localClient, &localJob, func() (client.Object, bool, error) {
+			return clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
 				localJob.Status = remoteJob.Status
-				return &localJob, true, nil
+				return true, nil
 			})
 		}
 
@@ -113,7 +113,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 			}
 
 			// Update remote job's workload slice name and parallelism if needed.
-			if err := clientutil.Patch(ctx, remoteClient, &remoteJob, func() (client.Object, bool, error) {
+			if err := clientutil.Patch(ctx, remoteClient, &remoteJob, func() (bool, error) {
 				// Update workload name label.
 				labelsChanged := false
 				if remoteJob.Labels == nil {
@@ -128,7 +128,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 				// Update parallelism.
 				remoteJob.Spec.Parallelism = localJob.Spec.Parallelism
-				return &remoteJob, oldParallelism != newParallelism || labelsChanged, nil
+				return oldParallelism != newParallelism || labelsChanged, nil
 			}); err != nil {
 				return fmt.Errorf("failed to patch remote job: %w", err)
 			}
@@ -146,9 +146,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	// drop the selector
 	remoteJob.Spec.Selector = nil
 	// drop the templates cleanup labels
-	for _, cl := range ManagedLabels {
-		delete(remoteJob.Spec.Template.Labels, cl)
-	}
+	cleanLabels(&remoteJob.Spec.Template)
 
 	// add the prebuilt workload
 	if remoteJob.Labels == nil {

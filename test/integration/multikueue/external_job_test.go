@@ -27,12 +27,11 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -43,8 +42,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	dispatcher "sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
-	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/util"
@@ -88,7 +87,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
 				gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
-				failedWebhook, err := webhooks.Setup(mgr, ptr.Deref(configuration.MultiKueue.DispatcherName, config.MultiKueueDispatcherModeAllAtOnce))
+				failedWebhook, err := webhooks.Setup(mgr)
 				gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 				// Set up RayJob webhook (but not MultiKueue integration)
@@ -132,11 +131,11 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 					multikueue.WithWorkerLostTimeout(testingWorkerLostTimeout),
 					multikueue.WithEventsBatchPeriod(100*time.Millisecond),
 					multikueue.WithAdapters(adapters),
-					multikueue.WithDispatcherName(string(config.MultiKueueDispatcherModeAllAtOnce)),
+					multikueue.WithDispatcherName(config.MultiKueueDispatcherModeAllAtOnce),
 				)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-				_, err = dispatcher.SetupControllers(mgr, configuration, string(config.MultiKueueDispatcherModeAllAtOnce))
+				_, err = dispatcher.SetupControllers(mgr, configuration)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			})
 		})
@@ -146,7 +145,6 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		})
 
 		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueAdaptersForCustomJobs, true)
 			managerNs = util.CreateNamespaceFromPrefixWithLog(managerTestCluster.ctx, managerTestCluster.client, "multikueue-")
 			worker1Ns = util.CreateNamespaceWithLog(worker1TestCluster.ctx, worker1TestCluster.client, managerNs.Name)
 			worker2Ns = util.CreateNamespaceWithLog(worker2TestCluster.ctx, worker2TestCluster.client, managerNs.Name)
@@ -179,16 +177,16 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			}
 			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueSecret2)
 
-			workerCluster1 = utiltesting.MakeMultiKueueCluster("worker1").KubeConfig(kueue.SecretLocationType, managerMultiKueueSecret1.Name).Obj()
+			workerCluster1 = utiltestingapi.MakeMultiKueueCluster("worker1").KubeConfig(kueue.SecretLocationType, managerMultiKueueSecret1.Name).Obj()
 			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, workerCluster1)
 
-			workerCluster2 = utiltesting.MakeMultiKueueCluster("worker2").KubeConfig(kueue.SecretLocationType, managerMultiKueueSecret2.Name).Obj()
+			workerCluster2 = utiltestingapi.MakeMultiKueueCluster("worker2").KubeConfig(kueue.SecretLocationType, managerMultiKueueSecret2.Name).Obj()
 			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, workerCluster2)
 
-			managerMultiKueueConfig = utiltesting.MakeMultiKueueConfig("multikueueconfig").Clusters(workerCluster1.Name, workerCluster2.Name).Obj()
+			managerMultiKueueConfig = utiltestingapi.MakeMultiKueueConfig("multikueueconfig").Clusters(workerCluster1.Name, workerCluster2.Name).Obj()
 			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueConfig)
 
-			multiKueueAC = utiltesting.MakeAdmissionCheck("ac1").
+			multiKueueAC = utiltestingapi.MakeAdmissionCheck("ac1").
 				ControllerName(kueue.MultiKueueControllerName).
 				Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", managerMultiKueueConfig.Name).
 				Obj()
@@ -203,27 +201,27 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			managerCq = utiltesting.MakeClusterQueue("q1").
+			managerCq = utiltestingapi.MakeClusterQueue("q1").
 				AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAC.Name)).
 				Obj()
 			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerCq)
 			util.ExpectClusterQueuesToBeActive(managerTestCluster.ctx, managerTestCluster.client, managerCq)
 
-			managerLq = utiltesting.MakeLocalQueue(managerCq.Name, managerNs.Name).ClusterQueue(managerCq.Name).Obj()
+			managerLq = utiltestingapi.MakeLocalQueue(managerCq.Name, managerNs.Name).ClusterQueue(managerCq.Name).Obj()
 			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerLq)
 			util.ExpectLocalQueuesToBeActive(managerTestCluster.ctx, managerTestCluster.client, managerLq)
 
-			worker1Cq = utiltesting.MakeClusterQueue("q1").Obj()
+			worker1Cq = utiltestingapi.MakeClusterQueue("q1").Obj()
 			util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq)
 			util.ExpectClusterQueuesToBeActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq)
-			worker1Lq = utiltesting.MakeLocalQueue(worker1Cq.Name, worker1Ns.Name).ClusterQueue(worker1Cq.Name).Obj()
+			worker1Lq = utiltestingapi.MakeLocalQueue(worker1Cq.Name, worker1Ns.Name).ClusterQueue(worker1Cq.Name).Obj()
 			util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, worker1Lq)
 			util.ExpectLocalQueuesToBeActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1Lq)
 
-			worker2Cq = utiltesting.MakeClusterQueue("q1").Obj()
+			worker2Cq = utiltestingapi.MakeClusterQueue("q1").Obj()
 			util.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, worker2Cq)
 			util.ExpectClusterQueuesToBeActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2Cq)
-			worker2Lq = utiltesting.MakeLocalQueue(worker2Cq.Name, worker2Ns.Name).ClusterQueue(worker2Cq.Name).Obj()
+			worker2Lq = utiltestingapi.MakeLocalQueue(worker2Cq.Name, worker2Ns.Name).ClusterQueue(worker2Cq.Name).Obj()
 			util.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, worker2Lq)
 			util.ExpectLocalQueuesToBeActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2Lq)
 		})
@@ -244,7 +242,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		})
 
 		ginkgo.It("Should run a RayJob on worker if admitted", func() {
-			admission := utiltesting.MakeAdmission(managerCq.Name).PodSets(
+			admission := utiltestingapi.MakeAdmission(managerCq.Name).PodSets(
 				kueue.PodSetAssignment{
 					Name: "head",
 				}, kueue.PodSetAssignment{
@@ -290,7 +288,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		})
 
 		ginkgo.It("Should run a RayJob on worker if admitted (ManagedBy)", func() {
-			admission := utiltesting.MakeAdmission(managerCq.Name).PodSets(
+			admission := utiltestingapi.MakeAdmission(managerCq.Name).PodSets(
 				kueue.PodSetAssignment{
 					Name: "head",
 				}, kueue.PodSetAssignment{
@@ -349,7 +347,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(rayjob.Name, rayjob.UID), Namespace: managerNs.Name}
 
 			ginkgo.By("setting workload reservation in the management cluster", func() {
-				admission := utiltesting.MakeAdmission(managerCq.Name).PodSets(
+				admission := utiltestingapi.MakeAdmission(managerCq.Name).PodSets(
 					kueue.PodSetAssignment{
 						Name: "head",
 					}, kueue.PodSetAssignment{
@@ -377,7 +375,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdCluster := &kueue.MultiKueueCluster{}
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster2), createdCluster)).To(gomega.Succeed())
-					createdCluster.Spec.KubeConfig.Location = "bad-secret"
+					createdCluster.Spec.ClusterSource.KubeConfig.Location = "bad-secret"
 					g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, createdCluster)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -388,13 +386,13 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 					g.Expect(activeCondition).To(gomega.BeComparableTo(&metav1.Condition{
 						Type:   kueue.MultiKueueClusterActive,
 						Status: metav1.ConditionFalse,
-						Reason: "BadConfig",
+						Reason: "BadKubeConfig",
 					}, util.IgnoreConditionMessage, util.IgnoreConditionTimestampsAndObservedGeneration))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("setting workload reservation in worker1, the RayJob is created in worker1", func() {
-				admission := utiltesting.MakeAdmission(managerCq.Name).PodSets(
+				admission := utiltestingapi.MakeAdmission(managerCq.Name).PodSets(
 					kueue.PodSetAssignment{
 						Name: "head",
 					}, kueue.PodSetAssignment{
@@ -416,7 +414,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdCluster := &kueue.MultiKueueCluster{}
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster1), createdCluster)).To(gomega.Succeed())
-					createdCluster.Spec.KubeConfig.Location = "bad-secret"
+					createdCluster.Spec.ClusterSource.KubeConfig.Location = "bad-secret"
 					g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, createdCluster)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -427,7 +425,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 					g.Expect(activeCondition).To(gomega.BeComparableTo(&metav1.Condition{
 						Type:   kueue.MultiKueueClusterActive,
 						Status: metav1.ConditionFalse,
-						Reason: "BadConfig",
+						Reason: "BadKubeConfig",
 					}, util.IgnoreConditionMessage, util.IgnoreConditionTimestampsAndObservedGeneration))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -462,7 +460,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdCluster := &kueue.MultiKueueCluster{}
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster2), createdCluster)).To(gomega.Succeed())
-					createdCluster.Spec.KubeConfig.Location = managerMultiKueueSecret2.Name
+					createdCluster.Spec.ClusterSource.KubeConfig.Location = managerMultiKueueSecret2.Name
 					g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, createdCluster)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -488,7 +486,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdCluster := &kueue.MultiKueueCluster{}
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster1), createdCluster)).To(gomega.Succeed())
-					createdCluster.Spec.KubeConfig.Location = managerMultiKueueSecret1.Name
+					createdCluster.Spec.ClusterSource.KubeConfig.Location = managerMultiKueueSecret1.Name
 					g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, createdCluster)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 

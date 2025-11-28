@@ -13,7 +13,9 @@ controller:
     ClusterQueue.kueue.x-k8s.io: 1
     ResourceFlavor.kueue.x-k8s.io: 1
 fairSharing:
-  enable: true
+  enable: false
+waitForPodsReady:
+  enable: false
 internalCertManagement:
   enable: false
 clientConnection:

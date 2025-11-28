@@ -25,7 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	testingclock "k8s.io/utils/clock/testing"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 func TestLocalQueuePrint(t *testing.T) {
@@ -33,21 +33,21 @@ func TestLocalQueuePrint(t *testing.T) {
 
 	testCases := map[string]struct {
 		options *LocalQueueOptions
-		in      *v1beta1.LocalQueueList
+		in      *kueue.LocalQueueList
 		out     []metav1.TableRow
 	}{
 		"should print local queue list": {
 			options: &LocalQueueOptions{},
-			in: &v1beta1.LocalQueueList{
-				Items: []v1beta1.LocalQueue{
+			in: &kueue.LocalQueueList{
+				Items: []kueue.LocalQueue{
 					{
 						TypeMeta: metav1.TypeMeta{},
 						ObjectMeta: metav1.ObjectMeta{
 							Name:              "lq",
 							CreationTimestamp: metav1.NewTime(testStartTime.Add(-time.Hour).Truncate(time.Second)),
 						},
-						Spec: v1beta1.LocalQueueSpec{ClusterQueue: "cq1"},
-						Status: v1beta1.LocalQueueStatus{
+						Spec: kueue.LocalQueueSpec{ClusterQueue: "cq1"},
+						Status: kueue.LocalQueueStatus{
 							PendingWorkloads:  1,
 							AdmittedWorkloads: 2,
 						},
@@ -56,16 +56,16 @@ func TestLocalQueuePrint(t *testing.T) {
 			},
 			out: []metav1.TableRow{
 				{
-					Cells: []any{"lq", v1beta1.ClusterQueueReference("cq1"), int32(1), int32(2), "60m"},
+					Cells: []any{"lq", kueue.ClusterQueueReference("cq1"), int32(1), int32(2), "60m"},
 					Object: runtime.RawExtension{
-						Object: &v1beta1.LocalQueue{
+						Object: &kueue.LocalQueue{
 							TypeMeta: metav1.TypeMeta{},
 							ObjectMeta: metav1.ObjectMeta{
 								Name:              "lq",
 								CreationTimestamp: metav1.NewTime(testStartTime.Add(-time.Hour).Truncate(time.Second)),
 							},
-							Spec: v1beta1.LocalQueueSpec{ClusterQueue: "cq1"},
-							Status: v1beta1.LocalQueueStatus{
+							Spec: kueue.LocalQueueSpec{ClusterQueue: "cq1"},
+							Status: kueue.LocalQueueStatus{
 								PendingWorkloads:  1,
 								AdmittedWorkloads: 2,
 							},

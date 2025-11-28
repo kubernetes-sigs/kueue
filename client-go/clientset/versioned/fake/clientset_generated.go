@@ -30,8 +30,12 @@ import (
 	fakekueuev1alpha1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1alpha1/fake"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1"
 	fakekueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1/fake"
+	kueuev1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta2"
+	fakekueuev1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta2/fake"
 	visibilityv1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta1"
 	fakevisibilityv1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta1/fake"
+	visibilityv1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta2"
+	fakevisibilityv1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta2/fake"
 )
 
 // NewSimpleClientset returns a clientset that will respond with the provided objects.
@@ -138,7 +142,17 @@ func (c *Clientset) KueueV1beta1() kueuev1beta1.KueueV1beta1Interface {
 	return &fakekueuev1beta1.FakeKueueV1beta1{Fake: &c.Fake}
 }
 
+// KueueV1beta2 retrieves the KueueV1beta2Client
+func (c *Clientset) KueueV1beta2() kueuev1beta2.KueueV1beta2Interface {
+	return &fakekueuev1beta2.FakeKueueV1beta2{Fake: &c.Fake}
+}
+
 // VisibilityV1beta1 retrieves the VisibilityV1beta1Client
 func (c *Clientset) VisibilityV1beta1() visibilityv1beta1.VisibilityV1beta1Interface {
 	return &fakevisibilityv1beta1.FakeVisibilityV1beta1{Fake: &c.Fake}
+}
+
+// VisibilityV1beta2 retrieves the VisibilityV1beta2Client
+func (c *Clientset) VisibilityV1beta2() visibilityv1beta2.VisibilityV1beta2Interface {
+	return &fakevisibilityv1beta2.FakeVisibilityV1beta2{Fake: &c.Fake}
 }

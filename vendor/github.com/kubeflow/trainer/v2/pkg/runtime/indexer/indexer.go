@@ -17,6 +17,8 @@ limitations under the License.
 package indexer
 
 import (
+	"errors"
+
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -28,6 +30,41 @@ const (
 	TrainJobRuntimeRefKey        = ".spec.runtimeRef.kind=trainingRuntime"
 	TrainJobClusterRuntimeRefKey = ".spec.runtimeRef.kind=clusterTrainingRuntime"
 )
+
+var (
+	TrainingRuntimeContainerRuntimeClassKey                   = ".trainingRuntimeSpec.jobSetTemplateSpec.replicatedJobs.podTemplateSpec.runtimeClassName"
+	ClusterTrainingRuntimeContainerRuntimeClassKey            = ".clusterTrainingRuntimeSpec.jobSetTemplateSpec.replicatedJobs.podTemplateSpec.runtimeClassName"
+	ErrorCanNotSetupTrainingRuntimeRuntimeClassIndexer        = errors.New("setting index on runtimeClass for TrainingRuntime")
+	ErrorCanNotSetupClusterTrainingRuntimeRuntimeClassIndexer = errors.New("setting index on runtimeClass for ClusterTrainingRuntime")
+)
+
+func IndexTrainingRuntimeContainerRuntimeClass(obj client.Object) []string {
+	runtime, ok := obj.(*trainer.TrainingRuntime)
+	if !ok {
+		return nil
+	}
+	var runtimeClasses []string
+	for _, rJob := range runtime.Spec.Template.Spec.ReplicatedJobs {
+		if rJob.Template.Spec.Template.Spec.RuntimeClassName != nil {
+			runtimeClasses = append(runtimeClasses, *rJob.Template.Spec.Template.Spec.RuntimeClassName)
+		}
+	}
+	return runtimeClasses
+}
+
+func IndexClusterTrainingRuntimeContainerRuntimeClass(obj client.Object) []string {
+	clRuntime, ok := obj.(*trainer.ClusterTrainingRuntime)
+	if !ok {
+		return nil
+	}
+	var runtimeClasses []string
+	for _, rJob := range clRuntime.Spec.Template.Spec.ReplicatedJobs {
+		if rJob.Template.Spec.Template.Spec.RuntimeClassName != nil {
+			runtimeClasses = append(runtimeClasses, *rJob.Template.Spec.Template.Spec.RuntimeClassName)
+		}
+	}
+	return runtimeClasses
+}
 
 func IndexTrainJobTrainingRuntime(obj client.Object) []string {
 	trainJob, ok := obj.(*trainer.TrainJob)

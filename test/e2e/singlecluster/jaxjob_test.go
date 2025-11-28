@@ -25,9 +25,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/jaxjob"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	jaxjobtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/jaxjob"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -49,12 +49,12 @@ var _ = ginkgo.Describe("JAX integration", func() {
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jax-e2e-")
 
-		rf = testing.MakeResourceFlavor(resourceFlavorName).Obj()
+		rf = utiltestingapi.MakeResourceFlavor(resourceFlavorName).Obj()
 		util.MustCreate(ctx, k8sClient, rf)
 
-		cq = testing.MakeClusterQueue(clusterQueueName).
+		cq = utiltestingapi.MakeClusterQueue(clusterQueueName).
 			ResourceGroup(
-				*testing.MakeFlavorQuotas(resourceFlavorName).
+				*utiltestingapi.MakeFlavorQuotas(resourceFlavorName).
 					Resource(corev1.ResourceCPU, "5").
 					Resource(corev1.ResourceMemory, "10Gi").
 					Obj(),
@@ -65,7 +65,7 @@ var _ = ginkgo.Describe("JAX integration", func() {
 			Obj()
 		util.MustCreate(ctx, k8sClient, cq)
 
-		lq = testing.MakeLocalQueue(localQueueName, ns.Name).ClusterQueue(cq.Name).Obj()
+		lq = utiltestingapi.MakeLocalQueue(localQueueName, ns.Name).ClusterQueue(cq.Name).Obj()
 		util.MustCreate(ctx, k8sClient, lq)
 	})
 	ginkgo.AfterEach(func() {

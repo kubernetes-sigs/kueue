@@ -31,7 +31,6 @@ const (
 	ClusterQueueActiveReasonAdmissionCheckInactive                   = "AdmissionCheckInactive"
 	ClusterQueueActiveReasonMultipleMultiKueueAdmissionChecks        = "MultipleMultiKueueAdmissionChecks"
 	ClusterQueueActiveReasonMultiKueueAdmissionCheckAppliedPerFlavor = "MultiKueueAdmissionCheckAppliedPerFlavor"
-	ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling  = "NotSupportedWithTopologyAwareScheduling"
 	ClusterQueueActiveReasonTopologyNotFound                         = "TopologyNotFound"
 	ClusterQueueActiveReasonUnknown                                  = "Unknown"
 	ClusterQueueActiveReasonReady                                    = "Ready"
@@ -307,6 +306,7 @@ type ClusterQueueStatus struct {
 
 	// pendingWorkloadsStatus contains the information exposed about the current
 	// status of the pending workloads in the cluster queue.
+	//
 	// Deprecated: This field is no longer effective since v0.14.0, which means Kueue no longer stores and updates information.
 	// You can migrate to VisibilityOnDemand
 	// (https://kueue.sigs.k8s.io/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/)
@@ -385,33 +385,58 @@ type FlavorFungibilityPolicy string
 const (
 	Borrow        FlavorFungibilityPolicy = "Borrow"
 	Preempt       FlavorFungibilityPolicy = "Preempt"
+	MayStopSearch FlavorFungibilityPolicy = "MayStopSearch"
 	TryNextFlavor FlavorFungibilityPolicy = "TryNextFlavor"
+)
+
+type FlavorFungibilityPreference string
+
+const (
+	BorrowingOverPreemption FlavorFungibilityPreference = "BorrowingOverPreemption"
+	PreemptionOverBorrowing FlavorFungibilityPreference = "PreemptionOverBorrowing"
 )
 
 // FlavorFungibility determines whether a workload should try the next flavor
 // before borrowing or preempting in current flavor.
+// +kubebuilder:validation:XValidation:rule="!has(self.preference) || (self.whenCanBorrow == 'TryNextFlavor' && self.whenCanPreempt == 'TryNextFlavor')",message="preference can only be set when both whenCanBorrow and whenCanPreempt are TryNextFlavor"
 type FlavorFungibility struct {
 	// whenCanBorrow determines whether a workload should try the next flavor
 	// before borrowing in current flavor. The possible values are:
 	//
-	// - `Borrow` (default): allocate in current flavor if borrowing
-	//   is possible.
-	// - `TryNextFlavor`: try next flavor even if the current
-	//   flavor has enough resources to borrow.
+	// - `MayStopSearch` (default): stop the search for candidate flavors if workload
+	//   fits or requires borrowing to fit.
+	// - `TryNextFlavor`: try next flavor if workload requires borrowing to fit.
+	// - `Borrow` (deprecated): old name for `MayStopSearch`; please use new name.
 	//
-	// +kubebuilder:validation:Enum={Borrow,TryNextFlavor}
-	// +kubebuilder:default="Borrow"
+	// +kubebuilder:validation:Enum={MayStopSearch,TryNextFlavor,Borrow}
+	// +kubebuilder:default="MayStopSearch"
 	WhenCanBorrow FlavorFungibilityPolicy `json:"whenCanBorrow,omitempty"`
 	// whenCanPreempt determines whether a workload should try the next flavor
 	// before borrowing in current flavor. The possible values are:
 	//
-	// - `Preempt`: allocate in current flavor if it's possible to preempt some workloads.
-	// - `TryNextFlavor` (default): try next flavor even if there are enough
-	//   candidates for preemption in the current flavor.
+	// - `MayStopSearch`: stop the search for candidate flavors if workload fits or requires
+	//   preemption to fit.
+	// - `TryNextFlavor` (default): try next flavor if workload requires preemption
+	//   to fit in current flavor.
+	// - `Preempt` (deprecated): old name for `MayStopSearch`; please use new name.
 	//
-	// +kubebuilder:validation:Enum={Preempt,TryNextFlavor}
+	// +kubebuilder:validation:Enum={MayStopSearch,TryNextFlavor,Preempt}
 	// +kubebuilder:default="TryNextFlavor"
 	WhenCanPreempt FlavorFungibilityPolicy `json:"whenCanPreempt,omitempty"`
+	// preference guides the choosing of the flavor for admission in case all candidate flavors
+	// require either preemption, borrowing, or both. The possible values are:
+	// - `BorrowingOverPreemption` (default): prefer to use borrowing rather than preemption
+	// when such a choice is possible. More technically it minimizes the borrowing distance
+	// in the cohort tree, and solves tie-breaks by preferring better preemption mode
+	// (reclaim over preemption within ClusterQueue).
+	// - `PreemptionOverBorrowing`: prefer to use preemption rather than borrowing
+	// when such a choice is possible.  More technically it optimizes the preemption mode
+	// (reclaim over preemption within ClusterQueue), and solves tie-breaks by minimizing
+	// the borrowing distance in the cohort tree.
+	//
+	// +kubebuilder:validation:Enum={BorrowingOverPreemption,PreemptionOverBorrowing}
+	// +optional
+	Preference *FlavorFungibilityPreference `json:"preference,omitempty"`
 }
 
 // ClusterQueuePreemption contains policies to preempt Workloads from this

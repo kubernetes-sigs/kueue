@@ -26,7 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -121,7 +121,7 @@ func managerSetup(
 
 		cCache := schdcache.New(mgr.GetClient())
 		queues := qcache.NewManager(mgr.GetClient(), cCache, queueOptions...)
-		opts = append(opts, jobframework.WithQueues(queues))
+		opts = append(opts, jobframework.WithQueues(queues), jobframework.WithCache(cCache))
 
 		mgr.GetScheme().Default(configuration)
 
@@ -132,7 +132,7 @@ func managerSetup(
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = pod.SetupWebhook(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		failedWebhook, err := webhooks.Setup(mgr, config.MultiKueueDispatcherModeAllAtOnce)
+		failedWebhook, err := webhooks.Setup(mgr)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 		if setupTASControllers {

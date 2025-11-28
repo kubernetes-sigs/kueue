@@ -444,7 +444,7 @@ Integration tests will be executed against mocked clients for `batchv1/Job` reso
 
 ```yaml
 - lastTransitionTime: "2025-06-12T21:32:56Z"
-  message: "couldn't assign flavors to pod set main: couldn't change flavor from: smaller-flavor to: larger-flavor, insufficient quota for cpu in flavor smaller-flavor, request > maximum capacity (1100m > 1)"
+  message: "couldn't assign flavors to pod set main: couldn't change flavor from: smaller-flavor to: larger-flavor, previously considered podsets requests (0) + current podset request (1100m) > maximum capacity (1)
   observedGeneration: 1
   reason: Pending
   status: "False"
@@ -508,6 +508,7 @@ Here’s a structured and detailed **Graduation Criteria** section for KEP-77: *
 * [ ] Re-evaluate currently disallowed per-job-instance combination of enabled PartialAdmission and ElasticJobs.
 * [ ] Re-evaluate the approach for removing PodSchedulingReadiness gate for admitted workload slices to use a dedicated controller rather than calling from Job reconciler (see 3. in [comment](https://github.com/kubernetes-sigs/kueue/pull/5510#issuecomment-3060737465)).
 * [ ] Re-evaluate integration frameworks leveraging `ElasticJobsViaWorkloadSlices`.
+* [ ] Re-evaluate `ElasticJobsViaWorkloadSlices` by leveraging the MultiKueue JobAdapter’s `Sync` routine for ElasticJobs-specific functionality, particularly in detecting `JobUpdate` events as described in [issue #7065](https://github.com/kubernetes-sigs/kueue/issues/7065).
 
 #### GA (Stable)
 

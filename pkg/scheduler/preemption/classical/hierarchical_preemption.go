@@ -20,9 +20,10 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/util/sets"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/resources"
+	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -81,11 +82,18 @@ func classifyPreemptionVariant(ctx *HierarchicalPreemptionCtx, wl *workload.Info
 	if !WorkloadUsesResources(wl, ctx.FrsNeedPreemption) {
 		return Never
 	}
-	incomingPriority := priority.Priority(ctx.Wl)
-	candidatePriority := priority.Priority(wl.Obj)
-	if !satisfiesPreemptionPolicy(ctx, wl, incomingPriority, candidatePriority) {
+
+	var preemptionPolicy kueue.PreemptionPolicy
+	if wl.ClusterQueue == ctx.Cq.Name {
+		preemptionPolicy = ctx.Cq.Preemption.WithinClusterQueue
+	} else {
+		preemptionPolicy = ctx.Cq.Preemption.ReclaimWithinCohort
+	}
+
+	if !preemptioncommon.SatisfiesPreemptionPolicy(ctx.Wl, wl.Obj, ctx.WorkloadOrdering, preemptionPolicy) {
 		return Never
 	}
+
 	if wl.ClusterQueue == ctx.Cq.Name {
 		return WithinCQ
 	}
@@ -96,29 +104,12 @@ func classifyPreemptionVariant(ctx *HierarchicalPreemptionCtx, wl *workload.Info
 	if borrowWithinCohortForbidden {
 		return ReclaimWithoutBorrowing
 	}
+	candidatePriority := priority.Priority(wl.Obj)
+	incomingPriority := priority.Priority(ctx.Wl)
 	if isAboveBorrowingThreshold(candidatePriority, incomingPriority, borrowWithinCohortThreshold) {
 		return ReclaimWithoutBorrowing
 	}
 	return ReclaimWhileBorrowing
-}
-
-func satisfiesPreemptionPolicy(ctx *HierarchicalPreemptionCtx, wl *workload.Info, incomingPriority, candidatePriority int32) bool {
-	var preemptionPolicy kueue.PreemptionPolicy
-	if wl.ClusterQueue == ctx.Cq.Name {
-		preemptionPolicy = ctx.Cq.Preemption.WithinClusterQueue
-	} else {
-		preemptionPolicy = ctx.Cq.Preemption.ReclaimWithinCohort
-	}
-	lowerPriority := incomingPriority > candidatePriority
-	if preemptionPolicy == kueue.PreemptionPolicyLowerPriority {
-		return lowerPriority
-	}
-	if preemptionPolicy == kueue.PreemptionPolicyLowerOrNewerEqualPriority {
-		preemptorTS := ctx.WorkloadOrdering.GetQueueOrderTimestamp(ctx.Wl)
-		newerEqualPriority := (incomingPriority == candidatePriority) && preemptorTS.Before(ctx.WorkloadOrdering.GetQueueOrderTimestamp(wl.Obj))
-		return (lowerPriority || newerEqualPriority)
-	}
-	return preemptionPolicy == kueue.PreemptionPolicyAny
 }
 
 func isAboveBorrowingThreshold(candidatePriority, incomingPriority int32, borrowWithinCohortThreshold *int32) bool {

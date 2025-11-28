@@ -24,6 +24,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/clock"
 )
 
 const (
@@ -66,6 +67,7 @@ var (
 	AppWrapperCrds           = filepath.Join(GetProjectBaseDir(), "dep-crds", "appwrapper-crds")
 	RayOperatorCrds          = filepath.Join(GetProjectBaseDir(), "dep-crds", "ray-operator-crds")
 	WebhookPath              = filepath.Join(GetProjectBaseDir(), "config", "components", "webhook")
+	ClusterProfileCrds       = filepath.Join(GetProjectBaseDir(), "dep-crds", "clusterprofile")
 )
 
 var (
@@ -82,3 +84,5 @@ var (
 	// The agnhost container will print args passed and `exit 0`
 	BehaviorExitFast = []string{"entrypoint-tester"}
 )
+
+var RealClock = clock.RealClock{}

@@ -7,6 +7,7 @@
 *.dylib
 bin
 artifacts
+config/components/crd/_output
 testbin/*
 .DS_Store
 go.work*
@@ -38,3 +39,6 @@ kueue.yaml
 node_modules
 test/e2e/kueueviz/cypress/screenshots
 test/e2e/kueueviz/cypress/videos
+
+cmd/experimental/kueue-populator/charts/kueue-populator/charts
+cmd/experimental/kueue-populator/charts/kueue-populator/Chart.lock

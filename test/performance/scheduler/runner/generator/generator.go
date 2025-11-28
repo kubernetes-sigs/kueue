@@ -29,8 +29,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 const (
@@ -115,7 +115,7 @@ func generateWlSet(ctx context.Context, c client.Client, wlSet WorkloadsSet, nam
 	for si := range wlSet.Count {
 		for i, wlt := range wlSet.Workloads {
 			<-time.After(delay)
-			wl := utiltesting.MakeWorkload(fmt.Sprintf("%s-%d-%d-%d", wlt.ClassName, wlSetIdx, si, i), namespace).
+			wl := utiltestingapi.MakeWorkload(fmt.Sprintf("%s-%d-%d-%d", wlt.ClassName, wlSetIdx, si, i), namespace).
 				Queue(localQueue).
 				Request(corev1.ResourceCPU, wlt.Request).
 				Label(RunningTimeLabel, fmt.Sprintf("%d", wlt.RuntimeMs)).
@@ -135,9 +135,9 @@ func generateQueue(ctx context.Context, c client.Client, qSet QueuesSet, cohortN
 	log := ctrl.LoggerFrom(ctx).WithName("generate queue").WithValues("idx", queueIndex, "prefix", qSet.ClassName)
 	log.Info("Start generation")
 	defer log.Info("End generation")
-	cq := utiltesting.MakeClusterQueue(fmt.Sprintf("%s-%d-%d-%s", qSet.ClassName, queueSetIdx, queueIndex, cohortName)).
+	cq := utiltestingapi.MakeClusterQueue(fmt.Sprintf("%s-%d-%d-%s", qSet.ClassName, queueSetIdx, queueIndex, cohortName)).
 		Cohort(cohortName).
-		ResourceGroup(*utiltesting.MakeFlavorQuotas(resourceFlavorName).
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas(resourceFlavorName).
 			Resource(corev1.ResourceCPU, qSet.NominalQuota, qSet.BorrowingLimit).Obj()).
 		Preemption(kueue.ClusterQueuePreemption{
 			ReclaimWithinCohort: qSet.ReclaimWithinCohort,
@@ -159,7 +159,7 @@ func generateQueue(ctx context.Context, c client.Client, qSet QueuesSet, cohortN
 		return err
 	}
 
-	lq := utiltesting.MakeLocalQueue(cq.Name, ns.Name).ClusterQueue(cq.Name).Obj()
+	lq := utiltestingapi.MakeLocalQueue(cq.Name, ns.Name).ClusterQueue(cq.Name).Obj()
 	err = c.Create(ctx, lq)
 	if err != nil {
 		return err
@@ -202,7 +202,7 @@ func Generate(ctx context.Context, c client.Client, cSets []CohortSet) error {
 	log := ctrl.LoggerFrom(ctx).WithName("generate cohort sets").WithValues("numSets", len(cSets))
 	log.Info("Start generation")
 	defer log.Info("End generation")
-	rf := utiltesting.MakeResourceFlavor(resourceFlavorName).NodeLabel(CleanupLabel, "true").Obj()
+	rf := utiltestingapi.MakeResourceFlavor(resourceFlavorName).NodeLabel(CleanupLabel, "true").Obj()
 	err := c.Create(ctx, rf)
 	if err != nil {
 		return err

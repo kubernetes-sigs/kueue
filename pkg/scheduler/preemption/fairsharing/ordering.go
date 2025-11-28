@@ -18,12 +18,12 @@ package fairsharing
 
 import (
 	"iter"
-	"time"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/utils/clock"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -44,6 +44,7 @@ import (
 // TargetClusterQueueOrdering.DropQueue must be called between each
 // entry returned.
 type TargetClusterQueueOrdering struct {
+	clock       clock.Clock
 	preemptorCq *schdcache.ClusterQueueSnapshot
 	// ancestor Cohorts of the preemptor ClusterQueue.
 	preemptorAncestors sets.Set[*schdcache.CohortSnapshot]
@@ -60,8 +61,10 @@ type TargetClusterQueueOrdering struct {
 	log                 logr.Logger
 }
 
-func MakeClusterQueueOrdering(cq *schdcache.ClusterQueueSnapshot, candidates []*workload.Info, log logr.Logger) TargetClusterQueueOrdering {
+func MakeClusterQueueOrdering(cq *schdcache.ClusterQueueSnapshot, candidates []*workload.Info, log logr.Logger, clk clock.Clock) TargetClusterQueueOrdering {
 	t := TargetClusterQueueOrdering{
+		clock: clk,
+
 		preemptorCq:        cq,
 		preemptorAncestors: sets.New[*schdcache.CohortSnapshot](),
 
@@ -152,7 +155,7 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot
 		case schdcache.CompareDRS(drs, highestCqDrs) == 0:
 			newCandWl := t.clusterQueueToTarget[cq.GetName()][0]
 			currentCandWl := t.clusterQueueToTarget[highestCq.GetName()][0]
-			if preemptioncommon.CandidatesOrdering(t.log, false, newCandWl, currentCandWl, t.preemptorCq.Name, time.Now()) < 0 {
+			if preemptioncommon.CandidatesOrdering(t.log, false, newCandWl, currentCandWl, t.preemptorCq.Name, t.clock.Now()) < 0 {
 				highestCq = cq
 			}
 		case schdcache.CompareDRS(drs, highestCqDrs) == 1:

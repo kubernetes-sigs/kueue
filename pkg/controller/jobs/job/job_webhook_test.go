@@ -33,13 +33,14 @@ import (
 	"k8s.io/utils/ptr"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
@@ -54,12 +55,10 @@ const (
 )
 
 var (
-	annotationsPath               = field.NewPath("metadata", "annotations")
 	labelsPath                    = field.NewPath("metadata", "labels")
 	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
 	prebuiltWlNameLabelPath       = labelsPath.Key(constants.PrebuiltWorkloadLabel)
 	maxExecTimeLabelPath          = labelsPath.Key(constants.MaxExecTimeSecondsLabel)
-	queueNameAnnotationsPath      = annotationsPath.Key(constants.QueueAnnotation)
 	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
 )
 
@@ -80,11 +79,6 @@ func TestValidateCreate(t *testing.T) {
 			name:               "invalid queue-name label",
 			job:                testingutil.MakeJob("job", "default").Queue("queue name").Obj(),
 			wantValidationErrs: field.ErrorList{field.Invalid(queueNameLabelPath, "queue name", invalidRFC1123Message)},
-		},
-		{
-			name:               "invalid queue-name annotation (deprecated)",
-			job:                testingutil.MakeJob("job", "default").QueueNameAnnotation("queue name").Obj(),
-			wantValidationErrs: field.ErrorList{field.Invalid(queueNameAnnotationsPath, "queue name", invalidRFC1123Message)},
 		},
 		{
 			name: "invalid partial admission annotation (format)",
@@ -393,7 +387,8 @@ func TestValidateCreate(t *testing.T) {
 
 			jw := &JobWebhook{}
 
-			gotValidationErrs, gotErr := jw.validateCreate((*Job)(tc.job))
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotValidationErrs, gotErr := jw.validateCreate(ctx, (*Job)(tc.job))
 
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("validateCreate() error mismatch (-want +got):\n%s", diff)
@@ -523,17 +518,37 @@ func TestValidateUpdate(t *testing.T) {
 			wantValidationErrs: nil,
 		},
 		{
-			name:   "workloadPriorityClassName is mutable when job is suspended",
-			oldJob: testingutil.MakeJob("job", "default").WorkloadPriorityClass("test-1").Obj(),
-			newJob: testingutil.MakeJob("job", "default").WorkloadPriorityClass("test-2").Obj(),
+			name:               "set priority-class when job not suspend",
+			oldJob:             testingutil.MakeJob("job", "default").Suspend(false).Obj(),
+			newJob:             testingutil.MakeJob("job", "default").Suspend(false).WorkloadPriorityClass("test").Obj(),
+			wantValidationErrs: apivalidation.ValidateImmutableField("test", "", workloadPriorityClassNamePath),
 		},
 		{
-			name:   "workloadPriorityClassName is immutable when job is running",
-			oldJob: testingutil.MakeJob("job", "default").WorkloadPriorityClass("test-1").Suspend(false).Obj(),
-			newJob: testingutil.MakeJob("job", "default").WorkloadPriorityClass("test-2").Suspend(false).Obj(),
-			wantValidationErrs: field.ErrorList{
-				field.Invalid(workloadPriorityClassNamePath, "test-2", apivalidation.FieldImmutableErrorMsg),
-			},
+			name:   "update priority-class when job not suspend",
+			oldJob: testingutil.MakeJob("job", "default").Suspend(false).WorkloadPriorityClass("test").Obj(),
+			newJob: testingutil.MakeJob("job", "default").Suspend(false).WorkloadPriorityClass("new-test").Obj(),
+		},
+		{
+			name:               "delete priority-class when job not suspend",
+			oldJob:             testingutil.MakeJob("job", "default").Suspend(false).WorkloadPriorityClass("test").Obj(),
+			newJob:             testingutil.MakeJob("job", "default").Suspend(false).Obj(),
+			wantValidationErrs: apivalidation.ValidateImmutableField("", "test", workloadPriorityClassNamePath),
+		},
+		{
+			name:   "set priority-class when job suspend",
+			oldJob: testingutil.MakeJob("job", "default").Suspend(true).Obj(),
+			newJob: testingutil.MakeJob("job", "default").Suspend(true).WorkloadPriorityClass("test").Obj(),
+		},
+		{
+			name:   "update priority-class when job suspend",
+			oldJob: testingutil.MakeJob("job", "default").Suspend(true).WorkloadPriorityClass("test").Obj(),
+			newJob: testingutil.MakeJob("job", "default").Suspend(true).WorkloadPriorityClass("new-test").Obj(),
+		},
+		{
+			name:               "delete priority-class when job suspend",
+			oldJob:             testingutil.MakeJob("job", "default").Suspend(true).WorkloadPriorityClass("test").Obj(),
+			newJob:             testingutil.MakeJob("job", "default").Suspend(true).Obj(),
+			wantValidationErrs: apivalidation.ValidateImmutableField("", "test", workloadPriorityClassNamePath),
 		},
 		{
 			name: "immutable prebuilt workload ",
@@ -688,8 +703,8 @@ func TestValidateUpdate(t *testing.T) {
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
-
-			gotValidationErrs, gotErr := new(JobWebhook).validateUpdate((*Job)(tc.oldJob), (*Job)(tc.newJob))
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotValidationErrs, gotErr := new(JobWebhook).validateUpdate(ctx, (*Job)(tc.oldJob), (*Job)(tc.newJob))
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{})); diff != "" {
 				t.Errorf("validateUpdate() error mismatch (-want +got):\n%s", diff)
 			}
@@ -741,16 +756,16 @@ func TestDefault(t *testing.T) {
 				Suspend(false).
 				Obj(),
 			queues: []kueue.LocalQueue{
-				*utiltesting.MakeLocalQueue("local-queue", "default").
+				*utiltestingapi.MakeLocalQueue("local-queue", "default").
 					ClusterQueue("cluster-queue").
 					Obj(),
 			},
 			clusterQueues: []kueue.ClusterQueue{
-				*utiltesting.MakeClusterQueue("cluster-queue").
+				*utiltestingapi.MakeClusterQueue("cluster-queue").
 					AdmissionChecks("admission-check").
 					Obj(),
 			},
-			admissionCheck: utiltesting.MakeAdmissionCheck("admission-check").
+			admissionCheck: utiltestingapi.MakeAdmissionCheck("admission-check").
 				ControllerName(kueue.MultiKueueControllerName).
 				Active(metav1.ConditionTrue).
 				Obj(),
@@ -768,16 +783,16 @@ func TestDefault(t *testing.T) {
 				Suspend(false).
 				Obj(),
 			queues: []kueue.LocalQueue{
-				*utiltesting.MakeLocalQueue("local-queue", "default").
+				*utiltestingapi.MakeLocalQueue("local-queue", "default").
 					ClusterQueue("cluster-queue").
 					Obj(),
 			},
 			clusterQueues: []kueue.ClusterQueue{
-				*utiltesting.MakeClusterQueue("cluster-queue").
+				*utiltestingapi.MakeClusterQueue("cluster-queue").
 					AdmissionChecks("admission-check").
 					Obj(),
 			},
-			admissionCheck: utiltesting.MakeAdmissionCheck("admission-check").
+			admissionCheck: utiltestingapi.MakeAdmissionCheck("admission-check").
 				ControllerName(kueue.MultiKueueControllerName).
 				Active(metav1.ConditionTrue).
 				Obj(),
@@ -864,7 +879,7 @@ func TestDefault(t *testing.T) {
 			cqCache := schdcache.New(cl)
 			queueManager := qcache.NewManager(cl, cqCache)
 			if tc.defaultLqExist {
-				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", "default").
+				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("default", "default").
 					ClusterQueue("cluster-queue").Obj()); err != nil {
 					t.Fatalf("failed to create default local queue: %s", err)
 				}

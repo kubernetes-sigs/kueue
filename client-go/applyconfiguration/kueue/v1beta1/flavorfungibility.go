@@ -24,8 +24,9 @@ import (
 // FlavorFungibilityApplyConfiguration represents a declarative configuration of the FlavorFungibility type for use
 // with apply.
 type FlavorFungibilityApplyConfiguration struct {
-	WhenCanBorrow  *kueuev1beta1.FlavorFungibilityPolicy `json:"whenCanBorrow,omitempty"`
-	WhenCanPreempt *kueuev1beta1.FlavorFungibilityPolicy `json:"whenCanPreempt,omitempty"`
+	WhenCanBorrow  *kueuev1beta1.FlavorFungibilityPolicy     `json:"whenCanBorrow,omitempty"`
+	WhenCanPreempt *kueuev1beta1.FlavorFungibilityPolicy     `json:"whenCanPreempt,omitempty"`
+	Preference     *kueuev1beta1.FlavorFungibilityPreference `json:"preference,omitempty"`
 }
 
 // FlavorFungibilityApplyConfiguration constructs a declarative configuration of the FlavorFungibility type for use with
@@ -47,5 +48,13 @@ func (b *FlavorFungibilityApplyConfiguration) WithWhenCanBorrow(value kueuev1bet
 // If called multiple times, the WhenCanPreempt field is set to the value of the last call.
 func (b *FlavorFungibilityApplyConfiguration) WithWhenCanPreempt(value kueuev1beta1.FlavorFungibilityPolicy) *FlavorFungibilityApplyConfiguration {
 	b.WhenCanPreempt = &value
+	return b
+}
+
+// WithPreference sets the Preference field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Preference field is set to the value of the last call.
+func (b *FlavorFungibilityApplyConfiguration) WithPreference(value kueuev1beta1.FlavorFungibilityPreference) *FlavorFungibilityApplyConfiguration {
+	b.Preference = &value
 	return b
 }

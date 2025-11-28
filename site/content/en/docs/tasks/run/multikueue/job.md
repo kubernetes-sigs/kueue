@@ -13,11 +13,7 @@ Check the [MultiKueue installation guide](/docs/tasks/manage/setup_multikueue) o
 
 For the ease of setup and use we recommend using at least Kueue v0.8.1.
 
-The recommended way of running MultiKueue depends on the configuration of the `JobManagedBy` feature gate in your cluster. 
-
-{{% alert title="Note" color="primary" %}}
-The `JobManagedBy` feature gate is disabled in 1.30 and 1.31 by default, and will be enabled in 1.32 by default.
-{{% /alert %}}
+The recommended way of running MultiKueue depends on the configuration of the `JobManagedBy` feature gate in your cluster.
 
 ### Cluster with JobManagedBy enabled
 

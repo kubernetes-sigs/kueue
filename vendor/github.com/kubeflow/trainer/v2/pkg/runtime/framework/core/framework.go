@@ -20,7 +20,7 @@ import (
 	"context"
 	"errors"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apiruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -29,9 +29,10 @@ import (
 	"github.com/kubeflow/trainer/v2/pkg/runtime"
 	"github.com/kubeflow/trainer/v2/pkg/runtime/framework"
 	fwkplugins "github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins"
+	index "github.com/kubeflow/trainer/v2/pkg/runtime/indexer"
 )
 
-var errorTooManyTerminalConditionPlugin = errors.New("too many TerminalCondition plugins are registered")
+var errorTooManyTrainJobStatusPlugin = errors.New("too many TrainJobStatus plugins are registered")
 
 type Framework struct {
 	registry                     fwkplugins.Registry
@@ -42,7 +43,7 @@ type Framework struct {
 	watchExtensionPlugins        []framework.WatchExtensionPlugin
 	podNetworkPlugins            []framework.PodNetworkPlugin
 	componentBuilderPlugins      []framework.ComponentBuilderPlugin
-	terminalConditionPlugins     []framework.TerminalConditionPlugin
+	trainJobStatusPlugin         framework.TrainJobStatusPlugin
 }
 
 func New(ctx context.Context, c client.Client, r fwkplugins.Registry, indexer client.FieldIndexer) (*Framework, error) {
@@ -50,6 +51,9 @@ func New(ctx context.Context, c client.Client, r fwkplugins.Registry, indexer cl
 		registry: r,
 	}
 	plugins := make(map[string]framework.Plugin, len(r))
+	if err := f.SetupRuntimeClassIndexer(ctx, indexer); err != nil {
+		return nil, err
+	}
 
 	for name, factory := range r {
 		plugin, err := factory(ctx, c, indexer)
@@ -75,8 +79,11 @@ func New(ctx context.Context, c client.Client, r fwkplugins.Registry, indexer cl
 		if p, ok := plugin.(framework.ComponentBuilderPlugin); ok {
 			f.componentBuilderPlugins = append(f.componentBuilderPlugins, p)
 		}
-		if p, ok := plugin.(framework.TerminalConditionPlugin); ok {
-			f.terminalConditionPlugins = append(f.terminalConditionPlugins, p)
+		if p, ok := plugin.(framework.TrainJobStatusPlugin); ok {
+			if f.trainJobStatusPlugin != nil {
+				return nil, errorTooManyTrainJobStatusPlugin
+			}
+			f.trainJobStatusPlugin = p
 		}
 	}
 	f.plugins = plugins
@@ -125,8 +132,8 @@ func (f *Framework) RunPodNetworkPlugins(info *runtime.Info, trainJob *trainer.T
 	return nil
 }
 
-func (f *Framework) RunComponentBuilderPlugins(ctx context.Context, info *runtime.Info, trainJob *trainer.TrainJob) ([]any, error) {
-	var objs []any
+func (f *Framework) RunComponentBuilderPlugins(ctx context.Context, info *runtime.Info, trainJob *trainer.TrainJob) ([]apiruntime.ApplyConfiguration, error) {
+	var objs []apiruntime.ApplyConfiguration
 	for _, plugin := range f.componentBuilderPlugins {
 		components, err := plugin.Build(ctx, info, trainJob)
 		if err != nil {
@@ -137,17 +144,27 @@ func (f *Framework) RunComponentBuilderPlugins(ctx context.Context, info *runtim
 	return objs, nil
 }
 
-func (f *Framework) RunTerminalConditionPlugins(ctx context.Context, trainJob *trainer.TrainJob) (*metav1.Condition, error) {
-	// TODO (tenzen-y): Once we provide the Configuration API, we should validate which plugin should have terminalCondition execution points.
-	if len(f.terminalConditionPlugins) > 1 {
-		return nil, errorTooManyTerminalConditionPlugin
-	}
-	if len(f.terminalConditionPlugins) != 0 {
-		return f.terminalConditionPlugins[0].TerminalCondition(ctx, trainJob)
+func (f *Framework) RunTrainJobStatusPlugin(ctx context.Context, trainJob *trainer.TrainJob) (*trainer.TrainJobStatus, error) {
+	if f.trainJobStatusPlugin != nil {
+		return f.trainJobStatusPlugin.Status(ctx, trainJob)
 	}
 	return nil, nil
 }
 
 func (f *Framework) WatchExtensionPlugins() []framework.WatchExtensionPlugin {
 	return f.watchExtensionPlugins
+}
+
+func (f *Framework) SetupRuntimeClassIndexer(ctx context.Context, indexer client.FieldIndexer) error {
+	if err := indexer.IndexField(ctx, &trainer.TrainingRuntime{},
+		index.TrainingRuntimeContainerRuntimeClassKey,
+		index.IndexTrainingRuntimeContainerRuntimeClass); err != nil {
+		return index.ErrorCanNotSetupTrainingRuntimeRuntimeClassIndexer
+	}
+	if err := indexer.IndexField(ctx, &trainer.ClusterTrainingRuntime{},
+		index.ClusterTrainingRuntimeContainerRuntimeClassKey,
+		index.IndexClusterTrainingRuntimeContainerRuntimeClass); err != nil {
+		return index.ErrorCanNotSetupClusterTrainingRuntimeRuntimeClassIndexer
+	}
+	return nil
 }
