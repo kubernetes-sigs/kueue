@@ -267,7 +267,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 
 		if workload.IsActive(&wl) && !workload.HasQuotaReservation(&wl) {
-			if err := r.queues.AddOrUpdateWorkload(&wl, queueOptions...); err != nil {
+			if err := r.queues.AddOrUpdateWorkload(log, &wl, queueOptions...); err != nil {
 				log.V(2).Info("Failed to add DRA workload to queue", "error", err)
 				return ctrl.Result{}, err
 			}
@@ -307,7 +307,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 					return ctrl.Result{}, client.IgnoreNotFound(err)
 				}
 
-				if err := r.queues.AddOrUpdateWorkload(wl.DeepCopy()); err != nil {
+				if err := r.queues.AddOrUpdateWorkload(log, wl.DeepCopy()); err != nil {
 					log.V(2).Info("failed to put the workload back into queue", "error", err)
 					return ctrl.Result{}, err
 				}
@@ -803,7 +803,7 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 	}
 
 	if workload.IsActive(e.Object) && !workload.HasQuotaReservation(e.Object) {
-		if err := r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
+		if err := r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
 			log.V(2).Info("ignored an error for now", "error", err)
 		}
 		return true
@@ -900,7 +900,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(e.ObjectNew) {
 			log.V(2).Info("Skipping queue update for DRA workload - handled in Reconcile")
 		} else {
-			err := r.queues.UpdateWorkload(log, e.ObjectOld, wlCopy)
+			err := r.queues.UpdateWorkload(log, wlCopy)
 			if err != nil {
 				log.V(2).Info("ignored an error for now", "error", err)
 			}
@@ -938,7 +938,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 				if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(e.ObjectNew) {
 					log.V(2).Info("Skipping immediate requeue for DRA workload - handled in Reconcile")
 				} else {
-					if err := r.queues.AddOrUpdateWorkloadWithoutLock(wlCopy); err != nil {
+					if err := r.queues.AddOrUpdateWorkloadWithoutLock(log, wlCopy); err != nil {
 						log.V(2).Info("ignored an error for now", "error", err)
 					}
 					r.queues.DeleteSecondPassWithoutLock(wlCopy)
@@ -1149,7 +1149,7 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, q
 			continue
 		}
 
-		if err = h.r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
+		if err = h.r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
 			log.V(2).Info("ignored an error for now", "error", err)
 		}
 	}
