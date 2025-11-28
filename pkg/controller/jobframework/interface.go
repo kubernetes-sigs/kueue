@@ -119,6 +119,13 @@ type JobWithCustomValidation interface {
 	ValidateOnUpdate(oldJob GenericJob) (field.ErrorList, error)
 }
 
+// JobWithCustomWorkloadRetriever interface should be implemented by jobs which have
+// their own logic to get workload, e.g. for RayJob with InTreeAutoScaling, the workload
+// is attached on the underlying RayCluster, RayJob needs to get workload through that RayCluster
+type JobWithCustomWorkloadRetriever interface {
+	GetWorkload(ctx context.Context, c client.Client) (*kueue.Workload, error)
+}
+
 // ComposableJob interface should be implemented by generic jobs that
 // are composed out of multiple API objects.
 type ComposableJob interface {

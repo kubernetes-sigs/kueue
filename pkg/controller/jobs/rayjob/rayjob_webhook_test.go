@@ -202,9 +202,7 @@ func TestValidateCreate(t *testing.T) {
 			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
 				WithEnableAutoscaling(ptr.To(true)).
 				Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec", "rayClusterSpec", "enableInTreeAutoscaling"), ptr.To(true), "a kueue managed job should not use autoscaling"),
-			}.ToAggregate(),
+			wantErr: nil,
 		},
 		"invalid managed - too many worker groups": {
 			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
