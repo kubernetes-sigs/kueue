@@ -139,12 +139,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Ordered, ginkg
 			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC)
 
 			ginkgo.By("wait for check active", func() {
-				updatedAc := kueue.AdmissionCheck{}
-				acKey := client.ObjectKeyFromObject(multiKueueAC)
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, acKey, &updatedAc)).To(gomega.Succeed())
-					g.Expect(updatedAc.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.AdmissionCheckActive))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectAdmissionChecksToBeActive(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC)
 			})
 
 			managerMkCq = utiltestingapi.MakeClusterQueue("q1").
@@ -181,12 +176,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Ordered, ginkg
 			util.SetAdmissionCheckActive(managerTestCluster.ctx, managerTestCluster.client, managerAC, metav1.ConditionTrue)
 
 			ginkgo.By("wait for check active", func() {
-				updatedAc := kueue.AdmissionCheck{}
-				acKey := client.ObjectKeyFromObject(managerAC)
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, acKey, &updatedAc)).To(gomega.Succeed())
-					g.Expect(updatedAc.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.AdmissionCheckActive))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectAdmissionChecksToBeActive(managerTestCluster.ctx, managerTestCluster.client, managerAC)
 			})
 
 			worker1AC = utiltestingapi.MakeAdmissionCheck("worker1-ac").
@@ -196,12 +186,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Ordered, ginkg
 			util.SetAdmissionCheckActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1AC, metav1.ConditionTrue)
 
 			ginkgo.By("wait for check active", func() {
-				updatedAc := kueue.AdmissionCheck{}
-				acKey := client.ObjectKeyFromObject(worker1AC)
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, acKey, &updatedAc)).To(gomega.Succeed())
-					g.Expect(updatedAc.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.AdmissionCheckActive))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectAdmissionChecksToBeActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1AC)
 			})
 
 			managerCq = utiltestingapi.MakeClusterQueue("q2").Obj()
