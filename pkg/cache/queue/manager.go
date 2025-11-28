@@ -453,7 +453,6 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 		return fmt.Errorf("workload %q already has quota reserved and can't be added to a LocalQueue", w.Name)
 	}
 
-	wlKey := workload.Key(w)
 	qKey := queue.KeyFromWorkload(w)
 
 	m.deleteWorkloadFromQueuesIfReassigned(log, w, qKey)
@@ -465,7 +464,7 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 	allOptions := append(m.workloadInfoOptions, opts...)
 	wInfo := workload.NewInfo(w, allOptions...)
 
-	m.assignWorkload(wlKey, wInfo, qKey, q)
+	m.assignWorkload(workload.Key(w), wInfo, qKey, q)
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq == nil {
