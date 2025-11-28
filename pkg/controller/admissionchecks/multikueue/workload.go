@@ -26,6 +26,7 @@ import (
 	"golang.org/x/exp/slices"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -196,7 +197,14 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 			//    from the cache.
 			//    TODO(#3840): Ideally, we would not add it to the cache in the
 			//    first place.
-			w.deletedWlCache.Delete(req.String())
+			ok, err := w.validateCacheDeletion(ctx, wl, mkAc)
+			if err != nil {
+				log.V(2).Error(err, "Failed delete precheck for workload", "workload", klog.KObj(wl))
+			}
+
+			if ok {
+				w.deletedWlCache.Delete(req.String())
+			}
 		}
 		return reconcile.Result{}, nil
 	}
@@ -243,6 +251,28 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	}
 
 	return w.reconcileGroup(ctx, grp)
+}
+
+func (w *wlReconciler) validateCacheDeletion(ctx context.Context, wl *kueue.Workload, mkAc *kueue.AdmissionCheckState) (bool, error) {
+	clients, err := w.remoteClientsForAC(ctx, mkAc.Name)
+	if err != nil {
+		if errors.Is(err, admissioncheck.ErrNoActiveClusters) {
+			return true, nil
+		}
+		return false, err
+	}
+
+	for _, rClient := range clients {
+		remWl := &kueue.Workload{}
+		err := rClient.client.Get(ctx, client.ObjectKeyFromObject(wl), remWl)
+		if err == nil {
+			return false, nil
+		}
+		if !apierrors.IsNotFound(err) {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 func (w *wlReconciler) updateACS(ctx context.Context, wl *kueue.Workload, acs *kueue.AdmissionCheckState, status kueue.CheckState, message string) error {
