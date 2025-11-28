@@ -103,6 +103,7 @@ func TestWlReconcile(t *testing.T) {
 		// second worker
 		wantWorker2Workloads []kueue.Workload
 		wantWorker2Jobs      []batchv1.Job
+		expectedCacheLen     int
 	}{
 		"deleted regular workload is removed from the cache": {
 			reconcileFor: "wl1",
@@ -138,6 +139,7 @@ func TestWlReconcile(t *testing.T) {
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
+			expectedCacheLen: 1,
 		},
 		"missing workload": {
 			reconcileFor: "missing workload",
@@ -1612,9 +1614,8 @@ func TestWlReconcile(t *testing.T) {
 						}
 					}
 				}
-
-				if l := reconciler.deletedWlCache.Len(); l > 0 {
-					t.Errorf("unexpected deletedWlCache len %d expecting 0", l)
+				if l := reconciler.deletedWlCache.Len(); l != tc.expectedCacheLen {
+					t.Errorf("unexpected deletedWlCache len %d expecting %d", l, tc.expectedCacheLen)
 				}
 			})
 		}
@@ -1922,5 +1923,127 @@ func TestConfigHandlerDelete(t *testing.T) {
 	}
 	if mockQ.addedItems[0].Name != "wl1" {
 		t.Errorf("expected workload wl1 to be queued, got %s", mockQ.addedItems[0].Name)
+	}
+}
+
+func TestDeletePrechecks(t *testing.T) {
+	cases := map[string]struct {
+		workload        *kueue.Workload
+		admissionChecks []kueue.AdmissionCheck
+		mkConfig        *kueue.MultiKueueConfig
+		workerWorkloads []kueue.Workload
+		expectCanDelete bool
+		expectErr       bool
+	}{
+		"no configured worker clusters": {
+			workload: utiltestingapi.MakeWorkload("wl1", TestNamespace).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "ac1",
+					State: kueue.CheckStateRejected,
+				}).
+				Obj(),
+			admissionChecks: []kueue.AdmissionCheck{
+				*utiltestingapi.MakeAdmissionCheck("ac1").
+					ControllerName(kueue.MultiKueueControllerName).
+					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Obj(),
+			},
+			mkConfig:        utiltestingapi.MakeMultiKueueConfig("config1").Clusters().Obj(),
+			expectCanDelete: true,
+			expectErr:       false,
+		},
+		"configured workers but no remote workloads": {
+			workload: utiltestingapi.MakeWorkload("wl1", TestNamespace).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "ac1",
+					State: kueue.CheckStateRejected,
+				}).
+				Obj(),
+			admissionChecks: []kueue.AdmissionCheck{
+				*utiltestingapi.MakeAdmissionCheck("ac1").
+					ControllerName(kueue.MultiKueueControllerName).
+					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Obj(),
+			},
+			mkConfig:        utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").Obj(),
+			expectCanDelete: true,
+			expectErr:       false,
+		},
+		"remote workload exists on worker": {
+			workload: utiltestingapi.MakeWorkload("wl1", TestNamespace).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "ac1",
+					State: kueue.CheckStateRejected,
+				}).
+				Obj(),
+			admissionChecks: []kueue.AdmissionCheck{
+				*utiltestingapi.MakeAdmissionCheck("ac1").
+					ControllerName(kueue.MultiKueueControllerName).
+					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Obj(),
+			},
+			mkConfig: utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").Obj(),
+			workerWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl1", TestNamespace).Obj(),
+			},
+			expectCanDelete: false,
+			expectErr:       false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			clientBuilder := getClientBuilder(ctx)
+
+			for i := range tc.admissionChecks {
+				clientBuilder = clientBuilder.WithObjects(&tc.admissionChecks[i])
+			}
+
+			if tc.mkConfig != nil {
+				clientBuilder = clientBuilder.WithObjects(tc.mkConfig)
+			}
+
+			fakeClient := clientBuilder.Build()
+
+			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
+			cRec := newClustersReconciler(fakeClient, TestNamespace, 0, defaultOrigin, nil, adapters, nil)
+
+			if tc.mkConfig != nil && len(tc.mkConfig.Spec.Clusters) > 0 {
+				for _, clusterName := range tc.mkConfig.Spec.Clusters {
+					workerClientBuilder := getClientBuilder(ctx)
+					if len(tc.workerWorkloads) > 0 {
+						workerClientBuilder = workerClientBuilder.WithLists(&kueue.WorkloadList{Items: tc.workerWorkloads})
+					}
+					workerClient := workerClientBuilder.Build()
+					remoteClient := newRemoteClient(fakeClient, nil, nil, defaultOrigin, "", adapters)
+					remoteClient.client = workerClient
+					remoteClient.connecting.Store(false)
+					cRec.remoteClients[clusterName] = remoteClient
+				}
+			}
+
+			helper, _ := admissioncheck.NewMultiKueueStoreHelper(fakeClient)
+			reconciler := newWlReconciler(
+				fakeClient,
+				helper,
+				cRec,
+				defaultOrigin,
+				&utiltesting.EventRecorder{},
+				defaultWorkerLostTimeout,
+				time.Second,
+				adapters,
+				config.MultiKueueDispatcherModeAllAtOnce,
+			)
+
+			mkAc, _ := admissioncheck.GetMultiKueueAdmissionCheck(ctx, fakeClient, tc.workload)
+			canDelete, err := reconciler.validateCacheDeletion(ctx, tc.workload, mkAc)
+			if (err != nil) != tc.expectErr {
+				t.Errorf("expected error: %v, got: %v", tc.expectErr, err)
+			}
+			if canDelete != tc.expectCanDelete {
+				t.Errorf("expected canDelete: %v, got: %v", tc.expectCanDelete, canDelete)
+			}
+		})
 	}
 }
