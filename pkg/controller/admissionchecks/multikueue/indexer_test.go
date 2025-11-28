@@ -99,22 +99,22 @@ func TestListMultiKueueClustersUsingKubeConfig(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			builder := getClientBuilder(ctx)
-			k8sclient := builder.Build()
+			k8sClient := builder.Build()
 			for _, req := range tc.clusters {
-				if err := k8sclient.Create(ctx, req); err != nil {
+				if err := k8sClient.Create(ctx, req); err != nil {
 					t.Fatalf("Unable to create %q cluster: %v", client.ObjectKeyFromObject(req), err)
 				}
 			}
 
-			lst := &kueue.MultiKueueClusterList{}
+			mkClusters := &kueue.MultiKueueClusterList{}
 
-			gotListErr := k8sclient.List(ctx, lst, tc.filter)
-			if diff := cmp.Diff(tc.wantListError, gotListErr); diff != "" {
+			gotErr := k8sClient.List(ctx, mkClusters, tc.filter)
+			if diff := cmp.Diff(tc.wantListError, gotErr); diff != "" {
 				t.Errorf("unexpected list error (-want/+got):\n%s", diff)
 			}
 
-			gotList := utilslices.Map(lst.Items, func(mkc *kueue.MultiKueueCluster) string { return mkc.Name })
-			if diff := cmp.Diff(tc.wantList, gotList, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+			gotMKClusterNames := utilslices.Map(mkClusters.Items, func(mkc *kueue.MultiKueueCluster) string { return mkc.Name })
+			if diff := cmp.Diff(tc.wantList, gotMKClusterNames, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
 				t.Errorf("unexpected list (-want/+got):\n%s", diff)
 			}
 		})
@@ -160,22 +160,22 @@ func TestListMultiKueueClustersUsingClusterProfile(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			builder := getClientBuilder(ctx)
-			k8sclient := builder.Build()
+			k8sClient := builder.Build()
 			for _, req := range tc.clusters {
-				if err := k8sclient.Create(ctx, req); err != nil {
+				if err := k8sClient.Create(ctx, req); err != nil {
 					t.Fatalf("Unable to create %q cluster: %v", client.ObjectKeyFromObject(req), err)
 				}
 			}
 
-			lst := &kueue.MultiKueueClusterList{}
+			mkClusters := &kueue.MultiKueueClusterList{}
 
-			gotListErr := k8sclient.List(ctx, lst, tc.filter)
-			if diff := cmp.Diff(tc.wantListError, gotListErr); diff != "" {
+			gotErr := k8sClient.List(ctx, mkClusters, tc.filter)
+			if diff := cmp.Diff(tc.wantListError, gotErr); diff != "" {
 				t.Errorf("unexpected list error (-want/+got):\n%s", diff)
 			}
 
-			gotList := utilslices.Map(lst.Items, func(mkc *kueue.MultiKueueCluster) string { return mkc.Name })
-			if diff := cmp.Diff(tc.wantList, gotList, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+			gotMKClusterNames := utilslices.Map(mkClusters.Items, func(mkc *kueue.MultiKueueCluster) string { return mkc.Name })
+			if diff := cmp.Diff(tc.wantList, gotMKClusterNames, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
 				t.Errorf("unexpected list (-want/+got):\n%s", diff)
 			}
 		})
@@ -220,22 +220,22 @@ func TestListMultiKueueConfigsUsingMultiKueueClusters(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			builder := getClientBuilder(ctx)
-			k8sclient := builder.Build()
+			k8sClient := builder.Build()
 			for _, config := range tc.configs {
-				if err := k8sclient.Create(ctx, config); err != nil {
+				if err := k8sClient.Create(ctx, config); err != nil {
 					t.Fatalf("Unable to create %q config: %v", client.ObjectKeyFromObject(config), err)
 				}
 			}
 
-			lst := &kueue.MultiKueueConfigList{}
+			mkConfigs := &kueue.MultiKueueConfigList{}
 
-			gotListErr := k8sclient.List(ctx, lst, tc.filter)
-			if diff := cmp.Diff(tc.wantListError, gotListErr); diff != "" {
+			gotErr := k8sClient.List(ctx, mkConfigs, tc.filter)
+			if diff := cmp.Diff(tc.wantListError, gotErr); diff != "" {
 				t.Errorf("unexpected list error (-want/+got):\n%s", diff)
 			}
 
-			gotList := utilslices.Map(lst.Items, func(mkc *kueue.MultiKueueConfig) string { return mkc.Name })
-			if diff := cmp.Diff(tc.wantList, gotList, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+			gotMKConfigNames := utilslices.Map(mkConfigs.Items, func(mkc *kueue.MultiKueueConfig) string { return mkc.Name })
+			if diff := cmp.Diff(tc.wantList, gotMKConfigNames, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
 				t.Errorf("unexpected list (-want/+got):\n%s", diff)
 			}
 		})
