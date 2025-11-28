@@ -95,3 +95,19 @@ func Convert_v1beta2_WaitForPodsReady_To_v1beta1_WaitForPodsReady(in *v1beta2.Wa
 func Convert_v1beta2_MultiKueue_To_v1beta1_MultiKueue(in *v1beta2.MultiKueue, out *MultiKueue, s conversionapi.Scope) error {
 	return autoConvert_v1beta2_MultiKueue_To_v1beta1_MultiKueue(in, out, s)
 }
+
+func Convert_v1beta1_ResourceTransformation_To_v1beta2_ResourceTransformation(in *ResourceTransformation, out *v1beta2.ResourceTransformation, s conversionapi.Scope) error {
+	if err := autoConvert_v1beta1_ResourceTransformation_To_v1beta2_ResourceTransformation(in, out, s); err != nil {
+		return err
+	}
+	// MultiplyBy is not present in v1beta1, so it will remain as zero value (empty string) in v1beta2
+	return nil
+}
+
+func Convert_v1beta2_ResourceTransformation_To_v1beta1_ResourceTransformation(in *v1beta2.ResourceTransformation, out *ResourceTransformation, s conversionapi.Scope) error {
+	if err := autoConvert_v1beta2_ResourceTransformation_To_v1beta1_ResourceTransformation(in, out, s); err != nil {
+		return err
+	}
+	// MultiplyBy field is dropped when converting from v1beta2 to v1beta1 as it doesn't exist in v1beta1
+	return nil
+}
