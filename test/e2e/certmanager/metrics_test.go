@@ -144,13 +144,13 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 						Obj(),
 				).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 			localQueue = utiltestingapi.MakeLocalQueue("", ns.Name).
 				GeneratedName("test-lq-").
 				ClusterQueue(clusterQueue.Name).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 
 			workload = utiltestingapi.MakeWorkload("test-workload", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
