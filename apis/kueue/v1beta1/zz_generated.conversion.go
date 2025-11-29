@@ -1682,6 +1682,7 @@ func autoConvert_v1beta1_LocalQueueSpec_To_v1beta2_LocalQueueSpec(in *LocalQueue
 	out.ClusterQueue = v1beta2.ClusterQueueReference(in.ClusterQueue)
 	out.StopPolicy = (*v1beta2.StopPolicy)(unsafe.Pointer(in.StopPolicy))
 	out.FairSharing = (*v1beta2.FairSharing)(unsafe.Pointer(in.FairSharing))
+	out.WallTimePolicy = (*v1beta2.WallTimePolicy)(unsafe.Pointer(in.WallTimePolicy))
 	return nil
 }
 
@@ -1694,6 +1695,7 @@ func autoConvert_v1beta2_LocalQueueSpec_To_v1beta1_LocalQueueSpec(in *v1beta2.Lo
 	out.ClusterQueue = ClusterQueueReference(in.ClusterQueue)
 	out.StopPolicy = (*StopPolicy)(unsafe.Pointer(in.StopPolicy))
 	out.FairSharing = (*FairSharing)(unsafe.Pointer(in.FairSharing))
+	out.WallTimePolicy = (*WallTimePolicy)(unsafe.Pointer(in.WallTimePolicy))
 	return nil
 }
 
@@ -1711,6 +1713,7 @@ func autoConvert_v1beta1_LocalQueueStatus_To_v1beta2_LocalQueueStatus(in *LocalQ
 	// WARNING: in.FlavorUsage requires manual conversion: does not exist in peer-type
 	// WARNING: in.Flavors requires manual conversion: does not exist in peer-type
 	out.FairSharing = (*v1beta2.LocalQueueFairSharingStatus)(unsafe.Pointer(in.FairSharing))
+	out.WallTimeFlavorUsage = *(*[]v1beta2.WallTimeFlavorUsage)(unsafe.Pointer(&in.WallTimeFlavorUsage))
 	return nil
 }
 
@@ -1722,6 +1725,7 @@ func autoConvert_v1beta2_LocalQueueStatus_To_v1beta1_LocalQueueStatus(in *v1beta
 	out.FlavorsReservation = *(*[]LocalQueueFlavorUsage)(unsafe.Pointer(&in.FlavorsReservation))
 	// WARNING: in.FlavorsUsage requires manual conversion: does not exist in peer-type
 	out.FairSharing = (*FairSharingStatus)(unsafe.Pointer(in.FairSharing))
+	out.WallTimeFlavorUsage = *(*[]WallTimeFlavorUsage)(unsafe.Pointer(&in.WallTimeFlavorUsage))
 	return nil
 }
 
