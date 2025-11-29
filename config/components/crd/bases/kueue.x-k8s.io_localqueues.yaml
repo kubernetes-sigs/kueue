@@ -123,7 +123,7 @@ spec:
                     description: wallTimeAllocatedHours is the number of hours that
                       this wall time quota applies to.
                     format: int32
-                    minimum: 1
+                    minimum: 0
                     type: integer
                 required:
                 - wallTimeAllocatedHours
@@ -455,7 +455,7 @@ spec:
                     description: wallTimeAllocatedHours is the number of hours that
                       this wall time quota applies to.
                     format: int32
-                    minimum: 1
+                    minimum: 0
                     type: integer
                 required:
                 - wallTimeAllocatedHours
@@ -809,7 +809,7 @@ spec:
                     wallTimeUsed:
                       description: wallTimeUsed is the number of hours used.
                       format: int32
-                      minimum: 1
+                      minimum: 0
                       type: integer
                   required:
                   - name

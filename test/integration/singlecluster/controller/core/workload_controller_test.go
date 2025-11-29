@@ -611,7 +611,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 			})
 		})
 	})
-	ginkgo.When("the workload has wall time tracking", func() {
+	ginkgo.When("the workload has wall time tracking", ginkgo.Label("feature:wall-time"), func() {
 		var flavor *kueue.ResourceFlavor
 
 		ginkgo.BeforeEach(func() {

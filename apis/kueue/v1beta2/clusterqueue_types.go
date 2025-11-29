@@ -378,7 +378,7 @@ type WallTimeFlavorUsage struct {
 	// +kubebuilder:validation:Minimum=1
 	WallTimeAllocated int32 `json:"wallTimeAllocated,omitempty"`
 	// wallTimeUsed is the number of hours used.
-	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Minimum=0
 	WallTimeUsed int32 `json:"wallTimeUsed"`
 }
 
