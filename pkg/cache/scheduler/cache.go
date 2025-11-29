@@ -863,7 +863,7 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 		ReservingWorkloads: qImpl.reservingWorkloads,
 		AdmittedResources:  filterLocalQueueUsage(qImpl.admittedUsage, cqImpl.ResourceGroups),
 		AdmittedWorkloads:  qImpl.admittedWorkloads,
-		WallTimeUsage:      filterLocalQueueWallTimeUsage(qImpl.wallTimeUsage, cqImpl.WallTimeGroups, qObj.Spec.WallTimePolicy),
+		WallTimeUsage:      filterLocalQueueWallTimeUsage(qImpl.wallTimeUsage, cqImpl.WallTimeGroups, qImpl.wallTimePolicy),
 	}, nil
 }
 
@@ -897,7 +897,7 @@ func filterLocalQueueUsage(orig resources.FlavorResourceQuantities, resourceGrou
 }
 
 func filterLocalQueueWallTimeUsage(orig resources.FlavorWallTimeQuantities, resourceGroups []WallTimeFlavorGroup, wallTimeSpec *kueue.LocalQueueWallTimeLimits) []kueue.WallTimeFlavorUsage {
-	if wallTimeSpec == nil {
+	if !features.Enabled(features.WallTimeLimits) || wallTimeSpec == nil {
 		return []kueue.WallTimeFlavorUsage{}
 	}
 	usage := make([]kueue.WallTimeFlavorUsage, 0, len(orig))

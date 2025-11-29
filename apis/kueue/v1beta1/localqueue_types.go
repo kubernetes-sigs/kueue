@@ -175,7 +175,7 @@ type LocalQueueStatus struct {
 type LocalQueueWallTimeLimits struct {
 
 	// wallTimeAllocatedHours is the number of hours that this wall time quota applies to.
-	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Minimum=0
 	WallTimeAllocatedHours int32 `json:"wallTimeAllocatedHours"`
 
 	// actionWhenWallTimeExhausted defines the action to take when the budget is exhausted.

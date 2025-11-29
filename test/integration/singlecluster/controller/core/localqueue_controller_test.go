@@ -544,3 +544,295 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 		})
 	})
 })
+
+var _ = ginkgo.Describe("Queue controller for wall time limits", ginkgo.Label("feature:wall-time"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	var (
+		ns              *corev1.Namespace
+		clusterQueue    *kueue.ClusterQueue
+		resourceFlavors []kueue.ResourceFlavor
+		flavorModelC    string
+		flavorModelD    string
+		ac              *kueue.AdmissionCheck
+	)
+
+	ginkgo.BeforeAll(func() {
+		fwk.StartManager(ctx, cfg, managerSetup)
+	})
+
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-walltime-")
+		flavorModelC = "model-c-" + ns.Name
+		flavorModelD = "model-d-" + ns.Name
+		resourceFlavors = []kueue.ResourceFlavor{
+			*utiltestingapi.MakeResourceFlavor(flavorModelC).
+				NodeLabel(resourceGPU.String(), flavorModelC).
+				Taint(corev1.Taint{
+					Key:    "spot",
+					Value:  "true",
+					Effect: corev1.TaintEffectNoSchedule,
+				}).Obj(),
+			*utiltestingapi.MakeResourceFlavor(flavorModelD).NodeLabel(resourceGPU.String(), flavorModelD).Obj(),
+		}
+	})
+
+	ginkgo.AfterEach(func() {
+		if clusterQueue != nil {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		}
+		for _, rf := range resourceFlavors {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, &rf, true)
+		}
+		if ac != nil {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
+		}
+	})
+
+	ginkgo.It("Should track wall time usage when feature gate is enabled", func() {
+		ginkgo.By("Enabling the WallTimeLimits feature gate")
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WallTimeLimits, true)
+
+		ginkgo.By("Creating admission check and setting it active")
+		ac = utiltestingapi.MakeAdmissionCheck("ac-walltime-enabled").ControllerName("ac-controller").Obj()
+		util.MustCreate(ctx, k8sClient, ac)
+		util.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
+
+		ginkgo.By("Creating resourceFlavors")
+		for i := range resourceFlavors {
+			util.MustCreate(ctx, k8sClient, &resourceFlavors[i])
+		}
+
+		ginkgo.By("Creating a clusterQueue")
+		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue.walltime-enabled").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas(flavorModelD).Resource(resourceGPU, "5", "5").Obj(),
+				*utiltestingapi.MakeFlavorQuotas(flavorModelC).Resource(resourceGPU, "5", "5").Obj(),
+			).
+			Cohort("cohort").
+			AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
+			WallTimePolicy(
+				kueue.WallTimeFlavor{Name: kueue.ResourceFlavorReference(flavorModelD), WallTimeAllocatedHours: 100, ActionWhenWallTimeExhausted: kueue.Hold},
+				kueue.WallTimeFlavor{Name: kueue.ResourceFlavorReference(flavorModelC), WallTimeAllocatedHours: 100, ActionWhenWallTimeExhausted: kueue.Hold},
+			).
+			Obj()
+		util.MustCreate(ctx, k8sClient, clusterQueue)
+
+		ginkgo.By("Creating a local queue with wall time policy")
+		queueWithWallTime := utiltestingapi.MakeLocalQueue("queue-with-wall-time", ns.Name).
+			ClusterQueue(clusterQueue.Name).
+			WallTimePolicy(100, kueue.Hold).
+			Obj()
+		util.MustCreate(ctx, k8sClient, queueWithWallTime)
+
+		ginkgo.By("Creating and admitting workloads")
+		workloads := []*kueue.Workload{
+			utiltestingapi.MakeWorkload("wl1", ns.Name).
+				Queue(kueue.LocalQueueName(queueWithWallTime.Name)).
+				Request(resourceGPU, "1").
+				Obj(),
+			utiltestingapi.MakeWorkload("wl2", ns.Name).
+				Queue(kueue.LocalQueueName(queueWithWallTime.Name)).
+				Request(resourceGPU, "2").
+				Obj(),
+		}
+		admissions := []*kueue.Admission{
+			utiltestingapi.MakeAdmission(clusterQueue.Name).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(resourceGPU, kueue.ResourceFlavorReference(flavorModelD), "1").Obj()).Obj(),
+			utiltestingapi.MakeAdmission(clusterQueue.Name).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(resourceGPU, kueue.ResourceFlavorReference(flavorModelC), "2").Obj()).Obj(),
+		}
+
+		for _, w := range workloads {
+			util.MustCreate(ctx, k8sClient, w)
+		}
+
+		for i, w := range workloads {
+			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(w), admissions[i])
+		}
+
+		for _, w := range workloads {
+			util.SetWorkloadsAdmissionCheck(ctx, k8sClient, w, kueue.AdmissionCheckReference(ac.Name), kueue.CheckStateReady, true)
+		}
+
+		ginkgo.By("Waiting for wall time tracking to start on workloads")
+		gomega.Eventually(func(g gomega.Gomega) {
+			for _, w := range workloads {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &updatedWl)).To(gomega.Succeed())
+				g.Expect(updatedWl.Status.WallTimeSeconds).NotTo(gomega.BeNil())
+			}
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Verifying wall time usage is tracked in the status")
+		gomega.Eventually(func(g gomega.Gomega) {
+			var updatedQueue kueue.LocalQueue
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queueWithWallTime), &updatedQueue)).To(gomega.Succeed())
+			g.Expect(updatedQueue.Status.WallTimeFlavorUsage).NotTo(gomega.BeEmpty())
+
+			// Verify that each flavor has wall time usage tracking
+			for _, usage := range updatedQueue.Status.WallTimeFlavorUsage {
+				g.Expect(usage.WallTimeAllocated).To(gomega.Equal(int32(100)))
+				// Wall time used should be >= 0 (might be 0 if just created)
+				g.Expect(usage.WallTimeUsed).To(gomega.BeNumerically(">=", int32(0)))
+			}
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Finishing workloads")
+		util.FinishWorkloads(ctx, k8sClient, workloads...)
+
+		ginkgo.By("Deleting the local queue with wall time")
+		gomega.Expect(util.DeleteObject(ctx, k8sClient, queueWithWallTime)).To(gomega.Succeed())
+	})
+
+	ginkgo.It("Should NOT track wall time usage when there is no wall time limits on clusterqueue or localqueue", func() {
+		ginkgo.By("Disabling the WallTimeLimits feature gate")
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WallTimeLimits, false)
+
+		ginkgo.By("Creating admission check and setting it active")
+		ac = utiltestingapi.MakeAdmissionCheck("ac-walltime-disabled").ControllerName("ac-controller").Obj()
+		util.MustCreate(ctx, k8sClient, ac)
+		util.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
+
+		ginkgo.By("Creating resourceFlavors")
+		for i := range resourceFlavors {
+			util.MustCreate(ctx, k8sClient, &resourceFlavors[i])
+		}
+
+		ginkgo.By("Creating a clusterQueue")
+		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue.walltime-disabled").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas(flavorModelD).Resource(resourceGPU, "5", "5").Obj(),
+				*utiltestingapi.MakeFlavorQuotas(flavorModelC).Resource(resourceGPU, "5", "5").Obj(),
+			).
+			Cohort("cohort").
+			AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
+			WallTimePolicy(
+				kueue.WallTimeFlavor{Name: kueue.ResourceFlavorReference(flavorModelD), WallTimeAllocatedHours: 100, ActionWhenWallTimeExhausted: kueue.Hold},
+				kueue.WallTimeFlavor{Name: kueue.ResourceFlavorReference(flavorModelC), WallTimeAllocatedHours: 100, ActionWhenWallTimeExhausted: kueue.Hold},
+			).
+			Obj()
+		util.MustCreate(ctx, k8sClient, clusterQueue)
+
+		ginkgo.By("Creating a local queue with wall time policy")
+		queueWithWallTime := utiltestingapi.MakeLocalQueue("queue-no-wall-time", ns.Name).
+			ClusterQueue(clusterQueue.Name).
+			WallTimePolicy(100, kueue.Hold).
+			Obj()
+		util.MustCreate(ctx, k8sClient, queueWithWallTime)
+
+		ginkgo.By("Creating and admitting workloads")
+		workloads := []*kueue.Workload{
+			utiltestingapi.MakeWorkload("wl3", ns.Name).
+				Queue(kueue.LocalQueueName(queueWithWallTime.Name)).
+				Request(resourceGPU, "1").
+				Obj(),
+		}
+		admissions := []*kueue.Admission{
+			utiltestingapi.MakeAdmission(clusterQueue.Name).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(resourceGPU, kueue.ResourceFlavorReference(flavorModelD), "1").Obj()).Obj(),
+		}
+
+		for _, w := range workloads {
+			util.MustCreate(ctx, k8sClient, w)
+		}
+
+		for i, w := range workloads {
+			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(w), admissions[i])
+		}
+
+		for _, w := range workloads {
+			util.SetWorkloadsAdmissionCheck(ctx, k8sClient, w, kueue.AdmissionCheckReference(ac.Name), kueue.CheckStateReady, true)
+		}
+
+		ginkgo.By("Verifying wall time usage is NOT tracked in the status")
+		gomega.Consistently(func(g gomega.Gomega) {
+			var updatedQueue kueue.LocalQueue
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queueWithWallTime), &updatedQueue)).To(gomega.Succeed())
+			// When feature gate is disabled, WallTimeFlavorUsage should be empty
+			g.Expect(updatedQueue.Status.WallTimeFlavorUsage).To(gomega.BeEmpty())
+		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Finishing workloads")
+		util.FinishWorkloads(ctx, k8sClient, workloads...)
+
+		ginkgo.By("Deleting the local queue with wall time")
+		gomega.Expect(util.DeleteObject(ctx, k8sClient, queueWithWallTime)).To(gomega.Succeed())
+	})
+
+	ginkgo.It("Should NOT track wall time usage when cq and lq do not have wall time limits", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WallTimeLimits, true)
+
+		ginkgo.By("Creating admission check and setting it active")
+		ac = utiltestingapi.MakeAdmissionCheck("ac-walltime-disabled").ControllerName("ac-controller").Obj()
+		util.MustCreate(ctx, k8sClient, ac)
+		util.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
+
+		ginkgo.By("Creating resourceFlavors")
+		for i := range resourceFlavors {
+			util.MustCreate(ctx, k8sClient, &resourceFlavors[i])
+		}
+
+		ginkgo.By("Creating a clusterQueue")
+		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue.walltime-disabled").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas(flavorModelD).Resource(resourceGPU, "5", "5").Obj(),
+				*utiltestingapi.MakeFlavorQuotas(flavorModelC).Resource(resourceGPU, "5", "5").Obj(),
+			).
+			Cohort("cohort").
+			AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
+			Obj()
+		util.MustCreate(ctx, k8sClient, clusterQueue)
+
+		ginkgo.By("Creating a local queue with wall time policy")
+		queueWithWallTime := utiltestingapi.MakeLocalQueue("queue-no-wall-time", ns.Name).
+			ClusterQueue(clusterQueue.Name).
+			Obj()
+		util.MustCreate(ctx, k8sClient, queueWithWallTime)
+
+		ginkgo.By("Creating and admitting workloads")
+		workloads := []*kueue.Workload{
+			utiltestingapi.MakeWorkload("wl3", ns.Name).
+				Queue(kueue.LocalQueueName(queueWithWallTime.Name)).
+				Request(resourceGPU, "1").
+				Obj(),
+		}
+		admissions := []*kueue.Admission{
+			utiltestingapi.MakeAdmission(clusterQueue.Name).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(resourceGPU, kueue.ResourceFlavorReference(flavorModelD), "1").Obj()).Obj(),
+		}
+
+		for _, w := range workloads {
+			util.MustCreate(ctx, k8sClient, w)
+		}
+
+		for i, w := range workloads {
+			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(w), admissions[i])
+		}
+
+		for _, w := range workloads {
+			util.SetWorkloadsAdmissionCheck(ctx, k8sClient, w, kueue.AdmissionCheckReference(ac.Name), kueue.CheckStateReady, true)
+		}
+
+		ginkgo.By("Verifying wall time usage is NOT tracked in the status")
+		gomega.Consistently(func(g gomega.Gomega) {
+			var updatedQueue kueue.LocalQueue
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queueWithWallTime), &updatedQueue)).To(gomega.Succeed())
+			// When feature gate is disabled, WallTimeFlavorUsage should be empty
+			g.Expect(updatedQueue.Status.WallTimeFlavorUsage).To(gomega.BeEmpty())
+		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Finishing workloads")
+		util.FinishWorkloads(ctx, k8sClient, workloads...)
+
+		ginkgo.By("Deleting the local queue with wall time")
+		gomega.Expect(util.DeleteObject(ctx, k8sClient, queueWithWallTime)).To(gomega.Succeed())
+	})
+
+})

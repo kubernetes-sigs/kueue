@@ -203,6 +203,13 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 		return ctrl.Result{RequeueAfter: r.admissionFSConfig.UsageSamplingInterval.Duration}, nil
 	}
+
+	if features.Enabled(features.WallTimeLimits) && queueObj.Spec.WallTimePolicy != nil {
+		if err := r.updateLocalQueueWallTimeUsageStatus(ctx, &queueObj); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
+	}
 	return ctrl.Result{}, nil
 }
 
@@ -357,6 +364,18 @@ func (r *LocalQueueReconciler) updateAdmissionFsStatus(ctx context.Context, lq *
 	lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources = consumedResources
 	lq.Status.FairSharing.AdmissionFairSharingStatus.LastUpdate = metav1.NewTime(lastUpdate)
 	return r.client.Status().Update(ctx, lq)
+}
+
+func (r *LocalQueueReconciler) updateLocalQueueWallTimeUsageStatus(ctx context.Context, lq *kueue.LocalQueue) error {
+	stats, err := r.cache.LocalQueueUsage(lq)
+	if err != nil {
+		r.log.Error(err, failedUpdateLqStatusMsg)
+		return err
+	}
+	r.log.V(2).Info("LocalQueue Update Wall Time Usage", "localQueueStats", stats)
+	lq.Status.WallTimeFlavorUsage = stats.WallTimeUsage
+	return r.client.Status().Update(ctx, lq)
+
 }
 
 func localQueueReferenceFromLocalQueue(lq *kueue.LocalQueue) metrics.LocalQueueReference {
