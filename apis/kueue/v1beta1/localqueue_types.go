@@ -54,6 +54,10 @@ type LocalQueueSpec struct {
 	// if AdmissionFairSharing is enabled in the Kueue configuration.
 	// +optional
 	FairSharing *FairSharing `json:"fairSharing,omitempty"`
+
+	// wallTimePolicy defines the wallTimePolicy for the LocalQueue.
+	// +optional
+	WallTimePolicy *LocalQueueWallTimeLimits `json:"wallTimePolicy,omitempty"`
 }
 
 // Deprecated: LocalQueueFlavorStatus is deprecated and marked for removal in v1beta2.
@@ -162,6 +166,23 @@ type LocalQueueStatus struct {
 	// fairSharing contains the information about the current status of fair sharing.
 	// +optional
 	FairSharing *FairSharingStatus `json:"fairSharing,omitempty"`
+
+	// wallTimePolicy defines the wallTimePolicy for the LocalQueue.
+	// +optional
+	WallTimePolicy *LocalQueueWallTimeLimits `json:"wallTimePolicy,omitempty"`
+}
+
+type LocalQueueWallTimeLimits struct {
+
+	// wallTimeAllocatedHours is the number of hours that this wall time quota applies to.
+	// +kubebuilder:validation:Minimum=1
+	WallTimeAllocatedHours int32 `json:"wallTimeAllocatedHours"`
+
+	// actionWhenWallTimeExhausted defines the action to take when the budget is exhausted.
+	// The possible values are:
+	// +kubebuilder:validation:Enum=Hold;HoldAndDrain
+	// +kubebuilder:default="Hold"
+	ActionWhenWallTimeExhausted StopPolicy `json:"actionWhenWallTimeExhausted,omitempty"`
 }
 
 const (

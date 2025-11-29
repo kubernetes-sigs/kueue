@@ -37,15 +37,18 @@ func TestSyncAdmittedCondition(t *testing.T) {
 	testTime := time.Now().Truncate(time.Second)
 	cases := map[string]struct {
 		enableTopologyAwareScheduling bool
+		enableWallTimeLimits          bool
 
 		admission        *kueue.Admission
 		checkStates      []kueue.AdmissionCheckState
 		conditions       []metav1.Condition
 		pastAdmittedTime int32
+		wallTimeSeconds  int32
 
-		wantConditions   []metav1.Condition
-		wantChange       bool
-		wantAdmittedTime int32
+		wantConditions      []metav1.Condition
+		wantChange          bool
+		wantAdmittedTime    int32
+		wantWallTimeSeconds int32
 	}{
 		"empty": {},
 		"reservation no checks": {
@@ -125,6 +128,7 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			wantChange: true,
 		},
 		"reservation lost": {
+			enableWallTimeLimits: true,
 			checkStates: []kueue.AdmissionCheckState{
 				{
 					Name:  "check1",
@@ -150,10 +154,12 @@ func TestSyncAdmittedCondition(t *testing.T) {
 					ObservedGeneration: 1,
 				},
 			},
-			wantChange:       true,
-			wantAdmittedTime: 1,
+			wantChange:          true,
+			wantAdmittedTime:    1,
+			wantWallTimeSeconds: 1,
 		},
 		"check lost": {
+			enableWallTimeLimits: true,
 			checkStates: []kueue.AdmissionCheckState{
 				{
 					Name:  "check1",
@@ -187,8 +193,9 @@ func TestSyncAdmittedCondition(t *testing.T) {
 					ObservedGeneration: 1,
 				},
 			},
-			wantChange:       true,
-			wantAdmittedTime: 1,
+			wantChange:          true,
+			wantAdmittedTime:    1,
+			wantWallTimeSeconds: 1,
 		},
 		"reservation and check lost": {
 			checkStates: []kueue.AdmissionCheckState{
@@ -219,6 +226,7 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			wantChange: true,
 		},
 		"reservation lost with past admitted time (set)": {
+			enableWallTimeLimits: true,
 			conditions: []metav1.Condition{
 				{
 					Type:               kueue.WorkloadAdmitted,
@@ -234,10 +242,12 @@ func TestSyncAdmittedCondition(t *testing.T) {
 					ObservedGeneration: 1,
 				},
 			},
-			wantChange:       true,
-			wantAdmittedTime: 1,
+			wantChange:          true,
+			wantAdmittedTime:    1,
+			wantWallTimeSeconds: 1,
 		},
 		"reservation lost with past admitted time (add)": {
+			enableWallTimeLimits: true,
 			conditions: []metav1.Condition{
 				{
 					Type:               kueue.WorkloadAdmitted,
@@ -254,8 +264,52 @@ func TestSyncAdmittedCondition(t *testing.T) {
 					ObservedGeneration: 1,
 				},
 			},
-			wantChange:       true,
-			wantAdmittedTime: 2,
+			wantChange:          true,
+			wantAdmittedTime:    2,
+			wantWallTimeSeconds: 1,
+		},
+		"reservation lost with wall time (add)": {
+			enableWallTimeLimits: true,
+			conditions: []metav1.Condition{
+				{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testTime.Add(-time.Second)),
+				},
+			},
+			wallTimeSeconds: 5,
+			wantConditions: []metav1.Condition{
+				{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionFalse,
+					Reason:             "NoReservation",
+					ObservedGeneration: 1,
+				},
+			},
+			wantChange:          true,
+			wantAdmittedTime:    1,
+			wantWallTimeSeconds: 6,
+		},
+		"reservation lost with feature gate disabled": {
+			enableWallTimeLimits: false,
+			conditions: []metav1.Condition{
+				{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testTime.Add(-time.Second)),
+				},
+			},
+			wantConditions: []metav1.Condition{
+				{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionFalse,
+					Reason:             "NoReservation",
+					ObservedGeneration: 1,
+				},
+			},
+			wantChange:          true,
+			wantAdmittedTime:    1,
+			wantWallTimeSeconds: 0,
 		},
 		"pending delayed topology request; flip from Admitted=true": {
 			enableTopologyAwareScheduling: true,
@@ -344,6 +398,7 @@ func TestSyncAdmittedCondition(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
+			features.SetFeatureGateDuringTest(t, features.WallTimeLimits, tc.enableWallTimeLimits)
 			builder := utiltestingapi.MakeWorkload("foo", "bar").
 				Admission(tc.admission).
 				AdmissionChecks(tc.checkStates...).
@@ -351,6 +406,9 @@ func TestSyncAdmittedCondition(t *testing.T) {
 				Generation(1)
 			if tc.pastAdmittedTime > 0 {
 				builder = builder.PastAdmittedTime(tc.pastAdmittedTime)
+			}
+			if tc.wallTimeSeconds > 0 {
+				builder = builder.WallTimeSeconds(tc.wallTimeSeconds)
 			}
 			wl := builder.Obj()
 
@@ -371,6 +429,20 @@ func TestSyncAdmittedCondition(t *testing.T) {
 
 				if diff := cmp.Diff(tc.wantAdmittedTime, *wl.Status.AccumulatedPastExecutionTimeSeconds); diff != "" {
 					t.Errorf("Unexpected AccumulatedPastExecutionTimeSeconds (- want/+ got):\n%s", diff)
+				}
+			}
+
+			if tc.wantWallTimeSeconds > 0 {
+				if wl.Status.WallTimeSeconds == nil {
+					t.Fatalf("Expecting WallTimeSeconds not to be nil")
+				}
+
+				if diff := cmp.Diff(tc.wantWallTimeSeconds, *wl.Status.WallTimeSeconds); diff != "" {
+					t.Errorf("Unexpected WallTimeSeconds (- want/+ got):\n%s", diff)
+				}
+			} else if tc.wantWallTimeSeconds == 0 && !tc.enableWallTimeLimits {
+				if wl.Status.WallTimeSeconds != nil {
+					t.Errorf("Expected WallTimeSeconds to be nil when feature gate is disabled, got %v", *wl.Status.WallTimeSeconds)
 				}
 			}
 		})
