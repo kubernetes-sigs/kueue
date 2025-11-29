@@ -53,14 +53,16 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "sts-e2e-")
 
-		rf = utiltestingapi.MakeResourceFlavor(resourceFlavorName).
-			NodeLabel("instance-type", "on-demand").
-			Obj()
+		rfWrapper := utiltestingapi.MakeResourceFlavor("").
+			NodeLabel("instance-type", "on-demand")
+		rfWrapper.Obj().GenerateName = resourceFlavorName
+		rf = rfWrapper.Obj()
 		util.MustCreate(ctx, k8sClient, rf)
 
-		cq = utiltestingapi.MakeClusterQueue(clusterQueueName).
+		cq = utiltestingapi.MakeClusterQueue("").
+			GeneratedName(clusterQueueName).
 			ResourceGroup(
-				*utiltestingapi.MakeFlavorQuotas(resourceFlavorName).
+				*utiltestingapi.MakeFlavorQuotas(rf.Name).
 					Resource(corev1.ResourceCPU, "5").
 					Obj(),
 			).
