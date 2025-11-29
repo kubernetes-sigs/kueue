@@ -1855,6 +1855,13 @@ participating in AdmissionFairSharing.  The values are only relevant
 if AdmissionFairSharing is enabled in the Kueue configuration.</p>
 </td>
 </tr>
+<tr><td><code>wallTimePolicy</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-WallTimePolicy"><code>WallTimePolicy</code></a>
+</td>
+<td>
+   <p>wallTimePolicy defines the wallTimePolicy for the LocalQueue.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -1934,6 +1941,13 @@ workloads assigned to this LocalQueue.</p>
 </td>
 <td>
    <p>fairSharing contains the information about the current status of fair sharing.</p>
+</td>
+</tr>
+<tr><td><code>wallTimeFlavorUsage</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-WallTimeFlavorUsage"><code>[]WallTimeFlavorUsage</code></a>
+</td>
+<td>
+   <p>wallTimeFlavorUsage contains the current wall time usage for this LocalQueue.</p>
 </td>
 </tr>
 </tbody>
@@ -3265,7 +3279,11 @@ The possible values are:</p>
 
 **Appears in:**
 
+<<<<<<< HEAD
 - [ClusterQueueStatus](#kueue-x-k8s-io-v1beta1-ClusterQueueStatus)
+=======
+- [LocalQueueStatus](#kueue-x-k8s-io-v1beta1-LocalQueueStatus)
+>>>>>>> 54e153758 (add wall time limits local queue)
 
 
 
@@ -3285,7 +3303,11 @@ The possible values are:</p>
 <code>int32</code>
 </td>
 <td>
+<<<<<<< HEAD
    <p>wallTimeAllocated is the total number of hours allocated for this ClusterQueue.</p>
+=======
+   <p>wallTimeAllocated is the total number of hours allocated for this LocalQueue.</p>
+>>>>>>> 54e153758 (add wall time limits local queue)
 </td>
 </tr>
 <tr><td><code>wallTimeUsed</code> <B>[Required]</B><br/>
@@ -3303,7 +3325,11 @@ The possible values are:</p>
 
 **Appears in:**
 
+<<<<<<< HEAD
 - [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
+=======
+- [LocalQueueSpec](#kueue-x-k8s-io-v1beta1-LocalQueueSpec)
+>>>>>>> 54e153758 (add wall time limits local queue)
 
 
 
