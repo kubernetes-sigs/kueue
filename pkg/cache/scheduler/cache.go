@@ -842,6 +842,7 @@ type LocalQueueUsageStats struct {
 	ReservingWorkloads int
 	AdmittedResources  []kueue.LocalQueueFlavorUsage
 	AdmittedWorkloads  int
+	WallTimeUsage      []kueue.WallTimeFlavorUsage
 }
 
 func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, error) {
@@ -862,6 +863,7 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 		ReservingWorkloads: qImpl.reservingWorkloads,
 		AdmittedResources:  filterLocalQueueUsage(qImpl.admittedUsage, cqImpl.ResourceGroups),
 		AdmittedWorkloads:  qImpl.admittedWorkloads,
+		WallTimeUsage:      filterLocalQueueWallTimeUsage(qImpl.wallTimeUsage, cqImpl.WallTimeGroups, qObj.Spec.WallTimePolicy),
 	}, nil
 }
 
@@ -892,6 +894,25 @@ func filterLocalQueueUsage(orig resources.FlavorResourceQuantities, resourceGrou
 		}
 	}
 	return qFlvUsages
+}
+
+func filterLocalQueueWallTimeUsage(orig resources.FlavorWallTimeQuantities, resourceGroups []WallTimeFlavorGroup, wallTimeSpec *kueue.LocalQueueWallTimeLimits) []kueue.WallTimeFlavorUsage {
+	if wallTimeSpec == nil {
+		return []kueue.WallTimeFlavorUsage{}
+	}
+	usage := make([]kueue.WallTimeFlavorUsage, 0, len(orig))
+	for _, rg := range resourceGroups {
+		for _, fName := range rg.Flavors {
+			fr := resources.FlavorWallTimeResource{Flavor: fName}
+			outWallTimeUsage := kueue.WallTimeFlavorUsage{
+				Name:              fName,
+				WallTimeUsed:      orig[fr],
+				WallTimeAllocated: wallTimeSpec.WallTimeAllocatedHours,
+			}
+			usage = append(usage, outWallTimeUsage)
+		}
+	}
+	return usage
 }
 
 func (c *Cache) cleanupAssumedState(log logr.Logger, w *kueue.Workload) {

@@ -58,7 +58,20 @@ type LocalQueueSpec struct {
 
 	// wallTimePolicy defines the wallTimePolicy for the LocalQueue.
 	// +optional
-	WallTimePolicy *WallTimePolicy `json:"wallTimePolicy,omitempty"`
+	WallTimePolicy *LocalQueueWallTimeLimits `json:"wallTimePolicy,omitempty"`
+}
+
+type LocalQueueWallTimeLimits struct {
+
+	// wallTimeAllocatedHours is the number of hours that this wall time quota applies to.
+	// +kubebuilder:validation:Minimum=1
+	WallTimeAllocatedHours int32 `json:"wallTimeAllocatedHours"`
+
+	// actionWhenWallTimeExhausted defines the action to take when the budget is exhausted.
+	// The possible values are:
+	// +kubebuilder:validation:Enum=Hold;HoldAndDrain
+	// +kubebuilder:default="Hold"
+	ActionWhenWallTimeExhausted StopPolicy `json:"actionWhenWallTimeExhausted,omitempty"`
 }
 
 type TopologyInfo struct {
@@ -188,51 +201,6 @@ type LocalQueueResourceUsage struct {
 	// total is the total quantity of used quota.
 	// +optional
 	Total resource.Quantity `json:"total,omitempty"`
-}
-
-type WallTimePolicy struct {
-	// WallTimeFlavors describes a group of resources that this wall time limits applies to.
-	// flavors is the list of flavors that provide the resources of this group.
-	// Typically, different flavors represent different hardware models
-	// (e.g., gpu models, cpu architectures) or pricing models (on-demand vs spot
-	// cpus).
-	// Each flavor MUST list all the resources listed for this group in the same
-	// order as the .resources field.
-	// The list cannot be empty and it can contain up to 16 flavors.
-	// +listType=map
-	// +listMapKey=name
-	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=16
-	WallTimeFlavors []WallTimeFlavor `json:"wallTimeFlavors"`
-}
-
-type WallTimeFlavor struct {
-	// name of this flavor. The name should match the .metadata.name of a
-	// ResourceFlavor. If a matching ResourceFlavor does not exist, the
-	// ClusterQueue will have an Active condition set to False.
-	Name ResourceFlavorReference `json:"name"`
-
-	// wallTimeAllocatedHours is the number of hours that this wall time quota applies to.
-	// +kubebuilder:validation:Minimum=1
-	WallTimeAllocatedHours int32 `json:"wallTimeAllocatedHours"`
-
-	// actionWhenWallTimeExhausted defines the action to take when the budget is exhausted.
-	// The possible values are:
-	// +kubebuilder:validation:Enum=Hold;HoldAndDrain
-	// +kubebuilder:default="Hold"
-	ActionWhenWallTimeExhausted StopPolicy `json:"actionWhenWallTimeExhausted,omitempty"`
-}
-
-type WallTimeFlavorUsage struct {
-	// name of the flavor.
-	Name ResourceFlavorReference `json:"name"`
-
-	// wallTimeAllocated is the total number of hours allocated for this LocalQueue.
-	// +kubebuilder:validation:Minimum=1
-	WallTimeAllocated int32 `json:"wallTimeAllocated,omitempty"`
-	// wallTimeUsed is the number of hours used.
-	// +kubebuilder:validation:Minimum=1
-	WallTimeUsed int32 `json:"wallTimeUsed"`
 }
 
 // +genclient

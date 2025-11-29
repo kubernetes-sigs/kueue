@@ -526,6 +526,7 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 	queue.Status.AdmittedWorkloads = int32(stats.AdmittedWorkloads)
 	queue.Status.FlavorsReservation = stats.ReservedResources
 	queue.Status.FlavorsUsage = stats.AdmittedResources
+	queue.Status.WallTimeFlavorUsage = stats.WallTimeUsage
 	if len(conditionStatus) != 0 && len(reason) != 0 && len(msg) != 0 {
 		meta.SetStatusCondition(&queue.Status.Conditions, metav1.Condition{
 			Type:               kueue.LocalQueueActive,

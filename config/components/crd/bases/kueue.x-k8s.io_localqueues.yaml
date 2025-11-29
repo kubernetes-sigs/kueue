@@ -109,6 +109,27 @@ spec:
                 - Hold
                 - HoldAndDrain
                 type: string
+              wallTimePolicy:
+                description: wallTimePolicy defines the wallTimePolicy for the LocalQueue.
+                properties:
+                  actionWhenWallTimeExhausted:
+                    default: Hold
+                    description: |-
+                      actionWhenWallTimeExhausted defines the action to take when the budget is exhausted.
+                      The possible values are:
+                    enum:
+                    - Hold
+                    - HoldAndDrain
+                    type: string
+                  wallTimeAllocatedHours:
+                    description: wallTimeAllocatedHours is the number of hours that
+                      this wall time quota applies to.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                required:
+                - wallTimeAllocatedHours
+                type: object
             type: object
           status:
             description: status is the status of the LocalQueue.
@@ -420,6 +441,27 @@ spec:
                   reserving quota in a ClusterQueue and that haven't finished yet.
                 format: int32
                 type: integer
+              wallTimePolicy:
+                description: wallTimePolicy defines the wallTimePolicy for the LocalQueue.
+                properties:
+                  actionWhenWallTimeExhausted:
+                    default: Hold
+                    description: |-
+                      actionWhenWallTimeExhausted defines the action to take when the budget is exhausted.
+                      The possible values are:
+                    enum:
+                    - Hold
+                    - HoldAndDrain
+                    type: string
+                  wallTimeAllocatedHours:
+                    description: wallTimeAllocatedHours is the number of hours that
+                      this wall time quota applies to.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                required:
+                - wallTimeAllocatedHours
+                type: object
             type: object
         type: object
     served: true
@@ -515,6 +557,27 @@ spec:
                 - Hold
                 - HoldAndDrain
                 type: string
+              wallTimePolicy:
+                description: wallTimePolicy defines the wallTimePolicy for the LocalQueue.
+                properties:
+                  actionWhenWallTimeExhausted:
+                    default: Hold
+                    description: |-
+                      actionWhenWallTimeExhausted defines the action to take when the budget is exhausted.
+                      The possible values are:
+                    enum:
+                    - Hold
+                    - HoldAndDrain
+                    type: string
+                  wallTimeAllocatedHours:
+                    description: wallTimeAllocatedHours is the number of hours that
+                      this wall time quota applies to.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                required:
+                - wallTimeAllocatedHours
+                type: object
             type: object
           status:
             description: status is the status of the LocalQueue.
@@ -729,6 +792,36 @@ spec:
                   reserving quota in a ClusterQueue and that haven't finished yet.
                 format: int32
                 type: integer
+              wallTimeFlavorUsage:
+                description: wallTimeFlavorUsage contains the current wall time usage
+                  for this LocalQueue.
+                items:
+                  properties:
+                    name:
+                      description: name of the flavor.
+                      maxLength: 253
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                      type: string
+                    wallTimeAllocated:
+                      description: wallTimeAllocated is the total number of hours
+                        allocated for this ClusterQueue.
+                      format: int32
+                      minimum: 1
+                      type: integer
+                    wallTimeUsed:
+                      description: wallTimeUsed is the number of hours used.
+                      format: int32
+                      minimum: 1
+                      type: integer
+                  required:
+                  - name
+                  - wallTimeUsed
+                  type: object
+                maxItems: 16
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
             type: object
         type: object
     served: true

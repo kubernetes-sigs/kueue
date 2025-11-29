@@ -539,6 +539,56 @@ spec:
                     - Hold
                     - HoldAndDrain
                   type: string
+                wallTimePolicy:
+                  description: wallTimePolicy defines the wallTimePolicy for the ClusterQueue.
+                  properties:
+                    wallTimeFlavors:
+                      description: |-
+                        WallTimeFlavors describes a group of resources that this wall time limits applies to.
+                        flavors is the list of flavors that provide the resources of this group.
+                        Typically, different flavors represent different hardware models
+                        (e.g., gpu models, cpu architectures) or pricing models (on-demand vs spot
+                        cpus).
+                        Each flavor MUST list all the resources listed for this group in the same
+                        order as the .resources field.
+                        The list cannot be empty and it can contain up to 16 flavors.
+                      items:
+                        properties:
+                          actionWhenWallTimeExhausted:
+                            default: Hold
+                            description: |-
+                              actionWhenWallTimeExhausted defines the action to take when the budget is exhausted.
+                              The possible values are:
+                            enum:
+                              - Hold
+                              - HoldAndDrain
+                            type: string
+                          name:
+                            description: |-
+                              name of this flavor. The name should match the .metadata.name of a
+                              ResourceFlavor. If a matching ResourceFlavor does not exist, the
+                              ClusterQueue will have an Active condition set to False.
+                            maxLength: 253
+                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                            type: string
+                          wallTimeAllocatedHours:
+                            description: wallTimeAllocatedHours is the number of hours that this wall time quota applies to.
+                            format: int32
+                            minimum: 1
+                            type: integer
+                        required:
+                          - name
+                          - wallTimeAllocatedHours
+                        type: object
+                      maxItems: 16
+                      minItems: 1
+                      type: array
+                      x-kubernetes-list-map-keys:
+                        - name
+                      x-kubernetes-list-type: map
+                  required:
+                    - wallTimeFlavors
+                  type: object
               type: object
               x-kubernetes-validations:
                 - message: borrowingLimit must be nil when cohort is empty
@@ -810,6 +860,34 @@ spec:
                     clusterQueue.
                   format: int32
                   type: integer
+                wallTimeFlavorUsage:
+                  description: wallTimeFlavorUsage contains the current wall time usage for this ClusterQueue.
+                  items:
+                    properties:
+                      name:
+                        description: name of the flavor.
+                        maxLength: 253
+                        pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                        type: string
+                      wallTimeAllocated:
+                        description: wallTimeAllocated is the total number of hours allocated for this ClusterQueue.
+                        format: int32
+                        minimum: 1
+                        type: integer
+                      wallTimeUsed:
+                        description: wallTimeUsed is the number of hours used.
+                        format: int32
+                        minimum: 1
+                        type: integer
+                    required:
+                      - name
+                      - wallTimeUsed
+                    type: object
+                  maxItems: 16
+                  type: array
+                  x-kubernetes-list-map-keys:
+                    - name
+                  x-kubernetes-list-type: map
               type: object
           type: object
       served: true
@@ -1304,6 +1382,56 @@ spec:
                     - Hold
                     - HoldAndDrain
                   type: string
+                wallTimePolicy:
+                  description: wallTimePolicy defines the wallTimePolicy for the ClusterQueue.
+                  properties:
+                    wallTimeFlavors:
+                      description: |-
+                        WallTimeFlavors describes a group of resources that this wall time limits applies to.
+                        flavors is the list of flavors that provide the resources of this group.
+                        Typically, different flavors represent different hardware models
+                        (e.g., gpu models, cpu architectures) or pricing models (on-demand vs spot
+                        cpus).
+                        Each flavor MUST list all the resources listed for this group in the same
+                        order as the .resources field.
+                        The list cannot be empty and it can contain up to 16 flavors.
+                      items:
+                        properties:
+                          actionWhenWallTimeExhausted:
+                            default: Hold
+                            description: |-
+                              actionWhenWallTimeExhausted defines the action to take when the budget is exhausted.
+                              The possible values are:
+                            enum:
+                              - Hold
+                              - HoldAndDrain
+                            type: string
+                          name:
+                            description: |-
+                              name of this flavor. The name should match the .metadata.name of a
+                              ResourceFlavor. If a matching ResourceFlavor does not exist, the
+                              ClusterQueue will have an Active condition set to False.
+                            maxLength: 253
+                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                            type: string
+                          wallTimeAllocatedHours:
+                            description: wallTimeAllocatedHours is the number of hours that this wall time quota applies to.
+                            format: int32
+                            minimum: 1
+                            type: integer
+                        required:
+                          - name
+                          - wallTimeAllocatedHours
+                        type: object
+                      maxItems: 16
+                      minItems: 1
+                      type: array
+                      x-kubernetes-list-map-keys:
+                        - name
+                      x-kubernetes-list-type: map
+                  required:
+                    - wallTimeFlavors
+                  type: object
               type: object
               x-kubernetes-validations:
                 - message: borrowingLimit must be nil when cohort is empty
@@ -1519,6 +1647,34 @@ spec:
                     clusterQueue.
                   format: int32
                   type: integer
+                wallTimeFlavorUsage:
+                  description: wallTimeFlavorUsage contains the current wall time usage for this ClusterQueue.
+                  items:
+                    properties:
+                      name:
+                        description: name of the flavor.
+                        maxLength: 253
+                        pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                        type: string
+                      wallTimeAllocated:
+                        description: wallTimeAllocated is the total number of hours allocated for this ClusterQueue.
+                        format: int32
+                        minimum: 1
+                        type: integer
+                      wallTimeUsed:
+                        description: wallTimeUsed is the number of hours used.
+                        format: int32
+                        minimum: 1
+                        type: integer
+                    required:
+                      - name
+                      - wallTimeUsed
+                    type: object
+                  maxItems: 16
+                  type: array
+                  x-kubernetes-list-map-keys:
+                    - name
+                  x-kubernetes-list-type: map
               type: object
           type: object
       served: true

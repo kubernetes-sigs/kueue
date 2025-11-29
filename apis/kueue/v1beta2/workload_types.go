@@ -634,7 +634,6 @@ type WorkloadStatus struct {
 	// wallTimeSeconds holds the total time, in seconds, the workload spent
 	// in Admitted state.
 	// +optional
-	// +kubebuilder:validation:Minimum=1
 	WallTimeSeconds *int32 `json:"wallTimeSeconds,omitempty"`
 
 	// schedulingStats tracks scheduling statistics

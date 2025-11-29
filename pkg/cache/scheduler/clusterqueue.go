@@ -137,7 +137,9 @@ func (c *clusterQueue) updateClusterQueue(log logr.Logger, in *kueue.ClusterQueu
 		}
 	}
 
-	c.updateWallTimeGroups(in.Spec.WallTimePolicy.WallTimeFlavors)
+	if in.Spec.WallTimePolicy != nil {
+		c.updateWallTimeGroups(in.Spec.WallTimePolicy.WallTimeFlavors)
+	}
 
 	nsSelector, err := metav1.LabelSelectorAsSelector(in.Spec.NamespaceSelector)
 	if err != nil {

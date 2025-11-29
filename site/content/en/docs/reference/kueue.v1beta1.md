@@ -1856,7 +1856,7 @@ if AdmissionFairSharing is enabled in the Kueue configuration.</p>
 </td>
 </tr>
 <tr><td><code>wallTimePolicy</code><br/>
-<a href="#kueue-x-k8s-io-v1beta1-WallTimePolicy"><code>WallTimePolicy</code></a>
+<a href="#kueue-x-k8s-io-v1beta1-LocalQueueWallTimeLimits"><code>LocalQueueWallTimeLimits</code></a>
 </td>
 <td>
    <p>wallTimePolicy defines the wallTimePolicy for the LocalQueue.</p>
@@ -1943,11 +1943,45 @@ workloads assigned to this LocalQueue.</p>
    <p>fairSharing contains the information about the current status of fair sharing.</p>
 </td>
 </tr>
-<tr><td><code>wallTimeFlavorUsage</code><br/>
-<a href="#kueue-x-k8s-io-v1beta1-WallTimeFlavorUsage"><code>[]WallTimeFlavorUsage</code></a>
+<tr><td><code>wallTimePolicy</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-LocalQueueWallTimeLimits"><code>LocalQueueWallTimeLimits</code></a>
 </td>
 <td>
-   <p>wallTimeFlavorUsage contains the current wall time usage for this LocalQueue.</p>
+   <p>wallTimePolicy defines the wallTimePolicy for the LocalQueue.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `LocalQueueWallTimeLimits`     {#kueue-x-k8s-io-v1beta1-LocalQueueWallTimeLimits}
+    
+
+**Appears in:**
+
+- [LocalQueueSpec](#kueue-x-k8s-io-v1beta1-LocalQueueSpec)
+
+- [LocalQueueStatus](#kueue-x-k8s-io-v1beta1-LocalQueueStatus)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>wallTimeAllocatedHours</code> <B>[Required]</B><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>wallTimeAllocatedHours is the number of hours that this wall time quota applies to.</p>
+</td>
+</tr>
+<tr><td><code>actionWhenWallTimeExhausted</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-StopPolicy"><code>StopPolicy</code></a>
+</td>
+<td>
+   <p>actionWhenWallTimeExhausted defines the action to take when the budget is exhausted.
+The possible values are:</p>
 </td>
 </tr>
 </tbody>
@@ -3030,6 +3064,8 @@ words, it's the used quota that is over the nominalQuota.</p>
 
 - [LocalQueueSpec](#kueue-x-k8s-io-v1beta1-LocalQueueSpec)
 
+- [LocalQueueWallTimeLimits](#kueue-x-k8s-io-v1beta1-LocalQueueWallTimeLimits)
+
 - [WallTimeFlavor](#kueue-x-k8s-io-v1beta1-WallTimeFlavor)
 
 
@@ -3279,11 +3315,7 @@ The possible values are:</p>
 
 **Appears in:**
 
-<<<<<<< HEAD
 - [ClusterQueueStatus](#kueue-x-k8s-io-v1beta1-ClusterQueueStatus)
-=======
-- [LocalQueueStatus](#kueue-x-k8s-io-v1beta1-LocalQueueStatus)
->>>>>>> 54e153758 (add wall time limits local queue)
 
 
 
@@ -3303,11 +3335,7 @@ The possible values are:</p>
 <code>int32</code>
 </td>
 <td>
-<<<<<<< HEAD
    <p>wallTimeAllocated is the total number of hours allocated for this ClusterQueue.</p>
-=======
-   <p>wallTimeAllocated is the total number of hours allocated for this LocalQueue.</p>
->>>>>>> 54e153758 (add wall time limits local queue)
 </td>
 </tr>
 <tr><td><code>wallTimeUsed</code> <B>[Required]</B><br/>
@@ -3325,11 +3353,7 @@ The possible values are:</p>
 
 **Appears in:**
 
-<<<<<<< HEAD
 - [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
-=======
-- [LocalQueueSpec](#kueue-x-k8s-io-v1beta1-LocalQueueSpec)
->>>>>>> 54e153758 (add wall time limits local queue)
 
 
 
@@ -3566,6 +3590,14 @@ admission.resourceUsage contains the detailed information.</p>
 <td>
    <p>accumulatedPastExexcutionTimeSeconds holds the total time, in seconds, the workload spent
 in Admitted state, in the previous <code>Admit</code> - <code>Evict</code> cycles.</p>
+</td>
+</tr>
+<tr><td><code>wallTimeSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>wallTimeSeconds holds the total time, in seconds, the workload spent
+in Admitted state.</p>
 </td>
 </tr>
 <tr><td><code>schedulingStats</code><br/>

@@ -611,6 +611,96 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			})
 		})
 	})
+	ginkgo.When("the workload has wall time tracking", func() {
+		var flavor *kueue.ResourceFlavor
+
+		ginkgo.BeforeEach(func() {
+			flavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
+			util.MustCreate(ctx, k8sClient, flavor)
+			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavorOnDemand).Resource(corev1.ResourceCPU, "5", "5").Obj()).
+				Cohort("cohort").
+				Obj()
+			util.MustCreate(ctx, k8sClient, clusterQueue)
+			localQueue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			util.MustCreate(ctx, k8sClient, localQueue)
+		})
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+		})
+
+		ginkgo.It("should track wall time when feature gate is enabled", func() {
+			ginkgo.By("enabling the WallTimeLimits feature gate", func() {
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WallTimeLimits, true)
+			})
+
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+				Queue("queue").
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			key := client.ObjectKeyFromObject(wl)
+
+			ginkgo.By("creating the workload and reserving its quota", func() {
+				util.MustCreate(ctx, k8sClient, wl)
+				admission := utiltestingapi.MakeAdmission("cluster-queue").Obj()
+				util.SetQuotaReservation(ctx, k8sClient, key, admission)
+			})
+
+			ginkgo.By("waiting for the workload to be admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
+					g.Expect(workload.IsActive(wl)).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying wall time seconds is being tracked", func() {
+				// Wait a bit to ensure the controller has processed the workload
+				time.Sleep(2 * time.Second)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
+					g.Expect(wl.Status.WallTimeSeconds).NotTo(gomega.BeNil())
+					g.Expect(*wl.Status.WallTimeSeconds).To(gomega.BeNumerically(">", int32(0)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should not track wall time when feature gate is disabled", func() {
+			ginkgo.By("disabling the WallTimeLimits feature gate", func() {
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WallTimeLimits, false)
+			})
+
+			wl := utiltestingapi.MakeWorkload("wl-no-wall-time", ns.Name).
+				Queue("queue").
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			key := client.ObjectKeyFromObject(wl)
+
+			ginkgo.By("creating the workload and reserving its quota", func() {
+				util.MustCreate(ctx, k8sClient, wl)
+				admission := utiltestingapi.MakeAdmission("cluster-queue").Obj()
+				util.SetQuotaReservation(ctx, k8sClient, key, admission)
+			})
+
+			ginkgo.By("waiting for the workload to be admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
+					g.Expect(workload.IsActive(wl)).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying wall time seconds is NOT being tracked", func() {
+				// Wait a bit to ensure the controller has processed the workload
+				time.Sleep(2 * time.Second)
+				gomega.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
+				gomega.Expect(wl.Status.WallTimeSeconds).To(gomega.BeNil())
+			})
+		})
+	})
+
 })
 
 var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
