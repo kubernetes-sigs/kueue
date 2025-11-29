@@ -31,6 +31,7 @@ type WorkloadStatusApplyConfiguration struct {
 	AdmissionChecks                      []AdmissionCheckStateApplyConfiguration `json:"admissionChecks,omitempty"`
 	ResourceRequests                     []PodSetRequestApplyConfiguration       `json:"resourceRequests,omitempty"`
 	AccumulatedPastExexcutionTimeSeconds *int32                                  `json:"accumulatedPastExexcutionTimeSeconds,omitempty"`
+	WallTimeSeconds                      *int32                                  `json:"wallTimeSeconds,omitempty"`
 	SchedulingStats                      *SchedulingStatsApplyConfiguration      `json:"schedulingStats,omitempty"`
 	NominatedClusterNames                []string                                `json:"nominatedClusterNames,omitempty"`
 	ClusterName                          *string                                 `json:"clusterName,omitempty"`
@@ -116,6 +117,14 @@ func (b *WorkloadStatusApplyConfiguration) WithResourceRequests(values ...*PodSe
 // If called multiple times, the AccumulatedPastExexcutionTimeSeconds field is set to the value of the last call.
 func (b *WorkloadStatusApplyConfiguration) WithAccumulatedPastExexcutionTimeSeconds(value int32) *WorkloadStatusApplyConfiguration {
 	b.AccumulatedPastExexcutionTimeSeconds = &value
+	return b
+}
+
+// WithWallTimeSeconds sets the WallTimeSeconds field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the WallTimeSeconds field is set to the value of the last call.
+func (b *WorkloadStatusApplyConfiguration) WithWallTimeSeconds(value int32) *WorkloadStatusApplyConfiguration {
+	b.WallTimeSeconds = &value
 	return b
 }
 

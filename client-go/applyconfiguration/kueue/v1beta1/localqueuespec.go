@@ -24,10 +24,10 @@ import (
 // LocalQueueSpecApplyConfiguration represents a declarative configuration of the LocalQueueSpec type for use
 // with apply.
 type LocalQueueSpecApplyConfiguration struct {
-	ClusterQueue   *kueuev1beta1.ClusterQueueReference `json:"clusterQueue,omitempty"`
-	StopPolicy     *kueuev1beta1.StopPolicy            `json:"stopPolicy,omitempty"`
-	FairSharing    *FairSharingApplyConfiguration      `json:"fairSharing,omitempty"`
-	WallTimePolicy *WallTimePolicyApplyConfiguration   `json:"wallTimePolicy,omitempty"`
+	ClusterQueue   *kueuev1beta1.ClusterQueueReference         `json:"clusterQueue,omitempty"`
+	StopPolicy     *kueuev1beta1.StopPolicy                    `json:"stopPolicy,omitempty"`
+	FairSharing    *FairSharingApplyConfiguration              `json:"fairSharing,omitempty"`
+	WallTimePolicy *LocalQueueWallTimeLimitsApplyConfiguration `json:"wallTimePolicy,omitempty"`
 }
 
 // LocalQueueSpecApplyConfiguration constructs a declarative configuration of the LocalQueueSpec type for use with
@@ -63,7 +63,7 @@ func (b *LocalQueueSpecApplyConfiguration) WithFairSharing(value *FairSharingApp
 // WithWallTimePolicy sets the WallTimePolicy field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the WallTimePolicy field is set to the value of the last call.
-func (b *LocalQueueSpecApplyConfiguration) WithWallTimePolicy(value *WallTimePolicyApplyConfiguration) *LocalQueueSpecApplyConfiguration {
+func (b *LocalQueueSpecApplyConfiguration) WithWallTimePolicy(value *LocalQueueWallTimeLimitsApplyConfiguration) *LocalQueueSpecApplyConfiguration {
 	b.WallTimePolicy = value
 	return b
 }
