@@ -32,6 +32,7 @@ type LocalQueue struct {
 	admittedWorkloads  int
 	totalReserved      resources.FlavorResourceQuantities
 	admittedUsage      resources.FlavorResourceQuantities
+	wallTimeUsage      resources.FlavorWallTimeQuantities
 }
 
 func (lq *LocalQueue) GetAdmittedUsage() corev1.ResourceList {
