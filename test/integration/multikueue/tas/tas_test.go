@@ -53,7 +53,7 @@ var defaultEnabledIntegrations sets.Set[string] = sets.New(
 	"kubeflow.org/pytorchjob", "kubeflow.org/tfjob", "kubeflow.org/xgboostjob", "kubeflow.org/jaxjob",
 	"pod", "workload.codeflare.dev/appwrapper")
 
-var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Label("area:multikueue", "feature:multikueue", "feature:tas"), ginkgo.Ordered, func() {
 	var (
 		managerNs *corev1.Namespace
 		worker1Ns *corev1.Namespace

@@ -47,7 +47,7 @@ import (
 // and the other one to MultiKueue workloads, both sharing the same namespace.
 // This will be tested on both manager and one of the worker clusters.
 // We assume this type of Cluster role sharing is possible.
-var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		managerNs *corev1.Namespace
 		worker1Ns *corev1.Namespace
