@@ -32,7 +32,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue", "area:core"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	const (
 		flavorModelC = "model-c"
 		flavorModelD = "model-d"

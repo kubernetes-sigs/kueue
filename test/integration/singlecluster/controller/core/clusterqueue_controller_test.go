@@ -46,7 +46,7 @@ const (
 	flavorCPUArchB = "arch-b"
 )
 
-var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clusterqueue", "area:core"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns               *corev1.Namespace
 		emptyUsedFlavors = []kueue.FlavorUsage{

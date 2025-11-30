@@ -39,7 +39,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		defaultFlavor *kueue.ResourceFlavor
 		flavor1       *kueue.ResourceFlavor
@@ -988,7 +988,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 		})
 	})
 
-	ginkgo.When("Using AdmissionFairSharing at ClusterQueue level", func() {
+	ginkgo.When("Using AdmissionFairSharing at ClusterQueue level", ginkgo.Label("feature:admissionfairsharing"), func() {
 		var (
 			cq1 *kueue.ClusterQueue
 			lqA *kueue.LocalQueue
@@ -1265,7 +1265,7 @@ func expectCohortWeightedShare(cohortName string, weightedShare float64) {
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 }
 
-var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "feature:admissionfairsharing"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		defaultFlavor *kueue.ResourceFlavor
 		ns            *corev1.Namespace
@@ -1426,7 +1426,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 	})
 })
 
-var _ = ginkgo.Describe("Scheduler with AdmissionFairSharing = nil", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Scheduler with AdmissionFairSharing = nil", ginkgo.Label("feature:fairsharing"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		defaultFlavor *kueue.ResourceFlavor
 		ns            *corev1.Namespace
