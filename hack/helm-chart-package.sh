@@ -50,6 +50,9 @@ readonly default_kueueviz_backend_image_repo
 default_kueueviz_frontend_image_repo=$(${YQ} ".kueueViz.frontend.image.repository" charts/kueue/values.yaml)
 readonly default_kueueviz_frontend_image_repo
 
+default_kueue_populator_image_repo=$(${YQ} ".kueuePopulator.image.repository" cmd/experimental/kueue-populator/charts/kueue-populator/values.yaml)
+readonly default_kueue_populator_image_repo
+
 default_image_tag=$(${YQ} ".controllerManager.manager.image.tag" charts/kueue/values.yaml)
 readonly default_image_tag
 
@@ -59,6 +62,9 @@ readonly default_kueueviz_backend_image_tag
 default_kueueviz_frontend_image_tag=$(${YQ} ".kueueViz.frontend.image.tag" charts/kueue/values.yaml)
 readonly default_kueueviz_frontend_image_tag
 
+default_kueue_populator_image_tag=$(${YQ} ".kueuePopulator.image.tag" cmd/experimental/kueue-populator/charts/kueue-populator/values.yaml)
+readonly default_kueue_populator_image_tag
+
 # Update the image repo, tag and policy
 ${YQ}  e  ".controllerManager.manager.image.repository = \"${IMAGE_REGISTRY}/kueue\" | .controllerManager.manager.image.tag = \"${GIT_TAG}\" | .controllerManager.manager.image.pullPolicy = \"IfNotPresent\"" -i charts/kueue/values.yaml
 
@@ -66,8 +72,13 @@ ${YQ}  e  ".controllerManager.manager.image.repository = \"${IMAGE_REGISTRY}/kue
 ${YQ}  e  ".kueueViz.backend.image.repository = \"${IMAGE_REGISTRY}/kueueviz-backend\" | .kueueViz.backend.image.tag = \"${GIT_TAG}\" | .kueueViz.backend.image.pullPolicy = \"IfNotPresent\"" -i charts/kueue/values.yaml
 ${YQ}  e  ".kueueViz.frontend.image.repository = \"${IMAGE_REGISTRY}/kueueviz-frontend\" | .kueueViz.frontend.image.tag = \"${GIT_TAG}\" | .kueueViz.frontend.image.pullPolicy = \"IfNotPresent\"" -i charts/kueue/values.yaml
 
+# Update the KueuePopulator repo, tag and policy
+${YQ}  e  ".kueuePopulator.image.repository = \"${IMAGE_REGISTRY}/kueue-populator\" | .kueuePopulator.image.tag = \"${GIT_TAG}\" | .kueuePopulator.image.pullPolicy = \"IfNotPresent\"" -i cmd/experimental/kueue-populator/charts/kueue-populator/values.yaml
+
 # TODO: consider signing it
 ${HELM} package --version "${chart_version}" --app-version "${GIT_TAG}" charts/kueue -d "${DEST_CHART_DIR}"
+${HELM} dependency build cmd/experimental/kueue-populator/charts/kueue-populator
+${HELM} package --version "${chart_version}" --app-version "${GIT_TAG}" cmd/experimental/kueue-populator/charts/kueue-populator -d "${DEST_CHART_DIR}"
 
 # Revert the image changes
 ${YQ}  e  ".controllerManager.manager.image.repository = \"${default_image_repo}\" | .controllerManager.manager.image.tag = \"${default_image_tag}\" | .controllerManager.manager.image.pullPolicy = \"Always\"" -i charts/kueue/values.yaml
@@ -76,6 +87,10 @@ ${YQ}  e  ".controllerManager.manager.image.repository = \"${default_image_repo}
 ${YQ}  e  ".kueueViz.backend.image.repository = \"${default_kueueviz_backend_image_repo}\" | .kueueViz.backend.image.tag = \"${default_kueueviz_backend_image_tag}\"| .kueueViz.backend.image.pullPolicy = \"Always\"" -i charts/kueue/values.yaml
 ${YQ}  e  ".kueueViz.frontend.image.repository = \"${default_kueueviz_frontend_image_repo}\" | .kueueViz.frontend.image.tag = \"${default_kueueviz_frontend_image_tag}\"| .kueueViz.frontend.image.pullPolicy = \"Always\"" -i charts/kueue/values.yaml
 
+# Revert the KueuePopulator image changes
+${YQ}  e  ".kueuePopulator.image.repository = \"${default_kueue_populator_image_repo}\" | .kueuePopulator.image.tag = \"${default_kueue_populator_image_tag}\" | .kueuePopulator.image.pullPolicy = \"Always\"" -i cmd/experimental/kueue-populator/charts/kueue-populator/values.yaml
+
 if [ "$HELM_CHART_PUSH" = "true" ]; then
   ${HELM} push "${DEST_CHART_DIR}/kueue-${chart_version}.tgz" "oci://${HELM_CHART_REPO}"
+  ${HELM} push "${DEST_CHART_DIR}/kueue-populator-${chart_version}.tgz" "oci://${HELM_CHART_REPO}"
 fi

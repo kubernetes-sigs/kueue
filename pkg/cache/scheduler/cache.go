@@ -524,17 +524,27 @@ func (c *Cache) DeleteLocalQueue(q *kueue.LocalQueue) {
 	cq.deleteLocalQueue(q)
 }
 
-func (c *Cache) GetCacheLocalQueue(cqName kueue.ClusterQueueReference, lq *kueue.LocalQueue) (*LocalQueue, error) {
+func (c *Cache) GetCacheLocalQueue(cqName kueue.ClusterQueueReference, lqKey queue.LocalQueueReference) (*LocalQueue, error) {
 	c.Lock()
 	defer c.Unlock()
 	cq := c.hm.ClusterQueue(cqName)
 	if cq == nil {
 		return nil, ErrCqNotFound
 	}
-	if cacheLq, ok := cq.localQueues[queueKey(lq)]; ok {
+	if cacheLq, ok := cq.localQueues[lqKey]; ok {
 		return cacheLq, nil
 	}
 	return nil, errQNotFound
+}
+
+func (c *Cache) ClusterQueueUsesAdmissionFairSharing(cqName kueue.ClusterQueueReference) bool {
+	c.RLock()
+	defer c.RUnlock()
+	cq := c.hm.ClusterQueue(cqName)
+	if cq == nil || cq.AdmissionScope == nil {
+		return false
+	}
+	return cq.AdmissionScope.AdmissionMode == kueue.UsageBasedAdmissionFairSharing
 }
 
 func (c *Cache) UpdateLocalQueue(oldQ, newQ *kueue.LocalQueue) error {

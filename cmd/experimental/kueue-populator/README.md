@@ -35,6 +35,20 @@ The `kueue-populator` can be deployed to a Kubernetes cluster using the Kustomiz
     kubectl apply -k config
     ```
 
+### Installation via Helm
+
+You can also install the `kueue-populator` using the provided Helm chart.
+
+```bash
+helm install kueue-populator oci://registry.k8s.io/kueue/charts/kueue-populator \
+  --version 0.14.5 \
+  --namespace kueue-system \
+  --create-namespace \
+  --wait
+```
+
+For more details on configuration and advanced usage, see the [Helm Chart README](charts/kueue-populator/README.md).
+
 ### Deploying to Kind with a Local Image
 
 To deploy the `kueue-populator` using a locally built image into a Kind cluster:

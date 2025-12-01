@@ -1191,6 +1191,7 @@ var _ = ginkgo.Describe("JobSet controller with TopologyAwareScheduling", ginkgo
 
 		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 		util.MustCreate(ctx, k8sClient, localQueue)
+		util.ExpectLocalQueuesToBeActive(ctx, k8sClient, localQueue)
 	})
 
 	ginkgo.AfterEach(func() {

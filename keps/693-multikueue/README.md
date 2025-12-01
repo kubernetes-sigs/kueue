@@ -254,6 +254,7 @@ The controller obtains cluster credentials based on the `MultiKueueCluster` spec
 
 - When `clusterProfile` is provided, the controller relies on the
   [client-go credential plugin mechanism](https://kubernetes.io/docs/reference/access-authn-authz/authentication/#client-go-credential-plugins) to obtain and refresh credentials for the remote cluster as described in [KEP-5339](https://github.com/kubernetes/enhancements/blob/master/keps/sig-multicluster/5339-clusterprofile-plugin-credentials/README.md).
+  Installation of the ClusterProfile CRD(`clusterprofiles.multicluster.x-k8s.io`). If your Kueue deployment is already running, you must restart it after installing the CRD for the changes to take effect.
 
   The authentication flow is as follows:
   1. The controller reads the `ClusterProfile` object referenced by the `MultiKueueCluster`. The `ClusterProfile` contains a list of access providers.

@@ -17,6 +17,7 @@ limitations under the License.
 package v1beta1
 
 import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	conversionapi "k8s.io/apimachinery/pkg/conversion"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/conversion"
@@ -56,6 +57,9 @@ func Convert_v1beta1_Integrations_To_v1beta2_Integrations(in *Integrations, out 
 }
 
 func Convert_v1beta1_FairSharing_To_v1beta2_FairSharing(in *FairSharing, out *v1beta2.FairSharing, s conversionapi.Scope) error {
+	if in != nil && in.Enable && len(in.PreemptionStrategies) == 0 {
+		in.PreemptionStrategies = []PreemptionStrategy{LessThanOrEqualToFinalShare, LessThanInitialShare}
+	}
 	return autoConvert_v1beta1_FairSharing_To_v1beta2_FairSharing(in, out, s)
 }
 
@@ -65,6 +69,9 @@ func Convert_v1beta2_FairSharing_To_v1beta1_FairSharing(in *v1beta2.FairSharing,
 }
 
 func Convert_v1beta1_WaitForPodsReady_To_v1beta2_WaitForPodsReady(in *WaitForPodsReady, out *v1beta2.WaitForPodsReady, s conversionapi.Scope) error {
+	if in.Enable && in.Timeout == nil {
+		in.Timeout = &metav1.Duration{Duration: defaultPodsReadyTimeout}
+	}
 	if err := autoConvert_v1beta1_WaitForPodsReady_To_v1beta2_WaitForPodsReady(in, out, s); err != nil {
 		return err
 	}

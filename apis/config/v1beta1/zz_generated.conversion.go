@@ -749,7 +749,9 @@ func Convert_v1beta2_Resources_To_v1beta1_Resources(in *v1beta2.Resources, out *
 
 func autoConvert_v1beta1_WaitForPodsReady_To_v1beta2_WaitForPodsReady(in *WaitForPodsReady, out *v1beta2.WaitForPodsReady, s conversion.Scope) error {
 	// WARNING: in.Enable requires manual conversion: does not exist in peer-type
-	out.Timeout = (*metav1.Duration)(unsafe.Pointer(in.Timeout))
+	if err := metav1.Convert_Pointer_v1_Duration_To_v1_Duration(&in.Timeout, &out.Timeout, s); err != nil {
+		return err
+	}
 	out.BlockAdmission = (*bool)(unsafe.Pointer(in.BlockAdmission))
 	out.RequeuingStrategy = (*v1beta2.RequeuingStrategy)(unsafe.Pointer(in.RequeuingStrategy))
 	out.RecoveryTimeout = (*metav1.Duration)(unsafe.Pointer(in.RecoveryTimeout))
@@ -757,7 +759,9 @@ func autoConvert_v1beta1_WaitForPodsReady_To_v1beta2_WaitForPodsReady(in *WaitFo
 }
 
 func autoConvert_v1beta2_WaitForPodsReady_To_v1beta1_WaitForPodsReady(in *v1beta2.WaitForPodsReady, out *WaitForPodsReady, s conversion.Scope) error {
-	out.Timeout = (*metav1.Duration)(unsafe.Pointer(in.Timeout))
+	if err := metav1.Convert_v1_Duration_To_Pointer_v1_Duration(&in.Timeout, &out.Timeout, s); err != nil {
+		return err
+	}
 	out.BlockAdmission = (*bool)(unsafe.Pointer(in.BlockAdmission))
 	out.RequeuingStrategy = (*RequeuingStrategy)(unsafe.Pointer(in.RequeuingStrategy))
 	out.RecoveryTimeout = (*metav1.Duration)(unsafe.Pointer(in.RecoveryTimeout))

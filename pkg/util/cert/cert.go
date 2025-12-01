@@ -25,7 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
+	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -43,19 +43,24 @@ const (
 
 // BootstrapCerts creates a minimal manager to generate certificates and inject CA bundles.
 // This function blocks until certificates are ready and CA bundles are injected into CRDs.
-func BootstrapCerts(kubeConfig *rest.Config, cfg config.Configuration) error {
+func BootstrapCerts(ctx context.Context, kubeConfig *rest.Config, cfg config.Configuration) error {
 	log := ctrl.Log.WithName("cert-bootstrap")
 
 	// Create a minimal bootstrap manager with leader election.
 	log.Info("Creating bootstrap manager for certificate generation")
 	bootstrapMgr, err := ctrl.NewManager(kubeConfig, ctrl.Options{
 		Metrics: metricsserver.Options{
-			BindAddress:    "0",
-			FilterProvider: filters.WithAuthenticationAndAuthorization,
+			BindAddress: "0",
 		},
+		HealthProbeBindAddress: cfg.Health.HealthProbeBindAddress,
+		LivenessEndpointName:   cfg.Health.LivenessEndpointName,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to create bootstrap manager: %w", err)
+	}
+
+	if err := bootstrapMgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
+		return fmt.Errorf("unable to set up health check for bootstrap manager: %w", err)
 	}
 
 	certsReady := make(chan struct{})
@@ -67,7 +72,7 @@ func BootstrapCerts(kubeConfig *rest.Config, cfg config.Configuration) error {
 		return fmt.Errorf("unable to add cert rotator to bootstrap manager: %w", err)
 	}
 
-	bootstrapCtx, bootstrapCancel := context.WithCancel(context.Background())
+	bootstrapCtx, bootstrapCancel := context.WithCancel(ctx)
 	defer bootstrapCancel()
 
 	managerStopped := make(chan struct{})

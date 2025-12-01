@@ -54,6 +54,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", func() {
 			tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
 				NodeLabel(tasNodeGroupLabel, instanceType).TopologyName(topology.Name).Obj()
 			util.MustCreate(ctx, k8sClient, tasFlavor)
+
 			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
@@ -61,11 +62,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", func() {
 						Obj(),
 				).
 				Obj()
-			util.MustCreate(ctx, k8sClient, clusterQueue)
-			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 			localQueue = utiltestingapi.MakeLocalQueue("test-queue", ns.Name).ClusterQueue("cluster-queue").Obj()
-			util.MustCreate(ctx, k8sClient, localQueue)
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteAllPodsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
@@ -196,11 +196,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", func() {
 						Obj(),
 				).
 				Obj()
-			util.MustCreate(ctx, k8sClient, clusterQueue)
-			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 			localQueue = utiltestingapi.MakeLocalQueue("test-queue", ns.Name).ClusterQueue("cluster-queue").Obj()
-			util.MustCreate(ctx, k8sClient, localQueue)
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteAllPodsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())

@@ -140,7 +140,7 @@ func (r *IncrementalDispatcherReconciler) nominateWorkers(ctx context.Context, w
 	}
 
 	nominatedWorkers := append(wl.Status.NominatedClusterNames, nextNominatedWorkers...)
-	if err = workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func() (bool, error) {
+	if err = workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 		wl.Status.NominatedClusterNames = nominatedWorkers
 		return true, nil
 	}); err != nil {

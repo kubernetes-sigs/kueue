@@ -135,7 +135,6 @@ Kueue 配置中的 `preemptionStrategies` 字段表示抢占时，针对目标�
   该策略可能会优先抢占目标 ClusterQueue 中较小的 workload，以尽量保持其份额较高，而不考虑优先级或启动时间。
 - `LessThanInitialShare`：只有当抢占 ClusterQueue 在包含抢占者 Workload 后的份额严格小于目标 ClusterQueue 的份额时，才允许抢占。
   注意该策略不依赖于被抢占 Workload 的份额使用情况。因此，该策略会优先选择抢占目标 ClusterQueue 内优先级最低、启动时间最新的 workload。
-默认策略为 `[LessThanOrEqualToFinalShare, LessThanInitialShare]`
 
 ### 算法概述
 

@@ -53,10 +53,10 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Ordered, ginkgo.Contin
 		cq = utiltestingapi.MakeClusterQueue("cq").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).Resource(corev1.ResourceCPU, "10").Obj()).
 			Obj()
-		gomega.Expect(k8sClient.Create(ctx, cq)).Should(gomega.Succeed())
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 
 		lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
-		gomega.Expect(k8sClient.Create(ctx, lq)).Should(gomega.Succeed())
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -68,7 +68,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Ordered, ginkgo.Contin
 	ginkgo.It("should delete the Workload after enabling the ObjectRetentionPolicies feature gate", func() {
 		waitForPodsReady := &configapi.WaitForPodsReady{
 			BlockAdmission:  ptr.To(true),
-			Timeout:         &metav1.Duration{Duration: util.TinyTimeout},
+			Timeout:         metav1.Duration{Duration: util.TinyTimeout},
 			RecoveryTimeout: nil,
 			RequeuingStrategy: &configapi.RequeuingStrategy{
 				Timestamp:          ptr.To(configapi.EvictionTimestamp),
@@ -161,10 +161,10 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Order
 		cq = utiltestingapi.MakeClusterQueue("cq").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).Resource(corev1.ResourceCPU, "10").Obj()).
 			Obj()
-		gomega.Expect(k8sClient.Create(ctx, cq)).Should(gomega.Succeed())
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 
 		lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
-		gomega.Expect(k8sClient.Create(ctx, lq)).Should(gomega.Succeed())
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -282,7 +282,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout and RequeuingL
 			}
 			cfg.WaitForPodsReady = &configapi.WaitForPodsReady{
 				BlockAdmission:  ptr.To(true),
-				Timeout:         &metav1.Duration{Duration: util.TinyTimeout},
+				Timeout:         metav1.Duration{Duration: util.TinyTimeout},
 				RecoveryTimeout: nil,
 				RequeuingStrategy: &configapi.RequeuingStrategy{
 					Timestamp:          ptr.To(configapi.EvictionTimestamp),
@@ -302,10 +302,10 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout and RequeuingL
 		cq = utiltestingapi.MakeClusterQueue("cq").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).Resource(corev1.ResourceCPU, "10").Obj()).
 			Obj()
-		gomega.Expect(k8sClient.Create(ctx, cq)).Should(gomega.Succeed())
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 
 		lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
-		gomega.Expect(k8sClient.Create(ctx, lq)).Should(gomega.Succeed())
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 	})
 
 	ginkgo.JustAfterEach(func() {

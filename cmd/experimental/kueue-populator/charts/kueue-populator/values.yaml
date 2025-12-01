@@ -1,27 +1,21 @@
 # Configuration for the Kueue Populator component
 kueuePopulator:
   image:
-    # -- Image repository for the populator
-    # REQUIRED: Specify the repository where your kueue-populator image is pushed.
-    # Example: <YOUR_REGISTRY>/kueue-populator
-    repository: null
-    # -- Image tag for the populator
-    # REQUIRED: Specify the tag of the image you want to deploy.
-    # Example: latest
-    tag: null
-    # -- Image pull policy
-    pullPolicy: IfNotPresent
-  
+    # -- Populator's image repository
+    repository: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-populator
+    # -- Populator's image tag
+    tag: main
+    # -- Populator's image pullPolicy.
+    # This should be set to 'IfNotPresent' for released version
+    pullPolicy: Always
   # -- Image pull secrets for the populator
   imagePullSecrets: []
-  
   # Configuration for the controller
   config:
     # -- Configuration for the default LocalQueue
     localQueue:
       # -- Name of the default LocalQueue to create in namespaces
       name: "default"
-    
     # -- Configuration for the default ClusterQueue
     # If not set, the ClusterQueue will not be created.
     clusterQueue:
@@ -35,7 +29,6 @@ kueuePopulator:
           nominalQuota: "10Gi"
         - name: "nvidia.com/gpu"
           nominalQuota: "100"
-
     # -- Configuration for Topology Aware Scheduling
     # If not set, Topology resources will not be created.
     topology:
@@ -44,7 +37,6 @@ kueuePopulator:
       # levels:
       #   - nodeLabel: cloud.google.com/gke-nodepool
       levels: []
-
     # -- Configuration for the default ResourceFlavor
     resourceFlavor:
       # -- Node labels to associate with the default ResourceFlavor
@@ -52,18 +44,16 @@ kueuePopulator:
       # nodeLabels:
       #   cloud.google.com/gke-nodepool: "default-pool"
       nodeLabels: {}
-
     # -- Label selector to filter namespaces where the default LocalQueue will be created.
     managedJobsNamespaceSelector:
       matchExpressions:
         - key: kubernetes.io/metadata.name
           operator: NotIn
-          values: [ "kube-system", "kueue-system" ]
-
+          values: ["kube-system", "kueue-system"]
 # Default values for the dependency 'kueue'
 kueue:
   # -- Enable the Kueue subchart
-  enabled: true
+  enabled: false
   controllerManager:
     featureGates:
       # -- Enable TopologyAwareScheduling feature gate

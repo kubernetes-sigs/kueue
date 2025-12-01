@@ -125,17 +125,15 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 	}
 
 	var cpCreds *credentials.CredentialsProvider
-	if features.Enabled(features.MultiKueueClusterProfile) {
-		if options.clusterProfileConfig != nil {
-			p := []credentials.Provider{}
-			for _, provider := range options.clusterProfileConfig.CredentialsProviders {
-				p = append(p, credentials.Provider{
-					Name:       provider.Name,
-					ExecConfig: &provider.ExecConfig,
-				})
-			}
-			cpCreds = credentials.New(p)
+	if features.Enabled(features.MultiKueueClusterProfile) && options.clusterProfileConfig != nil {
+		p := make([]credentials.Provider, 0, len(options.clusterProfileConfig.CredentialsProviders))
+		for _, provider := range options.clusterProfileConfig.CredentialsProviders {
+			p = append(p, credentials.Provider{
+				Name:       provider.Name,
+				ExecConfig: &provider.ExecConfig,
+			})
 		}
+		cpCreds = credentials.New(p)
 	}
 
 	cRec := newClustersReconciler(mgr.GetClient(), namespace, options.gcInterval, options.origin, fsWatcher, options.adapters, cpCreds)

@@ -15,34 +15,60 @@ This Helm chart installs the Kueue Populator, a component designed to automatica
 -   [Helm](https://helm.sh/docs/intro/quickstart/#install-helm)
 -   Kubernetes cluster
 -   (Optional) [Cert-manager](https://cert-manager.io/docs/installation/)
--   Docker or a compatible container builder.
--   A container registry to push the image to.
+-   (Optional) Docker or a compatible container builder.
+-   (Optional) A container registry to push the image to.
 
-## Building the Image
+## Dependencies
 
-You need to build and push the image to your own registry.
- 
+This chart depends on the [Kueue](https://github.com/kubernetes-sigs/kueue/tree/main/charts/kueue) chart.
+By default, the Kueue dependency is **disabled** (`kueue.enabled=false`).
+
+-   To install Kueue along with the populator, set `kueue.enabled=true`.
+-   The dependency is configured to enable `TopologyAwareScheduling` feature gate in Kueue.
+
+## Installation
+
+### Installing from OCI Registry
+
+You can install the chart directly from the OCI registry:
+
+```bash
+helm install kueue-populator oci://registry.k8s.io/kueue/charts/kueue-populator \
+  --version 0.14.5 \
+  --namespace kueue-system \
+  --create-namespace \
+  --wait
+```
+
+> The `--wait` flag is required to ensure that the Kueue controller and webhooks are fully ready before the chart attempts to create Kueue resources (like ClusterQueue) via post-install hooks. Without it, the installation may fail.
+
+### Installing from Source
+
+If you want to make changes to the populator and deploy your own version, you need to build and push the image to your own registry.
+
+#### Building the Image
+
 From the `cmd/experimental/kueue-populator` directory:
- 
+
 ```bash
 # Build the image
 make image-build IMAGE_REGISTRY=<YOUR_REGISTRY>
- 
+
 # Push the image
 make image-push IMAGE_REGISTRY=<YOUR_REGISTRY>
 ```
- 
+
 This will build and push an image with the tag `<YOUR_REGISTRY>/kueue-populator:<GIT_TAG>`.
- 
+
 If you want to use a specific tag, you can override `GIT_TAG`:
- 
+
 ```bash
 make image-build image-push IMAGE_REGISTRY=<YOUR_REGISTRY> GIT_TAG=latest
 ```
 
-## Installation
+#### Installing with a Custom Image
 
-To install the chart, you MUST override the image repository and tag with the image you built and pushed.
+If you built your own image, you **must** override the image repository and tag.
 
 The following commands assume you are in the `cmd/experimental/kueue-populator` directory.
 
@@ -53,8 +79,6 @@ helm install kueue-populator ./charts/kueue-populator --namespace kueue-system -
   --set kueuePopulator.image.repository=<YOUR_REGISTRY>/kueue-populator \
   --set kueuePopulator.image.tag=latest
 ```
-
-> The `--wait` flag is required to ensure that the Kueue controller and webhooks are fully ready before the chart attempts to create Kueue resources (like ClusterQueue) via post-install hooks. Without it, the installation may fail.
 
 Example using a custom `my-values.yaml`:
 
@@ -68,6 +92,45 @@ kueuePopulator:
 
 ```bash
 helm install kueue-populator ./charts/kueue-populator --namespace kueue-system --create-namespace --wait -f my-values.yaml
+```
+
+### Installing with Topology and ResourceFlavor
+
+To enable Topology Aware Scheduling and configure the default ResourceFlavor with node labels, it is recommended to use a values file:
+
+```yaml
+# populator-config.yaml
+kueuePopulator:
+  config:
+    topology:
+      levels:
+        - nodeLabel: cloud.google.com/gke-nodepool
+    resourceFlavor:
+      nodeLabels:
+        cloud.google.com/gke-nodepool: "default-pool"
+```
+
+```bash
+helm install kueue-populator oci://registry.k8s.io/kueue/charts/kueue-populator \
+  --version 0.14.5 \
+  --namespace kueue-system \
+  --create-namespace \
+  --wait \
+  -f populator-config.yaml
+```
+
+For simple configuration you may also use the minimalistic command:
+
+> When using `--set` for keys containing dots (e.g., `cloud.google.com/gke-nodepool`), you must escape the dots with a backslash.
+
+```bash
+helm install kueue-populator oci://registry.k8s.io/kueue/charts/kueue-populator \
+  --version 0.14.5 \
+  --namespace kueue-system \
+  --create-namespace \
+  --wait \
+  --set kueuePopulator.config.topology.levels[0].nodeLabel="cloud\.google\.com/gke-nodepool" \
+  --set kueuePopulator.config.resourceFlavor.nodeLabels."cloud\.google\.com/gke-nodepool"=default-pool
 ```
 
 ## Configuration
@@ -92,7 +155,7 @@ The following table lists the configurable parameters under the `kueuePopulator`
 
 This chart includes the official `kueue` chart as a dependency. You can configure it under the `kueue` key in `values.yaml`. Key overrides included in this chart:
 
--   `kueue.enabled: true`: Enables the subchart installation.
+-   `kueue.enabled: false`: Disables the subchart installation by default. Set to `true` to install Kueue.
 -   `kueue.controllerManager.featureGates`: Enables `TopologyAwareScheduling`.
 -   `kueue.managerConfig.controllerManagerConfigYaml`: Provides minimal necessary overrides for `apiVersion` and `managedJobsNamespaceSelector` to ensure compatibility and safe hook execution.
 

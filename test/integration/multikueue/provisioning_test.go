@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -36,7 +35,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util"
@@ -105,11 +103,7 @@ var _ = ginkgo.Describe("MultiKueue with ProvisioningRequest", ginkgo.Ordered, g
 		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, multiKueueAC)).Should(gomega.Succeed())
 
 		ginkgo.By("wait for multikueue admission check to be active", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				updatedMkAc := kueue.AdmissionCheck{}
-				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(multiKueueAC), &updatedMkAc)).To(gomega.Succeed())
-				g.Expect(updatedMkAc.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.AdmissionCheckActive))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectAdmissionChecksToBeActive(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC)
 		})
 
 		managerRf = utiltestingapi.MakeResourceFlavor("manager-rf").NodeLabel("instance-type", "manager-node").Obj()
@@ -140,11 +134,7 @@ var _ = ginkgo.Describe("MultiKueue with ProvisioningRequest", ginkgo.Ordered, g
 		gomega.Expect(worker1TestCluster.client.Create(worker1TestCluster.ctx, worker1ProvReqAC)).Should(gomega.Succeed())
 
 		ginkgo.By("wait for worker provisioning admission check to be active", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				updatedProvAc := kueue.AdmissionCheck{}
-				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(worker1ProvReqAC), &updatedProvAc)).To(gomega.Succeed())
-				g.Expect(updatedProvAc.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.AdmissionCheckActive))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectAdmissionChecksToBeActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1ProvReqAC)
 		})
 
 		worker1Rf = utiltestingapi.MakeResourceFlavor("worker-rf").NodeLabel("instance-type", "worker-node").Obj()

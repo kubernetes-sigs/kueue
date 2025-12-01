@@ -41,15 +41,16 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
-	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	utilptr "sigs.k8s.io/kueue/pkg/util/ptr"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
+	"sigs.k8s.io/kueue/pkg/util/resource"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/util/wait"
@@ -320,36 +321,37 @@ func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string)
 	return res
 }
 
-func (i *Info) CalcLocalQueueFSUsage(ctx context.Context, c client.Client, resWeights map[corev1.ResourceName]float64, afsEntryPenalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]) (float64, error) {
-	var lq kueue.LocalQueue
-	lqKey := client.ObjectKey{Namespace: i.Obj.Namespace, Name: string(i.Obj.Spec.QueueName)}
-	if err := c.Get(ctx, lqKey, &lq); err != nil {
-		return 0, err
-	}
+func (i *Info) CalcLocalQueueFSUsage(ctx context.Context, c client.Client, resWeights map[corev1.ResourceName]float64, afsEntryPenalties *queueafs.AfsEntryPenalties, afsConsumedResources *queueafs.AfsConsumedResources) (float64, error) {
 	var usage float64
-	if lq.Status.FairSharing == nil || lq.Status.FairSharing.AdmissionFairSharingStatus == nil {
-		// If FairSharing is not enabled or initialized, return 0 usage.
-		return 0, nil
+	lqKey := utilqueue.KeyFromWorkload(i.Obj)
+
+	consumed := corev1.ResourceList{}
+	if afsConsumedResources != nil {
+		entry, found := afsConsumedResources.Get(lqKey)
+		if found {
+			consumed = entry.Resources
+		}
 	}
-	for resName, resVal := range lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources {
+
+	penalty := corev1.ResourceList{}
+	if afsEntryPenalties != nil {
+		penalty = afsEntryPenalties.Peek(lqKey)
+	}
+
+	allResources := resource.MergeResourceListKeepSum(consumed, penalty)
+	for resName, resVal := range allResources {
 		weight, found := resWeights[resName]
 		if !found {
 			weight = 1
 		}
 		usage += weight * resVal.AsApproximateFloat64()
 	}
-	penalty := corev1.ResourceList{}
-	if afsEntryPenalties != nil {
-		penalty, _ = afsEntryPenalties.Get(utilqueue.Key(&lq))
-	}
-	for resName, penaltyVal := range penalty {
-		weight, found := resWeights[resName]
-		if !found {
-			weight = 1
-		}
-		usage += weight * penaltyVal.AsApproximateFloat64()
-	}
 
+	var lq kueue.LocalQueue
+	lqObjKey := client.ObjectKey{Namespace: i.Obj.Namespace, Name: string(i.Obj.Spec.QueueName)}
+	if err := c.Get(ctx, lqObjKey, &lq); err != nil {
+		return 0, err
+	}
 	if lq.Spec.FairSharing != nil && lq.Spec.FairSharing.Weight != nil {
 		// if no weight for lq was defined, use default weight of 1
 		usage /= lq.Spec.FairSharing.Weight.AsApproximateFloat64()
@@ -965,8 +967,9 @@ type PatchAdmissionStatusOption func(*PatchAdmissionStatusOptions)
 // Typically, PatchAdmissionStatusOptions are constructed via DefaultPatchAdmissionStatusOptions and
 // modified using PatchAdmissionStatusOption functions (e.g., WithLoose).
 type PatchAdmissionStatusOptions struct {
-	StrictPatch bool
-	StrictApply bool
+	StrictPatch             bool
+	StrictApply             bool
+	RetryOnConflictForPatch bool
 }
 
 // DefaultPatchAdmissionStatusOptions returns a new PatchAdmissionStatusOptions instance configured with
@@ -1020,28 +1023,45 @@ func WithLooseOnApply() PatchAdmissionStatusOption {
 	}
 }
 
+// WithRetryOnConflictForPatch configures PatchAdmissionStatusOptions to enable retry logic on conflicts.
+// Note: This only works with merge patches.
+func WithRetryOnConflictForPatch() PatchAdmissionStatusOption {
+	return func(o *PatchAdmissionStatusOptions) {
+		o.RetryOnConflictForPatch = true
+	}
+}
+
 // PatchAdmissionStatus updates the admission status of a workload.
 // If the WorkloadRequestUseMergePatch feature is enabled, it uses a Merge Patch with update function.
 // Otherwise, it runs the update function and, if updated, applies the SSA Patch status.
-func PatchAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, clk clock.Clock, update func() (bool, error), options ...PatchAdmissionStatusOption) error {
+func PatchAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, clk clock.Clock, update func(*kueue.Workload) (bool, error), options ...PatchAdmissionStatusOption) error {
 	opts := DefaultPatchAdmissionStatusOptions()
 	for _, opt := range options {
 		opt(opts)
 	}
-
+	var err error
+	wlCopy := w.DeepCopy()
 	if features.Enabled(features.WorkloadRequestUseMergePatch) {
 		var patchOptions []clientutil.PatchOption
 		if !opts.StrictPatch {
 			patchOptions = append(patchOptions, clientutil.WithLoose())
 		}
-		return clientutil.PatchStatus(ctx, c, w, update, patchOptions...)
+		if opts.RetryOnConflictForPatch {
+			patchOptions = append(patchOptions, clientutil.WithRetryOnConflict())
+		}
+		err = clientutil.PatchStatus(ctx, c, wlCopy, func() (bool, error) {
+			return update(wlCopy)
+		}, patchOptions...)
+	} else {
+		if updated, err := update(wlCopy); err != nil || !updated {
+			return err
+		}
+		err = ApplyAdmissionStatus(ctx, c, wlCopy, opts.StrictApply, clk)
 	}
-	updated, err := update()
-	if err != nil || !updated {
-		return err
+	if err == nil {
+		wlCopy.DeepCopyInto(w)
 	}
-
-	return ApplyAdmissionStatus(ctx, c, w, opts.StrictApply, clk)
+	return err
 }
 
 type Ordering struct {
@@ -1279,7 +1299,7 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 type EvictOption func(*EvictOptions)
 
 type EvictOptions struct {
-	CustomPrepare func()
+	CustomPrepare func(wl *kueue.Workload)
 }
 
 func DefaultEvictOptions() *EvictOptions {
@@ -1288,7 +1308,7 @@ func DefaultEvictOptions() *EvictOptions {
 	}
 }
 
-func WithCustomPrepare(customPrepare func()) EvictOption {
+func WithCustomPrepare(customPrepare func(wl *kueue.Workload)) EvictOption {
 	return func(o *EvictOptions) {
 		if customPrepare != nil {
 			o.CustomPrepare = customPrepare
@@ -1307,9 +1327,9 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 		reportWorkloadEvictedOnce bool
 	)
 
-	if err := PatchAdmissionStatus(ctx, c, wl, clock, func() (bool, error) {
+	if err := PatchAdmissionStatus(ctx, c, wl, clock, func(wl *kueue.Workload) (bool, error) {
 		if opts.CustomPrepare != nil {
-			opts.CustomPrepare()
+			opts.CustomPrepare(wl)
 		}
 
 		evictionReason := reason

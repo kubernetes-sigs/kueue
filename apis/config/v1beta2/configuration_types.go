@@ -219,9 +219,7 @@ type WaitForPodsReady struct {
 	// Timeout defines the time for an admitted workload to reach the
 	// PodsReady=true condition. When the timeout is exceeded, the workload
 	// evicted and requeued in the same cluster queue.
-	// Defaults to 5min.
-	// +optional
-	Timeout *metav1.Duration `json:"timeout,omitempty"`
+	Timeout metav1.Duration `json:"timeout"`
 
 	// BlockAdmission when true, the cluster queue will block admissions for all
 	// subsequent jobs until the jobs reach the PodsReady=true condition.
@@ -511,8 +509,7 @@ type FairSharing struct {
 	//   This strategy doesn't depend on the share usage of the workload being preempted.
 	//   As a result, the strategy chooses to preempt workloads with the lowest priority and
 	//   newest start time first.
-	// The default strategy is ["LessThanOrEqualToFinalShare", "LessThanInitialShare"].
-	PreemptionStrategies []PreemptionStrategy `json:"preemptionStrategies,omitempty"`
+	PreemptionStrategies []PreemptionStrategy `json:"preemptionStrategies"`
 }
 
 type AdmissionFairSharing struct {

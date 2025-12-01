@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -58,6 +59,21 @@ func TestConfigurationQueueConvertTo(t *testing.T) {
 				FairSharing: nil,
 			},
 		},
+		"with FairSharing enabled, but preemption strategies are empty": {
+			input: &Configuration{
+				FairSharing: &FairSharing{
+					Enable: true,
+				},
+			},
+			expected: &v1beta2.Configuration{
+				FairSharing: &v1beta2.FairSharing{
+					PreemptionStrategies: []v1beta2.PreemptionStrategy{
+						v1beta2.LessThanOrEqualToFinalShare,
+						v1beta2.LessThanInitialShare,
+					},
+				},
+			},
+		},
 		"with WaitForPodsReady": {
 			input: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
@@ -66,6 +82,7 @@ func TestConfigurationQueueConvertTo(t *testing.T) {
 			},
 			expected: &v1beta2.Configuration{
 				WaitForPodsReady: &v1beta2.WaitForPodsReady{
+					Timeout:        metav1.Duration{Duration: defaultPodsReadyTimeout},
 					BlockAdmission: ptr.To(true),
 				},
 			},
@@ -119,12 +136,15 @@ func TestConfigurationQueueConvertFrom(t *testing.T) {
 		},
 		"with WaitForPodsReady": {
 			input: &v1beta2.Configuration{
-				WaitForPodsReady: &v1beta2.WaitForPodsReady{},
+				WaitForPodsReady: &v1beta2.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: defaultPodsReadyTimeout},
+				},
 			},
 			expected: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
 					Enable:         true,
 					BlockAdmission: ptr.To(false),
+					Timeout:        &metav1.Duration{Duration: defaultPodsReadyTimeout},
 				},
 			},
 		},

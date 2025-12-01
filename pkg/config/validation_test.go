@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/utils/ptr"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -233,6 +234,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: 5 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						Timestamp: ptr.To[configapi.RequeuingTimestamp]("NoSupported"),
 					},
@@ -245,11 +247,25 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"invalid an empty waitForPodsReady.timeout": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: 0},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "waitForPodsReady.timeout",
+				},
+			},
+		},
 		"negative waitForPodsReady.timeout": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
-					Timeout: &metav1.Duration{
+					Timeout: metav1.Duration{
 						Duration: -1,
 					},
 				},
@@ -265,6 +281,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: 5 * time.Minute},
 					RecoveryTimeout: &metav1.Duration{
 						Duration: -1,
 					},
@@ -281,7 +298,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
-					Timeout: &metav1.Duration{
+					Timeout: metav1.Duration{
 						Duration: 50,
 					},
 					RecoveryTimeout: &metav1.Duration{
@@ -301,6 +318,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: 5 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						BackoffLimitCount: ptr.To[int32](-1),
 					},
@@ -317,6 +335,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: 5 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						BackoffBaseSeconds: ptr.To[int32](-1),
 					},
@@ -333,6 +352,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: 5 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						BackoffMaxSeconds: ptr.To[int32](-1),
 					},
@@ -402,6 +422,193 @@ func TestValidate(t *testing.T) {
 					WorkerLostTimeout: &metav1.Duration{
 						Duration: 2 * time.Second,
 					},
+				},
+			},
+		},
+		"empty multiKueue.clusterProfile.credentialsProviders.name": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					ClusterProfile: &configapi.ClusterProfile{
+						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+							{
+								Name: "",
+								ExecConfig: clientcmdapi.ExecConfig{
+									Command:         "test-command",
+									APIVersion:      "client.authentication.k8s.io/v1",
+									InteractiveMode: clientcmdapi.NeverExecInteractiveMode,
+								},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "multiKueue.clusterProfile.credentialsProviders.name",
+				},
+			},
+		},
+		"empty multiKueue.clusterProfile.credentialsProviders.execConfig.command": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					ClusterProfile: &configapi.ClusterProfile{
+						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+							{
+								Name: "test-provider",
+								ExecConfig: clientcmdapi.ExecConfig{
+									Command:         "",
+									APIVersion:      "client.authentication.k8s.io/v1",
+									InteractiveMode: clientcmdapi.NeverExecInteractiveMode,
+								},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "multiKueue.clusterProfile.credentialsProviders.execConfig.command",
+				},
+			},
+		},
+		"empty multiKueue.clusterProfile.credentialsProviders.execConfig.apiVersion": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					ClusterProfile: &configapi.ClusterProfile{
+						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+							{
+								Name: "test-provider",
+								ExecConfig: clientcmdapi.ExecConfig{
+									Command:         "test-command",
+									APIVersion:      "",
+									InteractiveMode: clientcmdapi.NeverExecInteractiveMode,
+								},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "multiKueue.clusterProfile.credentialsProviders.execConfig.apiVersion",
+				},
+			},
+		},
+		"empty multiKueue.clusterProfile.credentialsProviders.execConfig.env.name": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					ClusterProfile: &configapi.ClusterProfile{
+						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+							{
+								Name: "test-provider",
+								ExecConfig: clientcmdapi.ExecConfig{
+									Command:         "test-command",
+									APIVersion:      "client.authentication.k8s.io/v1",
+									InteractiveMode: clientcmdapi.NeverExecInteractiveMode,
+									Env: []clientcmdapi.ExecEnvVar{
+										{Name: "", Value: "test-value"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "multiKueue.clusterProfile.credentialsProviders.execConfig.env.name",
+				},
+			},
+		},
+		"empty multiKueue.clusterProfile.credentialsProviders.execConfig.interactiveMode": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					ClusterProfile: &configapi.ClusterProfile{
+						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+							{
+								Name: "test-provider",
+								ExecConfig: clientcmdapi.ExecConfig{
+									Command:         "test-command",
+									APIVersion:      "client.authentication.k8s.io/v1",
+									InteractiveMode: "",
+								},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "multiKueue.clusterProfile.credentialsProviders.execConfig.interactiveMode",
+				},
+			},
+		},
+		"invalid multiKueue.clusterProfile.credentialsProviders.execConfig.interactiveMode": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					ClusterProfile: &configapi.ClusterProfile{
+						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+							{
+								Name: "test-provider",
+								ExecConfig: clientcmdapi.ExecConfig{
+									Command:         "test-command",
+									APIVersion:      "client.authentication.k8s.io/v1",
+									InteractiveMode: "Invalid",
+								},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeNotSupported,
+					Field: "multiKueue.clusterProfile.credentialsProviders.execConfig.interactiveMode",
+				},
+			},
+		},
+		"valid multiKueue.clusterProfile configuration": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					ClusterProfile: &configapi.ClusterProfile{
+						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+							{
+								Name: "test-provider",
+								ExecConfig: clientcmdapi.ExecConfig{
+									Command:         "test-command",
+									APIVersion:      "client.authentication.k8s.io/v1",
+									InteractiveMode: clientcmdapi.NeverExecInteractiveMode,
+									Env: []clientcmdapi.ExecEnvVar{
+										{Name: "TEST_VAR", Value: "test-value"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		"invalid an empty preemption strategy": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				FairSharing:  &configapi.FairSharing{},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "fairSharing.preemptionStrategies",
 				},
 			},
 		},

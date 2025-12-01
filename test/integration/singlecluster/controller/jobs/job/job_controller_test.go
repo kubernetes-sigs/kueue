@@ -2458,7 +2458,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 	var (
 		backoffBaseSeconds              int32
 		backoffLimitCount               *int32
-		waitForPodsReadyTimeout         *metav1.Duration
+		waitForPodsReadyTimeout         metav1.Duration
 		waitForPodsReadyRecoveryTimeout *metav1.Duration
 		ns                              *corev1.Namespace
 		fl                              *kueue.ResourceFlavor
@@ -2507,7 +2507,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 	ginkgo.When("long backoffBaseSeconds and tiny waitForPodsReady.timeout", func() {
 		ginkgo.BeforeEach(func() {
 			backoffBaseSeconds = 10
-			waitForPodsReadyTimeout = &metav1.Duration{Duration: util.TinyTimeout}
+			waitForPodsReadyTimeout = metav1.Duration{Duration: util.TinyTimeout}
 		})
 
 		ginkgo.It("should evict workload due waitForPodsReady.timeout", func() {
@@ -2562,7 +2562,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 
 	ginkgo.When("Job is running and a pod fails without .recoveryTimeout configured", func() {
 		ginkgo.BeforeEach(func() {
-			waitForPodsReadyTimeout = &metav1.Duration{Duration: 5 * time.Minute}
+			waitForPodsReadyTimeout = metav1.Duration{Duration: 5 * time.Minute}
 			waitForPodsReadyRecoveryTimeout = nil
 		})
 
@@ -2618,7 +2618,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 
 	ginkgo.When("A tiny recoveryTimeout is configured and a pod fails", func() {
 		ginkgo.BeforeEach(func() {
-			waitForPodsReadyTimeout = &metav1.Duration{Duration: 5 * time.Minute}
+			waitForPodsReadyTimeout = metav1.Duration{Duration: 5 * time.Minute}
 			waitForPodsReadyRecoveryTimeout = &metav1.Duration{Duration: util.TinyTimeout}
 		})
 
@@ -2692,7 +2692,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 
 	ginkgo.When("A long recoveryTimeout is configured and a pod fails", func() {
 		ginkgo.BeforeEach(func() {
-			waitForPodsReadyTimeout = &metav1.Duration{Duration: 5 * time.Minute}
+			waitForPodsReadyTimeout = metav1.Duration{Duration: 5 * time.Minute}
 			waitForPodsReadyRecoveryTimeout = &metav1.Duration{Duration: util.LongTimeout}
 		})
 
@@ -2783,7 +2783,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 		ginkgo.BeforeEach(func() {
 			backoffBaseSeconds = 1
 			backoffLimitCount = ptr.To[int32](1)
-			waitForPodsReadyTimeout = &metav1.Duration{Duration: util.TinyTimeout}
+			waitForPodsReadyTimeout = metav1.Duration{Duration: util.TinyTimeout}
 		})
 
 		ginkgo.It("should re-queue a workload evicted due to PodsReady timeout after the backoff elapses", func() {
@@ -2897,7 +2897,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 
 	ginkgo.When("testing ready wait time metrics with priority classes", func() {
 		ginkgo.BeforeEach(func() {
-			waitForPodsReadyTimeout = &metav1.Duration{Duration: 5 * time.Minute}
+			waitForPodsReadyTimeout = metav1.Duration{Duration: 5 * time.Minute}
 			waitForPodsReadyRecoveryTimeout = nil
 		})
 
@@ -3189,7 +3189,7 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 		if enableWaitForPodsReady {
 			waitForPodsReady = &configapi.WaitForPodsReady{
 				BlockAdmission:  ptr.To(true),
-				Timeout:         &metav1.Duration{Duration: util.TinyTimeout},
+				Timeout:         metav1.Duration{Duration: util.TinyTimeout},
 				RecoveryTimeout: nil,
 				RequeuingStrategy: &configapi.RequeuingStrategy{
 					Timestamp:          ptr.To(configapi.EvictionTimestamp),

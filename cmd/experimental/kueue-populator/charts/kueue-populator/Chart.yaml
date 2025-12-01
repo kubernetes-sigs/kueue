@@ -2,10 +2,10 @@ apiVersion: v2
 name: kueue-populator
 description: A Helm chart for Kueue Populator setup including Kueue, LocalQueue Creator, and default resources.
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+version: 0.15.0
+appVersion: "v0.15.0"
 dependencies:
   - name: kueue
-    version: "~0.14.4"
-    repository: "oci://registry.k8s.io/kueue/charts"
+    version: "~0.15.0"
+    repository: "file://../../../../../charts/kueue"
     condition: kueue.enabled

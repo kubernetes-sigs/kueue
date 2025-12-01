@@ -8,6 +8,21 @@ endif
 GO_CMD ?= go
 GO_FMT ?= gofmt
 
+ROOT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))/../../..
+BIN_DIR := $(ROOT_DIR)/bin
+
+HELM := $(BIN_DIR)/helm
+ENVTEST := $(BIN_DIR)/setup-envtest
+GINKGO := $(BIN_DIR)/ginkgo
+GOTESTSUM := $(BIN_DIR)/gotestsum
+ARTIFACTS ?= $(ROOT_DIR)/artifacts
+ENVTEST_K8S_VERSION ?= 1.34
+INTEGRATION_NPROCS ?= 4
+CONTROLLER_GEN := $(BIN_DIR)/controller-gen
+YAML_PROCESSOR = $(BIN_DIR)/yaml-processor
+YAML_PROCESSOR_LOG_LEVEL ?= info
+YQ := $(BIN_DIR)/yq
+
 GIT_TAG ?= $(shell git describe --tags --dirty --always)
 GIT_COMMIT ?= $(shell git rev-parse HEAD)
 HOST_IMAGE_PLATFORM ?= linux/$(shell go env GOARCH)
@@ -26,7 +41,23 @@ BASE_BUILDER_IMAGE ?= golang:1.25.0
 BUILDER_IMAGE ?= $(BASE_BUILDER_IMAGE)
 CGO_ENABLED ?= 0
 
-HELM ?= helm
+$(YQ):
+	cd $(ROOT_DIR) && $(MAKE) yq
+
+$(YAML_PROCESSOR):
+	cd $(ROOT_DIR) && $(MAKE) yaml-processor
+
+$(GOTESTSUM):
+	cd $(ROOT_DIR) && $(MAKE) gotestsum
+
+$(ENVTEST):
+	cd $(ROOT_DIR) && $(MAKE) envtest
+
+$(GINKGO):
+	cd $(ROOT_DIR) && $(MAKE) ginkgo
+
+$(HELM):
+	cd $(ROOT_DIR) && $(MAKE) helm
 
 .PHONY: all
 all: fmt vet build
@@ -52,6 +83,7 @@ image-build:
 		--build-arg BUILDER_IMAGE=$(BUILDER_IMAGE) \
 		--build-arg CGO_ENABLED=$(CGO_ENABLED) \
 		$(PUSH) \
+		$(IMAGE_BUILD_EXTRA_OPTS) \
 		.
 
 .PHONY: image-push
@@ -63,63 +95,65 @@ kind-image-build: PLATFORMS=linux/amd64
 kind-image-build: PUSH=--load
 kind-image-build: image-build
 
-# Integration tests
-ROOT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))/../../..
-BIN_DIR := $(ROOT_DIR)/bin
-ENVTEST := $(BIN_DIR)/setup-envtest
-GINKGO := $(BIN_DIR)/ginkgo
-GOTESTSUM := $(BIN_DIR)/gotestsum
-ARTIFACTS ?= $(ROOT_DIR)/artifacts
-ENVTEST_K8S_VERSION ?= 1.34
-INTEGRATION_NPROCS ?= 4
-CONTROLLER_GEN := $(BIN_DIR)/controller-gen
-
-YAML_PROCESSOR = $(BIN_DIR)/yaml-processor
-YAML_PROCESSOR_LOG_LEVEL ?= info
-
 .PHONY: manifests
 manifests:
 	$(CONTROLLER_GEN) rbac:roleName=kueue-populator-role output:rbac:artifacts:config=config/rbac paths="./pkg/controller/..."
 
 .PHONY: test-integration
-test-integration:
+test-integration: $(ENVTEST) $(GINKGO)
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	PROJECT_DIR=$(ROOT_DIR)/ \
 	GOWORK=off $(GINKGO) -procs=$(INTEGRATION_NPROCS) -v ./test/integration/...
 
 .PHONY: test-e2e
-test-e2e:
+test-e2e: helm-verify-install
 	./run-e2e.sh
 
 .PHONY: test
-test: ## Run unit tests.
+test: $(GOTESTSUM) ## Run unit tests.
+	mkdir -p $(ARTIFACTS)
 	GOWORK=off $(GOTESTSUM) --junitfile $(ARTIFACTS)/junit-unit.xml -- \
 		-race -coverpkg=./... -coverprofile $(ARTIFACTS)/cover-unit.out ./pkg/controller/...
-
 
 .PHONY: update-helm
 update-helm: manifests $(YAML_PROCESSOR)
 	$(YAML_PROCESSOR) -zap-log-level=$(YAML_PROCESSOR_LOG_LEVEL) hack/processing-plan.yaml
 
-$(YAML_PROCESSOR):
-	cd $(ROOT_DIR) && $(MAKE) yaml-processor
+.PHONY: helm-dep-build
+helm-dep-build: $(HELM)
+	$(HELM) dependency build charts/kueue-populator
 
 .PHONY: helm-lint
-helm-lint: ## Run Helm chart lint test.
+helm-lint: $(HELM) helm-dep-build ## Run Helm chart lint test.
 	$(HELM) lint charts/kueue-populator
 
 .PHONY: helm-verify
-helm-verify: helm-lint ## run helm template and detect any rendering failures
+helm-verify: $(HELM) helm-dep-build ## Run Helm chart lint test.
 	$(HELM) template charts/kueue-populator > /dev/null
 	$(HELM) template charts/kueue-populator --set image.repository=my-repo --set image.tag=v0.1.0 > /dev/null
 
 .PHONY: helm-unit-test
-helm-unit-test:
+helm-unit-test: $(HELM) helm-dep-build ## Run Helm chart unit tests.
 	$(HELM) unittest charts/kueue-populator --strict --debug
 
 .PHONY: helm-test
-helm-test: ## Run Helm chart integration tests (requires active cluster).
+helm-test: helm-lint helm-verify helm-unit-test ## Run Helm chart integration tests (requires active cluster).
 	$(HELM) test kueue-populator
 
 .PHONY: verify
 verify: vet helm-verify helm-unit-test ## Run all verification tests.
+
+.PHONY: helm-chart-package
+helm-chart-package: $(HELM) $(YQ) ## Package a chart into a versioned chart archive file.
+	DEST_CHART_DIR=$(ARTIFACTS) \
+	HELM="$(HELM)" YQ="$(YQ)" GIT_TAG="$(GIT_TAG)" IMAGE_REGISTRY="$(IMAGE_REGISTRY)" \
+	HELM_CHART_PUSH=$(HELM_CHART_PUSH) \
+	./hack/helm-chart-package.sh
+
+.PHONY: helm-chart-push
+helm-chart-push: HELM_CHART_PUSH=true
+helm-chart-push: helm-chart-package
+
+.PHONY: helm-verify-install
+helm-verify-install: ## Run Helm install verification script.
+	./test/verify-helm-install.sh

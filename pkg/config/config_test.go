@@ -33,6 +33,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -292,6 +293,19 @@ multiKueue:
   origin: multikueue-manager1
   workerLostTimeout: 10m
   dispatcherName: kueue.x-k8s.io/multikueue-dispatcher-incremental
+  clusterProfile:
+    credentialsProviders:
+      - name: test-provider
+        execConfig:
+          command: /usr/bin/test-command
+          apiVersion: client.authentication.k8s.io/v1
+          interactiveMode: Never
+          args:
+            - arg1
+            - arg2
+          env:
+            - name: TEST_ENV
+              value: test-value
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
 	}
@@ -399,11 +413,13 @@ objectRetentionPolicies:
 	}
 
 	testcases := []struct {
-		name              string
-		configFile        string
-		wantConfiguration configapi.Configuration
-		wantOptions       ctrl.Options
-		wantError         error
+		name                 string
+		configFile           string
+		enableClusterProfile bool
+		withClusterProfile   bool
+		wantConfiguration    configapi.Configuration
+		wantOptions          ctrl.Options
+		wantError            error
 	}{
 		{
 			name:       "default config",
@@ -620,7 +636,7 @@ objectRetentionPolicies:
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
 					BlockAdmission:  ptr.To(true),
-					Timeout:         &metav1.Duration{Duration: 50 * time.Second},
+					Timeout:         metav1.Duration{Duration: 50 * time.Second},
 					RecoveryTimeout: &metav1.Duration{Duration: 3 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						Timestamp:          ptr.To(configapi.CreationTimestamp),
@@ -788,6 +804,22 @@ objectRetentionPolicies:
 					Origin:            ptr.To("multikueue-manager1"),
 					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
 					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeIncremental),
+					ClusterProfile: &configapi.ClusterProfile{
+						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+							{
+								Name: "test-provider",
+								ExecConfig: clientcmdapi.ExecConfig{
+									Command:         "/usr/bin/test-command",
+									APIVersion:      "client.authentication.k8s.io/v1",
+									InteractiveMode: clientcmdapi.NeverExecInteractiveMode,
+									Args:            []string{"arg1", "arg2"},
+									Env: []clientcmdapi.ExecEnvVar{
+										{Name: "TEST_ENV", Value: "test-value"},
+									},
+								},
+							},
+						},
+					},
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 			},
