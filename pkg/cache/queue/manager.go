@@ -335,7 +335,7 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		}
 
 		workload.AdjustResources(ctx, m.client, &w)
-		m.assignWorkload(workload.Key(&w), workload.NewInfo(&w, m.workloadInfoOptions...), key, qImpl)
+		m.assignWorkload(workload.NewInfo(&w, m.workloadInfoOptions...), qImpl)
 	}
 	cq := m.hm.ClusterQueue(qImpl.ClusterQueue)
 	if cq != nil && cq.AddFromLocalQueue(qImpl) {
@@ -461,7 +461,7 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 	}
 	allOptions := append(m.workloadInfoOptions, opts...)
 	wInfo := workload.NewInfo(w, allOptions...)
-	m.assignWorkload(workload.Key(w), wInfo, qKey, q)
+	m.assignWorkload(wInfo, q)
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq == nil {
@@ -493,14 +493,13 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	}
 
 	qKey := queue.KeyFromWorkload(&w)
-	wlKey := workload.Key(&w)
 
 	q := m.localQueues[qKey]
 	if q == nil {
 		return false
 	}
 	info.Update(&w)
-	m.assignWorkload(wlKey, info, qKey, q)
+	m.assignWorkload(info, q)
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq == nil {
@@ -518,8 +517,8 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	return added
 }
 
-func (m *Manager) assignWorkload(wlKey workload.Reference, wlInfo *workload.Info, qKey queue.LocalQueueReference, q *LocalQueue) {
-	m.assignedWorkloads[wlKey] = qKey
+func (m *Manager) assignWorkload(wlInfo *workload.Info, q *LocalQueue) {
+	m.assignedWorkloads[workload.Key(wlInfo.Obj)] = q.Key
 	q.AddOrUpdate(wlInfo)
 }
 
@@ -544,9 +543,10 @@ func (m *Manager) deleteWorkloadFromAssignedQueues(log logr.Logger, wl *kueue.Wo
 		return
 	}
 
+	defer delete(m.assignedWorkloads, wlKey)
+
 	q := m.localQueues[qKey]
 	if q == nil {
-		delete(m.assignedWorkloads, wlKey)
 		return
 	}
 	delete(q.items, wlKey)
@@ -556,8 +556,6 @@ func (m *Manager) deleteWorkloadFromAssignedQueues(log logr.Logger, wl *kueue.Wo
 		cq.Delete(log, wl)
 		m.reportPendingWorkloads(q.ClusterQueue, cq)
 	}
-
-	delete(m.assignedWorkloads, wlKey)
 
 	if features.Enabled(features.LocalQueueMetrics) {
 		m.reportLQPendingWorkloads(q)
