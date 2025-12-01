@@ -174,6 +174,11 @@ func TestReconcileGenericJob(t *testing.T) {
 					PriorityClass("test-wpc").
 					Priority(100).
 					Annotations(map[string]string{constants.NodeAvoidancePolicyAnnotation: "prefer-no-unhealthy"}).
+					PodSets(
+						*utiltestingapi.MakePodSet("main", 1).
+							PriorityClass("test-wpc").
+							Obj(),
+					).
 					Obj(),
 			},
 		},
