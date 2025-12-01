@@ -32,12 +32,12 @@ func (fr FlavorWallTimeResource) String() string {
 
 type FlavorWallTimeQuantities map[FlavorWallTimeResource]int32
 
-type FlavorWallTimeUsage map[kueue.ResourceFlavorReference]int32
+type FlavorWallTimeUsage int32
 
-func (frq FlavorWallTimeQuantities) FlattenFlavors() FlavorWallTimeUsage {
-	result := FlavorWallTimeUsage{}
-	for key, val := range frq {
-		result[key.Flavor] += val
+func (frq FlavorWallTimeQuantities) FlattenFlavors() int32 {
+	result := int32(0)
+	for key := range frq {
+		result += frq[key]
 	}
 	return result
 }

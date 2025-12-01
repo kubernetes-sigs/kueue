@@ -48,3 +48,15 @@ func (lq *LocalQueue) updateAdmittedUsage(usage resources.FlavorResourceQuantiti
 	defer lq.Unlock()
 	updateFlavorUsage(usage, lq.admittedUsage, op)
 }
+
+func (lq *LocalQueue) GetWallTimeUsage() int32 {
+	lq.RLock()
+	defer lq.RUnlock()
+	return lq.wallTimeUsage.FlattenFlavors()
+}
+
+func (lq *LocalQueue) updateAdmittedUsage(usage resources.FlavorResourceQuantities, op usageOp) {
+	lq.Lock()
+	defer lq.Unlock()
+	updateFlavorUsage(usage, lq.admittedUsage, op)
+}

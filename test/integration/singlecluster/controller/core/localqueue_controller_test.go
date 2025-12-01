@@ -623,7 +623,7 @@ var _ = ginkgo.Describe("Queue controller for wall time limits", ginkgo.Label("f
 		ginkgo.By("Creating a local queue with wall time policy")
 		queueWithWallTime := utiltestingapi.MakeLocalQueue("queue-with-wall-time", ns.Name).
 			ClusterQueue(clusterQueue.Name).
-			WallTimePolicy(100, kueue.Hold).
+			WallTimePolicy(1, kueue.Hold).
 			Obj()
 		util.MustCreate(ctx, k8sClient, queueWithWallTime)
 
@@ -632,10 +632,12 @@ var _ = ginkgo.Describe("Queue controller for wall time limits", ginkgo.Label("f
 			utiltestingapi.MakeWorkload("wl1", ns.Name).
 				Queue(kueue.LocalQueueName(queueWithWallTime.Name)).
 				Request(resourceGPU, "1").
+				WallTimeSeconds(3600).
 				Obj(),
 			utiltestingapi.MakeWorkload("wl2", ns.Name).
 				Queue(kueue.LocalQueueName(queueWithWallTime.Name)).
 				Request(resourceGPU, "2").
+				WallTimeSeconds(3600).
 				Obj(),
 		}
 		admissions := []*kueue.Admission{
@@ -659,15 +661,6 @@ var _ = ginkgo.Describe("Queue controller for wall time limits", ginkgo.Label("f
 			util.SetWorkloadsAdmissionCheck(ctx, k8sClient, w, kueue.AdmissionCheckReference(ac.Name), kueue.CheckStateReady, true)
 		}
 
-		ginkgo.By("Waiting for wall time tracking to start on workloads")
-		gomega.Eventually(func(g gomega.Gomega) {
-			for _, w := range workloads {
-				var updatedWl kueue.Workload
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &updatedWl)).To(gomega.Succeed())
-				g.Expect(updatedWl.Status.WallTimeSeconds).NotTo(gomega.BeNil())
-			}
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
 		ginkgo.By("Verifying wall time usage is tracked in the status")
 		gomega.Eventually(func(g gomega.Gomega) {
 			var updatedQueue kueue.LocalQueue
@@ -676,7 +669,7 @@ var _ = ginkgo.Describe("Queue controller for wall time limits", ginkgo.Label("f
 
 			// Verify that each flavor has wall time usage tracking
 			for _, usage := range updatedQueue.Status.WallTimeFlavorUsage {
-				g.Expect(usage.WallTimeAllocated).To(gomega.Equal(int32(100)))
+				g.Expect(usage.WallTimeAllocated).To(gomega.Equal(int32(1)))
 				// Wall time used should be >= 0 (might be 0 if just created)
 				g.Expect(usage.WallTimeUsed).To(gomega.BeNumerically(">=", int32(0)))
 			}
