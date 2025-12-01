@@ -21,6 +21,7 @@ import (
 	"math"
 	"slices"
 
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
@@ -90,7 +91,7 @@ func selectOptimalDomainSetToFit(s *TASFlavorSnapshot, domains []*domain, sliceC
 	}
 
 	if priorizeByEntropy {
-		sortDomainsByCapacityAndEntropy(domains)
+		sortDomainsByCapacityAndEntropy(domains, policy)
 	}
 
 	// domain_placements[i][j][k] stores a list of domains that uses 'i' domains with
@@ -213,8 +214,18 @@ func calculateEntropy(blockSizes []int32) float64 {
 	return entropy
 }
 
-func sortDomainsByCapacityAndEntropy(domains []*domain) {
+func sortDomainsByCapacityAndEntropy(domains []*domain, policy string) {
 	slices.SortFunc(domains, func(a, b *domain) int {
+		// Prefer healthy nodes if policy is PreferHealthy
+		if policy == controllerconsts.NodeAvoidancePolicyPreferHealthy {
+			if a.hasUnhealthyNodes != b.hasUnhealthyNodes {
+				if !a.hasUnhealthyNodes {
+					return -1
+				}
+				return 1
+			}
+		}
+
 		if r := b.leaderState - a.leaderState; r != 0 {
 			return int(r)
 		}

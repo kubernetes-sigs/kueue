@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/scheduler/nodeavoidance"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -176,7 +177,7 @@ func (s *TASFlavorSnapshot) addNode(node corev1.Node) utiltas.TopologyDomainID {
 		}
 		if s.isLowestLevelNode() {
 			leafDomain.node = &node
-			if _, ok := node.Labels[s.unhealthyNodeLabel]; ok {
+			if nodeavoidance.IsNodeUnhealthy(&node, s.unhealthyNodeLabel) {
 				leafDomain.hasUnhealthyNodes = true
 			}
 		}
@@ -1025,6 +1026,9 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 	}
 	levelDomains := slices.Collect(maps.Values(domains))
 	sortedDomain := s.sortedDomainsWithLeader(levelDomains, unconstrained, policy)
+	if len(sortedDomain) == 0 {
+		return 0, nil, fmt.Sprintf("no topology domains at level: %s", s.levelKeys[levelIdx])
+	}
 	topDomain := sortedDomain[0]
 
 	sliceCount := podSetSize / sliceSize

@@ -52,6 +52,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/scheduler/nodeavoidance"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
@@ -61,6 +62,19 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
+
+type unhealthyNodeLabelKey struct{}
+
+func ContextWithUnhealthyNodeLabel(ctx context.Context, label string) context.Context {
+	return context.WithValue(ctx, unhealthyNodeLabelKey{}, label)
+}
+
+func UnhealthyNodeLabelFromContext(ctx context.Context) string {
+	if label, ok := ctx.Value(unhealthyNodeLabelKey{}).(string); ok {
+		return label
+	}
+	return ""
+}
 
 const (
 	FailedToStartFinishedReason = "FailedToStart"
@@ -90,6 +104,7 @@ type JobReconciler struct {
 	labelKeysToCopy              []string
 	clock                        clock.Clock
 	workloadRetentionPolicy      WorkloadRetentionPolicy
+	unhealthyNodeLabel           string
 }
 
 type Options struct {
@@ -251,6 +266,7 @@ func NewReconciler(
 		labelKeysToCopy:              options.LabelKeysToCopy,
 		clock:                        options.Clock,
 		workloadRetentionPolicy:      options.WorkloadRetentionPolicy,
+		unhealthyNodeLabel:           options.UnhealthyNodeLabel,
 	}
 }
 
@@ -258,6 +274,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	object := job.Object()
 	log := ctrl.LoggerFrom(ctx).WithValues("job", req.String(), "gvk", job.GVK())
 	ctx = ctrl.LoggerInto(ctx, log)
+	ctx = ContextWithUnhealthyNodeLabel(ctx, r.unhealthyNodeLabel)
 
 	defer func() {
 		err = r.ignoreUnretryableError(log, err)
@@ -1040,7 +1057,7 @@ func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Work
 	if !workload.HasQuotaReservation(wl) {
 		return nil
 	}
-	info, err := getPodSetsInfoFromStatus(ctx, c, wl)
+	info, err := getPodSetsInfoFromStatus(ctx, c, wl, UnhealthyNodeLabelFromContext(ctx))
 	if err != nil {
 		return nil
 	}
@@ -1120,7 +1137,7 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 
 // startJob will unsuspend the job, and also inject the node affinity.
 func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) error {
-	info, err := getPodSetsInfoFromStatus(ctx, r.client, wl)
+	info, err := getPodSetsInfoFromStatus(ctx, r.client, wl, r.unhealthyNodeLabel)
 	if err != nil {
 		return err
 	}
@@ -1250,6 +1267,17 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 		return nil, err
 	}
 
+	// Copy NodeAvoidancePolicy annotation
+	if val, ok := job.Object().GetAnnotations()[controllerconsts.NodeAvoidancePolicyAnnotation]; ok {
+		if wl.Annotations == nil {
+			wl.Annotations = make(map[string]string)
+		}
+		wl.Annotations[controllerconsts.NodeAvoidancePolicyAnnotation] = val
+		log.Info("Copied NodeAvoidancePolicy annotation", "workload", klog.KObj(wl), "policy", val)
+	} else {
+		log.Info("NodeAvoidancePolicy annotation not found on job", "job", klog.KObj(job.Object()))
+	}
+
 	return wl, nil
 }
 
@@ -1351,7 +1379,8 @@ func extractPriorityFromPodSets(podSets []kueue.PodSet) string {
 
 // getPodSetsInfoFromStatus extracts podSetsInfo from workload status, based on
 // admission, and admission checks.
-func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Workload) ([]podset.PodSetInfo, error) {
+func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Workload, unhealthyNodeLabel string) ([]podset.PodSetInfo, error) {
+	log := ctrl.LoggerFrom(ctx)
 	if len(w.Status.Admission.PodSetAssignments) == 0 {
 		return nil, nil
 	}
@@ -1363,6 +1392,23 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 		if err != nil {
 			return nil, err
 		}
+
+		nodeAvoidancePolicy := nodeavoidance.GetNodeAvoidancePolicy(w)
+		unhealthyNodeLabel := UnhealthyNodeLabelFromContext(ctx)
+		log.Info("Injecting NodeAffinity", "workload", klog.KObj(w), "policy", nodeAvoidancePolicy, "unhealthyLabel", unhealthyNodeLabel)
+		if nodeAvoidancePolicy != "" && unhealthyNodeLabel != "" {
+			affinity := nodeavoidance.ConstructNodeAffinity(nodeAvoidancePolicy, unhealthyNodeLabel)
+			if affinity != nil {
+				if info.Affinity == nil {
+					info.Affinity = &corev1.Affinity{}
+				}
+				info.Affinity.NodeAffinity = affinity
+				log.Info("Injected NodeAffinity", "workload", klog.KObj(w), "affinity", affinity)
+			} else {
+				log.Info("ConstructNodeAffinity returned nil", "workload", klog.KObj(w))
+			}
+		}
+
 		if features.Enabled(features.TopologyAwareScheduling) {
 			info.Annotations[kueue.WorkloadAnnotation] = w.Name
 		}

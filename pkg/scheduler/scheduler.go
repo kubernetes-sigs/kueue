@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
+	"sigs.k8s.io/kueue/pkg/scheduler/nodeavoidance"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
@@ -542,10 +543,18 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, log logr.Logger, 
 	if wl.Obj.Spec.PriorityClassRef != nil {
 		priorityClassName = wl.Obj.Spec.PriorityClassRef.Name
 	}
-	_, _, nodeAvoidancePolicy, err := priority.GetPriorityFromWorkloadPriorityClass(ctx, s.client, priorityClassName)
-	if err != nil {
-		log.V(3).Error(err, "Failed to get NodeAvoidancePolicy from WorkloadPriorityClass", "workloadPriorityClass", priorityClassName)
+	var nodeAvoidancePolicy string
+	if priorityClassName != "" {
+		var err error
+		_, _, nodeAvoidancePolicy, err = priority.GetPriorityFromWorkloadPriorityClass(ctx, s.client, priorityClassName)
+		if err != nil {
+			log.V(3).Error(err, "Failed to get NodeAvoidancePolicy from WorkloadPriorityClass", "workloadPriorityClass", priorityClassName)
+		}
 	}
+	if policy := nodeavoidance.GetNodeAvoidancePolicy(wl.Obj); policy != "" {
+		nodeAvoidancePolicy = policy
+	}
+	log.Info("Resolved NodeAvoidancePolicy", "workload", klog.KObj(wl.Obj), "policy", nodeAvoidancePolicy)
 
 	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing), preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice, nodeAvoidancePolicy)
 	fullAssignment := flvAssigner.Assign(log, nil)
