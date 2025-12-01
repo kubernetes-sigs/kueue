@@ -5608,7 +5608,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			},
 			levels:             defaultThreeLevels,
 			unhealthyNodeLabel: "unhealthy",
-			nodeAvoidancePolicy: controllerconsts.NodeAvoidancePolicyPreferNoUnhealthy,
+			nodeAvoidancePolicy: controllerconsts.NodeAvoidancePolicyPreferHealthy,
 			podSets: []PodSetTestCase{
 				{
 					podSetName: "main",

@@ -24,6 +24,7 @@ import (
 	"maps"
 	"math"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -1327,9 +1328,6 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool,
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 
 	// Filter out unhealthy nodes if policy is DisallowUnhealthy
-	if policy != "" {
-		fmt.Printf("DEBUG: sortedDomainsWithLeader policy=%q domains=%d\n", policy, len(domains))
-	}
 	if policy == controllerconsts.NodeAvoidancePolicyDisallowUnhealthy && s.isLowestLevelNode() {
 		filtered := make([]*domain, 0, len(domains))
 		for _, d := range domains {
@@ -1342,14 +1340,12 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool,
 	}
 
 	result := slices.Clone(domains)
-	slices.SortFunc(result, func(a, b *domain) int {
-		// Prefer healthy nodes if policy is PreferNoUnhealthy
-		if policy == controllerconsts.NodeAvoidancePolicyPreferNoUnhealthy {
+	sort.SliceStable(result, func(i, j int) bool {
+		a, b := result[i], result[j]
+		// Prefer healthy nodes if policy is PreferHealthy
+		if policy == controllerconsts.NodeAvoidancePolicyPreferHealthy {
 			if a.hasUnhealthyNodes != b.hasUnhealthyNodes {
-				if !a.hasUnhealthyNodes {
-					return -1
-				}
-				return 1
+				return !a.hasUnhealthyNodes
 			}
 		}
 
@@ -1357,16 +1353,16 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool,
 			if isLeastFreeCapacity {
 				// Start from the domain with the least amount of free resources.
 				// Ascending order.
-				return cmp.Compare(a.sliceState, b.sliceState)
+				return a.sliceState < b.sliceState
 			}
-			return cmp.Compare(b.sliceState, a.sliceState)
+			return a.sliceState > b.sliceState
 		}
 
 		if a.state != b.state {
-			return cmp.Compare(a.state, b.state)
+			return a.state < b.state
 		}
 
-		return slices.Compare(a.levelValues, b.levelValues)
+		return slices.Compare(a.levelValues, b.levelValues) < 0
 	})
 	return result
 }

@@ -436,25 +436,25 @@ func TestSortedDomainsWithNodeAvoidance(t *testing.T) {
 	levels := []string{"kubernetes.io/hostname"}
 	unhealthyLabel := "unhealthy"
 	nodes := []corev1.Node{
-		*node.MakeNode("healthy").Label("kubernetes.io/hostname", "healthy").Obj(),
-		*node.MakeNode("unhealthy").Label("kubernetes.io/hostname", "unhealthy").Label(unhealthyLabel, "true").Obj(),
+		*node.MakeNode("node-1-unhealthy").Label("kubernetes.io/hostname", "node-1-unhealthy").Label(unhealthyLabel, "true").Obj(),
+		*node.MakeNode("node-2-healthy").Label("kubernetes.io/hostname", "node-2-healthy").Obj(),
 	}
 
 	cases := map[string]struct {
 		policy string
 		want   []string
 	}{
-		"no policy": {
+		"no policy - sorts by name (unhealthy first because of name)": {
 			policy: "",
-			want:   []string{"healthy", "unhealthy"},
+			want:   []string{"node-1-unhealthy", "node-2-healthy"},
 		},
-		"prefer no unhealthy": {
-			policy: controllerconsts.NodeAvoidancePolicyPreferNoUnhealthy,
-			want:   []string{"healthy", "unhealthy"},
+		"prefer healthy - sorts by health (healthy first despite name)": {
+			policy: controllerconsts.NodeAvoidancePolicyPreferHealthy,
+			want:   []string{"node-2-healthy", "node-1-unhealthy"},
 		},
 		"disallow unhealthy": {
 			policy: controllerconsts.NodeAvoidancePolicyDisallowUnhealthy,
-			want:   []string{"healthy"},
+			want:   []string{"node-2-healthy"},
 		},
 	}
 
@@ -467,10 +467,10 @@ func TestSortedDomainsWithNodeAvoidance(t *testing.T) {
 			}
 			s.initialize()
 
-			// Manually construct domains list for testing sortedDomains
+			// Construct domains list (order doesn't matter as it gets sorted, but let's mix it)
 			domains := []*domain{
-				s.domainsPerLevel[0][utiltas.DomainID([]string{"healthy"})],
-				s.domainsPerLevel[0][utiltas.DomainID([]string{"unhealthy"})],
+				s.domainsPerLevel[0][utiltas.DomainID([]string{"node-2-healthy"})],
+				s.domainsPerLevel[0][utiltas.DomainID([]string{"node-1-unhealthy"})],
 			}
 
 			gotDomains := s.sortedDomains(domains, false, tc.policy)
@@ -479,14 +479,8 @@ func TestSortedDomainsWithNodeAvoidance(t *testing.T) {
 				gotValues[i] = d.levelValues[0]
 			}
 
-			if tc.policy == controllerconsts.NodeAvoidancePolicyPreferNoUnhealthy {
-				if diff := cmp.Diff(tc.want, gotValues); diff != "" {
-					t.Errorf("unexpected sorted domains (-want,+got): %s", diff)
-				}
-			} else {
-				if diff := cmp.Diff(tc.want, gotValues, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
-					t.Errorf("unexpected sorted domains (-want,+got): %s", diff)
-				}
+			if diff := cmp.Diff(tc.want, gotValues); diff != "" {
+				t.Errorf("unexpected sorted domains (-want,+got): %s", diff)
 			}
 		})
 	}
