@@ -89,6 +89,7 @@ type domain struct {
 	// ordered list of values
 	levelValues []string
 
+	// hasUnhealthyNodes indicates if the domain contains any node with the unhealthy label.
 	hasUnhealthyNodes bool
 }
 
@@ -136,6 +137,7 @@ type TASFlavorSnapshot struct {
 	// tolerations represents the list of tolerations defined for the resource flavor
 	tolerations []corev1.Toleration
 
+	// unhealthyNodeLabel is the label key used to identify unhealthy nodes.
 	unhealthyNodeLabel string
 }
 
