@@ -922,11 +922,14 @@ func AwaitAndVerifyCreatedWorkload(ctx context.Context, client client.Client, wl
 }
 
 func SetPodsPhase(ctx context.Context, k8sClient client.Client, phase corev1.PodPhase, pods ...*corev1.Pod) {
+	ginkgo.GinkgoHelper()
 	for _, p := range pods {
 		updatedPod := corev1.Pod{}
-		gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &updatedPod)).To(gomega.Succeed())
-		updatedPod.Status.Phase = phase
-		gomega.ExpectWithOffset(1, k8sClient.Status().Update(ctx, &updatedPod)).To(gomega.Succeed())
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &updatedPod)).To(gomega.Succeed())
+			updatedPod.Status.Phase = phase
+			g.Expect(k8sClient.Status().Update(ctx, &updatedPod)).To(gomega.Succeed())
+		}, Timeout, Interval).Should(gomega.Succeed())
 	}
 }
 
