@@ -23,6 +23,7 @@
   - [Configuration](#configuration)
   - [MultiKueue Dispatcher API](#multikueue-dispatcher-api)
     - [Workload Synchronization](#workload-synchronization)
+  - [Cluster Role sharing](#cluster-role-sharing)
   - [Follow ups ideas](#follow-ups-ideas)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
@@ -69,8 +70,7 @@ in the clusters (manually, using gitops or some 3rd-party tooling).
 * Support K8S Jobs on management clusters that don't have either 
 kubernetes/enhancements#4370 implemented or Job controller disabled.
 * Support for cluster role sharing (worker & manager inside one cluster)
-is out of scope for this KEP. We will get back to the topic once 
-kubernetes/enhancements#4370 is merged and becomes a wider standard.
+although proved to be possible after kubernetes/enhancements#4370 was merged.
 * distribute running Jobs across multiple clusters, and reconcile partial
 results in the Job objects on the management cluster (each Job will run on
 a single worker cluster).
@@ -465,6 +465,10 @@ type MultiKueue struct {
 }
 ```
 
+### Cluster Role sharing
+
+MultiKueue Cluster Role Sharing enables Kueue cluster to simultaneously run both MultiKueue managed workloads and regular Kueue workloads, depending on the ClusterQueue configuration
+targeted by the workloads.
 
 ### Follow ups ideas
 
