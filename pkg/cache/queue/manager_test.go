@@ -403,7 +403,7 @@ func TestDeleteLocalQueue(t *testing.T) {
 }
 
 func TestAddWorkload(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	manager := NewManager(utiltesting.NewFakeClient(), nil)
 	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
 	if err := manager.AddClusterQueue(ctx, cq); err != nil {
@@ -469,7 +469,6 @@ func TestAddWorkload(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.workload.Name, func(t *testing.T) {
-			ctx, log := utiltesting.ContextWithLog(t)
 			manager := NewManager(utiltesting.NewFakeClient(), nil)
 			cq := utiltestingapi.MakeClusterQueue("cq").Obj()
 			if err := manager.AddClusterQueue(ctx, cq); err != nil {
