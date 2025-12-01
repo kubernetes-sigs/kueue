@@ -105,7 +105,7 @@ var _ = ginkgo.Describe("Importer", func() {
 				gomega.Expect(k8sClient.Get(ctx, wl2LookupKey, wl2)).To(gomega.Succeed())
 
 				ginkgo.By("Verify workload2 is correct")
-				exepectWorkladsToBeAdmitted(ctx, k8sClient, wl1, wl2)
+				expectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl2)
 			})
 
 			wl1UID := wl1.UID
@@ -142,14 +142,14 @@ var _ = ginkgo.Describe("Importer", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				expectWorkloadsToBePending(ctx, k8sClient, wl3)
-				exepectWorkladsToBeAdmitted(ctx, k8sClient, wl1, wl2)
+				expectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl2)
 			})
 
 			ginkgo.By("By finishing an imported pod, the new one's Workload should be admitted", func() {
 				util.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod2)
 
 				util.ExpectWorkloadToFinish(ctx, k8sClient, wl2LookupKey)
-				exepectWorkladsToBeAdmitted(ctx, k8sClient, wl1, wl3)
+				expectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl3)
 			})
 
 			ginkgo.By("Checking the imported Workloads are not recreated", func() {
@@ -162,7 +162,7 @@ var _ = ginkgo.Describe("Importer", func() {
 	})
 })
 
-func exepectWorkladsToBeAdmitted(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
+func expectWorkloadsToBeAdmitted(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		admitted := 0
 		var updatedWorkload kueue.Workload
