@@ -1329,7 +1329,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 4000,
 				},
 				count:      1,
-				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)`,
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 4; excluded: resource "cpu": 4`,
 			}},
 		},
 		"block required; too many Pods to fit requested; BestFit": {
@@ -1698,7 +1698,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 600,
 				},
 				count:      1,
-				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)`,
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "cpu": 1`,
 			}},
 		},
 		"include usage from running non-TAS pods, blocked assignment; BestFit": {
@@ -1729,7 +1729,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 600,
 				},
 				count:      1,
-				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)`,
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "cpu": 1`,
 			}},
 		},
 		"include usage from running non-TAS pods, found free capacity on another node; BestFit": {
@@ -1873,7 +1873,91 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count:      1,
-				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)`,
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: taint "example.com/gpu=present:NoSchedule": 1`,
+			}},
+		},
+		"detailed failure message with exclusion stats": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					Taints(corev1.Taint{
+						Key:    "key",
+						Value:  "value",
+						Effect: corev1.TaintEffectNoSchedule,
+					}).
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label(corev1.LabelHostname, "x2").
+					Label("zone", "zone-b"). // Wrong zone
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x3").
+					Label(corev1.LabelHostname, "x3").
+					Label("zone", "zone-b"). // Wrong zone for nodeSelector
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x4").
+					Label(corev1.LabelHostname, "x4").
+					Label("zone", "zone-a"). // Correct zone but insufficient CPU
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("100m"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Required: ptr.To(corev1.LabelHostname),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				nodeSelector: map[string]string{
+					"zone": "zone-a",
+				},
+				count:      1,
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 4; excluded: nodeSelector: 2, resource "cpu": 1, taint "key=value:NoSchedule": 1`,
+			}},
+		},
+		"resource exclusion picks most restrictive resource": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("dual-shortage").
+					Label(corev1.LabelHostname, "dual-shortage").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:                     resource.MustParse("500m"),
+						corev1.ResourcePods:                    resource.MustParse("10"),
+						corev1.ResourceName("example.com/gpu"): resource.MustParse("0"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Required: ptr.To(corev1.LabelHostname),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU:                     1000,
+					corev1.ResourceName("example.com/gpu"): 1,
+				},
+				count: 1,
+				// When both resources give count=0, alphabetical tie-breaking picks "cpu"
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "cpu": 1`,
 			}},
 		},
 		"allow to schedule on node with tolerated taint; BestFit": {
@@ -1957,7 +2041,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 300,
 				},
 				count:      1,
-				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)`,
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "pods": 1`,
 			}},
 		},
 		"skip node which doesn't match node selector, missing label; BestFit": {
@@ -1986,7 +2070,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 300,
 				},
 				count:      1,
-				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)`,
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: nodeSelector: 1`,
 				nodeSelector: map[string]string{
 					"custom-label-1": "custom-value-1",
 				},
@@ -2018,7 +2102,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 300,
 				},
 				count:      1,
-				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)`,
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: nodeSelector: 1`,
 				nodeSelector: map[string]string{
 					"custom-label-1": "value-2",
 				},
@@ -4900,7 +4984,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					podSetGroupName: ptr.To("sameGroup"),
 					count:           1,
 					wantAssignment:  nil,
-					wantReason:      `topology "default" allows to fit only 4 out of 4 pod(s)`,
+					wantReason:      `topology "default" allows to fit only 4 out of 4 pod(s). Total nodes: 2; excluded: resource "example.com/gpu": 1`,
 				},
 				{
 					podSetName: "workers",
@@ -4914,7 +4998,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					podSetGroupName: ptr.To("sameGroup"),
 					count:           4,
 					wantAssignment:  nil,
-					wantReason:      `topology "default" allows to fit only 4 out of 4 pod(s)`,
+					wantReason:      `topology "default" allows to fit only 4 out of 4 pod(s). Total nodes: 2; excluded: resource "example.com/gpu": 1`,
 				},
 			},
 		},
@@ -5574,7 +5658,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceMemory: 1000,
 					},
 					count:      1,
-					wantReason: "topology \"default\" doesn't allow to fit any of 1 pod(s)",
+					wantReason: "topology \"default\" doesn't allow to fit any of 1 pod(s). Total nodes: 2; excluded: nodeSelector: 2",
 				},
 			},
 		},
