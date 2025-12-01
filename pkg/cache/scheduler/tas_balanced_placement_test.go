@@ -74,11 +74,6 @@ func TestSelectOptimalDomainSetToFit(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
 			s := newTASFlavorSnapshot(log, "dummy", []string{}, nil, "")
-			// The original instruction included a loop `for _, node := range nodes { s.addNode(node) }`
-			// and a partial line `tToFit(...)`.
-			// Since `nodes` is undefined and `tToFit` is a fragment,
-			// and to ensure the resulting file is syntactically correct as per instructions,
-			// only the `newTASFlavorSnapshot` argument change is applied.
 			got := selectOptimalDomainSetToFit(s, tc.domains, tc.workerCount, tc.leaderCount, 1, true, "")
 			gotIDs := make([]string, len(got))
 			for i, d := range got {

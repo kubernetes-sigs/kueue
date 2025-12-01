@@ -229,7 +229,7 @@ const (
 	// Enabled failure recovery of pods stuck in terminating state.
 	FailureRecoveryPolicy featuregate.Feature = "FailureRecoveryPolicy"
 
-	// owner: @jakubskiba
+	// owner: @j-skiba
 	//
 	// Enables failure aware scheduling by injecting node affinity based on workload priority.
 	FailureAwareScheduling featuregate.Feature = "FailureAwareScheduling"

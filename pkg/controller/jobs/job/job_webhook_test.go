@@ -863,7 +863,6 @@ func TestDefault(t *testing.T) {
 				Queue("default").
 				Obj(),
 		},
-
 	}
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {

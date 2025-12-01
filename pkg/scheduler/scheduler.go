@@ -543,12 +543,6 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, log logr.Logger, 
 	}
 	_, _, nodeAvoidancePolicy, err := priority.GetPriorityFromWorkloadPriorityClass(ctx, s.client, priorityClassName)
 	if err != nil {
-		// If we fail to get the policy, we log it and proceed with empty policy.
-		// This might happen if the PriorityClass is deleted or we have transient errors.
-		// Since this is "avoidance" policy, missing it is safer than failing scheduling?
-		// Or should we fail?
-		// Given it's "avoidance", maybe we should just log.
-		// But GetPriorityFromWorkloadPriorityClass also returns priority, which we don't use here (we use wl.Priority).
 		log.V(3).Error(err, "Failed to get NodeAvoidancePolicy from WorkloadPriorityClass", "workloadPriorityClass", priorityClassName)
 	}
 
