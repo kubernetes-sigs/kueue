@@ -131,7 +131,7 @@ func TestAddClusterQueueOrphans(t *testing.T) {
 // TestUpdateClusterQueue tests that a ClusterQueue transfers cohorts on update.
 // Inadmissible workloads should become active.
 func TestUpdateClusterQueue(t *testing.T) {
-	ctx, log := utiltesting.ContextWithLog(t)
+	ctx, _ := utiltesting.ContextWithLog(t)
 	clusterQueues := []*kueue.ClusterQueue{
 		utiltestingapi.MakeClusterQueue("cq1").Cohort("alpha").Obj(),
 		utiltestingapi.MakeClusterQueue("cq2").Cohort("beta").Obj(),
@@ -165,7 +165,7 @@ func TestUpdateClusterQueue(t *testing.T) {
 		if err := cl.Create(ctx, w); err != nil {
 			t.Fatalf("Failed adding workload to client: %v", err)
 		}
-		manager.RequeueWorkload(ctx, log, workload.NewInfo(w), RequeueReasonGeneric)
+		manager.RequeueWorkload(ctx, workload.NewInfo(w), RequeueReasonGeneric)
 	}
 
 	// Verify that all workloads are marked as inadmissible after creation.
@@ -218,7 +218,7 @@ func TestUpdateClusterQueue(t *testing.T) {
 }
 
 func TestRequeueWorkloadsCohortCycle(t *testing.T) {
-	ctx, log := utiltesting.ContextWithLog(t)
+	ctx, _ := utiltesting.ContextWithLog(t)
 	cohorts := []*kueue.Cohort{
 		utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj(),
 		utiltestingapi.MakeCohort("cohort-b").Parent("cohort-c").Obj(),
@@ -248,7 +248,7 @@ func TestRequeueWorkloadsCohortCycle(t *testing.T) {
 	}
 	// This test will pass with the removal of this line.
 	// Update once we find a solution to #3066.
-	manager.RequeueWorkload(ctx, log, workload.NewInfo(wl), RequeueReasonGeneric)
+	manager.RequeueWorkload(ctx, workload.NewInfo(wl), RequeueReasonGeneric)
 
 	// This method is where we do a cycle check. We call it to ensure
 	// it behaves properly when a cycle exists
@@ -678,7 +678,7 @@ func TestRequeueWorkloadStrictFIFO(t *testing.T) {
 				_ = manager.AddOrUpdateWorkload(log, tc.workload)
 			}
 			info := workload.NewInfo(tc.workload)
-			if requeued := manager.RequeueWorkload(ctx, log, info, RequeueReasonGeneric); requeued != tc.wantRequeued {
+			if requeued := manager.RequeueWorkload(ctx, info, RequeueReasonGeneric); requeued != tc.wantRequeued {
 				t.Errorf("RequeueWorkload returned %t, want %t", requeued, tc.wantRequeued)
 			}
 		})
@@ -1158,8 +1158,7 @@ func TestHeadsAsync(t *testing.T) {
 				// Remove the initial workload from the manager.
 				mgr.Heads(ctx)
 				go func() {
-					log := logr.FromContextOrDiscard(ctx)
-					mgr.RequeueWorkload(ctx, log, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination)
+					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination)
 				}()
 			},
 			wantHeads: []workload.Info{
@@ -1187,8 +1186,7 @@ func TestHeadsAsync(t *testing.T) {
 				// Remove the initial workload from the manager.
 				mgr.Heads(ctx)
 				go func() {
-					log := logr.FromContextOrDiscard(ctx)
-					mgr.RequeueWorkload(ctx, log, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination)
+					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination)
 				}()
 			},
 			wantHeads: []workload.Info{
@@ -1220,8 +1218,7 @@ func TestHeadsAsync(t *testing.T) {
 				// Remove the initial workload from the manager.
 				mgr.Heads(ctx)
 				go func() {
-					log := logr.FromContextOrDiscard(ctx)
-					mgr.RequeueWorkload(ctx, log, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination)
+					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination)
 				}()
 			},
 			wantHeads: []workload.Info{

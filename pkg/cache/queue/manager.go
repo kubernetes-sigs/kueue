@@ -483,7 +483,7 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 // RequeueWorkload requeues the workload ensuring that the queue and the
 // workload still exist in the client cache and not admitted. It won't
 // requeue if the workload is already in the queue (possible if the workload was updated).
-func (m *Manager) RequeueWorkload(ctx context.Context, log logr.Logger, info *workload.Info, reason RequeueReason) bool {
+func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reason RequeueReason) bool {
 	m.Lock()
 	defer m.Unlock()
 
@@ -497,7 +497,6 @@ func (m *Manager) RequeueWorkload(ctx context.Context, log logr.Logger, info *wo
 
 	qKey := queue.KeyFromWorkload(&w)
 	wlKey := workload.Key(&w)
-	m.deleteWorkloadFromQueuesIfReassigned(log, info.Obj, qKey)
 
 	q := m.localQueues[qKey]
 	if q == nil {
