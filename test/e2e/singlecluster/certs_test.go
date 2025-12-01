@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -135,13 +136,11 @@ var _ = ginkgo.Describe("Kueue Certs", func() {
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("revert the LocalQueue change", func() {
+		ginkgo.By("verify the LocalQueue status is updated", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), localQueue)).To(gomega.Succeed())
-				g.Expect(localQueue.Spec.StopPolicy).Should(gomega.Equal(ptr.To(kueue.Hold)))
-				localQueue.Spec.StopPolicy = ptr.To(kueue.None)
-				g.Expect(k8sClient.Update(ctx, localQueue)).Should(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				g.Expect(localQueue.Status.Conditions).To(utiltesting.HaveConditionStatusFalse(kueue.LocalQueueActive))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -231,12 +230,10 @@ var _ = ginkgo.Describe("Kueue Certs", func() {
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("revert the change to LocalQueue", func() {
+		ginkgo.By("verify the LocalQueue status is updated", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), localQueue)).To(gomega.Succeed())
-				g.Expect(localQueue.Spec.StopPolicy).Should(gomega.BeEquivalentTo(ptr.To(kueue.Hold)))
-				localQueue.Spec.StopPolicy = ptr.To(kueue.None)
-				g.Expect(k8sClient.Update(ctx, localQueue)).Should(gomega.Succeed())
+				g.Expect(localQueue.Status.Conditions).To(utiltesting.HaveConditionStatusFalse(kueue.LocalQueueActive))
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
