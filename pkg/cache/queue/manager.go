@@ -335,7 +335,6 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		}
 
 		workload.AdjustResources(ctx, m.client, &w)
-
 		m.assignWorkload(workload.Key(&w), workload.NewInfo(&w, m.workloadInfoOptions...), key, qImpl)
 	}
 	cq := m.hm.ClusterQueue(qImpl.ClusterQueue)
@@ -454,7 +453,6 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 	}
 
 	qKey := queue.KeyFromWorkload(w)
-
 	m.deleteWorkloadFromQueuesIfReassigned(log, w, qKey)
 
 	q := m.localQueues[qKey]
@@ -463,7 +461,6 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 	}
 	allOptions := append(m.workloadInfoOptions, opts...)
 	wInfo := workload.NewInfo(w, allOptions...)
-
 	m.assignWorkload(workload.Key(w), wInfo, qKey, q)
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
@@ -503,7 +500,6 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 		return false
 	}
 	info.Update(&w)
-
 	m.assignWorkload(wlKey, info, qKey, q)
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
