@@ -92,7 +92,6 @@ type MultiKueueClusterStatus struct {
 // +genclient
 // +genclient:nonNamespaced
 // +kubebuilder:object:root=true
-// +kubebuilder:storageversion
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster
 
@@ -133,7 +132,6 @@ type MultiKueueConfigSpec struct {
 // +genclient
 // +genclient:nonNamespaced
 // +kubebuilder:object:root=true
-// +kubebuilder:storageversion
 // +kubebuilder:resource:scope=Cluster
 
 // MultiKueueConfig is the Schema for the multikueue API
