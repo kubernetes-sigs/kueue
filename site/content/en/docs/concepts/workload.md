@@ -172,22 +172,19 @@ If `maximumExecutionTimeSeconds` is not specified, the workload has no execution
 
 You can configure the `maximumExecutionTimeSeconds` of the Workload associated with any supported Kueue Job by specifying the desired value as `kueue.x-k8s.io/max-exec-time-seconds` label of the job. 
 
-## Workload updates by Kueue
+## Workload Updates Using Merge Patch
 
-{{< feature-state state="alpha" for_version="v0.14" >}}
+{{< feature-state state="beta" for_version="v0.16" >}}
 
 {{% alert title="Note" color="primary" %}}
-`WorkloadRequestUseMergePatch` is currently an alpha feature and is disabled by default.
+`WorkloadRequestUseMergePatch` is currently a beta feature and is enabled by default.
 
-You can enable it by editing the `WorkloadRequestUseMergePatch` feature gate. Refer to the
+You can disable it by editing the `WorkloadRequestUseMergePatch` feature gate. Refer to the
 [Installation guide](/docs/installation/#change-the-feature-gates-configuration)
 for instructions on configuring feature gates.
 {{% /alert %}}
 
-
-By default Workload status updates are performed by Kueue using the [Server-Side Apply (SSA)](https://kubernetes.io/docs/reference/using-api/server-side-apply/). 
-
-However due to the limitations of SSA ([missing support for duplicated key/value pairs](https://github.com/kubernetes/kubernetes/issues/113482)) we also offer to enable updating the Workload status
+Due to the limitations of SSA ([missing support for duplicated key/value pairs](https://github.com/kubernetes/kubernetes/issues/113482)) we offer to enable updating the Workload status
 with Merge Patches, by enabling the `WorkloadRequestUseMergePatch` feature gate. 
 
 In particular, this allows users of Kueue to handle the following two issues:
