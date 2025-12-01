@@ -504,7 +504,7 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "SecondPassFailed", corev1.EventTypeWarning).
-					Message("couldn't assign flavors to pod set one: topology \"tas-three-level\" doesn't allow to fit any of 1 pod(s)").
+					Message(`couldn't assign flavors to pod set one: topology "tas-three-level" doesn't allow to fit any of 1 pod(s). Total nodes: 6; excluded: resource "cpu": 6`).
 					Obj(),
 			},
 		},
@@ -671,7 +671,7 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "SecondPassFailed", corev1.EventTypeWarning).
-					Message("couldn't assign flavors to pod set one: topology \"tas-three-level\" doesn't allow to fit any of 1 pod(s)").
+					Message(`couldn't assign flavors to pod set one: topology "tas-three-level" doesn't allow to fit any of 1 pod(s). Total nodes: 6; excluded: resource "cpu": 1, topologyDomain: 5`).
 					Obj(),
 			},
 		},
@@ -1479,8 +1479,10 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).
+					Message(`Quota reserved in ClusterQueue tas-main, wait time since queued was 9223372037s; Flavors considered: one: default(NoFit;Flavor "default" does not support TopologyAwareScheduling)`).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).
+					Message("Admitted by ClusterQueue tas-main, wait time since reservation was 0s").Obj(),
 			},
 		},
 		"workload which does not need TAS skips the TAS flavor": {
@@ -1513,8 +1515,10 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).
+					Message(`Quota reserved in ClusterQueue tas-main, wait time since queued was 9223372037s; Flavors considered: one: tas-default(NoFit;Flavor "tas-default" supports only TopologyAwareScheduling)`).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).
+					Message("Admitted by ClusterQueue tas-main, wait time since reservation was 0s").Obj(),
 			},
 		},
 		"workload with mixed PodSets (requiring TAS and not)": {
@@ -1560,8 +1564,10 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).
+					Message(`Quota reserved in ClusterQueue tas-main, wait time since queued was 9223372037s; Flavors considered: launcher: tas-default(NoFit;Flavor "tas-default" supports only TopologyAwareScheduling)`).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).
+					Message("Admitted by ClusterQueue tas-main, wait time since reservation was 0s").Obj(),
 			},
 		},
 		"workload required TAS gets scheduled": {
@@ -1734,7 +1740,7 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
-					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s)`).
+					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "cpu": 1`).
 					Obj(),
 			},
 		},
@@ -1763,7 +1769,7 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
-					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s)`).
+					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "cpu": 1`).
 					Obj(),
 			},
 		},
@@ -1926,7 +1932,7 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
-					Message(`couldn't assign flavors to pod set worker: topology "tas-two-level" doesn't allow to fit any of 1 pod(s)`).
+					Message(`couldn't assign flavors to pod set worker: topology "tas-two-level" doesn't allow to fit any of 1 pod(s). Total nodes: 2; excluded: resource "cpu": 2`).
 					Obj(),
 			},
 		},
@@ -2291,7 +2297,7 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
-					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s)`).
+					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "pods": 1`).
 					Obj(),
 			},
 		},
@@ -2831,7 +2837,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
-						Message:            "couldn't assign flavors to pod set one: topology \"tas-single-level\" doesn't allow to fit any of 1 pod(s). Pending the preemption of 1 workload(s)",
+						Message:            `couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "cpu": 1. Pending the preemption of 1 workload(s)`,
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -2888,7 +2894,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 					Message("Preempted to accommodate a workload (UID: wl-foo, JobUID: job-foo) due to prioritization in the ClusterQueue").
 					Obj(),
 				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
-					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Pending the preemption of 1 workload(s)`).
+					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "cpu": 1. Pending the preemption of 1 workload(s)`).
 					Obj(),
 			},
 		},
@@ -2949,7 +2955,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
-						Message:            "couldn't assign flavors to pod set one: topology \"tas-single-level\" doesn't allow to fit any of 1 pod(s). Pending the preemption of 1 workload(s)",
+						Message:            `couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "cpu": 1. Pending the preemption of 1 workload(s)`,
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -3006,7 +3012,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 					Message("Preempted to accommodate a workload (UID: wl-high-priority-waiting, JobUID: job-high-priority-waiting) due to prioritization in the ClusterQueue").
 					Obj(),
 				utiltesting.MakeEventRecord("default", "high-priority-waiting", "Pending", "Warning").
-					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Pending the preemption of 1 workload(s)`).
+					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "cpu": 1. Pending the preemption of 1 workload(s)`).
 					Obj(),
 			},
 		},
@@ -3083,7 +3089,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
-						Message:            "couldn't assign flavors to pod set one: topology \"tas-single-level\" doesn't allow to fit any of 1 pod(s). Pending the preemption of 1 workload(s)",
+						Message:            `couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "cpu": 1. Pending the preemption of 1 workload(s)`,
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -3160,7 +3166,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 					Message("Preempted to accommodate a workload (UID: wl-foo, JobUID: job-foo) due to prioritization in the ClusterQueue").
 					Obj(),
 				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
-					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Pending the preemption of 1 workload(s)`).
+					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "cpu": 1. Pending the preemption of 1 workload(s)`).
 					Obj(),
 			},
 		},
@@ -3239,7 +3245,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
-						Message:            "couldn't assign flavors to pod set one: topology \"tas-single-level\" allows to fit only 1 out of 2 pod(s). Pending the preemption of 1 workload(s)",
+						Message:            `couldn't assign flavors to pod set one: topology "tas-single-level" allows to fit only 1 out of 2 pod(s). Pending the preemption of 1 workload(s)`,
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -3408,7 +3414,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
-						Message:            "couldn't assign flavors to pod set one: topology \"tas-single-level\" allows to fit only 1 out of 2 pod(s)",
+						Message:            `couldn't assign flavors to pod set one: topology "tas-single-level" allows to fit only 1 out of 2 pod(s)`,
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -4364,7 +4370,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
-						Message:            "couldn't assign flavors to pod set one: topology \"tas-single-level\" allows to fit only 1 out of 3 pod(s). Pending the preemption of 2 workload(s)",
+						Message:            `couldn't assign flavors to pod set one: topology "tas-single-level" allows to fit only 1 out of 3 pod(s). Total nodes: 2; excluded: resource "cpu": 1. Pending the preemption of 2 workload(s)`,
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -5050,7 +5056,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
-						Message:            "couldn't assign flavors to pod set one: topology \"tas-single-level\" allows to fit only 3 out of 4 pod(s). Pending the preemption of 1 workload(s)",
+						Message:            `couldn't assign flavors to pod set one: topology "tas-single-level" allows to fit only 3 out of 4 pod(s). Pending the preemption of 1 workload(s)`,
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -5180,7 +5186,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
-						Message:            "couldn't assign flavors to pod set one: topology \"tas-single-level\" allows to fit only 3 out of 4 pod(s)",
+						Message:            `couldn't assign flavors to pod set one: topology "tas-single-level" allows to fit only 3 out of 4 pod(s)`,
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -5310,7 +5316,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
-						Message:            "couldn't assign flavors to pod set one: topology \"tas-single-level\" allows to fit only 3 out of 4 pod(s)",
+						Message:            `couldn't assign flavors to pod set one: topology "tas-single-level" allows to fit only 3 out of 4 pod(s)`,
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
