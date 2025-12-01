@@ -22,6 +22,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -471,6 +472,118 @@ func TestSortedDomainsWithNodeAvoidance(t *testing.T) {
 			domains := []*domain{
 				s.domainsPerLevel[0][utiltas.DomainID([]string{"node-2-healthy"})],
 				s.domainsPerLevel[0][utiltas.DomainID([]string{"node-1-unhealthy"})],
+			}
+
+			gotDomains := s.sortedDomains(domains, false, tc.policy)
+			gotValues := make([]string, len(gotDomains))
+			for i, d := range gotDomains {
+				gotValues[i] = d.levelValues[0]
+			}
+
+			if diff := cmp.Diff(tc.want, gotValues); diff != "" {
+				t.Errorf("unexpected sorted domains (-want,+got): %s", diff)
+			}
+		})
+	}
+}
+
+func TestSortedDomainsWithNodeAvoidance_Hierarchy(t *testing.T) {
+	levels := []string{"rack", "kubernetes.io/hostname"}
+	unhealthyLabel := "unhealthy"
+	nodes := []corev1.Node{
+		*node.MakeNode("r1-n1").Label("rack", "r1").Label("kubernetes.io/hostname", "r1-n1").Label(unhealthyLabel, "true").Obj(),
+		*node.MakeNode("r1-n2").Label("rack", "r1").Label("kubernetes.io/hostname", "r1-n2").Obj(),
+		*node.MakeNode("r2-n1").Label("rack", "r2").Label("kubernetes.io/hostname", "r2-n1").Obj(),
+		*node.MakeNode("r2-n2").Label("rack", "r2").Label("kubernetes.io/hostname", "r2-n2").Obj(),
+	}
+
+	cases := map[string]struct {
+		policy string
+		want   []string
+	}{
+		"prefer healthy - healthy rack first": {
+			policy: controllerconsts.NodeAvoidancePolicyPreferHealthy,
+			want:   []string{"r2", "r1"},
+		},
+		"no policy - sorts by name": {
+			policy: "",
+			want:   []string{"r1", "r2"},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
+			s := newTASFlavorSnapshot(log, "dummy", levels, nil, unhealthyLabel)
+			for _, node := range nodes {
+				s.addNode(node)
+			}
+			s.initialize()
+
+			racks := []*domain{
+				s.domainsPerLevel[0][utiltas.DomainID([]string{"r1"})],
+				s.domainsPerLevel[0][utiltas.DomainID([]string{"r2"})],
+			}
+
+			gotDomains := s.sortedDomains(racks, false, tc.policy)
+			gotValues := make([]string, len(gotDomains))
+			for i, d := range gotDomains {
+				gotValues[i] = d.levelValues[0]
+			}
+
+			if diff := cmp.Diff(tc.want, gotValues); diff != "" {
+				t.Errorf("unexpected sorted domains (-want,+got): %s", diff)
+			}
+		})
+	}
+}
+
+func TestSortedDomainsWithNodeAvoidance_Capacity(t *testing.T) {
+	levels := []string{"kubernetes.io/hostname"}
+	unhealthyLabel := "unhealthy"
+	nodes := []corev1.Node{
+		*node.MakeNode("node-unhealthy").
+			Label("kubernetes.io/hostname", "node-unhealthy").
+			Label(unhealthyLabel, "true").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("8"),
+			}).Obj(),
+		*node.MakeNode("node-healthy").
+			Label("kubernetes.io/hostname", "node-healthy").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("1"),
+			}).Obj(),
+	}
+
+	cases := map[string]struct {
+		policy string
+		want   []string
+	}{
+		"prefer healthy - healthy first despite lower capacity": {
+			policy: controllerconsts.NodeAvoidancePolicyPreferHealthy,
+			want:   []string{"node-healthy", "node-unhealthy"},
+		},
+		"no policy - capacity wins (LeastFreeCapacity/BestFit logic)": {
+			policy: "",
+			want:   []string{"node-unhealthy", "node-healthy"},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
+			s := newTASFlavorSnapshot(log, "dummy", levels, nil, unhealthyLabel)
+			for _, node := range nodes {
+				s.addNode(node)
+			}
+			s.initialize()
+
+			s.leaves[utiltas.DomainID([]string{"node-unhealthy"})].sliceState = 8
+			s.leaves[utiltas.DomainID([]string{"node-healthy"})].sliceState = 1
+
+			domains := []*domain{
+				s.domainsPerLevel[0][utiltas.DomainID([]string{"node-unhealthy"})],
+				s.domainsPerLevel[0][utiltas.DomainID([]string{"node-healthy"})],
 			}
 
 			gotDomains := s.sortedDomains(domains, false, tc.policy)
