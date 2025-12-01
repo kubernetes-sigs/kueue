@@ -1039,6 +1039,78 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 		})
 	})
+
+	ginkgo.When("Cluster Role Sharing", func() {
+		var (
+			// Regular Kueue Cluster Queues and Local Queues
+			managerRegularCq *kueue.ClusterQueue
+			managerRegularLq *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			managerRegularCq = utiltestingapi.MakeClusterQueue("q2").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(managerFlavor.Name).
+						Resource(corev1.ResourceCPU, "1").
+						Resource(corev1.ResourceMemory, "2G").
+						Obj(),
+				).
+				Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sManagerClient, managerRegularCq)
+			managerRegularLq = utiltestingapi.MakeLocalQueue(managerRegularCq.Name, managerNs.Name).ClusterQueue(managerRegularCq.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sManagerClient, managerRegularLq)
+		})
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerRegularCq, true, util.LongTimeout)
+		})
+
+		ginkgo.It("should allow to run a MultiKueue and a regular Job on the same cluster", func() {
+			jobMk := testingjob.MakeJob("job-mk", managerNs.Name).
+				Queue(kueue.LocalQueueName(managerLq.Name)).
+				RequestAndLimit(corev1.ResourceCPU, "1").
+				RequestAndLimit(corev1.ResourceMemory, "2G").
+				TerminationGracePeriod(1).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Obj()
+			jobRegular := testingjob.MakeJob("job-regular", managerNs.Name).
+				Queue(kueue.LocalQueueName(managerRegularLq.Name)).
+				RequestAndLimit(corev1.ResourceCPU, "1").
+				RequestAndLimit(corev1.ResourceMemory, "2G").
+				TerminationGracePeriod(1).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Obj()
+
+			ginkgo.By("Creating jobs", func() {
+				util.MustCreate(ctx, k8sManagerClient, jobMk)
+				expectJobToBeCreatedAndManagedBy(ctx, k8sManagerClient, jobMk, kueue.MultiKueueControllerName)
+				util.MustCreate(ctx, k8sManagerClient, jobRegular)
+				expectJobToBeCreatedAndManagedBy(ctx, k8sManagerClient, jobRegular, "")
+			})
+
+			ginkgo.By("Verifying both jobs are unsuspended and running", func() {
+				for _, job := range []*batchv1.Job{jobMk, jobRegular} {
+					util.ExpectJobUnsuspended(ctx, k8sManagerClient, client.ObjectKeyFromObject(job))
+					util.ExpectJobToBeRunning(ctx, k8sManagerClient, job)
+				}
+			})
+
+			ginkgo.By("Finishing the MK job's pod", func() {
+				listOpts := util.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", jobMk.Name))
+				util.WaitForActivePodsAndTerminate(ctx, k8sWorker2Client, worker2RestClient, worker2Cfg, jobMk.Namespace, 1, 0, listOpts)
+			})
+
+			ginkgo.By("Finishing the regular job's pod", func() {
+				listOpts := util.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", jobRegular.Name))
+				util.WaitForActivePodsAndTerminate(ctx, k8sManagerClient, managerRestClient, managerCfg, jobRegular.Namespace, 1, 0, listOpts)
+			})
+
+			ginkgo.By("Waiting for both jobs to complete", func() {
+				util.ExpectJobToBeCompleted(ctx, k8sManagerClient, jobMk)
+				util.ExpectJobToBeCompleted(ctx, k8sManagerClient, jobRegular)
+			})
+		})
+	})
 })
 
 func waitForJobAdmitted(wlLookupKey types.NamespacedName, acName, workerName string) {
@@ -1116,5 +1188,14 @@ func expectObjectToBeDeletedOnWorkerClusters[PtrT objAsPtr[T], T any](ctx contex
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		util.ExpectObjectToBeDeleted(ctx, k8sWorker1Client, obj, false)
 		util.ExpectObjectToBeDeleted(ctx, k8sWorker2Client, obj, false)
+	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+}
+
+func expectJobToBeCreatedAndManagedBy(ctx context.Context, c client.Client, job *batchv1.Job, managedBy string) {
+	ginkgo.GinkgoHelper()
+	createdJob := &batchv1.Job{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
+		g.Expect(ptr.Deref(createdJob.Spec.ManagedBy, "")).To(gomega.Equal(managedBy))
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 }
