@@ -476,6 +476,7 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 	}
 	m.reportPendingWorkloads(q.ClusterQueue, cq)
 	m.Broadcast()
+	log.V(5).Info("Added/updated workload in queues; Broadcast successful.")
 	return nil
 }
 

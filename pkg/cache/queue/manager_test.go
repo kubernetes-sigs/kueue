@@ -403,6 +403,21 @@ func TestDeleteLocalQueue(t *testing.T) {
 }
 
 func TestAddWorkload(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	manager := NewManager(utiltesting.NewFakeClient(), nil)
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
+	}
+	queues := []*kueue.LocalQueue{
+		utiltestingapi.MakeLocalQueue("foo", "earth").ClusterQueue("cq").Obj(),
+		utiltestingapi.MakeLocalQueue("bar", "mars").Obj(),
+	}
+	for _, q := range queues {
+		if err := manager.AddLocalQueue(ctx, q); err != nil {
+			t.Fatalf("Failed adding queue %s: %v", q.Name, err)
+		}
+	}
 	cases := []struct {
 		workload    *kueue.Workload
 		wantErr     error
@@ -1057,8 +1072,7 @@ func TestHeadsAsync(t *testing.T) {
 					t.Errorf("Failed adding queue: %s", err)
 				}
 				go func() {
-					log := logr.FromContextOrDiscard(ctx)
-					if err := mgr.AddOrUpdateWorkload(log, &wl); err != nil {
+					if err := mgr.AddOrUpdateWorkload(logr.FromContextOrDiscard(ctx), &wl); err != nil {
 						t.Errorf("Failed to add or update workload: %v", err)
 					}
 				}()
@@ -1098,8 +1112,7 @@ func TestHeadsAsync(t *testing.T) {
 					t.Errorf("Failed adding queue: %s", err)
 				}
 				go func() {
-					log := logr.FromContextOrDiscard(ctx)
-					if err := mgr.AddOrUpdateWorkload(log, &wl); err != nil {
+					if err := mgr.AddOrUpdateWorkload(logr.FromContextOrDiscard(ctx), &wl); err != nil {
 						t.Errorf("Failed to add or update workload: %v", err)
 					}
 				}()
