@@ -416,6 +416,8 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 			admittedWorkloads:  0,
 			totalReserved:      make(resources.FlavorResourceQuantities),
 			admittedUsage:      make(resources.FlavorResourceQuantities),
+			wallTimeUsage:      make(resources.FlavorWallTimeQuantities),
+			wallTimePolicy:     q.Spec.WallTimePolicy,
 		}
 		qImpl.resetFlavorsAndResources(cqImpl.resourceNode.Usage, cqImpl.AdmittedUsage)
 		cqImpl.localQueues[qKey] = qImpl

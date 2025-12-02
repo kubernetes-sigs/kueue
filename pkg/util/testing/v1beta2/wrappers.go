@@ -759,6 +759,12 @@ func (q *LocalQueueWrapper) WallTimePolicy(wallTimeAllocatedHours int32, action 
 	return q
 }
 
+// WallTimeFlavorUsage sets the wall time flavor usage status.
+func (q *LocalQueueWrapper) WallTimeFlavorUsage(usages ...kueue.WallTimeFlavorUsage) *LocalQueueWrapper {
+	q.Status.WallTimeFlavorUsage = usages
+	return q
+}
+
 // PendingWorkloads updates the pendingWorkloads in status.
 func (q *LocalQueueWrapper) PendingWorkloads(n int32) *LocalQueueWrapper {
 	q.Status.PendingWorkloads = n

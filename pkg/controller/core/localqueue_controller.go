@@ -183,6 +183,13 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	if features.Enabled(features.WallTimeLimits) && queueObj.Spec.WallTimePolicy != nil {
+		if err := r.updateLocalQueueWallTimeUsageStatus(ctx, &queueObj); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+
 	if afs.Enabled(r.admissionFSConfig) {
 		initNeeded := r.initializeAfsIfNeeded(&queueObj)
 		lqKey := utilqueue.Key(&queueObj)
@@ -204,12 +211,6 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{RequeueAfter: r.admissionFSConfig.UsageSamplingInterval.Duration}, nil
 	}
 
-	if features.Enabled(features.WallTimeLimits) && queueObj.Spec.WallTimePolicy != nil {
-		if err := r.updateLocalQueueWallTimeUsageStatus(ctx, &queueObj); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
-	}
 	return ctrl.Result{}, nil
 }
 
@@ -372,7 +373,6 @@ func (r *LocalQueueReconciler) updateLocalQueueWallTimeUsageStatus(ctx context.C
 		r.log.Error(err, failedUpdateLqStatusMsg)
 		return err
 	}
-	r.log.V(2).Info("LocalQueue Update Wall Time Usage", "localQueueStats", stats)
 	lq.Status.WallTimeFlavorUsage = stats.WallTimeUsage
 	return r.client.Status().Update(ctx, lq)
 
@@ -545,7 +545,6 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 	queue.Status.AdmittedWorkloads = int32(stats.AdmittedWorkloads)
 	queue.Status.FlavorsReservation = stats.ReservedResources
 	queue.Status.FlavorsUsage = stats.AdmittedResources
-	queue.Status.WallTimeFlavorUsage = stats.WallTimeUsage
 	if len(conditionStatus) != 0 && len(reason) != 0 && len(msg) != 0 {
 		meta.SetStatusCondition(&queue.Status.Conditions, metav1.Condition{
 			Type:               kueue.LocalQueueActive,

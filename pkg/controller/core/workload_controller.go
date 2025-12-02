@@ -621,8 +621,8 @@ func (r *WorkloadReconciler) reconcileWallTimeTracking(ctx context.Context, wl *
 		}
 	}
 
-	// Requeue after 1 second to update wall time
-	return time.Second, nil
+	// Requeue after 5 minutes to update wall time
+	return 5 * time.Minute, nil
 }
 
 // reconcileCheckBasedEviction evicts or deactivates the given Workload if any admission checks have failed.

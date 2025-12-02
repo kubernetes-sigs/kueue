@@ -9,6 +9,10 @@ metadata:
   name: "cluster-queue"
 spec:
   namespaceSelector: {} # match all.
+  wallTimePolicy:
+    wallTimeFlavors:
+      - name: "default-flavor"
+        wallTimeAllocatedHours: 1
   resourceGroups:
   - coveredResources: ["cpu", "memory"]
     flavors:
@@ -28,6 +32,6 @@ metadata:
 spec:
   clusterQueue: "cluster-queue"
   wallTimePolicy:
-    wallTimeAllocatedHours: 100
+    wallTimeAllocatedHours: 1
     actionWhenWallTimeExhausted: Hold
 
