@@ -639,6 +639,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			wl := utiltestingapi.MakeWorkload("wl", ns.Name).
 				Queue("queue").
 				Request(corev1.ResourceCPU, "1").
+				WallTimeSeconds(60).
 				Obj()
 			key := client.ObjectKeyFromObject(wl)
 

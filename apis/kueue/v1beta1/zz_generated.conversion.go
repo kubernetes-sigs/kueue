@@ -1723,7 +1723,7 @@ func autoConvert_v1beta1_LocalQueueStatus_To_v1beta2_LocalQueueStatus(in *LocalQ
 	// WARNING: in.FlavorUsage requires manual conversion: does not exist in peer-type
 	// WARNING: in.Flavors requires manual conversion: does not exist in peer-type
 	out.FairSharing = (*v1beta2.LocalQueueFairSharingStatus)(unsafe.Pointer(in.FairSharing))
-	// WARNING: in.WallTimePolicy requires manual conversion: does not exist in peer-type
+	out.WallTimeFlavorUsage = *(*[]v1beta2.WallTimeFlavorUsage)(unsafe.Pointer(&in.WallTimeFlavorUsage))
 	return nil
 }
 
@@ -1735,7 +1735,7 @@ func autoConvert_v1beta2_LocalQueueStatus_To_v1beta1_LocalQueueStatus(in *v1beta
 	out.FlavorsReservation = *(*[]LocalQueueFlavorUsage)(unsafe.Pointer(&in.FlavorsReservation))
 	// WARNING: in.FlavorsUsage requires manual conversion: does not exist in peer-type
 	out.FairSharing = (*FairSharingStatus)(unsafe.Pointer(in.FairSharing))
-	// WARNING: in.WallTimeFlavorUsage requires manual conversion: does not exist in peer-type
+	out.WallTimeFlavorUsage = *(*[]WallTimeFlavorUsage)(unsafe.Pointer(&in.WallTimeFlavorUsage))
 	return nil
 }
 
