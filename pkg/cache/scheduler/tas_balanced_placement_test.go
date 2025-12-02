@@ -23,6 +23,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -163,6 +165,47 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 
 			if diff := cmp.Diff(tc.want, got, cmp.AllowUnexported(domain{}), cmpopts.IgnoreFields(domain{}, "parent", "children", "levelValues"), cmpopts.SortSlices(func(a, b *domain) bool { return a.id < b.id })); diff != "" {
 				t.Errorf("Unexpected domains (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestSortDomainsByCapacityAndEntropy(t *testing.T) {
+	d1 := &domain{id: "d1", state: 9, sliceState: 9, leaderState: 1, stateWithLeader: 8, sliceStateWithLeader: 8, hasUnhealthyNodes: true}
+	d2 := &domain{id: "d2", state: 6, sliceState: 6, leaderState: 0, stateWithLeader: 6, sliceStateWithLeader: 6, hasUnhealthyNodes: false}
+	d3 := &domain{id: "d3", state: 4, sliceState: 4, leaderState: 1, stateWithLeader: 3, sliceStateWithLeader: 3, hasUnhealthyNodes: true}
+	d4 := &domain{id: "d4", state: 2, sliceState: 2, leaderState: 0, stateWithLeader: 2, sliceStateWithLeader: 2, hasUnhealthyNodes: false}
+
+	testCases := map[string]struct {
+		domains     []*domain
+		policy      string
+		featureGate bool
+		want        []string
+	}{
+		"prefer-healthy policy enabled": {
+			domains:     []*domain{d1, d2, d3, d4},
+			policy:      controllerconsts.NodeAvoidancePolicyPreferHealthy,
+			featureGate: true,
+			want:        []string{"d2", "d4", "d1", "d3"},
+		},
+		"prefer-healthy policy disabled": {
+			domains:     []*domain{d1, d2, d3, d4},
+			policy:      controllerconsts.NodeAvoidancePolicyPreferHealthy,
+			featureGate: false,
+			want:        []string{"d1", "d3", "d2", "d4"},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.FailureAwareScheduling, tc.featureGate)
+			sortDomainsByCapacityAndEntropy(tc.domains, tc.policy)
+			gotIDs := make([]string, len(tc.domains))
+			for i, d := range tc.domains {
+				gotIDs[i] = string(d.id)
+			}
+			if diff := cmp.Diff(tc.want, gotIDs); diff != "" {
+				t.Errorf("unexpected sorted domains (-want,+got): %s", diff)
 			}
 		})
 	}

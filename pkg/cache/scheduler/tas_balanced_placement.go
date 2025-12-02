@@ -22,6 +22,7 @@ import (
 	"slices"
 
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
@@ -217,7 +218,7 @@ func calculateEntropy(blockSizes []int32) float64 {
 func sortDomainsByCapacityAndEntropy(domains []*domain, policy string) {
 	slices.SortFunc(domains, func(a, b *domain) int {
 		// Prefer healthy nodes if policy is PreferHealthy
-		if policy == controllerconsts.NodeAvoidancePolicyPreferHealthy {
+		if features.Enabled(features.FailureAwareScheduling) && policy == controllerconsts.NodeAvoidancePolicyPreferHealthy {
 			if a.hasUnhealthyNodes != b.hasUnhealthyNodes {
 				if !a.hasUnhealthyNodes {
 					return -1
