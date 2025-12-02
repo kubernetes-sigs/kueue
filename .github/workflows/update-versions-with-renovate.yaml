@@ -22,7 +22,7 @@ jobs:
       - name: checkout
         uses: actions/checkout@v6
       - name: run renovate
-        uses: renovatebot/github-action@v44.0.4
+        uses: renovatebot/github-action@v44.0.5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           configurationFile: renovate.json
