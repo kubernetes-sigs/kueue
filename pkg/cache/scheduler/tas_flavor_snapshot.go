@@ -469,7 +469,7 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests F
 
 	for _, groupKey := range groupsOrder {
 		trs := groupedTASRequests[groupKey]
-		if workload.HasUnhealthyNodes(opts.workload) {
+		if features.Enabled(features.FailureAwareScheduling) && workload.HasUnhealthyNodes(opts.workload) {
 			for _, tr := range trs {
 				// In case of looking for Node replacement, TopologyRequest has only
 				// PodSets with the Node to replace, so we match PodSetAssignment
@@ -1283,7 +1283,7 @@ func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstra
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 
 	// Filter out unhealthy nodes if policy is DisallowUnhealthy
-	if policy == controllerconsts.NodeAvoidancePolicyDisallowUnhealthy && s.isLowestLevelNode() {
+	if features.Enabled(features.FailureAwareScheduling) && policy == controllerconsts.NodeAvoidancePolicyDisallowUnhealthy && s.isLowestLevelNode() {
 		filtered := make([]*domain, 0, len(domains))
 		for _, d := range domains {
 			if len(d.children) == 0 && d.hasUnhealthyNodes {
@@ -1297,7 +1297,7 @@ func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstra
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {
 		// Prefer healthy nodes if policy is PreferHealthy
-		if policy == controllerconsts.NodeAvoidancePolicyPreferHealthy {
+		if features.Enabled(features.FailureAwareScheduling) && policy == controllerconsts.NodeAvoidancePolicyPreferHealthy {
 			if a.hasUnhealthyNodes != b.hasUnhealthyNodes {
 				if !a.hasUnhealthyNodes {
 					return -1
@@ -1339,7 +1339,7 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool,
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 
 	// Filter out unhealthy nodes if policy is DisallowUnhealthy
-	if policy == controllerconsts.NodeAvoidancePolicyDisallowUnhealthy && s.isLowestLevelNode() {
+	if features.Enabled(features.FailureAwareScheduling) && policy == controllerconsts.NodeAvoidancePolicyDisallowUnhealthy && s.isLowestLevelNode() {
 		filtered := make([]*domain, 0, len(domains))
 		for _, d := range domains {
 			if len(d.children) == 0 && d.hasUnhealthyNodes {
@@ -1353,7 +1353,7 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool,
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {
 		// Prefer healthy nodes if policy is PreferHealthy
-		if policy == controllerconsts.NodeAvoidancePolicyPreferHealthy {
+		if features.Enabled(features.FailureAwareScheduling) && policy == controllerconsts.NodeAvoidancePolicyPreferHealthy {
 			if a.hasUnhealthyNodes != b.hasUnhealthyNodes {
 				if !a.hasUnhealthyNodes {
 					return -1

@@ -254,6 +254,8 @@ func main() {
 	}
 	if features.Enabled(features.FailureAwareScheduling) && unhealthyNodeLabel != "" {
 		cacheOptions = append(cacheOptions, schdcache.WithUnhealthyNodeLabel(unhealthyNodeLabel))
+	} else {
+		unhealthyNodeLabel = ""
 	}
 	if features.Enabled(features.ConfigurableResourceTransformations) && cfg.Resources != nil && len(cfg.Resources.Transformations) > 0 {
 		cacheOptions = append(cacheOptions, schdcache.WithResourceTransformations(cfg.Resources.Transformations))
