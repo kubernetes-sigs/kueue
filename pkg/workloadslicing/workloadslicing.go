@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/utils/clock"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -278,11 +279,13 @@ func EnsureWorkloadSlices(ctx context.Context, clnt client.Client, clk clock.Clo
 // Returns:
 // - An error if any of the operations fail; otherwise, nil.
 func StartWorkloadSlicePods(ctx context.Context, clnt client.Client, object client.Object) error {
+	log := ctrl.LoggerFrom(ctx)
 	list := &corev1.PodList{}
 	if err := clnt.List(ctx, list, client.InNamespace(object.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(object.GetUID())}); err != nil {
 		return fmt.Errorf("failed to list job pods: %w", err)
 	}
 	for i := range list.Items {
+		log.V(2).Info("Patching pod to remove elastic job scheduling gate", "podName", list.Items[i].Name)
 		if err := clientutil.Patch(ctx, clnt, &list.Items[i], func() (client.Object, bool, error) {
 			return &list.Items[i], pod.Ungate(&list.Items[i], kueue.ElasticJobSchedulingGate), nil
 		}); err != nil {
