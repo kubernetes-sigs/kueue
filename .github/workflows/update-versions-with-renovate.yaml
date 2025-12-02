@@ -5,10 +5,6 @@ on:
     # Once a week
     - cron: '0 0 * * 0'
   workflow_dispatch:
-# TODO: remove once permission issue is resolved
-  pull_request:
-    branches:
-      - main
 
 jobs:
   renovate:
