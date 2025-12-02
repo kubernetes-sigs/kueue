@@ -79,7 +79,7 @@ spec:
             - value
           type: object
       served: true
-      storage: true
+      storage: false
       subresources: {}
     - additionalPrinterColumns:
         - description: Value of workloadPriorityClass's Priority
@@ -126,5 +126,5 @@ spec:
             - value
           type: object
       served: true
-      storage: false
+      storage: true
       subresources: {}
