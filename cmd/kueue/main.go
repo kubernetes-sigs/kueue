@@ -194,7 +194,9 @@ func main() {
 	}
 	options.Metrics = metricsServerOptions
 
-	metrics.Register()
+	metrics.Register(metrics.Configuration{
+		CustomTags: cfg.Metrics.CustomMetricTags,
+	})
 
 	kubeConfig := ctrl.GetConfigOrDie()
 	if kubeConfig.UserAgent == "" {
