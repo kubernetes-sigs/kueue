@@ -165,13 +165,18 @@ func TestSetupControllers(t *testing.T) {
 				t.Fatalf("Failed to setup manager: %v", err)
 			}
 
+			manager.createCrdNotifiersMap()
+			if err := manager.prepareChannelsForEnabledIntegrations(mgr, tc.opts...); err != nil {
+				t.Fatalf("Failed to prepare CRD channels: %v", err)
+			}
+
 			gotError := manager.setupControllers(ctx, mgr, logger, tc.opts...)
 			if diff := cmp.Diff(tc.wantError, gotError, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Errorf("Unexpected error from SetupControllers (-want,+got):\n%s", diff)
 			}
 
 			if len(tc.delayedGVKs) > 0 {
-				simulateDelayedIntegration(mgr, tc.delayedGVKs)
+				simulateDelayedIntegration(mgr, &manager, tc.delayedGVKs)
 				for _, gvk := range tc.delayedGVKs {
 					testDelayedIntegration(&manager, gvk.Group+"/"+strings.ToLower(gvk.Kind))
 				}
@@ -197,13 +202,21 @@ func (m *TestRESTMapper) RESTMapping(gk schema.GroupKind, versions ...string) (*
 }
 
 // Simulates the delayed availability of GVKs
-func simulateDelayedIntegration(mgr ctrlmgr.Manager, delayedGVKs []*schema.GroupVersionKind) {
+func simulateDelayedIntegration(mgr ctrlmgr.Manager, manager *integrationManager, delayedGVKs []*schema.GroupVersionKind) {
 	mapper := mgr.GetRESTMapper().(*TestRESTMapper)
 	mapper.lock.Lock()
-	defer mapper.lock.Unlock()
-
 	for _, gvk := range delayedGVKs {
 		mapper.Add(*gvk, apimeta.RESTScopeNamespace)
+	}
+	mapper.lock.Unlock()
+
+	manager.crdNotifiersMu.Lock()
+	defer manager.crdNotifiersMu.Unlock()
+	for _, gvk := range delayedGVKs {
+		if notifier, exists := manager.crdNotifiers[*gvk]; exists {
+			close(notifier)
+			delete(manager.crdNotifiers, *gvk)
+		}
 	}
 }
 
@@ -392,11 +405,14 @@ func TestNotifyCRDAvailable(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			manager := integrationManager{}
+			manager.createCrdNotifiersMap()
+
 			_, logger := utiltesting.ContextWithLog(t)
 			crdNotifyCh := make(chan struct{}, 1)
-			crdNotifiers[tt.wantGVK] = crdNotifyCh
+			manager.crdNotifiers[tt.wantGVK] = crdNotifyCh
 
-			notifyCRDAvailable(tt.crd, logger)
+			manager.notifyCRDAvailable(tt.crd, logger)
 
 			select {
 			case <-crdNotifyCh:
@@ -410,14 +426,14 @@ func TestNotifyCRDAvailable(t *testing.T) {
 				Kind:    "WrongKind",
 			}
 			wrongCh := make(chan struct{}, 1)
-			crdNotifiers[wrongGVK] = wrongCh
+			manager.crdNotifiers[wrongGVK] = wrongCh
 
-			notifyCRDAvailable(tt.crd, logger)
+			manager.notifyCRDAvailable(tt.crd, logger)
 
 			select {
 			case <-wrongCh:
 				t.Errorf("Notification incorrectly sent for wrong GVK: %v", wrongGVK)
-			case <-time.After(200 * time.Millisecond):
+			case <-time.After(2 * time.Second):
 			}
 		})
 	}
