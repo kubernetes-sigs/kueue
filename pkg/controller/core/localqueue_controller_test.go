@@ -60,6 +60,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 		runningWls               []kueue.Workload
 		wantRequeueAfter         *time.Duration
 		initialConsumedResources queueafs.ConsumedResourcesEntry
+		enableWallTimeLimits     bool
 	}{
 		"local queue with Hold StopPolicy": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("test-cluster-queue").
@@ -568,6 +569,244 @@ func TestLocalQueueReconcile(t *testing.T) {
 				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
 			},
 		},
+		"local queue with WallTimePolicy updates status": {
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				Obj(),
+			localQueue: utiltestingapi.MakeLocalQueue("lq", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				WallTimePolicy(100, kueue.Hold).
+				Obj(),
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				WallTimePolicy(100, kueue.Hold).
+				Obj(),
+			wantRequeueAfter:     ptr.To(30 * time.Second),
+			enableWallTimeLimits: true,
+		},
+		"local queue with WallTimePolicy and running workloads": {
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				Obj(),
+			localQueue: utiltestingapi.MakeLocalQueue("lq", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				WallTimePolicy(100, kueue.Hold).
+				Obj(),
+			runningWls: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "default").
+					Queue("lq").
+					Request(corev1.ResourceCPU, "4").
+					SimpleReserveQuota("cq", "rf", clock.Now()).
+					Admitted(true).
+					Obj(),
+			},
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				ReservingWorkloads(1).
+				AdmittedWorkloads(1).
+				WallTimePolicy(100, kueue.Hold).
+				Obj(),
+			wantRequeueAfter:     ptr.To(30 * time.Second),
+			enableWallTimeLimits: true,
+		},
+		"local queue with WallTimePolicy HoldAndDrain action": {
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				Obj(),
+			localQueue: utiltestingapi.MakeLocalQueue("lq", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				WallTimePolicy(50, kueue.HoldAndDrain).
+				Obj(),
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				WallTimePolicy(50, kueue.HoldAndDrain).
+				Obj(),
+			wantRequeueAfter:     ptr.To(30 * time.Second),
+			enableWallTimeLimits: true,
+		},
+		"local queue without WallTimePolicy does not requeue": {
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				Obj(),
+			localQueue: utiltestingapi.MakeLocalQueue("lq", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				Obj(),
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				Obj(),
+		},
+		"local queue with WallTimePolicy and inactive cluster queue": {
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				Obj(),
+			localQueue: utiltestingapi.MakeLocalQueue("lq", "default").
+				ClusterQueue("cq").
+				WallTimePolicy(100, kueue.Hold).
+				Obj(),
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq", "default").
+				ClusterQueue("cq").
+				WallTimePolicy(100, kueue.Hold).
+				Condition(
+					kueue.LocalQueueActive,
+					metav1.ConditionFalse,
+					clusterQueueIsInactiveReason,
+					clusterQueueIsInactiveMsg,
+					0,
+				).
+				Obj(),
+			enableWallTimeLimits: true,
+		},
+		"local queue with WallTimePolicy and stopped policy": {
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				Obj(),
+			localQueue: utiltestingapi.MakeLocalQueue("lq", "default").
+				ClusterQueue("cq").
+				WallTimePolicy(100, kueue.Hold).
+				StopPolicy(kueue.Hold).
+				Obj(),
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq", "default").
+				ClusterQueue("cq").
+				WallTimePolicy(100, kueue.Hold).
+				StopPolicy(kueue.Hold).
+				Condition(
+					kueue.LocalQueueActive,
+					metav1.ConditionFalse,
+					StoppedReason,
+					localQueueIsInactiveMsg,
+					0,
+				).
+				Obj(),
+			enableWallTimeLimits: true,
+		},
+		"local queue with WallTimePolicy but feature gate disabled does not requeue": {
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				Obj(),
+			localQueue: utiltestingapi.MakeLocalQueue("lq", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				WallTimePolicy(100, kueue.Hold).
+				Obj(),
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				WallTimePolicy(100, kueue.Hold).
+				Obj(),
+			enableWallTimeLimits: false,
+		},
+		"local queue with WallTimePolicy propagates WallTimeFlavorUsage status": {
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor-a").Resource(corev1.ResourceCPU, "10").Obj(),
+				).
+				WallTimePolicy(
+					kueue.WallTimeFlavor{Name: "flavor-a", WallTimeAllocatedHours: 100, ActionWhenWallTimeExhausted: kueue.Hold},
+				).
+				Obj(),
+			localQueue: utiltestingapi.MakeLocalQueue("lq", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				WallTimePolicy(100, kueue.Hold).
+				Obj(),
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				WallTimePolicy(100, kueue.Hold).
+				WallTimeFlavorUsage(
+					kueue.WallTimeFlavorUsage{
+						Name:              "flavor-a",
+						WallTimeAllocated: 100,
+						WallTimeUsed:      0,
+					},
+				).
+				Obj(),
+			wantRequeueAfter:     ptr.To(30 * time.Second),
+			enableWallTimeLimits: true,
+			wantError:            nil,
+		},
+		"local queue with WallTimePolicy and admitted workloads shows wall time usage": {
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor-a").Resource(corev1.ResourceCPU, "10").Obj(),
+				).
+				WallTimePolicy(
+					kueue.WallTimeFlavor{Name: "flavor-a", WallTimeAllocatedHours: 100, ActionWhenWallTimeExhausted: kueue.Hold},
+				).
+				Obj(),
+			localQueue: utiltestingapi.MakeLocalQueue("lq", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				WallTimePolicy(100, kueue.Hold).
+				Obj(),
+			runningWls: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "default").
+					Queue("lq").
+					Request(corev1.ResourceCPU, "4").
+					SimpleReserveQuota("cq", "flavor-a", clock.Now()).
+					Admitted(true).
+					WallTimeSeconds(3600).
+					Obj(),
+			},
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				ReservingWorkloads(1).
+				AdmittedWorkloads(1).
+				WallTimePolicy(100, kueue.Hold).
+				WallTimeFlavorUsage(
+					kueue.WallTimeFlavorUsage{
+						Name:              "flavor-a",
+						WallTimeAllocated: 100,
+						WallTimeUsed:      1,
+					},
+				).
+				Obj(),
+			wantRequeueAfter:     ptr.To(30 * time.Second),
+			enableWallTimeLimits: true,
+		},
+		"local queue with feature gate off and WallTimePolicy and admitted workloads show wall time usage but no reconcile": {
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor-a").Resource(corev1.ResourceCPU, "10").Obj(),
+				).
+				WallTimePolicy(
+					kueue.WallTimeFlavor{Name: "flavor-a", WallTimeAllocatedHours: 100, ActionWhenWallTimeExhausted: kueue.Hold},
+				).
+				Obj(),
+			localQueue: utiltestingapi.MakeLocalQueue("lq", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				WallTimePolicy(100, kueue.Hold).
+				Obj(),
+			runningWls: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "default").
+					Queue("lq").
+					Request(corev1.ResourceCPU, "4").
+					SimpleReserveQuota("cq", "flavor-a", clock.Now()).
+					Admitted(true).
+					WallTimeSeconds(3600).
+					Obj(),
+			},
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				ReservingWorkloads(1).
+				AdmittedWorkloads(1).
+				WallTimePolicy(100, kueue.Hold).
+				Obj(),
+			enableWallTimeLimits: false,
+		},
 	}
 
 	for name, tc := range cases {
@@ -577,6 +816,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				tc.localQueue,
 			}
 			features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
+			features.SetFeatureGateDuringTest(t, features.WallTimeLimits, tc.enableWallTimeLimits)
 			cl := utiltesting.NewClientBuilder().
 				WithObjects(objs...).
 				WithStatusSubresource(objs...).
@@ -635,6 +875,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				util.IgnoreConditionTimestamps,
 				util.IgnoreObjectMetaResourceVersion,
 				cmpopts.IgnoreFields(kueue.LocalQueueAdmissionFairSharingStatus{}, "LastUpdate"),
+				cmpopts.IgnoreFields(kueue.LocalQueueStatus{}, "FlavorsReservation", "FlavorsUsage"),
 			}
 			if diff := cmp.Diff(tc.wantLocalQueue, gotLocalQueue, cmpOpts...); diff != "" {
 				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
