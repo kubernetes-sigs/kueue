@@ -460,4 +460,62 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 			gomega.Expect(job.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution).NotTo(gomega.BeNil())
 		})
 	})
+
+	ginkgo.Context("With Node Avoidance disabled", func() {
+		ginkgo.JustBeforeEach(func() {
+			gomega.Expect(features.SetEnable(features.FailureAwareScheduling, false)).To(gomega.Succeed())
+			fwk.StartManager(ctx, cfg, managerAndControllersSetup(
+				false, // setupTASControllers
+				true,  // enableScheduler
+				nil,   // configuration
+				jobframework.WithManagedJobsNamespaceSelector(testutil.NewNamespaceSelectorExcluding("unmanaged-ns")),
+				jobframework.WithUnhealthyNodeLabel(unhealthyLabel),
+			))
+			ginkgo.DeferCleanup(fwk.StopManager, ctx)
+		})
+
+		ginkgo.It("should not add affinity to the job", func() {
+			flavor = testing.MakeResourceFlavor("").Obj()
+			flavor.GenerateName = "default-flavor-"
+			gomega.Expect(k8sClient.Create(ctx, flavor)).To(gomega.Succeed())
+
+			clusterQueue = testing.MakeClusterQueue("").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas(flavor.Name).Resource(corev1.ResourceCPU, "10").Obj(),
+				).Obj()
+			clusterQueue.GenerateName = "cluster-queue-"
+			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+
+			localQueue = testing.MakeLocalQueue("", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			localQueue.GenerateName = "main-queue-"
+			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+
+			createNode("node-1", false) // Healthy
+
+			job := testingjob.MakeJob("job-no-affinity", ns.Name).
+				Queue(kueuev1beta2.LocalQueueName(localQueue.Name)).
+				SetAnnotation(constants.NodeAvoidancePolicyAnnotation, "disallow-unhealthy").
+				Request(corev1.ResourceCPU, "100m").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
+
+			// Expect Workload Admitted
+			createdWorkload := &kueue.Workload{}
+			wlLookupKey := types.NamespacedName{Name: jobframework.GetWorkloadNameForOwnerWithGVK(job.Name, job.UID, batchv1.SchemeGroupVersion.WithKind("Job")), Namespace: ns.Name}
+			gomega.Eventually(func() bool {
+				if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
+					return false
+				}
+				return IsAdmitted(createdWorkload)
+			}, testutil.Timeout, testutil.Interval).Should(gomega.BeTrue())
+
+			// Expect Job unsuspended and no Affinity injected
+			gomega.Eventually(func() bool {
+				gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: job.Name, Namespace: ns.Name}, job)).To(gomega.Succeed())
+				return !ptr.Deref(job.Spec.Suspend, true)
+			}, testutil.Timeout, testutil.Interval).Should(gomega.BeTrue())
+
+			gomega.Expect(job.Spec.Template.Spec.Affinity).To(gomega.BeNil())
+		})
+	})
 })
