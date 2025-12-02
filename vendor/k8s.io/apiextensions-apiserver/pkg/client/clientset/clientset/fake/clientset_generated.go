@@ -38,7 +38,11 @@ import (
 // without applying any field management, validations and/or defaults. It shouldn't be considered a replacement
 // for a real clientset and is mostly useful in simple unit tests.
 //
+<<<<<<< HEAD
 // Deprecated: NewClientset replaces this with support for field management, which significantly improves
+=======
+// DEPRECATED: NewClientset replaces this with support for field management, which significantly improves
+>>>>>>> e5f8dbbb4 (prepare channels before crd watcher starts)
 // server side apply testing. NewClientset is only available when apply configurations are generated (e.g.
 // via --with-applyconfig).
 func NewSimpleClientset(objects ...runtime.Object) *Clientset {
@@ -54,8 +58,13 @@ func NewSimpleClientset(objects ...runtime.Object) *Clientset {
 	cs.AddReactor("*", "*", testing.ObjectReaction(o))
 	cs.AddWatchReactor("*", func(action testing.Action) (handled bool, ret watch.Interface, err error) {
 		var opts metav1.ListOptions
+<<<<<<< HEAD
 		if watchAction, ok := action.(testing.WatchActionImpl); ok {
 			opts = watchAction.ListOptions
+=======
+		if watchActcion, ok := action.(testing.WatchActionImpl); ok {
+			opts = watchActcion.ListOptions
+>>>>>>> e5f8dbbb4 (prepare channels before crd watcher starts)
 		}
 		gvr := action.GetResource()
 		ns := action.GetNamespace()
@@ -86,6 +95,7 @@ func (c *Clientset) Tracker() testing.ObjectTracker {
 	return c.tracker
 }
 
+<<<<<<< HEAD
 // IsWatchListSemanticsSupported informs the reflector that this client
 // doesn't support WatchList semantics.
 //
@@ -97,6 +107,8 @@ func (c *Clientset) IsWatchListSemanticsUnSupported() bool {
 	return true
 }
 
+=======
+>>>>>>> e5f8dbbb4 (prepare channels before crd watcher starts)
 // NewClientset returns a clientset that will respond with the provided objects.
 // It's backed by a very simple object tracker that processes creates, updates and deletions as-is,
 // without applying any validations and/or defaults. It shouldn't be considered a replacement
