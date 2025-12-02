@@ -167,9 +167,12 @@ type LocalQueueStatus struct {
 	// +optional
 	FairSharing *FairSharingStatus `json:"fairSharing,omitempty"`
 
-	// wallTimePolicy defines the wallTimePolicy for the LocalQueue.
+	// wallTimeFlavorUsage contains the current wall time usage for this LocalQueue.
 	// +optional
-	WallTimePolicy *LocalQueueWallTimeLimits `json:"wallTimePolicy,omitempty"`
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=16
+	WallTimeFlavorUsage []WallTimeFlavorUsage `json:"wallTimeFlavorUsage,omitempty"`
 }
 
 type LocalQueueWallTimeLimits struct {

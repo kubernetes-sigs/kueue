@@ -1943,11 +1943,11 @@ workloads assigned to this LocalQueue.</p>
    <p>fairSharing contains the information about the current status of fair sharing.</p>
 </td>
 </tr>
-<tr><td><code>wallTimePolicy</code><br/>
-<a href="#kueue-x-k8s-io-v1beta1-LocalQueueWallTimeLimits"><code>LocalQueueWallTimeLimits</code></a>
+<tr><td><code>wallTimeFlavorUsage</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-WallTimeFlavorUsage"><code>[]WallTimeFlavorUsage</code></a>
 </td>
 <td>
-   <p>wallTimePolicy defines the wallTimePolicy for the LocalQueue.</p>
+   <p>wallTimeFlavorUsage contains the current wall time usage for this LocalQueue.</p>
 </td>
 </tr>
 </tbody>
@@ -1959,8 +1959,6 @@ workloads assigned to this LocalQueue.</p>
 **Appears in:**
 
 - [LocalQueueSpec](#kueue-x-k8s-io-v1beta1-LocalQueueSpec)
-
-- [LocalQueueStatus](#kueue-x-k8s-io-v1beta1-LocalQueueStatus)
 
 
 
@@ -3316,6 +3314,8 @@ The possible values are:</p>
 **Appears in:**
 
 - [ClusterQueueStatus](#kueue-x-k8s-io-v1beta1-ClusterQueueStatus)
+
+- [LocalQueueStatus](#kueue-x-k8s-io-v1beta1-LocalQueueStatus)
 
 
 

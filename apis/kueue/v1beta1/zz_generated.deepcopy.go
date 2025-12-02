@@ -977,10 +977,10 @@ func (in *LocalQueueStatus) DeepCopyInto(out *LocalQueueStatus) {
 		*out = new(FairSharingStatus)
 		(*in).DeepCopyInto(*out)
 	}
-	if in.WallTimePolicy != nil {
-		in, out := &in.WallTimePolicy, &out.WallTimePolicy
-		*out = new(LocalQueueWallTimeLimits)
-		**out = **in
+	if in.WallTimeFlavorUsage != nil {
+		in, out := &in.WallTimeFlavorUsage, &out.WallTimeFlavorUsage
+		*out = make([]WallTimeFlavorUsage, len(*in))
+		copy(*out, *in)
 	}
 }
 
