@@ -510,7 +510,7 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 			workload := utiltestingapi.MakeWorkload("foo", "bar").Generation(1).Obj()
 			workload.Status = tc.oldStatus
 			cl := utiltesting.NewFakeClientSSAAsSM(workload)
-			err := UpdateStatus(ctx, cl, workload, tc.condType, tc.condStatus, tc.reason, tc.message, "manager-prefix", fakeClock)
+			err := SetConditionAndUpdate(ctx, cl, workload, tc.condType, tc.condStatus, tc.reason, tc.message, "manager-prefix", fakeClock)
 			if err != nil {
 				t.Fatalf("Failed updating status: %v", err)
 			}

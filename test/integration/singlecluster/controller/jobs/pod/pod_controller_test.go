@@ -329,7 +329,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					ginkgo.By("checking that pod is stopped when workload is evicted")
 
 					gomega.Expect(
-						workload.UpdateStatus(ctx, k8sClient, createdWorkload, kueue.WorkloadEvicted, metav1.ConditionTrue,
+						workload.SetConditionAndUpdate(ctx, k8sClient, createdWorkload, kueue.WorkloadEvicted, metav1.ConditionTrue,
 							kueue.WorkloadEvictedByPreemption, "By test", "evict", util.RealClock),
 					).Should(gomega.Succeed())
 					util.FinishEvictionForWorkloads(ctx, k8sClient, createdWorkload)

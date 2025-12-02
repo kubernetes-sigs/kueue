@@ -561,29 +561,60 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 	return res
 }
 
-// UpdateStatus updates the condition of a workload with ssa,
-// fieldManager being set to managerPrefix + "-" + conditionType
-func UpdateStatus(ctx context.Context,
+// SetConditionAndUpdate sets (or replaces) a single condition in a Workload's status.
+//
+// Behaviour depends on the feature gate WorkloadRequestUseMergePatch:
+//
+//   - Enabled → uses merge-patch via PatchStatus (preserves other conditions,
+//     safe for concurrent controllers).
+//
+//   - Disabled → uses server-side apply with field manager
+//     "<managerPrefix>-<conditionType>" (legacy path; only the written condition
+//     is managed by this controller).
+//
+// The condition gets:
+//   - ObservedGeneration = wl.Generation
+//   - LastTransitionTime = clock.Now()
+//   - Message truncated to the allowed length
+func SetConditionAndUpdate(ctx context.Context,
 	c client.Client,
 	wl *kueue.Workload,
 	conditionType string,
 	conditionStatus metav1.ConditionStatus,
 	reason, message string,
 	managerPrefix string,
-	clock clock.Clock) error {
-	now := metav1.NewTime(clock.Now())
+	clock clock.Clock,
+) error {
 	condition := metav1.Condition{
 		Type:               conditionType,
 		Status:             conditionStatus,
-		LastTransitionTime: now,
+		ObservedGeneration: wl.Generation,
+		LastTransitionTime: metav1.NewTime(clock.Now()),
 		Reason:             reason,
 		Message:            api.TruncateConditionMessage(message),
-		ObservedGeneration: wl.Generation,
 	}
 
-	newWl := BaseSSAWorkload(wl, false)
-	newWl.Status.Conditions = []metav1.Condition{condition}
-	return c.Status().Patch(ctx, newWl, client.Apply, client.FieldOwner(managerPrefix+"-"+condition.Type))
+	var (
+		wlCopy *kueue.Workload
+		err    error
+	)
+
+	if features.Enabled(features.WorkloadRequestUseMergePatch) {
+		wlCopy = wl.DeepCopy()
+		err = clientutil.PatchStatus(ctx, c, wlCopy, func() (bool, error) {
+			return apimeta.SetStatusCondition(&wlCopy.Status.Conditions, condition), nil
+		})
+	} else {
+		wlCopy = BaseSSAWorkload(wl, true)
+		wlCopy.Status.Conditions = []metav1.Condition{condition}
+		err = c.Status().Patch(ctx, wlCopy, client.Apply, client.FieldOwner(managerPrefix+"-"+condition.Type))
+	}
+	if err != nil {
+		return err
+	}
+
+	wlCopy.DeepCopyInto(wl)
+	return nil
 }
 
 // UnsetQuotaReservationWithCondition sets the QuotaReserved condition to false, clears
@@ -1243,7 +1274,7 @@ func CreatePodsReadyCondition(status metav1.ConditionStatus, reason, message str
 		Reason:             reason,
 		Message:            message,
 		LastTransitionTime: metav1.NewTime(clock.Now()),
-		// ObservedGeneration is added via workload.UpdateStatus
+		// ObservedGeneration is added via workload.SetConditionAndUpdate
 	}
 }
 
