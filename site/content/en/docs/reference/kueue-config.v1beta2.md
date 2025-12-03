@@ -492,9 +492,9 @@ Possible options:</p>
 <li>&quot;trainer.kubeflow.org/trainjob&quot;</li>
 <li>&quot;workload.codeflare.dev/appwrapper&quot;</li>
 <li>&quot;pod&quot;</li>
-<li>&quot;deployment&quot; (requires enabling pod integration)</li>
-<li>&quot;statefulset&quot; (requires enabling pod integration)</li>
-<li>&quot;leaderworkerset.x-k8s.io/leaderworkerset&quot; (requires enabling pod integration)</li>
+<li>&quot;deployment&quot;</li>
+<li>&quot;statefulset&quot;</li>
+<li>&quot;leaderworkerset.x-k8s.io/leaderworkerset&quot;</li>
 </ul>
 </td>
 </tr>
