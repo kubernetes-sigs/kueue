@@ -90,6 +90,9 @@ func (w *RayJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		if !workloadslicing.Enabled(job.Object()) {
 			return errors.New("RayJob should enable workload slicing if autoscaling is enabled")
 		}
+		if job.Spec.Suspend {
+			return errors.New("RayJob should not set suspend to true if autoscaling is enabled")
+		}
 		log.V(5).Info("Do not apply default for suspend due to EnableInTreeAutoscaling", "jobName", job.Name, "jobNamespace", job.Namespace)
 	}
 	jobframework.ApplyDefaultForManagedBy(job, w.queues, w.cache, log)
