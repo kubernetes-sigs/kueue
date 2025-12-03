@@ -226,7 +226,7 @@ kueueViz:
     # -- Environment variables for KueueViz backend deployment
     env:
       - name: KUEUEVIZ_ALLOWED_ORIGINS
-        value: "http://frontend.kueueviz.local"
+        value: "https://frontend.kueueviz.local"
     ingress:
       # -- KueueViz dashboard backend ingress annotations
       annotations:
