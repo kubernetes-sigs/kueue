@@ -684,10 +684,10 @@ func (m *Manager) heads() []workload.Info {
 			continue
 		}
 		wl := cq.Pop()
+		m.reportPendingWorkloads(cqName, cq)
 		if wl == nil {
 			continue
 		}
-		m.reportPendingWorkloads(cqName, cq)
 		wlCopy := *wl
 		wlCopy.ClusterQueue = cqName
 		workloads = append(workloads, wlCopy)
