@@ -1469,24 +1469,3 @@ func ReasonWithCause(reason, underlyingCause string) string {
 func ClusterName(wl *kueue.Workload) string {
 	return ptr.Deref(wl.Status.ClusterName, "")
 }
-
-// ResetRequeue resets the requeue state of the workload as well as all admission checks
-// It returns true if the workload was modified.
-func ResetRequeue(wl *kueue.Workload) bool {
-	var updated bool
-
-	if wl.Status.RequeueState != nil {
-		wl.Status.RequeueState = nil
-		updated = true
-	}
-	for i := range wl.Status.AdmissionChecks {
-		if wl.Status.AdmissionChecks[i].RequeueAfterSeconds == nil || wl.Status.AdmissionChecks[i].RetryCount == nil {
-			continue
-		}
-		wl.Status.AdmissionChecks[i].RequeueAfterSeconds = nil
-		wl.Status.AdmissionChecks[i].RetryCount = nil
-		updated = true
-	}
-
-	return updated
-}
