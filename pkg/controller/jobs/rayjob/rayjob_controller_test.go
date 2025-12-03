@@ -765,10 +765,10 @@ func TestGetWorkload(t *testing.T) {
 	}{
 		"default case: without InTreeAutoscaling, returns workload for RayJob": {
 			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").Obj()),
-			workloadOnRayJob: utiltesting.MakeWorkload("wl-rayjob", "ns").
+			workloadOnRayJob: makeWorkload("wl-rayjob", "ns").
 				OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "rayjob", "").
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl-rayjob", "ns").
+			wantWorkload: makeWorkload("wl-rayjob", "ns").
 				OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "rayjob", "").
 				Obj(),
 		},
@@ -776,10 +776,10 @@ func TestGetWorkload(t *testing.T) {
 			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
 				EnableInTreeAutoscaling().
 				Obj()),
-			workloadOnRayJob: utiltesting.MakeWorkload("wl-rayjob", "ns").
+			workloadOnRayJob: makeWorkload("wl-rayjob", "ns").
 				OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "rayjob", "").
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl-rayjob", "ns").
+			wantWorkload: makeWorkload("wl-rayjob", "ns").
 				OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "rayjob", "").
 				Obj(),
 		},
@@ -822,10 +822,10 @@ func TestGetWorkload(t *testing.T) {
 				}
 				return cluster
 			}(),
-			workload: utiltesting.MakeWorkload("wl-cluster", "ns").
+			workload: makeWorkload("wl-cluster", "ns").
 				OwnerReference(rayv1.GroupVersion.WithKind("RayCluster"), "test-cluster", "").
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl-cluster", "ns").
+			wantWorkload: makeWorkload("wl-cluster", "ns").
 				OwnerReference(rayv1.GroupVersion.WithKind("RayCluster"), "test-cluster", "").
 				Obj(),
 		},
@@ -945,4 +945,15 @@ func TestSkip(t *testing.T) {
 			}
 		})
 	}
+}
+
+func makeWorkload(name, ns string) *utiltesting.WorkloadWrapper {
+	return &utiltesting.WorkloadWrapper{kueue.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+		Spec: kueue.WorkloadSpec{
+			PodSets: []kueue.PodSet{
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Obj(),
+			},
+		},
+	}}
 }
