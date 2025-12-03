@@ -17,6 +17,7 @@ limitations under the License.
 package workload
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -32,6 +33,7 @@ import (
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -42,6 +44,10 @@ import (
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+)
+
+var (
+	errTest = errors.New("test error")
 )
 
 func TestNewInfo(t *testing.T) {
@@ -450,7 +456,7 @@ func TestNewInfo(t *testing.T) {
 	}
 }
 
-func TestUpdateWorkloadStatus(t *testing.T) {
+func TestSetConditionAndUpdate(t *testing.T) {
 	now := time.Now()
 	fakeClock := testingclock.NewFakeClock(now)
 	cases := map[string]struct {
@@ -459,7 +465,9 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 		condStatus metav1.ConditionStatus
 		reason     string
 		message    string
+		err        error
 		wantStatus kueue.WorkloadStatus
+		wantErr    error
 	}{
 		"initial empty": {
 			condType:   kueue.WorkloadQuotaReserved,
@@ -477,6 +485,15 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 					},
 				},
 			},
+		},
+		"initial empty with error": {
+			condType:   kueue.WorkloadQuotaReserved,
+			condStatus: metav1.ConditionFalse,
+			reason:     "Pending",
+			message:    "didn't fit",
+			err:        errTest,
+			wantStatus: kueue.WorkloadStatus{},
+			wantErr:    errTest,
 		},
 		"same condition type": {
 			oldStatus: kueue.WorkloadStatus{
@@ -505,27 +522,47 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 		},
 	}
 	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
-			workload := utiltestingapi.MakeWorkload("foo", "bar").Generation(1).Obj()
-			workload.Status = tc.oldStatus
-			cl := utiltesting.NewFakeClientSSAAsSM(workload)
-			err := SetConditionAndUpdate(ctx, cl, workload, tc.condType, tc.condStatus, tc.reason, tc.message, "manager-prefix", fakeClock)
-			if err != nil {
-				t.Fatalf("Failed updating status: %v", err)
-			}
-			var updatedWl kueue.Workload
-			if err := cl.Get(ctx, client.ObjectKeyFromObject(workload), &updatedWl); err != nil {
-				t.Fatalf("Failed obtaining updated object: %v", err)
-			}
-			if diff := cmp.Diff(
-				tc.wantStatus,
-				updatedWl.Status,
-				cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
-			); diff != "" {
-				t.Errorf("Unexpected status after updating (-want,+got):\n%s", diff)
-			}
-		})
+		for _, useMergePatch := range []bool{false, true} {
+			t.Run(name, func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
+
+				ctx, _ := utiltesting.ContextWithLog(t)
+
+				workload := utiltestingapi.MakeWorkload("foo", "bar").Generation(1).Obj()
+				workload.Status = tc.oldStatus
+
+				cl := utiltesting.NewClientBuilder().
+					WithObjects(workload).
+					WithStatusSubresource(&kueue.Workload{}).
+					WithInterceptorFuncs(interceptor.Funcs{
+						SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+							if tc.err != nil {
+								return tc.err
+							}
+							return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+						},
+					}).
+					Build()
+
+				err := SetConditionAndUpdate(ctx, cl, workload, tc.condType, tc.condStatus, tc.reason, tc.message, "manager-prefix", fakeClock)
+				if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+					t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+				}
+
+				var updatedWl kueue.Workload
+				if err := cl.Get(ctx, client.ObjectKeyFromObject(workload), &updatedWl); err != nil {
+					t.Fatalf("Failed obtaining updated object: %v", err)
+				}
+
+				if diff := cmp.Diff(
+					tc.wantStatus,
+					updatedWl.Status,
+					cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
+				); diff != "" {
+					t.Errorf("Unexpected status after updating (-want,+got):\n%s", diff)
+				}
+			})
+		}
 	}
 }
 
