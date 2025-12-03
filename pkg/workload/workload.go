@@ -931,7 +931,7 @@ func admissionChecksStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, c clo
 // was changed.
 func ApplyAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, strict bool, clk clock.Clock) error {
 	wlCopy := PrepareWorkloadPatch(w, strict, clk)
-	return ApplyAdmissionStatusPatch(ctx, c, wlCopy)
+	return c.Status().Patch(ctx, wlCopy, client.Apply, client.FieldOwner(constants.AdmissionName), client.ForceOwnership)
 }
 
 func PrepareWorkloadPatch(w *kueue.Workload, strict bool, clk clock.Clock) *kueue.Workload {
@@ -939,11 +939,6 @@ func PrepareWorkloadPatch(w *kueue.Workload, strict bool, clk clock.Clock) *kueu
 	admissionStatusPatch(w, wlCopy)
 	admissionChecksStatusPatch(w, wlCopy, clk)
 	return wlCopy
-}
-
-// ApplyAdmissionStatusPatch applies the patch of admission related status fields of a workload with SSA.
-func ApplyAdmissionStatusPatch(ctx context.Context, c client.Client, patch *kueue.Workload) error {
-	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.AdmissionName), client.ForceOwnership)
 }
 
 // PatchAdmissionStatusOption defines a functional option for customizing PatchAdmissionStatusOptions.
