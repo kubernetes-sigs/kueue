@@ -39,11 +39,13 @@ import (
 
 func TestDefault(t *testing.T) {
 	testcases := map[string]struct {
-		oldJob               *rayv1.RayJob
-		newJob               *rayv1.RayJob
-		manageAll            bool
-		localQueueDefaulting bool
-		defaultLqExist       bool
+		oldJob                       *rayv1.RayJob
+		newJob                       *rayv1.RayJob
+		manageAll                    bool
+		localQueueDefaulting         bool
+		defaultLqExist               bool
+		elasticJobsViaWorkloadSlices bool
+		wantErr                      string
 	}{
 		"unmanaged": {
 			oldJob: testingrayutil.MakeJob("job", "ns").
@@ -95,11 +97,45 @@ func TestDefault(t *testing.T) {
 			newJob: testingrayutil.MakeJob("test-job", "").
 				Obj(),
 		},
+		"InTreeAutoscaling enabled without workload slicing annotation": {
+			elasticJobsViaWorkloadSlices: true,
+			oldJob: testingrayutil.MakeJob("job", "ns").
+				Queue("queue").
+				EnableInTreeAutoscaling().
+				Obj(),
+			wantErr: "RayJob should enable workload slicing if autoscaling is enabled",
+		},
+		"InTreeAutoscaling enabled with workload slicing annotation but suspend is true": {
+			elasticJobsViaWorkloadSlices: true,
+			oldJob: testingrayutil.MakeJob("job", "ns").
+				Queue("queue").
+				EnableInTreeAutoscaling().
+				AddAnnotation("kueue.x-k8s.io/elastic-job", "true").
+				Suspend(true).
+				Obj(),
+			wantErr: "RayJob should not set suspend to true if autoscaling is enabled",
+		},
+		"InTreeAutoscaling enabled with workload slicing annotation and suspend is false": {
+			elasticJobsViaWorkloadSlices: true,
+			oldJob: testingrayutil.MakeJob("job", "ns").
+				Queue("queue").
+				EnableInTreeAutoscaling().
+				AddAnnotation("kueue.x-k8s.io/elastic-job", "true").
+				Suspend(false).
+				Obj(),
+			newJob: testingrayutil.MakeJob("job", "ns").
+				Queue("queue").
+				EnableInTreeAutoscaling().
+				AddAnnotation("kueue.x-k8s.io/elastic-job", "true").
+				Suspend(false).
+				Obj(),
+		},
 	}
 
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tc.elasticJobsViaWorkloadSlices)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			builder := utiltesting.NewClientBuilder()
 			cli := builder.Build()
@@ -117,7 +153,16 @@ func TestDefault(t *testing.T) {
 				cache:                      cqCache,
 			}
 			result := tc.oldJob.DeepCopy()
-			if err := wh.Default(ctx, result); err != nil {
+			err := wh.Default(ctx, result)
+			if tc.wantErr != "" {
+				if err == nil {
+					t.Errorf("expected error %q but got none", tc.wantErr)
+				} else if err.Error() != tc.wantErr {
+					t.Errorf("expected error %q but got %q", tc.wantErr, err.Error())
+				}
+				return
+			}
+			if err != nil {
 				t.Errorf("unexpected Default() error: %v", err)
 			}
 			if diff := cmp.Diff(tc.newJob, result); diff != "" {
