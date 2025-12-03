@@ -957,14 +957,6 @@ func admissionChecksStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, c clo
 	}
 }
 
-// ApplyAdmissionStatus updated all the admission related status fields of a workload with SSA.
-// If strict is true, resourceVersion will be part of the patch, make this call fail if Workload
-// was changed.
-func ApplyAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, strict bool, clk clock.Clock) error {
-	wlCopy := PrepareWorkloadPatch(w, strict, clk)
-	return c.Status().Patch(ctx, wlCopy, client.Apply, client.FieldOwner(constants.AdmissionName), client.ForceOwnership)
-}
-
 func PrepareWorkloadPatch(w *kueue.Workload, strict bool, clk clock.Clock) *kueue.Workload {
 	wlCopy := BaseSSAWorkload(w, strict)
 	admissionStatusPatch(w, wlCopy)
@@ -1062,7 +1054,8 @@ func PatchAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workloa
 		if updated, err := update(wlCopy); err != nil || !updated {
 			return err
 		}
-		err = ApplyAdmissionStatus(ctx, c, wlCopy, opts.StrictApply, clk)
+		wlCopy = PrepareWorkloadPatch(wlCopy, opts.StrictApply, clk)
+		err = c.Status().Patch(ctx, wlCopy, client.Apply, client.FieldOwner(constants.AdmissionName), client.ForceOwnership)
 	}
 	if err == nil {
 		wlCopy.DeepCopyInto(w)
