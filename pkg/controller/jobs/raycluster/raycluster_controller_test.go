@@ -741,3 +741,80 @@ func TestReconciler(t *testing.T) {
 		}
 	}
 }
+
+func TestIsTopLevel(t *testing.T) {
+	testCases := map[string]struct {
+		rayCluster     *RayCluster
+		enableFeature  bool
+		wantIsTopLevel bool
+	}{
+		"default case: no autoscaling, no annotation, no label": {
+			rayCluster:     (*RayCluster)(testingrayutil.MakeCluster("raycluster", "ns").Obj()),
+			wantIsTopLevel: false,
+		},
+		"EnableInTreeAutoscaling is false": {
+			enableFeature: true,
+			rayCluster: (*RayCluster)(testingrayutil.MakeCluster("raycluster", "ns").
+				WithEnableAutoscaling(ptr.To(false)).
+				SetAnnotation("kueue.x-k8s.io/elastic-job", "true").
+				Label("ray.io/originated-from-crd", "RayJob").
+				Obj()),
+			wantIsTopLevel: false,
+		},
+		"EnableInTreeAutoscaling is true but no workload slicing annotation": {
+			enableFeature: true,
+			rayCluster: (*RayCluster)(testingrayutil.MakeCluster("raycluster", "ns").
+				WithEnableAutoscaling(ptr.To(true)).
+				Label("ray.io/originated-from-crd", "RayJob").
+				Obj()),
+			wantIsTopLevel: false,
+		},
+		"EnableInTreeAutoscaling is true with workload slicing but no label": {
+			enableFeature: true,
+			rayCluster: (*RayCluster)(testingrayutil.MakeCluster("raycluster", "ns").
+				WithEnableAutoscaling(ptr.To(true)).
+				SetAnnotation("kueue.x-k8s.io/elastic-job", "true").
+				Obj()),
+			wantIsTopLevel: false,
+		},
+		"EnableInTreeAutoscaling is true with workload slicing and wrong label value": {
+			enableFeature: true,
+			rayCluster: (*RayCluster)(testingrayutil.MakeCluster("raycluster", "ns").
+				WithEnableAutoscaling(ptr.To(true)).
+				SetAnnotation("kueue.x-k8s.io/elastic-job", "true").
+				Label("ray.io/originated-from-crd", "RayCluster").
+				Obj()),
+			wantIsTopLevel: false,
+		},
+		"all conditions satisfied: EnableInTreeAutoscaling, workload slicing, and correct label": {
+			enableFeature: true,
+			rayCluster: (*RayCluster)(testingrayutil.MakeCluster("raycluster", "ns").
+				WithEnableAutoscaling(ptr.To(true)).
+				SetAnnotation("kueue.x-k8s.io/elastic-job", "true").
+				Label("ray.io/originated-from-crd", "RayJob").
+				Obj()),
+			wantIsTopLevel: true,
+		},
+		"workload slicing feature disabled even with all other conditions met": {
+			enableFeature: false,
+			rayCluster: (*RayCluster)(testingrayutil.MakeCluster("raycluster", "ns").
+				WithEnableAutoscaling(ptr.To(true)).
+				SetAnnotation("kueue.x-k8s.io/elastic-job", "true").
+				Label("ray.io/originated-from-crd", "RayJob").
+				Obj()),
+			wantIsTopLevel: false,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tc.enableFeature)
+
+			gotIsTopLevel := tc.rayCluster.IsTopLevel()
+
+			if gotIsTopLevel != tc.wantIsTopLevel {
+				t.Errorf("IsTopLevel() = %v, want %v", gotIsTopLevel, tc.wantIsTopLevel)
+			}
+		})
+	}
+}
