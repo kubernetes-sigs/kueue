@@ -23,6 +23,7 @@ import (
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
@@ -37,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
@@ -65,11 +67,78 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile StatefulSet")
 
-	err := r.fetchAndFinalizePods(ctx, req)
+	sts := &appsv1.StatefulSet{}
+	if err := r.client.Get(ctx, req.NamespacedName, sts); err != nil {
+		if client.IgnoreNotFound(err) != nil {
+			return ctrl.Result{}, err
+		}
+		// StatefulSet was deleted, finalize orphaned pods.
+		return ctrl.Result{}, r.fetchAndFinalizePods(ctx, req, nil)
+	}
+
+	// Ensure the StatefulSet is an owner of the workload to prevent
+	// Kubernetes GC from deleting it when pods are replaced during rolling updates.
+	// We log errors but don't block pod finalization, as ownership is best-effort.
+	if err := r.ensureWorkloadOwnership(ctx, sts); err != nil {
+		log.Error(err, "Failed to ensure workload ownership, will retry")
+	}
+
+	err := r.fetchAndFinalizePods(ctx, req, sts)
 	return ctrl.Result{}, err
 }
 
-func (r *Reconciler) fetchAndFinalizePods(ctx context.Context, req reconcile.Request) error {
+// ensureWorkloadOwnership ensures the StatefulSet is an owner of the workload.
+// This prevents Kubernetes GC from deleting the workload when pods are replaced
+// during rolling updates.
+func (r *Reconciler) ensureWorkloadOwnership(ctx context.Context, sts *appsv1.StatefulSet) error {
+	if sts == nil {
+		return nil
+	}
+
+	log := ctrl.LoggerFrom(ctx)
+	workloadName := GetWorkloadName(sts.Name)
+
+	wl := &kueue.Workload{}
+	if err := r.client.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: sts.Namespace}, wl); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+
+	// Check if StatefulSet is already an owner.
+	for _, ref := range wl.GetOwnerReferences() {
+		if ref.UID == sts.UID {
+			return nil
+		}
+	}
+
+	// Add StatefulSet as an owner.
+	if err := controllerutil.SetOwnerReference(sts, wl, r.client.Scheme()); err != nil {
+		return err
+	}
+
+	if err := r.client.Update(ctx, wl); err != nil {
+		if apierrors.IsConflict(err) {
+			// Conflict means the workload was modified concurrently; ownership may not be set.
+			// Will retry on next reconciliation.
+			log.V(4).Info("Conflict updating workload ownership, will retry on next reconciliation",
+				"statefulset", klog.KObj(sts),
+				"workload", klog.KObj(wl),
+			)
+			return nil
+		}
+		return err
+	}
+	log.V(3).Info("Added StatefulSet as owner of workload",
+		"statefulset", klog.KObj(sts),
+		"workload", klog.KObj(wl),
+	)
+
+	return nil
+}
+
+func (r *Reconciler) fetchAndFinalizePods(ctx context.Context, req reconcile.Request, sts *appsv1.StatefulSet) error {
 	podList := &corev1.PodList{}
 	if err := r.client.List(ctx, podList, client.InNamespace(req.Namespace), client.MatchingLabels{
 		podcontroller.GroupNameLabel: GetWorkloadName(req.Name),
@@ -80,16 +149,6 @@ func (r *Reconciler) fetchAndFinalizePods(ctx context.Context, req reconcile.Req
 	// If no Pods are found, there's nothing to do.
 	if len(podList.Items) == 0 {
 		return nil
-	}
-
-	sts := &appsv1.StatefulSet{}
-	err := r.client.Get(ctx, req.NamespacedName, sts)
-	if client.IgnoreNotFound(err) != nil {
-		return err
-	}
-
-	if err != nil {
-		sts = nil
 	}
 
 	return r.finalizePods(ctx, sts, podList.Items)
