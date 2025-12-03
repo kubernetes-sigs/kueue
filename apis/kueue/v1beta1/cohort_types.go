@@ -81,6 +81,7 @@ type CohortStatus struct {
 // +genclient
 // +genclient:nonNamespaced
 // +kubebuilder:object:root=true
+// +kubebuilder:deprecatedversion:warning="This version is deprecated. Use v1beta2 instead."
 // +kubebuilder:resource:scope=Cluster
 // +kubebuilder:subresource:status
 

@@ -157,6 +157,7 @@ type Parameter string
 // +genclient
 // +genclient:nonNamespaced
 // +kubebuilder:object:root=true
+// +kubebuilder:deprecatedversion:warning="This version is deprecated. Use v1beta2 instead."
 // +kubebuilder:resource:scope=Cluster
 
 // ProvisioningRequestConfig is the Schema for the provisioningrequestconfig API
