@@ -1682,12 +1682,11 @@ func TestPatchAdmissionStatus(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
 				ctx, _ := utiltesting.ContextWithLog(t)
 				wl := utiltestingapi.MakeWorkload("foo", "default").Obj()
-				var cl client.Client
-				if !useMergePatch {
-					cl = utiltesting.NewFakeClientSSAAsSM(wl)
-				} else {
-					cl = utiltesting.NewFakeClient(wl)
-				}
+				cl := utiltesting.NewClientBuilder().
+					WithObjects(wl).
+					WithStatusSubresource(&kueue.Workload{}).
+					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+					Build()
 				called := false
 				gotErr := PatchAdmissionStatus(ctx, cl, wl, fakeClock, func(wl *kueue.Workload) (bool, error) {
 					called = true
