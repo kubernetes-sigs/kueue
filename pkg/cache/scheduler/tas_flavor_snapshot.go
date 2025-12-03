@@ -469,7 +469,7 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests F
 
 	for _, groupKey := range groupsOrder {
 		trs := groupedTASRequests[groupKey]
-		if features.Enabled(features.FailureAwareScheduling) && workload.HasUnhealthyNodes(opts.workload) {
+		if workload.HasUnhealthyNodes(opts.workload) {
 			for _, tr := range trs {
 				// In case of looking for Node replacement, TopologyRequest has only
 				// PodSets with the Node to replace, so we match PodSetAssignment
@@ -822,9 +822,6 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		}
 		currFitDomain = newCurrFitDomain
 	}
-	if len(currFitDomain) == 0 {
-		return nil, "cannot find topology assignment"
-	}
 
 	assignments := make(map[kueue.PodSetReference]*utiltas.TopologyAssignment)
 
@@ -1126,7 +1123,6 @@ func useLeastFreeCapacityAlgorithm(unconstrained bool) bool {
 //     (use 1 for pods, the actual sliceSize for slices)
 //   - slices: whether we're distributing slices (true) or pods (false)
 func (s *TASFlavorSnapshot) consumeWithLeadersGeneric(domain *domain, remainingDomains []*domain, remainingPrimary *int32, remainingLeaderCount *int32, unconstrained bool, withLeader *int32, primary *int32, sliceSize int32, slices bool, policy string) (*domain, bool) {
-	// If the domain is a leaf, we can just return it
 	if useBestFitAlgorithm(unconstrained) && *withLeader >= *remainingPrimary && domain.leaderState >= *remainingLeaderCount {
 		// optimize the last domain
 		if slices {

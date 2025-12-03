@@ -377,8 +377,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		enableFeatureGates []featuregate.Feature
-		nodes              []corev1.Node
+		enableFeatureGates  []featuregate.Feature
+		disableFeatureGates []featuregate.Feature
+		nodes               []corev1.Node
 		pods               []corev1.Pod
 		levels             []string
 		nodeLabels         map[string]string
@@ -5608,6 +5609,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			},
 			levels:             defaultThreeLevels,
 			unhealthyNodeLabel: "unhealthy",
+			disableFeatureGates: []featuregate.Feature{features.FailureAwareScheduling},
 			nodeAvoidancePolicy: controllerconsts.NodeAvoidancePolicyPreferHealthy,
 			podSets: []PodSetTestCase{
 				{
@@ -5632,7 +5634,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			},
 		},
 		"node avoidance; disallow unhealthy; all unhealthy": {
-			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement, features.FailureAwareScheduling},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
 					Label(tasBlockLabel, "b1").
@@ -5659,7 +5661,11 @@ func TestFindTopologyAssignments(t *testing.T) {
 						"example.com/gpu": 1,
 					},
 					count:      1,
-					wantReason: "cannot find topology assignment",
+					wantAssignment: &tas.TopologyAssignment{
+						Levels:  []string{"kubernetes.io/hostname"},
+						Domains: []tas.TopologyDomainAssignment{},
+					},
+					wantReason: "",
 				},
 			},
 		},
@@ -5670,6 +5676,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 			// TODO: remove after dropping the TAS profiles feature gates
 			for _, gate := range tc.enableFeatureGates {
 				features.SetFeatureGateDuringTest(t, gate, true)
+			}
+			for _, gate := range tc.disableFeatureGates {
+				features.SetFeatureGateDuringTest(t, gate, false)
 			}
 
 			initialObjects := make([]client.Object, 0)

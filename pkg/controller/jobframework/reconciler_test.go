@@ -33,6 +33,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
@@ -85,7 +86,7 @@ func TestReconcileGenericJob(t *testing.T) {
 		Priority(0)
 
 	testCases := map[string]struct {
-		elasticJobsViaWorkloadSlicesEnabled bool
+		featureGates                        map[featuregate.Feature]bool
 		req                                 types.NamespacedName
 		job                                 *batchv1.Job
 		podSets                             []kueue.PodSet
@@ -93,17 +94,21 @@ func TestReconcileGenericJob(t *testing.T) {
 		wantWorkloads                       []kueue.Workload
 	}{
 		"handle job with no workload (elasticJobsViaWorkloadSlicesEnabled = false)": {
-			elasticJobsViaWorkloadSlicesEnabled: false,
-			req:                                 baseReq,
-			job:                                 baseJob.DeepCopy(),
-			podSets:                             basePodSets,
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: false,
+			},
+			req: baseReq,
+			job:     baseJob.DeepCopy(),
+			podSets: basePodSets,
 			wantWorkloads: []kueue.Workload{
 				*baseWl.Clone().Name("job-test-job-ce737").Obj(),
 			},
 		},
-		"handle job with no workload (elasticJobsViaWorkloadSlicesEnabled = false and elastic job annotation)": {
-			elasticJobsViaWorkloadSlicesEnabled: false,
-			req:                                 baseReq,
+		"job with partial admission": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: false,
+			},
+			req: baseReq,
 			job: baseJob.Clone().
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj(),
@@ -112,18 +117,11 @@ func TestReconcileGenericJob(t *testing.T) {
 				*baseWl.Clone().Name("job-test-job-ce737").Obj(),
 			},
 		},
-		"handle job with no workload (elasticJobsViaWorkloadSlicesEnabled = true)": {
-			elasticJobsViaWorkloadSlicesEnabled: true,
-			req:                                 baseReq,
-			job:                                 baseJob.DeepCopy(),
-			podSets:                             basePodSets,
-			wantWorkloads: []kueue.Workload{
-				*baseWl.Clone().Name("job-test-job-ce737").Obj(),
+		"job with workload slices and partial admission": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
 			},
-		},
-		"handle job with no workload (elasticJobsViaWorkloadSlicesEnabled = true and elastic job annotation)": {
-			elasticJobsViaWorkloadSlicesEnabled: true,
-			req:                                 baseReq,
+			req: baseReq,
 			job: baseJob.Clone().
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj(),
@@ -134,9 +132,11 @@ func TestReconcileGenericJob(t *testing.T) {
 					Obj(),
 			},
 		},
-		"update workload to match job (one existing workload)": {
-			elasticJobsViaWorkloadSlicesEnabled: true,
-			req:                                 baseReq,
+		"job with workload slices": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+			req: baseReq,
 			job: baseJob.Clone().
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj(),
@@ -151,8 +151,11 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 		},
 		"handle job with WorkloadPriorityClass having node avoidance policy": {
-			elasticJobsViaWorkloadSlicesEnabled: true,
-			req:                                 baseReq,
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+				features.FailureAwareScheduling:       true,
+			},
+			req: baseReq,
 			job: baseJob.Clone().
 				Label(constants.WorkloadPriorityClassLabel, "test-wpc").
 				PriorityClass("test-wpc").
@@ -185,7 +188,9 @@ func TestReconcileGenericJob(t *testing.T) {
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tc.elasticJobsViaWorkloadSlicesEnabled)
+			for k, v := range tc.featureGates {
+				features.SetFeatureGateDuringTest(t, k, v)
+			}
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 			mockctrl := gomock.NewController(t)

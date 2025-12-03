@@ -27,6 +27,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
@@ -434,6 +435,7 @@ func TestHasLevel(t *testing.T) {
 }
 
 func TestSortedDomainsWithNodeAvoidance(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.FailureAwareScheduling, true)
 	levels := []string{"kubernetes.io/hostname"}
 	unhealthyLabel := "unhealthy"
 	nodes := []corev1.Node{
@@ -488,6 +490,7 @@ func TestSortedDomainsWithNodeAvoidance(t *testing.T) {
 }
 
 func TestSortedDomainsWithNodeAvoidance_Hierarchy(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.FailureAwareScheduling, true)
 	levels := []string{"rack", "kubernetes.io/hostname"}
 	unhealthyLabel := "unhealthy"
 	nodes := []corev1.Node{
@@ -539,6 +542,7 @@ func TestSortedDomainsWithNodeAvoidance_Hierarchy(t *testing.T) {
 }
 
 func TestSortedDomainsWithNodeAvoidance_Capacity(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.FailureAwareScheduling, true)
 	levels := []string{"kubernetes.io/hostname"}
 	unhealthyLabel := "unhealthy"
 	nodes := []corev1.Node{
