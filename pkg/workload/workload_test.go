@@ -523,7 +523,7 @@ func TestSetConditionAndUpdate(t *testing.T) {
 	}
 	for name, tc := range cases {
 		for _, useMergePatch := range []bool{false, true} {
-			t.Run(name, func(t *testing.T) {
+			t.Run(fmt.Sprintf("%s with WorkloadRequestUseMergePatch enabled: %t", name, useMergePatch), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
 
 				ctx, _ := utiltesting.ContextWithLog(t)
@@ -1677,13 +1677,13 @@ func TestPatchAdmissionStatus(t *testing.T) {
 		},
 	}
 	for name, tc := range tests {
-		for _, featureEnabled := range []bool{true, false} {
-			t.Run(name, func(t *testing.T) {
-				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, featureEnabled)
+		for _, useMergePatch := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s with WorkloadRequestUseMergePatch enabled: %t", name, useMergePatch), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
 				ctx, _ := utiltesting.ContextWithLog(t)
 				wl := utiltestingapi.MakeWorkload("foo", "default").Obj()
 				var cl client.Client
-				if !featureEnabled {
+				if !useMergePatch {
 					cl = utiltesting.NewFakeClientSSAAsSM(wl)
 				} else {
 					cl = utiltesting.NewFakeClient(wl)
@@ -1696,10 +1696,10 @@ func TestPatchAdmissionStatus(t *testing.T) {
 				if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
 					t.Errorf("Unexpected error (-want/+got)\n%s", diff)
 				}
-				if featureEnabled && !called {
+				if useMergePatch && !called {
 					t.Errorf("expected update func to be called when feature enabled")
 				}
-				if !featureEnabled && tc.patchCall.updated && !called {
+				if !useMergePatch && tc.patchCall.updated && !called {
 					t.Errorf("expected update func to be called when feature disabled and update true")
 				}
 			})
