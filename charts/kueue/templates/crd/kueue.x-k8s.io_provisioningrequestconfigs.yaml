@@ -36,7 +36,9 @@ spec:
     singular: provisioningrequestconfig
   scope: Cluster
   versions:
-    - name: v1beta1
+    - deprecated: true
+      deprecationWarning: This version is deprecated. Use v1beta2 instead.
+      name: v1beta1
       schema:
         openAPIV3Schema:
           description: ProvisioningRequestConfig is the Schema for the provisioningrequestconfig API
