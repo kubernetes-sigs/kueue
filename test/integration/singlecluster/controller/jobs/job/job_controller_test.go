@@ -630,7 +630,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		ginkgo.By("preempt the workload", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).To(gomega.Succeed())
-				g.Expect(workload.UpdateStatus(
+				g.Expect(workload.SetConditionAndUpdate(
 					ctx,
 					k8sClient,
 					wl,

@@ -143,7 +143,7 @@ func (r *reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		if remaining > 0 {
 			return reconcile.Result{RequeueAfter: remaining}, nil
 		} else {
-			err := workload.UpdateStatus(ctx, r.client, &wl, kueue.WorkloadFinished, metav1.ConditionTrue, "ByTest", "By test runner", constants.JobControllerName, r.clock)
+			err := workload.SetConditionAndUpdate(ctx, r.client, &wl, kueue.WorkloadFinished, metav1.ConditionTrue, "ByTest", "By test runner", constants.JobControllerName, r.clock)
 			if err == nil {
 				log.V(5).Info("Finish Workload")
 			}
