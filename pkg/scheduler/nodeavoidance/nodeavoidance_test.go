@@ -28,17 +28,17 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
-func TestIsNodeUnhealthy(t *testing.T) {
+func TestIsNodeAvoided(t *testing.T) {
 	testCases := []struct {
 		name           string
 		node           *corev1.Node
-		unhealthyLabel string
+		avoidanceLabel string
 		want           bool
 	}{
 		{
 			name:           "nil node",
 			node:           nil,
-			unhealthyLabel: "unhealthy",
+			avoidanceLabel: "unhealthy",
 			want:           false,
 		},
 		{
@@ -48,7 +48,7 @@ func TestIsNodeUnhealthy(t *testing.T) {
 					Name: "node-1",
 				},
 			},
-			unhealthyLabel: "unhealthy",
+			avoidanceLabel: "unhealthy",
 			want:           false,
 		},
 		{
@@ -61,7 +61,7 @@ func TestIsNodeUnhealthy(t *testing.T) {
 					},
 				},
 			},
-			unhealthyLabel: "unhealthy",
+			avoidanceLabel: "unhealthy",
 			want:           true,
 		},
 		{
@@ -74,16 +74,16 @@ func TestIsNodeUnhealthy(t *testing.T) {
 					},
 				},
 			},
-			unhealthyLabel: "unhealthy",
+			avoidanceLabel: "unhealthy",
 			want:           false,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := IsNodeUnhealthy(tc.node, tc.unhealthyLabel)
+			got := IsNodeAvoided(tc.node, tc.avoidanceLabel)
 			if got != tc.want {
-				t.Errorf("IsNodeUnhealthy() = %v, want %v", got, tc.want)
+				t.Errorf("IsNodeAvoided() = %v, want %v", got, tc.want)
 			}
 		})
 	}
@@ -109,17 +109,17 @@ func TestGetNodeAvoidancePolicy(t *testing.T) {
 			name: "workload with DisallowUnhealthy",
 			wl: utiltesting.MakeWorkload("wl", "ns").
 				Annotations(map[string]string{
-					constants.NodeAvoidancePolicyAnnotation: constants.NodeAvoidancePolicyDisallowUnhealthy,
+					constants.NodeAvoidancePolicyAnnotation: constants.NodeAvoidancePolicyRequired,
 				}).Obj(),
-			want: constants.NodeAvoidancePolicyDisallowUnhealthy,
+			want: constants.NodeAvoidancePolicyRequired,
 		},
 		{
 			name: "workload with PreferHealthy",
 			wl: utiltesting.MakeWorkload("wl", "ns").
 				Annotations(map[string]string{
-					constants.NodeAvoidancePolicyAnnotation: constants.NodeAvoidancePolicyPreferHealthy,
+					constants.NodeAvoidancePolicyAnnotation: constants.NodeAvoidancePolicyPreferred,
 				}).Obj(),
-			want: constants.NodeAvoidancePolicyPreferHealthy,
+			want: constants.NodeAvoidancePolicyPreferred,
 		},
 	}
 
@@ -137,25 +137,25 @@ func TestConstructNodeAffinity(t *testing.T) {
 	testCases := []struct {
 		name           string
 		policy         string
-		unhealthyLabel string
+		avoidanceLabel string
 		want           *corev1.NodeAffinity
 	}{
 		{
 			name:           "empty label",
-			policy:         constants.NodeAvoidancePolicyDisallowUnhealthy,
-			unhealthyLabel: "",
+			policy:         constants.NodeAvoidancePolicyRequired,
+			avoidanceLabel: "",
 			want:           nil,
 		},
 		{
 			name:           "unknown policy",
 			policy:         "unknown",
-			unhealthyLabel: "unhealthy",
+			avoidanceLabel: "unhealthy",
 			want:           nil,
 		},
 		{
-			name:           "DisallowUnhealthy",
-			policy:         constants.NodeAvoidancePolicyDisallowUnhealthy,
-			unhealthyLabel: "unhealthy",
+			name:           "disallow-unhealthy",
+			policy:         constants.NodeAvoidancePolicyRequired,
+			avoidanceLabel: "unhealthy",
 			want: &corev1.NodeAffinity{
 				RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
 					NodeSelectorTerms: []corev1.NodeSelectorTerm{
@@ -172,9 +172,9 @@ func TestConstructNodeAffinity(t *testing.T) {
 			},
 		},
 		{
-			name:           "PreferHealthy",
-			policy:         constants.NodeAvoidancePolicyPreferHealthy,
-			unhealthyLabel: "unhealthy",
+			name:           "prefer-healthy",
+			policy:         constants.NodeAvoidancePolicyPreferred,
+			avoidanceLabel: "unhealthy",
 			want: &corev1.NodeAffinity{
 				PreferredDuringSchedulingIgnoredDuringExecution: []corev1.PreferredSchedulingTerm{
 					{
@@ -195,7 +195,7 @@ func TestConstructNodeAffinity(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := ConstructNodeAffinity(tc.policy, tc.unhealthyLabel)
+			got := ConstructNodeAffinity(tc.policy, tc.avoidanceLabel)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("ConstructNodeAffinity() mismatch (-want +got):\n%s", diff)
 			}

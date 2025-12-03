@@ -184,13 +184,13 @@ func TestSortDomainsByCapacityAndEntropy(t *testing.T) {
 	}{
 		"prefer-healthy policy enabled": {
 			domains:     []*domain{d1, d2, d3, d4},
-			policy:      controllerconsts.NodeAvoidancePolicyPreferHealthy,
+			policy:      controllerconsts.NodeAvoidancePolicyPreferred,
 			featureGate: true,
 			want:        []string{"d2", "d4", "d1", "d3"},
 		},
 		"prefer-healthy policy disabled": {
 			domains:     []*domain{d1, d2, d3, d4},
-			policy:      controllerconsts.NodeAvoidancePolicyPreferHealthy,
+			policy:      controllerconsts.NodeAvoidancePolicyPreferred,
 			featureGate: false,
 			want:        []string{"d1", "d3", "d2", "d4"},
 		},

@@ -52,9 +52,9 @@ const (
 	// NodeAvoidancePolicyAnnotation is the annotation key that holds the node avoidance policy.
 	NodeAvoidancePolicyAnnotation = "kueue.x-k8s.io/node-avoidance-policy"
 
-	// NodeAvoidancePolicyPreferHealthy indicates that the workload prefers not to run on unhealthy nodes.
-	NodeAvoidancePolicyPreferHealthy = "prefer-healthy"
+	// NodeAvoidancePolicyPreferred indicates that the workload prefers not to run on unhealthy nodes.
+	NodeAvoidancePolicyPreferred = "preferred"
 
-	// NodeAvoidancePolicyDisallowUnhealthy indicates that the workload disallows running on unhealthy nodes.
-	NodeAvoidancePolicyDisallowUnhealthy = "disallow-unhealthy"
+	// NodeAvoidancePolicyRequired indicates that the workload disallows running on unhealthy nodes.
+	NodeAvoidancePolicyRequired = "required"
 )

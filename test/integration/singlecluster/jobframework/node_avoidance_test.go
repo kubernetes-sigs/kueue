@@ -112,7 +112,7 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 	}
 
 	ginkgo.Context("With Node Avoidance configured", func() {
-		ginkgo.JustBeforeEach(func() {
+		ginkgo.BeforeEach(func() {
 			gomega.Expect(features.SetEnable(features.FailureAwareScheduling, true)).To(gomega.Succeed())
 			fwk.StartManager(ctx, cfg, managerAndControllersSetup(
 				false, // setupTASControllers
@@ -145,14 +145,14 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 				gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
 			})
 
-			ginkgo.It("disallow-unhealthy - only one node is healthy", func() {
+			ginkgo.It("required - only one node is healthy", func() {
 
 				nodes = append(nodes, createNode("node-1", false)) // Healthy
 				nodes = append(nodes, createNode("node-2", true))  // Unhealthy
 
 				job := testingjob.MakeJob("job-disallow", ns.Name).
 					Queue(kueuev1beta2.LocalQueueName(localQueue.Name)).
-					SetAnnotation(constants.NodeAvoidancePolicyAnnotation, "disallow-unhealthy").
+					SetAnnotation(constants.NodeAvoidancePolicyAnnotation, constants.NodeAvoidancePolicyRequired).
 					Request(corev1.ResourceCPU, "100m").
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
@@ -186,14 +186,14 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 				}))
 			})
 
-			ginkgo.It("disallow-unhealthy - no nodes are healthy - job should not be submitted", func() {
+			ginkgo.It("required - no nodes are healthy - job should not be submitted", func() {
 
 				nodes = append(nodes, createNode("node-1", true)) // Unhealthy
 				nodes = append(nodes, createNode("node-2", true)) // Unhealthy
 
 				job := testingjob.MakeJob("job-disallow-all-unhealthy", ns.Name).
 					Queue(kueuev1beta2.LocalQueueName(localQueue.Name)).
-					SetAnnotation(constants.NodeAvoidancePolicyAnnotation, "disallow-unhealthy").
+					SetAnnotation(constants.NodeAvoidancePolicyAnnotation, constants.NodeAvoidancePolicyRequired).
 					Request(corev1.ResourceCPU, "100m").
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
@@ -231,14 +231,14 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 				}))
 			})
 
-			ginkgo.It("prefer-healthy - only one node is healthy", func() {
+			ginkgo.It("preferred - only one node is healthy", func() {
 
 				nodes = append(nodes, createNode("node-1", false)) // Healthy
 				nodes = append(nodes, createNode("node-2", true))  // Unhealthy
 
 				job := testingjob.MakeJob("job-prefer", ns.Name).
 					Queue(kueuev1beta2.LocalQueueName(localQueue.Name)).
-					SetAnnotation(constants.NodeAvoidancePolicyAnnotation, "prefer-healthy").
+					SetAnnotation(constants.NodeAvoidancePolicyAnnotation, constants.NodeAvoidancePolicyPreferred).
 					Request(corev1.ResourceCPU, "100m").
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
@@ -271,13 +271,13 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 				}))
 			})
 
-			ginkgo.It("prefer-healthy - all nodes are unhealthy", func() {
+			ginkgo.It("preferred - all nodes are unhealthy", func() {
 				nodes = append(nodes, createNode("node-1", true)) // Unhealthy
 				nodes = append(nodes, createNode("node-2", true)) // Unhealthy
 
 				job := testingjob.MakeJob("job-prefer-all-unhealthy", ns.Name).
 					Queue(kueuev1beta2.LocalQueueName(localQueue.Name)).
-					SetAnnotation(constants.NodeAvoidancePolicyAnnotation, "prefer-healthy").
+					SetAnnotation(constants.NodeAvoidancePolicyAnnotation, constants.NodeAvoidancePolicyPreferred).
 					Request(corev1.ResourceCPU, "100m").
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
@@ -346,7 +346,7 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 					PriorityValue(100).
 					Obj()
 				wpc.GenerateName = "wpc-disallow-"
-				wpc.Annotations = map[string]string{constants.NodeAvoidancePolicyAnnotation: "disallow-unhealthy"}
+				wpc.Annotations = map[string]string{constants.NodeAvoidancePolicyAnnotation: constants.NodeAvoidancePolicyRequired}
 				gomega.Expect(k8sClient.Create(ctx, wpc)).To(gomega.Succeed())
 
 				nodes = append(nodes, createNode("node-1", false)) // Healthy
@@ -370,7 +370,7 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 				}, testutil.Timeout, testutil.Interval).Should(gomega.BeTrue())
 
 				// Verify annotation propagation (from WPC)
-				gomega.Expect(createdWorkload.Annotations).To(gomega.HaveKeyWithValue(constants.NodeAvoidancePolicyAnnotation, "disallow-unhealthy"))
+				gomega.Expect(createdWorkload.Annotations).To(gomega.HaveKeyWithValue(constants.NodeAvoidancePolicyAnnotation, constants.NodeAvoidancePolicyRequired))
 
 				gomega.Eventually(func() bool {
 					gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: job.Name, Namespace: ns.Name}, job)).To(gomega.Succeed())
@@ -386,7 +386,7 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 					PriorityValue(100).
 					Obj()
 				wpc.GenerateName = "wpc-disallow-"
-				wpc.Annotations = map[string]string{constants.NodeAvoidancePolicyAnnotation: "disallow-unhealthy"}
+				wpc.Annotations = map[string]string{constants.NodeAvoidancePolicyAnnotation: constants.NodeAvoidancePolicyRequired}
 				gomega.Expect(k8sClient.Create(ctx, wpc)).To(gomega.Succeed())
 
 				job = testingjob.MakeJob("job-wpc-override", ns.Name).
@@ -395,7 +395,7 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 					Request(corev1.ResourceCPU, "100m").
 					Obj()
 				// Add annotation to Job (which propagates to Workload)
-				job.Annotations = map[string]string{constants.NodeAvoidancePolicyAnnotation: "prefer-healthy"}
+				job.Annotations = map[string]string{constants.NodeAvoidancePolicyAnnotation: constants.NodeAvoidancePolicyPreferred}
 				gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
 
 				// Expect Workload Admitted
@@ -409,7 +409,7 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 				}, testutil.Timeout, testutil.Interval).Should(gomega.BeTrue())
 
 				// Verify annotation propagation
-				gomega.Expect(createdWorkload.Annotations).To(gomega.HaveKeyWithValue(constants.NodeAvoidancePolicyAnnotation, "prefer-healthy"))
+				gomega.Expect(createdWorkload.Annotations).To(gomega.HaveKeyWithValue(constants.NodeAvoidancePolicyAnnotation, constants.NodeAvoidancePolicyPreferred))
 
 				gomega.Eventually(func() bool {
 					gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: job.Name, Namespace: ns.Name}, job)).To(gomega.Succeed())
@@ -424,7 +424,7 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 			ginkgo.It("should merge with existing NodeAffinity", func() {
 				job = testingjob.MakeJob("job-merge-affinity", ns.Name).
 					Queue(kueuev1beta2.LocalQueueName(localQueue.Name)).
-					SetAnnotation(constants.NodeAvoidancePolicyAnnotation, "disallow-unhealthy").
+					SetAnnotation(constants.NodeAvoidancePolicyAnnotation, constants.NodeAvoidancePolicyRequired).
 					Request(corev1.ResourceCPU, "100m").
 					Obj()
 				
@@ -542,7 +542,7 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 
 			job := testingjob.MakeJob("job-tas", ns.Name).
 				Queue(kueuev1beta2.LocalQueueName(localQueue.Name)).
-				SetAnnotation(constants.NodeAvoidancePolicyAnnotation, "disallow-unhealthy").
+				SetAnnotation(constants.NodeAvoidancePolicyAnnotation, constants.NodeAvoidancePolicyRequired).
 				Request(corev1.ResourceCPU, "100m").
 				Toleration(corev1.Toleration{
 					Key:      "node.kubernetes.io/not-ready",
@@ -612,7 +612,7 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 
 			job := testingjob.MakeJob("job-no-affinity", ns.Name).
 				Queue(kueuev1beta2.LocalQueueName(localQueue.Name)).
-				SetAnnotation(constants.NodeAvoidancePolicyAnnotation, "disallow-unhealthy").
+				SetAnnotation(constants.NodeAvoidancePolicyAnnotation, constants.NodeAvoidancePolicyRequired).
 				Request(corev1.ResourceCPU, "100m").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())

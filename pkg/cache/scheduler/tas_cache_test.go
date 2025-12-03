@@ -5610,7 +5610,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			levels:             defaultThreeLevels,
 			unhealthyNodeLabel: "unhealthy",
 			disableFeatureGates: []featuregate.Feature{features.FailureAwareScheduling},
-			nodeAvoidancePolicy: controllerconsts.NodeAvoidancePolicyPreferHealthy,
+			nodeAvoidancePolicy: controllerconsts.NodeAvoidancePolicyPreferred,
 			podSets: []PodSetTestCase{
 				{
 					podSetName: "main",
@@ -5650,7 +5650,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			},
 			levels:             defaultThreeLevels,
 			unhealthyNodeLabel: "unhealthy",
-			nodeAvoidancePolicy: controllerconsts.NodeAvoidancePolicyDisallowUnhealthy,
+			nodeAvoidancePolicy: controllerconsts.NodeAvoidancePolicyRequired,
 			podSets: []PodSetTestCase{
 				{
 					podSetName: "main",

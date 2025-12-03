@@ -175,7 +175,7 @@ var _ = ginkgo.Describe("TAS Node Avoidance", ginkgo.Ordered, func() {
 						Queue(kueue.LocalQueueName(localQueue.Name)).
 						Request(corev1.ResourceCPU, "1").
 						Annotations(map[string]string{
-							ctrlconstants.NodeAvoidancePolicyAnnotation: ctrlconstants.NodeAvoidancePolicyPreferHealthy,
+							ctrlconstants.NodeAvoidancePolicyAnnotation: ctrlconstants.NodeAvoidancePolicyPreferred,
 						}).
 						Obj()
 					ginkgo.DeferCleanup(func() { util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true) })
@@ -206,7 +206,7 @@ var _ = ginkgo.Describe("TAS Node Avoidance", ginkgo.Ordered, func() {
 						Queue(kueue.LocalQueueName(localQueue.Name)).
 						Request(corev1.ResourceCPU, "1").
 						Annotations(map[string]string{
-							ctrlconstants.NodeAvoidancePolicyAnnotation: ctrlconstants.NodeAvoidancePolicyDisallowUnhealthy,
+							ctrlconstants.NodeAvoidancePolicyAnnotation: ctrlconstants.NodeAvoidancePolicyRequired,
 						}).
 						Obj()
 					ginkgo.DeferCleanup(func() { util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true) })
@@ -226,7 +226,7 @@ var _ = ginkgo.Describe("TAS Node Avoidance", ginkgo.Ordered, func() {
 						Queue(kueue.LocalQueueName(localQueue.Name)).
 						Request(corev1.ResourceCPU, "1").
 						Annotations(map[string]string{
-							ctrlconstants.NodeAvoidancePolicyAnnotation: ctrlconstants.NodeAvoidancePolicyDisallowUnhealthy,
+							ctrlconstants.NodeAvoidancePolicyAnnotation: ctrlconstants.NodeAvoidancePolicyRequired,
 						}).
 						Obj()
 					util.MustCreate(ctx, k8sClient, wl)

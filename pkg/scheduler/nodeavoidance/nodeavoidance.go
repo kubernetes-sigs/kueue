@@ -23,12 +23,12 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
-// IsNodeUnhealthy checks if the node has the specified unhealthy label.
-func IsNodeUnhealthy(node *corev1.Node, unhealthyLabel string) bool {
+// IsNodeAvoided checks if the node has the specified avoided label.
+func IsNodeAvoided(node *corev1.Node, avoidedLabel string) bool {
 	if node == nil || node.Labels == nil {
 		return false
 	}
-	_, ok := node.Labels[unhealthyLabel]
+	_, ok := node.Labels[avoidedLabel]
 	return ok
 }
 
@@ -41,53 +41,52 @@ func GetNodeAvoidancePolicy(wl *kueue.Workload) string {
 	return wl.Annotations[constants.NodeAvoidancePolicyAnnotation]
 }
 
-// ConstructNodeAffinity returns a NodeAffinity based on the policy and unhealthy label.
-// It returns nil if the policy is not supported or if the unhealthy label is empty.
-func ConstructNodeAffinity(policy string, unhealthyLabel string) *corev1.NodeAffinity {
-	if unhealthyLabel == "" {
+// ConstructNodeAffinity returns a NodeAffinity based on the policy and avoidance label.
+// It returns nil if the policy is not supported or if the avoidance label is empty.
+func ConstructNodeAffinity(policy string, avoidanceLabel string) *corev1.NodeAffinity {
+	if avoidanceLabel == "" {
 		return nil
 	}
 
-	switch policy {
-	case constants.NodeAvoidancePolicyDisallowUnhealthy:
-		return &corev1.NodeAffinity{
-			RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
-				NodeSelectorTerms: []corev1.NodeSelectorTerm{
-					{
-						MatchExpressions: []corev1.NodeSelectorRequirement{
-							{
-								Key:      unhealthyLabel,
-								Operator: corev1.NodeSelectorOpDoesNotExist,
-							},
+	nodeAffinity := &corev1.NodeAffinity{}
+	if policy == constants.NodeAvoidancePolicyRequired {
+		nodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution = &corev1.NodeSelector{
+			NodeSelectorTerms: []corev1.NodeSelectorTerm{
+				{
+					MatchExpressions: []corev1.NodeSelectorRequirement{
+						{
+							Key:      avoidanceLabel,
+							Operator: corev1.NodeSelectorOpDoesNotExist,
 						},
 					},
 				},
 			},
 		}
-	case constants.NodeAvoidancePolicyPreferHealthy:
-		return &corev1.NodeAffinity{
-			PreferredDuringSchedulingIgnoredDuringExecution: []corev1.PreferredSchedulingTerm{
-				{
-					Weight: 100, // High weight to prefer healthy nodes
-					Preference: corev1.NodeSelectorTerm{
-						MatchExpressions: []corev1.NodeSelectorRequirement{
-							{
-								Key:      unhealthyLabel,
-								Operator: corev1.NodeSelectorOpDoesNotExist,
-							},
+	} else if policy == constants.NodeAvoidancePolicyPreferred {
+		nodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution = []corev1.PreferredSchedulingTerm{
+			{
+				Weight: 100,
+				Preference: corev1.NodeSelectorTerm{
+					MatchExpressions: []corev1.NodeSelectorRequirement{
+						{
+							Key:      avoidanceLabel,
+							Operator: corev1.NodeSelectorOpDoesNotExist,
 						},
 					},
 				},
 			},
 		}
 	}
-	return nil
+	if nodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution == nil && len(nodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution) == 0 {
+		return nil
+	}
+	return nodeAffinity
 }
 
 // MergeNodeAffinity merges the node avoidance affinity into the existing affinity.
 // It modifies the existing affinity in place if it's not nil, or returns a new one.
-func MergeNodeAffinity(existing *corev1.NodeAffinity, policy string, unhealthyLabel string) *corev1.NodeAffinity {
-	avoidanceAffinity := ConstructNodeAffinity(policy, unhealthyLabel)
+func MergeNodeAffinity(existing *corev1.NodeAffinity, policy, avoidanceLabel string) *corev1.NodeAffinity {
+	avoidanceAffinity := ConstructNodeAffinity(policy, avoidanceLabel)
 	if avoidanceAffinity == nil {
 		return existing
 	}
@@ -95,34 +94,27 @@ func MergeNodeAffinity(existing *corev1.NodeAffinity, policy string, unhealthyLa
 		return avoidanceAffinity
 	}
 
-	// Merge RequiredDuringSchedulingIgnoredDuringExecution
-	if avoidanceAffinity.RequiredDuringSchedulingIgnoredDuringExecution != nil {
+	if policy == constants.NodeAvoidancePolicyRequired {
+		// For Required, we append the avoidance requirement to ALL existing terms (AND logic)
+		// If there are no existing terms but existing is not nil (empty struct), we just add ours.
 		if existing.RequiredDuringSchedulingIgnoredDuringExecution == nil {
 			existing.RequiredDuringSchedulingIgnoredDuringExecution = avoidanceAffinity.RequiredDuringSchedulingIgnoredDuringExecution
 		} else {
-			// Append avoidance requirements to each existing term to ensure the avoidance policy is enforced
-			// across all ORed terms.
-			// (T1 OR T2) AND Avoid -> (T1 AND Avoid) OR (T2 AND Avoid)
-			avoidanceTerm := avoidanceAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0]
-			if len(existing.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms) == 0 {
-				existing.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms = []corev1.NodeSelectorTerm{avoidanceTerm}
-			} else {
-				for i := range existing.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms {
-					existing.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[i].MatchExpressions = append(
-						existing.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[i].MatchExpressions,
-						avoidanceTerm.MatchExpressions...,
-					)
-				}
+			for i := range existing.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms {
+				existing.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[i].MatchExpressions = append(
+					existing.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[i].MatchExpressions,
+					avoidanceAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions...,
+				)
 			}
 		}
-	}
-
-	// Merge PreferredDuringSchedulingIgnoredDuringExecution
-	if len(avoidanceAffinity.PreferredDuringSchedulingIgnoredDuringExecution) > 0 {
-		existing.PreferredDuringSchedulingIgnoredDuringExecution = append(
-			existing.PreferredDuringSchedulingIgnoredDuringExecution,
-			avoidanceAffinity.PreferredDuringSchedulingIgnoredDuringExecution...,
-		)
+	} else if policy == constants.NodeAvoidancePolicyPreferred {
+		// Merge PreferredDuringSchedulingIgnoredDuringExecution
+		if len(avoidanceAffinity.PreferredDuringSchedulingIgnoredDuringExecution) > 0 {
+			existing.PreferredDuringSchedulingIgnoredDuringExecution = append(
+				existing.PreferredDuringSchedulingIgnoredDuringExecution,
+				avoidanceAffinity.PreferredDuringSchedulingIgnoredDuringExecution...,
+			)
+		}
 	}
 
 	return existing
