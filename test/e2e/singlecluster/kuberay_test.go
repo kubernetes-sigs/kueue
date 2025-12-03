@@ -33,6 +33,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util"
 )
 
