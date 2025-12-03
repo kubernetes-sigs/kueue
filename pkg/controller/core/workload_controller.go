@@ -221,11 +221,15 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		workload.AdjustResources(ctx, r.client, &wl)
 		if workload.HasResourceClaim(&wl) {
 			log.V(3).Info("Workload is inadmissible because it uses resource claims which is not supported")
-			if workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, "DynamicResourceAllocation feature does not support use of resource claims", r.clock.Now()) {
-				workload.SetRequeuedCondition(&wl, kueue.WorkloadInadmissible, "DRA resource claims not supported", false)
-				if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock); err != nil {
-					return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA resource claims error: %w", err)
+			err := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+				updated := workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadInadmissible, "DynamicResourceAllocation feature does not support use of resource claims", r.clock.Now())
+				if updated && workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible, "DRA resource claims not supported", false) {
+					updated = true
 				}
+				return updated, nil
+			})
+			if err != nil {
+				return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA resource claims error: %w", err)
 			}
 			return ctrl.Result{}, nil
 		}
@@ -235,11 +239,15 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if len(fieldErrs) > 0 {
 			err := fieldErrs.ToAggregate()
 			log.Error(err, "Failed to process DRA resources for workload")
-			if workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, err.Error(), r.clock.Now()) {
-				workload.SetRequeuedCondition(&wl, kueue.WorkloadInadmissible, err.Error(), false)
-				if updateErr := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock); updateErr != nil {
-					return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA error: %w", updateErr)
+			updateErr := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+				updated := workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadInadmissible, err.Error(), r.clock.Now())
+				if updated && workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible, err.Error(), false) {
+					updated = true
 				}
+				return updated, nil
+			})
+			if updateErr != nil {
+				return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA error: %w", updateErr)
 			}
 			return ctrl.Result{}, err
 		}
