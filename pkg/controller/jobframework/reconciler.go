@@ -1334,10 +1334,12 @@ func PrepareWorkloadPriority(ctx context.Context, c client.Client, obj client.Ob
 	wl.Spec.Priority = &priority
 
 	if policy != "" && features.Enabled(features.FailureAwareScheduling) {
-		if wl.Annotations == nil {
-			wl.Annotations = make(map[string]string)
+		if _, ok := obj.GetAnnotations()[controllerconsts.NodeAvoidancePolicyAnnotation]; !ok {
+			if wl.Annotations == nil {
+				wl.Annotations = make(map[string]string)
+			}
+			wl.Annotations[controllerconsts.NodeAvoidancePolicyAnnotation] = policy
 		}
-		wl.Annotations[controllerconsts.NodeAvoidancePolicyAnnotation] = policy
 	}
 
 	return nil
@@ -1399,16 +1401,15 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 			unhealthyNodeLabel := UnhealthyNodeLabelFromContext(ctx)
 			log.Info("Injecting NodeAffinity", "workload", klog.KObj(w), "policy", nodeAvoidancePolicy, "unhealthyLabel", unhealthyNodeLabel)
 			if nodeAvoidancePolicy != "" && unhealthyNodeLabel != "" {
-				affinity := nodeavoidance.ConstructNodeAffinity(nodeAvoidancePolicy, unhealthyNodeLabel)
-				if affinity != nil {
-					if info.Affinity == nil {
+				if info.Affinity == nil {
+					if w.Spec.PodSets[i].Template.Spec.Affinity != nil {
+						info.Affinity = w.Spec.PodSets[i].Template.Spec.Affinity.DeepCopy()
+					} else {
 						info.Affinity = &corev1.Affinity{}
 					}
-					info.Affinity.NodeAffinity = affinity
-					log.Info("Injected NodeAffinity", "workload", klog.KObj(w), "affinity", affinity)
-				} else {
-					log.Info("ConstructNodeAffinity returned nil", "workload", klog.KObj(w))
 				}
+				info.Affinity.NodeAffinity = nodeavoidance.MergeNodeAffinity(info.Affinity.NodeAffinity, nodeAvoidancePolicy, unhealthyNodeLabel)
+				log.Info("Injected NodeAffinity", "workload", klog.KObj(w), "affinity", info.Affinity.NodeAffinity)
 			}
 		}
 

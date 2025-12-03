@@ -31,6 +31,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/maps"
@@ -217,13 +218,17 @@ func PrebuiltWorkloadFor(job GenericJob) (string, bool) {
 }
 
 func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKeysToCopy []string) *kueue.Workload {
+	annotations := admissioncheck.FilterProvReqAnnotations(obj.GetAnnotations())
+	if val, ok := obj.GetAnnotations()[controllerconsts.NodeAvoidancePolicyAnnotation]; ok {
+		annotations[controllerconsts.NodeAvoidancePolicyAnnotation] = val
+	}
 	return &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
 			Namespace:   obj.GetNamespace(),
 			Labels:      maps.FilterKeys(obj.GetLabels(), labelKeysToCopy),
 			Finalizers:  []string{kueue.ResourceInUseFinalizerName},
-			Annotations: admissioncheck.FilterProvReqAnnotations(obj.GetAnnotations()),
+			Annotations: annotations,
 		},
 		Spec: kueue.WorkloadSpec{
 			QueueName:                   QueueNameForObject(obj),

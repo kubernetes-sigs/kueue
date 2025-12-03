@@ -83,3 +83,47 @@ func ConstructNodeAffinity(policy string, unhealthyLabel string) *corev1.NodeAff
 	}
 	return nil
 }
+
+// MergeNodeAffinity merges the node avoidance affinity into the existing affinity.
+// It modifies the existing affinity in place if it's not nil, or returns a new one.
+func MergeNodeAffinity(existing *corev1.NodeAffinity, policy string, unhealthyLabel string) *corev1.NodeAffinity {
+	avoidanceAffinity := ConstructNodeAffinity(policy, unhealthyLabel)
+	if avoidanceAffinity == nil {
+		return existing
+	}
+	if existing == nil {
+		return avoidanceAffinity
+	}
+
+	// Merge RequiredDuringSchedulingIgnoredDuringExecution
+	if avoidanceAffinity.RequiredDuringSchedulingIgnoredDuringExecution != nil {
+		if existing.RequiredDuringSchedulingIgnoredDuringExecution == nil {
+			existing.RequiredDuringSchedulingIgnoredDuringExecution = avoidanceAffinity.RequiredDuringSchedulingIgnoredDuringExecution
+		} else {
+			// Append avoidance requirements to each existing term to ensure the avoidance policy is enforced
+			// across all ORed terms.
+			// (T1 OR T2) AND Avoid -> (T1 AND Avoid) OR (T2 AND Avoid)
+			avoidanceTerm := avoidanceAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0]
+			if len(existing.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms) == 0 {
+				existing.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms = []corev1.NodeSelectorTerm{avoidanceTerm}
+			} else {
+				for i := range existing.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms {
+					existing.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[i].MatchExpressions = append(
+						existing.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[i].MatchExpressions,
+						avoidanceTerm.MatchExpressions...,
+					)
+				}
+			}
+		}
+	}
+
+	// Merge PreferredDuringSchedulingIgnoredDuringExecution
+	if len(avoidanceAffinity.PreferredDuringSchedulingIgnoredDuringExecution) > 0 {
+		existing.PreferredDuringSchedulingIgnoredDuringExecution = append(
+			existing.PreferredDuringSchedulingIgnoredDuringExecution,
+			avoidanceAffinity.PreferredDuringSchedulingIgnoredDuringExecution...,
+		)
+	}
+
+	return existing
+}

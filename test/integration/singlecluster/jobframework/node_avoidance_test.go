@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -312,23 +313,32 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 
 		ginkgo.Describe("2. Use annotation on WorkloadPriorityClass", func() {
 			var wpc *kueue.WorkloadPriorityClass
+			var job *batchv1.Job
 
-			ginkgo.BeforeEach(func() {
-				flavor = testing.MakeResourceFlavor("default-flavor").Obj()
+			ginkgo.JustBeforeEach(func() {
+				flavorName := "default-flavor-" + rand.String(5)
+				cqName := "cluster-queue-" + rand.String(5)
+				lqName := "main-queue-" + rand.String(5)
+
+				flavor = testing.MakeResourceFlavor(flavorName).Obj()
 				gomega.Expect(k8sClient.Create(ctx, flavor)).To(gomega.Succeed())
 
-				clusterQueue = testing.MakeClusterQueue("cluster-queue").
+				clusterQueue = testing.MakeClusterQueue(cqName).
 					ResourceGroup(
-						*testing.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "10").Obj(),
+						*testing.MakeFlavorQuotas(flavorName).Resource(corev1.ResourceCPU, "10").Obj(),
 					).Obj()
 				gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 
-				localQueue = testing.MakeLocalQueue("main-queue", ns.Name).ClusterQueue("cluster-queue").Obj()
+				localQueue = testing.MakeLocalQueue(lqName, ns.Name).ClusterQueue(cqName).Obj()
 				gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
 			})
 
 			ginkgo.AfterEach(func() {
+				gomega.Expect(testutil.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 				testutil.ExpectObjectToBeDeleted(ctx, k8sClient, wpc, true)
+				testutil.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+				testutil.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+				testutil.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
 			})
 
 			ginkgo.It("disallow-unhealthy via WPC", func() {
@@ -340,8 +350,9 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 				gomega.Expect(k8sClient.Create(ctx, wpc)).To(gomega.Succeed())
 
 				nodes = append(nodes, createNode("node-1", false)) // Healthy
+				nodes = append(nodes, createNode("node-2", true))  // Unhealthy
 
-				job := testingjob.MakeJob("job-wpc-disallow", ns.Name).
+				job = testingjob.MakeJob("job-wpc-disallow", ns.Name).
 					Queue(kueuev1beta2.LocalQueueName(localQueue.Name)).
 					WorkloadPriorityClass(wpc.Name).
 					Request(corev1.ResourceCPU, "100m").
@@ -358,12 +369,119 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 					return IsAdmitted(createdWorkload)
 				}, testutil.Timeout, testutil.Interval).Should(gomega.BeTrue())
 
+				// Verify annotation propagation (from WPC)
+				gomega.Expect(createdWorkload.Annotations).To(gomega.HaveKeyWithValue(constants.NodeAvoidancePolicyAnnotation, "disallow-unhealthy"))
+
 				gomega.Eventually(func() bool {
 					gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: job.Name, Namespace: ns.Name}, job)).To(gomega.Succeed())
 					return !ptr.Deref(job.Spec.Suspend, true)
 				}, testutil.Timeout, testutil.Interval).Should(gomega.BeTrue())
 
+				// Should have Required (from WPC)
 				gomega.Expect(job.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution).NotTo(gomega.BeNil())
+			})
+
+			ginkgo.It("should override WPC policy with Workload annotation", func() {
+				wpc = testing.MakeWorkloadPriorityClass("").
+					PriorityValue(100).
+					Obj()
+				wpc.GenerateName = "wpc-disallow-"
+				wpc.Annotations = map[string]string{constants.NodeAvoidancePolicyAnnotation: "disallow-unhealthy"}
+				gomega.Expect(k8sClient.Create(ctx, wpc)).To(gomega.Succeed())
+
+				job = testingjob.MakeJob("job-wpc-override", ns.Name).
+					Queue(kueuev1beta2.LocalQueueName(localQueue.Name)).
+					WorkloadPriorityClass(wpc.Name).
+					Request(corev1.ResourceCPU, "100m").
+					Obj()
+				// Add annotation to Job (which propagates to Workload)
+				job.Annotations = map[string]string{constants.NodeAvoidancePolicyAnnotation: "prefer-healthy"}
+				gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
+
+				// Expect Workload Admitted
+				createdWorkload := &kueue.Workload{}
+				wlLookupKey := types.NamespacedName{Name: jobframework.GetWorkloadNameForOwnerWithGVK(job.Name, job.UID, batchv1.SchemeGroupVersion.WithKind("Job")), Namespace: ns.Name}
+				gomega.Eventually(func() bool {
+					if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
+						return false
+					}
+					return IsAdmitted(createdWorkload)
+				}, testutil.Timeout, testutil.Interval).Should(gomega.BeTrue())
+
+				// Verify annotation propagation
+				gomega.Expect(createdWorkload.Annotations).To(gomega.HaveKeyWithValue(constants.NodeAvoidancePolicyAnnotation, "prefer-healthy"))
+
+				gomega.Eventually(func() bool {
+					gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: job.Name, Namespace: ns.Name}, job)).To(gomega.Succeed())
+					return !ptr.Deref(job.Spec.Suspend, true)
+				}, testutil.Timeout, testutil.Interval).Should(gomega.BeTrue())
+
+				// Should have Preferred (from annotation) NOT Required (from WPC)
+				gomega.Expect(job.Spec.Template.Spec.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution).NotTo(gomega.BeNil())
+				gomega.Expect(job.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution).To(gomega.BeNil())
+			})
+
+			ginkgo.It("should merge with existing NodeAffinity", func() {
+				job = testingjob.MakeJob("job-merge-affinity", ns.Name).
+					Queue(kueuev1beta2.LocalQueueName(localQueue.Name)).
+					SetAnnotation(constants.NodeAvoidancePolicyAnnotation, "disallow-unhealthy").
+					Request(corev1.ResourceCPU, "100m").
+					Obj()
+				
+				// Set existing NodeAffinity
+				job.Spec.Template.Spec.Affinity = &corev1.Affinity{
+					NodeAffinity: &corev1.NodeAffinity{
+						RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+							NodeSelectorTerms: []corev1.NodeSelectorTerm{
+								{
+									MatchExpressions: []corev1.NodeSelectorRequirement{
+										{
+											Key:      "kubernetes.io/os",
+											Operator: corev1.NodeSelectorOpIn,
+											Values:   []string{"linux"},
+										},
+									},
+								},
+							},
+						},
+					},
+				}
+				gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
+
+				// Expect Workload Admitted
+				createdWorkload := &kueue.Workload{}
+				wlLookupKey := types.NamespacedName{Name: jobframework.GetWorkloadNameForOwnerWithGVK(job.Name, job.UID, batchv1.SchemeGroupVersion.WithKind("Job")), Namespace: ns.Name}
+				gomega.Eventually(func() bool {
+					if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
+						return false
+					}
+					return IsAdmitted(createdWorkload)
+				}, testutil.Timeout, testutil.Interval).Should(gomega.BeTrue())
+
+				gomega.Eventually(func() bool {
+					gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: job.Name, Namespace: ns.Name}, job)).To(gomega.Succeed())
+					return !ptr.Deref(job.Spec.Suspend, true)
+				}, testutil.Timeout, testutil.Interval).Should(gomega.BeTrue())
+
+				// Should have BOTH existing and injected affinity
+				gomega.Expect(job.Spec.Template.Spec.Affinity).NotTo(gomega.BeNil())
+				gomega.Expect(job.Spec.Template.Spec.Affinity.NodeAffinity).NotTo(gomega.BeNil())
+				
+				// Check for merged affinity (both requirements in the same term)
+				terms := job.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
+				gomega.Expect(terms).To(gomega.ContainElement(corev1.NodeSelectorTerm{
+					MatchExpressions: []corev1.NodeSelectorRequirement{
+						{
+							Key:      "kubernetes.io/os",
+							Operator: corev1.NodeSelectorOpIn,
+							Values:   []string{"linux"},
+						},
+						{
+							Key:      unhealthyLabel,
+							Operator: corev1.NodeSelectorOpDoesNotExist,
+						},
+					},
+				}), "Existing affinity should be preserved and merged with avoidance")
 			})
 		})
 	})
