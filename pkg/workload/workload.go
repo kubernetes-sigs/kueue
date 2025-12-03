@@ -71,6 +71,7 @@ var (
 		kueue.WorkloadPreempted,
 		kueue.WorkloadRequeued,
 		kueue.WorkloadDeactivationTarget,
+		kueue.WorkloadFinished,
 	}
 )
 
@@ -1362,14 +1363,9 @@ func setFinish(wl *kueue.Workload, reason, msg string, now time.Time) bool {
 }
 
 func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, msg string, clock clock.Clock) error {
-	if features.Enabled(features.WorkloadRequestUseMergePatch) {
-		return clientutil.PatchStatus(ctx, c, wl, func() (bool, error) {
-			return setFinish(wl, reason, msg, clock.Now()), nil
-		})
-	}
-	wlPatch := PrepareWorkloadPatch(wl, true, clock)
-	setFinish(wlPatch, reason, msg, clock.Now())
-	return c.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(constants.AdmissionName), client.ForceOwnership)
+	return PatchAdmissionStatus(ctx, c, wl, clock, func(wl *kueue.Workload) (bool, error) {
+		return setFinish(wl, reason, msg, clock.Now()), nil
+	})
 }
 
 func PriorityClassName(wl *kueue.Workload) string {
