@@ -872,3 +872,77 @@ func TestGetWorkload(t *testing.T) {
 		})
 	}
 }
+
+func TestSkip(t *testing.T) {
+	testCases := map[string]struct {
+		rayJob        *RayJob
+		enableFeature bool
+		wantSkip      bool
+	}{
+		"default case: no cluster selector, no autoscaling": {
+			rayJob:   (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").Obj()),
+			wantSkip: false,
+		},
+		"has cluster selector": {
+			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
+				ClusterSelector(map[string]string{
+					"key": "value",
+				}).
+				Obj()),
+			wantSkip: true,
+		},
+		"InTreeAutoscaling enabled without workload slicing annotation": {
+			enableFeature: true,
+			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
+				EnableInTreeAutoscaling().
+				Obj()),
+			wantSkip: false,
+		},
+		"InTreeAutoscaling enabled with workload slicing annotation": {
+			enableFeature: true,
+			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
+				EnableInTreeAutoscaling().
+				AddAnnotation("kueue.x-k8s.io/elastic-job", "true").
+				Obj()),
+			wantSkip: true,
+		},
+		"InTreeAutoscaling disabled with workload slicing annotation": {
+			enableFeature: true,
+			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
+				AddAnnotation("kueue.x-k8s.io/elastic-job", "true").
+				Obj()),
+			wantSkip: false,
+		},
+		"workload slicing feature disabled, has annotation and autoscaling": {
+			enableFeature: false,
+			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
+				EnableInTreeAutoscaling().
+				AddAnnotation("kueue.x-k8s.io/elastic-job", "true").
+				Obj()),
+			wantSkip: false,
+		},
+		"has cluster selector with autoscaling and workload slicing": {
+			enableFeature: true,
+			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
+				ClusterSelector(map[string]string{
+					"key": "value",
+				}).
+				EnableInTreeAutoscaling().
+				AddAnnotation("kueue.x-k8s.io/elastic-job", "true").
+				Obj()),
+			wantSkip: true,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tc.enableFeature)
+
+			gotSkip := tc.rayJob.Skip()
+
+			if gotSkip != tc.wantSkip {
+				t.Errorf("Skip() = %v, want %v", gotSkip, tc.wantSkip)
+			}
+		})
+	}
+}
