@@ -985,26 +985,6 @@ func DefaultPatchAdmissionStatusOptions() *PatchAdmissionStatusOptions {
 	}
 }
 
-// WithLoose returns a PatchAdmissionStatusOption that resets both the StrictPatch and StrictApply
-// fields on PatchAdmissionStatusOptions.
-//
-// By default, StrictPatch and StrictApply are true. In strict mode, generated patches enforce stricter
-// behavior by clearing the ResourceVersion field from the "original" object.
-// This ensures that the ResourceVersion is always included in the generated patch
-// and taken into account during patch application.
-//
-// Example:
-//
-//	patch := clientutil.Patch(ctx, c, w, clk, func() (bool, error) {
-//	    return updateFn(obj), nil
-//	}, WithLoose()) // disables strict mode
-func WithLoose() PatchAdmissionStatusOption {
-	return func(o *PatchAdmissionStatusOptions) {
-		o.StrictPatch = false
-		o.StrictApply = false
-	}
-}
-
 // WithLooseOnApply returns a PatchAdmissionStatusOption that resets the StrictApply field on PatchAdmissionStatusOptions.
 //
 // When using Patch Apply, setting StrictApply to false enforces looser
