@@ -24,7 +24,7 @@ import (
 // +genclient
 // +genclient:nonNamespaced
 // +kubebuilder:object:root=true
-// +kubebuilder:storageversion
+// +kubebuilder:deprecatedversion:warning="This version is deprecated. Use v1beta2 instead."
 // +kubebuilder:resource:scope=Cluster,shortName={flavor,flavors,rf}
 
 // ResourceFlavor is the Schema for the resourceflavors API.

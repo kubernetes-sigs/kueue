@@ -436,13 +436,13 @@ func (m *Manager) ClusterQueueForWorkload(wl *kueue.Workload) (kueue.ClusterQueu
 
 // AddOrUpdateWorkload adds or updates workload to the corresponding queue.
 // Returns whether the queue existed.
-func (m *Manager) AddOrUpdateWorkload(w *kueue.Workload, opts ...workload.InfoOption) error {
+func (m *Manager) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
 	m.Lock()
 	defer m.Unlock()
-	return m.AddOrUpdateWorkloadWithoutLock(w, opts...)
+	return m.AddOrUpdateWorkloadWithoutLock(log, w, opts...)
 }
 
-func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload, opts ...workload.InfoOption) error {
+func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
 	if !workload.IsActive(w) {
 		return fmt.Errorf("workload %q is inactive and can't be added to a LocalQueue", w.Name)
 	}
@@ -467,6 +467,7 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload, opts ...work
 	}
 	m.reportPendingWorkloads(q.ClusterQueue, cq)
 	m.Broadcast()
+	log.V(5).Info("Added/updated workload in queues; Broadcast successful.")
 	return nil
 }
 
@@ -643,7 +644,7 @@ func (m *Manager) UpdateWorkload(log logr.Logger, oldW, w *kueue.Workload, opts 
 	if oldW.Spec.QueueName != w.Spec.QueueName {
 		m.deleteWorkloadFromQueueAndClusterQueue(log, w, queue.KeyFromWorkload(oldW))
 	}
-	return m.AddOrUpdateWorkloadWithoutLock(w, opts...)
+	return m.AddOrUpdateWorkloadWithoutLock(log, w, opts...)
 }
 
 // CleanUpOnContext tracks the context. When closed, it wakes routines waiting
@@ -683,10 +684,10 @@ func (m *Manager) heads() []workload.Info {
 			continue
 		}
 		wl := cq.Pop()
+		m.reportPendingWorkloads(cqName, cq)
 		if wl == nil {
 			continue
 		}
-		m.reportPendingWorkloads(cqName, cq)
 		wlCopy := *wl
 		wlCopy.ClusterQueue = cqName
 		workloads = append(workloads, wlCopy)

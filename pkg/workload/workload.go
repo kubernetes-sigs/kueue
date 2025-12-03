@@ -561,29 +561,60 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 	return res
 }
 
-// UpdateStatus updates the condition of a workload with ssa,
-// fieldManager being set to managerPrefix + "-" + conditionType
-func UpdateStatus(ctx context.Context,
+// SetConditionAndUpdate sets (or replaces) a single condition in a Workload's status.
+//
+// Behaviour depends on the feature gate WorkloadRequestUseMergePatch:
+//
+//   - Enabled → uses merge-patch via PatchStatus (preserves other conditions,
+//     safe for concurrent controllers).
+//
+//   - Disabled → uses server-side apply with field manager
+//     "<managerPrefix>-<conditionType>" (legacy path; only the written condition
+//     is managed by this controller).
+//
+// The condition gets:
+//   - ObservedGeneration = wl.Generation
+//   - LastTransitionTime = clock.Now()
+//   - Message truncated to the allowed length
+func SetConditionAndUpdate(ctx context.Context,
 	c client.Client,
 	wl *kueue.Workload,
 	conditionType string,
 	conditionStatus metav1.ConditionStatus,
 	reason, message string,
 	managerPrefix string,
-	clock clock.Clock) error {
-	now := metav1.NewTime(clock.Now())
+	clock clock.Clock,
+) error {
 	condition := metav1.Condition{
 		Type:               conditionType,
 		Status:             conditionStatus,
-		LastTransitionTime: now,
+		ObservedGeneration: wl.Generation,
+		LastTransitionTime: metav1.NewTime(clock.Now()),
 		Reason:             reason,
 		Message:            api.TruncateConditionMessage(message),
-		ObservedGeneration: wl.Generation,
 	}
 
-	newWl := BaseSSAWorkload(wl, false)
-	newWl.Status.Conditions = []metav1.Condition{condition}
-	return c.Status().Patch(ctx, newWl, client.Apply, client.FieldOwner(managerPrefix+"-"+condition.Type))
+	var (
+		wlCopy *kueue.Workload
+		err    error
+	)
+
+	if features.Enabled(features.WorkloadRequestUseMergePatch) {
+		wlCopy = wl.DeepCopy()
+		err = clientutil.PatchStatus(ctx, c, wlCopy, func() (bool, error) {
+			return apimeta.SetStatusCondition(&wlCopy.Status.Conditions, condition), nil
+		})
+	} else {
+		wlCopy = BaseSSAWorkload(wl, true)
+		wlCopy.Status.Conditions = []metav1.Condition{condition}
+		err = c.Status().Patch(ctx, wlCopy, client.Apply, client.FieldOwner(managerPrefix+"-"+condition.Type))
+	}
+	if err != nil {
+		return err
+	}
+
+	wlCopy.DeepCopyInto(wl)
+	return nil
 }
 
 // UnsetQuotaReservationWithCondition sets the QuotaReserved condition to false, clears
@@ -931,7 +962,7 @@ func admissionChecksStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, c clo
 // was changed.
 func ApplyAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, strict bool, clk clock.Clock) error {
 	wlCopy := PrepareWorkloadPatch(w, strict, clk)
-	return ApplyAdmissionStatusPatch(ctx, c, wlCopy)
+	return c.Status().Patch(ctx, wlCopy, client.Apply, client.FieldOwner(constants.AdmissionName), client.ForceOwnership)
 }
 
 func PrepareWorkloadPatch(w *kueue.Workload, strict bool, clk clock.Clock) *kueue.Workload {
@@ -939,11 +970,6 @@ func PrepareWorkloadPatch(w *kueue.Workload, strict bool, clk clock.Clock) *kueu
 	admissionStatusPatch(w, wlCopy)
 	admissionChecksStatusPatch(w, wlCopy, clk)
 	return wlCopy
-}
-
-// ApplyAdmissionStatusPatch applies the patch of admission related status fields of a workload with SSA.
-func ApplyAdmissionStatusPatch(ctx context.Context, c client.Client, patch *kueue.Workload) error {
-	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.AdmissionName), client.ForceOwnership)
 }
 
 // PatchAdmissionStatusOption defines a functional option for customizing PatchAdmissionStatusOptions.
@@ -982,26 +1008,6 @@ func DefaultPatchAdmissionStatusOptions() *PatchAdmissionStatusOptions {
 	return &PatchAdmissionStatusOptions{
 		StrictPatch: true, // default is strict
 		StrictApply: true, // default is strict
-	}
-}
-
-// WithLoose returns a PatchAdmissionStatusOption that resets both the StrictPatch and StrictApply
-// fields on PatchAdmissionStatusOptions.
-//
-// By default, StrictPatch and StrictApply are true. In strict mode, generated patches enforce stricter
-// behavior by clearing the ResourceVersion field from the "original" object.
-// This ensures that the ResourceVersion is always included in the generated patch
-// and taken into account during patch application.
-//
-// Example:
-//
-//	patch := clientutil.Patch(ctx, c, w, clk, func() (bool, error) {
-//	    return updateFn(obj), nil
-//	}, WithLoose()) // disables strict mode
-func WithLoose() PatchAdmissionStatusOption {
-	return func(o *PatchAdmissionStatusOptions) {
-		o.StrictPatch = false
-		o.StrictApply = false
 	}
 }
 
@@ -1243,7 +1249,7 @@ func CreatePodsReadyCondition(status metav1.ConditionStatus, reason, message str
 		Reason:             reason,
 		Message:            message,
 		LastTransitionTime: metav1.NewTime(clock.Now()),
-		// ObservedGeneration is added via workload.UpdateStatus
+		// ObservedGeneration is added via workload.SetConditionAndUpdate
 	}
 }
 
@@ -1488,25 +1494,4 @@ func ReasonWithCause(reason, underlyingCause string) string {
 // it returns an empty string.
 func ClusterName(wl *kueue.Workload) string {
 	return ptr.Deref(wl.Status.ClusterName, "")
-}
-
-// ResetRequeue resets the requeue state of the workload as well as all admission checks
-// It returns true if the workload was modified.
-func ResetRequeue(wl *kueue.Workload) bool {
-	var updated bool
-
-	if wl.Status.RequeueState != nil {
-		wl.Status.RequeueState = nil
-		updated = true
-	}
-	for i := range wl.Status.AdmissionChecks {
-		if wl.Status.AdmissionChecks[i].RequeueAfterSeconds == nil || wl.Status.AdmissionChecks[i].RetryCount == nil {
-			continue
-		}
-		wl.Status.AdmissionChecks[i].RequeueAfterSeconds = nil
-		wl.Status.AdmissionChecks[i].RetryCount = nil
-		updated = true
-	}
-
-	return updated
 }

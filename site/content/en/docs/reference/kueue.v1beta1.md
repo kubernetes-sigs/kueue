@@ -1,5 +1,5 @@
 ---
-title: Kueue API
+title: Kueue v1beta1 API
 content_type: tool-reference
 package: kueue.x-k8s.io/v1beta1
 auto_generated: true
