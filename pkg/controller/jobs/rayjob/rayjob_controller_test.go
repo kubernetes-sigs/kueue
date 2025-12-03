@@ -17,6 +17,7 @@ limitations under the License.
 package rayjob
 
 import (
+	"context"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -747,6 +748,126 @@ func Test_RayJobFinished(t *testing.T) {
 				t.Logf("actual finished: %v", finished)
 				t.Logf("expected finished: %v", testcase.expectedFinished)
 				t.Error("unexpected result for 'finished'")
+			}
+		})
+	}
+}
+
+func TestGetWorkload(t *testing.T) {
+	testCases := map[string]struct {
+		rayJob           *RayJob
+		rayCluster       *rayv1.RayCluster
+		workload         *kueue.Workload
+		enableFeature    bool
+		wantWorkload     *kueue.Workload
+		wantError        bool
+		workloadOnRayJob *kueue.Workload
+	}{
+		"default case: without InTreeAutoscaling, returns workload for RayJob": {
+			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").Obj()),
+			workloadOnRayJob: utiltesting.MakeWorkload("wl-rayjob", "ns").
+				OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "rayjob", "").
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl-rayjob", "ns").
+				OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "rayjob", "").
+				Obj(),
+		},
+		"InTreeAutoscaling enabled but workload slicing disabled": {
+			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
+				EnableInTreeAutoscaling().
+				Obj()),
+			workloadOnRayJob: utiltesting.MakeWorkload("wl-rayjob", "ns").
+				OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "rayjob", "").
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl-rayjob", "ns").
+				OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "rayjob", "").
+				Obj(),
+		},
+		"InTreeAutoscaling enabled with workload slicing but RayClusterName is empty": {
+			enableFeature: true,
+			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
+				EnableInTreeAutoscaling().
+				AddAnnotation("kueue.x-k8s.io/elastic-job", "true").
+				Obj()),
+			wantWorkload: nil,
+		},
+		"InTreeAutoscaling enabled with workload slicing but RayCluster not found": {
+			enableFeature: true,
+			rayJob: func() *RayJob {
+				job := testingrayutil.MakeJob("rayjob", "ns").
+					EnableInTreeAutoscaling().
+					AddAnnotation("kueue.x-k8s.io/elastic-job", "true").
+					Obj()
+				job.Status.RayClusterName = "test-cluster"
+				return (*RayJob)(job)
+			}(),
+			wantError: true,
+		},
+		"InTreeAutoscaling enabled with workload slicing, RayCluster exists with workload": {
+			enableFeature: true,
+			rayJob: func() *RayJob {
+				job := testingrayutil.MakeJob("rayjob", "ns").
+					EnableInTreeAutoscaling().
+					AddAnnotation("kueue.x-k8s.io/elastic-job", "true").
+					Obj()
+				job.Status.RayClusterName = "test-cluster"
+				return (*RayJob)(job)
+			}(),
+			rayCluster: func() *rayv1.RayCluster {
+				cluster := &rayv1.RayCluster{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-cluster",
+						Namespace: "ns",
+					},
+				}
+				return cluster
+			}(),
+			workload: utiltesting.MakeWorkload("wl-cluster", "ns").
+				OwnerReference(rayv1.GroupVersion.WithKind("RayCluster"), "test-cluster", "").
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl-cluster", "ns").
+				OwnerReference(rayv1.GroupVersion.WithKind("RayCluster"), "test-cluster", "").
+				Obj(),
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tc.enableFeature)
+
+			clientBuilder := utiltesting.NewClientBuilder(rayv1.AddToScheme)
+			clientBuilder = clientBuilder.WithObjects(tc.rayJob.Object())
+
+			if tc.rayCluster != nil {
+				clientBuilder = clientBuilder.WithObjects(tc.rayCluster)
+			}
+			if tc.workload != nil {
+				clientBuilder = clientBuilder.WithObjects(tc.workload)
+			}
+			if tc.workloadOnRayJob != nil {
+				clientBuilder = clientBuilder.WithObjects(tc.workloadOnRayJob)
+			}
+
+			client := clientBuilder.Build()
+
+			gotWorkload, err := tc.rayJob.GetWorkload(ctx, client)
+
+			if tc.wantError {
+				if err == nil {
+					t.Error("expected error but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if diff := cmp.Diff(tc.wantWorkload, gotWorkload,
+				cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
+				cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("unexpected workload (-want +got):\n%s", diff)
 			}
 		})
 	}
