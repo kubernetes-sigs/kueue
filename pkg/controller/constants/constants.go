@@ -55,9 +55,6 @@ const (
 	// NodeAvoidancePolicyPreferHealthy indicates that the workload prefers not to run on unhealthy nodes.
 	NodeAvoidancePolicyPreferHealthy = "prefer-healthy"
 
-	// NodeAvoidancePolicyAllowUnhealthy indicates that the workload allows running on unhealthy nodes.
-	NodeAvoidancePolicyAllowUnhealthy = "allow-unhealthy"
-
 	// NodeAvoidancePolicyDisallowUnhealthy indicates that the workload disallows running on unhealthy nodes.
 	NodeAvoidancePolicyDisallowUnhealthy = "disallow-unhealthy"
 )

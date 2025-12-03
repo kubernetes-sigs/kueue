@@ -539,22 +539,24 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, log logr.Logger, 
 
 	preemptionTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
 
-	var priorityClassName string
-	if wl.Obj.Spec.PriorityClassRef != nil {
-		priorityClassName = wl.Obj.Spec.PriorityClassRef.Name
-	}
 	var nodeAvoidancePolicy string
-	if priorityClassName != "" {
-		var err error
-		_, _, nodeAvoidancePolicy, err = priority.GetPriorityFromWorkloadPriorityClass(ctx, s.client, priorityClassName)
-		if err != nil {
-			log.V(3).Error(err, "Failed to get NodeAvoidancePolicy from WorkloadPriorityClass", "workloadPriorityClass", priorityClassName)
+	if features.Enabled(features.FailureAwareScheduling) {
+		var priorityClassName string
+		if wl.Obj.Spec.PriorityClassRef != nil {
+			priorityClassName = wl.Obj.Spec.PriorityClassRef.Name
 		}
+		if priorityClassName != "" {
+			var err error
+			_, _, nodeAvoidancePolicy, err = priority.GetPriorityFromWorkloadPriorityClass(ctx, s.client, priorityClassName)
+			if err != nil {
+				log.V(3).Error(err, "Failed to get NodeAvoidancePolicy from WorkloadPriorityClass", "workloadPriorityClass", priorityClassName)
+			}
+		}
+		if policy := nodeavoidance.GetNodeAvoidancePolicy(wl.Obj); policy != "" {
+			nodeAvoidancePolicy = policy
+		}
+		log.Info("Resolved NodeAvoidancePolicy", "workload", klog.KObj(wl.Obj), "policy", nodeAvoidancePolicy)
 	}
-	if policy := nodeavoidance.GetNodeAvoidancePolicy(wl.Obj); policy != "" {
-		nodeAvoidancePolicy = policy
-	}
-	log.Info("Resolved NodeAvoidancePolicy", "workload", klog.KObj(wl.Obj), "policy", nodeAvoidancePolicy)
 
 	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing), preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice, nodeAvoidancePolicy)
 	fullAssignment := flvAssigner.Assign(log, nil)

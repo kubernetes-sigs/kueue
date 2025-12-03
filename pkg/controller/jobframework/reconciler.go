@@ -1395,19 +1395,21 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 			return nil, err
 		}
 
-		nodeAvoidancePolicy := nodeavoidance.GetNodeAvoidancePolicy(w)
-		unhealthyNodeLabel := UnhealthyNodeLabelFromContext(ctx)
-		log.Info("Injecting NodeAffinity", "workload", klog.KObj(w), "policy", nodeAvoidancePolicy, "unhealthyLabel", unhealthyNodeLabel)
-		if nodeAvoidancePolicy != "" && unhealthyNodeLabel != "" {
-			affinity := nodeavoidance.ConstructNodeAffinity(nodeAvoidancePolicy, unhealthyNodeLabel)
-			if affinity != nil {
-				if info.Affinity == nil {
-					info.Affinity = &corev1.Affinity{}
+		if features.Enabled(features.FailureAwareScheduling) {
+			nodeAvoidancePolicy := nodeavoidance.GetNodeAvoidancePolicy(w)
+			unhealthyNodeLabel := UnhealthyNodeLabelFromContext(ctx)
+			log.Info("Injecting NodeAffinity", "workload", klog.KObj(w), "policy", nodeAvoidancePolicy, "unhealthyLabel", unhealthyNodeLabel)
+			if nodeAvoidancePolicy != "" && unhealthyNodeLabel != "" {
+				affinity := nodeavoidance.ConstructNodeAffinity(nodeAvoidancePolicy, unhealthyNodeLabel)
+				if affinity != nil {
+					if info.Affinity == nil {
+						info.Affinity = &corev1.Affinity{}
+					}
+					info.Affinity.NodeAffinity = affinity
+					log.Info("Injected NodeAffinity", "workload", klog.KObj(w), "affinity", affinity)
+				} else {
+					log.Info("ConstructNodeAffinity returned nil", "workload", klog.KObj(w))
 				}
-				info.Affinity.NodeAffinity = affinity
-				log.Info("Injected NodeAffinity", "workload", klog.KObj(w), "affinity", affinity)
-			} else {
-				log.Info("ConstructNodeAffinity returned nil", "workload", klog.KObj(w))
 			}
 		}
 
