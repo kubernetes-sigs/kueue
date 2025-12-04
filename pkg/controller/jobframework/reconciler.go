@@ -389,11 +389,11 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 					}
 				} else {
 					log.V(10).Info("Ancestor job not converted to JobWithCustomWorkloadRetriever")
-					ancestorWorkload, err = r.getWorkloadForObject(ctx, ancestorJob)
+					ancestorWorkload, err = GetWorkloadForObject(ctx, r.client, ancestorJob)
 				}
 			} else {
 				log.V(10).Info("Ancestor job not converted to generic job", "ancestorJobName", ancestorJob.GetName())
-				ancestorWorkload, err = r.getWorkloadForObject(ctx, ancestorJob)
+				ancestorWorkload, err = GetWorkloadForObject(ctx, r.client, ancestorJob)
 			}
 			if err != nil {
 				log.Error(err, "couldn't get an ancestor job workload")
@@ -737,7 +737,6 @@ func GetWorkloadForObject(ctx context.Context, c client.Client, jobObj client.Ob
 
 	return &wls.Items[0], nil
 }
-
 
 // FindAncestorJobManagedByKueue traverses controllerRefs to find the top-level ancestor Job managed by Kueue.
 // If manageJobsWithoutQueueName is set to false, it returns only Jobs with a queue-name.
