@@ -119,7 +119,7 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 				true,  // enableScheduler
 				nil,   // configuration
 				jobframework.WithManagedJobsNamespaceSelector(testutil.NewNamespaceSelectorExcluding("unmanaged-ns")),
-				jobframework.WithUnhealthyNodeLabel(unhealthyLabel),
+				jobframework.WithAvoidNodeLabel(unhealthyLabel),
 			))
 			ginkgo.DeferCleanup(fwk.StopManager, ctx)
 			ginkgo.DeferCleanup(func() {
@@ -458,7 +458,7 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 				true, // enableScheduler
 				nil,  // configuration
 				jobframework.WithManagedJobsNamespaceSelector(testutil.NewNamespaceSelectorExcluding("unmanaged-ns")),
-				jobframework.WithUnhealthyNodeLabel(unhealthyLabel),
+				jobframework.WithAvoidNodeLabel(unhealthyLabel),
 			))
 			ginkgo.DeferCleanup(fwk.StopManager, ctx)
 			ginkgo.DeferCleanup(func() {
@@ -551,7 +551,7 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 				true,  // enableScheduler
 				nil,   // configuration
 				jobframework.WithManagedJobsNamespaceSelector(testutil.NewNamespaceSelectorExcluding("unmanaged-ns")),
-				jobframework.WithUnhealthyNodeLabel(unhealthyLabel),
+				jobframework.WithAvoidNodeLabel(unhealthyLabel),
 			))
 			ginkgo.DeferCleanup(fwk.StopManager, ctx)
 		})

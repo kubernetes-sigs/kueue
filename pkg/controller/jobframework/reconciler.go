@@ -62,14 +62,14 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
-type unhealthyNodeLabelKey struct{}
+type avoidNodeLabelKey struct{}
 
-func ContextWithUnhealthyNodeLabel(ctx context.Context, label string) context.Context {
-	return context.WithValue(ctx, unhealthyNodeLabelKey{}, label)
+func ContextWithAvoidNodeLabel(ctx context.Context, label string) context.Context {
+	return context.WithValue(ctx, avoidNodeLabelKey{}, label)
 }
 
-func UnhealthyNodeLabelFromContext(ctx context.Context) string {
-	if label, ok := ctx.Value(unhealthyNodeLabelKey{}).(string); ok {
+func AvoidNodeLabelFromContext(ctx context.Context) string {
+	if label, ok := ctx.Value(avoidNodeLabelKey{}).(string); ok {
 		return label
 	}
 	return ""
@@ -120,7 +120,7 @@ type Options struct {
 	Cache                        *schdcache.Cache
 	Clock                        clock.Clock
 	WorkloadRetentionPolicy      WorkloadRetentionPolicy
-	UnhealthyNodeLabel           string
+	AvoidNodeLabel           string
 }
 
 // Option configures the reconciler.
@@ -239,10 +239,10 @@ func WithObjectRetentionPolicies(value *configapi.ObjectRetentionPolicies) Optio
 	}
 }
 
-// WithUnhealthyNodeLabel adds the unhealthy node label.
-func WithUnhealthyNodeLabel(label string) Option {
+// WithAvoidNodeLabel adds the unhealthy node label.
+func WithAvoidNodeLabel(label string) Option {
 	return func(o *Options) {
-		o.UnhealthyNodeLabel = label
+		o.AvoidNodeLabel = label
 	}
 }
 
@@ -265,7 +265,7 @@ func NewReconciler(
 		labelKeysToCopy:              options.LabelKeysToCopy,
 		clock:                        options.Clock,
 		workloadRetentionPolicy:      options.WorkloadRetentionPolicy,
-		unhealthyNodeLabel:           options.UnhealthyNodeLabel,
+		unhealthyNodeLabel:           options.AvoidNodeLabel,
 	}
 }
 
@@ -273,7 +273,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	object := job.Object()
 	log := ctrl.LoggerFrom(ctx).WithValues("job", req.String(), "gvk", job.GVK())
 	ctx = ctrl.LoggerInto(ctx, log)
-	ctx = ContextWithUnhealthyNodeLabel(ctx, r.unhealthyNodeLabel)
+	ctx = ContextWithAvoidNodeLabel(ctx, r.unhealthyNodeLabel)
 
 	defer func() {
 		err = r.ignoreUnretryableError(log, err)
@@ -1055,7 +1055,7 @@ func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Work
 	if !workload.HasQuotaReservation(wl) {
 		return nil
 	}
-	info, err := getPodSetsInfoFromStatus(ctx, c, wl, UnhealthyNodeLabelFromContext(ctx))
+	info, err := getPodSetsInfoFromStatus(ctx, c, wl, AvoidNodeLabelFromContext(ctx))
 	if err != nil {
 		return nil
 	}
@@ -1266,7 +1266,7 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 	}
 
 	// Copy NodeAvoidancePolicy annotation
-	if features.Enabled(features.NodeAvoidanceScheduling) {
+	if features.Enabled(features.FailureAwareScheduling) {
 		if val, ok := job.Object().GetAnnotations()[controllerconsts.NodeAvoidancePolicyAnnotation]; ok {
 			if wl.Annotations == nil {
 				wl.Annotations = make(map[string]string)
@@ -1332,7 +1332,7 @@ func PrepareWorkloadPriority(ctx context.Context, c client.Client, obj client.Ob
 	wl.Spec.PriorityClassRef = priorityClassRef
 	wl.Spec.Priority = &priority
 
-	if policy != "" && features.Enabled(features.NodeAvoidanceScheduling) {
+	if policy != "" && features.Enabled(features.FailureAwareScheduling) {
 		if _, ok := obj.GetAnnotations()[controllerconsts.NodeAvoidancePolicyAnnotation]; !ok {
 			if wl.Annotations == nil {
 				wl.Annotations = make(map[string]string)

@@ -128,8 +128,8 @@ func main() {
 	var featureGates string
 	flag.StringVar(&featureGates, "feature-gates", "", "A set of key=value pairs that describe feature gates for alpha/experimental features.")
 
-	var unhealthyNodeLabel string
-	flag.StringVar(&unhealthyNodeLabel, "unhealthy-node-label", "", "The label key that indicates if a node is unhealthy.")
+	var nodeAvoidLabel string
+	flag.StringVar(&nodeAvoidLabel, "node-avoid-label", "", "The label key that indicates if a node should be avoided.")
 
 	opts := zap.Options{
 		TimeEncoder: zapcore.RFC3339NanoTimeEncoder,
@@ -252,10 +252,10 @@ func main() {
 		cacheOptions = append(cacheOptions, schdcache.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes))
 		queueOptions = append(queueOptions, qcache.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes))
 	}
-	if features.Enabled(features.NodeAvoidanceScheduling) && unhealthyNodeLabel != "" {
-		cacheOptions = append(cacheOptions, schdcache.WithUnhealthyNodeLabel(unhealthyNodeLabel))
+	if features.Enabled(features.NodeAvoidanceScheduling) && nodeAvoidLabel != "" {
+		cacheOptions = append(cacheOptions, schdcache.WithAvoidNodeLabel(nodeAvoidLabel))
 	} else {
-		unhealthyNodeLabel = ""
+		nodeAvoidLabel = ""
 	}
 	if features.Enabled(features.ConfigurableResourceTransformations) && cfg.Resources != nil && len(cfg.Resources.Transformations) > 0 {
 		cacheOptions = append(cacheOptions, schdcache.WithResourceTransformations(cfg.Resources.Transformations))
@@ -295,7 +295,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := setupControllers(ctx, mgr, cCache, queues, &cfg, serverVersionFetcher, unhealthyNodeLabel); err != nil {
+	if err := setupControllers(ctx, mgr, cCache, queues, &cfg, serverVersionFetcher, nodeAvoidLabel); err != nil {
 		setupLog.Error(err, "Unable to setup controllers")
 		os.Exit(1)
 	}
@@ -437,7 +437,7 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.C
 		jobframework.WithCache(cCache),
 		jobframework.WithQueues(queues),
 		jobframework.WithObjectRetentionPolicies(cfg.ObjectRetentionPolicies),
-		jobframework.WithUnhealthyNodeLabel(unhealthyNodeLabel),
+		jobframework.WithAvoidNodeLabel(unhealthyNodeLabel),
 	}
 	nsSelector, err := metav1.LabelSelectorAsSelector(cfg.ManagedJobsNamespaceSelector)
 	if err != nil {

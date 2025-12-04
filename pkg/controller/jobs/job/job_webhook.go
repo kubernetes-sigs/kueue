@@ -84,7 +84,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		queues:                       options.Queues,
 		cache:                        options.Cache,
-		unhealthyNodeLabel:           options.UnhealthyNodeLabel,
+		unhealthyNodeLabel:           options.AvoidNodeLabel,
 	}
 	obj := &batchv1.Job{}
 	return webhook.WebhookManagedBy(mgr).

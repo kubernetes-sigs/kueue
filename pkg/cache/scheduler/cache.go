@@ -95,7 +95,7 @@ func WithAdmissionFairSharing(afs *config.AdmissionFairSharing) Option {
 	}
 }
 
-func WithUnhealthyNodeLabel(label string) Option {
+func WithAvoidNodeLabel(label string) Option {
 	return func(c *Cache) {
 		c.unhealthyNodeLabel = label
 	}
