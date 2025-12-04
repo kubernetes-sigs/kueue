@@ -132,7 +132,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with tiny Timeout and no RecoveryTimeo
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, metricsReaderClusterRoleBinding, true)
 	})
 
-	ginkgo.It("should evict and requeue workload when pods readiness timeout is surpassed", func() {
+	ginkgo.FIt("should evict and requeue workload when pods readiness timeout is surpassed", func() {
 		ginkgo.By("creating a suspended job so its pods never report Ready", func() {
 			job = testingjob.MakeJob("job-timeout", ns.Name).
 				Queue(kueue.LocalQueueName(lq.Name)).
@@ -238,7 +238,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 			cfg.WaitForPodsReady = &configapi.WaitForPodsReady{
 				Timeout:         metav1.Duration{Duration: 5 * time.Minute},
 				BlockAdmission:  ptr.To(true),
-				RecoveryTimeout: &metav1.Duration{Duration: util.TinyTimeout},
+				RecoveryTimeout: &metav1.Duration{Duration: time.Nanosecond},
 				RequeuingStrategy: &configapi.RequeuingStrategy{
 					Timestamp:          ptr.To(configapi.EvictionTimestamp),
 					BackoffBaseSeconds: ptr.To(int32(1)),
@@ -288,7 +288,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, metricsReaderClusterRoleBinding, true)
 	})
 
-	ginkgo.It("should evict and requeue workload when pod failure causes recovery timeout", func() {
+	ginkgo.FIt("should evict and requeue workload when pod failure causes recovery timeout", func() {
 		ginkgo.By("creating a job", func() {
 			job = testingjob.MakeJob("job-recovery-timeout", ns.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).

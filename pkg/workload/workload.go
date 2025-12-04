@@ -1030,12 +1030,14 @@ func mergePatchStatus(ctx context.Context, c client.Client, wl *kueue.Workload, 
 		patchOptions = append(patchOptions, clientutil.WithRetryOnConflict())
 	}
 	return clientutil.PatchStatus(ctx, c, wl, func() (bool, error) {
+		time.Sleep(time.Second)
 		return update(wl)
 	}, patchOptions...)
 }
 
 func applyPatchStatus(ctx context.Context, c client.Client, wl *kueue.Workload, owner client.FieldOwner, update UpdateFunc) error {
 	if updated, err := update(wl); err != nil || !updated {
+		time.Sleep(time.Second)
 		return err
 	}
 	return c.Status().Patch(ctx, wl, client.Apply, owner, client.ForceOwnership)
