@@ -818,4 +818,33 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			})
 		})
 	})
+
+	ginkgo.It("Should report no cluster providers configured", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueClusterProfile, true)
+
+		ginkgo.By("Create ClusterProfile", func() {
+			clusterProfile := utiltestingapi.MakeClusterProfile("test-profile", config.DefaultNamespace).Obj()
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, clusterProfile)).To(gomega.Succeed())
+		})
+
+		var workerCluster3 *kueue.MultiKueueCluster
+		ginkgo.By("Create a MultiKueueCluster with ClusterProfile as ClusterSource", func() {
+			workerCluster3 = utiltestingapi.MakeMultiKueueCluster("worker3").ClusterProfile("test-profile").Obj()
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, workerCluster3)).To(gomega.Succeed())
+		})
+
+		workerCluster3Key := client.ObjectKeyFromObject(workerCluster3)
+		ginkgo.By("Verify status of the MultiKueueCluster", func() {
+			mkc := &kueue.MultiKueueCluster{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, workerCluster3Key, mkc)).To(gomega.Succeed())
+				g.Expect(mkc.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
+					Type:    kueue.MultiKueueClusterActive,
+					Status:  metav1.ConditionFalse,
+					Reason:  "BadClusterProfile",
+					Message: "load client config failed: no credentials provider configured",
+				}, util.IgnoreConditionTimestampsAndObservedGeneration)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
 })

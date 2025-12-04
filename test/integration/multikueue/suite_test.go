@@ -110,6 +110,7 @@ func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) c
 			util.AppWrapperCrds,
 			util.KfTrainerCrds,
 			util.AutoscalerCrds,
+			util.ClusterProfileCrds,
 		},
 		APIServerFeatureGates: apiFeatureGates,
 	}
