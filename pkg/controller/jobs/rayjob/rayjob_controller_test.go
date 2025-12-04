@@ -766,10 +766,10 @@ func TestGetWorkload(t *testing.T) {
 	}{
 		"default case: without InTreeAutoscaling, returns workload for RayJob": {
 			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").Obj()),
-			workloadOnRayJob: utiltesting.MakeWorkload("wl-rayjob", "ns").
+			workloadOnRayJob: utiltestingapi.MakeWorkload("wl-rayjob", "ns").
 				OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "rayjob", "").
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl-rayjob", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl-rayjob", "ns").
 				OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "rayjob", "").
 				Obj(),
 		},
@@ -777,10 +777,10 @@ func TestGetWorkload(t *testing.T) {
 			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
 				EnableInTreeAutoscaling().
 				Obj()),
-			workloadOnRayJob: utiltesting.MakeWorkload("wl-rayjob", "ns").
+			workloadOnRayJob: utiltestingapi.MakeWorkload("wl-rayjob", "ns").
 				OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "rayjob", "").
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl-rayjob", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl-rayjob", "ns").
 				OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "rayjob", "").
 				Obj(),
 		},
@@ -823,10 +823,10 @@ func TestGetWorkload(t *testing.T) {
 				}
 				return cluster
 			}(),
-			workload: utiltesting.MakeWorkload("wl-cluster", "ns").
+			workload: utiltestingapi.MakeWorkload("wl-cluster", "ns").
 				OwnerReference(rayv1.GroupVersion.WithKind("RayCluster"), "test-cluster", "").
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl-cluster", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl-cluster", "ns").
 				OwnerReference(rayv1.GroupVersion.WithKind("RayCluster"), "test-cluster", "").
 				Obj(),
 		},
