@@ -25,7 +25,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/kueue/pkg/workloadslicing"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
