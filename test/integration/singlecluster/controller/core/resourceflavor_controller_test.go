@@ -27,7 +27,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("ResourceFlavor controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("ResourceFlavor controller", ginkgo.Label("controller:resourceflavor", "area:core"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeAll(func() {

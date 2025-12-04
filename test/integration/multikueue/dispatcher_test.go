@@ -42,7 +42,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("MultiKueueDispatcherIncremental", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("MultiKueueDispatcherIncremental", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		managerNs *corev1.Namespace
 		worker1Ns *corev1.Namespace
@@ -230,7 +230,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherIncremental", ginkgo.Ordered, ginkg
 	})
 })
 
-var _ = ginkgo.Describe("MultiKueueDispatcherExternal", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("MultiKueueDispatcherExternal", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		managerNs *corev1.Namespace
 		worker1Ns *corev1.Namespace
@@ -469,7 +469,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherExternal", ginkgo.Ordered, ginkgo.C
 	})
 })
 
-var _ = ginkgo.Describe("MultiKueueDispatcherAllAtOnce", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("MultiKueueDispatcherAllAtOnce", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		managerNs *corev1.Namespace
 		worker1Ns *corev1.Namespace
@@ -699,7 +699,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherAllAtOnce", ginkgo.Ordered, ginkgo.
 	})
 })
 
-var _ = ginkgo.Describe("MultiKueueConfig Re-evaluation", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("MultiKueueConfig Re-evaluation", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, func() {
 	var (
 		managerNs *corev1.Namespace
 		worker1Ns *corev1.Namespace

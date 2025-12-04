@@ -82,7 +82,7 @@ var defaultEnabledIntegrations = sets.New(
 	"kubeflow.org/pytorchjob", "kubeflow.org/tfjob", "kubeflow.org/xgboostjob", "kubeflow.org/jaxjob",
 	"pod", "workload.codeflare.dev/appwrapper", "trainer.kubeflow.org/trainjob")
 
-var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		managerNs *corev1.Namespace
 		worker1Ns *corev1.Namespace
