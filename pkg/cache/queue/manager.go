@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/queue"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -51,6 +52,13 @@ var (
 
 // Option configures the manager.
 type Option func(*Manager)
+
+// WithRoleTracker sets the role tracker for logs and metrics. Can be nil if leader election is disabled.
+func WithRoleTracker(tracker *roletracker.RoleTracker) Option {
+	return func(m *Manager) {
+		m.roleTracker = tracker
+	}
+}
 
 // WithClock allows to specify a custom clock
 func WithClock(c clock.WithDelayedExecution) Option {
@@ -105,6 +113,7 @@ type Manager struct {
 
 	clock         clock.WithDelayedExecution
 	client        client.Client
+	roleTracker   *roletracker.RoleTracker
 	statusChecker StatusChecker
 	localQueues   map[queue.LocalQueueReference]*LocalQueue
 
@@ -717,7 +726,7 @@ func (m *Manager) reportLQPendingWorkloads(lq *LocalQueue) {
 	metrics.ReportLocalQueuePendingWorkloads(metrics.LocalQueueReference{
 		Name:      lqName,
 		Namespace: namespace,
-	}, active, inadmissible)
+	}, active, inadmissible, m.roleTracker)
 }
 
 func (m *Manager) reportPendingWorkloads(cqName kueue.ClusterQueueReference, cq *ClusterQueue) {
@@ -726,7 +735,7 @@ func (m *Manager) reportPendingWorkloads(cqName kueue.ClusterQueueReference, cq 
 		inadmissible += active
 		active = 0
 	}
-	metrics.ReportPendingWorkloads(cqName, active, inadmissible)
+	metrics.ReportPendingWorkloads(cqName, active, inadmissible, m.roleTracker)
 }
 
 func (m *Manager) GetClusterQueueNames() []kueue.ClusterQueueReference {

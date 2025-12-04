@@ -49,6 +49,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -60,10 +61,11 @@ const (
 
 // nodeFailureReconciler reconciles Nodes to detect failures and update affected Workloads
 type nodeFailureReconciler struct {
-	client   client.Client
-	clock    clock.Clock
-	log      logr.Logger
-	recorder record.EventRecorder
+	client      client.Client
+	clock       clock.Clock
+	log         logr.Logger
+	recorder    record.EventRecorder
+	roleTracker *roletracker.RoleTracker
 }
 
 func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -147,12 +149,13 @@ func (r *nodeFailureReconciler) Delete(e event.TypedDeleteEvent[*corev1.Node]) b
 //+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;patch
 
-func newNodeFailureReconciler(client client.Client, recorder record.EventRecorder) *nodeFailureReconciler {
+func newNodeFailureReconciler(client client.Client, recorder record.EventRecorder, roleTracker *roletracker.RoleTracker) *nodeFailureReconciler {
 	return &nodeFailureReconciler{
-		client:   client,
-		log:      ctrl.Log.WithName(TASNodeFailureController),
-		clock:    clock.RealClock{},
-		recorder: recorder,
+		client:      client,
+		log:         ctrl.Log.WithName(TASNodeFailureController),
+		clock:       clock.RealClock{},
+		recorder:    recorder,
+		roleTracker: roleTracker,
 	}
 }
 
@@ -243,7 +246,7 @@ func (r *nodeFailureReconciler) evictWorkloadIfNeeded(ctx context.Context, wl *k
 		log.V(3).Info("Evicting workload due to multiple node failures")
 		allUnhealthyNodeNames := append(unhealthyNodeNames, nodeName)
 		evictionMsg := fmt.Sprintf(nodeMultipleFailuresEvictionMessageFormat, strings.Join(allUnhealthyNodeNames, ", "))
-		if evictionErr := workload.Evict(ctx, r.client, r.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, evictionMsg, "", r.clock); evictionErr != nil {
+		if evictionErr := workload.Evict(ctx, r.client, r.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, evictionMsg, "", r.clock, workload.WithRoleTracker(r.roleTracker)); evictionErr != nil {
 			log.Error(evictionErr, "Failed to complete eviction process")
 			return false, evictionErr
 		} else {

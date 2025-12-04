@@ -23,9 +23,12 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	"sigs.k8s.io/kueue/pkg/version"
 )
+
+var testTracker = roletracker.NewFakeRoleTracker(roletracker.RoleStandalone)
 
 func expectFilteredMetricsCount(t *testing.T, vec prometheus.Collector, count int, kvs ...string) {
 	labels := prometheus.Labels{}
@@ -48,18 +51,18 @@ func TestGenerateExponentialBuckets(t *testing.T) {
 }
 
 func TestReportAndCleanupClusterQueueMetrics(t *testing.T) {
-	ReportClusterQueueQuotas("cohort", "queue", "flavor", "res", 5, 10, 3)
-	ReportClusterQueueQuotas("cohort", "queue", "flavor2", "res", 1, 2, 1)
+	ReportClusterQueueQuotas("cohort", "queue", "flavor", "res", 5, 10, 3, testTracker)
+	ReportClusterQueueQuotas("cohort", "queue", "flavor2", "res", 1, 2, 1, testTracker)
 
 	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 2, "cluster_queue", "queue")
 	expectFilteredMetricsCount(t, ClusterQueueResourceBorrowingLimit, 2, "cluster_queue", "queue")
 	expectFilteredMetricsCount(t, ClusterQueueResourceLendingLimit, 2, "cluster_queue", "queue")
 
-	ReportClusterQueueResourceReservations("cohort", "queue", "flavor", "res", 7)
-	ReportClusterQueueResourceReservations("cohort", "queue", "flavor2", "res", 3)
+	ReportClusterQueueResourceReservations("cohort", "queue", "flavor", "res", 7, testTracker)
+	ReportClusterQueueResourceReservations("cohort", "queue", "flavor2", "res", 3, testTracker)
 
-	ReportClusterQueueResourceUsage("cohort", "queue", "flavor", "res", 7)
-	ReportClusterQueueResourceUsage("cohort", "queue", "flavor2", "res", 3)
+	ReportClusterQueueResourceUsage("cohort", "queue", "flavor", "res", 7, testTracker)
+	ReportClusterQueueResourceUsage("cohort", "queue", "flavor2", "res", 3, testTracker)
 
 	expectFilteredMetricsCount(t, ClusterQueueResourceReservations, 2, "cluster_queue", "queue")
 	expectFilteredMetricsCount(t, ClusterQueueResourceUsage, 2, "cluster_queue", "queue")
@@ -74,10 +77,10 @@ func TestReportAndCleanupClusterQueueMetrics(t *testing.T) {
 }
 
 func TestReportAndCleanupClusterQueueQuotas(t *testing.T) {
-	ReportClusterQueueQuotas("cohort", "queue", "flavor", "res", 5, 10, 3)
-	ReportClusterQueueQuotas("cohort", "queue", "flavor", "res2", 5, 10, 3)
-	ReportClusterQueueQuotas("cohort", "queue", "flavor2", "res", 1, 2, 1)
-	ReportClusterQueueQuotas("cohort", "queue", "flavor2", "res2", 1, 2, 1)
+	ReportClusterQueueQuotas("cohort", "queue", "flavor", "res", 5, 10, 3, testTracker)
+	ReportClusterQueueQuotas("cohort", "queue", "flavor", "res2", 5, 10, 3, testTracker)
+	ReportClusterQueueQuotas("cohort", "queue", "flavor2", "res", 1, 2, 1, testTracker)
+	ReportClusterQueueQuotas("cohort", "queue", "flavor2", "res2", 1, 2, 1, testTracker)
 
 	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 4, "cluster_queue", "queue")
 	expectFilteredMetricsCount(t, ClusterQueueResourceBorrowingLimit, 4, "cluster_queue", "queue")
@@ -107,10 +110,10 @@ func TestReportAndCleanupClusterQueueQuotas(t *testing.T) {
 }
 
 func TestReportAndCleanupClusterQueueUsage(t *testing.T) {
-	ReportClusterQueueResourceReservations("cohort", "queue", "flavor", "res", 5)
-	ReportClusterQueueResourceReservations("cohort", "queue", "flavor", "res2", 5)
-	ReportClusterQueueResourceReservations("cohort", "queue", "flavor2", "res", 1)
-	ReportClusterQueueResourceReservations("cohort", "queue", "flavor2", "res2", 1)
+	ReportClusterQueueResourceReservations("cohort", "queue", "flavor", "res", 5, testTracker)
+	ReportClusterQueueResourceReservations("cohort", "queue", "flavor", "res2", 5, testTracker)
+	ReportClusterQueueResourceReservations("cohort", "queue", "flavor2", "res", 1, testTracker)
+	ReportClusterQueueResourceReservations("cohort", "queue", "flavor2", "res2", 1, testTracker)
 
 	expectFilteredMetricsCount(t, ClusterQueueResourceReservations, 4, "cluster_queue", "queue")
 
@@ -126,10 +129,10 @@ func TestReportAndCleanupClusterQueueUsage(t *testing.T) {
 	expectFilteredMetricsCount(t, ClusterQueueResourceReservations, 1, "cluster_queue", "queue")
 	expectFilteredMetricsCount(t, ClusterQueueResourceReservations, 0, "cluster_queue", "queue", "flavor", "flavor", "resource", "res2")
 
-	ReportClusterQueueResourceUsage("cohort", "queue", "flavor", "res", 5)
-	ReportClusterQueueResourceUsage("cohort", "queue", "flavor", "res2", 5)
-	ReportClusterQueueResourceUsage("cohort", "queue", "flavor2", "res", 1)
-	ReportClusterQueueResourceUsage("cohort", "queue", "flavor2", "res2", 1)
+	ReportClusterQueueResourceUsage("cohort", "queue", "flavor", "res", 5, testTracker)
+	ReportClusterQueueResourceUsage("cohort", "queue", "flavor", "res2", 5, testTracker)
+	ReportClusterQueueResourceUsage("cohort", "queue", "flavor2", "res", 1, testTracker)
+	ReportClusterQueueResourceUsage("cohort", "queue", "flavor2", "res2", 1, testTracker)
 
 	expectFilteredMetricsCount(t, ClusterQueueResourceUsage, 4, "cluster_queue", "queue")
 
@@ -147,8 +150,8 @@ func TestReportAndCleanupClusterQueueUsage(t *testing.T) {
 }
 
 func TestReportAndCleanupClusterQueueEvictedNumber(t *testing.T) {
-	ReportEvictedWorkloads("cluster_queue1", "Preempted", "", "")
-	ReportEvictedWorkloads("cluster_queue1", "Evicted", "", "")
+	ReportEvictedWorkloads("cluster_queue1", "Preempted", "", "", testTracker)
+	ReportEvictedWorkloads("cluster_queue1", "Evicted", "", "", testTracker)
 
 	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 2, "cluster_queue", "cluster_queue1")
 	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 1, "cluster_queue", "cluster_queue1", "reason", "Preempted")
@@ -159,10 +162,10 @@ func TestReportAndCleanupClusterQueueEvictedNumber(t *testing.T) {
 }
 
 func TestReportAndCleanupClusterQueuePreemptedNumber(t *testing.T) {
-	ReportPreemption("cluster_queue1", "InClusterQueue", "cluster_queue1")
-	ReportPreemption("cluster_queue1", "InCohortReclamation", "cluster_queue1")
-	ReportPreemption("cluster_queue1", "InCohortFairSharing", "cluster_queue1")
-	ReportPreemption("cluster_queue1", "InCohortReclaimWhileBorrowing", "cluster_queue1")
+	ReportPreemption("cluster_queue1", "InClusterQueue", "cluster_queue1", testTracker)
+	ReportPreemption("cluster_queue1", "InCohortReclamation", "cluster_queue1", testTracker)
+	ReportPreemption("cluster_queue1", "InCohortFairSharing", "cluster_queue1", testTracker)
+	ReportPreemption("cluster_queue1", "InCohortReclaimWhileBorrowing", "cluster_queue1", testTracker)
 
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 4, "preempting_cluster_queue", "cluster_queue1")
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 1, "preempting_cluster_queue", "cluster_queue1", "reason", "InClusterQueue")
@@ -176,7 +179,7 @@ func TestReportAndCleanupClusterQueuePreemptedNumber(t *testing.T) {
 
 func TestReportAndCleanupLocalQueueEvictedNumber(t *testing.T) {
 	lq := LocalQueueReference{Name: kueue.LocalQueueName("lq1"), Namespace: "ns1"}
-	ReportLocalQueueEvictedWorkloads(lq, "Preempted", "", "")
+	ReportLocalQueueEvictedWorkloads(lq, "Preempted", "", "", testTracker)
 
 	expectFilteredMetricsCount(t, LocalQueueEvictedWorkloadsTotal, 1, "name", "lq1", "namespace", "ns1", "reason", "Preempted")
 
@@ -196,7 +199,7 @@ func TestGitVersionMetric(t *testing.T) {
 
 func TestReportLocalQueueAdmissionChecksWaitTimeHasPriorityLabel(t *testing.T) {
 	lq := LocalQueueReference{Name: "lq3", Namespace: "ns3"}
-	ReportLocalQueueAdmissionChecksWaitTime(lq, "p2", 0)
+	ReportLocalQueueAdmissionChecksWaitTime(lq, "p2", 0, testTracker)
 	expectFilteredMetricsCount(t, LocalQueueAdmissionChecksWaitTime, 1, "name", "lq3", "namespace", "ns3")
 	ClearLocalQueueMetrics(lq)
 	expectFilteredMetricsCount(t, LocalQueueAdmissionChecksWaitTime, 0, "name", "lq3", "namespace", "ns3")
@@ -204,7 +207,7 @@ func TestReportLocalQueueAdmissionChecksWaitTimeHasPriorityLabel(t *testing.T) {
 
 func TestReportAndCleanupLocalQueueQuotaReservedNumber(t *testing.T) {
 	lq := LocalQueueReference{Name: kueue.LocalQueueName("lq1"), Namespace: "ns1"}
-	LocalQueueQuotaReservedWorkload(lq, "", 0)
+	LocalQueueQuotaReservedWorkload(lq, "", 0, testTracker)
 
 	expectFilteredMetricsCount(t, LocalQueueQuotaReservedWorkloadsTotal, 1, "name", "lq1", "namespace", "ns1")
 
@@ -214,8 +217,82 @@ func TestReportAndCleanupLocalQueueQuotaReservedNumber(t *testing.T) {
 
 func TestLocalQueueQuotaReservedWaitTimeHasPriorityLabel(t *testing.T) {
 	lq := LocalQueueReference{Name: kueue.LocalQueueName("lq2"), Namespace: "ns2"}
-	LocalQueueQuotaReservedWorkload(lq, "p1", 0)
+	LocalQueueQuotaReservedWorkload(lq, "p1", 0, testTracker)
 	expectFilteredMetricsCount(t, LocalQueueQuotaReservedWaitTime, 1, "name", "lq2", "namespace", "ns2")
 	ClearLocalQueueMetrics(lq)
 	expectFilteredMetricsCount(t, LocalQueueQuotaReservedWaitTime, 0, "name", "lq2", "namespace", "ns2")
+}
+
+func TestMetricsWithDifferentRoles(t *testing.T) {
+	tests := []struct {
+		name         string
+		tracker      *roletracker.RoleTracker
+		expectedRole string
+	}{
+		{
+			name:         "leader tracker",
+			tracker:      roletracker.NewFakeRoleTracker(roletracker.RoleLeader),
+			expectedRole: roletracker.RoleLeader,
+		},
+		{
+			name:         "follower tracker",
+			tracker:      roletracker.NewFakeRoleTracker(roletracker.RoleFollower),
+			expectedRole: roletracker.RoleFollower,
+		},
+		{
+			name:         "standalone tracker",
+			tracker:      roletracker.NewFakeRoleTracker(roletracker.RoleStandalone),
+			expectedRole: roletracker.RoleStandalone,
+		},
+		{
+			name:         "nil tracker",
+			tracker:      nil,
+			expectedRole: roletracker.RoleStandalone,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ReportClusterQueueQuotas("test-cohort", "test-queue", "test-flavor", "cpu", 100, 200, 50, tc.tracker)
+			expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 1, "cluster_queue", "test-queue", "replica_role", tc.expectedRole)
+			ClearClusterQueueResourceMetrics("test-queue")
+		})
+	}
+}
+
+func TestMultipleMetricEmittersWithRoles(t *testing.T) {
+	leaderTracker := roletracker.NewFakeRoleTracker(roletracker.RoleLeader)
+	followerTracker := roletracker.NewFakeRoleTracker(roletracker.RoleFollower)
+
+	ReportEvictedWorkloads("test-cq", "Preempted", "", "", leaderTracker)
+	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 1, "cluster_queue", "test-cq", "replica_role", roletracker.RoleLeader)
+	ClearClusterQueueMetrics("test-cq")
+
+	ReportPreemption("test-cq", "InClusterQueue", "test-cq", followerTracker)
+	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 1, "preempting_cluster_queue", "test-cq", "replica_role", roletracker.RoleFollower)
+	ClearClusterQueueMetrics("test-cq")
+
+	lq := LocalQueueReference{Name: "test-lq", Namespace: "test-ns"}
+	LocalQueueQuotaReservedWorkload(lq, "high", 0, leaderTracker)
+	expectFilteredMetricsCount(t, LocalQueueQuotaReservedWorkloadsTotal, 1, "name", "test-lq", "replica_role", roletracker.RoleLeader)
+	ClearLocalQueueMetrics(lq)
+
+	ReportClusterQueueResourceUsage("test-cohort", "test-cq", "default", "cpu", 50, followerTracker)
+	expectFilteredMetricsCount(t, ClusterQueueResourceUsage, 1, "cluster_queue", "test-cq", "replica_role", roletracker.RoleFollower)
+	ClearClusterQueueResourceMetrics("test-cq")
+}
+
+func TestRoleFlipUpdatesMetricLabels(t *testing.T) {
+	followerTracker := roletracker.NewFakeRoleTracker(roletracker.RoleFollower)
+	leaderTracker := roletracker.NewFakeRoleTracker(roletracker.RoleLeader)
+
+	ReportClusterQueueQuotas("cohort", "queue-flip", "flavor", "cpu", 100, 200, 50, followerTracker)
+	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 1, "cluster_queue", "queue-flip", "replica_role", roletracker.RoleFollower)
+
+	ReportClusterQueueQuotas("cohort", "queue-flip", "flavor", "cpu", 100, 200, 50, leaderTracker)
+	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 1, "cluster_queue", "queue-flip", "replica_role", roletracker.RoleLeader)
+
+	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 2, "cluster_queue", "queue-flip")
+
+	ClearClusterQueueResourceMetrics("queue-flip")
 }

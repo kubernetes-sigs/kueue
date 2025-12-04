@@ -51,6 +51,7 @@ import (
 	utilptr "sigs.k8s.io/kueue/pkg/util/ptr"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/resource"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/util/wait"
@@ -1300,6 +1301,7 @@ type EvictOption func(*EvictOptions)
 
 type EvictOptions struct {
 	CustomPrepare func(wl *kueue.Workload)
+	RoleTracker   *roletracker.RoleTracker
 }
 
 func DefaultEvictOptions() *EvictOptions {
@@ -1313,6 +1315,12 @@ func WithCustomPrepare(customPrepare func(wl *kueue.Workload)) EvictOption {
 		if customPrepare != nil {
 			o.CustomPrepare = customPrepare
 		}
+	}
+}
+
+func WithRoleTracker(tracker *roletracker.RoleTracker) EvictOption {
+	return func(o *EvictOptions) {
+		o.RoleTracker = tracker
 	}
 }
 
@@ -1350,9 +1358,9 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 		log.V(3).Info("WARNING: unexpected eviction of workload without status.Admission", "workload", klog.KObj(wl))
 		return nil
 	}
-	reportEvictedWorkload(recorder, wl, wl.Status.Admission.ClusterQueue, reason, msg, underlyingCause)
+	reportEvictedWorkload(recorder, wl, wl.Status.Admission.ClusterQueue, reason, msg, underlyingCause, opts.RoleTracker)
 	if reportWorkloadEvictedOnce {
-		metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, reason, string(underlyingCause), PriorityClassName(wl))
+		metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, reason, string(underlyingCause), PriorityClassName(wl), opts.RoleTracker)
 	}
 	return nil
 }
@@ -1402,11 +1410,12 @@ func resetUnhealthyNodes(w *kueue.Workload) {
 	w.Status.UnhealthyNodes = nil
 }
 
-func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, message string, underlyingCause kueue.EvictionUnderlyingCause) {
+func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, message string, underlyingCause kueue.EvictionUnderlyingCause, tracker *roletracker.RoleTracker) {
 	priorityClassName := PriorityClassName(wl)
-	metrics.ReportEvictedWorkloads(cqName, reason, string(underlyingCause), priorityClassName)
+	metrics.ReportEvictedWorkloads(cqName, reason, string(underlyingCause), priorityClassName, tracker)
 	if podsReadyToEvictionTime := workloadsWithPodsReadyToEvictedTime(wl); podsReadyToEvictionTime != nil {
-		metrics.PodsReadyToEvictedTimeSeconds.WithLabelValues(string(cqName), reason, string(underlyingCause)).Observe(podsReadyToEvictionTime.Seconds())
+		role := roletracker.GetMetricsRole(tracker)
+		metrics.PodsReadyToEvictedTimeSeconds.WithLabelValues(string(cqName), reason, string(underlyingCause), role).Observe(podsReadyToEvictionTime.Seconds())
 	}
 	if features.Enabled(features.LocalQueueMetrics) {
 		metrics.ReportLocalQueueEvictedWorkloads(
@@ -1414,6 +1423,7 @@ func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cq
 			reason,
 			string(underlyingCause),
 			priorityClassName,
+			tracker,
 		)
 	}
 	eventReason := ReasonWithCause(kueue.WorkloadEvicted, reason)
@@ -1423,8 +1433,8 @@ func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cq
 	recorder.Event(wl, corev1.EventTypeNormal, eventReason, message)
 }
 
-func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference) {
-	metrics.ReportPreemption(preemptingCqName, preemptingReason, targetCqName)
+func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference, tracker *roletracker.RoleTracker) {
+	metrics.ReportPreemption(preemptingCqName, preemptingReason, targetCqName, tracker)
 }
 
 func References(wls []*Info) []klog.ObjectRef {

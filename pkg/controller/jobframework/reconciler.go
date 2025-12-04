@@ -56,6 +56,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -90,6 +91,7 @@ type JobReconciler struct {
 	labelKeysToCopy              []string
 	clock                        clock.Clock
 	workloadRetentionPolicy      WorkloadRetentionPolicy
+	roleTracker                  *roletracker.RoleTracker
 }
 
 type Options struct {
@@ -106,6 +108,7 @@ type Options struct {
 	Cache                        *schdcache.Cache
 	Clock                        clock.Clock
 	WorkloadRetentionPolicy      WorkloadRetentionPolicy
+	RoleTracker                  *roletracker.RoleTracker
 }
 
 // Option configures the reconciler.
@@ -224,6 +227,13 @@ func WithObjectRetentionPolicies(value *configapi.ObjectRetentionPolicies) Optio
 	}
 }
 
+// WithRoleTracker sets the role tracker for HA setups.
+func WithRoleTracker(tracker *roletracker.RoleTracker) Option {
+	return func(o *Options) {
+		o.RoleTracker = tracker
+	}
+}
+
 var defaultOptions = Options{
 	Clock: clock.RealClock{},
 }
@@ -243,6 +253,7 @@ func NewReconciler(
 		labelKeysToCopy:              options.LabelKeysToCopy,
 		clock:                        options.Clock,
 		workloadRetentionPolicy:      options.WorkloadRetentionPolicy,
+		roleTracker:                  options.RoleTracker,
 	}
 }
 
@@ -527,13 +538,13 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				cqName := wl.Status.Admission.ClusterQueue
 				priorityClassName := workload.PriorityClassName(wl)
 				queuedUntilReadyWaitTime := workload.QueuedWaitTime(wl, r.clock)
-				metrics.ReadyWaitTime(cqName, priorityClassName, queuedUntilReadyWaitTime)
+				metrics.ReadyWaitTime(cqName, priorityClassName, queuedUntilReadyWaitTime, r.roleTracker)
 				admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
 				admittedUntilReadyWaitTime := condition.LastTransitionTime.Sub(admittedCond.LastTransitionTime.Time)
-				metrics.ReportAdmittedUntilReadyWaitTime(cqName, priorityClassName, admittedUntilReadyWaitTime)
+				metrics.ReportAdmittedUntilReadyWaitTime(cqName, priorityClassName, admittedUntilReadyWaitTime, r.roleTracker)
 				if features.Enabled(features.LocalQueueMetrics) {
-					metrics.LocalQueueReadyWaitTime(metrics.LQRefFromWorkload(wl), priorityClassName, queuedUntilReadyWaitTime)
-					metrics.ReportLocalQueueAdmittedUntilReadyWaitTime(metrics.LQRefFromWorkload(wl), priorityClassName, admittedUntilReadyWaitTime)
+					metrics.LocalQueueReadyWaitTime(metrics.LQRefFromWorkload(wl), priorityClassName, queuedUntilReadyWaitTime, r.roleTracker)
+					metrics.ReportLocalQueueAdmittedUntilReadyWaitTime(metrics.LQRefFromWorkload(wl), priorityClassName, admittedUntilReadyWaitTime, r.roleTracker)
 				}
 			}
 			return ctrl.Result{}, nil

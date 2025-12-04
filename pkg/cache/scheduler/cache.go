@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/queue"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -60,6 +61,13 @@ const (
 
 // Option configures the reconciler.
 type Option func(*Cache)
+
+// WithRoleTracker sets the role tracker for logs and metrics. Can be nil if leader election is disabled.
+func WithRoleTracker(tracker *roletracker.RoleTracker) Option {
+	return func(c *Cache) {
+		c.roleTracker = tracker
+	}
+}
 
 // WithPodsReadyTracking indicates the cache controller tracks the PodsReady
 // condition for admitted workloads, and allows to block admission of new
@@ -101,6 +109,7 @@ type Cache struct {
 	podsReadyCond sync.Cond
 
 	client               client.Client
+	roleTracker          *roletracker.RoleTracker
 	assumedWorkloads     map[workload.Reference]kueue.ClusterQueueReference
 	resourceFlavors      map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	podsReadyTracking    bool
@@ -142,6 +151,7 @@ func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clust
 		resourceNode:        NewResourceNode(),
 		tasCache:            &c.tasCache,
 		AdmissionScope:      cq.Spec.AdmissionScope,
+		roleTracker:         c.roleTracker,
 
 		workloadsNotAccountedForTAS: sets.New[workload.Reference](),
 	}
@@ -359,7 +369,7 @@ func (c *Cache) TerminateClusterQueue(name kueue.ClusterQueueReference) {
 	defer c.Unlock()
 	if cq := c.hm.ClusterQueue(name); cq != nil {
 		cq.Status = terminating
-		metrics.ReportClusterQueueStatus(cq.Name, cq.Status)
+		metrics.ReportClusterQueueStatus(cq.Name, cq.Status, c.roleTracker)
 	}
 }
 
