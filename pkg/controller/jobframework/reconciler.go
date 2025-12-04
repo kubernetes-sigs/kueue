@@ -738,9 +738,6 @@ func GetWorkloadForObject(ctx context.Context, jobObj client.Object, c client.Cl
 	return &wls.Items[0], nil
 }
 
-func (r *JobReconciler) getWorkloadForObject(ctx context.Context, jobObj client.Object) (*kueue.Workload, error) {
-	return GetWorkloadForObject(ctx, jobObj, r.client)
-}
 
 // FindAncestorJobManagedByKueue traverses controllerRefs to find the top-level ancestor Job managed by Kueue.
 // If manageJobsWithoutQueueName is set to false, it returns only Jobs with a queue-name.
