@@ -716,7 +716,7 @@ func (r *JobReconciler) recordAdmissionCheckUpdate(wl *kueue.Workload, job Gener
 }
 
 // GetWorkloadForObject returns the Workload associated with the given job.
-func GetWorkloadForObject(ctx context.Context, jobObj client.Object, c client.Client) (*kueue.Workload, error) {
+func GetWorkloadForObject(ctx context.Context, c client.Client, jobObj client.Object) (*kueue.Workload, error) {
 	wls := kueue.WorkloadList{}
 	if err := c.List(ctx, &wls, client.InNamespace(jobObj.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(jobObj.GetUID())}); client.IgnoreNotFound(err) != nil {
 		return nil, err
