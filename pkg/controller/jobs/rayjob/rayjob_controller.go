@@ -147,7 +147,7 @@ func (j *RayJob) GetWorkload(ctx context.Context, c client.Client) (*kueue.Workl
 			return nil, err
 		}
 		// Use the RayCluster to get the workload
-		workload, err := jobframework.GetWorkloadForObject(ctx, rayCluster, c)
+		workload, err := jobframework.GetWorkloadForObject(ctx, c, rayCluster)
 		if err != nil {
 			log.Error(err, "Failed to get workload from RayCluster", "rayClusterName", rayClusterName)
 			return nil, err
@@ -155,7 +155,7 @@ func (j *RayJob) GetWorkload(ctx context.Context, c client.Client) (*kueue.Workl
 		log.V(10).Info("Got workload from RayCluster", "rayClusterName", rayClusterName, "workloadName", workload.Name)
 		return workload, nil
 	} else {
-		return jobframework.GetWorkloadForObject(ctx, j.Object(), c)
+		return jobframework.GetWorkloadForObject(ctx, c, j.Object())
 	}
 }
 
