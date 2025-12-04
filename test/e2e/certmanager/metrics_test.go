@@ -28,6 +28,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -54,7 +55,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-metrics-")
 
-		resourceFlavor = utiltesting.MakeResourceFlavor("test-flavor").Obj()
+		resourceFlavor = utiltestingapi.MakeResourceFlavor("test-flavor").Obj()
 		util.MustCreate(ctx, k8sClient, resourceFlavor)
 
 		metricsReaderClusterRoleBinding = &rbacv1.ClusterRoleBinding{
@@ -134,27 +135,27 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			clusterQueue = utiltesting.MakeClusterQueue("").
+			clusterQueue = utiltestingapi.MakeClusterQueue("").
 				GeneratedName("test-cq-").
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas(resourceFlavor.Name).
+					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
 						Resource(corev1.ResourceCPU, "1").
 						Resource(corev1.ResourceMemory, "1Gi").
 						Obj(),
 				).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
-			localQueue = utiltesting.MakeLocalQueue("", ns.Name).
+			localQueue = utiltestingapi.MakeLocalQueue("", ns.Name).
 				GeneratedName("test-lq-").
 				ClusterQueue(clusterQueue.Name).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 
-			workload = utiltesting.MakeWorkload("test-workload", ns.Name).
+			workload = utiltestingapi.MakeWorkload("test-workload", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				PodSets(
-					*utiltesting.MakePodSet("ps1", 1).Obj(),
+					*utiltestingapi.MakePodSet("ps1", 1).Obj(),
 				).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				Obj()

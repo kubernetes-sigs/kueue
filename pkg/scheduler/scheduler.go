@@ -201,7 +201,8 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	// 2. Take a snapshot of the cache.
 	var snapshotOpts []schdcache.SnapshotOption
 	if afs.Enabled(s.admissionFairSharing) {
-		snapshotOpts = append(snapshotOpts, schdcache.WithAfsEntryPenalties(s.queues.GetAfsEntryPenalties()))
+		snapshotOpts = append(snapshotOpts, schdcache.WithAfsEntryPenalties(s.queues.AfsEntryPenalties))
+		snapshotOpts = append(snapshotOpts, schdcache.WithAfsConsumedResources(s.queues.AfsConsumedResources))
 	}
 	snapshot, err := s.cache.Snapshot(ctx, snapshotOpts...)
 	if err != nil {
@@ -295,13 +296,16 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		if e.assignment.RepresentativeMode() == flavorassigner.Preempt {
 			// If preemptions are issued, the next attempt should try all the flavors.
 			e.LastAssignment = nil
-			preempted, err := s.preemptor.IssuePreemptions(ctx, &e.Info, preemptionTargets)
+			preempted, errors, err := s.preemptor.IssuePreemptions(ctx, &e.Info, preemptionTargets)
 			if err != nil {
 				log.Error(err, "Failed to preempt workloads")
 			}
 			if preempted != 0 {
 				e.inadmissibleMsg += fmt.Sprintf(". Pending the preemption of %d workload(s)", preempted)
 				e.requeueReason = qcache.RequeueReasonPendingPreemption
+			} else if errors > 0 {
+				e.inadmissibleMsg += fmt.Sprintf(". Preempting %d workload(s) failed, will retry.", errors)
+				e.requeueReason = qcache.RequeueReasonPreemptionFailed
 			}
 			continue
 		}
@@ -784,7 +788,7 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 				updated = true
 			}
 			return wl, updated, nil
-		}); err != nil {
+		}, workload.WithLooseOnApply()); err != nil {
 			log.Error(err, "Could not update Workload status")
 		}
 		s.recorder.Eventf(e.Obj, corev1.EventTypeWarning, "Pending", api.TruncateEventMessage(e.inadmissibleMsg))
@@ -882,10 +886,10 @@ func (s *Scheduler) updateEntryPenalty(log logr.Logger, e *entry, op usageOp) {
 
 	switch op {
 	case add:
-		s.queues.PushEntryPenalty(lqKey, penalty)
+		s.queues.AfsEntryPenalties.Push(lqKey, penalty)
 		log.V(3).Info("Entry penalty added to lq", "lqKey", lqKey, "penalty", penalty)
 	case subtract:
-		s.queues.SubEntryPenalty(lqKey, penalty)
+		s.queues.AfsEntryPenalties.Sub(lqKey, penalty)
 		log.V(3).Info("Entry penalty subtracted from lq", "lqKey", lqKey, "penalty", penalty)
 	}
 }

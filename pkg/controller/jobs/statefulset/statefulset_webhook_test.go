@@ -42,6 +42,7 @@ import (
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingappwrapper "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	testingleaderworkerset "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
@@ -184,7 +185,7 @@ func TestDefault(t *testing.T) {
 			cqCache := schdcache.New(cli)
 			queueManager := qcache.NewManager(cli, cqCache)
 			if tc.defaultLqExist {
-				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", "default").
+				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("default", "default").
 					ClusterQueue("cluster-queue").Obj()); err != nil {
 					t.Fatalf("failed to create default local queue: %s", err)
 				}
@@ -668,7 +669,7 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		"scale up from zero blocked by existing workload": {
 			objs: []runtime.Object{
-				utiltesting.MakeWorkload(GetWorkloadName("test-statefulset"), "test-ns").Obj(),
+				utiltestingapi.MakeWorkload(GetWorkloadName("test-statefulset"), "test-ns").Obj(),
 			},
 			oldObj: testingstatefulset.MakeStatefulSet("test-statefulset", "test-ns").
 				Queue("test-queue").

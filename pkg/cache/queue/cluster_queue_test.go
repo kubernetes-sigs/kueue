@@ -32,8 +32,11 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	"sigs.k8s.io/kueue/pkg/features"
+	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -64,10 +67,10 @@ func Test_PushOrUpdate(t *testing.T) {
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 	}
-	wlBase := utiltesting.MakeWorkload("workload-1", defaultNamespace).Clone()
+	wlBase := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).Clone()
 
 	cases := map[string]struct {
-		workload                  *utiltesting.WorkloadWrapper
+		workload                  *utiltestingapi.WorkloadWrapper
 		wantWorkload              *workload.Info
 		wantInAdmissibleWorkloads map[workload.Reference]*workload.Info
 	}{
@@ -157,7 +160,7 @@ func Test_PushOrUpdate(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, fakeClock, nil, false, nil)
+			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, fakeClock, nil, false, nil, nil)
 
 			if cq.PendingTotal() != 0 {
 				t.Error("ClusterQueue should be empty")
@@ -187,9 +190,9 @@ func Test_PushOrUpdate(t *testing.T) {
 func Test_Pop(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	now := time.Now()
-	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now), nil, false, nil)
-	wl1 := workload.NewInfo(utiltesting.MakeWorkload("workload-1", defaultNamespace).Creation(now).Obj())
-	wl2 := workload.NewInfo(utiltesting.MakeWorkload("workload-2", defaultNamespace).Creation(now.Add(time.Second)).Obj())
+	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now), nil, false, nil, nil)
+	wl1 := workload.NewInfo(utiltestingapi.MakeWorkload("workload-1", defaultNamespace).Creation(now).Obj())
+	wl2 := workload.NewInfo(utiltestingapi.MakeWorkload("workload-2", defaultNamespace).Creation(now.Add(time.Second)).Obj())
 	if cq.Pop() != nil {
 		t.Error("ClusterQueue should be empty")
 	}
@@ -210,9 +213,9 @@ func Test_Pop(t *testing.T) {
 
 func Test_Delete(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
-	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()), nil, false, nil)
-	wl1 := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
-	wl2 := utiltesting.MakeWorkload("workload-2", defaultNamespace).Obj()
+	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()), nil, false, nil, nil)
+	wl1 := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).Obj()
+	wl2 := utiltestingapi.MakeWorkload("workload-2", defaultNamespace).Obj()
 	cq.PushOrUpdate(workload.NewInfo(wl1))
 	cq.PushOrUpdate(workload.NewInfo(wl2))
 	if cq.PendingTotal() != 2 {
@@ -232,8 +235,8 @@ func Test_Delete(t *testing.T) {
 
 func Test_Info(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
-	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()), nil, false, nil)
-	wl := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
+	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()), nil, false, nil, nil)
+	wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).Obj()
 	if info := cq.Info(workload.Key(wl)); info != nil {
 		t.Error("Workload should not exist")
 	}
@@ -245,8 +248,8 @@ func Test_Info(t *testing.T) {
 
 func Test_AddFromLocalQueue(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
-	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()), nil, false, nil)
-	wl := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
+	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()), nil, false, nil, nil)
+	wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).Obj()
 	queue := &LocalQueue{
 		items: map[workload.Reference]*workload.Info{
 			workload.Reference(wl.Name): workload.NewInfo(wl),
@@ -264,13 +267,13 @@ func Test_AddFromLocalQueue(t *testing.T) {
 
 func Test_DeleteFromLocalQueue(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
-	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()), nil, false, nil)
-	q := utiltesting.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj()
+	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()), nil, false, nil, nil)
+	q := utiltestingapi.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj()
 	qImpl := newLocalQueue(q)
-	wl1 := utiltesting.MakeWorkload("wl1", "").Queue(kueue.LocalQueueName(q.Name)).Obj()
-	wl2 := utiltesting.MakeWorkload("wl2", "").Queue(kueue.LocalQueueName(q.Name)).Obj()
-	wl3 := utiltesting.MakeWorkload("wl3", "").Queue(kueue.LocalQueueName(q.Name)).Obj()
-	wl4 := utiltesting.MakeWorkload("wl4", "").Queue(kueue.LocalQueueName(q.Name)).Obj()
+	wl1 := utiltestingapi.MakeWorkload("wl1", "").Queue(kueue.LocalQueueName(q.Name)).Obj()
+	wl2 := utiltestingapi.MakeWorkload("wl2", "").Queue(kueue.LocalQueueName(q.Name)).Obj()
+	wl3 := utiltestingapi.MakeWorkload("wl3", "").Queue(kueue.LocalQueueName(q.Name)).Obj()
+	wl4 := utiltestingapi.MakeWorkload("wl4", "").Queue(kueue.LocalQueueName(q.Name)).Obj()
 	admissibleworkloads := []*kueue.Workload{wl1, wl2}
 	inadmissibleWorkloads := []*kueue.Workload{wl3, wl4}
 
@@ -312,10 +315,10 @@ func TestClusterQueueImpl(t *testing.T) {
 	fakeClock := testingclock.NewFakeClock(now)
 
 	var workloads = []*kueue.Workload{
-		utiltesting.MakeWorkload("w1", "ns1").Queue("q1").Obj(),
-		utiltesting.MakeWorkload("w2", "ns2").Queue("q2").Obj(),
-		utiltesting.MakeWorkload("w3", "ns3").Queue("q3").Obj(),
-		utiltesting.MakeWorkload("w4-requeue-state", "ns1").
+		utiltestingapi.MakeWorkload("w1", "ns1").Queue("q1").Obj(),
+		utiltestingapi.MakeWorkload("w2", "ns2").Queue("q2").Obj(),
+		utiltestingapi.MakeWorkload("w3", "ns3").Queue("q3").Obj(),
+		utiltestingapi.MakeWorkload("w4-requeue-state", "ns1").
 			RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(minuteLater))).
 			Queue("q1").
 			Condition(metav1.Condition{
@@ -405,10 +408,10 @@ func TestClusterQueueImpl(t *testing.T) {
 		},
 		"update reclaimable pods in inadmissible": {
 			inadmissibleWorkloadsToRequeue: []*workload.Info{
-				workload.NewInfo(utiltesting.MakeWorkload("w", "").PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).Obj()),
+				workload.NewInfo(utiltestingapi.MakeWorkload("w", "").PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).Obj()),
 			},
 			workloadsToUpdate: []*kueue.Workload{
-				utiltesting.MakeWorkload("w", "").PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+				utiltestingapi.MakeWorkload("w", "").PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
 					ReclaimablePods(kueue.ReclaimablePod{Name: kueue.DefaultPodSetName, Count: 1}).
 					Obj(),
 			},
@@ -420,8 +423,8 @@ func TestClusterQueueImpl(t *testing.T) {
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, fakeClock, nil, false, nil)
-			err := cq.Update(utiltesting.MakeClusterQueue("cq").
+			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, fakeClock, nil, false, nil, nil)
+			err := cq.Update(utiltestingapi.MakeClusterQueue("cq").
 				NamespaceSelector(&metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
 						{
@@ -474,9 +477,9 @@ func TestClusterQueueImpl(t *testing.T) {
 
 func TestQueueInadmissibleWorkloadsDuringScheduling(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
-	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()), nil, false, nil)
+	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()), nil, false, nil, nil)
 	cq.namespaceSelector = labels.Everything()
-	wl := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
+	wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).Obj()
 	cl := utiltesting.NewFakeClient(wl, utiltesting.MakeNamespace(defaultNamespace))
 	cq.PushOrUpdate(workload.NewInfo(wl))
 
@@ -519,23 +522,23 @@ func TestBackoffWaitingTimeExpired(t *testing.T) {
 		want         bool
 	}{
 		"workload still have Requeued=false": {
-			workloadInfo: workload.NewInfo(utiltesting.MakeWorkload("wl", "ns").Condition(metav1.Condition{
+			workloadInfo: workload.NewInfo(utiltestingapi.MakeWorkload("wl", "ns").Condition(metav1.Condition{
 				Type:   kueue.WorkloadRequeued,
 				Status: metav1.ConditionFalse,
 			}).Obj()),
 			want: false,
 		},
 		"workload doesn't have requeueState": {
-			workloadInfo: workload.NewInfo(utiltesting.MakeWorkload("wl", "ns").Obj()),
+			workloadInfo: workload.NewInfo(utiltestingapi.MakeWorkload("wl", "ns").Obj()),
 			want:         true,
 		},
 		"workload doesn't have an evicted condition with reason=PodsReadyTimeout": {
-			workloadInfo: workload.NewInfo(utiltesting.MakeWorkload("wl", "ns").
+			workloadInfo: workload.NewInfo(utiltestingapi.MakeWorkload("wl", "ns").
 				RequeueState(ptr.To[int32](10), nil).Obj()),
 			want: true,
 		},
 		"now already has exceeded requeueAt": {
-			workloadInfo: workload.NewInfo(utiltesting.MakeWorkload("wl", "ns").
+			workloadInfo: workload.NewInfo(utiltestingapi.MakeWorkload("wl", "ns").
 				RequeueState(ptr.To[int32](10), ptr.To(metav1.NewTime(minuteAgo))).
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadEvicted,
@@ -545,7 +548,7 @@ func TestBackoffWaitingTimeExpired(t *testing.T) {
 			want: true,
 		},
 		"now hasn't yet exceeded requeueAt": {
-			workloadInfo: workload.NewInfo(utiltesting.MakeWorkload("wl", "ns").
+			workloadInfo: workload.NewInfo(utiltestingapi.MakeWorkload("wl", "ns").
 				RequeueState(ptr.To[int32](10), ptr.To(metav1.NewTime(minuteLater))).
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadEvicted,
@@ -558,7 +561,7 @@ func TestBackoffWaitingTimeExpired(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, fakeClock, nil, false, nil)
+			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, fakeClock, nil, false, nil, nil)
 			got := cq.backoffWaitingTimeExpired(tc.workloadInfo)
 			if tc.want != got {
 				t.Errorf("Unexpected result from backoffWaitingTimeExpired\nwant: %v\ngot: %v\n", tc.want, got)
@@ -623,8 +626,8 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 					},
 				},
 				workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
-				nil, nil)
-			wl := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
+				nil, nil, nil)
+			wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).Obj()
 			info := workload.NewInfo(wl)
 			info.LastAssignment = tc.lastAssignment
 			if ok := cq.RequeueIfNotPresent(ctx, info, tc.reason); !ok {
@@ -653,7 +656,7 @@ func TestFIFOClusterQueue(t *testing.T) {
 		},
 		workload.Ordering{
 			PodsReadyRequeuingTimestamp: config.EvictionTimestamp,
-		}, nil, nil)
+		}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Failed creating ClusterQueue %v", err)
 	}
@@ -858,7 +861,7 @@ func TestStrictFIFO(t *testing.T) {
 					},
 				},
 				*tt.workloadOrdering,
-				nil, nil)
+				nil, nil, nil)
 			if err != nil {
 				t.Fatalf("Failed creating ClusterQueue %v", err)
 			}
@@ -902,8 +905,8 @@ func TestStrictFIFORequeueIfNotPresent(t *testing.T) {
 					},
 				},
 				workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
-				nil, nil)
-			wl := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
+				nil, nil, nil)
+			wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).Obj()
 			if ok := cq.RequeueIfNotPresent(ctx, workload.NewInfo(wl), reason); !ok {
 				t.Error("failed to requeue nonexistent workload")
 			}
@@ -928,86 +931,53 @@ func TestFsAdmission(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		cq        *kueue.ClusterQueue
-		lqs       []kueue.LocalQueue
-		afsConfig *config.AdmissionFairSharing
-		wls       []kueue.Workload
-		wantWl    kueue.Workload
+		cq                    *kueue.ClusterQueue
+		lqs                   []kueue.LocalQueue
+		afsConfig             *config.AdmissionFairSharing
+		wls                   []kueue.Workload
+		wantWl                kueue.Workload
+		initConsumedResources map[string]corev1.ResourceList
 	}{
 		"workloads are ordered by LQ usage, instead of priorities": {
-			cq: utiltesting.MakeClusterQueue("cq").
+			cq: utiltestingapi.MakeClusterQueue("cq").
 				AdmissionMode(kueue.UsageBasedAdmissionFairSharing).
 				Obj(),
 			lqs: []kueue.LocalQueue{
-				*utiltesting.MakeLocalQueue("lqA", "default").
+				*utiltestingapi.MakeLocalQueue("lqA", "default").
 					FairSharing(&kueue.FairSharing{
 						Weight: ptr.To(resource.MustParse("1")),
 					}).
-					FairSharingStatus(
-						&kueue.FairSharingStatus{
-							AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
-								ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-									corev1.ResourceCPU: resource.MustParse("2"),
-								},
-							},
-						},
-					).
 					Obj(),
-				*utiltesting.MakeLocalQueue("lqB", "default").
+				*utiltestingapi.MakeLocalQueue("lqB", "default").
 					FairSharing(&kueue.FairSharing{
 						Weight: ptr.To(resource.MustParse("1")),
-					}).
-					FairSharingStatus(
-						&kueue.FairSharingStatus{
-							AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
-								ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-									corev1.ResourceCPU: resource.MustParse("1"),
-								},
-							},
-						},
-					).Obj(),
+					}).Obj(),
 			},
 			afsConfig: &config.AdmissionFairSharing{},
-			wls: []kueue.Workload{
-				*utiltesting.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(2).Obj(),
-				*utiltesting.MakeWorkload("wlB-low", "default").Queue("lqB").Priority(1).Obj(),
+			initConsumedResources: map[string]corev1.ResourceList{
+				"default/lqA": {corev1.ResourceCPU: resource.MustParse("2")},
+				"default/lqB": {corev1.ResourceCPU: resource.MustParse("1")},
 			},
-			wantWl: *utiltesting.MakeWorkload("wlB-low", "default").Queue("lqB").Priority(1).Obj(),
+			wls: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(2).Obj(),
+				*utiltestingapi.MakeWorkload("wlB-low", "default").Queue("lqB").Priority(1).Obj(),
+			},
+			wantWl: *utiltestingapi.MakeWorkload("wlB-low", "default").Queue("lqB").Priority(1).Obj(),
 		},
 		"workloads are ordered by LQ usage with respect to resource weights": {
-			cq: utiltesting.MakeClusterQueue("cq").
+			cq: utiltestingapi.MakeClusterQueue("cq").
 				AdmissionMode(kueue.UsageBasedAdmissionFairSharing).
 				Obj(),
 			lqs: []kueue.LocalQueue{
-				*utiltesting.MakeLocalQueue("lqA", "default").
+				*utiltestingapi.MakeLocalQueue("lqA", "default").
 					FairSharing(&kueue.FairSharing{
 						Weight: ptr.To(resource.MustParse("1")),
 					}).
-					FairSharingStatus(
-						&kueue.FairSharingStatus{
-							AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
-								ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-									corev1.ResourceCPU: resource.MustParse("1"),
-									resourceGPU:        resource.MustParse("10"),
-								},
-							},
-						},
-					).
 					Obj(),
-				*utiltesting.MakeLocalQueue("lqB", "default").
+				*utiltestingapi.MakeLocalQueue("lqB", "default").
 					FairSharing(&kueue.FairSharing{
 						Weight: ptr.To(resource.MustParse("1")),
-					}).
-					FairSharingStatus(
-						&kueue.FairSharingStatus{
-							AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
-								ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-									corev1.ResourceCPU: resource.MustParse("1000"),
-									resourceGPU:        resource.MustParse("1"),
-								},
-							},
-						},
-					).Obj(),
+					}).Obj(),
 			},
 			afsConfig: &config.AdmissionFairSharing{
 				ResourceWeights: map[corev1.ResourceName]float64{
@@ -1015,104 +985,88 @@ func TestFsAdmission(t *testing.T) {
 					resourceGPU:        1,
 				},
 			},
-			wls: []kueue.Workload{
-				*utiltesting.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(2).Obj(),
-				*utiltesting.MakeWorkload("wlB-low", "default").Queue("lqB").Priority(1).Obj(),
+			initConsumedResources: map[string]corev1.ResourceList{
+				"default/lqA": {corev1.ResourceCPU: resource.MustParse("1"), resourceGPU: resource.MustParse("10")},
+				"default/lqB": {corev1.ResourceCPU: resource.MustParse("1000"), resourceGPU: resource.MustParse("1")},
 			},
-			wantWl: *utiltesting.MakeWorkload("wlB-low", "default").Queue("lqB").Priority(1).Obj(),
+			wls: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(2).Obj(),
+				*utiltestingapi.MakeWorkload("wlB-low", "default").Queue("lqB").Priority(1).Obj(),
+			},
+			wantWl: *utiltestingapi.MakeWorkload("wlB-low", "default").Queue("lqB").Priority(1).Obj(),
 		},
 		"workloads are ordered by LQ usage with respect to LQs' fair sharing weights": {
-			cq: utiltesting.MakeClusterQueue("cq").
+			cq: utiltestingapi.MakeClusterQueue("cq").
 				AdmissionMode(kueue.UsageBasedAdmissionFairSharing).
 				Obj(),
 			lqs: []kueue.LocalQueue{
-				*utiltesting.MakeLocalQueue("lqA", "default").
+				*utiltestingapi.MakeLocalQueue("lqA", "default").
 					FairSharing(&kueue.FairSharing{
 						Weight: ptr.To(resource.MustParse("1")),
 					}).
-					FairSharingStatus(
-						&kueue.FairSharingStatus{
-							AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
-								ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-									corev1.ResourceCPU: resource.MustParse("10"),
-								},
-							},
-						},
-					).
 					Obj(),
-				*utiltesting.MakeLocalQueue("lqB", "default").
+				*utiltestingapi.MakeLocalQueue("lqB", "default").
 					FairSharing(&kueue.FairSharing{
 						Weight: ptr.To(resource.MustParse("2")),
-					}).
-					FairSharingStatus(
-						&kueue.FairSharingStatus{
-							AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
-								ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-									corev1.ResourceCPU: resource.MustParse("6"),
-								},
-							},
-						},
-					).Obj(),
+					}).Obj(),
 			},
 			afsConfig: &config.AdmissionFairSharing{},
-			wls: []kueue.Workload{
-				*utiltesting.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(2).Obj(),
-				*utiltesting.MakeWorkload("wlB-low", "default").Queue("lqB").Priority(1).Obj(),
+			initConsumedResources: map[string]corev1.ResourceList{
+				"default/lqA": {corev1.ResourceCPU: resource.MustParse("10")},
+				"default/lqB": {corev1.ResourceCPU: resource.MustParse("6")},
 			},
-			wantWl: *utiltesting.MakeWorkload("wlB-low", "default").Queue("lqB").Priority(1).Obj(),
+			wls: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(2).Obj(),
+				*utiltestingapi.MakeWorkload("wlB-low", "default").Queue("lqB").Priority(1).Obj(),
+			},
+			wantWl: *utiltestingapi.MakeWorkload("wlB-low", "default").Queue("lqB").Priority(1).Obj(),
 		},
 		"workloads with the same LQ usage are ordered by priority": {
-			cq: utiltesting.MakeClusterQueue("cq").
+			cq: utiltestingapi.MakeClusterQueue("cq").
 				AdmissionMode(kueue.UsageBasedAdmissionFairSharing).
 				Obj(),
 			lqs: []kueue.LocalQueue{
-				*utiltesting.MakeLocalQueue("lqA", "default").
+				*utiltestingapi.MakeLocalQueue("lqA", "default").
 					FairSharing(&kueue.FairSharing{
 						Weight: ptr.To(resource.MustParse("1")),
-					}).
-					FairSharingStatus(
-						&kueue.FairSharingStatus{
-							AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
-								ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-									corev1.ResourceCPU: resource.MustParse("10"),
-								},
-							},
-						},
-					).Obj(),
+					}).Obj(),
 			},
 			afsConfig: &config.AdmissionFairSharing{},
-			wls: []kueue.Workload{
-				*utiltesting.MakeWorkload("wlA-low", "default").Queue("lqA").Priority(1).Obj(),
-				*utiltesting.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(2).Obj(),
+			initConsumedResources: map[string]corev1.ResourceList{
+				"default/lqA": {corev1.ResourceCPU: resource.MustParse("10")},
 			},
-			wantWl: *utiltesting.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(2).Obj(),
+			wls: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wlA-low", "default").Queue("lqA").Priority(1).Obj(),
+				*utiltestingapi.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(2).Obj(),
+			},
+			wantWl: *utiltestingapi.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(2).Obj(),
 		},
 		"workloads with NoFairSharing CQ are ordered by priority": {
-			cq: utiltesting.MakeClusterQueue("cq").
+			cq: utiltestingapi.MakeClusterQueue("cq").
 				AdmissionMode(kueue.NoAdmissionFairSharing).
 				Obj(),
 			lqs: []kueue.LocalQueue{
-				*utiltesting.MakeLocalQueue("lqA", "default").Obj(),
+				*utiltestingapi.MakeLocalQueue("lqA", "default").Obj(),
 			},
 			afsConfig: &config.AdmissionFairSharing{},
 			wls: []kueue.Workload{
-				*utiltesting.MakeWorkload("wlA-low", "default").Queue("lqA").Priority(1).Obj(),
-				*utiltesting.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(2).Obj(),
+				*utiltestingapi.MakeWorkload("wlA-low", "default").Queue("lqA").Priority(1).Obj(),
+				*utiltestingapi.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(2).Obj(),
 			},
-			wantWl: *utiltesting.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(2).Obj(),
+			wantWl: *utiltestingapi.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(2).Obj(),
 		},
 		"workloads with no FS config are ordered by priority": {
-			cq: utiltesting.MakeClusterQueue("cq").
+			cq: utiltestingapi.MakeClusterQueue("cq").
 				AdmissionMode(kueue.NoAdmissionFairSharing).
 				Obj(),
 			lqs: []kueue.LocalQueue{
-				*utiltesting.MakeLocalQueue("lqA", "default").Obj(),
+				*utiltestingapi.MakeLocalQueue("lqA", "default").Obj(),
 			},
 			wls: []kueue.Workload{
-				*utiltesting.MakeWorkload("wlA-low", "default").Queue("lqA").Priority(1).Obj(),
-				*utiltesting.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(2).Obj(),
+				*utiltestingapi.MakeWorkload("wlA-low", "default").Queue("lqA").Priority(1).Obj(),
+				*utiltestingapi.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(2).Obj(),
 			},
-			wantWl: *utiltesting.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(2).Obj(),
+			wantWl: *utiltestingapi.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(2).Obj(),
 		},
 	}
 	for name, tc := range cases {
@@ -1125,7 +1079,12 @@ func TestFsAdmission(t *testing.T) {
 			client := builder.Build()
 			ctx := context.Background()
 
-			cq, _ := newClusterQueue(ctx, client, tc.cq, defaultOrdering, tc.afsConfig, nil)
+			afsConsumedResources := queueafs.NewAfsConsumedResources()
+			for lqKey, consumedResources := range tc.initConsumedResources {
+				afsConsumedResources.Set(utilqueue.LocalQueueReference(lqKey), consumedResources, time.Now())
+			}
+
+			cq, _ := newClusterQueue(ctx, client, tc.cq, defaultOrdering, tc.afsConfig, nil, afsConsumedResources)
 			for _, wl := range tc.wls {
 				cq.PushOrUpdate(workload.NewInfo(&wl))
 			}

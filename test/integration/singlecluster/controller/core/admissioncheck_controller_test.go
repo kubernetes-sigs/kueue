@@ -25,6 +25,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -52,8 +53,8 @@ var _ = ginkgo.Describe("AdmissionCheck controller", ginkgo.Ordered, ginkgo.Cont
 		var clusterQueue *kueue.ClusterQueue
 
 		ginkgo.BeforeEach(func() {
-			admissionCheck = utiltesting.MakeAdmissionCheck("check1").ControllerName("ac-controller").Obj()
-			clusterQueue = utiltesting.MakeClusterQueue("foo").
+			admissionCheck = utiltestingapi.MakeAdmissionCheck("check1").ControllerName("ac-controller").Obj()
+			clusterQueue = utiltestingapi.MakeClusterQueue("foo").
 				AdmissionChecks("check1").
 				Obj()
 

@@ -42,15 +42,16 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
-	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	utilptr "sigs.k8s.io/kueue/pkg/util/ptr"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
+	"sigs.k8s.io/kueue/pkg/util/resource"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
@@ -319,36 +320,37 @@ func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string)
 	return res
 }
 
-func (i *Info) CalcLocalQueueFSUsage(ctx context.Context, c client.Client, resWeights map[corev1.ResourceName]float64, afsEntryPenalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]) (float64, error) {
-	var lq kueue.LocalQueue
-	lqKey := client.ObjectKey{Namespace: i.Obj.Namespace, Name: string(i.Obj.Spec.QueueName)}
-	if err := c.Get(ctx, lqKey, &lq); err != nil {
-		return 0, err
-	}
+func (i *Info) CalcLocalQueueFSUsage(ctx context.Context, c client.Client, resWeights map[corev1.ResourceName]float64, afsEntryPenalties *queueafs.AfsEntryPenalties, afsConsumedResources *queueafs.AfsConsumedResources) (float64, error) {
 	var usage float64
-	if lq.Status.FairSharing == nil || lq.Status.FairSharing.AdmissionFairSharingStatus == nil {
-		// If FairSharing is not enabled or initialized, return 0 usage.
-		return 0, nil
+	lqKey := utilqueue.KeyFromWorkload(i.Obj)
+
+	consumed := corev1.ResourceList{}
+	if afsConsumedResources != nil {
+		entry, found := afsConsumedResources.Get(lqKey)
+		if found {
+			consumed = entry.Resources
+		}
 	}
-	for resName, resVal := range lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources {
+
+	penalty := corev1.ResourceList{}
+	if afsEntryPenalties != nil {
+		penalty = afsEntryPenalties.Peek(lqKey)
+	}
+
+	allResources := resource.MergeResourceListKeepSum(consumed, penalty)
+	for resName, resVal := range allResources {
 		weight, found := resWeights[resName]
 		if !found {
 			weight = 1
 		}
 		usage += weight * resVal.AsApproximateFloat64()
 	}
-	penalty := corev1.ResourceList{}
-	if afsEntryPenalties != nil {
-		penalty, _ = afsEntryPenalties.Get(utilqueue.Key(&lq))
-	}
-	for resName, penaltyVal := range penalty {
-		weight, found := resWeights[resName]
-		if !found {
-			weight = 1
-		}
-		usage += weight * penaltyVal.AsApproximateFloat64()
-	}
 
+	var lq kueue.LocalQueue
+	lqObjKey := client.ObjectKey{Namespace: i.Obj.Namespace, Name: string(i.Obj.Spec.QueueName)}
+	if err := c.Get(ctx, lqObjKey, &lq); err != nil {
+		return 0, err
+	}
 	if lq.Spec.FairSharing != nil && lq.Spec.FairSharing.Weight != nil {
 		// if no weight for lq was defined, use default weight of 1
 		usage /= lq.Spec.FairSharing.Weight.AsApproximateFloat64()

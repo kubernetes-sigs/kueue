@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 )
 
@@ -378,16 +379,16 @@ func TestDefault(t *testing.T) {
 				},
 			},
 			queues: []kueue.LocalQueue{
-				*utiltesting.MakeLocalQueue("local-queue", "default").
+				*utiltestingapi.MakeLocalQueue("local-queue", "default").
 					ClusterQueue("cluster-queue").
 					Obj(),
 			},
 			clusterQueues: []kueue.ClusterQueue{
-				*utiltesting.MakeClusterQueue("cluster-queue").
+				*utiltestingapi.MakeClusterQueue("cluster-queue").
 					AdmissionChecks("admission-check").
 					Obj(),
 			},
-			admissionCheck: utiltesting.MakeAdmissionCheck("admission-check").
+			admissionCheck: utiltestingapi.MakeAdmissionCheck("admission-check").
 				ControllerName(kueue.MultiKueueControllerName).
 				Active(metav1.ConditionTrue).
 				Obj(),
@@ -405,16 +406,16 @@ func TestDefault(t *testing.T) {
 				},
 			},
 			queues: []kueue.LocalQueue{
-				*utiltesting.MakeLocalQueue("local-queue", "default").
+				*utiltestingapi.MakeLocalQueue("local-queue", "default").
 					ClusterQueue("cluster-queue").
 					Obj(),
 			},
 			clusterQueues: []kueue.ClusterQueue{
-				*utiltesting.MakeClusterQueue("cluster-queue").
+				*utiltestingapi.MakeClusterQueue("cluster-queue").
 					AdmissionChecks("admission-check").
 					Obj(),
 			},
-			admissionCheck: utiltesting.MakeAdmissionCheck("admission-check").
+			admissionCheck: utiltestingapi.MakeAdmissionCheck("admission-check").
 				ControllerName(kueue.MultiKueueControllerName).
 				Active(metav1.ConditionTrue).
 				Obj(),
@@ -462,12 +463,12 @@ func TestDefault(t *testing.T) {
 				},
 			},
 			queues: []kueue.LocalQueue{
-				*utiltesting.MakeLocalQueue("local-queue", "default").
+				*utiltestingapi.MakeLocalQueue("local-queue", "default").
 					ClusterQueue("cluster-queue").
 					Obj(),
 			},
 			clusterQueues: []kueue.ClusterQueue{
-				*utiltesting.MakeClusterQueue("cluster-queue").
+				*utiltestingapi.MakeClusterQueue("cluster-queue").
 					AdmissionChecks("non-existent-admission-check").
 					Obj(),
 			},
@@ -485,16 +486,16 @@ func TestDefault(t *testing.T) {
 				},
 			},
 			queues: []kueue.LocalQueue{
-				*utiltesting.MakeLocalQueue("local-queue", "default").
+				*utiltestingapi.MakeLocalQueue("local-queue", "default").
 					ClusterQueue("cluster-queue").
 					Obj(),
 			},
 			clusterQueues: []kueue.ClusterQueue{
-				*utiltesting.MakeClusterQueue("cluster-queue").
+				*utiltestingapi.MakeClusterQueue("cluster-queue").
 					AdmissionChecks("admission-check").
 					Obj(),
 			},
-			admissionCheck: utiltesting.MakeAdmissionCheck("admission-check").
+			admissionCheck: utiltestingapi.MakeAdmissionCheck("admission-check").
 				ControllerName(kueue.MultiKueueControllerName).
 				Active(metav1.ConditionTrue).
 				Obj(),
@@ -515,16 +516,16 @@ func TestDefault(t *testing.T) {
 				},
 			},
 			queues: []kueue.LocalQueue{
-				*utiltesting.MakeLocalQueue("local-queue", "default").
+				*utiltestingapi.MakeLocalQueue("local-queue", "default").
 					ClusterQueue("cluster-queue").
 					Obj(),
 			},
 			clusterQueues: []kueue.ClusterQueue{
-				*utiltesting.MakeClusterQueue("cluster-queue").
+				*utiltestingapi.MakeClusterQueue("cluster-queue").
 					AdmissionChecks("admission-check").
 					Obj(),
 			},
-			admissionCheck: utiltesting.MakeAdmissionCheck("admission-check").
+			admissionCheck: utiltestingapi.MakeAdmissionCheck("admission-check").
 				ControllerName(kueue.MultiKueueControllerName).
 				Active(metav1.ConditionTrue).
 				Obj(),
@@ -542,12 +543,12 @@ func TestDefault(t *testing.T) {
 				},
 			},
 			queues: []kueue.LocalQueue{
-				*utiltesting.MakeLocalQueue("local-queue", "default").
+				*utiltestingapi.MakeLocalQueue("local-queue", "default").
 					ClusterQueue("cluster-queue").
 					Obj(),
 			},
 			clusterQueues: []kueue.ClusterQueue{
-				*utiltesting.MakeClusterQueue("cluster-queue").
+				*utiltestingapi.MakeClusterQueue("cluster-queue").
 					Obj(),
 			},
 			multiKueueEnabled: true,
@@ -589,7 +590,7 @@ func TestDefault(t *testing.T) {
 			queueManager := qcache.NewManager(cl, cqCache)
 
 			if tc.defaultLqExist {
-				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", "default").
+				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("default", "default").
 					ClusterQueue("cluster-queue").Obj()); err != nil {
 					t.Fatalf("failed to create default local queue: %s", err)
 				}

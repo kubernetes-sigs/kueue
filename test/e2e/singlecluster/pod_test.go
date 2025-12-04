@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	podtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -46,7 +47,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-e2e-")
-		onDemandRF = testing.MakeResourceFlavor("on-demand").NodeLabel("instance-type", "on-demand").Obj()
+		onDemandRF = utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel("instance-type", "on-demand").Obj()
 		util.MustCreate(ctx, k8sClient, onDemandRF)
 	})
 	ginkgo.AfterEach(func() {
@@ -62,17 +63,17 @@ var _ = ginkgo.Describe("Pod groups", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			cq = testing.MakeClusterQueue("cq").
+			cq = utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
-					*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
 				).
 				Preemption(kueue.ClusterQueuePreemption{
 					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 				}).
 				Obj()
-			util.MustCreate(ctx, k8sClient, cq)
-			lq = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
-			util.MustCreate(ctx, k8sClient, lq)
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+			lq = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteAllPodsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -93,6 +94,14 @@ var _ = ginkgo.Describe("Pod groups", func() {
 					To(gomega.ContainElement(corev1.PodSchedulingGate{
 						Name: podconstants.SchedulingGateName}))
 			}
+			ginkgo.By("Verify that the Workload is created", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, gKey, &kueue.Workload{})).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+			ginkgo.By("Verify that the Workload is admitted", func() {
+				util.ExpectWorkloadsToHaveQuotaReservationByKey(ctx, k8sClient, cq.Name, gKey)
+			})
 			ginkgo.By("Starting admission", func() {
 				// Verify that the Pods start with the appropriate selector.
 				gomega.Eventually(func(g gomega.Gomega) {

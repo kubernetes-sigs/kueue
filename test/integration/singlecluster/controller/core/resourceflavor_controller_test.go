@@ -23,7 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -51,9 +51,9 @@ var _ = ginkgo.Describe("ResourceFlavor controller", ginkgo.Ordered, ginkgo.Cont
 		var clusterQueue *kueue.ClusterQueue
 
 		ginkgo.BeforeEach(func() {
-			resourceFlavor = utiltesting.MakeResourceFlavor("flavor").Obj()
-			clusterQueue = utiltesting.MakeClusterQueue("foo").
-				ResourceGroup(*utiltesting.MakeFlavorQuotas("flavor").Resource(corev1.ResourceCPU, "5").Obj()).
+			resourceFlavor = utiltestingapi.MakeResourceFlavor("flavor").Obj()
+			clusterQueue = utiltestingapi.MakeClusterQueue("foo").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor").Resource(corev1.ResourceCPU, "5").Obj()).
 				Obj()
 
 			util.MustCreate(ctx, k8sClient, resourceFlavor)
