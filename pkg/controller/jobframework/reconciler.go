@@ -1243,11 +1243,11 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 
 	// Copy NodeAvoidancePolicy annotation
 	if features.Enabled(features.NodeAvoidanceScheduling) {
-		if val, ok := job.Object().GetAnnotations()[controllerconsts.NodeAvoidancePolicyAnnotation]; ok {
+		if val, ok := job.Object().GetAnnotations()[kueue.NodeAvoidancePolicyAnnotation]; ok {
 			if wl.Annotations == nil {
 				wl.Annotations = make(map[string]string)
 			}
-			wl.Annotations[controllerconsts.NodeAvoidancePolicyAnnotation] = val
+			wl.Annotations[kueue.NodeAvoidancePolicyAnnotation] = val
 			log.Info("Copied NodeAvoidancePolicy annotation", "workload", klog.KObj(wl), "policy", val)
 		} else {
 			log.Info("NodeAvoidancePolicy annotation not found on job", "job", klog.KObj(job.Object()))
@@ -1309,11 +1309,11 @@ func PrepareWorkloadPriority(ctx context.Context, c client.Client, obj client.Ob
 	wl.Spec.Priority = &priority
 
 	if policy != "" && features.Enabled(features.NodeAvoidanceScheduling) {
-		if _, ok := obj.GetAnnotations()[controllerconsts.NodeAvoidancePolicyAnnotation]; !ok {
+		if _, ok := obj.GetAnnotations()[kueue.NodeAvoidancePolicyAnnotation]; !ok {
 			if wl.Annotations == nil {
 				wl.Annotations = make(map[string]string)
 			}
-			wl.Annotations[controllerconsts.NodeAvoidancePolicyAnnotation] = policy
+			wl.Annotations[kueue.NodeAvoidancePolicyAnnotation] = policy
 		}
 	}
 

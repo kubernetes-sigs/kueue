@@ -20,7 +20,6 @@ import (
 	"testing"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
@@ -44,17 +43,17 @@ func TestGetNodeAvoidancePolicy(t *testing.T) {
 			name: "workload with NoSchedule",
 			wl: utiltesting.MakeWorkload("wl", "ns").
 				Annotations(map[string]string{
-					constants.NodeAvoidancePolicyAnnotation: constants.NodeAvoidancePolicyNoSchedule,
+					kueue.NodeAvoidancePolicyAnnotation: kueue.NodeAvoidancePolicyNoSchedule,
 				}).Obj(),
-			want: constants.NodeAvoidancePolicyNoSchedule,
+			want: kueue.NodeAvoidancePolicyNoSchedule,
 		},
 		{
 			name: "workload with PreferNoSchedule",
 			wl: utiltesting.MakeWorkload("wl", "ns").
 				Annotations(map[string]string{
-					constants.NodeAvoidancePolicyAnnotation: constants.NodeAvoidancePolicyPreferNoSchedule,
+					kueue.NodeAvoidancePolicyAnnotation: kueue.NodeAvoidancePolicyPreferNoSchedule,
 				}).Obj(),
-			want: constants.NodeAvoidancePolicyPreferNoSchedule,
+			want: kueue.NodeAvoidancePolicyPreferNoSchedule,
 		},
 	}
 

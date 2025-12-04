@@ -47,14 +47,6 @@ const (
 	// SafeToForcefullyTerminateAnnotationKey is the annotation key that controls whether a pod opted in to FailureRecoveryPolicy.
 	SafeToForcefullyTerminateAnnotationKey = "kueue.x-k8s.io/safe-to-forcefully-terminate"
 	// SafeToForcefullyTerminateAnnotationValue is the value of that annotation that enables FailureRecoveryPolicy for that pod.
+	// SafeToForcefullyTerminateAnnotationValue is the value of that annotation that enables FailureRecoveryPolicy for that pod.
 	SafeToForcefullyTerminateAnnotationValue = "true"
-
-	// NodeAvoidancePolicyAnnotation is the annotation key that holds the node avoidance policy.
-	NodeAvoidancePolicyAnnotation = "kueue.x-k8s.io/node-avoidance-policy"
-
-	// NodeAvoidancePolicyPreferNoSchedule indicates that the workload prefers not to run on specifically labeled nodes.
-	NodeAvoidancePolicyPreferNoSchedule = "PreferNoSchedule"
-
-	// NodeAvoidancePolicyRequired indicates that the workload disallows running on specifically labeled nodes.
-	NodeAvoidancePolicyNoSchedule = "NoSchedule"
 )

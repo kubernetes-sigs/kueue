@@ -28,7 +28,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
-	ctrlconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
@@ -190,7 +189,7 @@ func TestGetPriorityFromWorkloadPriorityClass(t *testing.T) {
 						ObjectMeta: metav1.ObjectMeta{
 							Name: "test",
 							Annotations: map[string]string{
-								ctrlconstants.NodeAvoidancePolicyAnnotation: ctrlconstants.NodeAvoidancePolicyPreferNoSchedule,
+								kueue.NodeAvoidancePolicyAnnotation: kueue.NodeAvoidancePolicyPreferNoSchedule,
 							},
 						},
 						Value: 50,
@@ -200,7 +199,7 @@ func TestGetPriorityFromWorkloadPriorityClass(t *testing.T) {
 			workloadPriorityClassName: "test",
 			wantPriorityClassRef:      kueue.NewWorkloadPriorityClassRef("test"),
 			wantPriorityClassValue:    50,
-			wantNodeAvoidancePolicy:   ctrlconstants.NodeAvoidancePolicyPreferNoSchedule,
+			wantNodeAvoidancePolicy:   kueue.NodeAvoidancePolicyPreferNoSchedule,
 		},
 		"workloadPriorityClass is specified and it does not exist": {
 			workloadPriorityClassList: &kueue.WorkloadPriorityClassList{

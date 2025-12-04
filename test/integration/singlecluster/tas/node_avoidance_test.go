@@ -33,7 +33,6 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
-	ctrlconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
@@ -183,7 +182,7 @@ var _ = ginkgo.Describe("TAS Node Avoidance", ginkgo.Ordered, func() {
 						Obj(),
 				).
 				Annotations(map[string]string{
-					ctrlconstants.NodeAvoidancePolicyAnnotation: ctrlconstants.NodeAvoidancePolicyPreferNoSchedule,
+					kueue.NodeAvoidancePolicyAnnotation: kueue.NodeAvoidancePolicyPreferNoSchedule,
 				}).
 				Obj()
 			ginkgo.DeferCleanup(func() { util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true) })
@@ -213,7 +212,7 @@ var _ = ginkgo.Describe("TAS Node Avoidance", ginkgo.Ordered, func() {
 					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(corev1.ResourceCPU, "1").
 					Annotations(map[string]string{
-						ctrlconstants.NodeAvoidancePolicyAnnotation: ctrlconstants.NodeAvoidancePolicyNoSchedule,
+						kueue.NodeAvoidancePolicyAnnotation: kueue.NodeAvoidancePolicyNoSchedule,
 					}).
 					Obj()
 				ginkgo.DeferCleanup(func() { util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true) })
@@ -233,7 +232,7 @@ var _ = ginkgo.Describe("TAS Node Avoidance", ginkgo.Ordered, func() {
 					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(corev1.ResourceCPU, "1").
 					Annotations(map[string]string{
-						ctrlconstants.NodeAvoidancePolicyAnnotation: ctrlconstants.NodeAvoidancePolicyNoSchedule,
+						kueue.NodeAvoidancePolicyAnnotation: kueue.NodeAvoidancePolicyNoSchedule,
 					}).
 					Obj()
 				util.MustCreate(ctx, k8sClient, wl)

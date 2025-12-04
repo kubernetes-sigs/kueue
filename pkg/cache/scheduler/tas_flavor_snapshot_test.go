@@ -26,7 +26,6 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/tas"
@@ -452,11 +451,11 @@ func TestSortedDomainsWithNodeAvoidance(t *testing.T) {
 			want:   []string{"node-1-avoid", "node-2-safe"},
 		},
 		"prefer safe - sorts by avoidance (safe first despite name)": {
-			policy: controllerconsts.NodeAvoidancePolicyPreferNoSchedule,
+			policy: kueue.NodeAvoidancePolicyPreferNoSchedule,
 			want:   []string{"node-2-safe", "node-1-avoid"},
 		},
 		"disallow avoid": {
-			policy: controllerconsts.NodeAvoidancePolicyNoSchedule,
+			policy: kueue.NodeAvoidancePolicyNoSchedule,
 			want:   []string{"node-2-safe"},
 		},
 	}
@@ -505,7 +504,7 @@ func TestSortedDomainsWithNodeAvoidance_Hierarchy(t *testing.T) {
 		want   []string
 	}{
 		"prefer safe - safe rack first": {
-			policy: controllerconsts.NodeAvoidancePolicyPreferNoSchedule,
+			policy: kueue.NodeAvoidancePolicyPreferNoSchedule,
 			want:   []string{"r2", "r1"},
 		},
 		"no policy - sorts by name": {
@@ -564,7 +563,7 @@ func TestSortedDomainsWithNodeAvoidance_Capacity(t *testing.T) {
 		want   []string
 	}{
 		"prefer safe - safe first despite lower capacity": {
-			policy: controllerconsts.NodeAvoidancePolicyPreferNoSchedule,
+			policy: kueue.NodeAvoidancePolicyPreferNoSchedule,
 			want:   []string{"node-safe", "node-avoid"},
 		},
 		"no policy - capacity wins (LeastFreeCapacity/BestFit logic)": {

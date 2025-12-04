@@ -27,7 +27,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -5608,7 +5607,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			},
 			levels:              defaultThreeLevels,
 			avoidanceLabel:      "avoid",
-			nodeAvoidancePolicy: controllerconsts.NodeAvoidancePolicyPreferNoSchedule,
+			nodeAvoidancePolicy: kueue.NodeAvoidancePolicyPreferNoSchedule,
 			podSets: []PodSetTestCase{
 				{
 					podSetName: "main",
@@ -5648,7 +5647,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			},
 			levels:              defaultThreeLevels,
 			avoidanceLabel:      "avoid",
-			nodeAvoidancePolicy: controllerconsts.NodeAvoidancePolicyNoSchedule,
+			nodeAvoidancePolicy: kueue.NodeAvoidancePolicyNoSchedule,
 			podSets: []PodSetTestCase{
 				{
 					podSetName: "main",

@@ -20,7 +20,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 // ShouldNodeBeAvoided checks if the node has the specified avoided label.
@@ -38,5 +37,5 @@ func GetNodeAvoidancePolicy(wl *kueue.Workload) string {
 	if wl == nil || wl.Annotations == nil {
 		return ""
 	}
-	return wl.Annotations[constants.NodeAvoidancePolicyAnnotation]
+	return wl.Annotations[kueue.NodeAvoidancePolicyAnnotation]
 }

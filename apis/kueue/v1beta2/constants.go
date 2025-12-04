@@ -25,6 +25,15 @@ const (
 	// This gate ensures that Pods do not begin scheduling prematurely, maintaining
 	// proper sequencing in workload processing.
 	ElasticJobSchedulingGate = "kueue.x-k8s.io/elastic-job"
+
+	// NodeAvoidancePolicyAnnotation is the annotation key that holds the node avoidance policy.
+	NodeAvoidancePolicyAnnotation = "kueue.x-k8s.io/node-avoidance-policy"
+
+	// NodeAvoidancePolicyPreferNoSchedule indicates that the workload prefers not to run on specifically labeled nodes.
+	NodeAvoidancePolicyPreferNoSchedule = "PreferNoSchedule"
+
+	// NodeAvoidancePolicyNoSchedule indicates that the workload disallows running on specifically labeled nodes.
+	NodeAvoidancePolicyNoSchedule = "NoSchedule"
 )
 
 type StopPolicy string

@@ -21,7 +21,7 @@ import (
 	"math"
 	"slices"
 
-	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
@@ -217,12 +217,14 @@ func calculateEntropy(blockSizes []int32) float64 {
 
 func sortDomainsByCapacityAndEntropy(domains []*domain, policy string) {
 	slices.SortFunc(domains, func(a, b *domain) int {
-		if features.Enabled(features.NodeAvoidanceScheduling) && policy == controllerconsts.NodeAvoidancePolicyPreferNoSchedule {
-			if a.hasAvoidedNodes != b.hasAvoidedNodes {
-				if !a.hasAvoidedNodes {
-					return -1
+		if features.Enabled(features.NodeAvoidanceScheduling) {
+			if policy == string(kueue.NodeAvoidancePolicyPreferNoSchedule) {
+				if a.hasAvoidedNodes != b.hasAvoidedNodes {
+					if !a.hasAvoidedNodes {
+						return -1
+					}
+					return 1
 				}
-				return 1
 			}
 		}
 

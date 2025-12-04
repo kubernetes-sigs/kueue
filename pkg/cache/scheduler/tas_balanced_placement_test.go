@@ -24,7 +24,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"k8s.io/component-base/featuregate"
 
-	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -199,7 +199,7 @@ func TestSortDomainsByCapacityAndEntropy(t *testing.T) {
 				makeDomain("d3", 4, true),
 				makeDomain("d4", 2, false),
 			},
-			policy:      controllerconsts.NodeAvoidancePolicyPreferNoSchedule,
+			policy:      kueue.NodeAvoidancePolicyPreferNoSchedule,
 			wantDomains: []string{"d2", "d4", "d1", "d3"},
 		},
 		"prefer non labeled policy disabled": {
@@ -210,7 +210,7 @@ func TestSortDomainsByCapacityAndEntropy(t *testing.T) {
 				makeDomain("d3", 4, true),
 				makeDomain("d4", 2, false),
 			},
-			policy:      controllerconsts.NodeAvoidancePolicyPreferNoSchedule,
+			policy:      kueue.NodeAvoidancePolicyPreferNoSchedule,
 			wantDomains: []string{"d1", "d2", "d3", "d4"},
 		},
 		"prefer healthy - healthy first despite lower capacity": {
@@ -219,7 +219,7 @@ func TestSortDomainsByCapacityAndEntropy(t *testing.T) {
 				makeDomain("node-unhealthy", 8, true),
 				makeDomain("node-healthy", 1, false),
 			},
-			policy:      controllerconsts.NodeAvoidancePolicyPreferNoSchedule,
+			policy:      kueue.NodeAvoidancePolicyPreferNoSchedule,
 			wantDomains: []string{"node-healthy", "node-unhealthy"},
 		},
 		"prefer healthy - no policy": {
@@ -228,7 +228,7 @@ func TestSortDomainsByCapacityAndEntropy(t *testing.T) {
 				makeDomain("node-unhealthy", 8, true),
 				makeDomain("node-healthy", 1, false),
 			},
-			policy:      controllerconsts.NodeAvoidancePolicyPreferNoSchedule,
+			policy:      kueue.NodeAvoidancePolicyPreferNoSchedule,
 			wantDomains: []string{"node-healthy", "node-unhealthy"},
 		},
 	}

@@ -35,7 +35,6 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -1278,7 +1277,7 @@ func (s *TASFlavorSnapshot) lowerLevelDomains(domains []*domain) []*domain {
 func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstrained bool, policy string) []*domain {
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 
-	if features.Enabled(features.NodeAvoidanceScheduling) && policy == controllerconsts.NodeAvoidancePolicyNoSchedule && s.isLowestLevelNode() {
+	if features.Enabled(features.NodeAvoidanceScheduling) && policy == kueue.NodeAvoidancePolicyNoSchedule && s.isLowestLevelNode() {
 		filtered := make([]*domain, 0, len(domains))
 		for _, d := range domains {
 			if len(d.children) == 0 && d.hasAvoidedNodes {
@@ -1291,7 +1290,7 @@ func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstra
 
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {
-		if features.Enabled(features.NodeAvoidanceScheduling) && policy == controllerconsts.NodeAvoidancePolicyPreferNoSchedule {
+		if features.Enabled(features.NodeAvoidanceScheduling) && policy == kueue.NodeAvoidancePolicyPreferNoSchedule {
 			if a.hasAvoidedNodes != b.hasAvoidedNodes {
 				if !a.hasAvoidedNodes {
 					return -1
@@ -1332,7 +1331,7 @@ func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstra
 func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool, policy string) []*domain {
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 
-	if features.Enabled(features.NodeAvoidanceScheduling) && policy == controllerconsts.NodeAvoidancePolicyNoSchedule && s.isLowestLevelNode() {
+	if features.Enabled(features.NodeAvoidanceScheduling) && policy == kueue.NodeAvoidancePolicyNoSchedule && s.isLowestLevelNode() {
 		filtered := make([]*domain, 0, len(domains))
 		for _, d := range domains {
 			if len(d.children) == 0 && d.hasAvoidedNodes {
@@ -1345,7 +1344,7 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool,
 
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {
-		if features.Enabled(features.NodeAvoidanceScheduling) && policy == controllerconsts.NodeAvoidancePolicyPreferNoSchedule {
+		if features.Enabled(features.NodeAvoidanceScheduling) && policy == kueue.NodeAvoidancePolicyPreferNoSchedule {
 			if a.hasAvoidedNodes != b.hasAvoidedNodes {
 				if !a.hasAvoidedNodes {
 					return -1
