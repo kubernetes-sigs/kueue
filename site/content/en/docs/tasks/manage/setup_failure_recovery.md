@@ -6,12 +6,12 @@ description: >
   Configure failure recovery mechanisms to unblock workloads after a node outage.
 ---
 
-This describes and shows how to configure the failure recovery mechanism that automatically transitions pods
-that are stuck terminating into the `Failed` phase. This is especially relevant for `Job`-based workloads that
+This describes how to configure the failure recovery mechanism that automatically transitions pods into the Failed phase when they are assigned to unreachable nodes and stuck terminating.
+This is especially relevant for `Job`-based workloads that
 specify [`podReplacementPolicy: Failed`](https://kubernetes.io/docs/concepts/workloads/controllers/job/#pod-replacement-policy),
 preventing the `Job` from making progress if such scenario occurrs.
 
-Without the failure recovery controller, a network partition or a malfunction of the `kubelet` (or a more general node failure) results in the pods running on that node to become stuck.
+Without the failure recovery controller, a node failure (e.g. network partition or a malfunction of the `kubelet`) results in the pods running on that node becoming stuck.
 The failure recovery mechanism unblocks workloads relying on pods being in a terminated state by forcefully moving them to the `Failed` phase after
 a **grace period of 60 seconds** since they became stuck.
 
@@ -178,7 +178,7 @@ By default, pods have a 5 minute toleration for the `node.kubernetes.io/unreacha
 As such, for the first 5 minutes after the node status was reported as `NotReady` (and the taint was added), the
 pod should continue running.
 
-After the 5 minute grace period elapses, the `deletionTimestamp` will be added to the pod:
+After the 5 minute grace period elapses, the pod will be marked for termination:
 ```sh
 kubectl get pods
 ```
@@ -199,7 +199,7 @@ In total, the pod should transition to `Failed` after 90 seconds since the `dele
 
 Fetching all the pods after it elapses:
 ```sh
-kubectl get pods
+kubectl get pods -o wide
 ```
 shows that the "stuck" pod now reports the `Failed` status and a replacement was scheduled per the `podReplacementPolicy`.
 ```
