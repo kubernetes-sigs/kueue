@@ -14,64 +14,19 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package jobframework
+package jobframework_test
 
 import (
 	"testing"
 
+	"go.uber.org/mock/gomock"
 	batchv1 "k8s.io/api/batch/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/podset"
+	mocks "sigs.k8s.io/kueue/internal/mocks/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
-
-// mockGenericJob is a simple mock implementation of GenericJob for testing
-type mockGenericJob struct {
-	obj client.Object
-	gvk schema.GroupVersionKind
-}
-
-func (m *mockGenericJob) Object() client.Object {
-	return m.obj
-}
-
-func (m *mockGenericJob) IsSuspended() bool {
-	return false
-}
-
-func (m *mockGenericJob) Suspend() {}
-
-func (m *mockGenericJob) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
-	return nil
-}
-
-func (m *mockGenericJob) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
-	return false
-}
-
-func (m *mockGenericJob) Finished() (message string, success, finished bool) {
-	return "", false, false
-}
-
-func (m *mockGenericJob) PodSets() ([]kueue.PodSet, error) {
-	return nil, nil
-}
-
-func (m *mockGenericJob) IsActive() bool {
-	return false
-}
-
-func (m *mockGenericJob) PodsReady() bool {
-	return false
-}
-
-func (m *mockGenericJob) GVK() schema.GroupVersionKind {
-	return m.gvk
-}
 
 func TestRegisterGenericJobConvertFunc(t *testing.T) {
 	testGVK := schema.GroupVersionKind{
@@ -80,35 +35,23 @@ func TestRegisterGenericJobConvertFunc(t *testing.T) {
 		Kind:    "TestJob",
 	}
 
-	// Clean up after test
+	// Clean up after test (note: we can't access the internal registry directly from _test package)
 	defer func() {
-		jobConvertRegistry.Delete(testGVK)
+		jobframework.RegisterGenericJobConvertFunc(testGVK, nil)
 	}()
 
 	t.Run("register converter function", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
 		converterCalled := false
-		testConverter := func(obj runtime.Object) GenericJob {
+		testConverter := func(obj runtime.Object) jobframework.GenericJob {
 			converterCalled = true
-			return &mockGenericJob{
-				obj: obj.(client.Object),
-				gvk: testGVK,
-			}
+			mockJob := mocks.NewMockGenericJob(ctrl)
+			return mockJob
 		}
 
-		RegisterGenericJobConvertFunc(testGVK, testConverter)
+		jobframework.RegisterGenericJobConvertFunc(testGVK, testConverter)
 
-		// Verify the function was registered by loading it
-		val, ok := jobConvertRegistry.Load(testGVK)
-		if !ok {
-			t.Error("converter function was not registered")
-		}
-
-		// Verify the registered function works
-		if val == nil {
-			t.Error("registered converter is nil")
-		}
-
-		// Create a test object and call the converter
+		// Create a test object and call CreateGenericJobFromRuntimeObject
 		testObj := &batchv1.Job{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: testGVK.GroupVersion().String(),
@@ -117,9 +60,9 @@ func TestRegisterGenericJobConvertFunc(t *testing.T) {
 		}
 		testObj.SetGroupVersionKind(testGVK)
 
-		result := val.(runtimeObjectToJobConvertFunc)(testObj)
+		result := jobframework.CreateGenericJobFromRuntimeObject(testObj)
 		if result == nil {
-			t.Error("converter returned nil")
+			t.Error("CreateGenericJobFromRuntimeObject returned nil")
 		}
 		if !converterCalled {
 			t.Error("converter was not called")
@@ -127,56 +70,55 @@ func TestRegisterGenericJobConvertFunc(t *testing.T) {
 	})
 
 	t.Run("register nil deletes converter", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
 		// First register a converter
-		testConverter := func(obj runtime.Object) GenericJob {
-			return &mockGenericJob{}
+		testConverter := func(obj runtime.Object) jobframework.GenericJob {
+			return mocks.NewMockGenericJob(ctrl)
 		}
-		RegisterGenericJobConvertFunc(testGVK, testConverter)
+		jobframework.RegisterGenericJobConvertFunc(testGVK, testConverter)
 
-		// Verify it's registered
-		_, ok := jobConvertRegistry.Load(testGVK)
-		if !ok {
-			t.Error("converter function was not registered")
+		// Test that we can create a generic job (converter is registered)
+		testObj := &batchv1.Job{}
+		testObj.SetGroupVersionKind(testGVK)
+		result := jobframework.CreateGenericJobFromRuntimeObject(testObj)
+		if result == nil {
+			t.Error("CreateGenericJobFromRuntimeObject should work with registered converter")
 		}
 
 		// Now delete it by registering nil
-		RegisterGenericJobConvertFunc(testGVK, nil)
+		jobframework.RegisterGenericJobConvertFunc(testGVK, nil)
 
-		// Verify it's deleted
-		_, ok = jobConvertRegistry.Load(testGVK)
-		if ok {
-			t.Error("converter function was not deleted when nil was registered")
+		// Test that we can no longer create a generic job (converter is deleted)
+		result = jobframework.CreateGenericJobFromRuntimeObject(testObj)
+		if result != nil {
+			t.Error("CreateGenericJobFromRuntimeObject should return nil after converter is deleted")
 		}
 	})
 
 	t.Run("multiple registrations overwrite", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
 		firstCalled := false
-		firstConverter := func(obj runtime.Object) GenericJob {
+		firstConverter := func(obj runtime.Object) jobframework.GenericJob {
 			firstCalled = true
-			return &mockGenericJob{}
+			return mocks.NewMockGenericJob(ctrl)
 		}
 
 		secondCalled := false
-		secondConverter := func(obj runtime.Object) GenericJob {
+		secondConverter := func(obj runtime.Object) jobframework.GenericJob {
 			secondCalled = true
-			return &mockGenericJob{}
+			return mocks.NewMockGenericJob(ctrl)
 		}
 
 		// Register first converter
-		RegisterGenericJobConvertFunc(testGVK, firstConverter)
+		jobframework.RegisterGenericJobConvertFunc(testGVK, firstConverter)
 
 		// Register second converter (should overwrite first)
-		RegisterGenericJobConvertFunc(testGVK, secondConverter)
+		jobframework.RegisterGenericJobConvertFunc(testGVK, secondConverter)
 
-		// Load and call the converter
-		val, ok := jobConvertRegistry.Load(testGVK)
-		if !ok {
-			t.Fatal("converter function was not registered")
-		}
-
+		// Test the converter by calling CreateGenericJobFromRuntimeObject
 		testObj := &batchv1.Job{}
 		testObj.SetGroupVersionKind(testGVK)
-		val.(runtimeObjectToJobConvertFunc)(testObj)
+		jobframework.CreateGenericJobFromRuntimeObject(testObj)
 
 		// Verify only the second converter was called
 		if firstCalled {
@@ -197,16 +139,17 @@ func TestCreateGenericJobFromRuntimeObject(t *testing.T) {
 
 	// Clean up after tests
 	defer func() {
-		jobConvertRegistry.Delete(testGVK)
+		jobframework.RegisterGenericJobConvertFunc(testGVK, nil)
 	}()
 
 	t.Run("successfully convert with registered converter", func(t *testing.T) {
-		expectedJob := &mockGenericJob{gvk: testGVK}
-		testConverter := func(obj runtime.Object) GenericJob {
+		ctrl := gomock.NewController(t)
+		expectedJob := mocks.NewMockGenericJob(ctrl)
+		testConverter := func(obj runtime.Object) jobframework.GenericJob {
 			return expectedJob
 		}
 
-		RegisterGenericJobConvertFunc(testGVK, testConverter)
+		jobframework.RegisterGenericJobConvertFunc(testGVK, testConverter)
 
 		testObj := &batchv1.Job{
 			TypeMeta: metav1.TypeMeta{
@@ -216,14 +159,14 @@ func TestCreateGenericJobFromRuntimeObject(t *testing.T) {
 		}
 		testObj.SetGroupVersionKind(testGVK)
 
-		result := CreateGenericJobFromRuntimeObject(testObj)
+		result := jobframework.CreateGenericJobFromRuntimeObject(testObj)
 		if result == nil {
 			t.Fatal("CreateGenericJobFromRuntimeObject returned nil")
 		}
 		// Compare the underlying objects since result is an interface
-		mockResult, ok := result.(*mockGenericJob)
+		mockResult, ok := result.(*mocks.MockGenericJob)
 		if !ok {
-			t.Error("result is not of type *mockGenericJob")
+			t.Error("result is not of type *mocks.MockGenericJob")
 		}
 		if mockResult != expectedJob {
 			t.Error("returned job does not match expected job")
@@ -245,7 +188,7 @@ func TestCreateGenericJobFromRuntimeObject(t *testing.T) {
 		}
 		testObj.SetGroupVersionKind(unregisteredGVK)
 
-		result := CreateGenericJobFromRuntimeObject(testObj)
+		result := jobframework.CreateGenericJobFromRuntimeObject(testObj)
 		if result != nil {
 			t.Error("CreateGenericJobFromRuntimeObject should return nil for unregistered GVK")
 		}
@@ -257,20 +200,21 @@ func TestCreateGenericJobFromRuntimeObject(t *testing.T) {
 		// Explicitly set an empty GVK to simulate nil ObjectKind scenario
 		testObj.SetGroupVersionKind(schema.GroupVersionKind{})
 
-		result := CreateGenericJobFromRuntimeObject(testObj)
+		result := jobframework.CreateGenericJobFromRuntimeObject(testObj)
 		if result != nil {
 			t.Error("CreateGenericJobFromRuntimeObject should return nil for object with empty GVK")
 		}
 	})
 
 	t.Run("converter returns correct GenericJob", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
 		testGVK2 := schema.GroupVersionKind{
 			Group:   "another.example.com",
 			Version: "v2",
 			Kind:    "AnotherJob",
 		}
 
-		defer jobConvertRegistry.Delete(testGVK2)
+		defer jobframework.RegisterGenericJobConvertFunc(testGVK2, nil)
 
 		testObj := &batchv1.Job{
 			ObjectMeta: metav1.ObjectMeta{
@@ -284,17 +228,17 @@ func TestCreateGenericJobFromRuntimeObject(t *testing.T) {
 		}
 		testObj.SetGroupVersionKind(testGVK2)
 
-		testConverter := func(obj runtime.Object) GenericJob {
+		testConverter := func(obj runtime.Object) jobframework.GenericJob {
 			job := obj.(*batchv1.Job)
-			return &mockGenericJob{
-				obj: job,
-				gvk: testGVK2,
-			}
+			mockJob := mocks.NewMockGenericJob(ctrl)
+			mockJob.EXPECT().Object().Return(job).AnyTimes()
+			mockJob.EXPECT().GVK().Return(testGVK2).AnyTimes()
+			return mockJob
 		}
 
-		RegisterGenericJobConvertFunc(testGVK2, testConverter)
+		jobframework.RegisterGenericJobConvertFunc(testGVK2, testConverter)
 
-		result := CreateGenericJobFromRuntimeObject(testObj)
+		result := jobframework.CreateGenericJobFromRuntimeObject(testObj)
 		if result == nil {
 			t.Fatal("CreateGenericJobFromRuntimeObject returned nil")
 		}
