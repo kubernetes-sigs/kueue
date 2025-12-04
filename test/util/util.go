@@ -1256,6 +1256,14 @@ func CreateLocalQueuesAndWaitForActive(ctx context.Context, c client.Client, lqs
 	ExpectLocalQueuesToBeActive(ctx, c, lqs...)
 }
 
+func CreateAdmissionChecksAndWaitForActive(ctx context.Context, c client.Client, acs ...*kueue.AdmissionCheck) {
+	ginkgo.GinkgoHelper()
+	for _, ac := range acs {
+		MustCreate(ctx, c, ac)
+	}
+	ExpectAdmissionChecksToBeActive(ctx, c, acs...)
+}
+
 func MustHaveOwnerReference(g gomega.Gomega, ownerRefs []metav1.OwnerReference, obj client.Object, scheme *runtime.Scheme) {
 	hasOwnerRef, err := controllerutil.HasOwnerReference(ownerRefs, obj, scheme)
 	g.Expect(err).ToNot(gomega.HaveOccurred())

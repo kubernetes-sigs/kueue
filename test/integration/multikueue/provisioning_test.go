@@ -100,11 +100,7 @@ var _ = ginkgo.Describe("MultiKueue with ProvisioningRequest", ginkgo.Ordered, g
 			ControllerName(kueue.MultiKueueControllerName).
 			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", managerMultiKueueConfig.Name).
 			Obj()
-		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, multiKueueAC)).Should(gomega.Succeed())
-
-		ginkgo.By("wait for multikueue admission check to be active", func() {
-			util.ExpectAdmissionChecksToBeActive(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC)
-		})
+		util.CreateAdmissionChecksAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC)
 
 		managerRf = utiltestingapi.MakeResourceFlavor("manager-rf").NodeLabel("instance-type", "manager-node").Obj()
 		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, managerRf)).To(gomega.Succeed())
@@ -131,11 +127,7 @@ var _ = ginkgo.Describe("MultiKueue with ProvisioningRequest", ginkgo.Ordered, g
 			ControllerName(kueue.ProvisioningRequestControllerName).
 			Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", worker1ProvReqConfig.Name).
 			Obj()
-		gomega.Expect(worker1TestCluster.client.Create(worker1TestCluster.ctx, worker1ProvReqAC)).Should(gomega.Succeed())
-
-		ginkgo.By("wait for worker provisioning admission check to be active", func() {
-			util.ExpectAdmissionChecksToBeActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1ProvReqAC)
-		})
+		util.CreateAdmissionChecksAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1ProvReqAC)
 
 		worker1Rf = utiltestingapi.MakeResourceFlavor("worker-rf").NodeLabel("instance-type", "worker-node").Obj()
 		gomega.Expect(worker1TestCluster.client.Create(worker1TestCluster.ctx, worker1Rf)).To(gomega.Succeed())
