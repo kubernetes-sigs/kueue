@@ -540,7 +540,7 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, log logr.Logger, 
 	preemptionTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
 
 	var nodeAvoidancePolicy string
-	if features.Enabled(features.FailureAwareScheduling) {
+	if features.Enabled(features.NodeAvoidanceScheduling) {
 		var priorityClassName string
 		if wl.Obj.Spec.PriorityClassRef != nil {
 			priorityClassName = wl.Obj.Spec.PriorityClassRef.Name

@@ -58,7 +58,7 @@ func managerSetupWithNodeAvoidance(ctx context.Context, mgr manager.Manager) {
 	controllersCfg := &config.Configuration{}
 	mgr.GetScheme().Default(controllersCfg)
 
-	ginkgo.GinkgoWriter.Printf("Feature FailureAwareScheduling enabled: %v\n", features.Enabled(features.FailureAwareScheduling))
+	ginkgo.GinkgoWriter.Printf("Feature FailureAwareScheduling enabled: %v\n", features.Enabled(features.NodeAvoidanceScheduling))
 
 	cacheOptions := []schdcache.Option{
 		schdcache.WithUnhealthyNodeLabel("unhealthy"),
@@ -97,7 +97,7 @@ var _ = ginkgo.Describe("TAS Node Avoidance", ginkgo.Ordered, func() {
 	)
 
 	ginkgo.BeforeAll(func() {
-		err := features.SetEnable(features.FailureAwareScheduling, true)
+		err := features.SetEnable(features.NodeAvoidanceScheduling, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		fwk.StartManager(ctx, cfg, managerSetupWithNodeAvoidance)
 		ginkgo.DeferCleanup(fwk.StopManager, ctx)

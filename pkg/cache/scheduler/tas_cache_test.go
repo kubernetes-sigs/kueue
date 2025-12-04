@@ -384,7 +384,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 		levels             []string
 		nodeLabels         map[string]string
 		podSets            []PodSetTestCase
-		unhealthyNodeLabel string
+		avoidanceLabel string
 		nodeAvoidancePolicy string
 	}{
 		"minimize the number of used racks before optimizing the number of nodes; BestFit": {
@@ -5608,8 +5608,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Obj(),
 			},
 			levels:             defaultThreeLevels,
-			unhealthyNodeLabel: "unhealthy",
-			disableFeatureGates: []featuregate.Feature{features.FailureAwareScheduling},
+			avoidanceLabel: "unhealthy",
+			disableFeatureGates: []featuregate.Feature{features.NodeAvoidanceScheduling},
 			nodeAvoidancePolicy: controllerconsts.NodeAvoidancePolicyPreferred,
 			podSets: []PodSetTestCase{
 				{
@@ -5634,7 +5634,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			},
 		},
 		"node avoidance; disallow unhealthy; all unhealthy": {
-			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement, features.FailureAwareScheduling},
+			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement, features.NodeAvoidanceScheduling},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
 					Label(tasBlockLabel, "b1").
@@ -5649,7 +5649,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Obj(),
 			},
 			levels:             defaultThreeLevels,
-			unhealthyNodeLabel: "unhealthy",
+			avoidanceLabel: "unhealthy",
 			nodeAvoidancePolicy: controllerconsts.NodeAvoidancePolicyRequired,
 			podSets: []PodSetTestCase{
 				{
@@ -5693,7 +5693,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 			client := clientBuilder.Build()
 
-			tasCache := NewTASCache(client, tc.unhealthyNodeLabel)
+			tasCache := NewTASCache(client, tc.avoidanceLabel)
 			topologyInformation := topologyInformation{
 				Levels: tc.levels,
 			}
@@ -5701,7 +5701,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				TopologyName: "default",
 				NodeLabels:   tc.nodeLabels,
 			}
-			tasFlavorCache := tasCache.NewTASFlavorCache(topologyInformation, flavorInformation, tc.unhealthyNodeLabel)
+			tasFlavorCache := tasCache.NewTASFlavorCache(topologyInformation, flavorInformation, tc.avoidanceLabel)
 
 			snapshot, err := tasFlavorCache.snapshot(ctx)
 			if err != nil {

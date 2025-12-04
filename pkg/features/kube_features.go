@@ -232,7 +232,7 @@ const (
 	// owner: @j-skiba
 	//
 	// Enables failure aware scheduling by injecting node affinity based on workload priority.
-	FailureAwareScheduling featuregate.Feature = "FailureAwareScheduling"
+	NodeAvoidanceScheduling featuregate.Feature = "NodeAvoidanceScheduling"
 )
 
 func init() {
@@ -363,7 +363,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	FailureRecoveryPolicy: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
-	FailureAwareScheduling: {
+	NodeAvoidanceScheduling: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }

@@ -52,7 +52,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/podset"
-	"sigs.k8s.io/kueue/pkg/scheduler/nodeavoidance"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
@@ -1267,7 +1266,7 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 	}
 
 	// Copy NodeAvoidancePolicy annotation
-	if features.Enabled(features.FailureAwareScheduling) {
+	if features.Enabled(features.NodeAvoidanceScheduling) {
 		if val, ok := job.Object().GetAnnotations()[controllerconsts.NodeAvoidancePolicyAnnotation]; ok {
 			if wl.Annotations == nil {
 				wl.Annotations = make(map[string]string)
@@ -1333,7 +1332,7 @@ func PrepareWorkloadPriority(ctx context.Context, c client.Client, obj client.Ob
 	wl.Spec.PriorityClassRef = priorityClassRef
 	wl.Spec.Priority = &priority
 
-	if policy != "" && features.Enabled(features.FailureAwareScheduling) {
+	if policy != "" && features.Enabled(features.NodeAvoidanceScheduling) {
 		if _, ok := obj.GetAnnotations()[controllerconsts.NodeAvoidancePolicyAnnotation]; !ok {
 			if wl.Annotations == nil {
 				wl.Annotations = make(map[string]string)
@@ -1383,7 +1382,7 @@ func extractPriorityFromPodSets(podSets []kueue.PodSet) string {
 // getPodSetsInfoFromStatus extracts podSetsInfo from workload status, based on
 // admission, and admission checks.
 func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Workload, unhealthyNodeLabel string) ([]podset.PodSetInfo, error) {
-	log := ctrl.LoggerFrom(ctx)
+
 	if len(w.Status.Admission.PodSetAssignments) == 0 {
 		return nil, nil
 	}
@@ -1394,23 +1393,6 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 		info, err := podset.FromAssignment(ctx, c, &psAssignment, &w.Spec.PodSets[i])
 		if err != nil {
 			return nil, err
-		}
-
-		if features.Enabled(features.FailureAwareScheduling) {
-			nodeAvoidancePolicy := nodeavoidance.GetNodeAvoidancePolicy(w)
-			unhealthyNodeLabel := UnhealthyNodeLabelFromContext(ctx)
-			log.Info("Injecting NodeAffinity", "workload", klog.KObj(w), "policy", nodeAvoidancePolicy, "unhealthyLabel", unhealthyNodeLabel)
-			if nodeAvoidancePolicy != "" && unhealthyNodeLabel != "" {
-				if info.Affinity == nil {
-					if w.Spec.PodSets[i].Template.Spec.Affinity != nil {
-						info.Affinity = w.Spec.PodSets[i].Template.Spec.Affinity.DeepCopy()
-					} else {
-						info.Affinity = &corev1.Affinity{}
-					}
-				}
-				info.Affinity.NodeAffinity = nodeavoidance.MergeNodeAffinity(info.Affinity.NodeAffinity, nodeAvoidancePolicy, unhealthyNodeLabel)
-				log.Info("Injected NodeAffinity", "workload", klog.KObj(w), "affinity", info.Affinity.NodeAffinity)
-			}
 		}
 
 		if features.Enabled(features.TopologyAwareScheduling) {

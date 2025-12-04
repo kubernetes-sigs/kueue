@@ -89,8 +89,8 @@ type domain struct {
 	// ordered list of values
 	levelValues []string
 
-	// hasUnhealthyNodes indicates if the domain contains any node with the unhealthy label.
-	hasUnhealthyNodes bool
+	// hasAvoidedNodes indicates if the domain contains any node with the avoidance label.
+	hasAvoidedNodes bool
 }
 
 // leafDomain extends the domain with information for the lowest-level domain.
@@ -137,12 +137,12 @@ type TASFlavorSnapshot struct {
 	// tolerations represents the list of tolerations defined for the resource flavor
 	tolerations []corev1.Toleration
 
-	// unhealthyNodeLabel is the label key used to identify unhealthy nodes.
-	unhealthyNodeLabel string
+	// avoidanceLabel is the label key used to identify avoided nodes.
+	avoidanceLabel string
 }
 
 func newTASFlavorSnapshot(log logr.Logger, topologyName kueue.TopologyReference,
-	levels []string, tolerations []corev1.Toleration, unhealthyNodeLabel string) *TASFlavorSnapshot {
+	levels []string, tolerations []corev1.Toleration, avoidanceLabel string) *TASFlavorSnapshot {
 	domainsPerLevel := make([]domainByID, len(levels))
 	for level := range levels {
 		domainsPerLevel[level] = make(domainByID)
@@ -157,7 +157,7 @@ func newTASFlavorSnapshot(log logr.Logger, topologyName kueue.TopologyReference,
 		domains:            make(domainByID),
 		roots:              make(domainByID),
 		domainsPerLevel:    domainsPerLevel,
-		unhealthyNodeLabel: unhealthyNodeLabel,
+		avoidanceLabel:     avoidanceLabel,
 	}
 	return snapshot
 }
@@ -177,8 +177,8 @@ func (s *TASFlavorSnapshot) addNode(node corev1.Node) utiltas.TopologyDomainID {
 		}
 		if s.isLowestLevelNode() {
 			leafDomain.node = &node
-			if nodeavoidance.IsNodeAvoided(&node, s.unhealthyNodeLabel) {
-				leafDomain.hasUnhealthyNodes = true
+			if nodeavoidance.IsNodeAvoided(&node, s.avoidanceLabel) {
+				leafDomain.hasAvoidedNodes = true
 			}
 		}
 		s.leaves[domainID] = &leafDomain
@@ -236,8 +236,8 @@ func (s *TASFlavorSnapshot) initializeHelper(dom *domain) {
 	// connect parent and child
 	dom.parent = parent
 	parent.children = append(parent.children, dom)
-	if dom.hasUnhealthyNodes {
-		parent.hasUnhealthyNodes = true
+	if dom.hasAvoidedNodes {
+		parent.hasAvoidedNodes = true
 	}
 }
 
@@ -1279,10 +1279,10 @@ func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstra
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 
 	// Filter out unhealthy nodes if policy is DisallowUnhealthy
-	if features.Enabled(features.FailureAwareScheduling) && policy == controllerconsts.NodeAvoidancePolicyRequired && s.isLowestLevelNode() {
+	if features.Enabled(features.NodeAvoidanceScheduling) && policy == controllerconsts.NodeAvoidancePolicyRequired && s.isLowestLevelNode() {
 		filtered := make([]*domain, 0, len(domains))
 		for _, d := range domains {
-			if len(d.children) == 0 && d.hasUnhealthyNodes {
+			if len(d.children) == 0 && d.hasAvoidedNodes {
 				continue
 			}
 			filtered = append(filtered, d)
@@ -1292,10 +1292,10 @@ func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstra
 
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {
-		// Prefer healthy nodes if policy is PreferHealthy
-		if features.Enabled(features.FailureAwareScheduling) && policy == controllerconsts.NodeAvoidancePolicyPreferred {
-			if a.hasUnhealthyNodes != b.hasUnhealthyNodes {
-				if !a.hasUnhealthyNodes {
+		// Prefer healthy nodes if policy is Preferred
+		if features.Enabled(features.NodeAvoidanceScheduling) && policy == controllerconsts.NodeAvoidancePolicyPreferred {
+			if a.hasAvoidedNodes != b.hasAvoidedNodes {
+				if !a.hasAvoidedNodes {
 					return -1
 				}
 				return 1
@@ -1334,11 +1334,11 @@ func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstra
 func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool, policy string) []*domain {
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 
-	// Filter out unhealthy nodes if policy is DisallowUnhealthy
-	if features.Enabled(features.FailureAwareScheduling) && policy == controllerconsts.NodeAvoidancePolicyRequired && s.isLowestLevelNode() {
+	// Filter out avoided nodes if policy is Required
+	if features.Enabled(features.NodeAvoidanceScheduling) && policy == controllerconsts.NodeAvoidancePolicyRequired && s.isLowestLevelNode() {
 		filtered := make([]*domain, 0, len(domains))
 		for _, d := range domains {
-			if len(d.children) == 0 && d.hasUnhealthyNodes {
+			if len(d.children) == 0 && d.hasAvoidedNodes {
 				continue
 			}
 			filtered = append(filtered, d)
@@ -1348,10 +1348,10 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool,
 
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {
-		// Prefer healthy nodes if policy is PreferHealthy
-		if features.Enabled(features.FailureAwareScheduling) && policy == controllerconsts.NodeAvoidancePolicyPreferred {
-			if a.hasUnhealthyNodes != b.hasUnhealthyNodes {
-				if !a.hasUnhealthyNodes {
+		// Prefer healthy nodes if policy is Preferred
+		if features.Enabled(features.NodeAvoidanceScheduling) && policy == controllerconsts.NodeAvoidancePolicyPreferred {
+			if a.hasAvoidedNodes != b.hasAvoidedNodes {
+				if !a.hasAvoidedNodes {
 					return -1
 				}
 				return 1

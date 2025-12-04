@@ -171,10 +171,10 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 }
 
 func TestSortDomainsByCapacityAndEntropy(t *testing.T) {
-	d1 := &domain{id: "d1", state: 9, sliceState: 9, leaderState: 1, stateWithLeader: 8, sliceStateWithLeader: 8, hasUnhealthyNodes: true}
-	d2 := &domain{id: "d2", state: 6, sliceState: 6, leaderState: 0, stateWithLeader: 6, sliceStateWithLeader: 6, hasUnhealthyNodes: false}
-	d3 := &domain{id: "d3", state: 4, sliceState: 4, leaderState: 1, stateWithLeader: 3, sliceStateWithLeader: 3, hasUnhealthyNodes: true}
-	d4 := &domain{id: "d4", state: 2, sliceState: 2, leaderState: 0, stateWithLeader: 2, sliceStateWithLeader: 2, hasUnhealthyNodes: false}
+	d1 := &domain{id: "d1", state: 9, sliceState: 9, leaderState: 1, stateWithLeader: 8, sliceStateWithLeader: 8, hasAvoidedNodes: true}
+	d2 := &domain{id: "d2", state: 6, sliceState: 6, leaderState: 0, stateWithLeader: 6, sliceStateWithLeader: 6, hasAvoidedNodes: false}
+	d3 := &domain{id: "d3", state: 4, sliceState: 4, leaderState: 1, stateWithLeader: 3, sliceStateWithLeader: 3, hasAvoidedNodes: true}
+	d4 := &domain{id: "d4", state: 2, sliceState: 2, leaderState: 0, stateWithLeader: 2, sliceStateWithLeader: 2, hasAvoidedNodes: false}
 
 	testCases := map[string]struct {
 		domains     []*domain
@@ -198,7 +198,7 @@ func TestSortDomainsByCapacityAndEntropy(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.FailureAwareScheduling, tc.featureGate)
+			features.SetFeatureGateDuringTest(t, features.NodeAvoidanceScheduling, tc.featureGate)
 			sortDomainsByCapacityAndEntropy(tc.domains, tc.policy)
 			gotIDs := make([]string, len(tc.domains))
 			for i, d := range tc.domains {

@@ -252,7 +252,7 @@ func main() {
 		cacheOptions = append(cacheOptions, schdcache.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes))
 		queueOptions = append(queueOptions, qcache.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes))
 	}
-	if features.Enabled(features.FailureAwareScheduling) && unhealthyNodeLabel != "" {
+	if features.Enabled(features.NodeAvoidanceScheduling) && unhealthyNodeLabel != "" {
 		cacheOptions = append(cacheOptions, schdcache.WithUnhealthyNodeLabel(unhealthyNodeLabel))
 	} else {
 		unhealthyNodeLabel = ""

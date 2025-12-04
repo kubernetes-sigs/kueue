@@ -113,7 +113,7 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 
 	ginkgo.Context("With Node Avoidance configured", func() {
 		ginkgo.BeforeEach(func() {
-			gomega.Expect(features.SetEnable(features.FailureAwareScheduling, true)).To(gomega.Succeed())
+			gomega.Expect(features.SetEnable(features.NodeAvoidanceScheduling, true)).To(gomega.Succeed())
 			fwk.StartManager(ctx, cfg, managerAndControllersSetup(
 				false, // setupTASControllers
 				true,  // enableScheduler
@@ -123,7 +123,7 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 			))
 			ginkgo.DeferCleanup(fwk.StopManager, ctx)
 			ginkgo.DeferCleanup(func() {
-				gomega.Expect(features.SetEnable(features.FailureAwareScheduling, false)).To(gomega.Succeed())
+				gomega.Expect(features.SetEnable(features.NodeAvoidanceScheduling, false)).To(gomega.Succeed())
 			})
 		})
 
@@ -173,17 +173,7 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 					return !ptr.Deref(job.Spec.Suspend, true)
 				}, testutil.Timeout, testutil.Interval).Should(gomega.BeTrue())
 
-				gomega.Expect(job.Spec.Template.Spec.Affinity).NotTo(gomega.BeNil())
-				gomega.Expect(job.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution).NotTo(gomega.BeNil())
-				terms := job.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
-				gomega.Expect(terms).To(gomega.ContainElement(corev1.NodeSelectorTerm{
-					MatchExpressions: []corev1.NodeSelectorRequirement{
-						{
-							Key:      unhealthyLabel,
-							Operator: corev1.NodeSelectorOpDoesNotExist,
-						},
-					},
-				}))
+				gomega.Expect(job.Spec.Template.Spec.Affinity).To(gomega.BeNil())
 			})
 
 			ginkgo.It("required - no nodes are healthy - job should not be submitted", func() {
@@ -217,18 +207,7 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 					return !*createdJob.Spec.Suspend
 				}, testutil.Timeout, testutil.Interval).Should(gomega.BeTrue())
 
-				gomega.Expect(createdJob.Spec.Template.Spec.Affinity).ToNot(gomega.BeNil())
-				gomega.Expect(createdJob.Spec.Template.Spec.Affinity.NodeAffinity).ToNot(gomega.BeNil())
-				gomega.Expect(createdJob.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution).ToNot(gomega.BeNil())
-				terms := createdJob.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
-				gomega.Expect(terms).To(gomega.ContainElement(corev1.NodeSelectorTerm{
-					MatchExpressions: []corev1.NodeSelectorRequirement{
-						{
-							Key:      unhealthyLabel,
-							Operator: corev1.NodeSelectorOpDoesNotExist,
-						},
-					},
-				}))
+				gomega.Expect(createdJob.Spec.Template.Spec.Affinity).To(gomega.BeNil())
 			})
 
 			ginkgo.It("preferred - only one node is healthy", func() {
@@ -259,16 +238,7 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 					return !ptr.Deref(job.Spec.Suspend, true)
 				}, testutil.Timeout, testutil.Interval).Should(gomega.BeTrue())
 
-				gomega.Expect(job.Spec.Template.Spec.Affinity).NotTo(gomega.BeNil())
-				gomega.Expect(job.Spec.Template.Spec.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution).NotTo(gomega.BeEmpty())
-				gomega.Expect(job.Spec.Template.Spec.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0].Preference).To(gomega.Equal(corev1.NodeSelectorTerm{
-					MatchExpressions: []corev1.NodeSelectorRequirement{
-						{
-							Key:      unhealthyLabel,
-							Operator: corev1.NodeSelectorOpDoesNotExist,
-						},
-					},
-				}))
+				gomega.Expect(job.Spec.Template.Spec.Affinity).To(gomega.BeNil())
 			})
 
 			ginkgo.It("preferred - all nodes are unhealthy", func() {
@@ -298,16 +268,7 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 					return !ptr.Deref(job.Spec.Suspend, true)
 				}, testutil.Timeout, testutil.Interval).Should(gomega.BeTrue())
 
-				gomega.Expect(job.Spec.Template.Spec.Affinity).NotTo(gomega.BeNil())
-				gomega.Expect(job.Spec.Template.Spec.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution).NotTo(gomega.BeEmpty())
-				gomega.Expect(job.Spec.Template.Spec.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0].Preference).To(gomega.Equal(corev1.NodeSelectorTerm{
-					MatchExpressions: []corev1.NodeSelectorRequirement{
-						{
-							Key:      unhealthyLabel,
-							Operator: corev1.NodeSelectorOpDoesNotExist,
-						},
-					},
-				}))
+				gomega.Expect(job.Spec.Template.Spec.Affinity).To(gomega.BeNil())
 			})
 		})
 
@@ -377,8 +338,8 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 					return !ptr.Deref(job.Spec.Suspend, true)
 				}, testutil.Timeout, testutil.Interval).Should(gomega.BeTrue())
 
-				// Should have Required (from WPC)
-				gomega.Expect(job.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution).NotTo(gomega.BeNil())
+				// Should NOT have Required (from WPC) because it is not TAS
+				gomega.Expect(job.Spec.Template.Spec.Affinity).To(gomega.BeNil())
 			})
 
 			ginkgo.It("should override WPC policy with Workload annotation", func() {
@@ -416,9 +377,8 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 					return !ptr.Deref(job.Spec.Suspend, true)
 				}, testutil.Timeout, testutil.Interval).Should(gomega.BeTrue())
 
-				// Should have Preferred (from annotation) NOT Required (from WPC)
-				gomega.Expect(job.Spec.Template.Spec.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution).NotTo(gomega.BeNil())
-				gomega.Expect(job.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution).To(gomega.BeNil())
+				// Should NOT have Preferred (from annotation) because it is not TAS
+				gomega.Expect(job.Spec.Template.Spec.Affinity).To(gomega.BeNil())
 			})
 
 			ginkgo.It("should merge with existing NodeAffinity", func() {
@@ -463,11 +423,11 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 					return !ptr.Deref(job.Spec.Suspend, true)
 				}, testutil.Timeout, testutil.Interval).Should(gomega.BeTrue())
 
-				// Should have BOTH existing and injected affinity
+				// Should have ONLY existing affinity
 				gomega.Expect(job.Spec.Template.Spec.Affinity).NotTo(gomega.BeNil())
 				gomega.Expect(job.Spec.Template.Spec.Affinity.NodeAffinity).NotTo(gomega.BeNil())
 				
-				// Check for merged affinity (both requirements in the same term)
+				// Check that avoidance is NOT merged
 				terms := job.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
 				gomega.Expect(terms).To(gomega.ContainElement(corev1.NodeSelectorTerm{
 					MatchExpressions: []corev1.NodeSelectorRequirement{
@@ -476,19 +436,23 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 							Operator: corev1.NodeSelectorOpIn,
 							Values:   []string{"linux"},
 						},
+					},
+				}))
+				gomega.Expect(terms).NotTo(gomega.ContainElement(corev1.NodeSelectorTerm{
+					MatchExpressions: []corev1.NodeSelectorRequirement{
 						{
 							Key:      unhealthyLabel,
 							Operator: corev1.NodeSelectorOpDoesNotExist,
 						},
 					},
-				}), "Existing affinity should be preserved and merged with avoidance")
+				}))
 			})
 		})
 	})
 
 	ginkgo.Context("With TAS configured", func() {
 		ginkgo.JustBeforeEach(func() {
-			gomega.Expect(features.SetEnable(features.FailureAwareScheduling, true)).To(gomega.Succeed())
+			gomega.Expect(features.SetEnable(features.NodeAvoidanceScheduling, true)).To(gomega.Succeed())
 			fwk.StartManager(ctx, cfg, managerAndControllersSetup(
 				true, // setupTASControllers
 				true, // enableScheduler
@@ -498,7 +462,7 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 			))
 			ginkgo.DeferCleanup(fwk.StopManager, ctx)
 			ginkgo.DeferCleanup(func() {
-				gomega.Expect(features.SetEnable(features.FailureAwareScheduling, false)).To(gomega.Succeed())
+				gomega.Expect(features.SetEnable(features.NodeAvoidanceScheduling, false)).To(gomega.Succeed())
 			})
 		})
 
@@ -581,7 +545,7 @@ var _ = ginkgo.Describe("Job Controller Node Avoidance", func() {
 
 	ginkgo.Context("With Node Avoidance disabled", func() {
 		ginkgo.JustBeforeEach(func() {
-			gomega.Expect(features.SetEnable(features.FailureAwareScheduling, false)).To(gomega.Succeed())
+			gomega.Expect(features.SetEnable(features.NodeAvoidanceScheduling, false)).To(gomega.Succeed())
 			fwk.StartManager(ctx, cfg, managerAndControllersSetup(
 				false, // setupTASControllers
 				true,  // enableScheduler

@@ -217,10 +217,10 @@ func calculateEntropy(blockSizes []int32) float64 {
 
 func sortDomainsByCapacityAndEntropy(domains []*domain, policy string) {
 	slices.SortFunc(domains, func(a, b *domain) int {
-		// Prefer healthy nodes if policy is PreferHealthy
-		if features.Enabled(features.FailureAwareScheduling) && policy == controllerconsts.NodeAvoidancePolicyPreferred {
-			if a.hasUnhealthyNodes != b.hasUnhealthyNodes {
-				if !a.hasUnhealthyNodes {
+		// Prefer healthy nodes if policy is Preferred
+		if features.Enabled(features.NodeAvoidanceScheduling) && policy == controllerconsts.NodeAvoidancePolicyPreferred {
+			if a.hasAvoidedNodes != b.hasAvoidedNodes {
+				if !a.hasAvoidedNodes {
 					return -1
 				}
 				return 1

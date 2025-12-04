@@ -435,11 +435,11 @@ func TestHasLevel(t *testing.T) {
 }
 
 func TestSortedDomainsWithNodeAvoidance(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.FailureAwareScheduling, true)
+	features.SetFeatureGateDuringTest(t, features.NodeAvoidanceScheduling, true)
 	levels := []string{"kubernetes.io/hostname"}
-	unhealthyLabel := "unhealthy"
+	avoidanceLabel := "unhealthy"
 	nodes := []corev1.Node{
-		*node.MakeNode("node-1-unhealthy").Label("kubernetes.io/hostname", "node-1-unhealthy").Label(unhealthyLabel, "true").Obj(),
+		*node.MakeNode("node-1-unhealthy").Label("kubernetes.io/hostname", "node-1-unhealthy").Label(avoidanceLabel, "true").Obj(),
 		*node.MakeNode("node-2-healthy").Label("kubernetes.io/hostname", "node-2-healthy").Obj(),
 	}
 
@@ -464,7 +464,7 @@ func TestSortedDomainsWithNodeAvoidance(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", levels, nil, unhealthyLabel)
+			s := newTASFlavorSnapshot(log, "dummy", levels, nil, avoidanceLabel)
 			for _, node := range nodes {
 				s.addNode(node)
 			}
@@ -490,11 +490,11 @@ func TestSortedDomainsWithNodeAvoidance(t *testing.T) {
 }
 
 func TestSortedDomainsWithNodeAvoidance_Hierarchy(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.FailureAwareScheduling, true)
+	features.SetFeatureGateDuringTest(t, features.NodeAvoidanceScheduling, true)
 	levels := []string{"rack", "kubernetes.io/hostname"}
-	unhealthyLabel := "unhealthy"
+	avoidanceLabel := "unhealthy"
 	nodes := []corev1.Node{
-		*node.MakeNode("r1-n1").Label("rack", "r1").Label("kubernetes.io/hostname", "r1-n1").Label(unhealthyLabel, "true").Obj(),
+		*node.MakeNode("r1-n1").Label("rack", "r1").Label("kubernetes.io/hostname", "r1-n1").Label(avoidanceLabel, "true").Obj(),
 		*node.MakeNode("r1-n2").Label("rack", "r1").Label("kubernetes.io/hostname", "r1-n2").Obj(),
 		*node.MakeNode("r2-n1").Label("rack", "r2").Label("kubernetes.io/hostname", "r2-n1").Obj(),
 		*node.MakeNode("r2-n2").Label("rack", "r2").Label("kubernetes.io/hostname", "r2-n2").Obj(),
@@ -517,7 +517,7 @@ func TestSortedDomainsWithNodeAvoidance_Hierarchy(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", levels, nil, unhealthyLabel)
+			s := newTASFlavorSnapshot(log, "dummy", levels, nil, avoidanceLabel)
 			for _, node := range nodes {
 				s.addNode(node)
 			}
@@ -542,13 +542,13 @@ func TestSortedDomainsWithNodeAvoidance_Hierarchy(t *testing.T) {
 }
 
 func TestSortedDomainsWithNodeAvoidance_Capacity(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.FailureAwareScheduling, true)
+	features.SetFeatureGateDuringTest(t, features.NodeAvoidanceScheduling, true)
 	levels := []string{"kubernetes.io/hostname"}
-	unhealthyLabel := "unhealthy"
+	avoidanceLabel := "unhealthy"
 	nodes := []corev1.Node{
 		*node.MakeNode("node-unhealthy").
 			Label("kubernetes.io/hostname", "node-unhealthy").
-			Label(unhealthyLabel, "true").
+			Label(avoidanceLabel, "true").
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU: resource.MustParse("8"),
 			}).Obj(),
@@ -576,7 +576,7 @@ func TestSortedDomainsWithNodeAvoidance_Capacity(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", levels, nil, unhealthyLabel)
+			s := newTASFlavorSnapshot(log, "dummy", levels, nil, avoidanceLabel)
 			for _, node := range nodes {
 				s.addNode(node)
 			}
