@@ -62,18 +62,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
-type nodeAvoidanceLabelKey struct{}
 
-func ContextWithNodeAvoidanceLabel(ctx context.Context, label string) context.Context {
-	return context.WithValue(ctx, nodeAvoidanceLabelKey{}, label)
-}
-
-func NodeAvoidanceLabelFromContext(ctx context.Context) string {
-	if label, ok := ctx.Value(nodeAvoidanceLabelKey{}).(string); ok {
-		return label
-	}
-	return ""
-}
 
 const (
 	FailedToStartFinishedReason = "FailedToStart"
@@ -103,7 +92,6 @@ type JobReconciler struct {
 	labelKeysToCopy              []string
 	clock                        clock.Clock
 	workloadRetentionPolicy      WorkloadRetentionPolicy
-	unhealthyNodeLabel           string
 }
 
 type Options struct {
@@ -120,7 +108,6 @@ type Options struct {
 	Cache                        *schdcache.Cache
 	Clock                        clock.Clock
 	WorkloadRetentionPolicy      WorkloadRetentionPolicy
-	NodeAvoidanceLabel           string
 }
 
 // Option configures the reconciler.
@@ -239,13 +226,6 @@ func WithObjectRetentionPolicies(value *configapi.ObjectRetentionPolicies) Optio
 	}
 }
 
-// WithNodeAvoidanceLabel adds the unhealthy node label.
-func WithNodeAvoidanceLabel(label string) Option {
-	return func(o *Options) {
-		o.NodeAvoidanceLabel = label
-	}
-}
-
 var defaultOptions = Options{
 	Clock: clock.RealClock{},
 }
@@ -265,7 +245,6 @@ func NewReconciler(
 		labelKeysToCopy:              options.LabelKeysToCopy,
 		clock:                        options.Clock,
 		workloadRetentionPolicy:      options.WorkloadRetentionPolicy,
-		unhealthyNodeLabel:           options.NodeAvoidanceLabel,
 	}
 }
 
@@ -273,7 +252,6 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	object := job.Object()
 	log := ctrl.LoggerFrom(ctx).WithValues("job", req.String(), "gvk", job.GVK())
 	ctx = ctrl.LoggerInto(ctx, log)
-	ctx = ContextWithNodeAvoidanceLabel(ctx, r.unhealthyNodeLabel)
 
 	defer func() {
 		err = r.ignoreUnretryableError(log, err)
@@ -1055,7 +1033,7 @@ func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Work
 	if !workload.HasQuotaReservation(wl) {
 		return nil
 	}
-	info, err := getPodSetsInfoFromStatus(ctx, c, wl, NodeAvoidanceLabelFromContext(ctx))
+	info, err := getPodSetsInfoFromStatus(ctx, c, wl)
 	if err != nil {
 		return nil
 	}
@@ -1135,7 +1113,7 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 
 // startJob will unsuspend the job, and also inject the node affinity.
 func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) error {
-	info, err := getPodSetsInfoFromStatus(ctx, r.client, wl, r.unhealthyNodeLabel)
+	info, err := getPodSetsInfoFromStatus(ctx, r.client, wl)
 	if err != nil {
 		return err
 	}
@@ -1381,7 +1359,7 @@ func extractPriorityFromPodSets(podSets []kueue.PodSet) string {
 
 // getPodSetsInfoFromStatus extracts podSetsInfo from workload status, based on
 // admission, and admission checks.
-func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Workload, unhealthyNodeLabel string) ([]podset.PodSetInfo, error) {
+func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Workload) ([]podset.PodSetInfo, error) {
 
 	if len(w.Status.Admission.PodSetAssignments) == 0 {
 		return nil, nil

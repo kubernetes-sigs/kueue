@@ -17,7 +17,9 @@ limitations under the License.
 package scheduler
 
 import (
+	"fmt"
 	"maps"
+	"os"
 	"slices"
 	"sync"
 
@@ -29,20 +31,19 @@ import (
 
 type tasCache struct {
 	sync.RWMutex
+
 	client      client.Client
-	flavors     map[kueue.ResourceFlavorReference]flavorInformation
 	topologies  map[kueue.TopologyReference]topologyInformation
+	flavors     map[kueue.ResourceFlavorReference]flavorInformation
 	flavorCache map[kueue.ResourceFlavorReference]*TASFlavorCache
-	nodeAvoidanceLabel string
 }
 
-func NewTASCache(client client.Client, nodeAvoidanceLabel string) tasCache {
+func NewTASCache(client client.Client) tasCache {
 	return tasCache{
-		client:             client,
-		flavors:            make(map[kueue.ResourceFlavorReference]flavorInformation),
-		topologies:         make(map[kueue.TopologyReference]topologyInformation),
-		flavorCache:        make(map[kueue.ResourceFlavorReference]*TASFlavorCache),
-		nodeAvoidanceLabel: nodeAvoidanceLabel,
+		client:      client,
+		topologies:  make(map[kueue.TopologyReference]topologyInformation),
+		flavors:     make(map[kueue.ResourceFlavorReference]flavorInformation),
+		flavorCache: make(map[kueue.ResourceFlavorReference]*TASFlavorCache),
 	}
 }
 
@@ -70,9 +71,8 @@ func (t *tasCache) AddFlavor(flavor *kueue.ResourceFlavor) {
 			Tolerations:  slices.Clone(flavor.Spec.Tolerations),
 		}
 		t.flavors[name] = flavorInfo
-		t.flavors[name] = flavorInfo
 		if tInfo, ok := t.topologies[flavorInfo.TopologyName]; ok {
-			t.flavorCache[name] = t.NewTASFlavorCache(tInfo, flavorInfo, t.nodeAvoidanceLabel)
+			t.flavorCache[name] = t.NewTASFlavorCache(tInfo, flavorInfo)
 		}
 	}
 }
@@ -83,12 +83,14 @@ func (t *tasCache) AddTopology(topology *kueue.Topology) {
 	name := kueue.TopologyReference(topology.Name)
 	if _, ok := t.topologies[name]; !ok {
 		tInfo := topologyInformation{
-			Levels: utiltas.Levels(topology),
+			Levels:         utiltas.Levels(topology),
+			AvoidanceLabel: topology.Annotations[kueue.NodeAvoidanceLabelAnnotation],
 		}
+		fmt.Fprintf(os.Stderr, "DEBUG: AddTopology %s, AvoidanceLabel: %s\n", name, tInfo.AvoidanceLabel)
 		t.topologies[name] = tInfo
 		for fName, flavorInfo := range t.flavors {
 			if flavorInfo.TopologyName == name {
-				t.flavorCache[fName] = t.NewTASFlavorCache(tInfo, flavorInfo, t.nodeAvoidanceLabel)
+				t.flavorCache[fName] = t.NewTASFlavorCache(tInfo, flavorInfo)
 			}
 		}
 	}

@@ -90,6 +90,10 @@ const (
 	// PodSetGroupName is an annotation indicating the name of the group of PodSets. PodSet Group
 	// is a unit flavor assignment and topology domain fitting.
 	PodSetGroupName = "kueue.x-k8s.io/podset-group-name"
+
+	// NodeAvoidanceLabelAnnotation is an annotation on the Topology object
+	// that specifies the label key used for node avoidance.
+	NodeAvoidanceLabelAnnotation = "kueue.x-k8s.io/node-avoidance-label"
 )
 
 // TopologySpec defines the desired state of Topology

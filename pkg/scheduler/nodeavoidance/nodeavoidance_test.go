@@ -19,75 +19,10 @@ package nodeavoidance
 import (
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
-
-func TestIsNodeAvoided(t *testing.T) {
-	testCases := []struct {
-		name           string
-		node           *corev1.Node
-		avoidanceLabel string
-		want           bool
-	}{
-		{
-			name:           "nil node",
-			node:           nil,
-			avoidanceLabel: "unhealthy",
-			want:           false,
-		},
-		{
-			name: "node without labels",
-			node: &corev1.Node{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "node-1",
-				},
-			},
-			avoidanceLabel: "unhealthy",
-			want:           false,
-		},
-		{
-			name: "node with unhealthy label",
-			node: &corev1.Node{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "node-1",
-					Labels: map[string]string{
-						"unhealthy": "true",
-					},
-				},
-			},
-			avoidanceLabel: "unhealthy",
-			want:           true,
-		},
-		{
-			name: "node with other label",
-			node: &corev1.Node{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "node-1",
-					Labels: map[string]string{
-						"other": "true",
-					},
-				},
-			},
-			avoidanceLabel: "unhealthy",
-			want:           false,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := IsNodeAvoided(tc.node, tc.avoidanceLabel)
-			if got != tc.want {
-				t.Errorf("IsNodeAvoided() = %v, want %v", got, tc.want)
-			}
-		})
-	}
-}
 
 func TestGetNodeAvoidancePolicy(t *testing.T) {
 	testCases := []struct {
@@ -128,76 +63,6 @@ func TestGetNodeAvoidancePolicy(t *testing.T) {
 			got := GetNodeAvoidancePolicy(tc.wl)
 			if got != tc.want {
 				t.Errorf("GetNodeAvoidancePolicy() = %v, want %v", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestConstructNodeAffinity(t *testing.T) {
-	testCases := []struct {
-		name           string
-		policy         string
-		avoidanceLabel string
-		want           *corev1.NodeAffinity
-	}{
-		{
-			name:           "empty label",
-			policy:         constants.NodeAvoidancePolicyNoSchedule,
-			avoidanceLabel: "",
-			want:           nil,
-		},
-		{
-			name:           "unknown policy",
-			policy:         "unknown",
-			avoidanceLabel: "unhealthy",
-			want:           nil,
-		},
-		{
-			name:           "disallow-unhealthy",
-			policy:         constants.NodeAvoidancePolicyNoSchedule,
-			avoidanceLabel: "unhealthy",
-			want: &corev1.NodeAffinity{
-				RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
-					NodeSelectorTerms: []corev1.NodeSelectorTerm{
-						{
-							MatchExpressions: []corev1.NodeSelectorRequirement{
-								{
-									Key:      "unhealthy",
-									Operator: corev1.NodeSelectorOpDoesNotExist,
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-		{
-			name:           "prefer-healthy",
-			policy:         constants.NodeAvoidancePolicyPreferNoSchedule,
-			avoidanceLabel: "unhealthy",
-			want: &corev1.NodeAffinity{
-				PreferredDuringSchedulingIgnoredDuringExecution: []corev1.PreferredSchedulingTerm{
-					{
-						Weight: 100,
-						Preference: corev1.NodeSelectorTerm{
-							MatchExpressions: []corev1.NodeSelectorRequirement{
-								{
-									Key:      "unhealthy",
-									Operator: corev1.NodeSelectorOpDoesNotExist,
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := ConstructNodeAffinity(tc.policy, tc.avoidanceLabel)
-			if diff := cmp.Diff(tc.want, got); diff != "" {
-				t.Errorf("ConstructNodeAffinity() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

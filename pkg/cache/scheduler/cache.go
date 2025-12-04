@@ -95,12 +95,6 @@ func WithAdmissionFairSharing(afs *config.AdmissionFairSharing) Option {
 	}
 }
 
-func WithNodeAvoidanceLabel(label string) Option {
-	return func(c *Cache) {
-		c.nodeAvoidanceLabel = label
-	}
-}
-
 // Cache keeps track of the Workloads that got admitted through ClusterQueues.
 type Cache struct {
 	sync.RWMutex
@@ -114,7 +108,6 @@ type Cache struct {
 	workloadInfoOptions  []workload.InfoOption
 	fairSharingEnabled   bool
 	admissionFairSharing *config.AdmissionFairSharing
-	nodeAvoidanceLabel   string
 
 	hm hierarchy.Manager[*clusterQueue, *cohort]
 
@@ -132,7 +125,7 @@ func New(client client.Client, options ...Option) *Cache {
 	for _, option := range options {
 		option(cache)
 	}
-	cache.tasCache = NewTASCache(client, cache.nodeAvoidanceLabel)
+	cache.tasCache = NewTASCache(client)
 	cache.podsReadyCond.L = &cache.RWMutex
 	return cache
 }

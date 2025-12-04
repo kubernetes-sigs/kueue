@@ -5688,15 +5688,16 @@ func TestFindTopologyAssignments(t *testing.T) {
 			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 			client := clientBuilder.Build()
 
-			tasCache := NewTASCache(client, tc.avoidanceLabel)
+			tasCache := NewTASCache(client)
 			topologyInformation := topologyInformation{
-				Levels: tc.levels,
+				Levels:         tc.levels,
+				AvoidanceLabel: tc.avoidanceLabel,
 			}
 			flavorInformation := flavorInformation{
 				TopologyName: "default",
 				NodeLabels:   tc.nodeLabels,
 			}
-			tasFlavorCache := tasCache.NewTASFlavorCache(topologyInformation, flavorInformation, tc.avoidanceLabel)
+			tasFlavorCache := tasCache.NewTASFlavorCache(topologyInformation, flavorInformation)
 
 			snapshot, err := tasFlavorCache.snapshot(ctx)
 			if err != nil {
