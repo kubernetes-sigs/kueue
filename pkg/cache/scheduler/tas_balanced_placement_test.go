@@ -31,19 +31,10 @@ import (
 )
 
 func TestSelectOptimalDomainSetToFit(t *testing.T) {
-	d1 := makeDomain("d1", 9, false)
-	d2 := makeDomain("d2", 6, false)
-	d3 := makeDomain("d3", 4, false)
-	d4 := makeDomain("d4", 2, false)
-
-	// Manually set leader state for test cases that need it
-	d1.leaderState = 1
-	d1.stateWithLeader = 8
-	d1.sliceStateWithLeader = 8
-
-	d3.leaderState = 1
-	d3.stateWithLeader = 3
-	d3.sliceStateWithLeader = 3
+	d1 := &domain{id: "d1", state: 9, sliceState: 9, leaderState: 1, stateWithLeader: 8, sliceStateWithLeader: 8}
+	d2 := &domain{id: "d2", state: 6, sliceState: 6, leaderState: 0, stateWithLeader: 6, sliceStateWithLeader: 6}
+	d3 := &domain{id: "d3", state: 4, sliceState: 4, leaderState: 1, stateWithLeader: 3, sliceStateWithLeader: 3}
+	d4 := &domain{id: "d4", state: 2, sliceState: 2, leaderState: 0, stateWithLeader: 2, sliceStateWithLeader: 2}
 
 	testCases := map[string]struct {
 		domains     []*domain

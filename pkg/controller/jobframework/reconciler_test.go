@@ -86,18 +86,18 @@ func TestReconcileGenericJob(t *testing.T) {
 		Priority(0)
 
 	testCases := map[string]struct {
-		featureGates                        map[featuregate.Feature]bool
-		req                                 types.NamespacedName
-		job                                 *batchv1.Job
-		podSets                             []kueue.PodSet
-		objs                                []client.Object
-		wantWorkloads                       []kueue.Workload
+		featureGates  map[featuregate.Feature]bool
+		req           types.NamespacedName
+		job           *batchv1.Job
+		podSets       []kueue.PodSet
+		objs          []client.Object
+		wantWorkloads []kueue.Workload
 	}{
 		"handle job with no workload (elasticJobsViaWorkloadSlicesEnabled = false)": {
 			featureGates: map[featuregate.Feature]bool{
 				features.ElasticJobsViaWorkloadSlices: false,
 			},
-			req: baseReq,
+			req:     baseReq,
 			job:     baseJob.DeepCopy(),
 			podSets: basePodSets,
 			wantWorkloads: []kueue.Workload{

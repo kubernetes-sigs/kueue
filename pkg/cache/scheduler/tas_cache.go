@@ -17,9 +17,7 @@ limitations under the License.
 package scheduler
 
 import (
-	"fmt"
 	"maps"
-	"os"
 	"slices"
 	"sync"
 
@@ -86,7 +84,6 @@ func (t *tasCache) AddTopology(topology *kueue.Topology) {
 			Levels:         utiltas.Levels(topology),
 			AvoidanceLabel: topology.Annotations[kueue.NodeAvoidanceLabelAnnotation],
 		}
-		fmt.Fprintf(os.Stderr, "DEBUG: AddTopology %s, AvoidanceLabel: %s\n", name, tInfo.AvoidanceLabel)
 		t.topologies[name] = tInfo
 		for fName, flavorInfo := range t.flavors {
 			if flavorInfo.TopologyName == name {

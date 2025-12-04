@@ -23,8 +23,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
-// IsNodeAvoided checks if the node has the specified avoided label.
-func IsNodeAvoided(node *corev1.Node, avoidedLabel string) bool {
+// ShouldNodeBeAvoided checks if the node has the specified avoided label.
+func ShouldNodeBeAvoided(node *corev1.Node, avoidedLabel string) bool {
 	if node == nil || node.Labels == nil {
 		return false
 	}

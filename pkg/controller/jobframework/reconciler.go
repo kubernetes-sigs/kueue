@@ -62,8 +62,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
-
-
 const (
 	FailedToStartFinishedReason = "FailedToStart"
 	managedOwnersChainLimit     = 10

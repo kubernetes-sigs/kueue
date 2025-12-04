@@ -437,27 +437,27 @@ func TestHasLevel(t *testing.T) {
 func TestSortedDomainsWithNodeAvoidance(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.NodeAvoidanceScheduling, true)
 	levels := []string{"kubernetes.io/hostname"}
-	avoidanceLabel := "unhealthy"
+	avoidanceLabel := "avoid"
 	nodes := []corev1.Node{
-		*node.MakeNode("node-1-unhealthy").Label("kubernetes.io/hostname", "node-1-unhealthy").Label(avoidanceLabel, "true").Obj(),
-		*node.MakeNode("node-2-healthy").Label("kubernetes.io/hostname", "node-2-healthy").Obj(),
+		*node.MakeNode("node-1-avoid").Label("kubernetes.io/hostname", "node-1-avoid").Label(avoidanceLabel, "true").Obj(),
+		*node.MakeNode("node-2-safe").Label("kubernetes.io/hostname", "node-2-safe").Obj(),
 	}
 
 	cases := map[string]struct {
 		policy string
 		want   []string
 	}{
-		"no policy - sorts by name (unhealthy first because of name)": {
+		"no policy - sorts by name (avoid first because of name)": {
 			policy: "",
-			want:   []string{"node-1-unhealthy", "node-2-healthy"},
+			want:   []string{"node-1-avoid", "node-2-safe"},
 		},
-		"prefer healthy - sorts by health (healthy first despite name)": {
+		"prefer safe - sorts by avoidance (safe first despite name)": {
 			policy: controllerconsts.NodeAvoidancePolicyPreferNoSchedule,
-			want:   []string{"node-2-healthy", "node-1-unhealthy"},
+			want:   []string{"node-2-safe", "node-1-avoid"},
 		},
-		"disallow unhealthy": {
+		"disallow avoid": {
 			policy: controllerconsts.NodeAvoidancePolicyNoSchedule,
-			want:   []string{"node-2-healthy"},
+			want:   []string{"node-2-safe"},
 		},
 	}
 
@@ -472,8 +472,8 @@ func TestSortedDomainsWithNodeAvoidance(t *testing.T) {
 
 			// Construct domains list (order doesn't matter as it gets sorted, but let's mix it)
 			domains := []*domain{
-				s.domainsPerLevel[0][utiltas.DomainID([]string{"node-2-healthy"})],
-				s.domainsPerLevel[0][utiltas.DomainID([]string{"node-1-unhealthy"})],
+				s.domainsPerLevel[0][utiltas.DomainID([]string{"node-2-safe"})],
+				s.domainsPerLevel[0][utiltas.DomainID([]string{"node-1-avoid"})],
 			}
 
 			gotDomains := s.sortedDomains(domains, false, tc.policy)
@@ -492,7 +492,7 @@ func TestSortedDomainsWithNodeAvoidance(t *testing.T) {
 func TestSortedDomainsWithNodeAvoidance_Hierarchy(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.NodeAvoidanceScheduling, true)
 	levels := []string{"rack", "kubernetes.io/hostname"}
-	avoidanceLabel := "unhealthy"
+	avoidanceLabel := "avoid"
 	nodes := []corev1.Node{
 		*node.MakeNode("r1-n1").Label("rack", "r1").Label("kubernetes.io/hostname", "r1-n1").Label(avoidanceLabel, "true").Obj(),
 		*node.MakeNode("r1-n2").Label("rack", "r1").Label("kubernetes.io/hostname", "r1-n2").Obj(),
@@ -504,7 +504,7 @@ func TestSortedDomainsWithNodeAvoidance_Hierarchy(t *testing.T) {
 		policy string
 		want   []string
 	}{
-		"prefer healthy - healthy rack first": {
+		"prefer safe - safe rack first": {
 			policy: controllerconsts.NodeAvoidancePolicyPreferNoSchedule,
 			want:   []string{"r2", "r1"},
 		},
@@ -544,16 +544,16 @@ func TestSortedDomainsWithNodeAvoidance_Hierarchy(t *testing.T) {
 func TestSortedDomainsWithNodeAvoidance_Capacity(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.NodeAvoidanceScheduling, true)
 	levels := []string{"kubernetes.io/hostname"}
-	avoidanceLabel := "unhealthy"
+	avoidanceLabel := "avoid"
 	nodes := []corev1.Node{
-		*node.MakeNode("node-unhealthy").
-			Label("kubernetes.io/hostname", "node-unhealthy").
+		*node.MakeNode("node-avoid").
+			Label("kubernetes.io/hostname", "node-avoid").
 			Label(avoidanceLabel, "true").
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU: resource.MustParse("8"),
 			}).Obj(),
-		*node.MakeNode("node-healthy").
-			Label("kubernetes.io/hostname", "node-healthy").
+		*node.MakeNode("node-safe").
+			Label("kubernetes.io/hostname", "node-safe").
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU: resource.MustParse("1"),
 			}).Obj(),
@@ -563,13 +563,13 @@ func TestSortedDomainsWithNodeAvoidance_Capacity(t *testing.T) {
 		policy string
 		want   []string
 	}{
-		"prefer healthy - healthy first despite lower capacity": {
+		"prefer safe - safe first despite lower capacity": {
 			policy: controllerconsts.NodeAvoidancePolicyPreferNoSchedule,
-			want:   []string{"node-healthy", "node-unhealthy"},
+			want:   []string{"node-safe", "node-avoid"},
 		},
 		"no policy - capacity wins (LeastFreeCapacity/BestFit logic)": {
 			policy: "",
-			want:   []string{"node-unhealthy", "node-healthy"},
+			want:   []string{"node-avoid", "node-safe"},
 		},
 	}
 
@@ -582,12 +582,12 @@ func TestSortedDomainsWithNodeAvoidance_Capacity(t *testing.T) {
 			}
 			s.initialize()
 
-			s.leaves[utiltas.DomainID([]string{"node-unhealthy"})].sliceState = 8
-			s.leaves[utiltas.DomainID([]string{"node-healthy"})].sliceState = 1
+			s.leaves[utiltas.DomainID([]string{"node-avoid"})].sliceState = 8
+			s.leaves[utiltas.DomainID([]string{"node-safe"})].sliceState = 1
 
 			domains := []*domain{
-				s.domainsPerLevel[0][utiltas.DomainID([]string{"node-unhealthy"})],
-				s.domainsPerLevel[0][utiltas.DomainID([]string{"node-healthy"})],
+				s.domainsPerLevel[0][utiltas.DomainID([]string{"node-avoid"})],
+				s.domainsPerLevel[0][utiltas.DomainID([]string{"node-safe"})],
 			}
 
 			gotDomains := s.sortedDomains(domains, false, tc.policy)

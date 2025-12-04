@@ -121,11 +121,11 @@ func New(client client.Client, options ...Option) *Cache {
 		resourceFlavors:  make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
 		admissionChecks:  make(map[kueue.AdmissionCheckReference]AdmissionCheck),
 		hm:               hierarchy.NewManager(newCohort),
+		tasCache:         NewTASCache(client),
 	}
 	for _, option := range options {
 		option(cache)
 	}
-	cache.tasCache = NewTASCache(client)
 	cache.podsReadyCond.L = &cache.RWMutex
 	return cache
 }

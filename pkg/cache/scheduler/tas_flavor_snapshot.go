@@ -149,15 +149,15 @@ func newTASFlavorSnapshot(log logr.Logger, topologyName kueue.TopologyReference,
 	}
 
 	snapshot := &TASFlavorSnapshot{
-		log:                log,
-		topologyName:       topologyName,
-		levelKeys:          slices.Clone(levels),
-		leaves:             make(leafDomainByID),
-		tolerations:        slices.Clone(tolerations),
-		domains:            make(domainByID),
-		roots:              make(domainByID),
-		domainsPerLevel:    domainsPerLevel,
-		avoidanceLabel:     avoidanceLabel,
+		log:             log,
+		topologyName:    topologyName,
+		levelKeys:       slices.Clone(levels),
+		leaves:          make(leafDomainByID),
+		tolerations:     slices.Clone(tolerations),
+		domains:         make(domainByID),
+		roots:           make(domainByID),
+		domainsPerLevel: domainsPerLevel,
+		avoidanceLabel:  avoidanceLabel,
 	}
 	return snapshot
 }
@@ -177,7 +177,7 @@ func (s *TASFlavorSnapshot) addNode(node corev1.Node) utiltas.TopologyDomainID {
 		}
 		if s.isLowestLevelNode() {
 			leafDomain.node = &node
-			if nodeavoidance.IsNodeAvoided(&node, s.avoidanceLabel) {
+			if nodeavoidance.ShouldNodeBeAvoided(&node, s.avoidanceLabel) {
 				leafDomain.hasAvoidedNodes = true
 			}
 		}
@@ -1278,7 +1278,6 @@ func (s *TASFlavorSnapshot) lowerLevelDomains(domains []*domain) []*domain {
 func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstrained bool, policy string) []*domain {
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 
-	// Filter out unhealthy nodes if policy is DisallowUnhealthy
 	if features.Enabled(features.NodeAvoidanceScheduling) && policy == controllerconsts.NodeAvoidancePolicyNoSchedule && s.isLowestLevelNode() {
 		filtered := make([]*domain, 0, len(domains))
 		for _, d := range domains {
@@ -1292,7 +1291,6 @@ func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstra
 
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {
-		// Prefer healthy nodes if policy is Preferred
 		if features.Enabled(features.NodeAvoidanceScheduling) && policy == controllerconsts.NodeAvoidancePolicyPreferNoSchedule {
 			if a.hasAvoidedNodes != b.hasAvoidedNodes {
 				if !a.hasAvoidedNodes {

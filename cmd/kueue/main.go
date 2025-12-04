@@ -128,8 +128,6 @@ func main() {
 	var featureGates string
 	flag.StringVar(&featureGates, "feature-gates", "", "A set of key=value pairs that describe feature gates for alpha/experimental features.")
 
-
-
 	opts := zap.Options{
 		TimeEncoder: zapcore.RFC3339NanoTimeEncoder,
 		ZapOpts:     []zaplog.Option{zaplog.AddCaller()},

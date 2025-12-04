@@ -379,11 +379,11 @@ func TestFindTopologyAssignments(t *testing.T) {
 	cases := map[string]struct {
 		enableFeatureGates  []featuregate.Feature
 		nodes               []corev1.Node
-		pods               []corev1.Pod
-		levels             []string
-		nodeLabels         map[string]string
-		podSets            []PodSetTestCase
-		avoidanceLabel string
+		pods                []corev1.Pod
+		levels              []string
+		nodeLabels          map[string]string
+		podSets             []PodSetTestCase
+		avoidanceLabel      string
 		nodeAvoidancePolicy string
 	}{
 		"minimize the number of used racks before optimizing the number of nodes; BestFit": {
@@ -5598,7 +5598,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
 					Label(corev1.LabelHostname, "x2").
-					Label("unhealthy", "true").
+					Label("avoid", "true").
 					StatusAllocatable(corev1.ResourceList{
 						"example.com/gpu":   resource.MustParse("1"),
 						corev1.ResourcePods: resource.MustParse("10"),
@@ -5606,8 +5606,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Ready().
 					Obj(),
 			},
-			levels:             defaultThreeLevels,
-			avoidanceLabel: "unhealthy",
+			levels:              defaultThreeLevels,
+			avoidanceLabel:      "avoid",
 			nodeAvoidancePolicy: controllerconsts.NodeAvoidancePolicyPreferNoSchedule,
 			podSets: []PodSetTestCase{
 				{
@@ -5638,7 +5638,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
 					Label(corev1.LabelHostname, "x1").
-					Label("unhealthy", "true").
+					Label("avoid", "true").
 					StatusAllocatable(corev1.ResourceList{
 						"example.com/gpu":   resource.MustParse("1"),
 						corev1.ResourcePods: resource.MustParse("10"),
@@ -5646,8 +5646,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Ready().
 					Obj(),
 			},
-			levels:             defaultThreeLevels,
-			avoidanceLabel: "unhealthy",
+			levels:              defaultThreeLevels,
+			avoidanceLabel:      "avoid",
 			nodeAvoidancePolicy: controllerconsts.NodeAvoidancePolicyNoSchedule,
 			podSets: []PodSetTestCase{
 				{
@@ -5658,7 +5658,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					requests: resources.Requests{
 						"example.com/gpu": 1,
 					},
-					count:      1,
+					count: 1,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels:  []string{"kubernetes.io/hostname"},
 						Domains: []tas.TopologyDomainAssignment{},

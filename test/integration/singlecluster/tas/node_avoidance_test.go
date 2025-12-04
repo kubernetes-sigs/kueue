@@ -120,10 +120,9 @@ var _ = ginkgo.Describe("TAS Node Avoidance", ginkgo.Ordered, func() {
 
 		ginkgo.BeforeEach(func() {
 			nodes = []corev1.Node{
-				*testingnode.MakeNode("node-healthy").
+				*testingnode.MakeNode("node-safe").
 					Label("node-group", "tas").
-					Label("unhealthy", "false").
-					Label("kubernetes.io/hostname", "node-healthy").
+					Label("kubernetes.io/hostname", "node-safe").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -131,10 +130,10 @@ var _ = ginkgo.Describe("TAS Node Avoidance", ginkgo.Ordered, func() {
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("node-unhealthy").
+				*testingnode.MakeNode("node-avoid").
 					Label("node-group", "tas").
-					Label("unhealthy", "true").
-					Label("kubernetes.io/hostname", "node-unhealthy").
+					Label("avoid", "true").
+					Label("kubernetes.io/hostname", "node-avoid").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -153,7 +152,7 @@ var _ = ginkgo.Describe("TAS Node Avoidance", ginkgo.Ordered, func() {
 			if topology.Annotations == nil {
 				topology.Annotations = make(map[string]string)
 			}
-			topology.Annotations[kueue.NodeAvoidanceLabelAnnotation] = "unhealthy"
+			topology.Annotations[kueue.NodeAvoidanceLabelAnnotation] = "avoid"
 			util.MustCreate(ctx, k8sClient, topology)
 			ginkgo.DeferCleanup(func() { util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true) })
 
@@ -175,8 +174,8 @@ var _ = ginkgo.Describe("TAS Node Avoidance", ginkgo.Ordered, func() {
 			ginkgo.DeferCleanup(func() { util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true) })
 		})
 
-		ginkgo.It("should prefer healthy nodes when policy is PreferHealthy", func() {
-			wl := utiltestingapi.MakeWorkload("wl-prefer-healthy", ns.Name).
+		ginkgo.It("should prefer safe nodes when policy is PreferNoSchedule", func() {
+			wl := utiltestingapi.MakeWorkload("wl-prefer-safe", ns.Name).
 				Queue("local-queue").
 				PodSets(
 					*utiltestingapi.MakePodSet("main", 1).
@@ -194,23 +193,23 @@ var _ = ginkgo.Describe("TAS Node Avoidance", ginkgo.Ordered, func() {
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 			})
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
-			gomega.Expect(utiltas.InternalFrom(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Domains[0].Values).To(gomega.ContainElement("node-healthy"))
+			gomega.Expect(utiltas.InternalFrom(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Domains[0].Values).To(gomega.ContainElement("node-safe"))
 		})
 
-		ginkgo.It("should disallow unhealthy nodes when policy is DisallowUnhealthy", func() {
-			ginkgo.By("tainting the healthy node to make it unavailable", func() {
+		ginkgo.It("should disallow avoided nodes when policy is NoSchedule", func() {
+			ginkgo.By("tainting the safe node to make it unavailable", func() {
 				node := &corev1.Node{}
-				gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "node-healthy"}, node)).To(gomega.Succeed())
+				gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "node-safe"}, node)).To(gomega.Succeed())
 				node.Spec.Unschedulable = true
 				gomega.Expect(k8sClient.Update(ctx, node)).To(gomega.Succeed())
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "node-healthy"}, node)).To(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "node-safe"}, node)).To(gomega.Succeed())
 					g.Expect(node.Spec.Unschedulable).To(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("creating another workload with DisallowUnhealthy policy, should remain pending", func() {
-				wl := utiltestingapi.MakeWorkload("wl-disallow-unhealthy", ns.Name).
+			ginkgo.By("creating another workload with NoSchedule policy, should remain pending", func() {
+				wl := utiltestingapi.MakeWorkload("wl-disallow-avoid", ns.Name).
 					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(corev1.ResourceCPU, "1").
 					Annotations(map[string]string{
@@ -229,8 +228,8 @@ var _ = ginkgo.Describe("TAS Node Avoidance", ginkgo.Ordered, func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("creating another workload with DisallowUnhealthy policy, should remain pending", func() {
-				wl := utiltestingapi.MakeWorkload("wl-disallow-unhealthy-pending", ns.Name).
+			ginkgo.By("creating another workload with NoSchedule policy, should remain pending", func() {
+				wl := utiltestingapi.MakeWorkload("wl-disallow-avoid-pending", ns.Name).
 					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(corev1.ResourceCPU, "1").
 					Annotations(map[string]string{

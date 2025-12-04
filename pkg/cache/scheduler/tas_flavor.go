@@ -96,10 +96,10 @@ type TASFlavorCache struct {
 func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
 	flavorInfo flavorInformation) *TASFlavorCache {
 	return &TASFlavorCache{
-		client:             t.client,
-		topology:           topologyInfo,
-		flavor:             flavorInfo,
-		usage:              make(map[utiltas.TopologyDomainID]resources.Requests),
+		client:   t.client,
+		topology: topologyInfo,
+		flavor:   flavorInfo,
+		usage:    make(map[utiltas.TopologyDomainID]resources.Requests),
 	}
 }
 
