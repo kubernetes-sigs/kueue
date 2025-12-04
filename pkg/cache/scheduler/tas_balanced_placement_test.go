@@ -93,11 +93,11 @@ func TestSelectOptimalDomainSetToFit(t *testing.T) {
 }
 
 func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
-	d1 := makeDomain("d1", 18, false)
-	d2 := makeDomain("d2", 18, false)
-	d3 := makeDomain("d3", 18, false)
-	d4 := makeDomain("d4", 10, false)
-	d5 := makeDomain("d5", 2, false)
+	d1 := &domain{id: "d1", state: 18, sliceState: 18, stateWithLeader: 18, leaderState: 0, sliceStateWithLeader: 18}
+	d2 := &domain{id: "d2", state: 18, sliceState: 18, stateWithLeader: 18, leaderState: 0, sliceStateWithLeader: 18}
+	d3 := &domain{id: "d3", state: 18, sliceState: 18, stateWithLeader: 18, leaderState: 0, sliceStateWithLeader: 18}
+	d4 := &domain{id: "d4", state: 10, sliceState: 10, stateWithLeader: 10, leaderState: 0, sliceStateWithLeader: 10}
+	d5 := &domain{id: "d5", state: 2, sliceState: 2, stateWithLeader: 2, leaderState: 0, sliceStateWithLeader: 2}
 
 	testCases := map[string]struct {
 		domains     []*domain

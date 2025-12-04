@@ -29,10 +29,9 @@ import (
 
 type tasCache struct {
 	sync.RWMutex
-
 	client      client.Client
-	topologies  map[kueue.TopologyReference]topologyInformation
 	flavors     map[kueue.ResourceFlavorReference]flavorInformation
+	topologies  map[kueue.TopologyReference]topologyInformation
 	flavorCache map[kueue.ResourceFlavorReference]*TASFlavorCache
 }
 

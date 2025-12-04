@@ -41,7 +41,7 @@ func TestGetNodeAvoidancePolicy(t *testing.T) {
 			want: "",
 		},
 		{
-			name: "workload with DisallowUnhealthy",
+			name: "workload with NoSchedule",
 			wl: utiltesting.MakeWorkload("wl", "ns").
 				Annotations(map[string]string{
 					constants.NodeAvoidancePolicyAnnotation: constants.NodeAvoidancePolicyNoSchedule,
@@ -49,7 +49,7 @@ func TestGetNodeAvoidancePolicy(t *testing.T) {
 			want: constants.NodeAvoidancePolicyNoSchedule,
 		},
 		{
-			name: "workload with PreferHealthy",
+			name: "workload with PreferNoSchedule",
 			wl: utiltesting.MakeWorkload("wl", "ns").
 				Annotations(map[string]string{
 					constants.NodeAvoidancePolicyAnnotation: constants.NodeAvoidancePolicyPreferNoSchedule,
