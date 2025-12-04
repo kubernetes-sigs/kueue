@@ -456,7 +456,7 @@ func TestSortedDomainsWithNodeAvoidance(t *testing.T) {
 			want:   []string{"node-2-healthy", "node-1-unhealthy"},
 		},
 		"disallow unhealthy": {
-			policy: controllerconsts.NodeAvoidancePolicyRequired,
+			policy: controllerconsts.NodeAvoidancePolicyNoSchedule,
 			want:   []string{"node-2-healthy"},
 		},
 	}

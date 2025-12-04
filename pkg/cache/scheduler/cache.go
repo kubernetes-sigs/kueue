@@ -95,9 +95,9 @@ func WithAdmissionFairSharing(afs *config.AdmissionFairSharing) Option {
 	}
 }
 
-func WithAvoidNodeLabel(label string) Option {
+func WithNodeAvoidanceLabel(label string) Option {
 	return func(c *Cache) {
-		c.avoidNodeLabel = label
+		c.nodeAvoidanceLabel = label
 	}
 }
 
@@ -114,7 +114,7 @@ type Cache struct {
 	workloadInfoOptions  []workload.InfoOption
 	fairSharingEnabled   bool
 	admissionFairSharing *config.AdmissionFairSharing
-	avoidNodeLabel   string
+	nodeAvoidanceLabel   string
 
 	hm hierarchy.Manager[*clusterQueue, *cohort]
 
@@ -132,7 +132,7 @@ func New(client client.Client, options ...Option) *Cache {
 	for _, option := range options {
 		option(cache)
 	}
-	cache.tasCache = NewTASCache(client, cache.avoidNodeLabel)
+	cache.tasCache = NewTASCache(client, cache.nodeAvoidanceLabel)
 	cache.podsReadyCond.L = &cache.RWMutex
 	return cache
 }

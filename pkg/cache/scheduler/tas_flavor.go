@@ -89,17 +89,17 @@ type TASFlavorCache struct {
 	// usage maintains the usage per topology domain
 	usage map[utiltas.TopologyDomainID]resources.Requests
 
-	avoidNodeLabel string
+	nodeAvoidanceLabel string
 }
 
 func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
-	flavorInfo flavorInformation, avoidNodeLabel string) *TASFlavorCache {
+	flavorInfo flavorInformation, nodeAvoidanceLabel string) *TASFlavorCache {
 	return &TASFlavorCache{
 		client:             t.client,
 		topology:           topologyInfo,
 		flavor:             flavorInfo,
 		usage:              make(map[utiltas.TopologyDomainID]resources.Requests),
-		avoidNodeLabel: avoidNodeLabel,
+		nodeAvoidanceLabel: nodeAvoidanceLabel,
 	}
 }
 
@@ -145,7 +145,7 @@ func (c *TASFlavorCache) snapshotForNodes(log logr.Logger, nodes []corev1.Node, 
 
 	log.V(3).Info("Constructing TAS snapshot", "nodeLabels", c.flavor.NodeLabels,
 		"levels", c.topology.Levels, "nodeCount", len(nodes), "podCount", len(pods))
-	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, c.topology.Levels, c.flavor.Tolerations, c.avoidNodeLabel)
+	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, c.topology.Levels, c.flavor.Tolerations, c.nodeAvoidanceLabel)
 	nodeToDomain := make(map[string]utiltas.TopologyDomainID)
 	for _, node := range nodes {
 		nodeToDomain[node.Name] = snapshot.addNode(node)

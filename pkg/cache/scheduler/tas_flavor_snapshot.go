@@ -1279,7 +1279,7 @@ func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstra
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 
 	// Filter out unhealthy nodes if policy is DisallowUnhealthy
-	if features.Enabled(features.NodeAvoidanceScheduling) && policy == controllerconsts.NodeAvoidancePolicyRequired && s.isLowestLevelNode() {
+	if features.Enabled(features.NodeAvoidanceScheduling) && policy == controllerconsts.NodeAvoidancePolicyNoSchedule && s.isLowestLevelNode() {
 		filtered := make([]*domain, 0, len(domains))
 		for _, d := range domains {
 			if len(d.children) == 0 && d.hasAvoidedNodes {
@@ -1335,7 +1335,7 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool,
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 
 	// Filter out avoided nodes if policy is Required
-	if features.Enabled(features.NodeAvoidanceScheduling) && policy == controllerconsts.NodeAvoidancePolicyRequired && s.isLowestLevelNode() {
+	if features.Enabled(features.NodeAvoidanceScheduling) && policy == controllerconsts.NodeAvoidancePolicyNoSchedule && s.isLowestLevelNode() {
 		filtered := make([]*domain, 0, len(domains))
 		for _, d := range domains {
 			if len(d.children) == 0 && d.hasAvoidedNodes {

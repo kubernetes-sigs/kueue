@@ -22,17 +22,28 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"k8s.io/component-base/featuregate"
 
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 func TestSelectOptimalDomainSetToFit(t *testing.T) {
-	d1 := &domain{id: "d1", state: 9, sliceState: 9, leaderState: 1, stateWithLeader: 8, sliceStateWithLeader: 8}
-	d2 := &domain{id: "d2", state: 6, sliceState: 6, leaderState: 0, stateWithLeader: 6, sliceStateWithLeader: 6}
-	d3 := &domain{id: "d3", state: 4, sliceState: 4, leaderState: 1, stateWithLeader: 3, sliceStateWithLeader: 3}
-	d4 := &domain{id: "d4", state: 2, sliceState: 2, leaderState: 0, stateWithLeader: 2, sliceStateWithLeader: 2}
+	d1 := makeDomain("d1", 9, false)
+	d2 := makeDomain("d2", 6, false)
+	d3 := makeDomain("d3", 4, false)
+	d4 := makeDomain("d4", 2, false)
+
+	// Manually set leader state for test cases that need it
+	d1.leaderState = 1
+	d1.stateWithLeader = 8
+	d1.sliceStateWithLeader = 8
+
+	d3.leaderState = 1
+	d3.stateWithLeader = 3
+	d3.sliceStateWithLeader = 3
 
 	testCases := map[string]struct {
 		domains     []*domain
@@ -91,11 +102,11 @@ func TestSelectOptimalDomainSetToFit(t *testing.T) {
 }
 
 func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
-	d1 := &domain{id: "d1", state: 18, sliceState: 18, stateWithLeader: 18, leaderState: 0, sliceStateWithLeader: 18}
-	d2 := &domain{id: "d2", state: 18, sliceState: 18, stateWithLeader: 18, leaderState: 0, sliceStateWithLeader: 18}
-	d3 := &domain{id: "d3", state: 18, sliceState: 18, stateWithLeader: 18, leaderState: 0, sliceStateWithLeader: 18}
-	d4 := &domain{id: "d4", state: 10, sliceState: 10, stateWithLeader: 10, leaderState: 0, sliceStateWithLeader: 10}
-	d5 := &domain{id: "d5", state: 2, sliceState: 2, stateWithLeader: 2, leaderState: 0, sliceStateWithLeader: 2}
+	d1 := makeDomain("d1", 18, false)
+	d2 := makeDomain("d2", 18, false)
+	d3 := makeDomain("d3", 18, false)
+	d4 := makeDomain("d4", 10, false)
+	d5 := makeDomain("d5", 2, false)
 
 	testCases := map[string]struct {
 		domains     []*domain
@@ -163,48 +174,85 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 
 			got, _ := placeSlicesOnDomainsBalanced(s, domains, tc.sliceCount, tc.leaderCount, tc.sliceSize, tc.threshold, "")
 
-			if diff := cmp.Diff(tc.want, got, cmp.AllowUnexported(domain{}), cmpopts.IgnoreFields(domain{}, "parent", "children", "levelValues"), cmpopts.SortSlices(func(a, b *domain) bool { return a.id < b.id })); diff != "" {
+			if diff := cmp.Diff(tc.want, got, cmp.AllowUnexported(domain{}), cmpopts.IgnoreFields(domain{}, "parent", "children", "levelValues", "hasAvoidedNodes"), cmpopts.SortSlices(func(a, b *domain) bool { return a.id < b.id })); diff != "" {
 				t.Errorf("Unexpected domains (-want,+got):\n%s", diff)
 			}
 		})
 	}
 }
 
-func TestSortDomainsByCapacityAndEntropy(t *testing.T) {
-	d1 := &domain{id: "d1", state: 9, sliceState: 9, leaderState: 1, stateWithLeader: 8, sliceStateWithLeader: 8, hasAvoidedNodes: true}
-	d2 := &domain{id: "d2", state: 6, sliceState: 6, leaderState: 0, stateWithLeader: 6, sliceStateWithLeader: 6, hasAvoidedNodes: false}
-	d3 := &domain{id: "d3", state: 4, sliceState: 4, leaderState: 1, stateWithLeader: 3, sliceStateWithLeader: 3, hasAvoidedNodes: true}
-	d4 := &domain{id: "d4", state: 2, sliceState: 2, leaderState: 0, stateWithLeader: 2, sliceStateWithLeader: 2, hasAvoidedNodes: false}
+func makeDomain(id string, capacity int32, hasAvoidedNodes bool) *domain {
+	return &domain{
+		id:                   utiltas.TopologyDomainID(id),
+		state:                capacity,
+		sliceState:           capacity,
+		stateWithLeader:      capacity,
+		sliceStateWithLeader: capacity,
+		leaderState:          0,
+		hasAvoidedNodes:      hasAvoidedNodes,
+	}
+}
 
+func TestSortDomainsByCapacityAndEntropy(t *testing.T) {
 	testCases := map[string]struct {
-		domains     []*domain
-		policy      string
-		featureGate bool
-		want        []string
+		enableFeatureGates []featuregate.Feature
+		domains            []*domain
+		policy             string
+		wantDomains        []string
 	}{
 		"prefer non labeled policy enabled": {
-			domains:     []*domain{d1, d2, d3, d4},
+			enableFeatureGates: []featuregate.Feature{features.NodeAvoidanceScheduling},
+			domains: []*domain{
+				makeDomain("d1", 9, true),
+				makeDomain("d2", 6, false),
+				makeDomain("d3", 4, true),
+				makeDomain("d4", 2, false),
+			},
 			policy:      controllerconsts.NodeAvoidancePolicyPreferNoSchedule,
-			featureGate: true,
-			want:        []string{"d2", "d4", "d1", "d3"},
+			wantDomains: []string{"d2", "d4", "d1", "d3"},
 		},
-		"prefer non labele policy disabled": {
-			domains:     []*domain{d1, d2, d3, d4},
+		"prefer non labeled policy disabled": {
+			enableFeatureGates: []featuregate.Feature{},
+			domains: []*domain{
+				makeDomain("d1", 9, true),
+				makeDomain("d2", 6, false),
+				makeDomain("d3", 4, true),
+				makeDomain("d4", 2, false),
+			},
 			policy:      controllerconsts.NodeAvoidancePolicyPreferNoSchedule,
-			featureGate: false,
-			want:        []string{"d1", "d3", "d2", "d4"},
+			wantDomains: []string{"d1", "d2", "d3", "d4"},
+		},
+		"prefer healthy - healthy first despite lower capacity": {
+			enableFeatureGates: []featuregate.Feature{features.NodeAvoidanceScheduling},
+			domains: []*domain{
+				makeDomain("node-unhealthy", 8, true),
+				makeDomain("node-healthy", 1, false),
+			},
+			policy:      controllerconsts.NodeAvoidancePolicyPreferNoSchedule,
+			wantDomains: []string{"node-healthy", "node-unhealthy"},
+		},
+		"prefer healthy - no policy": {
+			enableFeatureGates: []featuregate.Feature{features.NodeAvoidanceScheduling},
+			domains: []*domain{
+				makeDomain("node-unhealthy", 8, true),
+				makeDomain("node-healthy", 1, false),
+			},
+			policy:      controllerconsts.NodeAvoidancePolicyPreferNoSchedule,
+			wantDomains: []string{"node-healthy", "node-unhealthy"},
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.NodeAvoidanceScheduling, tc.featureGate)
+			for _, fg := range tc.enableFeatureGates {
+				features.SetFeatureGateDuringTest(t, fg, true)
+			}
 			sortDomainsByCapacityAndEntropy(tc.domains, tc.policy)
 			gotIDs := make([]string, len(tc.domains))
 			for i, d := range tc.domains {
 				gotIDs[i] = string(d.id)
 			}
-			if diff := cmp.Diff(tc.want, gotIDs); diff != "" {
+			if diff := cmp.Diff(tc.wantDomains, gotIDs); diff != "" {
 				t.Errorf("unexpected sorted domains (-want,+got): %s", diff)
 			}
 		})

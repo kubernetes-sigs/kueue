@@ -33,16 +33,16 @@ type tasCache struct {
 	flavors     map[kueue.ResourceFlavorReference]flavorInformation
 	topologies  map[kueue.TopologyReference]topologyInformation
 	flavorCache map[kueue.ResourceFlavorReference]*TASFlavorCache
-	avoidNodeLabel string
+	nodeAvoidanceLabel string
 }
 
-func NewTASCache(client client.Client, avoidNodeLabel string) tasCache {
+func NewTASCache(client client.Client, nodeAvoidanceLabel string) tasCache {
 	return tasCache{
 		client:             client,
 		flavors:            make(map[kueue.ResourceFlavorReference]flavorInformation),
 		topologies:         make(map[kueue.TopologyReference]topologyInformation),
 		flavorCache:        make(map[kueue.ResourceFlavorReference]*TASFlavorCache),
-		avoidNodeLabel: avoidNodeLabel,
+		nodeAvoidanceLabel: nodeAvoidanceLabel,
 	}
 }
 
@@ -72,7 +72,7 @@ func (t *tasCache) AddFlavor(flavor *kueue.ResourceFlavor) {
 		t.flavors[name] = flavorInfo
 		t.flavors[name] = flavorInfo
 		if tInfo, ok := t.topologies[flavorInfo.TopologyName]; ok {
-			t.flavorCache[name] = t.NewTASFlavorCache(tInfo, flavorInfo, t.avoidNodeLabel)
+			t.flavorCache[name] = t.NewTASFlavorCache(tInfo, flavorInfo, t.nodeAvoidanceLabel)
 		}
 	}
 }
@@ -88,7 +88,7 @@ func (t *tasCache) AddTopology(topology *kueue.Topology) {
 		t.topologies[name] = tInfo
 		for fName, flavorInfo := range t.flavors {
 			if flavorInfo.TopologyName == name {
-				t.flavorCache[fName] = t.NewTASFlavorCache(tInfo, flavorInfo, t.avoidNodeLabel)
+				t.flavorCache[fName] = t.NewTASFlavorCache(tInfo, flavorInfo, t.nodeAvoidanceLabel)
 			}
 		}
 	}

@@ -49,14 +49,16 @@ func ConstructNodeAffinity(policy string, avoidanceLabel string) *corev1.NodeAff
 	}
 
 	nodeAffinity := &corev1.NodeAffinity{}
-	if policy == constants.NodeAvoidancePolicyRequired {
-		nodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution = &corev1.NodeSelector{
-			NodeSelectorTerms: []corev1.NodeSelectorTerm{
-				{
-					MatchExpressions: []corev1.NodeSelectorRequirement{
-						{
-							Key:      avoidanceLabel,
-							Operator: corev1.NodeSelectorOpDoesNotExist,
+	if policy == constants.NodeAvoidancePolicyNoSchedule {
+		return &corev1.NodeAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+				NodeSelectorTerms: []corev1.NodeSelectorTerm{
+					{
+						MatchExpressions: []corev1.NodeSelectorRequirement{
+							{
+								Key:      avoidanceLabel,
+								Operator: corev1.NodeSelectorOpDoesNotExist,
+							},
 						},
 					},
 				},
@@ -94,7 +96,7 @@ func MergeNodeAffinity(existing *corev1.NodeAffinity, policy, avoidanceLabel str
 		return avoidanceAffinity
 	}
 
-	if policy == constants.NodeAvoidancePolicyRequired {
+	if policy == constants.NodeAvoidancePolicyNoSchedule {
 		// For Required, we append the avoidance requirement to ALL existing terms (AND logic)
 		// If there are no existing terms but existing is not nil (empty struct), we just add ours.
 		if existing.RequiredDuringSchedulingIgnoredDuringExecution == nil {
