@@ -1021,31 +1021,37 @@ func patchStatusOptions(options []PatchStatusOption) *PatchStatusOptions {
 	return opts
 }
 
+func mergePatchStatus(ctx context.Context, c client.Client, wl *kueue.Workload, update UpdateFunc, opts *PatchStatusOptions) error {
+	patchOptions := make([]clientutil.PatchOption, 0, 2)
+	if !opts.StrictPatch {
+		patchOptions = append(patchOptions, clientutil.WithLoose())
+	}
+	if opts.RetryOnConflictForPatch {
+		patchOptions = append(patchOptions, clientutil.WithRetryOnConflict())
+	}
+	return clientutil.PatchStatus(ctx, c, wl, func() (bool, error) {
+		return update(wl)
+	}, patchOptions...)
+}
+
+func applyPatchStatus(ctx context.Context, c client.Client, wl *kueue.Workload, owner client.FieldOwner, update UpdateFunc) error {
+	if updated, err := update(wl); err != nil || !updated {
+		return err
+	}
+	return c.Status().Patch(ctx, wl, client.Apply, owner, client.ForceOwnership)
+}
+
 // patchStatus updates the status of a workload.
 // If the WorkloadRequestUseMergePatch feature is enabled, it uses a Merge Patch with update function.
 // Otherwise, it runs the update function and, if updated, applies the SSA Patch status.
 func patchStatus(ctx context.Context, c client.Client, wl *kueue.Workload, owner client.FieldOwner, update UpdateFunc, opts *PatchStatusOptions) error {
 	wlCopy := wl.DeepCopy()
 	if features.Enabled(features.WorkloadRequestUseMergePatch) {
-		patchOptions := make([]clientutil.PatchOption, 0, 2)
-		if !opts.StrictPatch {
-			patchOptions = append(patchOptions, clientutil.WithLoose())
-		}
-		if opts.RetryOnConflictForPatch {
-			patchOptions = append(patchOptions, clientutil.WithRetryOnConflict())
-		}
-		err := clientutil.PatchStatus(ctx, c, wlCopy, func() (bool, error) {
-			return update(wlCopy)
-		}, patchOptions...)
-		if err != nil {
+		if err := mergePatchStatus(ctx, c, wlCopy, update, opts); err != nil {
 			return err
 		}
 	} else {
-		if updated, err := update(wlCopy); err != nil || !updated {
-			return err
-		}
-		err := c.Status().Patch(ctx, wlCopy, client.Apply, owner, client.ForceOwnership)
-		if err != nil {
+		if err := applyPatchStatus(ctx, c, wlCopy, owner, update); err != nil {
 			return err
 		}
 	}
