@@ -1791,12 +1791,19 @@ func TestPatchStatus(t *testing.T) {
 		},
 	}
 	for name, tc := range tests {
-		for _, useMergePatch := range []bool{false, true} {
-			if tc.skipMergePatch && useMergePatch || tc.skipApplyPatch && !useMergePatch {
-				continue
-			}
+		if tc.skipMergePatch && tc.skipApplyPatch {
+			t.Fatalf("skipMergePatch and skipApplyPatch both enabled")
+		}
 
+		for _, useMergePatch := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s with WorkloadRequestUseMergePatch enabled: %t", name, useMergePatch), func(t *testing.T) {
+				switch {
+				case tc.skipMergePatch && useMergePatch:
+					t.Skip("Skipping test due to skipMergePatch being enabled")
+				case tc.skipApplyPatch && !useMergePatch:
+					t.Skip("Skipping test due to skipApplyPatch being enabled")
+				}
+
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
 				ctx, _ := utiltesting.ContextWithLog(t)
 				wl := tc.args.wl.DeepCopy()
@@ -1995,9 +2002,16 @@ func TestPatchAdmissionStatus(t *testing.T) {
 		},
 	}
 	for name, tc := range tests {
+		if tc.skipMergePatch && tc.skipApplyPatch {
+			t.Fatalf("skipMergePatch and skipApplyPatch both enabled")
+		}
+
 		for _, useMergePatch := range []bool{false, true} {
-			if tc.skipMergePatch && useMergePatch || tc.skipApplyPatch && !useMergePatch {
-				continue
+			switch {
+			case tc.skipMergePatch && useMergePatch:
+				t.Skip("Skipping test due to skipMergePatch being enabled")
+			case tc.skipApplyPatch && !useMergePatch:
+				t.Skip("Skipping test due to skipApplyPatch being enabled")
 			}
 
 			t.Run(fmt.Sprintf("%s with WorkloadRequestUseMergePatch enabled: %t", name, useMergePatch), func(t *testing.T) {
