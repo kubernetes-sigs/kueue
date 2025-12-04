@@ -26,7 +26,7 @@ Before opting into the feature, make sure the affected workloads will not cause 
 # Prerequisites
 
 - A running Kueue installation at **v0.15** or newer.
-- The `FailureRecoveryPolicy` feature-gate enabled in the Kueue controller manager. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
+- The `FailureRecoveryPolicy` feature gate enabled in the Kueue controller manager. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
 
 # Pod-level opt-in
 
