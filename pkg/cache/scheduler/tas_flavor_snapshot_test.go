@@ -452,7 +452,7 @@ func TestSortedDomainsWithNodeAvoidance(t *testing.T) {
 			want:   []string{"node-1-unhealthy", "node-2-healthy"},
 		},
 		"prefer healthy - sorts by health (healthy first despite name)": {
-			policy: controllerconsts.NodeAvoidancePolicyPreferred,
+			policy: controllerconsts.NodeAvoidancePolicyPreferNoSchedule,
 			want:   []string{"node-2-healthy", "node-1-unhealthy"},
 		},
 		"disallow unhealthy": {
@@ -505,7 +505,7 @@ func TestSortedDomainsWithNodeAvoidance_Hierarchy(t *testing.T) {
 		want   []string
 	}{
 		"prefer healthy - healthy rack first": {
-			policy: controllerconsts.NodeAvoidancePolicyPreferred,
+			policy: controllerconsts.NodeAvoidancePolicyPreferNoSchedule,
 			want:   []string{"r2", "r1"},
 		},
 		"no policy - sorts by name": {
@@ -564,7 +564,7 @@ func TestSortedDomainsWithNodeAvoidance_Capacity(t *testing.T) {
 		want   []string
 	}{
 		"prefer healthy - healthy first despite lower capacity": {
-			policy: controllerconsts.NodeAvoidancePolicyPreferred,
+			policy: controllerconsts.NodeAvoidancePolicyPreferNoSchedule,
 			want:   []string{"node-healthy", "node-unhealthy"},
 		},
 		"no policy - capacity wins (LeastFreeCapacity/BestFit logic)": {

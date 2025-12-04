@@ -62,7 +62,7 @@ func ConstructNodeAffinity(policy string, avoidanceLabel string) *corev1.NodeAff
 				},
 			},
 		}
-	} else if policy == constants.NodeAvoidancePolicyPreferred {
+	} else if policy == constants.NodeAvoidancePolicyPreferNoSchedule {
 		nodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution = []corev1.PreferredSchedulingTerm{
 			{
 				Weight: 100,
@@ -107,7 +107,7 @@ func MergeNodeAffinity(existing *corev1.NodeAffinity, policy, avoidanceLabel str
 				)
 			}
 		}
-	} else if policy == constants.NodeAvoidancePolicyPreferred {
+	} else if policy == constants.NodeAvoidancePolicyPreferNoSchedule {
 		// Merge PreferredDuringSchedulingIgnoredDuringExecution
 		if len(avoidanceAffinity.PreferredDuringSchedulingIgnoredDuringExecution) > 0 {
 			existing.PreferredDuringSchedulingIgnoredDuringExecution = append(

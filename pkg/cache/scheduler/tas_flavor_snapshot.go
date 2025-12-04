@@ -1293,7 +1293,7 @@ func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstra
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {
 		// Prefer healthy nodes if policy is Preferred
-		if features.Enabled(features.NodeAvoidanceScheduling) && policy == controllerconsts.NodeAvoidancePolicyPreferred {
+		if features.Enabled(features.NodeAvoidanceScheduling) && policy == controllerconsts.NodeAvoidancePolicyPreferNoSchedule {
 			if a.hasAvoidedNodes != b.hasAvoidedNodes {
 				if !a.hasAvoidedNodes {
 					return -1
@@ -1349,7 +1349,7 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool,
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {
 		// Prefer healthy nodes if policy is Preferred
-		if features.Enabled(features.NodeAvoidanceScheduling) && policy == controllerconsts.NodeAvoidancePolicyPreferred {
+		if features.Enabled(features.NodeAvoidanceScheduling) && policy == controllerconsts.NodeAvoidancePolicyPreferNoSchedule {
 			if a.hasAvoidedNodes != b.hasAvoidedNodes {
 				if !a.hasAvoidedNodes {
 					return -1

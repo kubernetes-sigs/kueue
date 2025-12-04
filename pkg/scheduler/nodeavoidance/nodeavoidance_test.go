@@ -117,9 +117,9 @@ func TestGetNodeAvoidancePolicy(t *testing.T) {
 			name: "workload with PreferHealthy",
 			wl: utiltesting.MakeWorkload("wl", "ns").
 				Annotations(map[string]string{
-					constants.NodeAvoidancePolicyAnnotation: constants.NodeAvoidancePolicyPreferred,
+					constants.NodeAvoidancePolicyAnnotation: constants.NodeAvoidancePolicyPreferNoSchedule,
 				}).Obj(),
-			want: constants.NodeAvoidancePolicyPreferred,
+			want: constants.NodeAvoidancePolicyPreferNoSchedule,
 		},
 	}
 
@@ -173,7 +173,7 @@ func TestConstructNodeAffinity(t *testing.T) {
 		},
 		{
 			name:           "prefer-healthy",
-			policy:         constants.NodeAvoidancePolicyPreferred,
+			policy:         constants.NodeAvoidancePolicyPreferNoSchedule,
 			avoidanceLabel: "unhealthy",
 			want: &corev1.NodeAffinity{
 				PreferredDuringSchedulingIgnoredDuringExecution: []corev1.PreferredSchedulingTerm{

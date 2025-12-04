@@ -175,7 +175,7 @@ var _ = ginkgo.Describe("TAS Node Avoidance", ginkgo.Ordered, func() {
 						Queue(kueue.LocalQueueName(localQueue.Name)).
 						Request(corev1.ResourceCPU, "1").
 						Annotations(map[string]string{
-							ctrlconstants.NodeAvoidancePolicyAnnotation: ctrlconstants.NodeAvoidancePolicyPreferred,
+							ctrlconstants.NodeAvoidancePolicyAnnotation: ctrlconstants.NodeAvoidancePolicyPreferNoSchedule,
 						}).
 						Obj()
 					ginkgo.DeferCleanup(func() { util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true) })

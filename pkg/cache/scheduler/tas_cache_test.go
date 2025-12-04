@@ -378,7 +378,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 
 	cases := map[string]struct {
 		enableFeatureGates  []featuregate.Feature
-		disableFeatureGates []featuregate.Feature
 		nodes               []corev1.Node
 		pods               []corev1.Pod
 		levels             []string
@@ -5582,8 +5581,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 		},
-		"node avoidance; prefer no unhealthy": {
-			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+		"node avoidance; prefer non labeled": {
+			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement, features.NodeAvoidanceScheduling},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
 					Label(tasBlockLabel, "b1").
@@ -5609,8 +5608,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			},
 			levels:             defaultThreeLevels,
 			avoidanceLabel: "unhealthy",
-			disableFeatureGates: []featuregate.Feature{features.NodeAvoidanceScheduling},
-			nodeAvoidancePolicy: controllerconsts.NodeAvoidancePolicyPreferred,
+			nodeAvoidancePolicy: controllerconsts.NodeAvoidancePolicyPreferNoSchedule,
 			podSets: []PodSetTestCase{
 				{
 					podSetName: "main",
@@ -5633,7 +5631,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 		},
-		"node avoidance; disallow unhealthy; all unhealthy": {
+		"node avoidance; disallow labeled; all labeled": {
 			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement, features.NodeAvoidanceScheduling},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
@@ -5676,9 +5674,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 			// TODO: remove after dropping the TAS profiles feature gates
 			for _, gate := range tc.enableFeatureGates {
 				features.SetFeatureGateDuringTest(t, gate, true)
-			}
-			for _, gate := range tc.disableFeatureGates {
-				features.SetFeatureGateDuringTest(t, gate, false)
 			}
 
 			initialObjects := make([]client.Object, 0)

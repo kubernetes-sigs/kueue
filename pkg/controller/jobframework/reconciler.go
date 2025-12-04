@@ -1266,7 +1266,7 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 	}
 
 	// Copy NodeAvoidancePolicy annotation
-	if features.Enabled(features.FailureAwareScheduling) {
+	if features.Enabled(features.NodeAvoidanceScheduling) {
 		if val, ok := job.Object().GetAnnotations()[controllerconsts.NodeAvoidancePolicyAnnotation]; ok {
 			if wl.Annotations == nil {
 				wl.Annotations = make(map[string]string)
@@ -1332,7 +1332,7 @@ func PrepareWorkloadPriority(ctx context.Context, c client.Client, obj client.Ob
 	wl.Spec.PriorityClassRef = priorityClassRef
 	wl.Spec.Priority = &priority
 
-	if policy != "" && features.Enabled(features.FailureAwareScheduling) {
+	if policy != "" && features.Enabled(features.NodeAvoidanceScheduling) {
 		if _, ok := obj.GetAnnotations()[controllerconsts.NodeAvoidancePolicyAnnotation]; !ok {
 			if wl.Annotations == nil {
 				wl.Annotations = make(map[string]string)

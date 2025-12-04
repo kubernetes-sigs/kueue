@@ -72,7 +72,7 @@ type JobWebhook struct {
 	managedJobsNamespaceSelector labels.Selector
 	queues                       *qcache.Manager
 	cache                        *schdcache.Cache
-	unhealthyNodeLabel           string
+	avoidNodeLabel           string
 }
 
 // SetupWebhook configures the webhook for batchJob.
@@ -84,7 +84,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		queues:                       options.Queues,
 		cache:                        options.Cache,
-		unhealthyNodeLabel:           options.AvoidNodeLabel,
+		avoidNodeLabel:           options.AvoidNodeLabel,
 	}
 	obj := &batchv1.Job{}
 	return webhook.WebhookManagedBy(mgr).

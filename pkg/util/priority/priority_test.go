@@ -190,7 +190,7 @@ func TestGetPriorityFromWorkloadPriorityClass(t *testing.T) {
 						ObjectMeta: metav1.ObjectMeta{
 							Name: "test",
 							Annotations: map[string]string{
-								ctrlconstants.NodeAvoidancePolicyAnnotation: ctrlconstants.NodeAvoidancePolicyPreferred,
+								ctrlconstants.NodeAvoidancePolicyAnnotation: ctrlconstants.NodeAvoidancePolicyPreferNoSchedule,
 							},
 						},
 						Value: 50,
@@ -200,7 +200,7 @@ func TestGetPriorityFromWorkloadPriorityClass(t *testing.T) {
 			workloadPriorityClassName: "test",
 			wantPriorityClassRef:      kueue.NewWorkloadPriorityClassRef("test"),
 			wantPriorityClassValue:    50,
-			wantNodeAvoidancePolicy:   ctrlconstants.NodeAvoidancePolicyPreferred,
+			wantNodeAvoidancePolicy:   ctrlconstants.NodeAvoidancePolicyPreferNoSchedule,
 		},
 		"workloadPriorityClass is specified and it does not exist": {
 			workloadPriorityClassList: &kueue.WorkloadPriorityClassList{
