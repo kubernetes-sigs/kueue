@@ -29,7 +29,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/tas"
-	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 )
@@ -471,8 +470,8 @@ func TestSortedDomainsWithNodeAvoidance(t *testing.T) {
 
 			// Construct domains list (order doesn't matter as it gets sorted, but let's mix it)
 			domains := []*domain{
-				s.domainsPerLevel[0][utiltas.DomainID([]string{"node-2-safe"})],
-				s.domainsPerLevel[0][utiltas.DomainID([]string{"node-1-avoid"})],
+				s.domainsPerLevel[0][tas.DomainID([]string{"node-2-safe"})],
+				s.domainsPerLevel[0][tas.DomainID([]string{"node-1-avoid"})],
 			}
 
 			gotDomains := s.sortedDomains(domains, false, tc.policy)
@@ -523,8 +522,8 @@ func TestSortedDomainsWithNodeAvoidance_Hierarchy(t *testing.T) {
 			s.initialize()
 
 			racks := []*domain{
-				s.domainsPerLevel[0][utiltas.DomainID([]string{"r1"})],
-				s.domainsPerLevel[0][utiltas.DomainID([]string{"r2"})],
+				s.domainsPerLevel[0][tas.DomainID([]string{"r1"})],
+				s.domainsPerLevel[0][tas.DomainID([]string{"r2"})],
 			}
 
 			gotDomains := s.sortedDomains(racks, false, tc.policy)
@@ -581,12 +580,12 @@ func TestSortedDomainsWithNodeAvoidance_Capacity(t *testing.T) {
 			}
 			s.initialize()
 
-			s.leaves[utiltas.DomainID([]string{"node-avoid"})].sliceState = 8
-			s.leaves[utiltas.DomainID([]string{"node-safe"})].sliceState = 1
+			s.leaves[tas.DomainID([]string{"node-avoid"})].sliceState = 8
+			s.leaves[tas.DomainID([]string{"node-safe"})].sliceState = 1
 
 			domains := []*domain{
-				s.domainsPerLevel[0][utiltas.DomainID([]string{"node-avoid"})],
-				s.domainsPerLevel[0][utiltas.DomainID([]string{"node-safe"})],
+				s.domainsPerLevel[0][tas.DomainID([]string{"node-avoid"})],
+				s.domainsPerLevel[0][tas.DomainID([]string{"node-safe"})],
 			}
 
 			gotDomains := s.sortedDomains(domains, false, tc.policy)
