@@ -72,6 +72,10 @@ if [[ -n "${CERTMANAGER_VERSION:-}" ]]; then
     export CERTMANAGER_MANIFEST="https://github.com/cert-manager/cert-manager/releases/download/${CERTMANAGER_VERSION}/cert-manager.yaml"
 fi
 
+if [[ -n "${CLUSTERPROFILE_VERSION:-}" ]]; then
+    export CLUSTERPROFILE_CRD=${ROOT_DIR}/dep-crds/clusterprofile/multicluster.x-k8s.io_clusterprofiles.yaml
+fi
+
 if [[ -n "${KUEUE_UPGRADE_FROM_VERSION:-}" ]]; then
     export KUEUE_OLD_VERSION_MANIFEST="https://github.com/kubernetes-sigs/kueue/releases/download/${KUEUE_UPGRADE_FROM_VERSION}/manifests.yaml"
 fi
@@ -198,6 +202,9 @@ function kind_load {
     fi
     if [[ -n ${CERTMANAGER_VERSION:-} ]]; then
         install_cert_manager "$2"
+    fi
+    if [[ -n ${CLUSTERPROFILE_VERSION:-} ]]; then
+        install_multicluster "$2"
     fi
 }
 
@@ -365,6 +372,12 @@ function install_lws {
 function install_cert_manager {
     kubectl apply --kubeconfig="$1" --server-side -f "${CERTMANAGER_MANIFEST}"
 }
+
+# $1 kubeconfig option
+function install_multicluster {
+    kubectl apply --kubeconfig="$1" --server-side -f "${CLUSTERPROFILE_CRD}"
+}
+
 
 INITIAL_IMAGE=$($YQ '.images[] | select(.name == "controller") | [.newName, .newTag] | join(":")' config/components/manager/kustomization.yaml)
 export INITIAL_IMAGE
