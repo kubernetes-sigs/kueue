@@ -23,7 +23,6 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -47,7 +46,6 @@ import (
 	jobtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/webhooks"
-	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -215,114 +213,41 @@ var _ = ginkgo.Describe("TAS Node Avoidance", ginkgo.Ordered, func() {
 			gomega.Expect(utiltas.InternalFrom(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Domains[0].Values).To(gomega.ContainElement("node-safe"))
 		})
 
-		ginkgo.It("should disallow avoided nodes when policy is NoSchedule", func() {
-			ginkgo.By("tainting the safe node to make it unavailable", func() {
+		ginkgo.It("should schedule on avoided node when all nodes are avoided", func() {
+			ginkgo.By("marking the safe node as avoided", func() {
 				node := &corev1.Node{}
 				gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "node-safe"}, node)).To(gomega.Succeed())
-				node.Spec.Unschedulable = true
+				if node.Labels == nil {
+					node.Labels = make(map[string]string)
+				}
+				node.Labels["avoid"] = "true"
 				gomega.Expect(k8sClient.Update(ctx, node)).To(gomega.Succeed())
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "node-safe"}, node)).To(gomega.Succeed())
-					g.Expect(node.Spec.Unschedulable).To(gomega.BeTrue())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("creating a job with NoSchedule policy, should remain pending", func() {
-				job := jobtesting.MakeJob("job-disallow-avoid", ns.Name).
-					Queue(kueue.LocalQueueName(localQueue.Name)).
-					Request(corev1.ResourceCPU, "1").
-					SetAnnotation(kueue.NodeAvoidancePolicyAnnotation, kueue.NodeAvoidancePolicyNoSchedule).
-					Obj()
-				ginkgo.DeferCleanup(func() { util.ExpectObjectToBeDeleted(ctx, k8sClient, job, true) })
-				util.MustCreate(ctx, k8sClient, job)
+			job := jobtesting.MakeJob("job-all-avoided", ns.Name).
+				Queue("local-queue").
+				Request(corev1.ResourceCPU, "1").
+				SetAnnotation(kueue.NodeAvoidancePolicyAnnotation, kueue.NodeAvoidancePolicyPreferNoSchedule).
+				Obj()
+			ginkgo.DeferCleanup(func() { util.ExpectObjectToBeDeleted(ctx, k8sClient, job, true) })
+			util.MustCreate(ctx, k8sClient, job)
 
-				wl := &kueue.Workload{}
-				wlName := jobcontroller.GetWorkloadNameForJob(job.Name, job.UID)
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: wlName, Namespace: ns.Name}, wl)).To(gomega.Succeed())
-					if workload.IsAdmitted(wl) {
-						ginkgo.GinkgoWriter.Printf("Workload %s unexpectedly admitted. Assignments: %v\n", wl.Name, wl.Status.Admission.PodSetAssignments)
-					}
-					g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			wl := &kueue.Workload{}
+			wlName := jobcontroller.GetWorkloadNameForJob(job.Name, job.UID)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: wlName, Namespace: ns.Name}, wl)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verify the workload is admitted", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 			})
-
-			ginkgo.By("creating another job with NoSchedule policy, should remain pending", func() {
-				job := jobtesting.MakeJob("job-disallow-avoid-pending", ns.Name).
-					Queue(kueue.LocalQueueName(localQueue.Name)).
-					Request(corev1.ResourceCPU, "1").
-					SetAnnotation(kueue.NodeAvoidancePolicyAnnotation, kueue.NodeAvoidancePolicyNoSchedule).
-					Obj()
-				util.MustCreate(ctx, k8sClient, job)
-
-				wl := &kueue.Workload{}
-				wlName := jobcontroller.GetWorkloadNameForJob(job.Name, job.UID)
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: wlName, Namespace: ns.Name}, wl)).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
-			})
-
-			ginkgo.By("creating a job with WorkloadPriorityClass having NoSchedule policy, should remain pending", func() {
-				wpc := &kueue.WorkloadPriorityClass{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "wpc-avoid",
-						Annotations: map[string]string{
-							kueue.NodeAvoidancePolicyAnnotation: kueue.NodeAvoidancePolicyNoSchedule,
-						},
-					},
-					Value: 100,
-				}
-				gomega.Expect(k8sClient.Create(ctx, wpc)).To(gomega.Succeed())
-				ginkgo.DeferCleanup(func() { util.ExpectObjectToBeDeleted(ctx, k8sClient, wpc, true) })
-
-				job := jobtesting.MakeJob("job-wpc-avoid", ns.Name).
-					Queue(kueue.LocalQueueName(localQueue.Name)).
-					Request(corev1.ResourceCPU, "1").
-					WorkloadPriorityClass("wpc-avoid").
-					Obj()
-				util.MustCreate(ctx, k8sClient, job)
-				ginkgo.DeferCleanup(func() { util.ExpectObjectToBeDeleted(ctx, k8sClient, job, true) })
-
-				wl := &kueue.Workload{}
-				wlName := jobcontroller.GetWorkloadNameForJob(job.Name, job.UID)
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: wlName, Namespace: ns.Name}, wl)).To(gomega.Succeed())
-					g.Expect(wl.Annotations).To(gomega.HaveKeyWithValue(kueue.NodeAvoidancePolicyAnnotation, kueue.NodeAvoidancePolicyNoSchedule))
-					g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("creating a job with WorkloadPriorityClass having NoSchedule policy and Job having PreferNoSchedule, should admit", func() {
-				wpc := &kueue.WorkloadPriorityClass{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "wpc-avoid-2",
-						Annotations: map[string]string{
-							kueue.NodeAvoidancePolicyAnnotation: kueue.NodeAvoidancePolicyNoSchedule,
-						},
-					},
-					Value: 100,
-				}
-				gomega.Expect(k8sClient.Create(ctx, wpc)).To(gomega.Succeed())
-				ginkgo.DeferCleanup(func() { util.ExpectObjectToBeDeleted(ctx, k8sClient, wpc, true) })
-
-				job := jobtesting.MakeJob("job-wpc-override", ns.Name).
-					Queue(kueue.LocalQueueName(localQueue.Name)).
-					Request(corev1.ResourceCPU, "1").
-					WorkloadPriorityClass("wpc-avoid-2").
-					SetAnnotation(kueue.NodeAvoidancePolicyAnnotation, kueue.NodeAvoidancePolicyPreferNoSchedule).
-					Obj()
-				util.MustCreate(ctx, k8sClient, job)
-				ginkgo.DeferCleanup(func() { util.ExpectObjectToBeDeleted(ctx, k8sClient, job, true) })
-
-				wl := &kueue.Workload{}
-				wlName := jobcontroller.GetWorkloadNameForJob(job.Name, job.UID)
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: wlName, Namespace: ns.Name}, wl)).To(gomega.Succeed())
-					g.Expect(wl.Annotations).To(gomega.HaveKeyWithValue(kueue.NodeAvoidancePolicyAnnotation, kueue.NodeAvoidancePolicyPreferNoSchedule))
-					g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			// It can be scheduled on either node since both are avoided and have capacity
+			gomega.Expect(utiltas.InternalFrom(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Domains[0].Values).To(gomega.SatisfyAny(
+				gomega.ContainElement("node-safe"),
+				gomega.ContainElement("node-avoid"),
+			))
 		})
+
 	})
 })

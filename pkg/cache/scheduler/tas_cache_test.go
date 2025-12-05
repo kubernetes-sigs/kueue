@@ -5630,42 +5630,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 		},
-		"node avoidance; NoSchedule; all avoided": {
-			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement, features.NodeAvoidanceScheduling},
-			nodes: []corev1.Node{
-				*testingnode.MakeNode("b1-r1-x1").
-					Label(tasBlockLabel, "b1").
-					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x1").
-					Label("avoid", "true").
-					StatusAllocatable(corev1.ResourceList{
-						"example.com/gpu":   resource.MustParse("1"),
-						corev1.ResourcePods: resource.MustParse("10"),
-					}).
-					Ready().
-					Obj(),
-			},
-			levels:              defaultThreeLevels,
-			avoidanceLabel:      "avoid",
-			nodeAvoidancePolicy: kueue.NodeAvoidancePolicyNoSchedule,
-			podSets: []PodSetTestCase{
-				{
-					podSetName: "main",
-					topologyRequest: &kueue.PodSetTopologyRequest{
-						Preferred: ptr.To(string(tasRackLabel)),
-					},
-					requests: resources.Requests{
-						"example.com/gpu": 1,
-					},
-					count: 1,
-					wantAssignment: &tas.TopologyAssignment{
-						Levels:  []string{"kubernetes.io/hostname"},
-						Domains: []tas.TopologyDomainAssignment{},
-					},
-					wantReason: "",
-				},
-			},
-		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

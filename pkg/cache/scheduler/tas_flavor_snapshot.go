@@ -1277,17 +1277,6 @@ func (s *TASFlavorSnapshot) lowerLevelDomains(domains []*domain) []*domain {
 func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstrained bool, policy string) []*domain {
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 
-	if features.Enabled(features.NodeAvoidanceScheduling) && policy == kueue.NodeAvoidancePolicyNoSchedule && s.isLowestLevelNode() {
-		filtered := make([]*domain, 0, len(domains))
-		for _, d := range domains {
-			if len(d.children) == 0 && d.hasAvoidedNodes {
-				continue
-			}
-			filtered = append(filtered, d)
-		}
-		domains = filtered
-	}
-
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {
 		if features.Enabled(features.NodeAvoidanceScheduling) && policy == kueue.NodeAvoidancePolicyPreferNoSchedule {
@@ -1330,17 +1319,6 @@ func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstra
 // `state` is always sorted ascending. This prioritizes domains that can accommodate slices with minimal leftover pod capacity.
 func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool, policy string) []*domain {
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
-
-	if features.Enabled(features.NodeAvoidanceScheduling) && policy == kueue.NodeAvoidancePolicyNoSchedule && s.isLowestLevelNode() {
-		filtered := make([]*domain, 0, len(domains))
-		for _, d := range domains {
-			if len(d.children) == 0 && d.hasAvoidedNodes {
-				continue
-			}
-			filtered = append(filtered, d)
-		}
-		domains = filtered
-	}
 
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {

@@ -453,10 +453,6 @@ func TestSortedDomainsWithNodeAvoidance(t *testing.T) {
 			policy: kueue.NodeAvoidancePolicyPreferNoSchedule,
 			want:   []string{"node-2-safe", "node-1-avoid"},
 		},
-		"NoSchedule - disallow avoided": {
-			policy: kueue.NodeAvoidancePolicyNoSchedule,
-			want:   []string{"node-2-safe"},
-		},
 	}
 
 	for name, tc := range cases {

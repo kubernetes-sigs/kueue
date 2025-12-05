@@ -40,14 +40,6 @@ func TestGetNodeAvoidancePolicy(t *testing.T) {
 			want: "",
 		},
 		{
-			name: "workload with NoSchedule",
-			wl: utiltesting.MakeWorkload("wl", "ns").
-				Annotations(map[string]string{
-					kueue.NodeAvoidancePolicyAnnotation: kueue.NodeAvoidancePolicyNoSchedule,
-				}).Obj(),
-			want: kueue.NodeAvoidancePolicyNoSchedule,
-		},
-		{
 			name: "workload with PreferNoSchedule",
 			wl: utiltesting.MakeWorkload("wl", "ns").
 				Annotations(map[string]string{

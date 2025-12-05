@@ -31,9 +31,6 @@ const (
 
 	// NodeAvoidancePolicyPreferNoSchedule indicates that the workload prefers not to run on specifically labeled nodes.
 	NodeAvoidancePolicyPreferNoSchedule = "PreferNoSchedule"
-
-	// NodeAvoidancePolicyNoSchedule indicates that the workload disallows running on specifically labeled nodes.
-	NodeAvoidancePolicyNoSchedule = "NoSchedule"
 )
 
 type StopPolicy string
