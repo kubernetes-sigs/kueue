@@ -196,7 +196,7 @@ in LeaderWorkerSet to run within a "rack".
 #### Story 7
 
 As a cluster administrator I want to be able to mark some nodes as "maintenance", "unhealthy" or "reserved"
-so that TAS workloads avoid them if possible (PreferNoSchedule), or strictly avoid them (NoSchedule).
+so that TAS workloads avoid them if possible (PreferNoSchedule).
 I want to be able to configure this policy per Workload (via Job annotation or WorkloadPriorityClass).
 
 ### Notes/Constraints/Caveats (Optional)
@@ -709,7 +709,6 @@ const (
   // NodeAvoidancePolicyAnnotation indicates the policy for avoiding nodes with the
   // label specified in the Topology object.
   // Values:
-  // - "NoSchedule": The pod will not be scheduled on nodes with the avoidance label.
   // - "PreferNoSchedule": The pod prefers not to be scheduled on nodes with the
   //   avoidance label, but can be if necessary.
   NodeAvoidancePolicyAnnotation = "kueue.x-k8s.io/node-avoidance-policy"
@@ -747,8 +746,7 @@ the rules is deactivated):
 - If `kueue.x-k8s.io/podset-group-name` is specified, the `kueue.x-k8s.io/podset-required-topology`
   or `kueue.x-k8s.io/podset-preferred-topology` has to also be specified in all other
   PodTemplates included in the PodSet Group and it has to have the same value.
-- The value of `kueue.x-k8s.io/node-avoidance-policy` must be either
-  "NoSchedule" or "PreferNoSchedule".
+- The value of `kueue.x-k8s.io/node-avoidance-policy` must be "PreferNoSchedule".
 
 #### PodSet Slice size validation
 
@@ -1366,10 +1364,7 @@ The policy for avoidance is configured by the user using the
 `kueue.x-k8s.io/node-avoidance-policy` annotation on the Job (or
 WorkloadPriorityClass). This annotation is propagated to the Workload.
 
-The supported policies are:
-- `NoSchedule`: The pods will not be scheduled on nodes with the avoidance
-  label. When calculating the capacity of a topology domain, nodes with the
-  avoidance label are excluded.
+The supported policy is:
 - `PreferNoSchedule`: The pods prefer not to be scheduled on nodes with the
   avoidance label. Kueue first attempts to find a topology assignment using
   only nodes without the avoidance label. If no such assignment is found, Kueue
