@@ -218,9 +218,6 @@ func PrebuiltWorkloadFor(job GenericJob) (string, bool) {
 
 func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKeysToCopy []string) *kueue.Workload {
 	annotations := admissioncheck.FilterProvReqAnnotations(obj.GetAnnotations())
-	if val, ok := obj.GetAnnotations()[kueue.NodeAvoidancePolicyAnnotation]; ok {
-		annotations[kueue.NodeAvoidancePolicyAnnotation] = val
-	}
 	return &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,

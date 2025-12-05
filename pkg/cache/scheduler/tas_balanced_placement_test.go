@@ -22,11 +22,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"k8s.io/component-base/featuregate"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/features"
-	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -78,7 +74,7 @@ func TestSelectOptimalDomainSetToFit(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
 			s := newTASFlavorSnapshot(log, "dummy", []string{}, nil, "")
-			got := selectOptimalDomainSetToFit(s, tc.domains, tc.workerCount, tc.leaderCount, 1, true, "")
+			got := selectOptimalDomainSetToFit(s, tc.domains, tc.workerCount, tc.leaderCount, 1, true)
 			gotIDs := make([]string, len(got))
 			for i, d := range got {
 				gotIDs[i] = string(d.id)
@@ -163,89 +159,13 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 				domains[i] = &clone
 			}
 
-			got, _ := placeSlicesOnDomainsBalanced(s, domains, tc.sliceCount, tc.leaderCount, tc.sliceSize, tc.threshold, "")
+			got, _ := placeSlicesOnDomainsBalanced(s, domains, tc.sliceCount, tc.leaderCount, tc.sliceSize, tc.threshold)
 
-			if diff := cmp.Diff(tc.want, got, cmp.AllowUnexported(domain{}), cmpopts.IgnoreFields(domain{}, "parent", "children", "levelValues", "hasAvoidedNodes"), cmpopts.SortSlices(func(a, b *domain) bool { return a.id < b.id })); diff != "" {
+			if diff := cmp.Diff(tc.want, got, cmp.AllowUnexported(domain{}), cmpopts.IgnoreFields(domain{}, "parent", "children", "levelValues"), cmpopts.SortSlices(func(a, b *domain) bool { return a.id < b.id })); diff != "" {
 				t.Errorf("Unexpected domains (-want,+got):\n%s", diff)
 			}
 		})
 	}
 }
 
-func makeDomain(id string, capacity int32, hasAvoidedNodes bool) *domain {
-	return &domain{
-		id:                   utiltas.TopologyDomainID(id),
-		state:                capacity,
-		sliceState:           capacity,
-		stateWithLeader:      capacity,
-		sliceStateWithLeader: capacity,
-		leaderState:          0,
-		hasAvoidedNodes:      hasAvoidedNodes,
-	}
-}
 
-func TestSortDomainsByCapacityAndEntropy(t *testing.T) {
-	testCases := map[string]struct {
-		enableFeatureGates []featuregate.Feature
-		domains            []*domain
-		policy             string
-		wantDomains        []string
-	}{
-		"PreferNoSchedule policy enabled": {
-			enableFeatureGates: []featuregate.Feature{features.NodeAvoidanceScheduling},
-			domains: []*domain{
-				makeDomain("d1", 9, true),
-				makeDomain("d2", 6, false),
-				makeDomain("d3", 4, true),
-				makeDomain("d4", 2, false),
-			},
-			policy:      kueue.NodeAvoidancePolicyPreferNoSchedule,
-			wantDomains: []string{"d2", "d4", "d1", "d3"},
-		},
-		"PreferNoSchedule policy disabled": {
-			enableFeatureGates: []featuregate.Feature{},
-			domains: []*domain{
-				makeDomain("d1", 9, true),
-				makeDomain("d2", 6, false),
-				makeDomain("d3", 4, true),
-				makeDomain("d4", 2, false),
-			},
-			policy:      kueue.NodeAvoidancePolicyPreferNoSchedule,
-			wantDomains: []string{"d1", "d2", "d3", "d4"},
-		},
-		"PreferNoSchedule: non-avoided node prioritized over avoided node with higher capacity": {
-			enableFeatureGates: []featuregate.Feature{features.NodeAvoidanceScheduling},
-			domains: []*domain{
-				makeDomain("node-unhealthy", 8, true),
-				makeDomain("node-healthy", 1, false),
-			},
-			policy:      kueue.NodeAvoidancePolicyPreferNoSchedule,
-			wantDomains: []string{"node-healthy", "node-unhealthy"},
-		},
-		"PreferNoSchedule: non-avoided node prioritized over avoided node": {
-			enableFeatureGates: []featuregate.Feature{features.NodeAvoidanceScheduling},
-			domains: []*domain{
-				makeDomain("node-unhealthy", 8, true),
-				makeDomain("node-healthy", 1, false),
-			},
-			policy:      kueue.NodeAvoidancePolicyPreferNoSchedule,
-			wantDomains: []string{"node-healthy", "node-unhealthy"},
-		},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			for _, fg := range tc.enableFeatureGates {
-				features.SetFeatureGateDuringTest(t, fg, true)
-			}
-			sortDomainsByCapacityAndEntropy(tc.domains, tc.policy)
-			gotIDs := make([]string, len(tc.domains))
-			for i, d := range tc.domains {
-				gotIDs[i] = string(d.id)
-			}
-			if diff := cmp.Diff(tc.wantDomains, gotIDs); diff != "" {
-				t.Errorf("unexpected sorted domains (-want,+got): %s", diff)
-			}
-		})
-	}
-}

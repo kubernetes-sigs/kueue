@@ -383,7 +383,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 		nodeLabels          map[string]string
 		podSets             []PodSetTestCase
 		avoidanceLabel      string
-		nodeAvoidancePolicy string
+
 	}{
 		"minimize the number of used racks before optimizing the number of nodes; BestFit": {
 			// Solution by optimizing the number of racks then nodes: [r3]: [x1,x6,x2,x4]
@@ -5580,56 +5580,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 		},
-		"node avoidance; PreferNoSchedule": {
-			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement, features.NodeAvoidanceScheduling},
-			nodes: []corev1.Node{
-				*testingnode.MakeNode("b1-r1-x1").
-					Label(tasBlockLabel, "b1").
-					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x1").
-					StatusAllocatable(corev1.ResourceList{
-						"example.com/gpu":   resource.MustParse("1"),
-						corev1.ResourcePods: resource.MustParse("10"),
-					}).
-					Ready().
-					Obj(),
-				*testingnode.MakeNode("b1-r1-x2").
-					Label(tasBlockLabel, "b1").
-					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x2").
-					Label("avoid", "true").
-					StatusAllocatable(corev1.ResourceList{
-						"example.com/gpu":   resource.MustParse("1"),
-						corev1.ResourcePods: resource.MustParse("10"),
-					}).
-					Ready().
-					Obj(),
-			},
-			levels:              defaultThreeLevels,
-			avoidanceLabel:      "avoid",
-			nodeAvoidancePolicy: kueue.NodeAvoidancePolicyPreferNoSchedule,
-			podSets: []PodSetTestCase{
-				{
-					podSetName: "main",
-					topologyRequest: &kueue.PodSetTopologyRequest{
-						Preferred: ptr.To(string(tasRackLabel)),
-					},
-					requests: resources.Requests{
-						"example.com/gpu": 1,
-					},
-					count: 1,
-					wantAssignment: &tas.TopologyAssignment{
-						Levels: defaultOneLevel,
-						Domains: []tas.TopologyDomainAssignment{
-							{
-								Count:  1,
-								Values: []string{"x1"},
-							},
-						},
-					},
-				},
-			},
-		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -5701,7 +5651,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 				wantResult[kueue.PodSetReference(ps.podSetName)] = wantPodSetResult
 			}
 			gotResult := snapshot.FindTopologyAssignmentsForFlavor(flavorTASRequests, func(o *findTopologyAssignmentsOption) {
-				o.nodeAvoidancePolicy = tc.nodeAvoidancePolicy
 			})
 			if diff := cmp.Diff(wantResult, gotResult); diff != "" {
 				t.Errorf("unexpected topology assignment (-want,+got): %s", diff)
@@ -5709,3 +5658,4 @@ func TestFindTopologyAssignments(t *testing.T) {
 		})
 	}
 }
+

@@ -46,7 +46,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
-	"sigs.k8s.io/kueue/pkg/scheduler/nodeavoidance"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
@@ -539,15 +538,7 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, log logr.Logger, 
 
 	preemptionTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
 
-	var nodeAvoidancePolicy string
-	if features.Enabled(features.NodeAvoidanceScheduling) {
-		if policy := nodeavoidance.GetNodeAvoidancePolicy(wl.Obj); policy != "" {
-			nodeAvoidancePolicy = policy
-		}
-		log.Info("Resolved NodeAvoidancePolicy", "workload", klog.KObj(wl.Obj), "policy", nodeAvoidancePolicy)
-	}
-
-	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing), preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice, nodeAvoidancePolicy)
+	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing), preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice)
 	fullAssignment := flvAssigner.Assign(log, nil)
 
 	arm := fullAssignment.RepresentativeMode()

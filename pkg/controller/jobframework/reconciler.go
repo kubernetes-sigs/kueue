@@ -1241,19 +1241,6 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 		return nil, err
 	}
 
-	// Copy NodeAvoidancePolicy annotation
-	if features.Enabled(features.NodeAvoidanceScheduling) {
-		if val, ok := job.Object().GetAnnotations()[kueue.NodeAvoidancePolicyAnnotation]; ok {
-			if wl.Annotations == nil {
-				wl.Annotations = make(map[string]string)
-			}
-			wl.Annotations[kueue.NodeAvoidancePolicyAnnotation] = val
-			log.Info("Copied NodeAvoidancePolicy annotation", "workload", klog.KObj(wl), "policy", val)
-		} else {
-			log.Info("NodeAvoidancePolicy annotation not found on job", "job", klog.KObj(job.Object()))
-		}
-	}
-
 	return wl, nil
 }
 
@@ -1300,22 +1287,13 @@ func getCustomPriorityClassFuncFromJob(job GenericJob) func() string {
 }
 
 func PrepareWorkloadPriority(ctx context.Context, c client.Client, obj client.Object, wl *kueue.Workload, customPriorityClassFunc func() string) error {
-	priorityClassRef, priority, policy, err := ExtractPriority(ctx, c, obj, wl.Spec.PodSets, customPriorityClassFunc)
+	priorityClassRef, priority, err := ExtractPriority(ctx, c, obj, wl.Spec.PodSets, customPriorityClassFunc)
 	if err != nil {
 		return err
 	}
 
 	wl.Spec.PriorityClassRef = priorityClassRef
 	wl.Spec.Priority = &priority
-
-	if policy != "" && features.Enabled(features.NodeAvoidanceScheduling) {
-		if _, ok := obj.GetAnnotations()[kueue.NodeAvoidancePolicyAnnotation]; !ok {
-			if wl.Annotations == nil {
-				wl.Annotations = make(map[string]string)
-			}
-			wl.Annotations[kueue.NodeAvoidancePolicyAnnotation] = policy
-		}
-	}
 
 	return nil
 }
@@ -1334,16 +1312,14 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 	return nil
 }
 
-func ExtractPriority(ctx context.Context, c client.Client, obj client.Object, podSets []kueue.PodSet, customPriorityClassFunc func() string) (*kueue.PriorityClassRef, int32, string, error) {
+func ExtractPriority(ctx context.Context, c client.Client, obj client.Object, podSets []kueue.PodSet, customPriorityClassFunc func() string) (*kueue.PriorityClassRef, int32, error) {
 	if workloadPriorityClass := WorkloadPriorityClassName(obj); len(workloadPriorityClass) > 0 {
 		return utilpriority.GetPriorityFromWorkloadPriorityClass(ctx, c, workloadPriorityClass)
 	}
 	if customPriorityClassFunc != nil {
-		pRef, p, _, err := utilpriority.GetPriorityFromPriorityClass(ctx, c, customPriorityClassFunc())
-		return pRef, p, "", err
+		return utilpriority.GetPriorityFromPriorityClass(ctx, c, customPriorityClassFunc())
 	}
-	pRef, p, _, err := utilpriority.GetPriorityFromPriorityClass(ctx, c, extractPriorityFromPodSets(podSets))
-	return pRef, p, "", err
+	return utilpriority.GetPriorityFromPriorityClass(ctx, c, extractPriorityFromPodSets(podSets))
 }
 
 func extractPriorityFromPodSets(podSets []kueue.PodSet) string {

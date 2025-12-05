@@ -228,11 +228,6 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/6757
 	// Enabled failure recovery of pods stuck in terminating state.
 	FailureRecoveryPolicy featuregate.Feature = "FailureRecoveryPolicy"
-
-	// owner: @j-skiba
-	//
-	// Enables node avoidance TAS scheduling.
-	NodeAvoidanceScheduling featuregate.Feature = "NodeAvoidanceScheduling"
 )
 
 func init() {
@@ -363,9 +358,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	FailureRecoveryPolicy: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
-	NodeAvoidanceScheduling: {
-		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
-	},
+
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) {

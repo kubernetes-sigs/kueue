@@ -28,7 +28,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
-	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
@@ -140,7 +139,7 @@ func TestGetPriorityFromPriorityClass(t *testing.T) {
 			client := builder.Build()
 
 			ctx, _ := utiltesting.ContextWithLog(t)
-			priorityClassRef, value, _, err := GetPriorityFromPriorityClass(ctx, client, tt.priorityClassName)
+			priorityClassRef, value, err := GetPriorityFromPriorityClass(ctx, client, tt.priorityClassName)
 			if diff := cmp.Diff(tt.wantErr, err); diff != "" {
 				t.Errorf("unexpected error (-want,+got):\n%s", diff)
 			}
@@ -167,9 +166,7 @@ func TestGetPriorityFromWorkloadPriorityClass(t *testing.T) {
 		workloadPriorityClassName string
 		wantPriorityClassRef      *kueue.PriorityClassRef
 		wantPriorityClassValue    int32
-		wantNodeAvoidancePolicy   string
 		wantErr                   error
-		enableNodeAvoidance       bool
 	}{
 		"workloadPriorityClass is specified and it exists": {
 			workloadPriorityClassList: &kueue.WorkloadPriorityClassList{
@@ -183,26 +180,6 @@ func TestGetPriorityFromWorkloadPriorityClass(t *testing.T) {
 			workloadPriorityClassName: "test",
 			wantPriorityClassRef:      kueue.NewWorkloadPriorityClassRef("test"),
 			wantPriorityClassValue:    50,
-		},
-		"workloadPriorityClass is specified and it exists with node avoidance policy": {
-			workloadPriorityClassList: &kueue.WorkloadPriorityClassList{
-				Items: []kueue.WorkloadPriorityClass{
-					{
-						ObjectMeta: metav1.ObjectMeta{
-							Name: "test",
-							Annotations: map[string]string{
-								kueue.NodeAvoidancePolicyAnnotation: kueue.NodeAvoidancePolicyPreferNoSchedule,
-							},
-						},
-						Value: 50,
-					},
-				},
-			},
-			workloadPriorityClassName: "test",
-			wantPriorityClassRef:      kueue.NewWorkloadPriorityClassRef("test"),
-			wantPriorityClassValue:    50,
-			wantNodeAvoidancePolicy:   kueue.NodeAvoidancePolicyPreferNoSchedule,
-			enableNodeAvoidance:       true,
 		},
 		"workloadPriorityClass is specified and it does not exist": {
 			workloadPriorityClassList: &kueue.WorkloadPriorityClassList{
@@ -219,8 +196,7 @@ func TestGetPriorityFromWorkloadPriorityClass(t *testing.T) {
 			builder := fake.NewClientBuilder().WithScheme(scheme).WithLists(tt.workloadPriorityClassList)
 			client := builder.Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
-			features.SetFeatureGateDuringTest(t, features.NodeAvoidanceScheduling, tt.enableNodeAvoidance)
-			priorityClassRef, value, policy, err := GetPriorityFromWorkloadPriorityClass(ctx, client, tt.workloadPriorityClassName)
+			priorityClassRef, value, err := GetPriorityFromWorkloadPriorityClass(ctx, client, tt.workloadPriorityClassName)
 			if diff := cmp.Diff(tt.wantErr, err); diff != "" {
 				t.Errorf("unexpected error (-want,+got):\n%s", diff)
 			}
@@ -231,10 +207,6 @@ func TestGetPriorityFromWorkloadPriorityClass(t *testing.T) {
 
 			if value != tt.wantPriorityClassValue {
 				t.Errorf("unexpected value: got: %d, expected: %d", value, tt.wantPriorityClassValue)
-			}
-
-			if policy != tt.wantNodeAvoidancePolicy {
-				t.Errorf("unexpected policy: got: %s, expected: %s", policy, tt.wantNodeAvoidancePolicy)
 			}
 		})
 	}

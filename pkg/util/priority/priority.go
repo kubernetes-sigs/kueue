@@ -26,7 +26,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
-	"sigs.k8s.io/kueue/pkg/features"
 )
 
 // Priority returns priority of the given workload.
@@ -40,46 +39,40 @@ func Priority(w *kueue.Workload) int32 {
 // GetPriorityFromPriorityClass returns the priority populated from
 // priority class. If not specified, the priority will be default or
 // zero if there is no default.
-func GetPriorityFromPriorityClass(ctx context.Context, client client.Client, priorityClass string) (*kueue.PriorityClassRef, int32, string, error) {
+func GetPriorityFromPriorityClass(ctx context.Context, client client.Client, priorityClass string) (*kueue.PriorityClassRef, int32, error) {
 	if len(priorityClass) == 0 {
 		return getDefaultPriority(ctx, client)
 	}
 
 	pc := &schedulingv1.PriorityClass{}
 	if err := client.Get(ctx, types.NamespacedName{Name: priorityClass}, pc); err != nil {
-		return nil, 0, "", err
+		return nil, 0, err
 	}
 
-	return kueue.NewPodPriorityClassRef(pc.Name), pc.Value, "", nil
+	return kueue.NewPodPriorityClassRef(pc.Name), pc.Value, nil
 }
 
 // GetPriorityFromWorkloadPriorityClass returns the priority populated from
 // workload priority class. If not specified, returns 0.
 // DefaultPriority is not called within this function
 // because k8s priority class should be checked next.
-func GetPriorityFromWorkloadPriorityClass(ctx context.Context, client client.Client, workloadPriorityClass string) (*kueue.PriorityClassRef, int32, string, error) {
+func GetPriorityFromWorkloadPriorityClass(ctx context.Context, client client.Client, workloadPriorityClass string) (*kueue.PriorityClassRef, int32, error) {
 	wpc := &kueue.WorkloadPriorityClass{}
 	if err := client.Get(ctx, types.NamespacedName{Name: workloadPriorityClass}, wpc); err != nil {
-		return nil, 0, "", err
+		return nil, 0, err
 	}
-	var nodeAvoidancePolicy string
-	if features.Enabled(features.NodeAvoidanceScheduling) {
-		if p, ok := wpc.Annotations[kueue.NodeAvoidancePolicyAnnotation]; ok {
-			nodeAvoidancePolicy = p
-		}
-	}
-	return kueue.NewWorkloadPriorityClassRef(wpc.Name), wpc.Value, nodeAvoidancePolicy, nil
+	return kueue.NewWorkloadPriorityClassRef(wpc.Name), wpc.Value, nil
 }
 
-func getDefaultPriority(ctx context.Context, client client.Client) (*kueue.PriorityClassRef, int32, string, error) {
+func getDefaultPriority(ctx context.Context, client client.Client) (*kueue.PriorityClassRef, int32, error) {
 	dpc, err := getDefaultPriorityClass(ctx, client)
 	if err != nil {
-		return nil, 0, "", err
+		return nil, 0, err
 	}
 	if dpc != nil {
-		return kueue.NewPodPriorityClassRef(dpc.Name), dpc.Value, "", nil
+		return kueue.NewPodPriorityClassRef(dpc.Name), dpc.Value, nil
 	}
-	return nil, constants.DefaultPriority, "", nil
+	return nil, constants.DefaultPriority, nil
 }
 
 func getDefaultPriorityClass(ctx context.Context, client client.Client) (*schedulingv1.PriorityClass, error) {

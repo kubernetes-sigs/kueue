@@ -80,8 +80,7 @@ func (t *tasCache) AddTopology(topology *kueue.Topology) {
 	name := kueue.TopologyReference(topology.Name)
 	if _, ok := t.topologies[name]; !ok {
 		tInfo := topologyInformation{
-			Levels:         utiltas.Levels(topology),
-			AvoidanceLabel: topology.Annotations[kueue.NodeAvoidanceLabelAnnotation],
+			Levels: utiltas.Levels(topology),
 		}
 		t.topologies[name] = tInfo
 		for fName, flavorInfo := range t.flavors {
