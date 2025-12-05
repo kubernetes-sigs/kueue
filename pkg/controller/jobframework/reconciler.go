@@ -56,6 +56,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -106,6 +107,7 @@ type Options struct {
 	Cache                        *schdcache.Cache
 	Clock                        clock.Clock
 	WorkloadRetentionPolicy      WorkloadRetentionPolicy
+	RoleTracker                  *roletracker.RoleTracker
 }
 
 // Option configures the reconciler.
@@ -221,6 +223,13 @@ func WithObjectRetentionPolicies(value *configapi.ObjectRetentionPolicies) Optio
 		if value != nil && value.Workloads != nil && value.Workloads.AfterDeactivatedByKueue != nil {
 			o.WorkloadRetentionPolicy.AfterDeactivatedByKueue = &value.Workloads.AfterDeactivatedByKueue.Duration
 		}
+	}
+}
+
+// WithRoleTracker sets the roleTracker for HA logging.
+func WithRoleTracker(tracker *roletracker.RoleTracker) Option {
+	return func(o *Options) {
+		o.RoleTracker = tracker
 	}
 }
 

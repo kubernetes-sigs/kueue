@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -50,24 +51,29 @@ type IncrementalDispatcherReconciler struct {
 	helper          *admissioncheck.MultiKueueStoreHelper
 	clock           clock.Clock
 	roundStartTimes *utilmaps.SyncMap[types.NamespacedName, time.Time]
+	roleTracker     *roletracker.RoleTracker
 }
 
 var realClock = clock.RealClock{}
 var _ reconcile.Reconciler = (*IncrementalDispatcherReconciler)(nil)
 
+const IncrementalDispatcherControllerName = "multikueue_incremental_dispatcher"
+
 func (r *IncrementalDispatcherReconciler) SetupWithManager(mgr ctrl.Manager, cfg *kueueconfig.Configuration) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		Named("multikueue_incremental_dispatcher").
+		Named(IncrementalDispatcherControllerName).
 		For(&kueue.Workload{}).
+		WithLogConstructor(roletracker.NewLogConstructor(r.roleTracker, IncrementalDispatcherControllerName)).
 		Complete(core.WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
 }
 
-func NewIncrementalDispatcherReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelper) *IncrementalDispatcherReconciler {
+func NewIncrementalDispatcherReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelper, roleTracker *roletracker.RoleTracker) *IncrementalDispatcherReconciler {
 	return &IncrementalDispatcherReconciler{
 		client:          c,
 		helper:          helper,
 		clock:           realClock,
 		roundStartTimes: utilmaps.NewSyncMap[types.NamespacedName, time.Time](0),
+		roleTracker:     roleTracker,
 	}
 }
 func (r *IncrementalDispatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
