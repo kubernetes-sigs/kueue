@@ -191,7 +191,7 @@ func TestSortDomainsByCapacityAndEntropy(t *testing.T) {
 		policy             string
 		wantDomains        []string
 	}{
-		"prefer non labeled policy enabled": {
+		"PreferNoSchedule policy enabled": {
 			enableFeatureGates: []featuregate.Feature{features.NodeAvoidanceScheduling},
 			domains: []*domain{
 				makeDomain("d1", 9, true),
@@ -202,7 +202,7 @@ func TestSortDomainsByCapacityAndEntropy(t *testing.T) {
 			policy:      kueue.NodeAvoidancePolicyPreferNoSchedule,
 			wantDomains: []string{"d2", "d4", "d1", "d3"},
 		},
-		"prefer non labeled policy disabled": {
+		"PreferNoSchedule policy disabled": {
 			enableFeatureGates: []featuregate.Feature{},
 			domains: []*domain{
 				makeDomain("d1", 9, true),
@@ -213,7 +213,7 @@ func TestSortDomainsByCapacityAndEntropy(t *testing.T) {
 			policy:      kueue.NodeAvoidancePolicyPreferNoSchedule,
 			wantDomains: []string{"d1", "d2", "d3", "d4"},
 		},
-		"prefer healthy - healthy first despite lower capacity": {
+		"PreferNoSchedule: non-avoided node prioritized over avoided node with higher capacity": {
 			enableFeatureGates: []featuregate.Feature{features.NodeAvoidanceScheduling},
 			domains: []*domain{
 				makeDomain("node-unhealthy", 8, true),
@@ -222,7 +222,7 @@ func TestSortDomainsByCapacityAndEntropy(t *testing.T) {
 			policy:      kueue.NodeAvoidancePolicyPreferNoSchedule,
 			wantDomains: []string{"node-healthy", "node-unhealthy"},
 		},
-		"prefer healthy - no policy": {
+		"PreferNoSchedule: non-avoided node prioritized over avoided node": {
 			enableFeatureGates: []featuregate.Feature{features.NodeAvoidanceScheduling},
 			domains: []*domain{
 				makeDomain("node-unhealthy", 8, true),
