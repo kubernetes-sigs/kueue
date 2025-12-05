@@ -195,7 +195,7 @@ Without the failure recovery policy, the pod will be unable to progress past thi
 
 By default, pods have a 30 second grace period to terminate gracefully.
 Additionally, the failure recovery controller also waits 60 seconds before forcefully marking the stuck pod as `Failed`.
-In total, the pod should transition to `Failed` after 90 seconds since the `deletionTimestamp` was added to the pod.
+In total, the pod should transition to `Failed` after 90 seconds since the it was marked for termination.
 
 Fetching all the pods after it elapses:
 ```sh
