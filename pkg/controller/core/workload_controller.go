@@ -275,12 +275,12 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 
 		if workload.IsActive(&wl) && !workload.HasQuotaReservation(&wl) {
-			if err := r.queues.AddOrUpdateWorkload(log, &wl, queueOptions...); err != nil {
+			if err := r.queues.AddOrUpdateWorkload(log, wl.DeepCopy(), queueOptions...); err != nil {
 				log.V(2).Info("Failed to add DRA workload to queue", "error", err)
 				return ctrl.Result{}, err
 			}
 		} else {
-			if !r.cache.AddOrUpdateWorkload(log, &wl) {
+			if !r.cache.AddOrUpdateWorkload(log, wl.DeepCopy()) {
 				log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 			}
 		}
