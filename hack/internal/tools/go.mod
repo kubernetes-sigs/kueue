@@ -13,6 +13,7 @@ tool (
 	gotest.tools/gotestsum
 	helm.sh/helm/v3/cmd/helm
 	k8s.io/code-generator
+	k8s.io/kubernetes/test/compatibility_lifecycle/cmd
 	sigs.k8s.io/controller-runtime/tools/setup-envtest
 	sigs.k8s.io/controller-tools/cmd/controller-gen
 	sigs.k8s.io/kind
@@ -36,6 +37,7 @@ require (
 	gotest.tools/gotestsum v1.13.0
 	helm.sh/helm/v4 v4.0.4
 	k8s.io/code-generator v0.35.0
+	k8s.io/kubernetes v1.34.2
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20250407161039-6ad5c1dd4418
 	sigs.k8s.io/controller-tools v0.20.0
 	sigs.k8s.io/kind v0.31.0
@@ -179,7 +181,7 @@ require (
 	github.com/cncf/xds/go v0.0.0-20251110193048-8bfbf64dc13e // indirect
 	github.com/common-nighthawk/go-figure v0.0.0-20210622060536-734e95fb86be // indirect
 	github.com/containerd/containerd v1.7.29 // indirect
-	github.com/containerd/errdefs v0.3.0 // indirect
+	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/log v0.1.0 // indirect
 	github.com/containerd/platforms v0.2.1 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.7 // indirect

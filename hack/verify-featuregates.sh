@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Copyright 2024 The Kubernetes Authors.
+# Copyright 2026 The Kubernetes Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@ set -o nounset
 set -o pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MOD_FILE="${REPO_ROOT}/hack/tools/go.mod"
+MOD_FILE="${REPO_ROOT}/hack/internal/tools/go.mod"
 K8S_TOOL_PKG="k8s.io/kubernetes/test/compatibility_lifecycle"
 REFERENCE_FILE="${REPO_ROOT}/test/compatibility_lifecycle/reference/versioned_feature_list.yaml"
 SITE_DATA_FILE="${REPO_ROOT}/site/data/featuregates/versioned_feature_list.yaml"
