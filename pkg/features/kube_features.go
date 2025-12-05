@@ -231,7 +231,7 @@ const (
 
 	// owner: @j-skiba
 	//
-	// Enables failure aware scheduling by injecting node affinity based on workload priority.
+	// Enables node avoidance TAS scheduling.
 	NodeAvoidanceScheduling featuregate.Feature = "NodeAvoidanceScheduling"
 )
 
