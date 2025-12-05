@@ -63,6 +63,7 @@ BASE_BUILDER_IMAGE ?= golang
 BUILDER_IMAGE ?= $(BASE_BUILDER_IMAGE):$(GO_VERSION)
 CGO_ENABLED ?= 0
 
+# Needle in the heystack
 YAML_PROCESSOR_LOG_LEVEL ?= info
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
