@@ -10,7 +10,8 @@
     "build": "vite build",
     "dev": "vite --no-open",
     "preview": "vite preview",
-    "check-unused": "depcheck"
+    "check-unused": "depcheck",
+    "serve": "npm run serve"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
@@ -27,7 +28,8 @@
   "devDependencies": {
     "@vitejs/plugin-react": "^5.1.1",
     "depcheck": "^1.4.7",
-    "vite": "^7.2.4"
+    "vite": "^7.2.4",
+    "serve": "^14.2.5"
   },
   "browserslist": {
     "production": [

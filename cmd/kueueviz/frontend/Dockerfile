@@ -21,15 +21,6 @@ FROM node:25-slim AS runtime
 
 WORKDIR /app
 
-# Install serve for production static file serving
-RUN mkdir -p /usr/local/node_packages/
-COPY ./node_packages/package.json /usr/local/node_packages/
-COPY ./node_packages/package-lock.json /usr/local/node_packages/
-WORKDIR /usr/local/node_packages/
-RUN npm install
-ENV PATH="/usr/local/node_packages/node_modules/.bin:${PATH}"
-WORKDIR /app
-
 # Copy only the built files from builder
 COPY --from=builder /app/build ./build
 COPY start.sh /app/start.sh
