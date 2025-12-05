@@ -27,10 +27,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	statefulsettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 )

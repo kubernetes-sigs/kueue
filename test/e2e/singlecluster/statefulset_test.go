@@ -535,8 +535,8 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 			ginkgo.By("Check the low priority Workload is preempted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, lowPriorityWlKey, createdLowPriorityWl)).To(gomega.Succeed())
-					g.Expect(createdLowPriorityWl.Status.Conditions).To(utiltesting.HaveConditionStatusFalse(kueue.WorkloadAdmitted))
-					g.Expect(createdLowPriorityWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPreempted))
+					g.Expect(createdLowPriorityWl.Status.Conditions).To(testing.HaveConditionStatusFalse(kueue.WorkloadAdmitted))
+					g.Expect(createdLowPriorityWl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadPreempted))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -561,7 +561,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 			ginkgo.By("Check workload is created", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-					g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+					g.Expect(createdWorkload.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -588,7 +588,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					g.Expect(createdWorkload.UID).Should(gomega.Equal(createdWorkloadUID))
 					g.Expect(createdWorkload.Spec.Active).Should(gomega.Equal(ptr.To(false)))
-					g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadEvicted))
+					g.Expect(createdWorkload.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.WorkloadEvicted))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -612,7 +612,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					g.Expect(createdWorkload.UID).Should(gomega.Equal(createdWorkloadUID))
-					g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+					g.Expect(createdWorkload.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
