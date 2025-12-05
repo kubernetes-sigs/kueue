@@ -38,8 +38,8 @@ type tasCache struct {
 func NewTASCache(client client.Client) tasCache {
 	return tasCache{
 		client:      client,
-		topologies:  make(map[kueue.TopologyReference]topologyInformation),
 		flavors:     make(map[kueue.ResourceFlavorReference]flavorInformation),
+		topologies:  make(map[kueue.TopologyReference]topologyInformation),
 		flavorCache: make(map[kueue.ResourceFlavorReference]*TASFlavorCache),
 	}
 }

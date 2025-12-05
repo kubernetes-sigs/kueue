@@ -26,6 +26,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 // Priority returns priority of the given workload.
@@ -62,8 +63,10 @@ func GetPriorityFromWorkloadPriorityClass(ctx context.Context, client client.Cli
 		return nil, 0, "", err
 	}
 	var nodeAvoidancePolicy string
-	if p, ok := wpc.Annotations[kueue.NodeAvoidancePolicyAnnotation]; ok {
-		nodeAvoidancePolicy = p
+	if features.Enabled(features.NodeAvoidanceScheduling) {
+		if p, ok := wpc.Annotations[kueue.NodeAvoidancePolicyAnnotation]; ok {
+			nodeAvoidancePolicy = p
+		}
 	}
 	return kueue.NewWorkloadPriorityClassRef(wpc.Name), wpc.Value, nodeAvoidancePolicy, nil
 }
