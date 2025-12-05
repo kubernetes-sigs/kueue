@@ -86,7 +86,7 @@ func GetAgnHostImage() string {
 		return image
 	}
 
-	agnhostDockerfilePath := filepath.Join(GetProjectBaseDir(), "hack", "agnhost", "Dockerfile")
+	agnhostDockerfilePath := filepath.Join(ProjectBaseDir, "hack", "agnhost", "Dockerfile")
 	agnhostImage, err := getDockerImageFromDockerfile(agnhostDockerfilePath)
 	if err != nil {
 		panic(fmt.Errorf("failed to get agnhost image: %v", err))
