@@ -30,3 +30,15 @@ const (
 	// ClusterQueue.
 	Reclaim
 )
+
+func (p PreemptionPossibility) String() string {
+	switch p {
+	case NoCandidates:
+		return "NoCandidates"
+	case Preempt:
+		return "Preempt"
+	case Reclaim:
+		return "Reclaim"
+	}
+	return "Unknown"
+}
