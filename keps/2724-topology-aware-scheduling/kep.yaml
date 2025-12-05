@@ -5,6 +5,7 @@ authors:
   - "@mwielgus"
   - "@olekzabl"
   - "@pbundyra"
+  - "@j-skiba"
 status: provisional
 creation-date: 2023-07-30
 reviewers:
@@ -44,6 +45,7 @@ feature-gates:
   - name: TASFailedNodeReplacementFailFast
   - name: TASReplaceNodeOnPodTermination
   - name: TASBalancedPlacement
+  - name: TASNodeAvoidance
 disable-supported: true
 
 # The following PRR answers are required at beta release

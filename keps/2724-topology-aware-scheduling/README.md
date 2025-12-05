@@ -191,6 +191,12 @@ within a "block", but each Job should also run within a "host" within that "bloc
 Similar to [Story 1](#story-1), but I want Leader and its Workers within a single replica
 in LeaderWorkerSet to run within a "rack".
 
+#### Story 7
+
+As a cluster administrator I want to be able to mark some nodes as "maintenance", "unhealthy" or "reserved"
+so that TAS workloads avoid them if possible (PreferNoSchedule), or strictly avoid them (NoSchedule).
+I want to be able to configure this policy per Workload (via Job annotation or WorkloadPriorityClass).
+
 ### Notes/Constraints/Caveats (Optional)
 
 #### Integration support
@@ -651,6 +657,9 @@ spec:
   - nodeLabel: cloud.provider.com/topology-rack
 ```
 
+
+
+
 ### User-facing API
 
 The user will need to point the workload to the ClusterQueue with the TAS
@@ -697,6 +706,14 @@ const (
   // This annotation is required if `kueue.x-k8s.io/podset-slice-required-topology`
   // is defined
   PodSetSliceSizeAnnotation = "kueue.x-k8s.io/podset-slice-size"
+
+  // NodeAvoidancePolicyAnnotation indicates the policy for avoiding nodes with the
+  // label specified in the Topology object.
+  // Values:
+  // - "NoSchedule": The pod will not be scheduled on nodes with the avoidance label.
+  // - "PreferNoSchedule": The pod prefers not to be scheduled on nodes with the
+  //   avoidance label, but can be if necessary.
+  NodeAvoidancePolicyAnnotation = "kueue.x-k8s.io/node-avoidance-policy"
 )
 ```
 
@@ -731,6 +748,7 @@ the rules is deactivated):
 - If `kueue.x-k8s.io/podset-group-name` is specified, the `kueue.x-k8s.io/podset-required-topology`
   or `kueue.x-k8s.io/podset-preferred-topology` has to also be specified in all other
   PodTemplates included in the PodSet Group and it has to have the same value.
+- The value of `kueue.x-k8s.io/node-avoidance-policy` must be either "NoSchedule" or "PreferNoSchedule".
 
 #### PodSet Slice size validation
 
@@ -1321,6 +1339,43 @@ assignment unit to `PodSet Group`.
 
 User can influence the value of `PodSetGroup` by setting `kueue.x-k8s.io/podset-group-name`
 annotation.
+
+### Node Avoidance
+
+To support [Story 7](#story-7), we introduce a mechanism to avoid scheduling pods on nodes
+that have a specific label. This is useful for marking nodes as "maintenance", "unhealthy" or "reserved".
+This feature is guarded by the `TASNodeAvoidance` feature gate.
+
+The label key to be avoided is configured by the cluster administrator in the `Topology` object
+using the `kueue.x-k8s.io/node-avoidance-label` annotation.
+
+```yaml
+kind: Topology
+metadata:
+  name: "default"
+  annotations:
+    kueue.x-k8s.io/node-avoidance-label: "cloud.provider.com/node-avoidance"
+spec:
+  levels:
+  - nodeLabel: cloud.provider.com/topology-block
+  - nodeLabel: cloud.provider.com/topology-rack
+```
+
+The policy for avoidance is configured by the user using the `kueue.x-k8s.io/node-avoidance-policy`
+annotation on the Job (or WorkloadPriorityClass). This annotation is propagated to the Workload.
+
+The supported policies are:
+- `NoSchedule`: The pods will not be scheduled on nodes with the avoidance label.
+  When calculating the capacity of a topology domain, nodes with the avoidance label are excluded.
+- `PreferNoSchedule`: The pods prefer not to be scheduled on nodes with the avoidance label.
+  Kueue first attempts to find a topology assignment using only nodes without the avoidance label.
+  If no such assignment is found, Kueue attempts to find an assignment including nodes with the avoidance label.
+
+If the `kueue.x-k8s.io/node-avoidance-label` is not set on the Topology, the `node-avoidance-policy`
+annotation on the Workload is ignored.
+
+If the `kueue.x-k8s.io/node-avoidance-policy` is not set on the Workload (and not on WorkloadPriorityClass),
+the default behavior is to treat nodes with the avoidance label as regular nodes (no avoidance).
 
 ### Enforcing the assignment
 
