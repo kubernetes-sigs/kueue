@@ -5580,7 +5580,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 		},
-		"node avoidance; prefer non labeled": {
+		"node avoidance; PreferNoSchedule": {
 			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement, features.NodeAvoidanceScheduling},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
@@ -5630,7 +5630,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 		},
-		"node avoidance; disallow labeled; all labeled": {
+		"node avoidance; NoSchedule; all avoided": {
 			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement, features.NodeAvoidanceScheduling},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").

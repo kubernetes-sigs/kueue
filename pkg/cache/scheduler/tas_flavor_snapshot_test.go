@@ -445,15 +445,15 @@ func TestSortedDomainsWithNodeAvoidance(t *testing.T) {
 		policy string
 		want   []string
 	}{
-		"no policy - sorts by name (avoid first because of name)": {
+		"no policy - sorts by name (avoided first because of name)": {
 			policy: "",
 			want:   []string{"node-1-avoid", "node-2-safe"},
 		},
-		"prefer safe - sorts by avoidance (safe first despite name)": {
+		"PreferNoSchedule - sorts by avoidance (non-avoided first despite name)": {
 			policy: kueue.NodeAvoidancePolicyPreferNoSchedule,
 			want:   []string{"node-2-safe", "node-1-avoid"},
 		},
-		"disallow avoid": {
+		"NoSchedule - disallow avoided": {
 			policy: kueue.NodeAvoidancePolicyNoSchedule,
 			want:   []string{"node-2-safe"},
 		},
@@ -502,7 +502,7 @@ func TestSortedDomainsWithNodeAvoidance_Hierarchy(t *testing.T) {
 		policy string
 		want   []string
 	}{
-		"prefer safe - safe rack first": {
+		"PreferNoSchedule - non-avoided rack first": {
 			policy: kueue.NodeAvoidancePolicyPreferNoSchedule,
 			want:   []string{"r2", "r1"},
 		},
@@ -561,7 +561,7 @@ func TestSortedDomainsWithNodeAvoidance_Capacity(t *testing.T) {
 		policy string
 		want   []string
 	}{
-		"prefer safe - safe first despite lower capacity": {
+		"PreferNoSchedule - non-avoided first despite lower capacity": {
 			policy: kueue.NodeAvoidancePolicyPreferNoSchedule,
 			want:   []string{"node-safe", "node-avoid"},
 		},
