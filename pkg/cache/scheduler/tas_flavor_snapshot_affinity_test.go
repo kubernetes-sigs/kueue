@@ -53,15 +53,8 @@ func TestSortedDomainsWithPreferredAffinity(t *testing.T) {
 	}
 	s.initialize()
 
-	// Simulate resource availability
 	s.leaves[tas.DomainID([]string{"node-preferred"})].sliceState = 1
 	s.leaves[tas.DomainID([]string{"node-other"})].sliceState = 1
-
-	// Manually trigger fillInCounts logic for affinity score (since we can't easily call fillInCounts directly without mocking everything)
-	// Or we can just manually set affinityScore to verify sorting logic.
-	// But better to verify fillInCounts logic too.
-	// Let's call fillInCounts via findTopologyAssignment? No, too complex.
-	// Let's just call fillInCounts directly.
 
 	requests := resources.Requests{corev1.ResourceCPU: 1}
 
@@ -73,8 +66,8 @@ func TestSortedDomainsWithPreferredAffinity(t *testing.T) {
 		0,
 		false,
 		nil,
-		labels.Everything(), // selector
-		nil,                 // affinityNodeSelector
+		labels.Everything(),
+		nil,
 		preferredAffinity,
 		"",
 	)
