@@ -24,7 +24,7 @@ import (
 
 // ShouldNodeBeAvoided checks if the node has the specified avoided label.
 func ShouldNodeBeAvoided(node *corev1.Node, avoidedLabel string) bool {
-	if node == nil || node.Labels == nil {
+	if node == nil || node.Labels == nil || avoidedLabel == "" {
 		return false
 	}
 	_, ok := node.Labels[avoidedLabel]

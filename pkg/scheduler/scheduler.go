@@ -541,17 +541,6 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, log logr.Logger, 
 
 	var nodeAvoidancePolicy string
 	if features.Enabled(features.NodeAvoidanceScheduling) {
-		var priorityClassName string
-		if wl.Obj.Spec.PriorityClassRef != nil {
-			priorityClassName = wl.Obj.Spec.PriorityClassRef.Name
-		}
-		if priorityClassName != "" {
-			var err error
-			_, _, nodeAvoidancePolicy, err = priority.GetPriorityFromWorkloadPriorityClass(ctx, s.client, priorityClassName)
-			if err != nil {
-				log.V(3).Error(err, "Failed to get NodeAvoidancePolicy from WorkloadPriorityClass", "workloadPriorityClass", priorityClassName)
-			}
-		}
 		if policy := nodeavoidance.GetNodeAvoidancePolicy(wl.Obj); policy != "" {
 			nodeAvoidancePolicy = policy
 		}
