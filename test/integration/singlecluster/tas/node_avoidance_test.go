@@ -61,7 +61,7 @@ func managerSetupWithNodeAvoidance(ctx context.Context, mgr manager.Manager) {
 	controllersCfg := &config.Configuration{}
 	mgr.GetScheme().Default(controllersCfg)
 
-	ginkgo.GinkgoWriter.Printf("Feature FailureAwareScheduling enabled: %v\n", features.Enabled(features.NodeAvoidanceScheduling))
+	ginkgo.GinkgoWriter.Printf("Feature NodeAvoidanceScheduling enabled: %v\n", features.Enabled(features.NodeAvoidanceScheduling))
 
 	cacheOptions := []schdcache.Option{}
 	cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
