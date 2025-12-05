@@ -167,5 +167,3 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 		})
 	}
 }
-
-

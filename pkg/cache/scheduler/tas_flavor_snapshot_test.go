@@ -429,5 +429,3 @@ func TestHasLevel(t *testing.T) {
 		})
 	}
 }
-
-

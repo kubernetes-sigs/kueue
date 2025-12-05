@@ -376,14 +376,13 @@ func TestFindTopologyAssignments(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		enableFeatureGates  []featuregate.Feature
-		nodes               []corev1.Node
-		pods                []corev1.Pod
-		levels              []string
-		nodeLabels          map[string]string
-		podSets             []PodSetTestCase
-		avoidanceLabel      string
-
+		enableFeatureGates []featuregate.Feature
+		nodes              []corev1.Node
+		pods               []corev1.Pod
+		levels             []string
+		nodeLabels         map[string]string
+		podSets            []PodSetTestCase
+		avoidanceLabel     string
 	}{
 		"minimize the number of used racks before optimizing the number of nodes; BestFit": {
 			// Solution by optimizing the number of racks then nodes: [r3]: [x1,x6,x2,x4]
@@ -5658,4 +5657,3 @@ func TestFindTopologyAssignments(t *testing.T) {
 		})
 	}
 }
-

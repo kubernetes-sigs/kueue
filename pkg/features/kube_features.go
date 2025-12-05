@@ -358,7 +358,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	FailureRecoveryPolicy: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
-
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) {
