@@ -379,7 +379,28 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	if !isTopLevelJob {
 		_, _, finished := job.Finished(ctx)
 		if !finished && !job.IsSuspended() {
-			if ancestorWorkload, err := r.getWorkloadForObject(ctx, ancestorJob); err != nil {
+			var ancestorWorkload *kueue.Workload
+			var err error
+			ancestorGenericJob := CreateGenericJobFromRuntimeObject(ancestorJob)
+			if ancestorGenericJob != nil {
+				log.V(10).Info("Ancestor job converted to generic job, trying to convert it again to JobWithCustomWorkloadRetriever")
+				jobWithCustomWorkloadRetriever, ok := ancestorGenericJob.(JobWithCustomWorkloadRetriever)
+				if ok {
+					log.V(10).Info("Ancestor job converted to JobWithCustomWorkloadRetriever")
+					ancestorWorkload, err = jobWithCustomWorkloadRetriever.GetWorkload(ctx, r.client)
+					if err != nil {
+						log.Error(err, "couldn't get an ancestor job workload")
+						return ctrl.Result{}, err
+					}
+				} else {
+					log.V(10).Info("Ancestor job not converted to JobWithCustomWorkloadRetriever")
+					ancestorWorkload, err = r.getWorkloadForObject(ctx, ancestorJob)
+				}
+			} else {
+				log.V(10).Info("Ancestor job not converted to generic job", "ancestorJobName", ancestorJob.GetName())
+				ancestorWorkload, err = r.getWorkloadForObject(ctx, ancestorJob)
+			}
+			if err != nil {
 				log.Error(err, "couldn't get an ancestor job workload")
 				return ctrl.Result{}, err
 			} else if ancestorWorkload == nil || !workload.IsAdmitted(ancestorWorkload) {
@@ -692,10 +713,10 @@ func (r *JobReconciler) recordAdmissionCheckUpdate(wl *kueue.Workload, job Gener
 	}
 }
 
-// getWorkloadForObject returns the Workload associated with the given job.
-func (r *JobReconciler) getWorkloadForObject(ctx context.Context, jobObj client.Object) (*kueue.Workload, error) {
+// GetWorkloadForObject returns the Workload associated with the given job.
+func GetWorkloadForObject(ctx context.Context, jobObj client.Object, c client.Client) (*kueue.Workload, error) {
 	wls := kueue.WorkloadList{}
-	if err := r.client.List(ctx, &wls, client.InNamespace(jobObj.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(jobObj.GetUID())}); client.IgnoreNotFound(err) != nil {
+	if err := c.List(ctx, &wls, client.InNamespace(jobObj.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(jobObj.GetUID())}); client.IgnoreNotFound(err) != nil {
 		return nil, err
 	}
 
@@ -713,6 +734,10 @@ func (r *JobReconciler) getWorkloadForObject(ctx context.Context, jobObj client.
 	}
 
 	return &wls.Items[0], nil
+}
+
+func (r *JobReconciler) getWorkloadForObject(ctx context.Context, jobObj client.Object) (*kueue.Workload, error) {
+	return GetWorkloadForObject(ctx, jobObj, r.client)
 }
 
 // FindAncestorJobManagedByKueue traverses controllerRefs to find the top-level ancestor Job managed by Kueue.
@@ -1530,11 +1555,15 @@ func clearMinCountsIfFeatureDisabled(in []kueue.PodSet) []kueue.PodSet {
 	return in
 }
 
-// workloadSliceEnabled returns true if all the following conditions are met:
+// WorkloadSliceEnabled returns true if all the following conditions are met:
 //   - The ElasticJobsViaWorkloadSlices feature is enabled.
 //   - The provided job is not nil.
 //   - The job's underlying object is not nil.
 //   - The job's object has opted in for WorkloadSlice processing.
+func WorkloadSliceEnabled(job GenericJob) bool {
+	return workloadSliceEnabled(job)
+}
+
 func workloadSliceEnabled(job GenericJob) bool {
 	if job == nil {
 		return false

@@ -28,12 +28,15 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -56,6 +59,10 @@ func init() {
 		AddToScheme:       rayv1.AddToScheme,
 		MultiKueueAdapter: &multiKueueAdapter{},
 	}))
+
+	jobframework.RegisterGenericJobConvertFunc(gvk, func(obj runtime.Object) jobframework.GenericJob {
+		return fromObject(obj)
+	})
 }
 
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
@@ -79,6 +86,7 @@ type RayJob rayv1.RayJob
 var _ jobframework.GenericJob = (*RayJob)(nil)
 var _ jobframework.JobWithManagedBy = (*RayJob)(nil)
 var _ jobframework.JobWithSkip = (*RayJob)(nil)
+var _ jobframework.JobWithCustomWorkloadRetriever = (*RayJob)(nil)
 
 func (j *RayJob) Object() client.Object {
 	return (*rayv1.RayJob)(j)
@@ -104,7 +112,51 @@ func (j *RayJob) Suspend() {
 func (j *RayJob) Skip(ctx context.Context) bool {
 	// Skip reconciliation for RayJobs that use clusterSelector to reference existing clusters.
 	// These jobs are not managed by Kueue.
-	return len(j.Spec.ClusterSelector) > 0
+	if len(j.Spec.ClusterSelector) > 0 {
+		return true
+	}
+	// Short term solution to support RayJob InTreeAutoscaling: https://github.com/kubernetes-sigs/kueue/issues/7605
+	if j.Spec.RayClusterSpec != nil &&
+		ptr.Deref(j.Spec.RayClusterSpec.EnableInTreeAutoscaling, false) &&
+		jobframework.WorkloadSliceEnabled(j) {
+		return true
+	}
+	return false
+}
+
+// GetWorkload implements interface JobWithCustomWorkloadRetriever to handle RayJob with InTreeAutoscaling.
+// When InTreeAutoscaling is enabled, Kueue will create workload on the underlying RayCluster object,
+// this function will use that RayCluster to get workload in that case.
+func (j *RayJob) GetWorkload(ctx context.Context, c client.Client) (*kueue.Workload, error) {
+	log := ctrl.LoggerFrom(ctx).WithValues("gvk", j.GVK())
+	if j.Spec.RayClusterSpec != nil && ptr.Deref(j.Spec.RayClusterSpec.EnableInTreeAutoscaling, false) && workloadslicing.Enabled(j) {
+		rayClusterName := j.Status.RayClusterName
+		if rayClusterName == "" {
+			log.V(10).Info("Did not get workload due to RayClusterName being empty on status")
+			return nil, nil
+		}
+		log.V(10).Info("Getting workload from RayCluster", "rayClusterName", rayClusterName)
+		rayCluster := &rayv1.RayCluster{}
+		rayClusterKey := types.NamespacedName{
+			Name:      rayClusterName,
+			Namespace: j.Namespace,
+		}
+		err := c.Get(ctx, rayClusterKey, rayCluster)
+		if err != nil {
+			log.Error(err, "Failed to get RayCluster for skipped RayJob", "rayClusterName", rayClusterName)
+			return nil, err
+		}
+		// Use the RayCluster to get the workload
+		workload, err := jobframework.GetWorkloadForObject(ctx, rayCluster, c)
+		if err != nil {
+			log.Error(err, "Failed to get workload from RayCluster", "rayClusterName", rayClusterName)
+			return nil, err
+		}
+		log.V(10).Info("Got workload from RayCluster", "rayClusterName", rayClusterName, "workloadName", workload.Name)
+		return workload, nil
+	} else {
+		return jobframework.GetWorkloadForObject(ctx, j.Object(), c)
+	}
 }
 
 func (j *RayJob) GVK() schema.GroupVersionKind {

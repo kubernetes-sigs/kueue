@@ -67,3 +67,4 @@ managerConfig:
     featureGates:
       MultiKueueBatchJobWithManagedBy: true
       LocalQueueMetrics: true
+      ElasticJobsViaWorkloadSlices: true
