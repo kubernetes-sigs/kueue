@@ -333,6 +333,16 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}); err != nil {
 		return err
 	}
+	if err := s.AddGeneratedConversionFunc((*LocalQueueWallTimeLimits)(nil), (*v1beta2.LocalQueueWallTimeLimits)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta1_LocalQueueWallTimeLimits_To_v1beta2_LocalQueueWallTimeLimits(a.(*LocalQueueWallTimeLimits), b.(*v1beta2.LocalQueueWallTimeLimits), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddGeneratedConversionFunc((*v1beta2.LocalQueueWallTimeLimits)(nil), (*LocalQueueWallTimeLimits)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta2_LocalQueueWallTimeLimits_To_v1beta1_LocalQueueWallTimeLimits(a.(*v1beta2.LocalQueueWallTimeLimits), b.(*LocalQueueWallTimeLimits), scope)
+	}); err != nil {
+		return err
+	}
 	if err := s.AddGeneratedConversionFunc((*MultiKueueCluster)(nil), (*v1beta2.MultiKueueCluster)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1beta1_MultiKueueCluster_To_v1beta2_MultiKueueCluster(a.(*MultiKueueCluster), b.(*v1beta2.MultiKueueCluster), scope)
 	}); err != nil {
@@ -650,6 +660,36 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}
 	if err := s.AddGeneratedConversionFunc((*v1beta2.UnhealthyNode)(nil), (*UnhealthyNode)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1beta2_UnhealthyNode_To_v1beta1_UnhealthyNode(a.(*v1beta2.UnhealthyNode), b.(*UnhealthyNode), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddGeneratedConversionFunc((*WallTimeFlavor)(nil), (*v1beta2.WallTimeFlavor)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta1_WallTimeFlavor_To_v1beta2_WallTimeFlavor(a.(*WallTimeFlavor), b.(*v1beta2.WallTimeFlavor), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddGeneratedConversionFunc((*v1beta2.WallTimeFlavor)(nil), (*WallTimeFlavor)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta2_WallTimeFlavor_To_v1beta1_WallTimeFlavor(a.(*v1beta2.WallTimeFlavor), b.(*WallTimeFlavor), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddGeneratedConversionFunc((*WallTimeFlavorUsage)(nil), (*v1beta2.WallTimeFlavorUsage)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta1_WallTimeFlavorUsage_To_v1beta2_WallTimeFlavorUsage(a.(*WallTimeFlavorUsage), b.(*v1beta2.WallTimeFlavorUsage), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddGeneratedConversionFunc((*v1beta2.WallTimeFlavorUsage)(nil), (*WallTimeFlavorUsage)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta2_WallTimeFlavorUsage_To_v1beta1_WallTimeFlavorUsage(a.(*v1beta2.WallTimeFlavorUsage), b.(*WallTimeFlavorUsage), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddGeneratedConversionFunc((*WallTimePolicy)(nil), (*v1beta2.WallTimePolicy)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta1_WallTimePolicy_To_v1beta2_WallTimePolicy(a.(*WallTimePolicy), b.(*v1beta2.WallTimePolicy), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddGeneratedConversionFunc((*v1beta2.WallTimePolicy)(nil), (*WallTimePolicy)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta2_WallTimePolicy_To_v1beta1_WallTimePolicy(a.(*v1beta2.WallTimePolicy), b.(*WallTimePolicy), scope)
 	}); err != nil {
 		return err
 	}
@@ -1205,6 +1245,7 @@ func autoConvert_v1beta1_ClusterQueueSpec_To_v1beta2_ClusterQueueSpec(in *Cluste
 	out.StopPolicy = (*v1beta2.StopPolicy)(unsafe.Pointer(in.StopPolicy))
 	out.FairSharing = (*v1beta2.FairSharing)(unsafe.Pointer(in.FairSharing))
 	out.AdmissionScope = (*v1beta2.AdmissionScope)(unsafe.Pointer(in.AdmissionScope))
+	out.WallTimePolicy = (*v1beta2.WallTimePolicy)(unsafe.Pointer(in.WallTimePolicy))
 	return nil
 }
 
@@ -1219,6 +1260,7 @@ func autoConvert_v1beta2_ClusterQueueSpec_To_v1beta1_ClusterQueueSpec(in *v1beta
 	out.StopPolicy = (*StopPolicy)(unsafe.Pointer(in.StopPolicy))
 	out.FairSharing = (*FairSharing)(unsafe.Pointer(in.FairSharing))
 	out.AdmissionScope = (*AdmissionScope)(unsafe.Pointer(in.AdmissionScope))
+	out.WallTimePolicy = (*WallTimePolicy)(unsafe.Pointer(in.WallTimePolicy))
 	return nil
 }
 
@@ -1239,6 +1281,7 @@ func autoConvert_v1beta1_ClusterQueueStatus_To_v1beta2_ClusterQueueStatus(in *Cl
 	} else {
 		out.FairSharing = nil
 	}
+	out.WallTimeFlavorUsage = *(*[]v1beta2.WallTimeFlavorUsage)(unsafe.Pointer(&in.WallTimeFlavorUsage))
 	return nil
 }
 
@@ -1258,6 +1301,7 @@ func autoConvert_v1beta2_ClusterQueueStatus_To_v1beta1_ClusterQueueStatus(in *v1
 	} else {
 		out.FairSharing = nil
 	}
+	out.WallTimeFlavorUsage = *(*[]WallTimeFlavorUsage)(unsafe.Pointer(&in.WallTimeFlavorUsage))
 	return nil
 }
 
@@ -1648,6 +1692,7 @@ func autoConvert_v1beta1_LocalQueueSpec_To_v1beta2_LocalQueueSpec(in *LocalQueue
 	out.ClusterQueue = v1beta2.ClusterQueueReference(in.ClusterQueue)
 	out.StopPolicy = (*v1beta2.StopPolicy)(unsafe.Pointer(in.StopPolicy))
 	out.FairSharing = (*v1beta2.FairSharing)(unsafe.Pointer(in.FairSharing))
+	out.WallTimePolicy = (*v1beta2.LocalQueueWallTimeLimits)(unsafe.Pointer(in.WallTimePolicy))
 	return nil
 }
 
@@ -1660,6 +1705,7 @@ func autoConvert_v1beta2_LocalQueueSpec_To_v1beta1_LocalQueueSpec(in *v1beta2.Lo
 	out.ClusterQueue = ClusterQueueReference(in.ClusterQueue)
 	out.StopPolicy = (*StopPolicy)(unsafe.Pointer(in.StopPolicy))
 	out.FairSharing = (*FairSharing)(unsafe.Pointer(in.FairSharing))
+	out.WallTimePolicy = (*LocalQueueWallTimeLimits)(unsafe.Pointer(in.WallTimePolicy))
 	return nil
 }
 
@@ -1677,6 +1723,7 @@ func autoConvert_v1beta1_LocalQueueStatus_To_v1beta2_LocalQueueStatus(in *LocalQ
 	// WARNING: in.FlavorUsage requires manual conversion: does not exist in peer-type
 	// WARNING: in.Flavors requires manual conversion: does not exist in peer-type
 	out.FairSharing = (*v1beta2.LocalQueueFairSharingStatus)(unsafe.Pointer(in.FairSharing))
+	out.WallTimeFlavorUsage = *(*[]v1beta2.WallTimeFlavorUsage)(unsafe.Pointer(&in.WallTimeFlavorUsage))
 	return nil
 }
 
@@ -1688,7 +1735,30 @@ func autoConvert_v1beta2_LocalQueueStatus_To_v1beta1_LocalQueueStatus(in *v1beta
 	out.FlavorsReservation = *(*[]LocalQueueFlavorUsage)(unsafe.Pointer(&in.FlavorsReservation))
 	// WARNING: in.FlavorsUsage requires manual conversion: does not exist in peer-type
 	out.FairSharing = (*FairSharingStatus)(unsafe.Pointer(in.FairSharing))
+	out.WallTimeFlavorUsage = *(*[]WallTimeFlavorUsage)(unsafe.Pointer(&in.WallTimeFlavorUsage))
 	return nil
+}
+
+func autoConvert_v1beta1_LocalQueueWallTimeLimits_To_v1beta2_LocalQueueWallTimeLimits(in *LocalQueueWallTimeLimits, out *v1beta2.LocalQueueWallTimeLimits, s conversion.Scope) error {
+	out.WallTimeAllocatedHours = in.WallTimeAllocatedHours
+	out.ActionWhenWallTimeExhausted = v1beta2.StopPolicy(in.ActionWhenWallTimeExhausted)
+	return nil
+}
+
+// Convert_v1beta1_LocalQueueWallTimeLimits_To_v1beta2_LocalQueueWallTimeLimits is an autogenerated conversion function.
+func Convert_v1beta1_LocalQueueWallTimeLimits_To_v1beta2_LocalQueueWallTimeLimits(in *LocalQueueWallTimeLimits, out *v1beta2.LocalQueueWallTimeLimits, s conversion.Scope) error {
+	return autoConvert_v1beta1_LocalQueueWallTimeLimits_To_v1beta2_LocalQueueWallTimeLimits(in, out, s)
+}
+
+func autoConvert_v1beta2_LocalQueueWallTimeLimits_To_v1beta1_LocalQueueWallTimeLimits(in *v1beta2.LocalQueueWallTimeLimits, out *LocalQueueWallTimeLimits, s conversion.Scope) error {
+	out.WallTimeAllocatedHours = in.WallTimeAllocatedHours
+	out.ActionWhenWallTimeExhausted = StopPolicy(in.ActionWhenWallTimeExhausted)
+	return nil
+}
+
+// Convert_v1beta2_LocalQueueWallTimeLimits_To_v1beta1_LocalQueueWallTimeLimits is an autogenerated conversion function.
+func Convert_v1beta2_LocalQueueWallTimeLimits_To_v1beta1_LocalQueueWallTimeLimits(in *v1beta2.LocalQueueWallTimeLimits, out *LocalQueueWallTimeLimits, s conversion.Scope) error {
+	return autoConvert_v1beta2_LocalQueueWallTimeLimits_To_v1beta1_LocalQueueWallTimeLimits(in, out, s)
 }
 
 func autoConvert_v1beta1_MultiKueueCluster_To_v1beta2_MultiKueueCluster(in *MultiKueueCluster, out *v1beta2.MultiKueueCluster, s conversion.Scope) error {
@@ -2520,6 +2590,74 @@ func Convert_v1beta2_UnhealthyNode_To_v1beta1_UnhealthyNode(in *v1beta2.Unhealth
 	return autoConvert_v1beta2_UnhealthyNode_To_v1beta1_UnhealthyNode(in, out, s)
 }
 
+func autoConvert_v1beta1_WallTimeFlavor_To_v1beta2_WallTimeFlavor(in *WallTimeFlavor, out *v1beta2.WallTimeFlavor, s conversion.Scope) error {
+	out.Name = v1beta2.ResourceFlavorReference(in.Name)
+	out.WallTimeAllocatedHours = in.WallTimeAllocatedHours
+	out.ActionWhenWallTimeExhausted = v1beta2.StopPolicy(in.ActionWhenWallTimeExhausted)
+	return nil
+}
+
+// Convert_v1beta1_WallTimeFlavor_To_v1beta2_WallTimeFlavor is an autogenerated conversion function.
+func Convert_v1beta1_WallTimeFlavor_To_v1beta2_WallTimeFlavor(in *WallTimeFlavor, out *v1beta2.WallTimeFlavor, s conversion.Scope) error {
+	return autoConvert_v1beta1_WallTimeFlavor_To_v1beta2_WallTimeFlavor(in, out, s)
+}
+
+func autoConvert_v1beta2_WallTimeFlavor_To_v1beta1_WallTimeFlavor(in *v1beta2.WallTimeFlavor, out *WallTimeFlavor, s conversion.Scope) error {
+	out.Name = ResourceFlavorReference(in.Name)
+	out.WallTimeAllocatedHours = in.WallTimeAllocatedHours
+	out.ActionWhenWallTimeExhausted = StopPolicy(in.ActionWhenWallTimeExhausted)
+	return nil
+}
+
+// Convert_v1beta2_WallTimeFlavor_To_v1beta1_WallTimeFlavor is an autogenerated conversion function.
+func Convert_v1beta2_WallTimeFlavor_To_v1beta1_WallTimeFlavor(in *v1beta2.WallTimeFlavor, out *WallTimeFlavor, s conversion.Scope) error {
+	return autoConvert_v1beta2_WallTimeFlavor_To_v1beta1_WallTimeFlavor(in, out, s)
+}
+
+func autoConvert_v1beta1_WallTimeFlavorUsage_To_v1beta2_WallTimeFlavorUsage(in *WallTimeFlavorUsage, out *v1beta2.WallTimeFlavorUsage, s conversion.Scope) error {
+	out.Name = v1beta2.ResourceFlavorReference(in.Name)
+	out.WallTimeAllocated = in.WallTimeAllocated
+	out.WallTimeUsed = in.WallTimeUsed
+	return nil
+}
+
+// Convert_v1beta1_WallTimeFlavorUsage_To_v1beta2_WallTimeFlavorUsage is an autogenerated conversion function.
+func Convert_v1beta1_WallTimeFlavorUsage_To_v1beta2_WallTimeFlavorUsage(in *WallTimeFlavorUsage, out *v1beta2.WallTimeFlavorUsage, s conversion.Scope) error {
+	return autoConvert_v1beta1_WallTimeFlavorUsage_To_v1beta2_WallTimeFlavorUsage(in, out, s)
+}
+
+func autoConvert_v1beta2_WallTimeFlavorUsage_To_v1beta1_WallTimeFlavorUsage(in *v1beta2.WallTimeFlavorUsage, out *WallTimeFlavorUsage, s conversion.Scope) error {
+	out.Name = ResourceFlavorReference(in.Name)
+	out.WallTimeAllocated = in.WallTimeAllocated
+	out.WallTimeUsed = in.WallTimeUsed
+	return nil
+}
+
+// Convert_v1beta2_WallTimeFlavorUsage_To_v1beta1_WallTimeFlavorUsage is an autogenerated conversion function.
+func Convert_v1beta2_WallTimeFlavorUsage_To_v1beta1_WallTimeFlavorUsage(in *v1beta2.WallTimeFlavorUsage, out *WallTimeFlavorUsage, s conversion.Scope) error {
+	return autoConvert_v1beta2_WallTimeFlavorUsage_To_v1beta1_WallTimeFlavorUsage(in, out, s)
+}
+
+func autoConvert_v1beta1_WallTimePolicy_To_v1beta2_WallTimePolicy(in *WallTimePolicy, out *v1beta2.WallTimePolicy, s conversion.Scope) error {
+	out.WallTimeFlavors = *(*[]v1beta2.WallTimeFlavor)(unsafe.Pointer(&in.WallTimeFlavors))
+	return nil
+}
+
+// Convert_v1beta1_WallTimePolicy_To_v1beta2_WallTimePolicy is an autogenerated conversion function.
+func Convert_v1beta1_WallTimePolicy_To_v1beta2_WallTimePolicy(in *WallTimePolicy, out *v1beta2.WallTimePolicy, s conversion.Scope) error {
+	return autoConvert_v1beta1_WallTimePolicy_To_v1beta2_WallTimePolicy(in, out, s)
+}
+
+func autoConvert_v1beta2_WallTimePolicy_To_v1beta1_WallTimePolicy(in *v1beta2.WallTimePolicy, out *WallTimePolicy, s conversion.Scope) error {
+	out.WallTimeFlavors = *(*[]WallTimeFlavor)(unsafe.Pointer(&in.WallTimeFlavors))
+	return nil
+}
+
+// Convert_v1beta2_WallTimePolicy_To_v1beta1_WallTimePolicy is an autogenerated conversion function.
+func Convert_v1beta2_WallTimePolicy_To_v1beta1_WallTimePolicy(in *v1beta2.WallTimePolicy, out *WallTimePolicy, s conversion.Scope) error {
+	return autoConvert_v1beta2_WallTimePolicy_To_v1beta1_WallTimePolicy(in, out, s)
+}
+
 func autoConvert_v1beta1_Workload_To_v1beta2_Workload(in *Workload, out *v1beta2.Workload, s conversion.Scope) error {
 	out.ObjectMeta = in.ObjectMeta
 	if err := Convert_v1beta1_WorkloadSpec_To_v1beta2_WorkloadSpec(&in.Spec, &out.Spec, s); err != nil {
@@ -2701,6 +2839,7 @@ func autoConvert_v1beta1_WorkloadStatus_To_v1beta2_WorkloadStatus(in *WorkloadSt
 	out.AdmissionChecks = *(*[]v1beta2.AdmissionCheckState)(unsafe.Pointer(&in.AdmissionChecks))
 	out.ResourceRequests = *(*[]v1beta2.PodSetRequest)(unsafe.Pointer(&in.ResourceRequests))
 	// WARNING: in.AccumulatedPastExexcutionTimeSeconds requires manual conversion: does not exist in peer-type
+	out.WallTimeSeconds = (*int32)(unsafe.Pointer(in.WallTimeSeconds))
 	out.SchedulingStats = (*v1beta2.SchedulingStats)(unsafe.Pointer(in.SchedulingStats))
 	out.NominatedClusterNames = *(*[]string)(unsafe.Pointer(&in.NominatedClusterNames))
 	out.ClusterName = (*string)(unsafe.Pointer(in.ClusterName))
@@ -2724,6 +2863,7 @@ func autoConvert_v1beta2_WorkloadStatus_To_v1beta1_WorkloadStatus(in *v1beta2.Wo
 	out.AdmissionChecks = *(*[]AdmissionCheckState)(unsafe.Pointer(&in.AdmissionChecks))
 	out.ResourceRequests = *(*[]PodSetRequest)(unsafe.Pointer(&in.ResourceRequests))
 	// WARNING: in.AccumulatedPastExecutionTimeSeconds requires manual conversion: does not exist in peer-type
+	out.WallTimeSeconds = (*int32)(unsafe.Pointer(in.WallTimeSeconds))
 	out.SchedulingStats = (*SchedulingStats)(unsafe.Pointer(in.SchedulingStats))
 	out.NominatedClusterNames = *(*[]string)(unsafe.Pointer(&in.NominatedClusterNames))
 	out.ClusterName = (*string)(unsafe.Pointer(in.ClusterName))

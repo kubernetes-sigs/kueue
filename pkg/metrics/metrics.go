@@ -761,6 +761,10 @@ func ReportClusterQueueResourceUsage(cohort kueue.CohortReference, queue, flavor
 	ClusterQueueResourceUsage.WithLabelValues(string(cohort), queue, flavor, resource).Set(usage)
 }
 
+func ReportClusterQueueBudgetUsage(cohort kueue.CohortReference, queue, flavor, resource string, usage float64) {
+	ClusterQueueResourceUsage.WithLabelValues(string(cohort), queue, flavor, resource).Set(usage)
+}
+
 func ReportLocalQueueResourceUsage(lq LocalQueueReference, flavor, resource string, usage float64) {
 	LocalQueueResourceUsage.WithLabelValues(string(lq.Name), lq.Namespace, flavor, resource).Set(usage)
 }

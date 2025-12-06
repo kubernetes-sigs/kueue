@@ -32,6 +32,7 @@ type ClusterQueueStatusApplyConfiguration struct {
 	AdmittedWorkloads      *int32                                                `json:"admittedWorkloads,omitempty"`
 	PendingWorkloadsStatus *ClusterQueuePendingWorkloadsStatusApplyConfiguration `json:"pendingWorkloadsStatus,omitempty"`
 	FairSharing            *FairSharingStatusApplyConfiguration                  `json:"fairSharing,omitempty"`
+	WallTimeFlavorUsage    []WallTimeFlavorUsageApplyConfiguration               `json:"wallTimeFlavorUsage,omitempty"`
 }
 
 // ClusterQueueStatusApplyConfiguration constructs a declarative configuration of the ClusterQueueStatus type for use with
@@ -116,5 +117,18 @@ func (b *ClusterQueueStatusApplyConfiguration) WithPendingWorkloadsStatus(value 
 // If called multiple times, the FairSharing field is set to the value of the last call.
 func (b *ClusterQueueStatusApplyConfiguration) WithFairSharing(value *FairSharingStatusApplyConfiguration) *ClusterQueueStatusApplyConfiguration {
 	b.FairSharing = value
+	return b
+}
+
+// WithWallTimeFlavorUsage adds the given value to the WallTimeFlavorUsage field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the WallTimeFlavorUsage field.
+func (b *ClusterQueueStatusApplyConfiguration) WithWallTimeFlavorUsage(values ...*WallTimeFlavorUsageApplyConfiguration) *ClusterQueueStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithWallTimeFlavorUsage")
+		}
+		b.WallTimeFlavorUsage = append(b.WallTimeFlavorUsage, *values[i])
+	}
 	return b
 }
