@@ -17,6 +17,7 @@ limitations under the License.
 package preemption
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"testing"
@@ -30,6 +31,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	clocktesting "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -4167,6 +4169,223 @@ func TestPreemption(t *testing.T) {
 				defaultCmpOpts := cmp.Options{
 					cmpopts.EquateEmpty(),
 					cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
+					cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type }),
+				}
+
+				if diff := cmp.Diff(tc.wantWorkloads, workloads.Items, defaultCmpOpts); diff != "" {
+					t.Errorf("Unexpected workloads (-want/+got)\n%s", diff)
+				}
+
+				if diff := cmp.Diff(beforeSnapshot, snapshotWorkingCopy, snapCmpOpts); diff != "" {
+					t.Errorf("Snapshot was modified (-initial,+end):\n%s", diff)
+				}
+			})
+		}
+	}
+}
+
+func TestPreemptionWhenWorkloadModifiedConcurrently(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	rf := utiltestingapi.MakeResourceFlavor("default").Obj()
+	cq := utiltestingapi.MakeClusterQueue("standalone").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "6").
+				Obj(),
+		).ResourceGroup().
+		Preemption(kueue.ClusterQueuePreemption{
+			WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+		}).
+		Obj()
+
+	cases := map[string]struct {
+		workloads     []kueue.Workload
+		incoming      *kueue.Workload
+		assignment    flavorassigner.Assignment
+		wantWorkloads []kueue.Workload
+	}{
+		"preempt lowest priority": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("low", "").
+					ResourceVersion("1").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("standalone").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
+						now,
+					).
+					Obj(),
+				*utiltestingapi.MakeWorkload("mid", "").
+					ResourceVersion("1").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("standalone").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
+						now,
+					).
+					Obj(),
+				*utiltestingapi.MakeWorkload("high", "").
+					ResourceVersion("1").
+					Priority(1).
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("standalone").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
+						now,
+					).
+					Obj(),
+			},
+			incoming: utiltestingapi.MakeWorkload("in", "").
+				UID("wl-in").
+				ResourceVersion("1").
+				Label(controllerconstants.JobUIDLabel, "job-in").Clone().
+				Priority(1).
+				Request(corev1.ResourceCPU, "2").
+				Obj(),
+			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
+				corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
+					Name: kueue.ResourceFlavorReference(rf.Name),
+					Mode: flavorassigner.Preempt,
+				},
+			}),
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("high", "").
+					ResourceVersion("2").
+					Priority(1).
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("standalone").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
+						now,
+					).
+					Obj(),
+				*utiltestingapi.MakeWorkload("low", "").
+					ResourceVersion("3").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("standalone").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
+						now,
+					).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /standalone; preemptee path: /standalone",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /standalone; preemptee path: /standalone",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("mid", "").
+					ResourceVersion("2").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("standalone").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
+						now,
+					).
+					Obj(),
+			},
+		},
+	}
+	for name, tc := range cases {
+		for _, useMergePatch := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s when the WorkloadRequestUseMergePatch feature is %t", name, useMergePatch), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
+				ctx, log := utiltesting.ContextWithLog(t)
+				var patched bool
+				cl := utiltesting.NewClientBuilder().
+					WithLists(&kueue.WorkloadList{Items: tc.workloads}).
+					WithStatusSubresource(&kueue.Workload{}).
+					WithInterceptorFuncs(interceptor.Funcs{
+						SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+							if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" && !patched {
+								patched = true
+								for _, wl := range tc.workloads {
+									// Simulate concurrent modification by another controller
+									wlCopy := wl.DeepCopy()
+									if wlCopy.Labels == nil {
+										wlCopy.Labels = make(map[string]string, 1)
+									}
+									wlCopy.Labels["test.kueue.x-k8s.io/timestamp"] = time.Now().String()
+									if err := c.Update(ctx, wlCopy); err != nil {
+										return err
+									}
+								}
+							}
+							return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+						},
+					}).
+					Build()
+
+				cqCache := schdcache.New(cl)
+				cqCache.AddOrUpdateResourceFlavor(log, rf.DeepCopy())
+				if err := cqCache.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
+					t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
+				}
+
+				broadcaster := record.NewBroadcaster()
+				scheme := runtime.NewScheme()
+				if err := kueue.AddToScheme(scheme); err != nil {
+					t.Fatalf("Failed adding kueue scheme: %v", err)
+				}
+				recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
+				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now))
+
+				beforeSnapshot, err := cqCache.Snapshot(ctx)
+				if err != nil {
+					t.Fatalf("unexpected error while building snapshot: %v", err)
+				}
+				// make a working copy of the snapshotWorkingCopy than preemption can temporarily modify
+				snapshotWorkingCopy, err := cqCache.Snapshot(ctx)
+				if err != nil {
+					t.Fatalf("unexpected error while building snapshot: %v", err)
+				}
+				wlInfo := workload.NewInfo(tc.incoming)
+				wlInfo.ClusterQueue = kueue.ClusterQueueReference(cq.Name)
+				targets := preemptor.GetTargets(log, *wlInfo, tc.assignment, snapshotWorkingCopy)
+				_, _, err = preemptor.IssuePreemptions(ctx, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))
+				if err != nil {
+					t.Fatalf("Failed doing preemption")
+				}
+
+				workloads := &kueue.WorkloadList{}
+				err = cl.List(ctx, workloads)
+				if err != nil {
+					t.Fatalf("Failed to List workloads: %v", err)
+				}
+
+				defaultCmpOpts := cmp.Options{
+					cmpopts.EquateEmpty(),
+					// cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
+					cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Labels"),
 					cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type }),
 				}
 
