@@ -21,9 +21,29 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
-func SetupControllers(mgr ctrl.Manager, cfg *configapi.Configuration) (string, error) {
+// SetupOption configures the dispatcher controllers setup.
+type SetupOption func(*setupOptions)
+
+type setupOptions struct {
+	roleTracker *roletracker.RoleTracker
+}
+
+// WithRoleTracker sets the roleTracker for dispatcher controllers.
+func WithRoleTracker(tracker *roletracker.RoleTracker) SetupOption {
+	return func(o *setupOptions) {
+		o.roleTracker = tracker
+	}
+}
+
+func SetupControllers(mgr ctrl.Manager, cfg *configapi.Configuration, opts ...SetupOption) (string, error) {
+	options := &setupOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
 	if *cfg.MultiKueue.DispatcherName != configapi.MultiKueueDispatcherModeIncremental {
 		return "", nil
 	}
@@ -33,7 +53,7 @@ func SetupControllers(mgr ctrl.Manager, cfg *configapi.Configuration) (string, e
 		return "", err
 	}
 
-	idRec := NewIncrementalDispatcherReconciler(mgr.GetClient(), helper)
+	idRec := NewIncrementalDispatcherReconciler(mgr.GetClient(), helper, options.roleTracker)
 	err = idRec.SetupWithManager(mgr, cfg)
 	if err != nil {
 		return "multikueue-incremental-dispatcher", err

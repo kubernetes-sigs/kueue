@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -2269,7 +2270,7 @@ func TestReconcile(t *testing.T) {
 					t.Fatalf("Could not create workload: %v", err)
 				}
 			}
-			topologyUngater := newTopologyUngater(kClient)
+			topologyUngater := newTopologyUngater(kClient, roletracker.NewFakeRoleTracker(roletracker.RoleStandalone))
 			key := client.ObjectKeyFromObject(&tc.workloads[0])
 			request := reconcile.Request{NamespacedName: key}
 			if len(tc.expectUIDs) > 0 {

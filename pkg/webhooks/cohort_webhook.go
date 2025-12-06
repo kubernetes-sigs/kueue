@@ -26,14 +26,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
 type CohortWebhook struct{}
 
-func setupWebhookForCohort(mgr ctrl.Manager) error {
+func setupWebhookForCohort(mgr ctrl.Manager, roleTracker *roletracker.RoleTracker) error {
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&kueue.Cohort{}).
 		WithValidator(&CohortWebhook{}).
+		WithLogConstructor(roletracker.WebhookLogConstructor(roleTracker)).
 		Complete()
 }
 

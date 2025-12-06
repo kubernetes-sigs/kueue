@@ -49,6 +49,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -61,6 +62,7 @@ var (
 type topologyUngater struct {
 	client            client.Client
 	expectationsStore *expectations.Store
+	roleTracker       *roletracker.RoleTracker
 }
 
 type podWithUngateInfo struct {
@@ -80,10 +82,11 @@ var _ predicate.TypedPredicate[*kueue.Workload] = (*topologyUngater)(nil)
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get
 
-func newTopologyUngater(c client.Client) *topologyUngater {
+func newTopologyUngater(c client.Client, roleTracker *roletracker.RoleTracker) *topologyUngater {
 	return &topologyUngater{
 		client:            c,
 		expectationsStore: expectations.NewStore(TASTopologyUngater),
+		roleTracker:       roleTracker,
 	}
 }
 
@@ -104,6 +107,7 @@ func (r *topologyUngater) setupWithManager(mgr ctrl.Manager, cfg *configapi.Conf
 			NeedLeaderElection:      ptr.To(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("Workload").GroupKind().String()],
 		}).
+		WithLogConstructor(roletracker.NewLogConstructor(r.roleTracker, TASTopologyUngater)).
 		Complete(core.WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
 }
 

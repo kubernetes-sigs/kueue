@@ -52,6 +52,7 @@ import (
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/resource"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
 const (
@@ -68,6 +69,7 @@ const (
 type LocalQueueReconcilerOptions struct {
 	admissionFSConfig *config.AdmissionFairSharing
 	clock             clock.Clock
+	roleTracker       *roletracker.RoleTracker
 }
 
 // LocalQueueReconcilerOption configures the reconciler.
@@ -85,6 +87,12 @@ func WithClock(c clock.Clock) LocalQueueReconcilerOption {
 	}
 }
 
+func WithRoleTracker(tracker *roletracker.RoleTracker) LocalQueueReconcilerOption {
+	return func(o *LocalQueueReconcilerOptions) {
+		o.roleTracker = tracker
+	}
+}
+
 var defaultLQOptions = LocalQueueReconcilerOptions{
 	clock: realClock,
 }
@@ -98,6 +106,7 @@ type LocalQueueReconciler struct {
 	wlUpdateCh        chan event.GenericEvent
 	admissionFSConfig *config.AdmissionFairSharing
 	clock             clock.Clock
+	roleTracker       *roletracker.RoleTracker
 }
 
 var _ reconcile.Reconciler = (*LocalQueueReconciler)(nil)
@@ -121,6 +130,7 @@ func NewLocalQueueReconciler(
 		wlUpdateCh:        make(chan event.GenericEvent, updateChBuffer),
 		admissionFSConfig: options.admissionFSConfig,
 		clock:             options.clock,
+		roleTracker:       options.roleTracker,
 	}
 }
 
@@ -481,6 +491,7 @@ func (r *LocalQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Co
 		WithOptions(controller.Options{
 			NeedLeaderElection:      ptr.To(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("LocalQueue").GroupKind().String()],
+			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "localqueue-reconciler"),
 		}).
 		WatchesRawSource(source.Channel(r.wlUpdateCh, &qWorkloadHandler{})).
 		Watches(&kueue.ClusterQueue{}, &queueCQHandler).

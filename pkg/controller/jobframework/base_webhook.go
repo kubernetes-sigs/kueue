@@ -55,6 +55,7 @@ func BaseWebhookFactory(job GenericJob, fromObject func(runtime.Object) GenericJ
 			For(job.Object()).
 			WithMutationHandler(admission.WithCustomDefaulter(mgr.GetScheme(), job.Object(), wh)).
 			WithValidator(wh).
+			WithRoleTracker(options.RoleTracker).
 			Complete()
 	}
 }

@@ -31,6 +31,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/conversion"
+
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
 // This code is copied from https://github.com/kubernetes-sigs/controller-runtime/blob/896f6ded750155f9ecfdf4d8e10a26fc3fb78384/pkg/builder/webhook.go
@@ -48,6 +50,7 @@ type WebhookBuilder struct {
 	config          *rest.Config
 	recoverPanic    *bool
 	logConstructor  func(base logr.Logger, req *admission.Request) logr.Logger
+	roleTracker     *roletracker.RoleTracker
 	err             error
 }
 
@@ -87,6 +90,12 @@ func (blder *WebhookBuilder) WithLogConstructor(logConstructor func(base logr.Lo
 	return blder
 }
 
+// WithRoleTracker sets the role tracker for including replica-role in logs.
+func (blder *WebhookBuilder) WithRoleTracker(tracker *roletracker.RoleTracker) *WebhookBuilder {
+	blder.roleTracker = tracker
+	return blder
+}
+
 // RecoverPanic indicates whether panics caused by the webhook should be recovered.
 // Defaults to true.
 func (blder *WebhookBuilder) RecoverPanic(recoverPanic bool) *WebhookBuilder {
@@ -118,6 +127,7 @@ func (blder *WebhookBuilder) setLogConstructor() {
 			log := base.WithValues(
 				"webhookGroup", blder.gvk.Group,
 				"webhookKind", blder.gvk.Kind,
+				"replica-role", roletracker.GetRole(blder.roleTracker),
 			)
 			if req != nil {
 				return log.WithValues(

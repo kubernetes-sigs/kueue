@@ -34,6 +34,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
 const (
@@ -43,11 +44,12 @@ const (
 
 type ClusterQueueWebhook struct{}
 
-func setupWebhookForClusterQueue(mgr ctrl.Manager) error {
+func setupWebhookForClusterQueue(mgr ctrl.Manager, roleTracker *roletracker.RoleTracker) error {
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&kueue.ClusterQueue{}).
 		WithDefaulter(&ClusterQueueWebhook{}).
 		WithValidator(&ClusterQueueWebhook{}).
+		WithLogConstructor(roletracker.WebhookLogConstructor(roleTracker)).
 		Complete()
 }
 

@@ -61,6 +61,7 @@ import (
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	qutil "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/resource"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -115,6 +116,13 @@ func WithAdmissionFairSharing(value *config.AdmissionFairSharing) Option {
 	}
 }
 
+// WithWorkloadRoleTracker sets the role tracker for HA setups.
+func WithWorkloadRoleTracker(value *roletracker.RoleTracker) Option {
+	return func(r *WorkloadReconciler) {
+		r.roleTracker = value
+	}
+}
+
 type WorkloadUpdateWatcher interface {
 	NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload)
 }
@@ -132,6 +140,7 @@ type WorkloadReconciler struct {
 	workloadRetention   *workloadRetentionConfig
 	draReconcileChannel chan event.TypedGenericEvent[*kueue.Workload]
 	admissionFSConfig   *config.AdmissionFairSharing
+	roleTracker         *roletracker.RoleTracker
 }
 
 var _ reconcile.Reconciler = (*WorkloadReconciler)(nil)
@@ -1039,6 +1048,7 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 		WithOptions(controller.Options{
 			NeedLeaderElection:      ptr.To(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("Workload").GroupKind().String()],
+			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "workload-reconciler"),
 		}).
 		Watches(&corev1.LimitRange{}, ruh).
 		Watches(&nodev1.RuntimeClass{}, ruh).

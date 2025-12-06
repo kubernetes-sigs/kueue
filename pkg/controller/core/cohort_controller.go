@@ -39,10 +39,12 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
 type CohortReconcilerOptions struct {
 	FairSharingEnabled bool
+	roleTracker        *roletracker.RoleTracker
 }
 
 type CohortReconcilerOption func(*CohortReconcilerOptions)
@@ -50,6 +52,12 @@ type CohortReconcilerOption func(*CohortReconcilerOptions)
 func CohortReconcilerWithFairSharing(enabled bool) CohortReconcilerOption {
 	return func(o *CohortReconcilerOptions) {
 		o.FairSharingEnabled = enabled
+	}
+}
+
+func CohortReconcilerWithRoleTracker(tracker *roletracker.RoleTracker) CohortReconcilerOption {
+	return func(o *CohortReconcilerOptions) {
+		o.roleTracker = tracker
 	}
 }
 
@@ -63,6 +71,7 @@ type CohortReconciler struct {
 	qManager           *qcache.Manager
 	cqUpdateCh         chan event.GenericEvent
 	fairSharingEnabled bool
+	roleTracker        *roletracker.RoleTracker
 }
 
 func NewCohortReconciler(
@@ -83,6 +92,7 @@ func NewCohortReconciler(
 		qManager:           qManager,
 		cqUpdateCh:         make(chan event.GenericEvent, updateChBuffer),
 		fairSharingEnabled: options.FairSharingEnabled,
+		roleTracker:        options.roleTracker,
 	}
 }
 
@@ -101,6 +111,7 @@ func (r *CohortReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Config
 		WithOptions(controller.Options{
 			NeedLeaderElection:      ptr.To(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("Cohort").GroupKind().String()],
+			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "cohort-reconciler"),
 		}).
 		WatchesRawSource(source.Channel(r.cqUpdateCh, cqHandler)).
 		Complete(WithLeadingManager(mgr, r, &kueue.Cohort{}, cfg))
