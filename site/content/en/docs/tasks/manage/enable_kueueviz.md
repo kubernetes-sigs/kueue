@@ -1,7 +1,7 @@
 ---
 title: "Enable KueueViz"
 date: 2025-07-18
-weight: 12
+weight: 13
 description: >
   Installing and configuring KueueViz, a web-based visualization tool for Kueue workload monitoring.
 ---
