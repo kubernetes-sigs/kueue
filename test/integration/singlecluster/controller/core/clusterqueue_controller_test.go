@@ -30,7 +30,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -513,8 +512,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Mark two workers as reclaimable", func() {
-				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: "workers", Count: 2}})).To(gomega.Succeed())
-
+				util.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: "workers", Count: 2}})
 				util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 				util.ExpectLQReservingActiveWorkloadsMetric(localQueue, 1)
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -552,8 +550,8 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			})
 
 			ginkgo.By("Mark all workers and a driver as reclaimable", func() {
-				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: "workers", Count: 5}, {Name: "driver", Count: 1}})).To(gomega.Succeed())
-
+				reclaimablePods := []kueue.ReclaimablePod{{Name: "workers", Count: 5}, {Name: "driver", Count: 1}}
+				util.UpdateReclaimablePods(ctx, k8sClient, wl, reclaimablePods)
 				util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 				util.ExpectLQReservingActiveWorkloadsMetric(localQueue, 1)
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -940,7 +938,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			})
 
 			ginkgo.By("Marking two workers as reclaimable", func() {
-				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: "workers", Count: 2}})).To(gomega.Succeed())
+				util.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: "workers", Count: 2}})
 			})
 
 			ginkgo.By("Validating CQ status hasn't changed", func() {

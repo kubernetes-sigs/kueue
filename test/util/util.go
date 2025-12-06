@@ -1395,3 +1395,12 @@ func ExpectJobToBeCompleted(ctx context.Context, c client.Client, job *batchv1.J
 			cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime", "Reason", "Message"))))
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
+
+func UpdateReclaimablePods(ctx context.Context, c client.Client, wl *kueue.Workload, reclaimablePods []kueue.ReclaimablePod) {
+	ginkgo.GinkgoHelper()
+	createdWl := &kueue.Workload{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(wl), createdWl)).To(gomega.Succeed())
+		g.Expect(workload.UpdateReclaimablePods(ctx, c, createdWl, reclaimablePods)).To(gomega.Succeed())
+	}, Timeout, Interval).Should(gomega.Succeed())
+}

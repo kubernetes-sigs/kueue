@@ -1112,9 +1112,28 @@ func HasQuotaReservation(w *kueue.Workload) bool {
 
 // UpdateReclaimablePods updates the ReclaimablePods list for the workload with SSA.
 func UpdateReclaimablePods(ctx context.Context, c client.Client, w *kueue.Workload, reclaimablePods []kueue.ReclaimablePod) error {
-	patch := BaseSSAWorkload(w, false)
-	patch.Status.ReclaimablePods = reclaimablePods
-	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.ReclaimablePodsMgr))
+	var (
+		wlCopy *kueue.Workload
+		err    error
+	)
+
+	if features.Enabled(features.WorkloadRequestUseMergePatch) {
+		wlCopy = w.DeepCopy()
+		err = clientutil.PatchStatus(ctx, c, wlCopy, func() (bool, error) {
+			wlCopy.Status.ReclaimablePods = reclaimablePods
+			return true, nil
+		})
+	} else {
+		wlCopy = BaseSSAWorkload(w, true)
+		wlCopy.Status.ReclaimablePods = reclaimablePods
+		err = c.Status().Patch(ctx, wlCopy, client.Apply, client.FieldOwner(constants.ReclaimablePodsMgr))
+	}
+	if err != nil {
+		return err
+	}
+
+	wlCopy.DeepCopyInto(w)
+	return nil
 }
 
 // ReclaimablePodsAreEqual checks if two Reclaimable pods are semantically equal
