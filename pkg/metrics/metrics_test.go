@@ -21,11 +21,16 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/prometheus/client_golang/prometheus"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	"sigs.k8s.io/kueue/pkg/version"
 )
+
+func init() {
+	initCustomTagsMetric(nil)
+}
 
 func expectFilteredMetricsCount(t *testing.T, vec prometheus.Collector, count int, kvs ...string) {
 	labels := prometheus.Labels{}
@@ -48,18 +53,24 @@ func TestGenerateExponentialBuckets(t *testing.T) {
 }
 
 func TestReportAndCleanupClusterQueueMetrics(t *testing.T) {
-	ReportClusterQueueQuotas("cohort", "queue", "flavor", "res", 5, 10, 3)
-	ReportClusterQueueQuotas("cohort", "queue", "flavor2", "res", 1, 2, 1)
+	clusterQueue := kueue.ClusterQueue{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "queue",
+		},
+	}
+
+	ReportClusterQueueQuotas("cohort", clusterQueue, "flavor", "res", 5, 10, 3)
+	ReportClusterQueueQuotas("cohort", clusterQueue, "flavor2", "res", 1, 2, 1)
 
 	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 2, "cluster_queue", "queue")
 	expectFilteredMetricsCount(t, ClusterQueueResourceBorrowingLimit, 2, "cluster_queue", "queue")
 	expectFilteredMetricsCount(t, ClusterQueueResourceLendingLimit, 2, "cluster_queue", "queue")
 
-	ReportClusterQueueResourceReservations("cohort", "queue", "flavor", "res", 7)
-	ReportClusterQueueResourceReservations("cohort", "queue", "flavor2", "res", 3)
+	ReportClusterQueueResourceReservations("cohort", clusterQueue, "flavor", "res", 7)
+	ReportClusterQueueResourceReservations("cohort", clusterQueue, "flavor2", "res", 3)
 
-	ReportClusterQueueResourceUsage("cohort", "queue", "flavor", "res", 7)
-	ReportClusterQueueResourceUsage("cohort", "queue", "flavor2", "res", 3)
+	ReportClusterQueueResourceUsage("cohort", clusterQueue, "flavor", "res", 7)
+	ReportClusterQueueResourceUsage("cohort", clusterQueue, "flavor2", "res", 3)
 
 	expectFilteredMetricsCount(t, ClusterQueueResourceReservations, 2, "cluster_queue", "queue")
 	expectFilteredMetricsCount(t, ClusterQueueResourceUsage, 2, "cluster_queue", "queue")
@@ -74,10 +85,16 @@ func TestReportAndCleanupClusterQueueMetrics(t *testing.T) {
 }
 
 func TestReportAndCleanupClusterQueueQuotas(t *testing.T) {
-	ReportClusterQueueQuotas("cohort", "queue", "flavor", "res", 5, 10, 3)
-	ReportClusterQueueQuotas("cohort", "queue", "flavor", "res2", 5, 10, 3)
-	ReportClusterQueueQuotas("cohort", "queue", "flavor2", "res", 1, 2, 1)
-	ReportClusterQueueQuotas("cohort", "queue", "flavor2", "res2", 1, 2, 1)
+	clusterQueue := kueue.ClusterQueue{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "queue",
+		},
+	}
+
+	ReportClusterQueueQuotas("cohort", clusterQueue, "flavor", "res", 5, 10, 3)
+	ReportClusterQueueQuotas("cohort", clusterQueue, "flavor", "res2", 5, 10, 3)
+	ReportClusterQueueQuotas("cohort", clusterQueue, "flavor2", "res", 1, 2, 1)
+	ReportClusterQueueQuotas("cohort", clusterQueue, "flavor2", "res2", 1, 2, 1)
 
 	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 4, "cluster_queue", "queue")
 	expectFilteredMetricsCount(t, ClusterQueueResourceBorrowingLimit, 4, "cluster_queue", "queue")
@@ -107,10 +124,16 @@ func TestReportAndCleanupClusterQueueQuotas(t *testing.T) {
 }
 
 func TestReportAndCleanupClusterQueueUsage(t *testing.T) {
-	ReportClusterQueueResourceReservations("cohort", "queue", "flavor", "res", 5)
-	ReportClusterQueueResourceReservations("cohort", "queue", "flavor", "res2", 5)
-	ReportClusterQueueResourceReservations("cohort", "queue", "flavor2", "res", 1)
-	ReportClusterQueueResourceReservations("cohort", "queue", "flavor2", "res2", 1)
+	clusterQueue := kueue.ClusterQueue{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "queue",
+		},
+	}
+
+	ReportClusterQueueResourceReservations("cohort", clusterQueue, "flavor", "res", 5)
+	ReportClusterQueueResourceReservations("cohort", clusterQueue, "flavor", "res2", 5)
+	ReportClusterQueueResourceReservations("cohort", clusterQueue, "flavor2", "res", 1)
+	ReportClusterQueueResourceReservations("cohort", clusterQueue, "flavor2", "res2", 1)
 
 	expectFilteredMetricsCount(t, ClusterQueueResourceReservations, 4, "cluster_queue", "queue")
 
@@ -126,10 +149,10 @@ func TestReportAndCleanupClusterQueueUsage(t *testing.T) {
 	expectFilteredMetricsCount(t, ClusterQueueResourceReservations, 1, "cluster_queue", "queue")
 	expectFilteredMetricsCount(t, ClusterQueueResourceReservations, 0, "cluster_queue", "queue", "flavor", "flavor", "resource", "res2")
 
-	ReportClusterQueueResourceUsage("cohort", "queue", "flavor", "res", 5)
-	ReportClusterQueueResourceUsage("cohort", "queue", "flavor", "res2", 5)
-	ReportClusterQueueResourceUsage("cohort", "queue", "flavor2", "res", 1)
-	ReportClusterQueueResourceUsage("cohort", "queue", "flavor2", "res2", 1)
+	ReportClusterQueueResourceUsage("cohort", clusterQueue, "flavor", "res", 5)
+	ReportClusterQueueResourceUsage("cohort", clusterQueue, "flavor", "res2", 5)
+	ReportClusterQueueResourceUsage("cohort", clusterQueue, "flavor2", "res", 1)
+	ReportClusterQueueResourceUsage("cohort", clusterQueue, "flavor2", "res2", 1)
 
 	expectFilteredMetricsCount(t, ClusterQueueResourceUsage, 4, "cluster_queue", "queue")
 

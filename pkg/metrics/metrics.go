@@ -22,6 +22,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
+	"sigs.k8s.io/kueue/apis/config/v1beta1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -455,14 +456,7 @@ The label 'reason' can have the following values:
 
 	// +metricsdoc:group=clusterqueue
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",status="one of `pending`, `active`, or `terminated`"
-	ClusterQueueByStatus = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Subsystem: constants.KueueName,
-			Name:      "cluster_queue_status",
-			Help: `Reports 'cluster_queue' with its 'status' (with possible values 'pending', 'active' or 'terminated').
-For a ClusterQueue, the metric only reports a value of 1 for one of the statuses.`,
-		}, []string{"cluster_queue", "status"},
-	)
+	ClusterQueueByStatus *prometheus.GaugeVec
 
 	// +metricsdoc:group=localqueue
 	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",active="one of `True`, `False`, or `Unknown`"
@@ -479,23 +473,11 @@ For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`
 
 	// +metricsdoc:group=optional_clusterqueue_resources
 	// +metricsdoc:labels=cohort="the name of the Cohort",cluster_queue="the name of the ClusterQueue",flavor="the resource flavor name",resource="the resource name"
-	ClusterQueueResourceReservations = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Subsystem: constants.KueueName,
-			Name:      "cluster_queue_resource_reservation",
-			Help:      `Reports the cluster_queue's total resource reservation within all the flavors`,
-		}, []string{"cohort", "cluster_queue", "flavor", "resource"},
-	)
+	ClusterQueueResourceReservations *prometheus.GaugeVec
 
 	// +metricsdoc:group=optional_clusterqueue_resources
 	// +metricsdoc:labels=cohort="the name of the Cohort",cluster_queue="the name of the ClusterQueue",flavor="the resource flavor name",resource="the resource name"
-	ClusterQueueResourceUsage = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Subsystem: constants.KueueName,
-			Name:      "cluster_queue_resource_usage",
-			Help:      `Reports the cluster_queue's total resource usage within all the flavors`,
-		}, []string{"cohort", "cluster_queue", "flavor", "resource"},
-	)
+	ClusterQueueResourceUsage *prometheus.GaugeVec
 
 	// +metricsdoc:group=localqueue
 	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",flavor="the resource flavor name",resource="the resource name"
@@ -519,47 +501,19 @@ For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`
 
 	// +metricsdoc:group=optional_clusterqueue_resources
 	// +metricsdoc:labels=cohort="the name of the Cohort",cluster_queue="the name of the ClusterQueue",flavor="the resource flavor name",resource="the resource name"
-	ClusterQueueResourceNominalQuota = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Subsystem: constants.KueueName,
-			Name:      "cluster_queue_nominal_quota",
-			Help:      `Reports the cluster_queue's resource nominal quota within all the flavors`,
-		}, []string{"cohort", "cluster_queue", "flavor", "resource"},
-	)
+	ClusterQueueResourceNominalQuota *prometheus.GaugeVec
 
 	// +metricsdoc:group=optional_clusterqueue_resources
 	// +metricsdoc:labels=cohort="the name of the Cohort",cluster_queue="the name of the ClusterQueue",flavor="the resource flavor name",resource="the resource name"
-	ClusterQueueResourceBorrowingLimit = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Subsystem: constants.KueueName,
-			Name:      "cluster_queue_borrowing_limit",
-			Help:      `Reports the cluster_queue's resource borrowing limit within all the flavors`,
-		}, []string{"cohort", "cluster_queue", "flavor", "resource"},
-	)
+	ClusterQueueResourceBorrowingLimit *prometheus.GaugeVec
 
 	// +metricsdoc:group=optional_clusterqueue_resources
 	// +metricsdoc:labels=cohort="the name of the Cohort",cluster_queue="the name of the ClusterQueue",flavor="the resource flavor name",resource="the resource name"
-	ClusterQueueResourceLendingLimit = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Subsystem: constants.KueueName,
-			Name:      "cluster_queue_lending_limit",
-			Help:      `Reports the cluster_queue's resource lending limit within all the flavors`,
-		}, []string{"cohort", "cluster_queue", "flavor", "resource"},
-	)
+	ClusterQueueResourceLendingLimit *prometheus.GaugeVec
 
 	// +metricsdoc:group=optional_clusterqueue_resources
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",cohort="the name of the Cohort"
-	ClusterQueueWeightedShare = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Subsystem: constants.KueueName,
-			Name:      "cluster_queue_weighted_share",
-			Help: `Reports a value that representing the maximum of the ratios of usage above nominal
-quota to the lendable resources in the cohort, among all the resources provided by
-the ClusterQueue, and divided by the weight.
-If zero, it means that the usage of the ClusterQueue is below the nominal quota.
-If the ClusterQueue has a weight of zero and is borrowing, this will return NaN.`,
-		}, []string{"cluster_queue", "cohort"},
-	)
+	ClusterQueueWeightedShare *prometheus.GaugeVec
 
 	// +metricsdoc:group=cohort
 	// +metricsdoc:labels=cohort="the name of the Cohort"
@@ -575,6 +529,103 @@ If the Cohort has a weight of zero and is borrowing, this will return NaN.`,
 		}, []string{"cohort"},
 	)
 )
+
+var standardClusterQueueLabels = []string{"cohort", "cluster_queue", "flavor", "resource"}
+
+var customTagsHistogramMetrics = MetricsGroup[prometheus.HistogramVec]{
+	metrics: []Metric[prometheus.HistogramVec]{},
+	initFunc: func(metric Metric[prometheus.HistogramVec], labels []string) *prometheus.HistogramVec {
+		return prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Subsystem: constants.KueueName,
+				Name:      metric.Name,
+				Help:      metric.Help,
+				Buckets:   metric.Buckets,
+			}, labels,
+		)
+	},
+}
+
+var customTagsCounterMetrics = MetricsGroup[prometheus.CounterVec]{
+	metrics: []Metric[prometheus.CounterVec]{},
+	initFunc: func(metric Metric[prometheus.CounterVec], labels []string) *prometheus.CounterVec {
+		return prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Subsystem: constants.KueueName,
+				Name:      metric.Name,
+				Help:      metric.Help,
+			}, labels,
+		)
+	},
+}
+
+var customTagsGaugeMetrics = MetricsGroup[prometheus.GaugeVec]{
+	metrics: []Metric[prometheus.GaugeVec]{
+		{
+			Name:                     "cluster_queue_resource_usage",
+			Help:                     `Reports the cluster_queue's total resource usage within all the flavors`,
+			StandardLabels:           standardClusterQueueLabels,
+			globalVariable:           &ClusterQueueResourceUsage,
+			clusterQueueCustomLabels: true,
+		},
+		{
+			Name: "cluster_queue_status",
+			Help: `Reports 'cluster_queue' with its 'status' (with possible values 'pending', 'active' or 'terminated').
+For a ClusterQueue, the metric only reports a value of 1 for one of the statuses.`,
+			StandardLabels: []string{"cluster_queue", "status"},
+			globalVariable: &ClusterQueueByStatus,
+		},
+		{
+			Name:                     "cluster_queue_resource_reservation",
+			Help:                     `Reports the cluster_queue's total resource reservation within all the flavors`,
+			StandardLabels:           standardClusterQueueLabels,
+			globalVariable:           &ClusterQueueResourceReservations,
+			clusterQueueCustomLabels: true,
+		},
+		{
+			Name:                     "cluster_queue_nominal_quota",
+			Help:                     `Reports the cluster_queue's resource nominal quota within all the flavors`,
+			StandardLabels:           standardClusterQueueLabels,
+			globalVariable:           &ClusterQueueResourceNominalQuota,
+			clusterQueueCustomLabels: true,
+		},
+		{
+			Name:                     "cluster_queue_borrowing_limit",
+			Help:                     `Reports the cluster_queue's resource borrowing limit within all the flavors`,
+			StandardLabels:           standardClusterQueueLabels,
+			globalVariable:           &ClusterQueueResourceBorrowingLimit,
+			clusterQueueCustomLabels: true,
+		},
+		{
+			Name:                     "cluster_queue_lending_limit",
+			Help:                     `Reports the cluster_queue's resource lending limit within all the flavors`,
+			StandardLabels:           standardClusterQueueLabels,
+			globalVariable:           &ClusterQueueResourceLendingLimit,
+			clusterQueueCustomLabels: true,
+		},
+		{
+			Name: "cluster_queue_weighted_share",
+			Help: `Reports a value that representing the maximum of the ratios of usage above nominal
+	quota to the lendable resources in the cohort, among all the resources provided by
+	the ClusterQueue, and divided by the weight.
+	If zero, it means that the usage of the ClusterQueue is below the nominal quota.
+	If the ClusterQueue has a weight of zero and is borrowing, this will return 9223372036854775807,
+		the maximum possible share value.`,
+			StandardLabels:           []string{"cluster_queue"},
+			globalVariable:           &ClusterQueueWeightedShare,
+			clusterQueueCustomLabels: true,
+		},
+	},
+	initFunc: func(metric Metric[prometheus.GaugeVec], labels []string) *prometheus.GaugeVec {
+		return prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Subsystem: constants.KueueName,
+				Name:      metric.Name,
+				Help:      metric.Help,
+			}, labels,
+		)
+	},
+}
 
 func init() {
 	versionInfo := version.Get()
@@ -741,32 +792,40 @@ func ClearLocalQueueCacheMetrics(lq LocalQueueReference) {
 	}
 }
 
-func ReportClusterQueueQuotas(cohort kueue.CohortReference, queue, flavor, resource string, nominal, borrowing, lending float64) {
-	ClusterQueueResourceNominalQuota.WithLabelValues(string(cohort), queue, flavor, resource).Set(nominal)
-	ClusterQueueResourceBorrowingLimit.WithLabelValues(string(cohort), queue, flavor, resource).Set(borrowing)
+func ReportClusterQueueQuotas(cohort kueue.CohortReference, queue kueue.ClusterQueue, flavor, resource string, nominal, borrowing, lending float64) {
+	labels := []string{string(cohort), queue.Name, flavor, resource}
+	labels = append(labels, getResourceTagValues(&queue, customTagsConf.ClusterQueue)...)
+	ClusterQueueResourceNominalQuota.WithLabelValues(labels...).Set(nominal)
+	ClusterQueueResourceBorrowingLimit.WithLabelValues(labels...).Set(borrowing)
 	if features.Enabled(features.LendingLimit) {
-		ClusterQueueResourceLendingLimit.WithLabelValues(string(cohort), queue, flavor, resource).Set(lending)
+		ClusterQueueResourceLendingLimit.WithLabelValues(labels...).Set(lending)
 	}
 }
 
-func ReportClusterQueueResourceReservations(cohort kueue.CohortReference, queue, flavor, resource string, usage float64) {
-	ClusterQueueResourceReservations.WithLabelValues(string(cohort), queue, flavor, resource).Set(usage)
+func ReportClusterQueueResourceReservations(cohort kueue.CohortReference, queue kueue.ClusterQueue, flavor, resource string, usage float64) {
+	labels := []string{string(cohort), queue.Name, flavor, resource}
+	labels = append(labels, getResourceTagValues(&queue, customTagsConf.ClusterQueue)...)
+	ClusterQueueResourceReservations.WithLabelValues(labels...).Set(usage)
 }
 
 func ReportLocalQueueResourceReservations(lq LocalQueueReference, flavor, resource string, usage float64) {
 	LocalQueueResourceReservations.WithLabelValues(string(lq.Name), lq.Namespace, flavor, resource).Set(usage)
 }
 
-func ReportClusterQueueResourceUsage(cohort kueue.CohortReference, queue, flavor, resource string, usage float64) {
-	ClusterQueueResourceUsage.WithLabelValues(string(cohort), queue, flavor, resource).Set(usage)
+func ReportClusterQueueResourceUsage(cohort kueue.CohortReference, queue kueue.ClusterQueue, flavor, resource string, usage float64) {
+	labels := []string{string(cohort), queue.Name, flavor, resource}
+	labels = append(labels, getResourceTagValues(&queue, customTagsConf.ClusterQueue)...)
+	ClusterQueueResourceUsage.WithLabelValues(labels...).Set(usage)
 }
 
 func ReportLocalQueueResourceUsage(lq LocalQueueReference, flavor, resource string, usage float64) {
 	LocalQueueResourceUsage.WithLabelValues(string(lq.Name), lq.Namespace, flavor, resource).Set(usage)
 }
 
-func ReportClusterQueueWeightedShare(cq, cohort string, weightedShare float64) {
-	ClusterQueueWeightedShare.WithLabelValues(cq, cohort).Set(weightedShare)
+func ReportClusterQueueWeightedShare(cq kueue.ClusterQueue, cohort string, weightedShare float64) {
+	labels := []string{cq.Name, cohort}
+	labels = append(labels, getResourceTagValues(&cq, customTagsConf.ClusterQueue)...)
+	ClusterQueueWeightedShare.WithLabelValues(labels...).Set(weightedShare)
 }
 
 func ReportCohortWeightedShare(cohort string, weightedShare float64) {
@@ -838,7 +897,12 @@ func ClearClusterQueueResourceReservations(cqName, flavor, resource string) {
 	ClusterQueueResourceReservations.DeletePartialMatch(lbls)
 }
 
-func Register() {
+type Configuration struct {
+	CustomTags v1beta1.CustomMetricTags
+}
+
+func Register(configuration Configuration) {
+	initCustomTagsMetric(&configuration.CustomTags)
 	metrics.Registry.MustRegister(
 		buildInfo,
 		AdmissionAttemptsTotal,
