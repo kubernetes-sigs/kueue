@@ -124,6 +124,111 @@ func TestCountIn(t *testing.T) {
 	}
 }
 
+func TestCountInWithLimitingResource(t *testing.T) {
+	cases := map[string]struct {
+		requests             Requests
+		capacity             Requests
+		wantCount            int32
+		wantLimitingResource corev1.ResourceName
+	}{
+		"CPU is limiting": {
+			requests: Requests{
+				corev1.ResourceCPU:    1000,
+				corev1.ResourceMemory: 8 * 1024 * 1024 * 1024,
+			},
+			capacity: Requests{
+				corev1.ResourceCPU:    500,
+				corev1.ResourceMemory: 32 * 1024 * 1024 * 1024,
+			},
+			wantCount:            0,
+			wantLimitingResource: corev1.ResourceCPU,
+		},
+		"memory is limiting": {
+			requests: Requests{
+				corev1.ResourceCPU:    1000,
+				corev1.ResourceMemory: 16 * 1024 * 1024 * 1024,
+			},
+			capacity: Requests{
+				corev1.ResourceCPU:    8000,
+				corev1.ResourceMemory: 8 * 1024 * 1024 * 1024,
+			},
+			wantCount:            0,
+			wantLimitingResource: corev1.ResourceMemory,
+		},
+		"tie-breaker by resource name": {
+			requests: Requests{
+				corev1.ResourceCPU:    1000,
+				corev1.ResourceMemory: 8 * 1024 * 1024 * 1024,
+			},
+			capacity: Requests{
+				corev1.ResourceCPU:    500,
+				corev1.ResourceMemory: 4 * 1024 * 1024 * 1024,
+			},
+			wantCount:            0,
+			wantLimitingResource: corev1.ResourceCPU, // "cpu" < "memory"
+		},
+		"resource not in capacity": {
+			requests: Requests{
+				corev1.ResourceCPU: 1000,
+				"nvidia.com/gpu":   2,
+			},
+			capacity: Requests{
+				corev1.ResourceCPU: 8000,
+				// GPU not in capacity
+			},
+			wantCount:            0,
+			wantLimitingResource: "nvidia.com/gpu",
+		},
+		"capacity exhausted": {
+			requests: Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			capacity: Requests{
+				corev1.ResourceCPU: 0,
+			},
+			wantCount:            0,
+			wantLimitingResource: corev1.ResourceCPU,
+		},
+		"request zero is skipped": {
+			requests: Requests{
+				corev1.ResourceCPU:    0,
+				corev1.ResourceMemory: 8 * 1024 * 1024 * 1024,
+			},
+			capacity: Requests{
+				corev1.ResourceCPU:    8000,
+				corev1.ResourceMemory: 16 * 1024 * 1024 * 1024,
+			},
+			wantCount:            2,
+			wantLimitingResource: corev1.ResourceMemory, // CPU skipped because request is 0
+		},
+		"GPU exhausted on GPU node": {
+			requests: Requests{
+				corev1.ResourceCPU:    2000,
+				corev1.ResourceMemory: 8 * 1024 * 1024 * 1024,
+				"nvidia.com/gpu":      2,
+			},
+			capacity: Requests{
+				corev1.ResourceCPU:    8000,
+				corev1.ResourceMemory: 32 * 1024 * 1024 * 1024,
+				"nvidia.com/gpu":      0,
+			},
+			wantCount:            0,
+			wantLimitingResource: "nvidia.com/gpu",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			gotCount, gotResource := tc.requests.CountInWithLimitingResource(tc.capacity)
+			if tc.wantCount != gotCount {
+				t.Errorf("unexpected count, want=%d, got=%d", tc.wantCount, gotCount)
+			}
+			if tc.wantLimitingResource != gotResource {
+				t.Errorf("unexpected limiting resource, want=%s, got=%s", tc.wantLimitingResource, gotResource)
+			}
+		})
+	}
+}
+
 func TestResourceQuantityRoundTrips(t *testing.T) {
 	cases := map[string]struct {
 		resource corev1.ResourceName
