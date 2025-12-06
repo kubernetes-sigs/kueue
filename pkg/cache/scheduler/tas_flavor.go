@@ -71,6 +71,9 @@ type topologyInformation struct {
 	// levels is a list of levels defined in the Topology object referenced
 	// by the flavor corresponding to the cache.
 	Levels []string
+
+	// AvoidanceLabel indicates the label key used for node avoidance.
+	AvoidanceLabel string
 }
 
 type TASFlavorCache struct {
@@ -142,7 +145,7 @@ func (c *TASFlavorCache) snapshotForNodes(log logr.Logger, nodes []corev1.Node, 
 
 	log.V(3).Info("Constructing TAS snapshot", "nodeLabels", c.flavor.NodeLabels,
 		"levels", c.topology.Levels, "nodeCount", len(nodes), "podCount", len(pods))
-	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, c.topology.Levels, c.flavor.Tolerations)
+	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, c.topology.Levels, c.flavor.Tolerations, c.topology.AvoidanceLabel)
 	nodeToDomain := make(map[string]utiltas.TopologyDomainID)
 	for _, node := range nodes {
 		nodeToDomain[node.Name] = snapshot.addNode(node)

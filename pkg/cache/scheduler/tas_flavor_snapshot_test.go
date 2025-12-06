@@ -346,7 +346,7 @@ func TestMergeTopologyAssignments(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", levels, nil)
+			s := newTASFlavorSnapshot(log, "dummy", levels, nil, "")
 			for _, node := range nodes {
 				s.addNode(node)
 			}
@@ -421,7 +421,7 @@ func TestHasLevel(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", levels, nil)
+			s := newTASFlavorSnapshot(log, "dummy", levels, nil, "")
 			got := s.HasLevel(tc.podSetTopologyRequest)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("unexpected HasLevel result (-want,+got): %s", diff)
