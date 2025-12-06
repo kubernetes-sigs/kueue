@@ -55,6 +55,8 @@ type ReplicatedJobRequirements struct {
 	PodAnnotations map[string]string
 	Image          string
 	Args           []string
+	DependsOn      []jobsetapi.DependsOn
+	StartupProbe   *corev1.Probe
 }
 
 // MakeJobSet creates a wrapper for a suspended JobSet
@@ -96,7 +98,11 @@ func (j *JobSetWrapper) ReplicatedJobs(replicatedJobs ...ReplicatedJobRequiremen
 				},
 			}
 		}
-		j.Spec.ReplicatedJobs[index] = jobsetutil.MakeReplicatedJob(req.Name).Job(jt).Replicas(req.Replicas).Obj()
+		if req.StartupProbe != nil {
+			jt.Spec.Template.Spec.Containers[0].StartupProbe = req.StartupProbe
+		}
+		replicatedJob := jobsetutil.MakeReplicatedJob(req.Name).Job(jt).Replicas(req.Replicas).DependsOn(req.DependsOn).Obj()
+		j.Spec.ReplicatedJobs[index] = replicatedJob
 	}
 	return j
 }
