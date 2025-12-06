@@ -52,6 +52,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	"sigs.k8s.io/kueue/pkg/util/wait"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -79,6 +80,7 @@ type Scheduler struct {
 	fairSharing             *config.FairSharing
 	admissionFairSharing    *config.AdmissionFairSharing
 	clock                   clock.Clock
+	roleTracker             *roletracker.RoleTracker
 
 	// schedulingCycle identifies the number of scheduling
 	// attempts since the last restart.
@@ -90,6 +92,7 @@ type options struct {
 	fairSharing                 *config.FairSharing
 	admissionFairSharing        *config.AdmissionFairSharing
 	clock                       clock.Clock
+	roleTracker                 *roletracker.RoleTracker
 }
 
 // Option configures the reconciler.
@@ -128,6 +131,12 @@ func WithClock(_ testing.TB, c clock.Clock) Option {
 	}
 }
 
+func WithRoleTracker(tracker *roletracker.RoleTracker) Option {
+	return func(o *options) {
+		o.roleTracker = tracker
+	}
+}
+
 func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recorder record.EventRecorder, opts ...Option) *Scheduler {
 	options := defaultOptions
 	for _, opt := range opts {
@@ -142,11 +151,12 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 		cache:                   cache,
 		client:                  cl,
 		recorder:                recorder,
-		preemptor:               preemption.New(cl, wo, recorder, options.fairSharing, afs.Enabled(options.admissionFairSharing), options.clock),
+		preemptor:               preemption.New(cl, wo, recorder, options.fairSharing, afs.Enabled(options.admissionFairSharing), options.clock, options.roleTracker),
 		admissionRoutineWrapper: routine.DefaultWrapper,
 		workloadOrdering:        wo,
 		clock:                   options.clock,
 		admissionFairSharing:    options.admissionFairSharing,
+		roleTracker:             options.roleTracker,
 	}
 	return s
 }
@@ -154,6 +164,7 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 // Start implements the Runnable interface to run scheduler as a controller.
 func (s *Scheduler) Start(ctx context.Context) error {
 	log := ctrl.LoggerFrom(ctx).WithName("scheduler")
+	log = roletracker.WithReplicaRole(log, s.roleTracker)
 	ctx = ctrl.LoggerInto(ctx, log)
 	go wait.UntilWithBackoff(ctx, s.schedule)
 	return nil
@@ -179,9 +190,10 @@ func setSkipped(e *entry, inadmissibleMsg string) {
 	e.LastAssignment = nil
 }
 
-func reportSkippedPreemptions(p map[kueue.ClusterQueueReference]int) {
+func reportSkippedPreemptions(roleTracker *roletracker.RoleTracker, p map[kueue.ClusterQueueReference]int) {
+	role := roletracker.GetMetricsRole(roleTracker)
 	for cqName, count := range p {
-		metrics.AdmissionCyclePreemptionSkips.WithLabelValues(string(cqName)).Set(float64(count))
+		metrics.AdmissionCyclePreemptionSkips.WithLabelValues(string(cqName), role).Set(float64(count))
 	}
 }
 
@@ -370,8 +382,8 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		s.requeueAndUpdate(ctx, e)
 	}
 
-	reportSkippedPreemptions(skippedPreemptions)
-	metrics.AdmissionAttempt(result, s.clock.Since(startTime))
+	reportSkippedPreemptions(s.roleTracker, skippedPreemptions)
+	metrics.AdmissionAttempt(result, s.clock.Since(startTime), s.roleTracker)
 	if result != metrics.AdmissionResultSuccess {
 		return wait.SlowDown
 	}
@@ -579,7 +591,7 @@ func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, sn
 func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, log logr.Logger, wl *kueue.Workload) error {
 	log.V(3).Info("Evicting workload after failed try to find a node replacement; TASFailedNodeReplacementFailFast enabled")
 	msg := fmt.Sprintf("Workload was evicted as there was no replacement for a failed node: %s", wl.Status.UnhealthyNodes[0].Name)
-	if err := workload.Evict(ctx, s.client, s.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, msg, "", s.clock); err != nil {
+	if err := workload.Evict(ctx, s.client, s.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, msg, "", s.clock, workload.WithRoleTracker(s.roleTracker)); err != nil {
 		return err
 	}
 	return nil
@@ -831,9 +843,9 @@ func (s *Scheduler) recordQuotaReservationMetrics(newWorkload, originalWorkload 
 	s.recorder.Event(newWorkload, corev1.EventTypeNormal, "QuotaReserved", api.TruncateEventMessage(quotaReservedEventMessage))
 
 	priorityClassName := workload.PriorityClassName(newWorkload)
-	metrics.QuotaReservedWorkload(admission.ClusterQueue, priorityClassName, waitTime)
+	metrics.QuotaReservedWorkload(admission.ClusterQueue, priorityClassName, waitTime, s.roleTracker)
 	if features.Enabled(features.LocalQueueMetrics) {
-		metrics.LocalQueueQuotaReservedWorkload(metrics.LQRefFromWorkload(newWorkload), priorityClassName, waitTime)
+		metrics.LocalQueueQuotaReservedWorkload(metrics.LQRefFromWorkload(newWorkload), priorityClassName, waitTime, s.roleTracker)
 	}
 }
 
@@ -846,15 +858,15 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(newWorkload, originalWorkload 
 	s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was 0s", admission.ClusterQueue)
 
 	priorityClassName := workload.PriorityClassName(newWorkload)
-	metrics.AdmittedWorkload(admission.ClusterQueue, priorityClassName, waitTime)
+	metrics.AdmittedWorkload(admission.ClusterQueue, priorityClassName, waitTime, s.roleTracker)
 	if features.Enabled(features.LocalQueueMetrics) {
-		metrics.LocalQueueAdmittedWorkload(metrics.LQRefFromWorkload(newWorkload), priorityClassName, waitTime)
+		metrics.LocalQueueAdmittedWorkload(metrics.LQRefFromWorkload(newWorkload), priorityClassName, waitTime, s.roleTracker)
 	}
 
 	if len(newWorkload.Status.AdmissionChecks) > 0 {
-		metrics.ReportAdmissionChecksWaitTime(admission.ClusterQueue, priorityClassName, 0)
+		metrics.ReportAdmissionChecksWaitTime(admission.ClusterQueue, priorityClassName, 0, s.roleTracker)
 		if features.Enabled(features.LocalQueueMetrics) {
-			metrics.ReportLocalQueueAdmissionChecksWaitTime(metrics.LQRefFromWorkload(newWorkload), priorityClassName, 0)
+			metrics.ReportLocalQueueAdmissionChecksWaitTime(metrics.LQRefFromWorkload(newWorkload), priorityClassName, 0, s.roleTracker)
 		}
 	}
 }
@@ -884,7 +896,7 @@ func (s *Scheduler) replaceWorkloadSlice(ctx context.Context, oldQueue kueue.Clu
 
 	log.V(3).Info("Replaced", "old slice", klog.KObj(oldSlice), "new slice", klog.KObj(newSlice), "reason", reason, "message", message, "old-queue", klog.KRef("", string(oldQueue)))
 	s.recorder.Eventf(oldSlice, corev1.EventTypeNormal, reason, message)
-	metrics.ReportReplacedWorkloadSlices(oldQueue)
+	metrics.ReportReplacedWorkloadSlices(oldQueue, s.roleTracker)
 	return nil
 }
 

@@ -1847,7 +1847,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					t.Fatalf("Failed adding kueue scheme: %v", err)
 				}
 				recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
-				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now))
+				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil)
 
 				beforeSnapshot, err := cqCache.Snapshot(ctx)
 				if err != nil {

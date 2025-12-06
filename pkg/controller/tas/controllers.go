@@ -23,9 +23,28 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
-func SetupControllers(mgr ctrl.Manager, queues *qcache.Manager, cache *schdcache.Cache, cfg *configapi.Configuration) (string, error) {
+// SetupOption configures the TAS controllers setup.
+type SetupOption func(*setupOptions)
+
+type setupOptions struct {
+	roleTracker *roletracker.RoleTracker
+}
+
+// WithRoleTracker sets the roleTracker for TAS controllers.
+func WithRoleTracker(tracker *roletracker.RoleTracker) SetupOption {
+	return func(o *setupOptions) {
+		o.roleTracker = tracker
+	}
+}
+
+func SetupControllers(mgr ctrl.Manager, queues *qcache.Manager, cache *schdcache.Cache, cfg *configapi.Configuration, opts ...SetupOption) (string, error) {
+	options := &setupOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
 	recorder := mgr.GetEventRecorderFor(TASResourceFlavorController)
 	topologyRec := newTopologyReconciler(mgr.GetClient(), queues, cache)
 	if ctrlName, err := topologyRec.setupWithManager(mgr, cfg); err != nil {
@@ -40,7 +59,7 @@ func SetupControllers(mgr ctrl.Manager, queues *qcache.Manager, cache *schdcache
 		return ctrlName, err
 	}
 	if features.Enabled(features.TASFailedNodeReplacement) {
-		nodeFailureReconciler := newNodeFailureReconciler(mgr.GetClient(), recorder)
+		nodeFailureReconciler := newNodeFailureReconciler(mgr.GetClient(), recorder, options.roleTracker)
 		if ctrlName, err := nodeFailureReconciler.SetupWithManager(mgr, cfg); err != nil {
 			return ctrlName, err
 		}
