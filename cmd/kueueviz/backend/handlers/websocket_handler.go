@@ -35,7 +35,7 @@ var upgrader = websocket.Upgrader{
 }
 
 // GenericWebSocketHandler creates a WebSocket endpoint with periodic data updates
-func GenericWebSocketHandler(dataFetcher func(ctx context.Context) (any, error)) gin.HandlerFunc {
+func (h *Handlers) GenericWebSocketHandler(dataFetcher func(ctx context.Context) (any, error)) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		startTime := time.Now()
 		log.Debug("WebSocket handler started")
@@ -95,7 +95,7 @@ func GenericWebSocketHandler(dataFetcher func(ctx context.Context) (any, error))
 			fetchStart := time.Now()
 			data, err := dataFetcher(c.Request.Context())
 			if err != nil {
-				log.Error("Error fetching data  %v", "error", err)
+				log.Error("Error fetching data %v", "error", err)
 				continue
 			}
 			log.Debug("Data fetched at  took %v", "duration", time.Since(fetchStart))

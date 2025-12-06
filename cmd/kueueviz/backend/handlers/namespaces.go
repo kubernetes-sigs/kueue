@@ -21,32 +21,31 @@ import (
 	"sort"
 
 	"github.com/gin-gonic/gin"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/dynamic"
+
+	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 // NamespacesWebSocketHandler streams namespaces that are related to Kueue
-func NamespacesWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
-	return GenericWebSocketHandler(func(ctx context.Context) (any, error) {
-		return fetchNamespaces(ctx, dynamicClient)
+func (h *Handlers) NamespacesWebSocketHandler() gin.HandlerFunc {
+	return h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
+		return h.fetchNamespaces(ctx)
 	})
 }
 
 // Fetch namespaces that have LocalQueues (Kueue-related namespaces)
-func fetchNamespaces(ctx context.Context, dynamicClient dynamic.Interface) (any, error) {
+func (h *Handlers) fetchNamespaces(ctx context.Context) (any, error) {
+	l := &kueueapi.LocalQueueList{}
+
 	// First, get all LocalQueues to find namespaces that have them
-	localQueues, err := dynamicClient.Resource(LocalQueuesGVR()).List(ctx, metav1.ListOptions{})
+	err := h.client.List(ctx, l)
 	if err != nil {
 		return nil, err
 	}
 
 	// Extract unique namespaces from LocalQueues
-	namespaceSet := make(map[string]bool)
-	for _, lq := range localQueues.Items {
-		namespace := lq.GetNamespace()
-		if namespace != "" {
-			namespaceSet[namespace] = true
-		}
+	namespaceSet := make(map[string]struct{})
+	for _, lq := range l.Items {
+		namespaceSet[lq.GetNamespace()] = struct{}{}
 	}
 
 	// If no LocalQueues found, return empty result with proper structure

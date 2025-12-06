@@ -21,31 +21,31 @@ import (
 	"fmt"
 
 	"github.com/gin-gonic/gin"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/dynamic"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+
+	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
-func LocalQueueWorkloadsWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
+func (h *Handlers) LocalQueueWorkloadsWebSocketHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		namespace := c.Param("namespace")
 		queueName := c.Param("queue_name")
-		GenericWebSocketHandler(func(ctx context.Context) (any, error) {
-			return fetchLocalQueueWorkloads(ctx, dynamicClient, namespace, queueName)
+		h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
+			return h.fetchLocalQueueWorkloads(ctx, namespace, queueName)
 		})(c)
 	}
 }
 
-func fetchLocalQueueWorkloads(ctx context.Context, dynamicClient dynamic.Interface, namespace, queueName string) (any, error) {
-	result, err := dynamicClient.Resource(WorkloadsGVR()).Namespace(namespace).List(ctx, metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("spec.queueName=%s", queueName),
-	})
+func (h *Handlers) fetchLocalQueueWorkloads(ctx context.Context, namespace, queueName string) (any, error) {
+	wql := &kueueapi.WorkloadList{}
+	err := h.client.List(ctx, wql, ctrlclient.InNamespace(namespace))
 	if err != nil {
 		return nil, fmt.Errorf("error fetching workloads for local queue %s: %v", queueName, err)
 	}
 
-	var workloads []map[string]any
-	for _, item := range result.Items {
-		workloads = append(workloads, item.Object)
+	var workloads []any
+	for _, item := range wql.Items {
+		workloads = append(workloads, item)
 	}
 	return workloads, nil
 }
