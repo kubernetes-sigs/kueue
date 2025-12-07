@@ -1,0 +1,21 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: sample-enforce-requests-policy
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups:   ["kueue.x-k8s.io"]
+      apiVersions: ["v1beta1"]
+      operations:  ["CREATE", "UPDATE"]
+      resources:   ["workloads"]
+  validations:
+    - expression: >
+        object.spec.podSets.all(ps, 
+          ps.template.spec.containers.all(c, 
+            (has(c.resources.requests) && size(c.resources.requests) > 0) || 
+            (has(c.resources.limits) && size(c.resources.limits) > 0)
+          )
+        )
+      message: "Every container in the workload must specify either resource requests or limits."
