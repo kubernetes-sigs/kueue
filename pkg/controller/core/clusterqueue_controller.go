@@ -377,7 +377,6 @@ func recordResourceMetrics(cq *kueue.ClusterQueue) {
 			metrics.ReportClusterQueueResourceUsage(cq.Spec.CohortName, cq.Name, string(fu.Name), string(r.Name), resource.QuantityToFloat(&r.Total))
 		}
 	}
-
 }
 
 func updateResourceMetrics(oldCq, newCq *kueue.ClusterQueue) {
