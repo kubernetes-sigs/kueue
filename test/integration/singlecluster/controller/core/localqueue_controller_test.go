@@ -828,4 +828,163 @@ var _ = ginkgo.Describe("Queue controller for wall time limits", ginkgo.Label("f
 		gomega.Expect(util.DeleteObject(ctx, k8sClient, queueWithWallTime)).To(gomega.Succeed())
 	})
 
+	ginkgo.It("Should set stopPolicy to Hold when wall time limit exceeded with Hold action", func() {
+		ginkgo.By("Enabling the WallTimeLimits feature gate")
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WallTimeLimits, true)
+
+		ginkgo.By("Creating admission check and setting it active")
+		ac = utiltestingapi.MakeAdmissionCheck("ac-walltime-hold").ControllerName("ac-controller").Obj()
+		util.MustCreate(ctx, k8sClient, ac)
+		util.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
+
+		ginkgo.By("Creating resourceFlavors")
+		for i := range resourceFlavors {
+			util.MustCreate(ctx, k8sClient, &resourceFlavors[i])
+		}
+
+		ginkgo.By("Creating a clusterQueue with wall time policy")
+		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue.walltime-hold").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas(flavorModelD).Resource(resourceGPU, "5", "5").Obj(),
+			).
+			Cohort("cohort").
+			AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
+			WallTimePolicy(
+				kueue.WallTimeFlavor{Name: kueue.ResourceFlavorReference(flavorModelD), WallTimeAllocatedHours: 1, ActionWhenWallTimeExhausted: kueue.Hold},
+			).
+			Obj()
+		util.MustCreate(ctx, k8sClient, clusterQueue)
+
+		ginkgo.By("Creating a local queue with wall time policy and low wall time limit")
+		queueWithLowLimit := utiltestingapi.MakeLocalQueue("queue-low-limit", ns.Name).
+			ClusterQueue(clusterQueue.Name).
+			WallTimePolicy(1, kueue.Hold).
+			Obj()
+		util.MustCreate(ctx, k8sClient, queueWithLowLimit)
+
+		ginkgo.By("Creating and admitting a workload that exceeds wall time limit")
+		workload := utiltestingapi.MakeWorkload("wl-exceeded", ns.Name).
+			Queue(kueue.LocalQueueName(queueWithLowLimit.Name)).
+			Request(resourceGPU, "1").
+			WallTimeSeconds(7200). // 2 hours, exceeding 1 hour limit
+			Obj()
+		util.MustCreate(ctx, k8sClient, workload)
+
+		admission := utiltestingapi.MakeAdmission(clusterQueue.Name).
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment(resourceGPU, kueue.ResourceFlavorReference(flavorModelD), "1").Obj()).Obj()
+
+		util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(workload), admission)
+		util.SetWorkloadsAdmissionCheck(ctx, k8sClient, workload, kueue.AdmissionCheckReference(ac.Name), kueue.CheckStateReady, true)
+
+		ginkgo.By("Verifying that stopPolicy is set to Hold when wall time limit is exceeded")
+		gomega.Eventually(func(g gomega.Gomega) {
+			var updatedQueue kueue.LocalQueue
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queueWithLowLimit), &updatedQueue)).To(gomega.Succeed())
+
+			// Verify wall time usage is tracked
+			g.Expect(updatedQueue.Status.WallTimeFlavorUsage).NotTo(gomega.BeEmpty())
+
+			// Check if wall time limit is exceeded
+			hasExceededLimit := false
+			for _, usage := range updatedQueue.Status.WallTimeFlavorUsage {
+				if usage.WallTimeUsed >= usage.WallTimeAllocated {
+					hasExceededLimit = true
+					break
+				}
+			}
+
+			// If limit exceeded, verify stopPolicy is set correctly
+			if hasExceededLimit {
+				g.Expect(updatedQueue.Spec.StopPolicy).NotTo(gomega.BeNil(), "stopPolicy should be set when wall time limit is exceeded")
+				g.Expect(*updatedQueue.Spec.StopPolicy).To(gomega.Equal(kueue.Hold), "stopPolicy should be Hold")
+			}
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Finishing workload")
+		util.FinishWorkloads(ctx, k8sClient, workload)
+
+		ginkgo.By("Deleting the local queue")
+		gomega.Expect(util.DeleteObject(ctx, k8sClient, queueWithLowLimit)).To(gomega.Succeed())
+	})
+
+	ginkgo.It("Should set stopPolicy to HoldAndDrain when wall time limit exceeded with HoldAndDrain action", func() {
+		ginkgo.By("Enabling the WallTimeLimits feature gate")
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WallTimeLimits, true)
+
+		ginkgo.By("Creating admission check and setting it active")
+		ac = utiltestingapi.MakeAdmissionCheck("ac-walltime-holddrain").ControllerName("ac-controller").Obj()
+		util.MustCreate(ctx, k8sClient, ac)
+		util.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
+
+		ginkgo.By("Creating resourceFlavors")
+		for i := range resourceFlavors {
+			util.MustCreate(ctx, k8sClient, &resourceFlavors[i])
+		}
+
+		ginkgo.By("Creating a clusterQueue with wall time policy")
+		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue.walltime-holddrain").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas(flavorModelD).Resource(resourceGPU, "5", "5").Obj(),
+			).
+			Cohort("cohort").
+			AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
+			WallTimePolicy(
+				kueue.WallTimeFlavor{Name: kueue.ResourceFlavorReference(flavorModelD), WallTimeAllocatedHours: 1, ActionWhenWallTimeExhausted: kueue.HoldAndDrain},
+			).
+			Obj()
+		util.MustCreate(ctx, k8sClient, clusterQueue)
+
+		ginkgo.By("Creating a local queue with wall time policy and low wall time limit")
+		queueWithLowLimit := utiltestingapi.MakeLocalQueue("queue-low-limit-drain", ns.Name).
+			ClusterQueue(clusterQueue.Name).
+			WallTimePolicy(1, kueue.HoldAndDrain).
+			Obj()
+		util.MustCreate(ctx, k8sClient, queueWithLowLimit)
+
+		ginkgo.By("Creating and admitting a workload that exceeds wall time limit")
+		workload := utiltestingapi.MakeWorkload("wl-exceeded-drain", ns.Name).
+			Queue(kueue.LocalQueueName(queueWithLowLimit.Name)).
+			Request(resourceGPU, "1").
+			WallTimeSeconds(7200). // 2 hours, exceeding 1 hour limit
+			Obj()
+		util.MustCreate(ctx, k8sClient, workload)
+
+		admission := utiltestingapi.MakeAdmission(clusterQueue.Name).
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment(resourceGPU, kueue.ResourceFlavorReference(flavorModelD), "1").Obj()).Obj()
+
+		util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(workload), admission)
+		util.SetWorkloadsAdmissionCheck(ctx, k8sClient, workload, kueue.AdmissionCheckReference(ac.Name), kueue.CheckStateReady, true)
+
+		ginkgo.By("Verifying that stopPolicy is set to HoldAndDrain when wall time limit is exceeded")
+		gomega.Eventually(func(g gomega.Gomega) {
+			var updatedQueue kueue.LocalQueue
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queueWithLowLimit), &updatedQueue)).To(gomega.Succeed())
+
+			// Verify wall time usage is tracked
+			g.Expect(updatedQueue.Status.WallTimeFlavorUsage).NotTo(gomega.BeEmpty())
+
+			// Check if wall time limit is exceeded
+			hasExceededLimit := false
+			for _, usage := range updatedQueue.Status.WallTimeFlavorUsage {
+				if usage.WallTimeUsed >= usage.WallTimeAllocated {
+					hasExceededLimit = true
+					break
+				}
+			}
+
+			// If limit exceeded, verify stopPolicy is set correctly
+			if hasExceededLimit {
+				g.Expect(updatedQueue.Spec.StopPolicy).NotTo(gomega.BeNil(), "stopPolicy should be set when wall time limit is exceeded")
+				g.Expect(*updatedQueue.Spec.StopPolicy).To(gomega.Equal(kueue.HoldAndDrain), "stopPolicy should be HoldAndDrain")
+			}
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Finishing workload")
+		util.FinishWorkloads(ctx, k8sClient, workload)
+
+		ginkgo.By("Deleting the local queue")
+		gomega.Expect(util.DeleteObject(ctx, k8sClient, queueWithLowLimit)).To(gomega.Succeed())
+	})
 })

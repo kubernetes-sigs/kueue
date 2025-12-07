@@ -184,8 +184,39 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	if features.Enabled(features.WallTimeLimits) && queueObj.Spec.WallTimePolicy != nil {
-		err := r.UpdateStatusIfChanged(ctx, &queueObj, "", "", "")
-		return ctrl.Result{}, err
+		// Get the current wall time usage stats
+		stats, err := r.cache.LocalQueueUsage(&queueObj)
+		if err != nil {
+			r.log.Error(err, "Failed to get localQueue wall time usage")
+			return ctrl.Result{}, err
+		}
+
+		// Check if any wall time limits are exceeded
+		wallTimeLimitExceeded := false
+		for _, usage := range stats.WallTimeUsage {
+			if usage.WallTimeUsed >= usage.WallTimeAllocated {
+				wallTimeLimitExceeded = true
+				break
+			}
+		}
+
+		// Apply the actionWhenWallTimeExhausted if limits are exceeded
+		if wallTimeLimitExceeded {
+			action := queueObj.Spec.WallTimePolicy.ActionWhenWallTimeExhausted
+			currentStopPolicy := ptr.Deref(queueObj.Spec.StopPolicy, kueue.None)
+
+			// Only update the StopPolicy if it's not already set to the desired action
+			if currentStopPolicy != action && (action == kueue.Hold || action == kueue.HoldAndDrain) {
+				queueObj.Spec.StopPolicy = &action
+				if err := r.client.Update(ctx, &queueObj); err != nil {
+					r.log.Error(err, "Failed to update localQueue stopPolicy due to wall time limit")
+					return ctrl.Result{}, err
+				}
+				r.log.Info("Updated localQueue stopPolicy due to wall time limit exceeded",
+					"localQueue", klog.KObj(&queueObj),
+					"stopPolicy", action)
+			}
+		}
 	}
 
 	if afs.Enabled(r.admissionFSConfig) {

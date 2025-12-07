@@ -323,12 +323,11 @@ func (i *Info) WallTimeFlavorUsage() resources.FlavorWallTimeQuantities {
 		for res := range psReqs.Requests {
 			flv := psReqs.Flavors[res]
 			seconds := *i.Obj.Status.WallTimeSeconds
-			hours := int32(seconds / 3600)
+			hours := seconds / 3600
 			total[resources.FlavorWallTimeResource{Flavor: flv}] += hours
 		}
 	}
 	return total
-
 }
 
 func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string) corev1.ResourceList {

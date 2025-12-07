@@ -220,7 +220,6 @@ func (c *clusterQueue) updateWallTimeGroups(in []kueue.WallTimeFlavor) bool {
 	return c.AllocatableResourceGeneration == 0 ||
 		!equality.Semantic.DeepEqual(oldBG, c.WallTimeGroups) ||
 		!equality.Semantic.DeepEqual(oldBQ, c.resourceNode.WallTimeQuotas)
-
 }
 
 func (c *clusterQueue) updateQueueStatus(log logr.Logger) {
@@ -539,7 +538,7 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 				if op == add {
 					lq.wallTimeUsage[fr] += q
 				}
-				if op == subtract {
+				if op == subtract { //nolint:staticcheck // empty branch is intentional - wall time usage is not removed on subtract
 					// todo: maybe we don't actually remove wall time usage
 				}
 			}
@@ -551,7 +550,7 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 			if op == add {
 				addWallTimeUsage(c, fr, q)
 			}
-			if op == subtract {
+			if op == subtract { //nolint:staticcheck // empty branch is intentional - wall time usage is not removed on subtract
 				// todo: maybe we don't actually remove wall time usage
 			}
 		}

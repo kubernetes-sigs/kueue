@@ -387,7 +387,6 @@ func recordResourceMetrics(cq *kueue.ClusterQueue, tracker *roletracker.RoleTrac
 			metrics.ReportClusterQueueResourceUsage(cq.Spec.CohortName, cq.Name, string(fu.Name), string(r.Name), resource.QuantityToFloat(&r.Total), tracker)
 		}
 	}
-
 }
 
 func updateResourceMetrics(oldCq, newCq *kueue.ClusterQueue, tracker *roletracker.RoleTracker) {

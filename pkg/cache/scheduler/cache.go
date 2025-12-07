@@ -115,7 +115,6 @@ type Cache struct {
 	admissionChecks      map[kueue.AdmissionCheckReference]AdmissionCheck
 	workloadInfoOptions  []workload.InfoOption
 	fairSharingEnabled   bool
-	budgetPolicy         bool
 	admissionFairSharing *config.AdmissionFairSharing
 
 	hm hierarchy.Manager[*clusterQueue, *cohort]

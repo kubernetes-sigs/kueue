@@ -701,7 +701,6 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			})
 		})
 	})
-
 })
 
 var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
