@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"strconv"
 
-	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,13 +38,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
-	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -207,30 +204,6 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 
 func (j *Job) GVK() schema.GroupVersionKind {
 	return gvk
-}
-
-func (j *Job) IsTopLevel() bool {
-	if j.Labels[constants.QueueLabel] == "" {
-		return false
-	}
-
-	owner := metav1.GetControllerOf(j)
-	if owner == nil {
-		return true
-	}
-
-	// Special handling for RayJob created batch/Job, since RayJob will create a submitter Job
-	createdByRayJob := owner.APIVersion == rayv1.GroupVersion.String() && owner.Kind == "RayJob"
-	if !createdByRayJob {
-		// TODO improve this in the future, now assume the job not top level if it is not created by RayJob
-		return false
-	}
-
-	// This is job created by RayJob, check it with following logic:
-	// if it is not elastic job, meaning RayJob not enabled autoscaling, treat it as managed by RayJob, return false.
-	// if it is elastic job, meaning RayJob enabled autoscaling, treat it as top level (not managed by RayJob), return true.
-	// See discussion in https://github.com/kubernetes-sigs/kueue/pull/8082
-	return j.Annotations[workloadslicing.EnabledAnnotationKey] == workloadslicing.EnabledAnnotationValue
 }
 
 func (j *Job) PodLabelSelector() string {

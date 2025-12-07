@@ -379,7 +379,28 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	if !isTopLevelJob {
 		_, _, finished := job.Finished(ctx)
 		if !finished && !job.IsSuspended() {
-			if ancestorWorkload, err := r.getWorkloadForObject(ctx, ancestorJob); err != nil {
+			var ancestorWorkload *kueue.Workload
+			var err error
+			ancestorGenericJob := CreateGenericJobFromRuntimeObject(ancestorJob)
+			if ancestorGenericJob != nil {
+				log.V(10).Info("Ancestor job converted to generic job, trying to convert it again to JobWithCustomWorkloadRetriever")
+				jobWithCustomWorkloadRetriever, ok := ancestorGenericJob.(JobWithCustomWorkloadRetriever)
+				if ok {
+					log.V(10).Info("Ancestor job converted to JobWithCustomWorkloadRetriever")
+					ancestorWorkload, err = jobWithCustomWorkloadRetriever.GetWorkload(ctx, r.client)
+					if err != nil {
+						log.Error(err, "couldn't get an ancestor job workload")
+						return ctrl.Result{}, err
+					}
+				} else {
+					log.V(10).Info("Ancestor job not converted to JobWithCustomWorkloadRetriever")
+					ancestorWorkload, err = r.getWorkloadForObject(ctx, ancestorJob)
+				}
+			} else {
+				log.V(10).Info("Ancestor job not converted to generic job", "ancestorJobName", ancestorJob.GetName())
+				ancestorWorkload, err = r.getWorkloadForObject(ctx, ancestorJob)
+			}
+			if err != nil {
 				log.Error(err, "couldn't get an ancestor job workload")
 				return ctrl.Result{}, err
 			} else if ancestorWorkload == nil || !workload.IsAdmitted(ancestorWorkload) {
