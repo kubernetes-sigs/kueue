@@ -16,8 +16,9 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 
 ## Before you begin
 
-1. By default, the integration for `pod` is not enabled.
-   Learn how to [install Kueue with a custom manager configuration](/docs/installation/#install-a-custom-configured-released-version)
+1. The `pod` integration is enabled by default.
+
+2. For Kueue v0.15 and earlier, learn how to [install Kueue with a custom manager configuration](/docs/installation/#install-a-custom-configured-released-version)
    and enable the `pod` integration.
 
    To allow Kubernetes system pods to be successfully scheduled, you must limit the scope of the `pod` integration.
@@ -55,7 +56,7 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 {{% /alert %}}
 
 
-2. Kueue will run webhooks for all created pods if the pod integration is enabled. The webhook namespaceSelector could be 
+3. Kueue will run webhooks for all created pods if the pod integration is enabled. The webhook namespaceSelector could be
    used to filter the pods to reconcile. The default webhook namespaceSelector is:
    ```yaml
    matchExpressions:
@@ -70,10 +71,10 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
    Make sure that namespaceSelector never matches the kueue namespace, otherwise the 
    Kueue deployment won't be able to create Pods.
 
-3. Pods that belong to other API resources managed by Kueue are excluded from being queued by `pod` integration. 
+4. Pods that belong to other API resources managed by Kueue are excluded from being queued by `pod` integration.
    For example, pods managed by `batch/v1.Job` won't be managed by `pod` integration.
 
-4. Check [Administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial Kueue setup.
+5. Check [Administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial Kueue setup.
 
 ## Running a single Pod admitted by Kueue
 

@@ -86,7 +86,7 @@ func GetAgnHostImage() string {
 		return image
 	}
 
-	agnhostDockerfilePath := filepath.Join(GetProjectBaseDir(), "hack", "agnhost", "Dockerfile")
+	agnhostDockerfilePath := filepath.Join(ProjectBaseDir, "hack", "agnhost", "Dockerfile")
 	agnhostImage, err := getDockerImageFromDockerfile(agnhostDockerfilePath)
 	if err != nil {
 		panic(fmt.Errorf("failed to get agnhost image: %v", err))
@@ -404,7 +404,7 @@ func WaitForActivePodsAndTerminate(ctx context.Context, k8sClient client.Client,
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 
 	for _, p := range activePods {
-		klog.V(3).Info("Terminating pod", "pod", klog.KObj(&p))
+		ginkgo.GinkgoLogr.Info("Terminating pod", "pod", klog.KObj(&p))
 		cmd := []string{"/bin/sh", "-c", fmt.Sprintf("curl \"http://%s:8080/exit?code=%v&timeout=2s&wait=2s\"", p.Status.PodIP, exitCode)}
 		_, _, err := KExecute(ctx, cfg, restClient, namespace, p.Name, p.Spec.Containers[0].Name, cmd)
 		// TODO: remove the custom handling of 137 response once this is fixed in the agnhost image

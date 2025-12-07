@@ -429,6 +429,21 @@ func fromPreemptionPossibility(preemptionPossibility preemptioncommon.Preemption
 	panic(fmt.Sprintf("illegal PreemptionPossibility: %d", preemptionPossibility))
 }
 
+func (mode preemptionMode) preemptionPossibility() *preemptioncommon.PreemptionPossibility {
+	switch mode {
+	case noPreemptionCandidates:
+		return ptr.To(preemptioncommon.NoCandidates)
+	case preempt:
+		return ptr.To(preemptioncommon.Preempt)
+	case reclaim:
+		return ptr.To(preemptioncommon.Reclaim)
+	case fit, noFit:
+		return nil
+	default:
+		panic(fmt.Sprintf("illegal preemptionMode: %d", mode))
+	}
+}
+
 func (mode preemptionMode) flavorAssignmentMode() FlavorAssignmentMode {
 	switch mode {
 	case noFit:
@@ -795,7 +810,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 			}
 		}
 
-		consideredFlavors.AddRepresentativeModeFlavorAttempt(fName, representativeMode.preemptionMode.flavorAssignmentMode(), maxBorrow, flavorQuotaReasons)
+		consideredFlavors.AddRepresentativeModeFlavorAttempt(fName, representativeMode.preemptionMode, maxBorrow, flavorQuotaReasons)
 
 		if features.Enabled(features.FlavorFungibility) {
 			if !shouldTryNextFlavor(representativeMode, a.cq.FlavorFungibility) {

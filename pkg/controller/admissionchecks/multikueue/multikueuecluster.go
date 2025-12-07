@@ -46,6 +46,7 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
+	"sigs.k8s.io/cluster-inventory-api/pkg/credentials"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -357,6 +358,15 @@ type clustersReconciler struct {
 type clusterProfileCreds interface {
 	BuildConfigFromCP(clusterprofile *inventoryv1alpha1.ClusterProfile) (*rest.Config, error)
 }
+
+type NoOpClusterProfileCreds struct{}
+
+func (NoOpClusterProfileCreds) BuildConfigFromCP(clusterprofile *inventoryv1alpha1.ClusterProfile) (*rest.Config, error) {
+	return nil, errors.New("no credentials provider configured")
+}
+
+var _ clusterProfileCreds = (*credentials.CredentialsProvider)(nil)
+var _ clusterProfileCreds = (*NoOpClusterProfileCreds)(nil)
 
 var _ manager.Runnable = (*clustersReconciler)(nil)
 var _ reconcile.Reconciler = (*clustersReconciler)(nil)

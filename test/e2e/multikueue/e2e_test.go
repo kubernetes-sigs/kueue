@@ -110,11 +110,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			ControllerName(kueue.MultiKueueControllerName).
 			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", multiKueueConfig.Name).
 			Obj()
-		util.MustCreate(ctx, k8sManagerClient, multiKueueAc)
+		util.CreateAdmissionChecksAndWaitForActive(ctx, k8sManagerClient, multiKueueAc)
 
-		ginkgo.By("wait for check active", func() {
-			util.ExpectAdmissionChecksToBeActive(ctx, k8sManagerClient, multiKueueAc)
-		})
 		managerFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		util.MustCreate(ctx, k8sManagerClient, managerFlavor)
 
