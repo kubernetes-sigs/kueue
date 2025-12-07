@@ -59,10 +59,6 @@ func init() {
 		AddToScheme:       rayv1.AddToScheme,
 		MultiKueueAdapter: &multiKueueAdapter{},
 	}))
-
-	jobframework.RegisterGenericJobConvertFunc(gvk, func(obj runtime.Object) jobframework.GenericJob {
-		return fromObject(obj)
-	})
 }
 
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update

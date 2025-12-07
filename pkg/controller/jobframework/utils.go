@@ -18,44 +18,13 @@ package jobframework
 
 import (
 	"context"
-	"sync"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
 )
-
-// A function to convert runtime.Object to GenericJob
-type runtimeObjectToJobConvertFunc func(obj runtime.Object) GenericJob
-
-// A map containing functions to convert runtime.Object to GenericJob
-// key: schema.GroupVersionKind, value: func(obj runtime.Object) GenericJob
-var jobConvertRegistry sync.Map
-
-func RegisterGenericJobConvertFunc(gvk schema.GroupVersionKind, f runtimeObjectToJobConvertFunc) {
-	if f == nil {
-		jobConvertRegistry.Delete(gvk)
-	} else {
-		jobConvertRegistry.Store(gvk, f)
-	}
-}
-
-func CreateGenericJobFromRuntimeObject(obj runtime.Object) GenericJob {
-	objectKind := obj.GetObjectKind()
-	if objectKind == nil {
-		return nil
-	}
-	gvk := objectKind.GroupVersionKind()
-	convertFunc, ok := jobConvertRegistry.Load(gvk)
-	if !ok {
-		return nil
-	}
-	return convertFunc.(runtimeObjectToJobConvertFunc)(obj)
-}
 
 // JobPodSets retrieves the pod sets from a GenericJob and applies environment variable
 // deduplication if the SanitizePodSets feature gate is enabled.

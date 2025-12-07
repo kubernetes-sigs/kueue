@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -32,6 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 func ApplyDefaultForSuspend(ctx context.Context, job GenericJob, k8sClient client.Client,
@@ -93,6 +95,52 @@ func ApplyDefaultLocalQueue(jobObj client.Object, defaultQueueExist func(string)
 		}
 		labels[constants.QueueLabel] = string(constants.DefaultLocalQueueName)
 		jobObj.SetLabels(labels)
+	}
+}
+
+func CopyLabelAndAnnotationFromOwner(ctx context.Context, jobObj client.Object, k8sClient client.Client, log logr.Logger) {
+	if QueueNameForObject(jobObj) != "" {
+		return
+	}
+	owner := metav1.GetControllerOf(jobObj)
+	if owner == nil {
+		log.V(12).Info("Did not find owner for job", "jobName", jobObj.GetName())
+		return
+	}
+
+	parentObj := getEmptyOwnerObject(owner)
+	if parentObj == nil {
+		log.V(12).Info("Did not get empty owner object for job", "jobName", jobObj.GetName(), "ownerKind", owner.Kind, "ownerName", owner.Name)
+		return
+	}
+
+	err := k8sClient.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: jobObj.GetNamespace()}, parentObj)
+	if err != nil {
+		log.Error(err, "Failed to get owner object from k8s", "jobName", jobObj.GetName(), "ownerKind", owner.Kind, "ownerName", owner.Name)
+		return
+	}
+	log.V(12).Info("Got owner object for job", "jobName", jobObj.GetName(), "ownerKind", owner.Kind, "ownerName", owner.Name)
+
+	queueName := parentObj.GetLabels()[constants.QueueLabel]
+	if queueName != "" {
+		jobLabels := jobObj.GetLabels()
+		if jobLabels == nil {
+			jobLabels = make(map[string]string, 1)
+		}
+		jobLabels[constants.QueueLabel] = queueName
+		jobObj.SetLabels(jobLabels)
+		log.V(12).Info("Copied kueue queue name from owner object to job", "queueName", queueName, "jobName", jobObj.GetName(), "ownerKind", owner.Kind, "ownerName", owner.Name)
+	}
+
+	workloadslicingAnnotationValue := parentObj.GetAnnotations()[workloadslicing.EnabledAnnotationKey]
+	if workloadslicingAnnotationValue != "" {
+		jobAnnotations := jobObj.GetAnnotations()
+		if jobAnnotations == nil {
+			jobAnnotations = make(map[string]string, 1)
+		}
+		jobAnnotations[workloadslicing.EnabledAnnotationKey] = workloadslicingAnnotationValue
+		jobObj.SetAnnotations(jobAnnotations)
+		log.V(12).Info("Copied workloadslicing annotation from owner object to job", "annotationValue", workloadslicingAnnotationValue, "jobName", jobObj.GetName(), "ownerKind", owner.Kind, "ownerName", owner.Name)
 	}
 }
 
