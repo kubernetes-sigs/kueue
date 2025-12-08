@@ -185,15 +185,7 @@ var _ = ginkgo.Describe("SchedulerWithDelayedAdmissionChecks", func() {
 			})
 
 			ginkgo.By("Marking AC as Ready", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-					wlPatch := workload.BaseSSAWorkload(createdWorkload, true)
-					workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, kueue.AdmissionCheckState{
-						Name:  kueue.AdmissionCheckReference(delayedCheck.Name),
-						State: kueue.CheckStateReady,
-					}, realClock)
-					g.Expect(k8sClient.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName), client.ForceOwnership)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.SetWorkloadsAdmissionCheck(ctx, k8sClient, createdWorkload, kueue.AdmissionCheckReference(delayedCheck.Name), kueue.CheckStateReady, false)
 			})
 
 			ginkgo.By("Verifying workload is admitted with retry counter", func() {
