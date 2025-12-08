@@ -266,7 +266,7 @@ If preference is:
 - BorrowingOverPreemption (or unset): (`Fit`, `NoBorrow`) > (`Fit`, `Borrow`) > (`Preempt`, `NoBorrow`) > (`Preempt`, `Borrow`).
 - PreemptionOverBorrowing:            (`Fit`, `NoBorrow`) > (`Preempt`, `NoBorrow`) > (`Fit`, `Borrow`) > (`Preempt`, `Borrow`).
 
-The `PreemptionOverBorrowing` mode is introduced as a replacement for the `FlavorFungibilityImplicitPreferenceDefault` feature gate; enabling that gate applies the new ordering without requiring each ClusterQueue to opt in.
+The `PreemptionOverBorrowing` mode applies ordering without requiring each ClusterQueue to opt in.
 
 In all other combinations (i.e., either policy is `MayStopSearch`), the search stops early and the preference field MUST be omitted; the implied order effectively prioritizes the stopping condition:
 - `WhenCanBorrow=TryNextFlavor`, `WhenCanPreempt=MayStopSearch` → preemption-first among viable options.
@@ -450,9 +450,6 @@ milestones with these graduation criteria:
 [maturity-levels]: https://git.k8s.io/community/contributors/devel/sig-architecture/api_changes.md#alpha-beta-and-stable-versions
 [deprecation-policy]: https://kubernetes.io/docs/reference/using-api/deprecation-policy/
 -->
-
-The feature gate `FlavorFungibilityImplicitPreferenceDefault` is deprecated, but remains available through v0.15 to ease the transition to explicit preferences and will be removed in v0.16.
-Once the gate is removed, the preference must be configured per ClusterQueue via `spec.flavorFungibility.preference`, with `BorrowingOverPreemption` as the default.
 
 ## Implementation History
 

@@ -404,16 +404,6 @@ func isPreferred(a, b granularMode, fungibilityConfig kueue.FlavorFungibility) b
 		}
 	}
 
-	// BorrowingOverPreemption preference
-	if !features.Enabled(features.FlavorFungibilityImplicitPreferenceDefault) {
-		return borrowingOverPreemption()
-	}
-
-	// PreemptionOverBorrowing preference
-	if fungibilityConfig.WhenCanBorrow == kueue.TryNextFlavor {
-		return preemptionOverBorrowing()
-	}
-	// BorrowingOverPreemption preference
 	return borrowingOverPreemption()
 }
 
