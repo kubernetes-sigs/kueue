@@ -15,7 +15,7 @@
   - [Subcomponents](#subcomponents)
     - [MultiKueueCluster Controller](#multikueuecluster-controller)
     - [AdmissionCheck Controller](#admissioncheck-controller)
-    - [Workload Controller](#workload-controller)
+    - [MultiKueue Workload Controller](#multi-kueue-workload-controller)
     - [Garbage Collector](#garbage-collector)
   - [Jobs abstraction](#jobs-abstraction)
     - [MultiKueueAdapter](#multikueueadapter)
@@ -71,7 +71,7 @@ in the clusters (manually, using gitops or some 3rd-party tooling).
 kubernetes/enhancements#4370 implemented or Job controller disabled.
 * Support for cluster role sharing (worker & manager inside one cluster)
 although proved to be possible after kubernetes/enhancements#4370 was merged.
-* distribute running Jobs across multiple clusters, and reconcile partial
+* Distribute a running Job across multiple clusters, and reconcile partial
 results in the Job objects on the management cluster (each Job will run on
 a single worker cluster).
 
@@ -254,7 +254,7 @@ The controller obtains cluster credentials based on the `MultiKueueCluster` spec
 
 - When `clusterProfile` is provided, the controller relies on the
   [client-go credential plugin mechanism](https://kubernetes.io/docs/reference/access-authn-authz/authentication/#client-go-credential-plugins) to obtain and refresh credentials for the remote cluster as described in [KEP-5339](https://github.com/kubernetes/enhancements/blob/master/keps/sig-multicluster/5339-clusterprofile-plugin-credentials/README.md).
-  Installation of the ClusterProfile CRD(`clusterprofiles.multicluster.x-k8s.io`). If your Kueue deployment is already running, you must restart it after installing the CRD for the changes to take effect.
+  This requires installation of the ClusterProfile CRD (`clusterprofiles.multicluster.x-k8s.io`). If your Kueue deployment is already running, you must restart it after installing the CRD for the changes to take effect.
 
   The authentication flow is as follows:
   1. The controller reads the `ClusterProfile` object referenced by the `MultiKueueCluster`. The `ClusterProfile` contains a list of access providers.
@@ -296,21 +296,21 @@ provider/environment dependent.
 
 Will monitor the AdmissionChecks associated with MultiKueue (by ControllerName) and maintain
 their `Active` status condition based on the validity of their MultiKueueConfig and `Active`
-state of the MultiKueueClusters in use. An AdmissionCheck being considered `Active` when it 
+state of the MultiKueueClusters in use. An AdmissionCheck will be set as `Active` when it
 has a valid configuration and at least one of its MultiKueueClusters is `Active`.
 
-#### Workload Controller
+#### MultiKueue Workload Controller
 
 Will monitor the workloads in the management cluster and manage their MultiKueue specific
 AdmissionCheckStates.
 
-When distributing the workloads across clusters MultiKueue Workloads controller will first create
-the Kueue's internal Workload object. Only after the workload is admitted and other clusters
-are cleaned-up the real job will be created, to match the Workload. That gives the guarantee
+When distributing a workload across clusters, the MultiKueue Workload Controller will first create
+the Kueue's internal Workload object. Only after the workload is admitted on one cluster and cleaned
+up on the other clusters, the real job will be created, to match the workload. That gives the guarantee
 that the workload will not start in more than one cluster. The workload will
 get the annotation stating where it is actually running.
 
-When the job is running MultiKueue controller will copy its status from worker cluster
+When the job is running, MultiKueue Workload Controller will copy its status from worker cluster
 to the management cluster, to keep the impression that the job is running in the management 
 cluster. This is needed to allow pipelines and workflow engines to execute against 
 the management cluster with MultiKueue without any extra changes. 
@@ -324,8 +324,8 @@ In case of duplicates, all but one of them will be removed.
 
 #### Garbage Collector
 
-Will monitor the Workloads in the remote clusters to detect and remove
-those that were created by MultiKueue but were not deleted by the Workload Controller 
+Will monitor the workloads in the remote clusters to detect and remove
+those that were created by MultiKueue but were not deleted by the MultiKueue Workload Controller
 in the normal flow, due to a temporary connectivity outage to the remote cluster.
 
 The garbage collector will run periodically with a configurable time interval.
@@ -345,7 +345,7 @@ type MultiKueueAdapter interface {
     ...
 }
 ```
-Used by the [Workload Controller](#workload-controller) to interact with the owner of the reconciled workloads.
+Used by the [MultiKueue Workload Controller](#multi-kueue-workload-controller) to interact with the owner of the reconciled workloads.
 
 `SyncJob` will:
 - Create the Job object in the worker cluster, if not already created.
@@ -420,18 +420,19 @@ While the workload `.status.clusterName` is assigned, the `nominatedClusterNames
 
 #### Workload Synchronization
 
-While the Workload is pending, the dispatcher can add or remove clusters from the list, and the Workload
-Controller synchronizes the value of the field with the subset of worker clusters with the Workload copy.
+While the workload is pending, the dispatcher can add or remove clusters from the list, and the MultiKueue Workload
+Controller synchronizes the value of the field with the subset of worker clusters with the workload copy.
 
-Changes to Workload type:
+Changes to `WorkloadStatus` type:
 ```go
 type WorkloadStatus struct {
+  ...
   // nominatedClusterNames specifies the list of cluster names that have been nominated for scheduling.
   // This field is mutually exclusive with the `.status.clusterName` field, and is reset when 
   // `status.clusterName` is set.
   // This field is optional.
   // 
-  // +listType=set
+  // +listType=atomic
   // +kubebuilder:validation:MaxItems=10
   // +optional
   NominatedClusterNames []string `json:"nominatedClusterNames,omitempty"`
