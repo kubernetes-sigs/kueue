@@ -77,13 +77,6 @@ const (
 	// to put them on closely located nodes (e.g. within the same rack or block).
 	TopologyAwareScheduling featuregate.Feature = "TopologyAwareScheduling"
 
-	// owner: @dgrove-oss
-	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2937-resource-transformer
-	//
-	// Enable applying configurable resource transformations when computing
-	// the resource requests of a Workload
-	ConfigurableResourceTransformations featuregate.Feature = "ConfigurableResourceTransformations"
-
 	// owner: @kpostoffice
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/1833-metrics-for-local-queue
 	//
@@ -271,11 +264,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	TopologyAwareScheduling: {
 		{Version: version.MustParse("0.9"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.Beta},
-	},
-	ConfigurableResourceTransformations: {
-		{Version: version.MustParse("0.9"), Default: false, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("0.10"), Default: true, PreRelease: featuregate.Beta},
-		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.16
 	},
 	LocalQueueMetrics: {
 		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
