@@ -71,7 +71,7 @@ in the clusters (manually, using gitops or some 3rd-party tooling).
 kubernetes/enhancements#4370 implemented or Job controller disabled.
 * Support for cluster role sharing (worker & manager inside one cluster)
 although proved to be possible after kubernetes/enhancements#4370 was merged.
-* Distribute a running Job across multiple clusters, and reconcile partial
+* Distribute and run a single Job across multiple clusters, and reconcile partial
 results in the Job objects on the management cluster (each Job will run on
 a single worker cluster).
 
@@ -305,7 +305,9 @@ Will monitor the workloads in the management cluster and manage their MultiKueue
 AdmissionCheckStates.
 
 When distributing a workload across clusters, the MultiKueue Workload Controller will first create
-the Kueue's internal Workload object. Only after the workload is admitted on one cluster and cleaned
+a Kueue-internal workload object in each of the currently "nominated" worker clusters
+(see [MultiKueue Dispatcher API](#multikueue-dispatcher-api) for details).
+Only after the workload is admitted on one cluster and cleaned
 up on the other clusters, the real job will be created, to match the workload. That gives the guarantee
 that the workload will not start in more than one cluster. The workload will
 get the annotation stating where it is actually running.
@@ -395,9 +397,9 @@ if the connection with its reserving worker cluster is lost.
 ### MultiKueue Dispatcher API
 
 Since Kueue 0.13, in order to meet the requirements of [Story 3](#story-3), we introduce an API for custom dispatching algorithms.
-When a custom Dispatcher API is used, instead of creating the copy of the Workload on all clusters the
-the MultiKueue Workload Controller only creates the copy of the Workload on the subset of worker clusters
-specified in the Workload's .status.nominatedClusterNames field.
+When a custom Dispatcher API is used, instead of creating the copy of the workload on all clusters the
+the MultiKueue Workload Controller only creates the copy of the workload on the subset of worker clusters
+specified in the workload's .status.nominatedClusterNames field.
 
 Additionally, we implement a built-in incremental dispatcher as a reference implementation.
 Including the pre-existing dispatching algorithm until 0.12, we distinguish the following dispatchers:
@@ -407,7 +409,7 @@ The workload is copied to all available worker clusters at once. This is the def
 
 * **Incremental**:  
 Clusters are nominated incrementally in rounds of fixed duration (5 minutes per round). 
-The process begins by nominating an initial set of 3 clusters, which are set in the `.status.nominatedClusterNames` field in the Workload.
+The process begins by nominating an initial set of 3 clusters, which are set in the `.status.nominatedClusterNames` field in the workload.
 If none of the clusters admit the workload within the current round's duration, the next round begins, 
 and 3 additional clusters are nominated, until the workload is admitted or all eligible clusters have been considered.
 This strategy allows for a controlled and gradual expansion of candidate clusters, rather than dispatching the workload to all clusters at once.
@@ -438,7 +440,7 @@ type WorkloadStatus struct {
   NominatedClusterNames []string `json:"nominatedClusterNames,omitempty"`
 
   // clusterName is the name of the cluster where the workload is actually assigned.
-  // This field is reset after the Workload is evicted.
+  // This field is reset after the workload is evicted.
   // +optional
   ClusterName *string `json:"clusterName,omitempty"`
 }
