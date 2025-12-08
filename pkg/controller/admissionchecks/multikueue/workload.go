@@ -246,12 +246,12 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 }
 
 func (w *wlReconciler) updateACS(ctx context.Context, wl *kueue.Workload, acs *kueue.AdmissionCheckState, status kueue.CheckState, message string) error {
-	acs.State = status
-	acs.Message = message
-	acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
-	wlPatch := workload.BaseSSAWorkload(wl, true)
-	workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs, w.clock)
-	return w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName), client.ForceOwnership)
+	return workload.PatchStatus(ctx, w.client, wl, kueue.MultiKueueControllerName, func(wl *kueue.Workload) (bool, error) {
+		acs.State = status
+		acs.Message = message
+		acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
+		return workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *acs, w.clock), nil
+	})
 }
 
 func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName kueue.AdmissionCheckReference) (map[string]*remoteClient, error) {
@@ -415,12 +415,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			log.V(3).Info("Reserving remote lost, retry", "retryAfter", remainingWaitTime)
 			return reconcile.Result{RequeueAfter: remainingWaitTime}, nil
 		} else {
-			acs.State = kueue.CheckStateRetry
-			acs.Message = "Reserving remote lost"
-			acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
-			wlPatch := workload.BaseSSAWorkload(group.local, true)
-			workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs, w.clock)
-			return reconcile.Result{}, w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName), client.ForceOwnership)
+			return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Reserving remote lost")
 		}
 	}
 
