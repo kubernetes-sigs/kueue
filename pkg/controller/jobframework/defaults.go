@@ -19,6 +19,7 @@ package jobframework
 import (
 	"context"
 	"fmt"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -108,6 +109,14 @@ func CopyLabelAndAnnotationFromOwner(ctx context.Context, jobObj client.Object, 
 		return
 	}
 
+	// TODO refactor and create a helper method IsRaySubmitterJob to check RayJob autoscaling setting
+	// See discussions in https://github.com/kubernetes-sigs/kueue/pull/8082
+	createdByRayJob := owner.APIVersion == rayv1.GroupVersion.String() && owner.Kind == "RayJob"
+	if !createdByRayJob {
+		log.V(12).Info("Owner object for job is not RayJob", "jobName", jobObj.GetName(), "ownerKind", owner.Kind, "ownerName", owner.Name)
+		return
+	}
+
 	parentObj := getEmptyOwnerObject(owner)
 	if parentObj == nil {
 		log.V(12).Info("Did not get empty owner object for job", "jobName", jobObj.GetName(), "ownerKind", owner.Kind, "ownerName", owner.Name)
@@ -120,6 +129,17 @@ func CopyLabelAndAnnotationFromOwner(ctx context.Context, jobObj client.Object, 
 		return
 	}
 	log.V(12).Info("Got owner object for job", "jobName", jobObj.GetName(), "ownerKind", owner.Kind, "ownerName", owner.Name)
+
+	rayJob, ok := parentObj.(*rayv1.RayJob)
+	if !ok {
+		log.V(12).Info("Parent object cannot be converted to RayJob", "jobName", jobObj.GetName(), "parentName", parentObj.GetName())
+		return
+	}
+
+	if rayJob.Spec.RayClusterSpec == nil ||
+		!ptr.Deref(rayJob.Spec.RayClusterSpec.EnableInTreeAutoscaling, false) {
+		return
+	}
 
 	queueName := parentObj.GetLabels()[constants.QueueLabel]
 	if queueName != "" {
