@@ -972,6 +972,7 @@ type PatchStatusOptions struct {
 	StrictPatch             bool
 	StrictApply             bool
 	RetryOnConflictForPatch bool
+	ForceApply              bool
 }
 
 // DefaultPatchStatusOptions returns a new PatchStatusOptions instance configured with
@@ -1013,6 +1014,13 @@ func WithRetryOnConflictForPatch() PatchStatusOption {
 	}
 }
 
+// WithForceApply is a PatchStatusOption that forces the use of the apply patch.
+func WithForceApply() PatchStatusOption {
+	return func(o *PatchStatusOptions) {
+		o.ForceApply = true
+	}
+}
+
 func patchStatusOptions(options []PatchStatusOption) *PatchStatusOptions {
 	opts := DefaultPatchStatusOptions()
 	for _, opt := range options {
@@ -1026,7 +1034,7 @@ func patchStatusOptions(options []PatchStatusOption) *PatchStatusOptions {
 // Otherwise, it runs the update function and, if updated, applies the SSA Patch status.
 func patchStatus(ctx context.Context, c client.Client, wl *kueue.Workload, owner client.FieldOwner, update UpdateFunc, opts *PatchStatusOptions) error {
 	wlCopy := wl.DeepCopy()
-	if features.Enabled(features.WorkloadRequestUseMergePatch) {
+	if !opts.ForceApply && features.Enabled(features.WorkloadRequestUseMergePatch) {
 		patchOptions := make([]clientutil.PatchOption, 0, 2)
 		if !opts.StrictPatch {
 			patchOptions = append(patchOptions, clientutil.WithLoose())

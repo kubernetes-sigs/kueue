@@ -167,7 +167,7 @@ func createWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) er
 }
 
 func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload, cq *kueue.ClusterQueue) error {
-	update := func() (*kueue.Workload, bool, error) {
+	update := func(wl *kueue.Workload) (bool, error) {
 		// make its admission and update its status
 		info := workload.NewInfo(wl)
 
@@ -202,12 +202,18 @@ func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload, cq 
 			Message: fmt.Sprintf("Imported into ClusterQueue %s", cq.Name),
 		}
 		apimeta.SetStatusCondition(&wl.Status.Conditions, admittedCond)
-		return wl, true, nil
+		return true, nil
 	}
 
-	err := patchAdmissionStatus(ctx, c, update)
-	retry, _, timeout := checkError(err)
-	for retry {
+	for {
+		err := workload.PatchAdmissionStatus(ctx, c, wl, realClock, update, workload.WithForceApply())
+		retry, _, timeout := checkError(err)
+		if !retry {
+			if err != nil {
+				return err
+			}
+			break
+		}
 		if timeout >= 0 {
 			select {
 			case <-ctx.Done():
@@ -215,19 +221,7 @@ func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload, cq 
 			case <-time.After(timeout):
 			}
 		}
-		err = patchAdmissionStatus(ctx, c, update)
-		retry, _, timeout = checkError(err)
 	}
-	return err
-}
 
-// Keep this function until the WorkloadRequestUseMergePatch feature graduates to GA.
-// The importer does not respect feature gates, so we must preserve the admission FieldOwner for workloads.
-func patchAdmissionStatus(ctx context.Context, c client.Client, update func() (*kueue.Workload, bool, error)) error {
-	wPatched, updated, err := update()
-	if err != nil || !updated {
-		return err
-	}
-	wlCopy := workload.PrepareWorkloadPatch(wPatched, true, realClock)
-	return c.Status().Patch(ctx, wlCopy, client.Apply, client.FieldOwner(constants.AdmissionName), client.ForceOwnership)
+	return nil
 }
