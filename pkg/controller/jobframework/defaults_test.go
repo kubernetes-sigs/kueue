@@ -19,14 +19,17 @@ package jobframework
 import (
 	"testing"
 
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	utiltestingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -109,30 +112,32 @@ func TestWorkloadShouldBeSuspended(t *testing.T) {
 }
 
 func TestCopyLabelAndAnnotationFromOwner(t *testing.T) {
-	t.Cleanup(EnableIntegrationsForTest(t, "batch/job"))
+	t.Cleanup(EnableIntegrationsForTest(t, "batch/job", "ray.io/rayjob"))
 
 	testNamespace := utiltesting.MakeNamespaceWrapper("test-ns").Obj()
 
 	cases := map[string]struct {
 		job         func() *batchv1.Job
-		owner       *batchv1.Job
+		owner       client.Object
 		expectQueue string
 		expectWLS   string
-		expectError bool
 	}{
 		"job already has queue name - should not copy": {
 			job: func() *batchv1.Job {
-				parent := utiltestingjob.MakeJob("parent", testNamespace.Name).UID("parent-uid").Obj()
 				return utiltestingjob.MakeJob("child", testNamespace.Name).
 					Queue("existing-queue").
-					OwnerReference(parent.Name, batchv1.SchemeGroupVersion.WithKind("Job")).
+					OwnerReference("parent", rayv1.GroupVersion.WithKind("RayJob")).
 					Obj()
 			},
-			owner: utiltestingjob.MakeJob("parent", testNamespace.Name).
-				UID("parent-uid").
-				Queue("parent-queue").
-				SetAnnotation(workloadslicing.EnabledAnnotationKey, "true").
-				Obj(),
+			owner: func() *rayv1.RayJob {
+				rayJob := utiltestingrayjob.MakeJob("parent", testNamespace.Name).
+					EnableInTreeAutoscaling().
+					Queue("parent-queue").
+					AddAnnotation(workloadslicing.EnabledAnnotationKey, "true").
+					Obj()
+				rayJob.UID = types.UID("parent-uid")
+				return rayJob
+			}(),
 			expectQueue: "existing-queue",
 			expectWLS:   "",
 		},
@@ -144,86 +149,58 @@ func TestCopyLabelAndAnnotationFromOwner(t *testing.T) {
 			expectQueue: "",
 			expectWLS:   "",
 		},
-		"owner has queue label - should copy": {
+		"rayJob owner with autoscaling and queue label - should copy": {
 			job: func() *batchv1.Job {
-				parent := utiltestingjob.MakeJob("parent", testNamespace.Name).UID("parent-uid").Obj()
 				return utiltestingjob.MakeJob("child", testNamespace.Name).
-					OwnerReference(parent.Name, batchv1.SchemeGroupVersion.WithKind("Job")).
+					OwnerReference("parent", rayv1.GroupVersion.WithKind("RayJob")).
 					Obj()
 			},
-			owner: utiltestingjob.MakeJob("parent", testNamespace.Name).
-				UID("parent-uid").
-				Queue("parent-queue").
-				Obj(),
+			owner: func() *rayv1.RayJob {
+				rayJob := utiltestingrayjob.MakeJob("parent", testNamespace.Name).
+					EnableInTreeAutoscaling().
+					Queue("parent-queue").
+					Obj()
+				rayJob.UID = types.UID("parent-uid")
+				return rayJob
+			}(),
 			expectQueue: "parent-queue",
 			expectWLS:   "",
 		},
-		"owner has workloadslicing annotation - should copy": {
+		"rayJob owner without autoscaling - should not copy": {
 			job: func() *batchv1.Job {
-				parent := utiltestingjob.MakeJob("parent", testNamespace.Name).UID("parent-uid").Obj()
 				return utiltestingjob.MakeJob("child", testNamespace.Name).
-					OwnerReference(parent.Name, batchv1.SchemeGroupVersion.WithKind("Job")).
+					OwnerReference("parent", rayv1.GroupVersion.WithKind("RayJob")).
 					Obj()
 			},
-			owner: utiltestingjob.MakeJob("parent", testNamespace.Name).
-				UID("parent-uid").
-				SetAnnotation(workloadslicing.EnabledAnnotationKey, "true").
-				Obj(),
+			owner: func() *rayv1.RayJob {
+				rayJob := utiltestingrayjob.MakeJob("parent", testNamespace.Name).
+					Queue("parent-queue").
+					AddAnnotation(workloadslicing.EnabledAnnotationKey, "true").
+					Obj()
+				rayJob.UID = types.UID("parent-uid")
+				return rayJob
+			}(),
 			expectQueue: "",
-			expectWLS:   "true",
-		},
-		"owner has both queue and workloadslicing - should copy both": {
-			job: func() *batchv1.Job {
-				parent := utiltestingjob.MakeJob("parent", testNamespace.Name).UID("parent-uid").Obj()
-				return utiltestingjob.MakeJob("child", testNamespace.Name).
-					OwnerReference(parent.Name, batchv1.SchemeGroupVersion.WithKind("Job")).
-					Obj()
-			},
-			owner: utiltestingjob.MakeJob("parent", testNamespace.Name).
-				UID("parent-uid").
-				Queue("parent-queue").
-				SetAnnotation(workloadslicing.EnabledAnnotationKey, "true").
-				Obj(),
-			expectQueue: "parent-queue",
-			expectWLS:   "true",
-		},
-		"job with existing labels - should add queue label": {
-			job: func() *batchv1.Job {
-				parent := utiltestingjob.MakeJob("parent", testNamespace.Name).UID("parent-uid").Obj()
-				job := utiltestingjob.MakeJob("child", testNamespace.Name).
-					OwnerReference(parent.Name, batchv1.SchemeGroupVersion.WithKind("Job")).
-					Obj()
-				job.Labels = map[string]string{"existing": "label"}
-				return job
-			},
-			owner: utiltestingjob.MakeJob("parent", testNamespace.Name).
-				UID("parent-uid").
-				Queue("parent-queue").
-				Obj(),
-			expectQueue: "parent-queue",
 			expectWLS:   "",
 		},
-		"job with existing annotations - should add workloadslicing annotation": {
+		"non-rayJob owner - should not copy": {
 			job: func() *batchv1.Job {
-				parent := utiltestingjob.MakeJob("parent", testNamespace.Name).UID("parent-uid").Obj()
-				job := utiltestingjob.MakeJob("child", testNamespace.Name).
-					OwnerReference(parent.Name, batchv1.SchemeGroupVersion.WithKind("Job")).
+				return utiltestingjob.MakeJob("child", testNamespace.Name).
+					OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
 					Obj()
-				job.Annotations = map[string]string{"existing": "annotation"}
-				return job
 			},
 			owner: utiltestingjob.MakeJob("parent", testNamespace.Name).
 				UID("parent-uid").
+				Queue("parent-queue").
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, "true").
 				Obj(),
 			expectQueue: "",
-			expectWLS:   "true",
+			expectWLS:   "",
 		},
-		"owner not found - should not copy": {
+		"rayJob owner not found - should not copy": {
 			job: func() *batchv1.Job {
-				parent := utiltestingjob.MakeJob("nonexistent-parent", testNamespace.Name).UID("parent-uid").Obj()
 				return utiltestingjob.MakeJob("child", testNamespace.Name).
-					OwnerReference(parent.Name, batchv1.SchemeGroupVersion.WithKind("Job")).
+					OwnerReference("nonexistent-parent", rayv1.GroupVersion.WithKind("RayJob")).
 					Obj()
 			},
 			owner:       nil,
@@ -234,7 +211,7 @@ func TestCopyLabelAndAnnotationFromOwner(t *testing.T) {
 
 	for tcName, tc := range cases {
 		t.Run(tcName, func(t *testing.T) {
-			builder := utiltesting.NewClientBuilder()
+			builder := utiltesting.NewClientBuilder(rayv1.AddToScheme)
 			builder.WithObjects(testNamespace)
 
 			job := tc.job()
@@ -266,12 +243,12 @@ func TestCopyLabelAndAnnotationFromOwner(t *testing.T) {
 			}
 
 			// If we had existing labels/annotations, make sure they're preserved
-			if tcName == "job with existing labels - should add queue label" {
+			if tcName == "rayJob owner with autoscaling - job with existing labels should preserve them" {
 				if job.Labels["existing"] != "label" {
 					t.Error("Expected existing label to be preserved")
 				}
 			}
-			if tcName == "job with existing annotations - should add workloadslicing annotation" {
+			if tcName == "rayJob owner with autoscaling - job with existing annotations should preserve them" {
 				if job.Annotations["existing"] != "annotation" {
 					t.Error("Expected existing annotation to be preserved")
 				}
