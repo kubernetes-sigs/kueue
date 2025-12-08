@@ -1,0 +1,44 @@
+apiVersion: leaderworkerset.x-k8s.io/v1
+kind: LeaderWorkerSet
+metadata:
+  name: nginx-leaderworkerset
+  labels:
+    app: nginx
+    kueue.x-k8s.io/queue-name: tas-enabled-queue
+spec:
+  replicas: 2
+  leaderWorkerTemplate:
+    leaderTemplate:
+      metadata:
+        annotations:
+          # Require leader to be in the topology domain
+          kueue.x-k8s.io/podset-required-topology: "cloud.provider.com/topology-rack"
+          # Identify the group to ensure co-location with workers
+          kueue.x-k8s.io/podset-group-name: "lws-group"
+      spec:
+        containers:
+        - name: nginx-leader
+          image: registry.k8s.io/nginx-slim:0.27
+          resources:
+            requests:
+              cpu: "100m"
+          ports:
+          - containerPort: 80
+    size: 3
+    workerTemplate:
+      metadata:
+        annotations:
+          # Require workers to be in the same topology domain
+          kueue.x-k8s.io/podset-required-topology: "cloud.provider.com/topology-rack"
+          # Identify the group to ensure co-location with leader
+          kueue.x-k8s.io/podset-group-name: "lws-group"
+      spec:
+        containers:
+        - name: nginx-worker
+          image: registry.k8s.io/nginx-slim:0.27
+          resources:
+            requests:
+              cpu: "200m"
+              nvidia.com/gpu: "1"
+          ports:
+          - containerPort: 80
