@@ -110,8 +110,9 @@ function cluster_create {
 
 function prepare_docker_images {
     local platform="linux/$(uname -m)"
-    docker pull --platform "$platform" "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA"
-    docker pull --platform "$platform" "$E2E_TEST_AGNHOST_IMAGE_WITH_SHA"
+    echo "PLATFORM=$platform"
+    docker pull --platform "$platform" "$E2E_TEST_AGNHOST_IMAGE_OLD"
+    docker pull --platform "$platform" "$E2E_TEST_AGNHOST_IMAGE"
 
     # We can load image by a digest but we cannot reference it by the digest that we pulled.
     # For more information https://github.com/kubernetes-sigs/kind/issues/2394#issuecomment-888713831.
