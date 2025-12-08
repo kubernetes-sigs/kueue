@@ -578,6 +578,77 @@ func TestSetConditionAndUpdate(t *testing.T) {
 	}
 }
 
+func TestUpdateReclaimablePods(t *testing.T) {
+	cases := map[string]struct {
+		oldStatus       kueue.WorkloadStatus
+		reclaimablePods []kueue.ReclaimablePod
+		err             error
+		wantStatus      kueue.WorkloadStatus
+		wantErr         error
+	}{
+		"set reclaimable pods": {
+			reclaimablePods: []kueue.ReclaimablePod{{Name: "ps1", Count: 1}},
+			wantStatus: kueue.WorkloadStatus{
+				ReclaimablePods: []kueue.ReclaimablePod{{Name: "ps1", Count: 1}},
+			},
+		},
+		"set reclaimable pods with error": {
+			err:             errTest,
+			reclaimablePods: []kueue.ReclaimablePod{{Name: "ps1", Count: 1}},
+			wantStatus:      kueue.WorkloadStatus{},
+			wantErr:         errTest,
+		},
+		"update reclaimable pods": {
+			oldStatus: kueue.WorkloadStatus{
+				ReclaimablePods: []kueue.ReclaimablePod{{Name: "ps1", Count: 1}},
+			},
+			reclaimablePods: []kueue.ReclaimablePod{{Name: "ps1", Count: 2}},
+			wantStatus: kueue.WorkloadStatus{
+				ReclaimablePods: []kueue.ReclaimablePod{{Name: "ps1", Count: 2}},
+			},
+		},
+	}
+	for name, tc := range cases {
+		for _, useMergePatch := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s with WorkloadRequestUseMergePatch enabled %t", name, useMergePatch), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
+
+				ctx, _ := utiltesting.ContextWithLog(t)
+
+				workload := utiltestingapi.MakeWorkload("foo", metav1.NamespaceDefault).Obj()
+				workload.Status = tc.oldStatus
+
+				cl := utiltesting.NewClientBuilder().
+					WithObjects(workload).
+					WithStatusSubresource(&kueue.Workload{}).
+					WithInterceptorFuncs(interceptor.Funcs{
+						SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+							if tc.err != nil {
+								return tc.err
+							}
+							return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+						},
+					}).
+					Build()
+
+				err := UpdateReclaimablePods(ctx, cl, workload, tc.reclaimablePods)
+				if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+					t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+				}
+
+				var updatedWl kueue.Workload
+				if err := cl.Get(ctx, client.ObjectKeyFromObject(workload), &updatedWl); err != nil {
+					t.Fatalf("Failed obtaining updated object: %v", err)
+				}
+
+				if diff := cmp.Diff(tc.wantStatus, updatedWl.Status); diff != "" {
+					t.Errorf("Unexpected status after updating (-want,+got):\n%s", diff)
+				}
+			})
+		}
+	}
+}
+
 func TestGetQueueOrderTimestamp(t *testing.T) {
 	var (
 		evictionOrdering = Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp}
