@@ -18,14 +18,20 @@ package config
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	"k8s.io/client-go/rest"
+	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -35,7 +41,8 @@ import (
 )
 
 var (
-	objectKeySecret = new(corev1.Secret)
+	objectKeySecret         = new(corev1.Secret)
+	objectKeyClusterProfile = new(inventoryv1alpha1.ClusterProfile)
 )
 
 // fromFile provides an alternative to the deprecated ctrl.ConfigFile().AtPath(path).OfKind(&cfg)
@@ -200,4 +207,34 @@ func Load(scheme *runtime.Scheme, configFile string) (ctrl.Options, configapi.Co
 	}
 	addTo(&options, &cfg)
 	return options, cfg, err
+}
+
+// ConfigureClusterProfileCache creates the CRD client from kubeConfig and delegates
+// to ConfigureClusterProfileCacheWithClient. Keeping this wrapper preserves the
+// original API while enabling dependency injection via the WithClient function.
+func ConfigureClusterProfileCache(ctx context.Context, log logr.Logger, options *ctrl.Options, kubeConfig *rest.Config, cfg configapi.Configuration) error {
+	crdClient, err := apiextensionsclient.NewForConfig(kubeConfig)
+	if err != nil {
+		return fmt.Errorf("failed creating the CRD client: %w", err)
+	}
+	return configureClusterProfileCacheWithClient(ctx, log, options, crdClient, cfg)
+}
+
+func configureClusterProfileCacheWithClient(ctx context.Context, log logr.Logger, options *ctrl.Options, crdClient apiextensionsclient.Interface, cfg configapi.Configuration) error {
+	if _, err := crdClient.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, "clusterprofiles.multicluster.x-k8s.io", metav1.GetOptions{}); err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Info("Skipping MultiKueue ClusterProfile setup as the ClusterProfile CRD is not installed")
+			return nil
+		}
+		return fmt.Errorf("failed loading the ClusterProfile CRD: %w", err)
+	}
+	if options.Cache.ByObject == nil {
+		options.Cache.ByObject = make(map[ctrlclient.Object]ctrlcache.ByObject)
+	}
+	options.Cache.ByObject[objectKeyClusterProfile] = ctrlcache.ByObject{
+		Namespaces: map[string]ctrlcache.Config{
+			*cfg.Namespace: {},
+		},
+	}
+	return nil
 }
