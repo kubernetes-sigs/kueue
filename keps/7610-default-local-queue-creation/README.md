@@ -157,7 +157,7 @@ necessary to implement this enhancement.
 
 #### Unit Tests
 
-The `kueue-populator` controller logic will be covered by unit tests, including:
+The `kueue-populator` controller logic is covered by unit tests, including:
 - Creating LocalQueue when it doesn't exist.
 - Skipping creation if it exists and matches.
 - Emitting warning if it exists and conflicts.
@@ -165,7 +165,7 @@ The `kueue-populator` controller logic will be covered by unit tests, including:
 
 #### Integration tests
 
-Integration tests will cover the full controller flow using envtest, including:
+Integration tests cover the full controller flow using envtest, including:
 - Verifying that watches on Namespace and ClusterQueue trigger reconciliation.
 - End-to-end creation and updates of LocalQueues in a real API server environment.
 - Handling of edge cases like deletions and updates.
