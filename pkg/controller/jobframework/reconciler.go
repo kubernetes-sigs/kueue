@@ -692,10 +692,10 @@ func (r *JobReconciler) recordAdmissionCheckUpdate(wl *kueue.Workload, job Gener
 	}
 }
 
-// GetWorkloadForObject returns the Workload associated with the given job.
-func GetWorkloadForObject(ctx context.Context, jobObj client.Object, c client.Client) (*kueue.Workload, error) {
+// getWorkloadForObject returns the Workload associated with the given job.
+func (r *JobReconciler) getWorkloadForObject(ctx context.Context, jobObj client.Object) (*kueue.Workload, error) {
 	wls := kueue.WorkloadList{}
-	if err := c.List(ctx, &wls, client.InNamespace(jobObj.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(jobObj.GetUID())}); client.IgnoreNotFound(err) != nil {
+	if err := r.client.List(ctx, &wls, client.InNamespace(jobObj.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(jobObj.GetUID())}); client.IgnoreNotFound(err) != nil {
 		return nil, err
 	}
 
@@ -713,10 +713,6 @@ func GetWorkloadForObject(ctx context.Context, jobObj client.Object, c client.Cl
 	}
 
 	return &wls.Items[0], nil
-}
-
-func (r *JobReconciler) getWorkloadForObject(ctx context.Context, jobObj client.Object) (*kueue.Workload, error) {
-	return GetWorkloadForObject(ctx, jobObj, r.client)
 }
 
 // FindAncestorJobManagedByKueue traverses controllerRefs to find the top-level ancestor Job managed by Kueue.
