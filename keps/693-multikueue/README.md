@@ -15,7 +15,7 @@
   - [Subcomponents](#subcomponents)
     - [MultiKueueCluster Controller](#multikueuecluster-controller)
     - [AdmissionCheck Controller](#admissioncheck-controller)
-    - [MultiKueue Workload Controller](#multi-kueue-workload-controller)
+    - [MultiKueue Workload Controller](#multikueue-workload-controller)
     - [Garbage Collector](#garbage-collector)
   - [Jobs abstraction](#jobs-abstraction)
     - [MultiKueueAdapter](#multikueueadapter)
@@ -345,7 +345,7 @@ type MultiKueueAdapter interface {
     ...
 }
 ```
-Used by the [MultiKueue Workload Controller](#multi-kueue-workload-controller) to interact with the owner of the reconciled workloads.
+Used by the [MultiKueue Workload Controller](#multikueue-workload-controller) to interact with the owner of the reconciled workloads.
 
 `SyncJob` will:
 - Create the Job object in the worker cluster, if not already created.
