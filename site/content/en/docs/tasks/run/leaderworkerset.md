@@ -112,5 +112,3 @@ The following example ensures that the Leader and all Workers are scheduled with
 {{< include "examples/serving-workloads/sample-leaderworkerset-tas.yaml" "yaml" >}}
 
 When `replicas` is greater than 1 (as in the example above where `replicas: 2`), the topology constraints apply to each replica individually. This means that for each replica, the Leader and its Workers will be co-located in the same topology domain (e.g., rack), but different replicas may be assigned to different topology domains.
-
-> Note on PodSets: Kueue represents the Leader and Workers as two distinct PodSets within the Workload. The podset-group-name annotation is critical because it links these separate PodSets, ensuring they are scheduled together in the same topology domain.
