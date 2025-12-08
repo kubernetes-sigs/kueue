@@ -107,7 +107,7 @@ Kueue supports Topology Aware Scheduling (TAS) for LeaderWorkerSet by reading an
 
 ### Example: Rack-Level Co-location
 
-The following example ensures that the Leader and all Workers are scheduled within the same rack (represented by the `cloud.provider.com/topology-rack` label).
+The following example uses the `podset-group-name` annotation to ensure that the Leader and all Workers are scheduled within the same rack (represented by the `cloud.provider.com/topology-rack` label).
 
 {{< include "examples/serving-workloads/sample-leaderworkerset-tas.yaml" "yaml" >}}
 
