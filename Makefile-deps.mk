@@ -39,6 +39,7 @@ KUBERAY_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/ray-pro
 APPWRAPPER_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/project-codeflare/appwrapper)
 LEADERWORKERSET_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/lws)
 CERTMANAGER_VERSION=$(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/cert-manager/cert-manager)
+CLUSTERPROFILE_VERSION=$(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/cluster-inventory-api)
 
 GOLANGCI_LINT = $(BIN_DIR)/golangci-lint
 GOLANGCI_LINT_KAL = $(BIN_DIR)/golangci-lint-kube-api-linter

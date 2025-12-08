@@ -45,6 +45,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
 var nodeSemantic = conversion.EqualitiesOrDie(
@@ -66,11 +67,12 @@ func nodeConditionEqual(a, b corev1.NodeCondition) bool {
 }
 
 type rfReconciler struct {
-	log      logr.Logger
-	queues   *qcache.Manager
-	cache    *schdcache.Cache
-	client   client.Client
-	recorder record.EventRecorder
+	log         logr.Logger
+	queues      *qcache.Manager
+	cache       *schdcache.Cache
+	client      client.Client
+	recorder    record.EventRecorder
+	roleTracker *roletracker.RoleTracker
 }
 
 var _ reconcile.Reconciler = (*rfReconciler)(nil)
@@ -80,13 +82,14 @@ var _ predicate.TypedPredicate[*kueue.ResourceFlavor] = (*rfReconciler)(nil)
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=topologies,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 
-func newRfReconciler(c client.Client, queues *qcache.Manager, cache *schdcache.Cache, recorder record.EventRecorder) *rfReconciler {
+func newRfReconciler(c client.Client, queues *qcache.Manager, cache *schdcache.Cache, recorder record.EventRecorder, roleTracker *roletracker.RoleTracker) *rfReconciler {
 	return &rfReconciler{
-		log:      ctrl.Log.WithName(TASResourceFlavorController),
-		client:   c,
-		queues:   queues,
-		cache:    cache,
-		recorder: recorder,
+		log:         ctrl.Log.WithName(TASResourceFlavorController),
+		client:      c,
+		queues:      queues,
+		cache:       cache,
+		recorder:    recorder,
+		roleTracker: roleTracker,
 	}
 }
 
@@ -107,6 +110,7 @@ func (r *rfReconciler) setupWithManager(mgr ctrl.Manager, cache *schdcache.Cache
 			NeedLeaderElection:      ptr.To(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("ResourceFlavor").GroupKind().String()],
 		}).
+		WithLogConstructor(roletracker.NewLogConstructor(r.roleTracker, TASResourceFlavorController)).
 		Complete(core.WithLeadingManager(mgr, r, &kueue.ResourceFlavor{}, cfg))
 }
 

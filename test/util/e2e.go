@@ -37,6 +37,7 @@ import (
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	appsv1 "k8s.io/api/apps/v1"
+	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -44,6 +45,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
+	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
@@ -176,6 +178,9 @@ func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config, 
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = kftrainer.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = inventoryv1alpha1.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	client, err := client.NewWithWatch(cfg, client.Options{Scheme: scheme.Scheme})
@@ -367,9 +372,11 @@ func ApplyKueueConfiguration(ctx context.Context, k8sClient client.Client, kueue
 func RestartKueueController(ctx context.Context, k8sClient client.Client, kindClusterName string) {
 	kueueNS := GetKueueNamespace()
 	kcmKey := types.NamespacedName{Namespace: kueueNS, Name: "kueue-controller-manager"}
+	restartStartTime := time.Now()
 	rolloutOperatorDeployment(ctx, k8sClient, kcmKey, kindClusterName)
 	WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
 	waitForDeploymentWithOnlyAvailableReplicas(ctx, k8sClient, kcmKey)
+	WaitForLeaderElection(ctx, k8sClient, restartStartTime)
 }
 
 func waitForDeploymentWithOnlyAvailableReplicas(ctx context.Context, k8sClient client.Client, key types.NamespacedName) {
@@ -422,6 +429,20 @@ func WaitForKueueAvailabilityNoRestartCountCheck(ctx context.Context, k8sClient 
 	kueueNS := GetKueueNamespace()
 	kcmKey := types.NamespacedName{Namespace: kueueNS, Name: "kueue-controller-manager"}
 	waitForDeploymentAvailability(ctx, k8sClient, kcmKey)
+}
+
+// WaitForLeaderElection waits for the kueue controller to acquire the leader lease
+// after the given startTime to ensure the new controller has the lease.
+func WaitForLeaderElection(ctx context.Context, k8sClient client.Client, startTime time.Time) {
+	kueueNS := GetKueueNamespace()
+	leaseKey := types.NamespacedName{Namespace: kueueNS, Name: configapi.DefaultLeaderElectionID}
+	lease := &coordinationv1.Lease{}
+	ginkgo.By(fmt.Sprintf("Waiting for leader election lease %q", leaseKey))
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, leaseKey, lease)).To(gomega.Succeed())
+		g.Expect(lease.Spec.RenewTime).NotTo(gomega.BeNil())
+		g.Expect(lease.Spec.RenewTime.After(startTime)).To(gomega.BeTrue())
+	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 
 func WaitForKubeSystemControllersAvailability(ctx context.Context, k8sClient client.Client, clusterName string) {

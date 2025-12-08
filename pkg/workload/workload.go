@@ -497,9 +497,7 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 		}
 		specRequests := resourcehelpers.PodRequests(&corev1.Pod{Spec: ps.Template.Spec}, resourcehelpers.PodResourcesOptions{})
 		effectiveRequests := dropExcludedResources(specRequests, info.excludedResourcePrefixes)
-		if features.Enabled(features.ConfigurableResourceTransformations) {
-			effectiveRequests = applyResourceTransformations(effectiveRequests, info.resourceTransformations)
-		}
+		effectiveRequests = applyResourceTransformations(effectiveRequests, info.resourceTransformations)
 		setRes.Requests = resources.NewRequests(effectiveRequests)
 		if features.Enabled(features.DynamicResourceAllocation) && info.preprocessedDRAResources != nil {
 			if draRes, exists := info.preprocessedDRAResources[ps.Name]; exists {
@@ -972,6 +970,7 @@ type PatchStatusOptions struct {
 	StrictPatch             bool
 	StrictApply             bool
 	RetryOnConflictForPatch bool
+	ForceApply              bool
 }
 
 // DefaultPatchStatusOptions returns a new PatchStatusOptions instance configured with
@@ -1013,6 +1012,13 @@ func WithRetryOnConflictForPatch() PatchStatusOption {
 	}
 }
 
+// WithForceApply is a PatchStatusOption that forces the use of the apply patch.
+func WithForceApply() PatchStatusOption {
+	return func(o *PatchStatusOptions) {
+		o.ForceApply = true
+	}
+}
+
 func patchStatusOptions(options []PatchStatusOption) *PatchStatusOptions {
 	opts := DefaultPatchStatusOptions()
 	for _, opt := range options {
@@ -1026,7 +1032,7 @@ func patchStatusOptions(options []PatchStatusOption) *PatchStatusOptions {
 // Otherwise, it runs the update function and, if updated, applies the SSA Patch status.
 func patchStatus(ctx context.Context, c client.Client, wl *kueue.Workload, owner client.FieldOwner, update UpdateFunc, opts *PatchStatusOptions) error {
 	wlCopy := wl.DeepCopy()
-	if features.Enabled(features.WorkloadRequestUseMergePatch) {
+	if !opts.ForceApply && features.Enabled(features.WorkloadRequestUseMergePatch) {
 		patchOptions := make([]clientutil.PatchOption, 0, 2)
 		if !opts.StrictPatch {
 			patchOptions = append(patchOptions, clientutil.WithLoose())
@@ -1111,10 +1117,11 @@ func HasQuotaReservation(w *kueue.Workload) bool {
 }
 
 // UpdateReclaimablePods updates the ReclaimablePods list for the workload with SSA.
-func UpdateReclaimablePods(ctx context.Context, c client.Client, w *kueue.Workload, reclaimablePods []kueue.ReclaimablePod) error {
-	patch := BaseSSAWorkload(w, false)
-	patch.Status.ReclaimablePods = reclaimablePods
-	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.ReclaimablePodsMgr))
+func UpdateReclaimablePods(ctx context.Context, c client.Client, wl *kueue.Workload, reclaimablePods []kueue.ReclaimablePod) error {
+	return PatchStatus(ctx, c, wl, constants.ReclaimablePodsMgr, func(wl *kueue.Workload) (bool, error) {
+		wl.Status.ReclaimablePods = reclaimablePods
+		return true, nil
+	})
 }
 
 // ReclaimablePodsAreEqual checks if two Reclaimable pods are semantically equal

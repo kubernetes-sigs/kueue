@@ -37,6 +37,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
+	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -52,6 +53,7 @@ import (
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	workloadtrainjob "sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -1105,6 +1107,106 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			ginkgo.By("Waiting for both jobs to complete", func() {
 				util.ExpectJobToBeCompleted(ctx, k8sManagerClient, jobMk)
 				util.ExpectJobToBeCompleted(ctx, k8sManagerClient, jobRegular)
+			})
+		})
+	})
+
+	ginkgo.When("Connection via ClusterProfile no plugins", ginkgo.Ordered, func() {
+		var (
+			workerCluster3         *kueue.MultiKueueCluster
+			defaultManagerKueueCfg *kueueconfig.Configuration
+		)
+
+		ginkgo.BeforeAll(func() {
+			ginkgo.By("setting MultiKueue Dispatcher to Incremental", func() {
+				defaultManagerKueueCfg = util.GetKueueConfiguration(ctx, k8sManagerClient)
+				newCfg := defaultManagerKueueCfg.DeepCopy()
+				util.UpdateKueueConfiguration(ctx, k8sManagerClient, newCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
+					cfg.FeatureGates[string(features.MultiKueueClusterProfile)] = true
+				})
+			})
+		})
+		ginkgo.AfterAll(func() {
+			ginkgo.By("setting MultiKueue Dispatcher back to AllAtOnce", func() {
+				util.ApplyKueueConfiguration(ctx, k8sManagerClient, defaultManagerKueueCfg)
+				util.RestartKueueController(ctx, k8sManagerClient, managerClusterName)
+			})
+		})
+
+		ginkgo.BeforeEach(func() {
+			workerCluster3 = utiltestingapi.MakeMultiKueueCluster("worker3").ClusterProfile("clusterprofile3-missing").Obj()
+			util.MustCreate(ctx, k8sManagerClient, workerCluster3)
+		})
+
+		ginkgo.AfterEach(func() {
+			if workerCluster3 != nil {
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, workerCluster3, true, util.LongTimeout)
+			}
+		})
+
+		ginkgo.It("Should be able to use ClusterProfile as way to connect worker cluster", func() {
+			ginkgo.By("Update MultiKueueConfig to include worker that use ClusterProfile", func() {
+				createdMkConfig := &kueue.MultiKueueConfig{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(multiKueueConfig), createdMkConfig)).To(gomega.Succeed())
+					if len(createdMkConfig.Spec.Clusters) == 2 {
+						createdMkConfig.Spec.Clusters = append(createdMkConfig.Spec.Clusters, "worker3")
+						g.Expect(k8sManagerClient.Update(ctx, createdMkConfig)).To(gomega.Succeed())
+					}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+			worker3MkClusterKey := client.ObjectKeyFromObject(workerCluster3)
+			ginkgo.By("Check MultiKueueCluster status", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdCluster := &kueue.MultiKueueCluster{}
+					g.Expect(k8sManagerClient.Get(ctx, worker3MkClusterKey, createdCluster)).To(gomega.Succeed())
+					g.Expect(createdCluster.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
+						metav1.Condition{
+							Type:    kueue.MultiKueueClusterActive,
+							Status:  metav1.ConditionFalse,
+							Reason:  "BadClusterProfile",
+							Message: "load client config failed: ClusterProfile.multicluster.x-k8s.io \"clusterprofile3-missing\" not found",
+						},
+						util.IgnoreConditionTimestampsAndObservedGeneration)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			var cp *inventoryv1alpha1.ClusterProfile
+			ginkgo.By("Create missing ClusterProfile", func() {
+				cp = utiltestingapi.MakeClusterProfile("clusterprofile3", kueueNS).
+					ClusterManager("clustermanager3").
+					Obj()
+				util.MustCreate(ctx, k8sManagerClient, cp)
+			})
+			ginkgo.By("Check ClusterProfile exists", func() {
+				clusterProfileKey := client.ObjectKeyFromObject(cp)
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdClusterProfile := &inventoryv1alpha1.ClusterProfile{}
+					g.Expect(k8sManagerClient.Get(ctx, clusterProfileKey, createdClusterProfile)).To(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+			ginkgo.By("Trigger MultiKueueCluster reconciliation", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdCluster := &kueue.MultiKueueCluster{}
+					g.Expect(k8sManagerClient.Get(ctx, worker3MkClusterKey, createdCluster)).To(gomega.Succeed())
+					createdCluster.Spec.ClusterSource.ClusterProfileRef = &kueue.ClusterProfileReference{Name: "clusterprofile3"}
+					g.Expect(k8sManagerClient.Update(ctx, createdCluster)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+			worker3MkClusterKey = client.ObjectKeyFromObject(workerCluster3)
+			ginkgo.By("Check MultiKueueCluster status again", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdCluster := &kueue.MultiKueueCluster{}
+					g.Expect(k8sManagerClient.Get(ctx, worker3MkClusterKey, createdCluster)).To(gomega.Succeed())
+					g.Expect(createdCluster.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
+						metav1.Condition{
+							Type:    kueue.MultiKueueClusterActive,
+							Status:  metav1.ConditionFalse,
+							Reason:  "BadClusterProfile",
+							Message: "load client config failed: no credentials provider configured",
+						},
+						util.IgnoreConditionTimestampsAndObservedGeneration)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})

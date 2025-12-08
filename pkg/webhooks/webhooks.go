@@ -20,30 +20,57 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
+
+// SetupOption configures webhook Setup.
+type SetupOption func(*setupOptions)
+
+type setupOptions struct {
+	roleTracker *roletracker.RoleTracker
+}
+
+// WithRoleTracker sets the role tracker for HA setups.
+func WithRoleTracker(tracker *roletracker.RoleTracker) SetupOption {
+	return func(o *setupOptions) {
+		o.roleTracker = tracker
+	}
+}
 
 // Setup sets up the webhooks for core controllers. It returns the name of the
 // webhook that failed to create and an error, if any.
-func Setup(mgr ctrl.Manager) (string, error) {
-	if err := setupWebhookForWorkload(mgr); err != nil {
+func Setup(mgr ctrl.Manager, opts ...SetupOption) (string, error) {
+	options := &setupOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	if err := setupWebhookForWorkload(mgr, options.roleTracker); err != nil {
 		return "Workload", err
 	}
 
-	if err := setupWebhookForResourceFlavor(mgr); err != nil {
+	if err := setupWebhookForResourceFlavor(mgr, options.roleTracker); err != nil {
 		return "ResourceFlavor", err
 	}
 
-	if err := setupWebhookForClusterQueue(mgr); err != nil {
+	if err := setupWebhookForClusterQueue(mgr, options.roleTracker); err != nil {
 		return "ClusterQueue", err
 	}
 
-	if err := setupWebhookForCohort(mgr); err != nil {
+	if err := setupWebhookForCohort(mgr, options.roleTracker); err != nil {
 		return "Cohort", err
 	}
 
-	if err := ctrl.NewWebhookManagedBy(mgr).For(&kueue.LocalQueue{}).Complete(); err != nil {
+	if err := setupWebhookForLocalQueue(mgr, options.roleTracker); err != nil {
 		return "LocalQueue", err
 	}
 
 	return "", nil
+}
+
+func setupWebhookForLocalQueue(mgr ctrl.Manager, roleTracker *roletracker.RoleTracker) error {
+	return ctrl.NewWebhookManagedBy(mgr).
+		For(&kueue.LocalQueue{}).
+		WithLogConstructor(roletracker.WebhookLogConstructor(roleTracker)).
+		Complete()
 }

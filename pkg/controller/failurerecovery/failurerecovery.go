@@ -21,12 +21,33 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
-func SetupControllers(mgr manager.Manager, cfg *configapi.Configuration) (string, error) {
+// SetupOption configures the failurerecovery controllers setup.
+type SetupOption func(*setupOptions)
+
+type setupOptions struct {
+	roleTracker *roletracker.RoleTracker
+}
+
+// SetupWithRoleTracker sets the roleTracker for failurerecovery controllers setup.
+func SetupWithRoleTracker(tracker *roletracker.RoleTracker) SetupOption {
+	return func(o *setupOptions) {
+		o.roleTracker = tracker
+	}
+}
+
+func SetupControllers(mgr manager.Manager, cfg *configapi.Configuration, opts ...SetupOption) (string, error) {
+	options := &setupOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
 	tpRec := NewTerminatingPodReconciler(
 		mgr.GetClient(),
 		mgr.GetEventRecorderFor(constants.PodTerminationControllerName),
+		WithRoleTracker(options.roleTracker),
 	)
 	return tpRec.SetupWithManager(mgr, cfg)
 }

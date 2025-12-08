@@ -36,6 +36,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
@@ -43,12 +44,13 @@ import (
 
 type WorkloadWebhook struct{}
 
-func setupWebhookForWorkload(mgr ctrl.Manager) error {
+func setupWebhookForWorkload(mgr ctrl.Manager, roleTracker *roletracker.RoleTracker) error {
 	wh := &WorkloadWebhook{}
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&kueue.Workload{}).
 		WithDefaulter(wh).
 		WithValidator(wh).
+		WithLogConstructor(roletracker.WebhookLogConstructor(roleTracker)).
 		Complete()
 }
 
