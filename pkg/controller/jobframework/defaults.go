@@ -26,6 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -99,45 +100,15 @@ func ApplyDefaultLocalQueue(jobObj client.Object, defaultQueueExist func(string)
 	}
 }
 
-func CopyLabelAndAnnotationFromOwner(ctx context.Context, jobObj client.Object, k8sClient client.Client, log logr.Logger) {
+func CopyLabelAndAnnotationFromOwner(ctx context.Context, jobObj client.Object, k8sClient client.Client) {
 	if QueueNameForObject(jobObj) != "" {
 		return
 	}
-	owner := metav1.GetControllerOf(jobObj)
-	if owner == nil {
-		log.V(12).Info("Did not find owner for job", "jobName", jobObj.GetName())
-		return
-	}
 
-	// TODO refactor and create a helper method IsRaySubmitterJob to check RayJob autoscaling setting
-	// See discussions in https://github.com/kubernetes-sigs/kueue/pull/8082
-	createdByRayJob := owner.APIVersion == rayv1.GroupVersion.String() && owner.Kind == "RayJob"
-	if !createdByRayJob {
-		log.V(12).Info("Owner object for job is not RayJob", "jobName", jobObj.GetName(), "ownerKind", owner.Kind, "ownerName", owner.Name)
-		return
-	}
-
-	parentObj := getEmptyOwnerObject(owner)
-	if parentObj == nil {
-		log.V(12).Info("Did not get empty owner object for job", "jobName", jobObj.GetName(), "ownerKind", owner.Kind, "ownerName", owner.Name)
-		return
-	}
-
-	err := k8sClient.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: jobObj.GetNamespace()}, parentObj)
-	if err != nil {
-		log.Error(err, "Failed to get owner object from k8s", "jobName", jobObj.GetName(), "ownerKind", owner.Kind, "ownerName", owner.Name)
-		return
-	}
-	log.V(12).Info("Got owner object for job", "jobName", jobObj.GetName(), "ownerKind", owner.Kind, "ownerName", owner.Name)
-
-	rayJob, ok := parentObj.(*rayv1.RayJob)
-	if !ok {
-		log.V(12).Info("Parent object cannot be converted to RayJob", "jobName", jobObj.GetName(), "parentName", parentObj.GetName())
-		return
-	}
-
-	if rayJob.Spec.RayClusterSpec == nil ||
-		!ptr.Deref(rayJob.Spec.RayClusterSpec.EnableInTreeAutoscaling, false) {
+	// Copy label and annotation for Ray submitter job with autoscaling
+	// See https://github.com/kubernetes-sigs/kueue/pull/8082
+	isRaySubmitterJob, parentObj := isRaySubmitterJobWithAutoScaling(ctx, jobObj, k8sClient)
+	if !isRaySubmitterJob {
 		return
 	}
 
@@ -149,7 +120,6 @@ func CopyLabelAndAnnotationFromOwner(ctx context.Context, jobObj client.Object, 
 		}
 		jobLabels[constants.QueueLabel] = queueName
 		jobObj.SetLabels(jobLabels)
-		log.V(12).Info("Copied kueue queue name from owner object to job", "queueName", queueName, "jobName", jobObj.GetName(), "ownerKind", owner.Kind, "ownerName", owner.Name)
 	}
 
 	workloadslicingAnnotationValue := parentObj.GetAnnotations()[workloadslicing.EnabledAnnotationKey]
@@ -160,7 +130,6 @@ func CopyLabelAndAnnotationFromOwner(ctx context.Context, jobObj client.Object, 
 		}
 		jobAnnotations[workloadslicing.EnabledAnnotationKey] = workloadslicingAnnotationValue
 		jobObj.SetAnnotations(jobAnnotations)
-		log.V(12).Info("Copied workloadslicing annotation from owner object to job", "annotationValue", workloadslicingAnnotationValue, "jobName", jobObj.GetName(), "ownerKind", owner.Kind, "ownerName", owner.Name)
 	}
 }
 
@@ -185,4 +154,46 @@ func ApplyDefaultForManagedBy(job GenericJob, queues *qcache.Manager, cache *sch
 			}
 		}
 	}
+}
+
+func isRaySubmitterJobWithAutoScaling(ctx context.Context, jobObj client.Object, k8sClient client.Client) (bool, *rayv1.RayJob) {
+	log := ctrl.LoggerFrom(ctx).WithValues("jobName", jobObj.GetName(), "jobNamespace", jobObj.GetNamespace())
+
+	owner := metav1.GetControllerOf(jobObj)
+	if owner == nil {
+		log.V(12).Info("Did not find owner for job")
+		return false, nil
+	}
+
+	createdByRayJob := owner.APIVersion == rayv1.GroupVersion.String() && owner.Kind == "RayJob"
+	if !createdByRayJob {
+		log.V(12).Info("Owner object for job is not RayJob", "ownerKind", owner.Kind, "ownerName", owner.Name)
+		return false, nil
+	}
+
+	parentObj := getEmptyOwnerObject(owner)
+	if parentObj == nil {
+		log.V(12).Info("Did not get empty owner object for job", "ownerKind", owner.Kind, "ownerName", owner.Name)
+		return false, nil
+	}
+
+	err := k8sClient.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: jobObj.GetNamespace()}, parentObj)
+	if err != nil {
+		log.Error(err, "Failed to get owner object from k8s", "ownerKind", owner.Kind, "ownerName", owner.Name)
+		return false, nil
+	}
+	log.V(12).Info("Got owner object for job", "ownerKind", owner.Kind, "ownerName", owner.Name)
+
+	rayJob, ok := parentObj.(*rayv1.RayJob)
+	if !ok {
+		log.V(12).Info("Owner object cannot be converted to RayJob", "ownerKind", owner.Kind, "ownerName", owner.Name)
+		return false, nil
+	}
+
+	if rayJob.Spec.RayClusterSpec == nil ||
+		!ptr.Deref(rayJob.Spec.RayClusterSpec.EnableInTreeAutoscaling, false) {
+		return false, nil
+	}
+
+	return true, rayJob
 }

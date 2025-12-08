@@ -104,7 +104,7 @@ func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	log.V(5).Info("Applying defaults")
 
 	jobframework.ApplyDefaultLocalQueue(job.Object(), w.queues.DefaultLocalQueueExist)
-	jobframework.CopyLabelAndAnnotationFromOwner(ctx, job.Object(), w.client, log)
+	jobframework.CopyLabelAndAnnotationFromOwner(ctx, job.Object(), w.client)
 
 	if err := jobframework.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err

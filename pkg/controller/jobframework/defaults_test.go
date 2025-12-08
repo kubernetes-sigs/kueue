@@ -220,9 +220,9 @@ func TestCopyLabelAndAnnotationFromOwner(t *testing.T) {
 			}
 
 			client := builder.Build()
-			ctx, log := utiltesting.ContextWithLog(t)
+			ctx, _ := utiltesting.ContextWithLog(t)
 
-			CopyLabelAndAnnotationFromOwner(ctx, job, client, log)
+			CopyLabelAndAnnotationFromOwner(ctx, job, client)
 
 			// Check queue label
 			actualQueue := ""
