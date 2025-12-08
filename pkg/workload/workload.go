@@ -497,9 +497,7 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 		}
 		specRequests := resourcehelpers.PodRequests(&corev1.Pod{Spec: ps.Template.Spec}, resourcehelpers.PodResourcesOptions{})
 		effectiveRequests := dropExcludedResources(specRequests, info.excludedResourcePrefixes)
-		if features.Enabled(features.ConfigurableResourceTransformations) {
-			effectiveRequests = applyResourceTransformations(effectiveRequests, info.resourceTransformations)
-		}
+		effectiveRequests = applyResourceTransformations(effectiveRequests, info.resourceTransformations)
 		setRes.Requests = resources.NewRequests(effectiveRequests)
 		if features.Enabled(features.DynamicResourceAllocation) && info.preprocessedDRAResources != nil {
 			if draRes, exists := info.preprocessedDRAResources[ps.Name]; exists {
