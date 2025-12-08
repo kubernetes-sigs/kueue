@@ -210,10 +210,19 @@ function cluster_kind_load_image {
         return 1
     fi
     # filter out 'control-plane' node, use only worker nodes to load image
-    worker_nodes=$($KIND get nodes --name "$1" | grep -v 'control-plane' | paste -sd "," -)
+    worker_nodes=$($KIND get nodes --name "$1" | grep -v 'control-plane')
     if [[ -n "$worker_nodes" ]]; then
-        echo "kind load docker-image '$2' --name '$1' --nodes '$worker_nodes'"
-        $KIND load docker-image "$2" --name "$1" --nodes "$worker_nodes"
+        # Use docker save + ctr import directly to avoid the --all-platforms
+        # issue with multi-arch images in DinD environments.
+        # See: https://github.com/kubernetes-sigs/kind/issues/3795
+        echo "Loading image '$2' to cluster '$1'"
+        while IFS= read -r node; do
+            echo "  Loading image to node: $node"
+            if ! docker save "$2" | docker exec -i "$node" ctr --namespace=k8s.io images import --digests --snapshotter=overlayfs -; then
+                echo "Failed to load image '$2' to node '$node'"
+                return 1
+            fi
+        done <<< "$worker_nodes"
     fi
 }
 
