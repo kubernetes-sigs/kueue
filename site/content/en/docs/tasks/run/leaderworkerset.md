@@ -52,7 +52,7 @@ The target [local queue](/docs/concepts/local_queue) should be specified in the 
 
 ```yaml
 metadata:
-  abels:
+  labels:
     kueue.x-k8s.io/queue-name: user-queue
 ```
 
@@ -99,7 +99,7 @@ kubectl create -f sample-leaderworkerset.yaml
 
 For performance-sensitive workloads like large-scale inference or distributed training, you may require the Leader and Worker pods to be co-located within a specific network topology domain (e.g., a rack or a data center block) to minimize latency.
 
-Kueue supports Topology Aware Scheduling (TAS) for `LeaderWorkerSet` by reading annotations from the `Pod` templates. To enable this:
+Kueue supports Topology Aware Scheduling (TAS) for LeaderWorkerSet by reading annotations from the Pod templates. To enable this:
 
 - Ensure the `TopologyAwareScheduling` feature gate is enabled in your cluster.
 - Add the `kueue.x-k8s.io/podset-required-topology` annotation to both the `leaderTemplate` and the `workerTemplate`.
@@ -107,10 +107,10 @@ Kueue supports Topology Aware Scheduling (TAS) for `LeaderWorkerSet` by reading 
 
 ### Example: Rack-Level Co-location
 
-The following example ensures that the `Leader` and all `Workers` are scheduled within the same rack (represented by the `cloud.provider.com/topology-rack` label).
+The following example ensures that the Leader and all Workers are scheduled within the same rack (represented by the `cloud.provider.com/topology-rack` label).
 
 {{< include "examples/serving-workloads/sample-leaderworkerset-tas.yaml" "yaml" >}}
 
-When `replicas` is greater than 1 (as in the example above where `replicas: 2`), the topology constraints apply to each replica individually. This means that for each replica, the `Leader` and its `Workers` will be co-located in the same topology domain (e.g., rack), but different replicas may be assigned to different topology domains.
+When `replicas` is greater than 1 (as in the example above where `replicas: 2`), the topology constraints apply to each replica individually. This means that for each replica, the Leader and its Workers will be co-located in the same topology domain (e.g., rack), but different replicas may be assigned to different topology domains.
 
 > Note on PodSets: Kueue translates the leaderTemplate and workerTemplate into two separate PodSets within the Workload. By annotating both, you ensure that Kueue's admission controller validates the topology constraints for both the leader and the worker group.
