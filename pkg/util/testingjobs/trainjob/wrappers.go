@@ -79,6 +79,12 @@ func (t *TrainJobWrapper) TrainerImage(image string, cmd, args []string) *TrainJ
 	return t
 }
 
+// TrainerNumNodes sets a the number of nodes that will be used in the Trainer job
+func (t *TrainJobWrapper) TrainerNumNodes(numNodes int32) *TrainJobWrapper {
+	t.Spec.Trainer.NumNodes = ptr.To(numNodes)
+	return t
+}
+
 // Label sets a Trainjob annotation key and value
 func (t *TrainJobWrapper) Annotation(key, value string) *TrainJobWrapper {
 	if t.Annotations == nil {
