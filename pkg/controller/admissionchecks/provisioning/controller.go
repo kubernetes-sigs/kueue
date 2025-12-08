@@ -324,17 +324,11 @@ func (c *Controller) syncOwnedProvisionRequest(
 
 func (c *Controller) handleError(ctx context.Context, wl *kueue.Workload, ac *kueue.AdmissionCheckState, msg string, err error) error {
 	c.record.Eventf(wl, corev1.EventTypeWarning, "FailedCreate", api.TruncateEventMessage(msg))
-
-	ac.Message = api.TruncateConditionMessage(msg)
-	wlPatch := workload.BaseSSAWorkload(wl, true)
-	workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *ac, c.clock)
-
-	patchErr := c.client.Status().Patch(
-		ctx, wlPatch, client.Apply,
-		client.FieldOwner(kueue.ProvisioningRequestControllerName),
-		client.ForceOwnership,
-	)
-
+	patchErr := workload.PatchStatus(ctx, c.client, wl, kueue.ProvisioningRequestControllerName, func(wl *kueue.Workload) (bool, error) {
+		ac.Message = api.TruncateConditionMessage(msg)
+		ac.LastTransitionTime = metav1.NewTime(c.clock.Now())
+		return workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *ac, c.clock), nil
+	})
 	return errors.Join(err, patchErr)
 }
 
