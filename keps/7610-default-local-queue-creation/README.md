@@ -6,28 +6,33 @@
   - [Goals](#goals)
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
+  - [Design Pivot](#design-pivot)
+  - [Current Architecture (kueue-populator)](#current-architecture-kueue-populator)
   - [Risks and Mitigations](#risks-and-mitigations)
+    - [Risk: Existing <code>LocalQueue</code>s](#risk-existing-localqueues)
 - [Design Details](#design-details)
-  - [API Proposal](#api-proposal)
-  - [Controller Logic](#controller-logic)
+  - [Current Implementation (kueue-populator)](#current-implementation-kueue-populator)
   - [Test Plan](#test-plan)
-      - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
     - [Integration tests](#integration-tests)
   - [Graduation Criteria](#graduation-criteria)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
-  - [Improvements for future versions](#improvements-for-future-versions)
+  - [ClusterQueue API Field (Rejected)](#clusterqueue-api-field-rejected)
   - [Automatic Garbage Collection](#automatic-garbage-collection)
 <!-- /toc -->
 
 ## Summary
 
-This KEP proposes a change to the `ClusterQueue` API to introduce an opt-in
-feature that automatically creates a default `LocalQueue` in namespaces that
-match a `ClusterQueue`'s `namespaceSelector`. This avoids the need for administrators
-to manually create a `LocalQueue` in each namespace. 
+This KEP proposes a mechanism to automatically create a default `LocalQueue` in
+namespaces that match a `ClusterQueue`'s `namespaceSelector`. This avoids the
+need for administrators to manually create a `LocalQueue` in each namespace.
+
+> [!NOTE]
+> This feature is implemented as a standalone experimental component named
+> `kueue-populator`, rather than a core API change as originally proposed. See
+> the [Design Pivot](#design-pivot) section for details. 
 
 ## Motivation
 
@@ -47,13 +52,12 @@ automatically, making the namespace immediately ready for workload submission.
 
 - Automate the creation of a default `LocalQueue` within a namespace when its
   labels match a `ClusterQueue`'s `namespaceSelector`.
-- Provide a clear, opt-in mechanism on the `ClusterQueue` to enable and
-  configure this behavior.
+- Provide a standalone controller that can be deployed optionally to enable this behavior.
 - Gracefully handle naming conflicts at runtime by ensuring the controller does
   not overwrite pre-existing `LocalQueues` and provides clear warning events when
   a conflict is detected.
 - Ensure that automatically created `LocalQueue`s are clearly identifiable via
-  labels or annotations for easy discovery and management.
+  the `kueue.x-k8s.io/auto-generated` label for easy discovery and management.
 
 ### Non-Goals
 
@@ -66,124 +70,84 @@ automatically, making the namespace immediately ready for workload submission.
 
 ## Proposal
 
-This proposal introduces a new, optional field `defaultLocalQueue` to the
-`ClusterQueue` API specification. When this field is present, it signals the
-controller to enable the automatic creation of `LocalQueue`s. This field will be
-an object containing the configuration for the `LocalQueue` to be created,
-starting with a required `name` field.
+### Design Pivot
 
-A new `defaultlocalqueue-controller` will be created to manage this logic. It
-will watch `Namespace`s and `ClusterQueue`s. When a namespace is
-created or updated to match the `namespaceSelector` of a `ClusterQueue` with
-this feature enabled, the controller will create a `LocalQueue` with the
-specified name in that namespace. Also when a `ClusterQueue` is created or its
-`namespaceSelector` is updated then it will create required `LocalQueue`s.
+The original proposal suggested adding a `defaultLocalQueue` field to the
+`ClusterQueue` API. However, during implementation, the decision was made to
+move this functionality to a separate, standalone component named
+`kueue-populator`.
+
+**Reasoning:**
+1.  **Separation of Concerns:** This avoids mixing cluster configuration
+    management (creating resources) with the core Kueue responsibilities
+    (scheduling and quota management).
+2.  **API Bloat:** Keeping this logic external prevents adding "convenience"
+    fields to the core API that might not be universally required.
+3.  **Experimental Nature:** Implementing it as a separate tool allows for
+    faster iteration and validation without affecting the stability of the core
+    controller.
+
+### Current Architecture (kueue-populator)
+
+The `kueue-populator` is a standalone controller that:
+1.  Watches `Namespace` and `ClusterQueue` resources.
+2.  Is configured via CLI flags or a config file.
+3.  Automatically creates a `LocalQueue` with a configured name (default:
+    `default`) in namespaces that match a `ClusterQueue`'s `namespaceSelector`.
 
 ### Risks and Mitigations
 
-Risk: Existing `LocalQueue`s
+#### Risk: Existing `LocalQueue`s
 
 A `LocalQueue` with the configured name might already exist in a target
 namespace, either created manually or by another process.
 
+- **Mitigation:** The `kueue-populator`'s runtime logic is written
+  defensively to handle cases where a `LocalQueue` already exists.
 
-- Mitigation 1: The `defaultlocalqueue-controller`'s runtime logic will be written
-  defensively to handle cases where a `LocalQueue` already exists. If the
-  controller identifies a namespace that should receive a default `LocalQueue`
-  named `<lq-default>`, its reconciliation process will be as follows:
+  1. **Verification:** Before taking any action, the controller checks if
+     a `LocalQueue` with the configured name already exists in the target namespace.
 
-  1. Verification: Before taking any action, the controller will first check if
-     a `LocalQueue` named `<lq-default>` already exists in the target namespace.
+  2. **No-Op on Conflict:** If the `LocalQueue` already exists, the controller
+     does not attempt to create a new one or modify the existing one. This prevents
+     overwriting a potentially customized, manually created `LocalQueue`.
 
-  2. No-Op on Conflict: If the `LocalQueue` already exists, the controller will
-     not attempt to create a new one or modify the existing one. This prevents
-     the controller from overwriting a potentially customized, manually created
-     `LocalQueue`.
-
-  3. Emit Warning Event: To ensure administrators are aware of the situation,
-     the controller will emit a `Warning` event on the parent `ClusterQueue`. The
-     event message will clearly state that the creation of the default
+  3. **Emit Warning Event:** To ensure administrators are aware of the situation,
+     the controller emits a `Warning` event on the parent `ClusterQueue`. The
+     event message clearly states that the creation of the default
      `LocalQueue` was skipped in a specific namespace because a `LocalQueue` with
      that name already exists.
 
 ## Design Details
 
-### API Proposal
+### Current Implementation (kueue-populator)
 
-This proposal adds a new `defaultLocalQueue` field to the `ClusterQueueSpec`.
+The `kueue-populator` does not modify the `ClusterQueue` API. Instead, it is configured directly:
 
-```go
-// ClusterQueueSpec defines the desired state of ClusterQueue
-type ClusterQueueSpec struct {
-    // ... existing fields
+-   `--local-queue-name`: The name of the LocalQueue to create (default: "default").
+-   `--managed-jobs-namespace-selector`: A global selector to restrict which
+    namespaces are considered (default: excludes `kube-system`).
 
-	// defaultLocalQueue specifies the configuration for automatically creating
-	// LocalQueues in namespaces that match the ClusterQueue's namespaceSelector.
-	// This feature is controlled by the `DefaultLocalQueue` feature gate.
-	// If this field is set, a LocalQueue with the specified name will be created
-	// in each matching namespace. The LocalQueue will reference this ClusterQueue.
-	// +optional
-	DefaultLocalQueue *DefaultLocalQueue `json:"defaultLocalQueue,omitempty"`
-}
+**Reconciliation Logic:**
 
-// DefaultLocalQueue defines the configuration for automatically created LocalQueues.
-type DefaultLocalQueue struct {
-	// name is the name of the LocalQueue to be created in matching namespaces.
-	// This name must be a valid DNS subdomain name.
-	// +kubebuilder:validation:MaxLength=63
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
-	Name string `json:"name"`
-}
-```
+1.  **Trigger:** Watch events on `Namespace` and `ClusterQueue`.
+2.  **Filter:**
+    -   Ignore namespaces that don't match the global `managed-jobs-namespace-selector`.
+    -   Identify `ClusterQueue`s whose `namespaceSelector` matches the namespace.
+3.  **Action:**
+    -   For each matching `ClusterQueue`, check if a `LocalQueue` with the configured name exists in the namespace.
+    -   **If it exists:**
+        -   Check if it points to the current `ClusterQueue`.
+        -   If it points to a *different* `ClusterQueue`, emit a **Warning** event (conflict).
+        -   If it points to the *same* `ClusterQueue`, do nothing (already correct).
+    -   **If it does not exist:**
+        -   Create the `LocalQueue` pointing to the `ClusterQueue`.
+        -   Add label `kueue.x-k8s.io/auto-generated: "true"`.
 
-The auto-generated `LocalQueue` will also be given identifying labels and
-annotations:
-
-- Label: `kueue.x-k8s.io/auto-generated: "true"`
-
-- Annotation: `kueue.x-k8s.io/created-by-clusterqueue: "<cluster-queue-name>"`
-
-### Controller Logic
-
-The new `defaultlocalqueue-controller` will honor the global `namespaceSelector`
-defined in the Kueue configuration (which by default exludes `kube-system`).
-This ensures that the auto-creation of `LocalQueue` is restricted to the same scope
-as all other Kueue operations. 
-
-The controller's reconciliation logic handles four distinct scenarios based on events
-for ClusterQueue and Namespace resources:
-
-1.  **`ClusterQueue` Creation**:
-    *   When a new `ClusterQueue` is created with `spec.defaultLocalQueue` enabled,
-        the controller lists all existing `Namespace`s.
-    *   For each `Namespace` that matches the `ClusterQueue`'s `spec.namespaceSelector`,
-        it creates the default `LocalQueue` if it doesn't already exist.
-
-2.  **`ClusterQueue` Update**:
-    *   When a `ClusterQueue` is updated, and its `spec.namespaceSelector` has
-        changed, the controller identifies the new set of matching `Namespace`s.
-    *   It then creates the default `LocalQueue` in any of these newly matched
-        Namespace`s where it doesn't already exist.
-
-3.  **`Namespace` Creation**:
-    *   When a new `Namespace` is created, the controller iterates through all
-        `ClusterQueue`s that have `spec.defaultLocalQueue` enabled.
-    *   If the new `Namespace`'s labels match a `ClusterQueue`'s
-        `spec.namespaceSelector`, the controller creates the default `LocalQueue`
-        in that `Namespace`.
-
-4.  **`Namespace` Update**:
-    *   When a `Namespace`'s labels are updated, the controller re-evaluates
-        which `ClusterQueue`s it matches.
-    *   If the `Namespace` now matches a `ClusterQueue` it didn't before, the controller
-        creates the default `LocalQueue` in that `Namespace`.
-
-In all cases, if a `LocalQueue` with the target name already exists in the namespace,
-the controller will take no action and emit a warning event on the `ClusterQueue`
-to avoid overwriting existing resources. The created `LocalQueue` will reference
-the corresponding `ClusterQueue` and include identifying labels and annotations.
-
+**Conflict Resolution:**
+If multiple `ClusterQueue`s match the same namespace, the first one reconciled
+will successfully create the `LocalQueue`. Subsequent reconciliations for other
+`ClusterQueue`s will fail to "claim" the `LocalQueue` and will emit a warning.
 
 ### Test Plan
 
@@ -191,25 +155,37 @@ the corresponding `ClusterQueue` and include identifying labels and annotations.
 existing tests to make this code solid enough prior to committing the changes
 necessary to implement this enhancement.
 
-##### Prerequisite testing updates
-
 #### Unit Tests
 
+The `kueue-populator` controller logic will be covered by unit tests, including:
+- Creating LocalQueue when it doesn't exist.
+- Skipping creation if it exists and matches.
+- Emitting warning if it exists and conflicts.
+- Respecting global namespace selector.
+
 #### Integration tests
+
+Integration tests will cover the full controller flow using envtest, including:
+- Verifying that watches on Namespace and ClusterQueue trigger reconciliation.
+- End-to-end creation and updates of LocalQueues in a real API server environment.
+- Handling of edge cases like deletions and updates.
 
 ### Graduation Criteria
 
 Alpha:
 
-- feature disabled by default
-- creation of the `LocalQueue` which matches the `namespaceSelector`
+- Initial release as an experimental component (`cmd/experimental/kueue-populator`).
+- Basic conflict detection (existing LocalQueues).
 
 Beta:
 
-- feature enabled by default
-- re-evaluate the strategies for conflict prevention
+- Feedback gathered from experimental usage.
+- Promotion from experimental to a standard supported component (for example
+  `cmd/kueue-populator`), similar to `kueueviz`.
 
 ## Implementation History
+
+- https://github.com/kubernetes-sigs/kueue/pull/7655
 
 ## Drawbacks
 
@@ -219,19 +195,13 @@ and events will be crucial.
 
 ## Alternatives
 
-### Improvements for future versions
+### ClusterQueue API Field (Rejected)
 
-Add new validation admission logic to the existing `ClusterQueue` webhook to
-prevent selector overlap.
-
-1. The webhook triggers on `CREATE` and `UPDATE` of `ClusterQueue` resources.
-2. If `spec.defaultLocalQueue` is not set, the validation is skipped.
-3. If set, the webhook lists all other `ClusterQueue`s in the cluster.
-4. It compares the `namespaceSelector` of the incoming `ClusterQueue` with every
-   other `ClusterQueue` that also has `defaultLocalQueue` enabled.
-5. If a selector overlap is detected and the `defaultLocalQueue.name` is the same,
-   the request is rejected with an error detailing the conflict. This prevents
-   two `ClusterQueues` from attempting to manage the same `LocalQueue` resource.
+The original proposal suggested adding a `defaultLocalQueue` field to the
+`ClusterQueue` API to configure automatic LocalQueue creation. This approach was
+rejected to avoid API bloat and to maintain a clear separation of concerns
+between core Kueue (scheduling) and configuration management. The functionality
+was moved to the standalone `kueue-populator` component.
 
 ### Automatic Garbage Collection
 
