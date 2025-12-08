@@ -41,6 +41,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
 const (
@@ -53,18 +54,20 @@ type topologyReconciler struct {
 	queues           *qcache.Manager
 	cache            *schdcache.Cache
 	topologyUpdateCh chan event.GenericEvent
+	roleTracker      *roletracker.RoleTracker
 }
 
 var _ reconcile.Reconciler = (*topologyReconciler)(nil)
 var _ predicate.TypedPredicate[*kueue.Topology] = (*topologyReconciler)(nil)
 
-func newTopologyReconciler(c client.Client, queues *qcache.Manager, cache *schdcache.Cache) *topologyReconciler {
+func newTopologyReconciler(c client.Client, queues *qcache.Manager, cache *schdcache.Cache, roleTracker *roletracker.RoleTracker) *topologyReconciler {
 	return &topologyReconciler{
 		log:              ctrl.Log.WithName(TASTopologyController),
 		client:           c,
 		queues:           queues,
 		cache:            cache,
 		topologyUpdateCh: make(chan event.GenericEvent, updateChBuffer),
+		roleTracker:      roleTracker,
 	}
 }
 
@@ -81,6 +84,7 @@ func (r *topologyReconciler) setupWithManager(mgr ctrl.Manager, cfg *configapi.C
 			NeedLeaderElection:      ptr.To(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("Topology").GroupKind().String()],
 		}).
+		WithLogConstructor(roletracker.NewLogConstructor(r.roleTracker, TASTopologyController)).
 		Watches(&kueue.ResourceFlavor{}, &resourceFlavorHandler{}).
 		Complete(core.WithLeadingManager(mgr, r, &kueue.Topology{}, cfg))
 }
