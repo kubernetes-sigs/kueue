@@ -1337,6 +1337,8 @@ func (p *Pod) waitingForReplacementPodsCondition(wl *kueue.Workload) (*metav1.Co
 			Type: WorkloadWaitingForReplacementPods,
 		}
 		updated = true
+	} else {
+		replCond = replCond.DeepCopy()
 	}
 
 	if replCondStatus {
