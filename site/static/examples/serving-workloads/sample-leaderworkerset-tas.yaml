@@ -4,7 +4,7 @@ metadata:
   name: nginx-leaderworkerset
   labels:
     app: nginx
-    kueue.x-k8s.io/queue-name: tas-enabled-queue
+    kueue.x-k8s.io/queue-name: tas-user-queue
 spec:
   replicas: 2
   leaderWorkerTemplate:

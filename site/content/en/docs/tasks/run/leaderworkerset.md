@@ -95,13 +95,13 @@ You can create the LeaderWorkerSet using the following command:
 kubectl create -f sample-leaderworkerset.yaml
 ```
 
-## Configure [Topology Aware Scheduling](/docs/concepts/topology_aware_scheduling)
+## Configure Topology Aware Scheduling
 
 For performance-sensitive workloads like large-scale inference or distributed training, you may require the Leader and Worker pods to be co-located within a specific network topology domain (e.g., a rack or a data center block) to minimize latency.
 
 Kueue supports Topology Aware Scheduling (TAS) for LeaderWorkerSet by reading annotations from the Pod templates. To enable this:
 
-- Ensure the `TopologyAwareScheduling` feature gate is enabled in your cluster.
+- [Configure the cluster for Topology Aware Scheduling](/docs/concepts/topology_aware_scheduling).
 - Add the `kueue.x-k8s.io/podset-required-topology` annotation to both the `leaderTemplate` and the `workerTemplate`.
 - Add the `kueue.x-k8s.io/podset-group-name` annotation to both the `leaderTemplate` and the `workerTemplate` with the same value. This ensures that the Leader and Workers are scheduled in the same topology domain.
 
