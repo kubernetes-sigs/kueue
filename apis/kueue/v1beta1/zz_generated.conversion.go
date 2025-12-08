@@ -123,16 +123,6 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}); err != nil {
 		return err
 	}
-	if err := s.AddGeneratedConversionFunc((*AdmissionFairSharingStatus)(nil), (*v1beta2.AdmissionFairSharingStatus)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1beta1_AdmissionFairSharingStatus_To_v1beta2_AdmissionFairSharingStatus(a.(*AdmissionFairSharingStatus), b.(*v1beta2.AdmissionFairSharingStatus), scope)
-	}); err != nil {
-		return err
-	}
-	if err := s.AddGeneratedConversionFunc((*v1beta2.AdmissionFairSharingStatus)(nil), (*AdmissionFairSharingStatus)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1beta2_AdmissionFairSharingStatus_To_v1beta1_AdmissionFairSharingStatus(a.(*v1beta2.AdmissionFairSharingStatus), b.(*AdmissionFairSharingStatus), scope)
-	}); err != nil {
-		return err
-	}
 	if err := s.AddGeneratedConversionFunc((*AdmissionScope)(nil), (*v1beta2.AdmissionScope)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1beta1_AdmissionScope_To_v1beta2_AdmissionScope(a.(*AdmissionScope), b.(*v1beta2.AdmissionScope), scope)
 	}); err != nil {
@@ -150,6 +140,16 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}
 	if err := s.AddGeneratedConversionFunc((*v1beta2.BorrowWithinCohort)(nil), (*BorrowWithinCohort)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1beta2_BorrowWithinCohort_To_v1beta1_BorrowWithinCohort(a.(*v1beta2.BorrowWithinCohort), b.(*BorrowWithinCohort), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddGeneratedConversionFunc((*ClusterProfileReference)(nil), (*v1beta2.ClusterProfileReference)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta1_ClusterProfileReference_To_v1beta2_ClusterProfileReference(a.(*ClusterProfileReference), b.(*v1beta2.ClusterProfileReference), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddGeneratedConversionFunc((*v1beta2.ClusterProfileReference)(nil), (*ClusterProfileReference)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta2_ClusterProfileReference_To_v1beta1_ClusterProfileReference(a.(*v1beta2.ClusterProfileReference), b.(*ClusterProfileReference), scope)
 	}); err != nil {
 		return err
 	}
@@ -235,11 +235,6 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}
 	if err := s.AddGeneratedConversionFunc((*v1beta2.FairSharing)(nil), (*FairSharing)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1beta2_FairSharing_To_v1beta1_FairSharing(a.(*v1beta2.FairSharing), b.(*FairSharing), scope)
-	}); err != nil {
-		return err
-	}
-	if err := s.AddGeneratedConversionFunc((*FairSharingStatus)(nil), (*v1beta2.FairSharingStatus)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1beta1_FairSharingStatus_To_v1beta2_FairSharingStatus(a.(*FairSharingStatus), b.(*v1beta2.FairSharingStatus), scope)
 	}); err != nil {
 		return err
 	}
@@ -355,16 +350,6 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}
 	if err := s.AddGeneratedConversionFunc((*v1beta2.MultiKueueClusterList)(nil), (*MultiKueueClusterList)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1beta2_MultiKueueClusterList_To_v1beta1_MultiKueueClusterList(a.(*v1beta2.MultiKueueClusterList), b.(*MultiKueueClusterList), scope)
-	}); err != nil {
-		return err
-	}
-	if err := s.AddGeneratedConversionFunc((*MultiKueueClusterSpec)(nil), (*v1beta2.MultiKueueClusterSpec)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1beta1_MultiKueueClusterSpec_To_v1beta2_MultiKueueClusterSpec(a.(*MultiKueueClusterSpec), b.(*v1beta2.MultiKueueClusterSpec), scope)
-	}); err != nil {
-		return err
-	}
-	if err := s.AddGeneratedConversionFunc((*v1beta2.MultiKueueClusterSpec)(nil), (*MultiKueueClusterSpec)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1beta2_MultiKueueClusterSpec_To_v1beta1_MultiKueueClusterSpec(a.(*v1beta2.MultiKueueClusterSpec), b.(*MultiKueueClusterSpec), scope)
 	}); err != nil {
 		return err
 	}
@@ -618,26 +603,6 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}); err != nil {
 		return err
 	}
-	if err := s.AddGeneratedConversionFunc((*TopologyAssignment)(nil), (*v1beta2.TopologyAssignment)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1beta1_TopologyAssignment_To_v1beta2_TopologyAssignment(a.(*TopologyAssignment), b.(*v1beta2.TopologyAssignment), scope)
-	}); err != nil {
-		return err
-	}
-	if err := s.AddGeneratedConversionFunc((*v1beta2.TopologyAssignment)(nil), (*TopologyAssignment)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1beta2_TopologyAssignment_To_v1beta1_TopologyAssignment(a.(*v1beta2.TopologyAssignment), b.(*TopologyAssignment), scope)
-	}); err != nil {
-		return err
-	}
-	if err := s.AddGeneratedConversionFunc((*TopologyDomainAssignment)(nil), (*v1beta2.TopologyDomainAssignment)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1beta1_TopologyDomainAssignment_To_v1beta2_TopologyDomainAssignment(a.(*TopologyDomainAssignment), b.(*v1beta2.TopologyDomainAssignment), scope)
-	}); err != nil {
-		return err
-	}
-	if err := s.AddGeneratedConversionFunc((*v1beta2.TopologyDomainAssignment)(nil), (*TopologyDomainAssignment)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1beta2_TopologyDomainAssignment_To_v1beta1_TopologyDomainAssignment(a.(*v1beta2.TopologyDomainAssignment), b.(*TopologyDomainAssignment), scope)
-	}); err != nil {
-		return err
-	}
 	if err := s.AddGeneratedConversionFunc((*TopologyInfo)(nil), (*v1beta2.TopologyInfo)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1beta1_TopologyInfo_To_v1beta2_TopologyInfo(a.(*TopologyInfo), b.(*v1beta2.TopologyInfo), scope)
 	}); err != nil {
@@ -738,16 +703,6 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}); err != nil {
 		return err
 	}
-	if err := s.AddGeneratedConversionFunc((*WorkloadSpec)(nil), (*v1beta2.WorkloadSpec)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1beta1_WorkloadSpec_To_v1beta2_WorkloadSpec(a.(*WorkloadSpec), b.(*v1beta2.WorkloadSpec), scope)
-	}); err != nil {
-		return err
-	}
-	if err := s.AddGeneratedConversionFunc((*v1beta2.WorkloadSpec)(nil), (*WorkloadSpec)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1beta2_WorkloadSpec_To_v1beta1_WorkloadSpec(a.(*v1beta2.WorkloadSpec), b.(*WorkloadSpec), scope)
-	}); err != nil {
-		return err
-	}
 	if err := s.AddConversionFunc((*AdmissionCheckSpec)(nil), (*v1beta2.AdmissionCheckSpec)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1beta1_AdmissionCheckSpec_To_v1beta2_AdmissionCheckSpec(a.(*AdmissionCheckSpec), b.(*v1beta2.AdmissionCheckSpec), scope)
 	}); err != nil {
@@ -763,8 +718,28 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}); err != nil {
 		return err
 	}
+	if err := s.AddConversionFunc((*FairSharingStatus)(nil), (*v1beta2.FairSharingStatus)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta1_FairSharingStatus_To_v1beta2_FairSharingStatus(a.(*FairSharingStatus), b.(*v1beta2.FairSharingStatus), scope)
+	}); err != nil {
+		return err
+	}
 	if err := s.AddConversionFunc((*LocalQueueStatus)(nil), (*v1beta2.LocalQueueStatus)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1beta1_LocalQueueStatus_To_v1beta2_LocalQueueStatus(a.(*LocalQueueStatus), b.(*v1beta2.LocalQueueStatus), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddConversionFunc((*MultiKueueClusterSpec)(nil), (*v1beta2.MultiKueueClusterSpec)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta1_MultiKueueClusterSpec_To_v1beta2_MultiKueueClusterSpec(a.(*MultiKueueClusterSpec), b.(*v1beta2.MultiKueueClusterSpec), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddConversionFunc((*TopologyAssignment)(nil), (*v1beta2.TopologyAssignment)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta1_TopologyAssignment_To_v1beta2_TopologyAssignment(a.(*TopologyAssignment), b.(*v1beta2.TopologyAssignment), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddConversionFunc((*WorkloadSpec)(nil), (*v1beta2.WorkloadSpec)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta1_WorkloadSpec_To_v1beta2_WorkloadSpec(a.(*WorkloadSpec), b.(*v1beta2.WorkloadSpec), scope)
 	}); err != nil {
 		return err
 	}
@@ -783,6 +758,21 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}); err != nil {
 		return err
 	}
+	if err := s.AddConversionFunc((*v1beta2.MultiKueueClusterSpec)(nil), (*MultiKueueClusterSpec)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta2_MultiKueueClusterSpec_To_v1beta1_MultiKueueClusterSpec(a.(*v1beta2.MultiKueueClusterSpec), b.(*MultiKueueClusterSpec), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddConversionFunc((*v1beta2.TopologyAssignment)(nil), (*TopologyAssignment)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta2_TopologyAssignment_To_v1beta1_TopologyAssignment(a.(*v1beta2.TopologyAssignment), b.(*TopologyAssignment), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddConversionFunc((*v1beta2.WorkloadSpec)(nil), (*WorkloadSpec)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta2_WorkloadSpec_To_v1beta1_WorkloadSpec(a.(*v1beta2.WorkloadSpec), b.(*WorkloadSpec), scope)
+	}); err != nil {
+		return err
+	}
 	if err := s.AddConversionFunc((*v1beta2.WorkloadStatus)(nil), (*WorkloadStatus)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1beta2_WorkloadStatus_To_v1beta1_WorkloadStatus(a.(*v1beta2.WorkloadStatus), b.(*WorkloadStatus), scope)
 	}); err != nil {
@@ -793,7 +783,17 @@ func RegisterConversions(s *runtime.Scheme) error {
 
 func autoConvert_v1beta1_Admission_To_v1beta2_Admission(in *Admission, out *v1beta2.Admission, s conversion.Scope) error {
 	out.ClusterQueue = v1beta2.ClusterQueueReference(in.ClusterQueue)
-	out.PodSetAssignments = *(*[]v1beta2.PodSetAssignment)(unsafe.Pointer(&in.PodSetAssignments))
+	if in.PodSetAssignments != nil {
+		in, out := &in.PodSetAssignments, &out.PodSetAssignments
+		*out = make([]v1beta2.PodSetAssignment, len(*in))
+		for i := range *in {
+			if err := Convert_v1beta1_PodSetAssignment_To_v1beta2_PodSetAssignment(&(*in)[i], &(*out)[i], s); err != nil {
+				return err
+			}
+		}
+	} else {
+		out.PodSetAssignments = nil
+	}
 	return nil
 }
 
@@ -804,7 +804,17 @@ func Convert_v1beta1_Admission_To_v1beta2_Admission(in *Admission, out *v1beta2.
 
 func autoConvert_v1beta2_Admission_To_v1beta1_Admission(in *v1beta2.Admission, out *Admission, s conversion.Scope) error {
 	out.ClusterQueue = ClusterQueueReference(in.ClusterQueue)
-	out.PodSetAssignments = *(*[]PodSetAssignment)(unsafe.Pointer(&in.PodSetAssignments))
+	if in.PodSetAssignments != nil {
+		in, out := &in.PodSetAssignments, &out.PodSetAssignments
+		*out = make([]PodSetAssignment, len(*in))
+		for i := range *in {
+			if err := Convert_v1beta2_PodSetAssignment_To_v1beta1_PodSetAssignment(&(*in)[i], &(*out)[i], s); err != nil {
+				return err
+			}
+		}
+	} else {
+		out.PodSetAssignments = nil
+	}
 	return nil
 }
 
@@ -934,6 +944,8 @@ func autoConvert_v1beta1_AdmissionCheckState_To_v1beta2_AdmissionCheckState(in *
 	out.State = v1beta2.CheckState(in.State)
 	out.LastTransitionTime = in.LastTransitionTime
 	out.Message = in.Message
+	out.RequeueAfterSeconds = (*int32)(unsafe.Pointer(in.RequeueAfterSeconds))
+	out.RetryCount = (*int32)(unsafe.Pointer(in.RetryCount))
 	out.PodSetUpdates = *(*[]v1beta2.PodSetUpdate)(unsafe.Pointer(&in.PodSetUpdates))
 	return nil
 }
@@ -948,6 +960,8 @@ func autoConvert_v1beta2_AdmissionCheckState_To_v1beta1_AdmissionCheckState(in *
 	out.State = CheckState(in.State)
 	out.LastTransitionTime = in.LastTransitionTime
 	out.Message = in.Message
+	out.RequeueAfterSeconds = (*int32)(unsafe.Pointer(in.RequeueAfterSeconds))
+	out.RetryCount = (*int32)(unsafe.Pointer(in.RetryCount))
 	out.PodSetUpdates = *(*[]PodSetUpdate)(unsafe.Pointer(&in.PodSetUpdates))
 	return nil
 }
@@ -1019,28 +1033,6 @@ func Convert_v1beta2_AdmissionChecksStrategy_To_v1beta1_AdmissionChecksStrategy(
 	return autoConvert_v1beta2_AdmissionChecksStrategy_To_v1beta1_AdmissionChecksStrategy(in, out, s)
 }
 
-func autoConvert_v1beta1_AdmissionFairSharingStatus_To_v1beta2_AdmissionFairSharingStatus(in *AdmissionFairSharingStatus, out *v1beta2.AdmissionFairSharingStatus, s conversion.Scope) error {
-	out.ConsumedResources = *(*corev1.ResourceList)(unsafe.Pointer(&in.ConsumedResources))
-	out.LastUpdate = in.LastUpdate
-	return nil
-}
-
-// Convert_v1beta1_AdmissionFairSharingStatus_To_v1beta2_AdmissionFairSharingStatus is an autogenerated conversion function.
-func Convert_v1beta1_AdmissionFairSharingStatus_To_v1beta2_AdmissionFairSharingStatus(in *AdmissionFairSharingStatus, out *v1beta2.AdmissionFairSharingStatus, s conversion.Scope) error {
-	return autoConvert_v1beta1_AdmissionFairSharingStatus_To_v1beta2_AdmissionFairSharingStatus(in, out, s)
-}
-
-func autoConvert_v1beta2_AdmissionFairSharingStatus_To_v1beta1_AdmissionFairSharingStatus(in *v1beta2.AdmissionFairSharingStatus, out *AdmissionFairSharingStatus, s conversion.Scope) error {
-	out.ConsumedResources = *(*corev1.ResourceList)(unsafe.Pointer(&in.ConsumedResources))
-	out.LastUpdate = in.LastUpdate
-	return nil
-}
-
-// Convert_v1beta2_AdmissionFairSharingStatus_To_v1beta1_AdmissionFairSharingStatus is an autogenerated conversion function.
-func Convert_v1beta2_AdmissionFairSharingStatus_To_v1beta1_AdmissionFairSharingStatus(in *v1beta2.AdmissionFairSharingStatus, out *AdmissionFairSharingStatus, s conversion.Scope) error {
-	return autoConvert_v1beta2_AdmissionFairSharingStatus_To_v1beta1_AdmissionFairSharingStatus(in, out, s)
-}
-
 func autoConvert_v1beta1_AdmissionScope_To_v1beta2_AdmissionScope(in *AdmissionScope, out *v1beta2.AdmissionScope, s conversion.Scope) error {
 	out.AdmissionMode = v1beta2.AdmissionMode(in.AdmissionMode)
 	return nil
@@ -1081,6 +1073,26 @@ func autoConvert_v1beta2_BorrowWithinCohort_To_v1beta1_BorrowWithinCohort(in *v1
 // Convert_v1beta2_BorrowWithinCohort_To_v1beta1_BorrowWithinCohort is an autogenerated conversion function.
 func Convert_v1beta2_BorrowWithinCohort_To_v1beta1_BorrowWithinCohort(in *v1beta2.BorrowWithinCohort, out *BorrowWithinCohort, s conversion.Scope) error {
 	return autoConvert_v1beta2_BorrowWithinCohort_To_v1beta1_BorrowWithinCohort(in, out, s)
+}
+
+func autoConvert_v1beta1_ClusterProfileReference_To_v1beta2_ClusterProfileReference(in *ClusterProfileReference, out *v1beta2.ClusterProfileReference, s conversion.Scope) error {
+	out.Name = in.Name
+	return nil
+}
+
+// Convert_v1beta1_ClusterProfileReference_To_v1beta2_ClusterProfileReference is an autogenerated conversion function.
+func Convert_v1beta1_ClusterProfileReference_To_v1beta2_ClusterProfileReference(in *ClusterProfileReference, out *v1beta2.ClusterProfileReference, s conversion.Scope) error {
+	return autoConvert_v1beta1_ClusterProfileReference_To_v1beta2_ClusterProfileReference(in, out, s)
+}
+
+func autoConvert_v1beta2_ClusterProfileReference_To_v1beta1_ClusterProfileReference(in *v1beta2.ClusterProfileReference, out *ClusterProfileReference, s conversion.Scope) error {
+	out.Name = in.Name
+	return nil
+}
+
+// Convert_v1beta2_ClusterProfileReference_To_v1beta1_ClusterProfileReference is an autogenerated conversion function.
+func Convert_v1beta2_ClusterProfileReference_To_v1beta1_ClusterProfileReference(in *v1beta2.ClusterProfileReference, out *ClusterProfileReference, s conversion.Scope) error {
+	return autoConvert_v1beta2_ClusterProfileReference_To_v1beta1_ClusterProfileReference(in, out, s)
 }
 
 func autoConvert_v1beta1_ClusterQueue_To_v1beta2_ClusterQueue(in *ClusterQueue, out *v1beta2.ClusterQueue, s conversion.Scope) error {
@@ -1188,7 +1200,7 @@ func autoConvert_v1beta1_ClusterQueueSpec_To_v1beta2_ClusterQueueSpec(in *Cluste
 	out.NamespaceSelector = (*v1.LabelSelector)(unsafe.Pointer(in.NamespaceSelector))
 	out.FlavorFungibility = (*v1beta2.FlavorFungibility)(unsafe.Pointer(in.FlavorFungibility))
 	out.Preemption = (*v1beta2.ClusterQueuePreemption)(unsafe.Pointer(in.Preemption))
-	out.AdmissionChecks = *(*[]v1beta2.AdmissionCheckReference)(unsafe.Pointer(&in.AdmissionChecks))
+	// WARNING: in.AdmissionChecks requires manual conversion: does not exist in peer-type
 	out.AdmissionChecksStrategy = (*v1beta2.AdmissionChecksStrategy)(unsafe.Pointer(in.AdmissionChecksStrategy))
 	out.StopPolicy = (*v1beta2.StopPolicy)(unsafe.Pointer(in.StopPolicy))
 	out.FairSharing = (*v1beta2.FairSharing)(unsafe.Pointer(in.FairSharing))
@@ -1203,7 +1215,6 @@ func autoConvert_v1beta2_ClusterQueueSpec_To_v1beta1_ClusterQueueSpec(in *v1beta
 	out.NamespaceSelector = (*v1.LabelSelector)(unsafe.Pointer(in.NamespaceSelector))
 	out.FlavorFungibility = (*FlavorFungibility)(unsafe.Pointer(in.FlavorFungibility))
 	out.Preemption = (*ClusterQueuePreemption)(unsafe.Pointer(in.Preemption))
-	out.AdmissionChecks = *(*[]AdmissionCheckReference)(unsafe.Pointer(&in.AdmissionChecks))
 	out.AdmissionChecksStrategy = (*AdmissionChecksStrategy)(unsafe.Pointer(in.AdmissionChecksStrategy))
 	out.StopPolicy = (*StopPolicy)(unsafe.Pointer(in.StopPolicy))
 	out.FairSharing = (*FairSharing)(unsafe.Pointer(in.FairSharing))
@@ -1219,7 +1230,15 @@ func autoConvert_v1beta1_ClusterQueueStatus_To_v1beta2_ClusterQueueStatus(in *Cl
 	out.ReservingWorkloads = in.ReservingWorkloads
 	out.AdmittedWorkloads = in.AdmittedWorkloads
 	// WARNING: in.PendingWorkloadsStatus requires manual conversion: does not exist in peer-type
-	out.FairSharing = (*v1beta2.FairSharingStatus)(unsafe.Pointer(in.FairSharing))
+	if in.FairSharing != nil {
+		in, out := &in.FairSharing, &out.FairSharing
+		*out = new(v1beta2.FairSharingStatus)
+		if err := Convert_v1beta1_FairSharingStatus_To_v1beta2_FairSharingStatus(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.FairSharing = nil
+	}
 	return nil
 }
 
@@ -1230,7 +1249,15 @@ func autoConvert_v1beta2_ClusterQueueStatus_To_v1beta1_ClusterQueueStatus(in *v1
 	out.PendingWorkloads = in.PendingWorkloads
 	out.ReservingWorkloads = in.ReservingWorkloads
 	out.AdmittedWorkloads = in.AdmittedWorkloads
-	out.FairSharing = (*FairSharingStatus)(unsafe.Pointer(in.FairSharing))
+	if in.FairSharing != nil {
+		in, out := &in.FairSharing, &out.FairSharing
+		*out = new(FairSharingStatus)
+		if err := Convert_v1beta2_FairSharingStatus_To_v1beta1_FairSharingStatus(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.FairSharing = nil
+	}
 	return nil
 }
 
@@ -1273,7 +1300,17 @@ func Convert_v1beta2_Cohort_To_v1beta1_Cohort(in *v1beta2.Cohort, out *Cohort, s
 
 func autoConvert_v1beta1_CohortList_To_v1beta2_CohortList(in *CohortList, out *v1beta2.CohortList, s conversion.Scope) error {
 	out.ListMeta = in.ListMeta
-	out.Items = *(*[]v1beta2.Cohort)(unsafe.Pointer(&in.Items))
+	if in.Items != nil {
+		in, out := &in.Items, &out.Items
+		*out = make([]v1beta2.Cohort, len(*in))
+		for i := range *in {
+			if err := Convert_v1beta1_Cohort_To_v1beta2_Cohort(&(*in)[i], &(*out)[i], s); err != nil {
+				return err
+			}
+		}
+	} else {
+		out.Items = nil
+	}
 	return nil
 }
 
@@ -1284,7 +1321,17 @@ func Convert_v1beta1_CohortList_To_v1beta2_CohortList(in *CohortList, out *v1bet
 
 func autoConvert_v1beta2_CohortList_To_v1beta1_CohortList(in *v1beta2.CohortList, out *CohortList, s conversion.Scope) error {
 	out.ListMeta = in.ListMeta
-	out.Items = *(*[]Cohort)(unsafe.Pointer(&in.Items))
+	if in.Items != nil {
+		in, out := &in.Items, &out.Items
+		*out = make([]Cohort, len(*in))
+		for i := range *in {
+			if err := Convert_v1beta2_Cohort_To_v1beta1_Cohort(&(*in)[i], &(*out)[i], s); err != nil {
+				return err
+			}
+		}
+	} else {
+		out.Items = nil
+	}
 	return nil
 }
 
@@ -1318,7 +1365,15 @@ func Convert_v1beta2_CohortSpec_To_v1beta1_CohortSpec(in *v1beta2.CohortSpec, ou
 }
 
 func autoConvert_v1beta1_CohortStatus_To_v1beta2_CohortStatus(in *CohortStatus, out *v1beta2.CohortStatus, s conversion.Scope) error {
-	out.FairSharing = (*v1beta2.FairSharingStatus)(unsafe.Pointer(in.FairSharing))
+	if in.FairSharing != nil {
+		in, out := &in.FairSharing, &out.FairSharing
+		*out = new(v1beta2.FairSharingStatus)
+		if err := Convert_v1beta1_FairSharingStatus_To_v1beta2_FairSharingStatus(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.FairSharing = nil
+	}
 	return nil
 }
 
@@ -1328,7 +1383,15 @@ func Convert_v1beta1_CohortStatus_To_v1beta2_CohortStatus(in *CohortStatus, out 
 }
 
 func autoConvert_v1beta2_CohortStatus_To_v1beta1_CohortStatus(in *v1beta2.CohortStatus, out *CohortStatus, s conversion.Scope) error {
-	out.FairSharing = (*FairSharingStatus)(unsafe.Pointer(in.FairSharing))
+	if in.FairSharing != nil {
+		in, out := &in.FairSharing, &out.FairSharing
+		*out = new(FairSharingStatus)
+		if err := Convert_v1beta2_FairSharingStatus_To_v1beta1_FairSharingStatus(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.FairSharing = nil
+	}
 	return nil
 }
 
@@ -1359,18 +1422,12 @@ func Convert_v1beta2_FairSharing_To_v1beta1_FairSharing(in *v1beta2.FairSharing,
 
 func autoConvert_v1beta1_FairSharingStatus_To_v1beta2_FairSharingStatus(in *FairSharingStatus, out *v1beta2.FairSharingStatus, s conversion.Scope) error {
 	out.WeightedShare = in.WeightedShare
-	out.AdmissionFairSharingStatus = (*v1beta2.AdmissionFairSharingStatus)(unsafe.Pointer(in.AdmissionFairSharingStatus))
+	// WARNING: in.AdmissionFairSharingStatus requires manual conversion: does not exist in peer-type
 	return nil
-}
-
-// Convert_v1beta1_FairSharingStatus_To_v1beta2_FairSharingStatus is an autogenerated conversion function.
-func Convert_v1beta1_FairSharingStatus_To_v1beta2_FairSharingStatus(in *FairSharingStatus, out *v1beta2.FairSharingStatus, s conversion.Scope) error {
-	return autoConvert_v1beta1_FairSharingStatus_To_v1beta2_FairSharingStatus(in, out, s)
 }
 
 func autoConvert_v1beta2_FairSharingStatus_To_v1beta1_FairSharingStatus(in *v1beta2.FairSharingStatus, out *FairSharingStatus, s conversion.Scope) error {
 	out.WeightedShare = in.WeightedShare
-	out.AdmissionFairSharingStatus = (*AdmissionFairSharingStatus)(unsafe.Pointer(in.AdmissionFairSharingStatus))
 	return nil
 }
 
@@ -1382,6 +1439,7 @@ func Convert_v1beta2_FairSharingStatus_To_v1beta1_FairSharingStatus(in *v1beta2.
 func autoConvert_v1beta1_FlavorFungibility_To_v1beta2_FlavorFungibility(in *FlavorFungibility, out *v1beta2.FlavorFungibility, s conversion.Scope) error {
 	out.WhenCanBorrow = v1beta2.FlavorFungibilityPolicy(in.WhenCanBorrow)
 	out.WhenCanPreempt = v1beta2.FlavorFungibilityPolicy(in.WhenCanPreempt)
+	out.Preference = (*v1beta2.FlavorFungibilityPreference)(unsafe.Pointer(in.Preference))
 	return nil
 }
 
@@ -1393,6 +1451,7 @@ func Convert_v1beta1_FlavorFungibility_To_v1beta2_FlavorFungibility(in *FlavorFu
 func autoConvert_v1beta2_FlavorFungibility_To_v1beta1_FlavorFungibility(in *v1beta2.FlavorFungibility, out *FlavorFungibility, s conversion.Scope) error {
 	out.WhenCanBorrow = FlavorFungibilityPolicy(in.WhenCanBorrow)
 	out.WhenCanPreempt = FlavorFungibilityPolicy(in.WhenCanPreempt)
+	out.Preference = (*FlavorFungibilityPreference)(unsafe.Pointer(in.Preference))
 	return nil
 }
 
@@ -1617,7 +1676,7 @@ func autoConvert_v1beta1_LocalQueueStatus_To_v1beta2_LocalQueueStatus(in *LocalQ
 	out.FlavorsReservation = *(*[]v1beta2.LocalQueueFlavorUsage)(unsafe.Pointer(&in.FlavorsReservation))
 	// WARNING: in.FlavorUsage requires manual conversion: does not exist in peer-type
 	// WARNING: in.Flavors requires manual conversion: does not exist in peer-type
-	out.FairSharing = (*v1beta2.FairSharingStatus)(unsafe.Pointer(in.FairSharing))
+	out.FairSharing = (*v1beta2.LocalQueueFairSharingStatus)(unsafe.Pointer(in.FairSharing))
 	return nil
 }
 
@@ -1666,7 +1725,17 @@ func Convert_v1beta2_MultiKueueCluster_To_v1beta1_MultiKueueCluster(in *v1beta2.
 
 func autoConvert_v1beta1_MultiKueueClusterList_To_v1beta2_MultiKueueClusterList(in *MultiKueueClusterList, out *v1beta2.MultiKueueClusterList, s conversion.Scope) error {
 	out.ListMeta = in.ListMeta
-	out.Items = *(*[]v1beta2.MultiKueueCluster)(unsafe.Pointer(&in.Items))
+	if in.Items != nil {
+		in, out := &in.Items, &out.Items
+		*out = make([]v1beta2.MultiKueueCluster, len(*in))
+		for i := range *in {
+			if err := Convert_v1beta1_MultiKueueCluster_To_v1beta2_MultiKueueCluster(&(*in)[i], &(*out)[i], s); err != nil {
+				return err
+			}
+		}
+	} else {
+		out.Items = nil
+	}
 	return nil
 }
 
@@ -1677,7 +1746,17 @@ func Convert_v1beta1_MultiKueueClusterList_To_v1beta2_MultiKueueClusterList(in *
 
 func autoConvert_v1beta2_MultiKueueClusterList_To_v1beta1_MultiKueueClusterList(in *v1beta2.MultiKueueClusterList, out *MultiKueueClusterList, s conversion.Scope) error {
 	out.ListMeta = in.ListMeta
-	out.Items = *(*[]MultiKueueCluster)(unsafe.Pointer(&in.Items))
+	if in.Items != nil {
+		in, out := &in.Items, &out.Items
+		*out = make([]MultiKueueCluster, len(*in))
+		for i := range *in {
+			if err := Convert_v1beta2_MultiKueueCluster_To_v1beta1_MultiKueueCluster(&(*in)[i], &(*out)[i], s); err != nil {
+				return err
+			}
+		}
+	} else {
+		out.Items = nil
+	}
 	return nil
 }
 
@@ -1687,27 +1766,14 @@ func Convert_v1beta2_MultiKueueClusterList_To_v1beta1_MultiKueueClusterList(in *
 }
 
 func autoConvert_v1beta1_MultiKueueClusterSpec_To_v1beta2_MultiKueueClusterSpec(in *MultiKueueClusterSpec, out *v1beta2.MultiKueueClusterSpec, s conversion.Scope) error {
-	if err := Convert_v1beta1_KubeConfig_To_v1beta2_KubeConfig(&in.KubeConfig, &out.KubeConfig, s); err != nil {
-		return err
-	}
+	// WARNING: in.KubeConfig requires manual conversion: does not exist in peer-type
+	// WARNING: in.ClusterProfileRef requires manual conversion: does not exist in peer-type
 	return nil
-}
-
-// Convert_v1beta1_MultiKueueClusterSpec_To_v1beta2_MultiKueueClusterSpec is an autogenerated conversion function.
-func Convert_v1beta1_MultiKueueClusterSpec_To_v1beta2_MultiKueueClusterSpec(in *MultiKueueClusterSpec, out *v1beta2.MultiKueueClusterSpec, s conversion.Scope) error {
-	return autoConvert_v1beta1_MultiKueueClusterSpec_To_v1beta2_MultiKueueClusterSpec(in, out, s)
 }
 
 func autoConvert_v1beta2_MultiKueueClusterSpec_To_v1beta1_MultiKueueClusterSpec(in *v1beta2.MultiKueueClusterSpec, out *MultiKueueClusterSpec, s conversion.Scope) error {
-	if err := Convert_v1beta2_KubeConfig_To_v1beta1_KubeConfig(&in.KubeConfig, &out.KubeConfig, s); err != nil {
-		return err
-	}
+	// WARNING: in.ClusterSource requires manual conversion: does not exist in peer-type
 	return nil
-}
-
-// Convert_v1beta2_MultiKueueClusterSpec_To_v1beta1_MultiKueueClusterSpec is an autogenerated conversion function.
-func Convert_v1beta2_MultiKueueClusterSpec_To_v1beta1_MultiKueueClusterSpec(in *v1beta2.MultiKueueClusterSpec, out *MultiKueueClusterSpec, s conversion.Scope) error {
-	return autoConvert_v1beta2_MultiKueueClusterSpec_To_v1beta1_MultiKueueClusterSpec(in, out, s)
 }
 
 func autoConvert_v1beta1_MultiKueueClusterStatus_To_v1beta2_MultiKueueClusterStatus(in *MultiKueueClusterStatus, out *v1beta2.MultiKueueClusterStatus, s conversion.Scope) error {
@@ -1831,7 +1897,15 @@ func autoConvert_v1beta1_PodSetAssignment_To_v1beta2_PodSetAssignment(in *PodSet
 	out.Flavors = *(*map[corev1.ResourceName]v1beta2.ResourceFlavorReference)(unsafe.Pointer(&in.Flavors))
 	out.ResourceUsage = *(*corev1.ResourceList)(unsafe.Pointer(&in.ResourceUsage))
 	out.Count = (*int32)(unsafe.Pointer(in.Count))
-	out.TopologyAssignment = (*v1beta2.TopologyAssignment)(unsafe.Pointer(in.TopologyAssignment))
+	if in.TopologyAssignment != nil {
+		in, out := &in.TopologyAssignment, &out.TopologyAssignment
+		*out = new(v1beta2.TopologyAssignment)
+		if err := Convert_v1beta1_TopologyAssignment_To_v1beta2_TopologyAssignment(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.TopologyAssignment = nil
+	}
 	out.DelayedTopologyRequest = (*v1beta2.DelayedTopologyRequestState)(unsafe.Pointer(in.DelayedTopologyRequest))
 	return nil
 }
@@ -1846,7 +1920,15 @@ func autoConvert_v1beta2_PodSetAssignment_To_v1beta1_PodSetAssignment(in *v1beta
 	out.Flavors = *(*map[corev1.ResourceName]ResourceFlavorReference)(unsafe.Pointer(&in.Flavors))
 	out.ResourceUsage = *(*corev1.ResourceList)(unsafe.Pointer(&in.ResourceUsage))
 	out.Count = (*int32)(unsafe.Pointer(in.Count))
-	out.TopologyAssignment = (*TopologyAssignment)(unsafe.Pointer(in.TopologyAssignment))
+	if in.TopologyAssignment != nil {
+		in, out := &in.TopologyAssignment, &out.TopologyAssignment
+		*out = new(TopologyAssignment)
+		if err := Convert_v1beta2_TopologyAssignment_To_v1beta1_TopologyAssignment(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.TopologyAssignment = nil
+	}
 	out.DelayedTopologyRequest = (*DelayedTopologyRequestState)(unsafe.Pointer(in.DelayedTopologyRequest))
 	return nil
 }
@@ -2324,46 +2406,14 @@ func Convert_v1beta2_Topology_To_v1beta1_Topology(in *v1beta2.Topology, out *Top
 
 func autoConvert_v1beta1_TopologyAssignment_To_v1beta2_TopologyAssignment(in *TopologyAssignment, out *v1beta2.TopologyAssignment, s conversion.Scope) error {
 	out.Levels = *(*[]string)(unsafe.Pointer(&in.Levels))
-	out.Domains = *(*[]v1beta2.TopologyDomainAssignment)(unsafe.Pointer(&in.Domains))
+	// WARNING: in.Domains requires manual conversion: does not exist in peer-type
 	return nil
-}
-
-// Convert_v1beta1_TopologyAssignment_To_v1beta2_TopologyAssignment is an autogenerated conversion function.
-func Convert_v1beta1_TopologyAssignment_To_v1beta2_TopologyAssignment(in *TopologyAssignment, out *v1beta2.TopologyAssignment, s conversion.Scope) error {
-	return autoConvert_v1beta1_TopologyAssignment_To_v1beta2_TopologyAssignment(in, out, s)
 }
 
 func autoConvert_v1beta2_TopologyAssignment_To_v1beta1_TopologyAssignment(in *v1beta2.TopologyAssignment, out *TopologyAssignment, s conversion.Scope) error {
 	out.Levels = *(*[]string)(unsafe.Pointer(&in.Levels))
-	out.Domains = *(*[]TopologyDomainAssignment)(unsafe.Pointer(&in.Domains))
+	// WARNING: in.Slices requires manual conversion: does not exist in peer-type
 	return nil
-}
-
-// Convert_v1beta2_TopologyAssignment_To_v1beta1_TopologyAssignment is an autogenerated conversion function.
-func Convert_v1beta2_TopologyAssignment_To_v1beta1_TopologyAssignment(in *v1beta2.TopologyAssignment, out *TopologyAssignment, s conversion.Scope) error {
-	return autoConvert_v1beta2_TopologyAssignment_To_v1beta1_TopologyAssignment(in, out, s)
-}
-
-func autoConvert_v1beta1_TopologyDomainAssignment_To_v1beta2_TopologyDomainAssignment(in *TopologyDomainAssignment, out *v1beta2.TopologyDomainAssignment, s conversion.Scope) error {
-	out.Values = *(*[]string)(unsafe.Pointer(&in.Values))
-	out.Count = in.Count
-	return nil
-}
-
-// Convert_v1beta1_TopologyDomainAssignment_To_v1beta2_TopologyDomainAssignment is an autogenerated conversion function.
-func Convert_v1beta1_TopologyDomainAssignment_To_v1beta2_TopologyDomainAssignment(in *TopologyDomainAssignment, out *v1beta2.TopologyDomainAssignment, s conversion.Scope) error {
-	return autoConvert_v1beta1_TopologyDomainAssignment_To_v1beta2_TopologyDomainAssignment(in, out, s)
-}
-
-func autoConvert_v1beta2_TopologyDomainAssignment_To_v1beta1_TopologyDomainAssignment(in *v1beta2.TopologyDomainAssignment, out *TopologyDomainAssignment, s conversion.Scope) error {
-	out.Values = *(*[]string)(unsafe.Pointer(&in.Values))
-	out.Count = in.Count
-	return nil
-}
-
-// Convert_v1beta2_TopologyDomainAssignment_To_v1beta1_TopologyDomainAssignment is an autogenerated conversion function.
-func Convert_v1beta2_TopologyDomainAssignment_To_v1beta1_TopologyDomainAssignment(in *v1beta2.TopologyDomainAssignment, out *TopologyDomainAssignment, s conversion.Scope) error {
-	return autoConvert_v1beta2_TopologyDomainAssignment_To_v1beta1_TopologyDomainAssignment(in, out, s)
 }
 
 func autoConvert_v1beta1_TopologyInfo_To_v1beta2_TopologyInfo(in *TopologyInfo, out *v1beta2.TopologyInfo, s conversion.Scope) error {
@@ -2617,38 +2667,35 @@ func Convert_v1beta2_WorkloadSchedulingStatsEviction_To_v1beta1_WorkloadScheduli
 func autoConvert_v1beta1_WorkloadSpec_To_v1beta2_WorkloadSpec(in *WorkloadSpec, out *v1beta2.WorkloadSpec, s conversion.Scope) error {
 	out.PodSets = *(*[]v1beta2.PodSet)(unsafe.Pointer(&in.PodSets))
 	out.QueueName = v1beta2.LocalQueueName(in.QueueName)
-	out.PriorityClassName = in.PriorityClassName
+	// WARNING: in.PriorityClassName requires manual conversion: does not exist in peer-type
 	out.Priority = (*int32)(unsafe.Pointer(in.Priority))
-	out.PriorityClassSource = in.PriorityClassSource
+	// WARNING: in.PriorityClassSource requires manual conversion: does not exist in peer-type
 	out.Active = (*bool)(unsafe.Pointer(in.Active))
 	out.MaximumExecutionTimeSeconds = (*int32)(unsafe.Pointer(in.MaximumExecutionTimeSeconds))
 	return nil
-}
-
-// Convert_v1beta1_WorkloadSpec_To_v1beta2_WorkloadSpec is an autogenerated conversion function.
-func Convert_v1beta1_WorkloadSpec_To_v1beta2_WorkloadSpec(in *WorkloadSpec, out *v1beta2.WorkloadSpec, s conversion.Scope) error {
-	return autoConvert_v1beta1_WorkloadSpec_To_v1beta2_WorkloadSpec(in, out, s)
 }
 
 func autoConvert_v1beta2_WorkloadSpec_To_v1beta1_WorkloadSpec(in *v1beta2.WorkloadSpec, out *WorkloadSpec, s conversion.Scope) error {
 	out.PodSets = *(*[]PodSet)(unsafe.Pointer(&in.PodSets))
 	out.QueueName = LocalQueueName(in.QueueName)
-	out.PriorityClassName = in.PriorityClassName
+	// WARNING: in.PriorityClassRef requires manual conversion: does not exist in peer-type
 	out.Priority = (*int32)(unsafe.Pointer(in.Priority))
-	out.PriorityClassSource = in.PriorityClassSource
 	out.Active = (*bool)(unsafe.Pointer(in.Active))
 	out.MaximumExecutionTimeSeconds = (*int32)(unsafe.Pointer(in.MaximumExecutionTimeSeconds))
 	return nil
 }
 
-// Convert_v1beta2_WorkloadSpec_To_v1beta1_WorkloadSpec is an autogenerated conversion function.
-func Convert_v1beta2_WorkloadSpec_To_v1beta1_WorkloadSpec(in *v1beta2.WorkloadSpec, out *WorkloadSpec, s conversion.Scope) error {
-	return autoConvert_v1beta2_WorkloadSpec_To_v1beta1_WorkloadSpec(in, out, s)
-}
-
 func autoConvert_v1beta1_WorkloadStatus_To_v1beta2_WorkloadStatus(in *WorkloadStatus, out *v1beta2.WorkloadStatus, s conversion.Scope) error {
 	out.Conditions = *(*[]v1.Condition)(unsafe.Pointer(&in.Conditions))
-	out.Admission = (*v1beta2.Admission)(unsafe.Pointer(in.Admission))
+	if in.Admission != nil {
+		in, out := &in.Admission, &out.Admission
+		*out = new(v1beta2.Admission)
+		if err := Convert_v1beta1_Admission_To_v1beta2_Admission(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.Admission = nil
+	}
 	out.RequeueState = (*v1beta2.RequeueState)(unsafe.Pointer(in.RequeueState))
 	out.ReclaimablePods = *(*[]v1beta2.ReclaimablePod)(unsafe.Pointer(&in.ReclaimablePods))
 	out.AdmissionChecks = *(*[]v1beta2.AdmissionCheckState)(unsafe.Pointer(&in.AdmissionChecks))
@@ -2663,7 +2710,15 @@ func autoConvert_v1beta1_WorkloadStatus_To_v1beta2_WorkloadStatus(in *WorkloadSt
 
 func autoConvert_v1beta2_WorkloadStatus_To_v1beta1_WorkloadStatus(in *v1beta2.WorkloadStatus, out *WorkloadStatus, s conversion.Scope) error {
 	out.Conditions = *(*[]v1.Condition)(unsafe.Pointer(&in.Conditions))
-	out.Admission = (*Admission)(unsafe.Pointer(in.Admission))
+	if in.Admission != nil {
+		in, out := &in.Admission, &out.Admission
+		*out = new(Admission)
+		if err := Convert_v1beta2_Admission_To_v1beta1_Admission(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.Admission = nil
+	}
 	out.RequeueState = (*RequeueState)(unsafe.Pointer(in.RequeueState))
 	out.ReclaimablePods = *(*[]ReclaimablePod)(unsafe.Pointer(&in.ReclaimablePods))
 	out.AdmissionChecks = *(*[]AdmissionCheckState)(unsafe.Pointer(&in.AdmissionChecks))

@@ -29,8 +29,10 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/scheduler"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -63,12 +65,31 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
+type managerSetupOpts struct {
+	runScheduler bool
+}
+
+type managerSetupOption func(*managerSetupOpts)
+
+func runScheduler(opts *managerSetupOpts) {
+	opts.runScheduler = true
+}
+
 func managerSetup(ctx context.Context, mgr manager.Manager) {
 	managerAndControllerSetup(nil)(ctx, mgr)
 }
 
-func managerAndControllerSetup(controllersCfg *config.Configuration) framework.ManagerSetup {
+func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
+	managerAndControllerSetup(nil, runScheduler)(ctx, mgr)
+}
+
+func managerAndControllerSetup(controllersCfg *config.Configuration, options ...managerSetupOption) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
+		var opts managerSetupOpts
+		for _, opt := range options {
+			opt(&opts)
+		}
+
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -88,5 +109,11 @@ func managerAndControllerSetup(controllersCfg *config.Configuration) framework.M
 
 		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
+
+		if opts.runScheduler {
+			sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName))
+			err = sched.Start(ctx)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 	}
 }

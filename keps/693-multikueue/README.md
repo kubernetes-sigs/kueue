@@ -23,6 +23,7 @@
   - [Configuration](#configuration)
   - [MultiKueue Dispatcher API](#multikueue-dispatcher-api)
     - [Workload Synchronization](#workload-synchronization)
+  - [Cluster Role sharing](#cluster-role-sharing)
   - [Follow ups ideas](#follow-ups-ideas)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
@@ -69,8 +70,7 @@ in the clusters (manually, using gitops or some 3rd-party tooling).
 * Support K8S Jobs on management clusters that don't have either 
 kubernetes/enhancements#4370 implemented or Job controller disabled.
 * Support for cluster role sharing (worker & manager inside one cluster)
-is out of scope for this KEP. We will get back to the topic once 
-kubernetes/enhancements#4370 is merged and becomes a wider standard.
+although proved to be possible after kubernetes/enhancements#4370 was merged.
 * distribute running Jobs across multiple clusters, and reconcile partial
 results in the Job objects on the management cluster (each Job will run on
 a single worker cluster).
@@ -189,9 +189,25 @@ const (
     SecretLocationType LocationType = "Secret"
 )
 
-type MultiKueueClusterSpec {
-    // Information how to connect to the cluster.
-    KubeConfig KubeConfig `json:"kubeConfig"`
+type MultiKueueClusterSpec struct {
+  // Information about the cluster.
+  // +required
+  ClusterSource ClusterSource `json:"clusterSource,omitempty"`
+}
+
+// +kubebuilder:validation:ExactlyOneOf=kubeConfig;clusterProfile
+type ClusterSource struct {
+
+    // KubeConfig is the direct specification of the kubeconfig for the remote cluster.
+    // This field can only be configured when ClusterProfile is not specified.
+    // +optional
+    KubeConfig *KubeConfig `json:"kubeConfig,omitempty"`
+
+    // ClusterProfile is a reference to a ClusterProfile object.
+    // The controller will use the information from the ClusterProfile to connect to the remote cluster.
+    // This field can only be configured when KubeConfig is not specified.
+    // +optional
+    ClusterProfileRef *ClusterProfileReference `json:"clusterProfile,omitempty"`
 }
 
 type KubeConfig struct {
@@ -202,10 +218,15 @@ type KubeConfig struct {
     //
     // +kubebuilder:default=Secret
     // +kubebuilder:validation:Enum=Secret;Path
-    LocationType LocationType `json:"locationType"`
+    LocationType LocationType `json:"locationType,omitempty"`
 }
 
-type MultiKueueClusterStatus {
+type ClusterProfileReference struct {
+  // Name of the ClusterProfile.
+  Name string `json:"name"`
+}
+
+type MultiKueueClusterStatus struct {
    Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
 ```
@@ -221,15 +242,55 @@ admission checks, use ProvisioningRequest, etc.
 
 #### MultiKueueCluster Controller
 
-Will monitor all cluster definitions and maintain 
+Will monitor all `MultiKueueCluster` definitions and maintain 
 the Kube clients for all of them. Any connectivity problems will be reported both in
-MultiKueueCluster status and Events. MultiKueue controller 
-will make sure that whenever the kubeconfig is refreshed, the appropriate 
-clients will also be recreated and attempt to reconnect when the connection to the
-target cluster is lost.
+the `MultiKueueCluster`'s status and via Events.
 
-Creation of kubeconfig files is outside of the MultiKueue scope, and is cloud
-provider/environment dependant.
+The controller obtains cluster credentials based on the `MultiKueueCluster` spec:
+
+- When `kubeConfig` is provided, the controller uses it directly. It ensures that
+  whenever the underlying kubeconfig (e.g., in a Secret) is refreshed, the client
+  is recreated.
+
+- When `clusterProfile` is provided, the controller relies on the
+  [client-go credential plugin mechanism](https://kubernetes.io/docs/reference/access-authn-authz/authentication/#client-go-credential-plugins) to obtain and refresh credentials for the remote cluster as described in [KEP-5339](https://github.com/kubernetes/enhancements/blob/master/keps/sig-multicluster/5339-clusterprofile-plugin-credentials/README.md).
+  Installation of the ClusterProfile CRD(`clusterprofiles.multicluster.x-k8s.io`). If your Kueue deployment is already running, you must restart it after installing the CRD for the changes to take effect.
+
+  The authentication flow is as follows:
+  1. The controller reads the `ClusterProfile` object referenced by the `MultiKueueCluster`. The `ClusterProfile` contains a list of access providers.
+  2. The controller uses this configuration to match the access provider with the credentials provider and invoke the credential plugin binary. The list of credentials providers is configured in the `CredentialsProviders` section under `ClusterProfile` in the `MultiKueue` in the Configuration API.
+
+```go
+type MultiKueue struct {
+  ...
+	// ClusterProfile defines configuration for using the ClusterProfile API.
+	// +optional
+	ClusterProfile *ClusterProfile `json:"clusterProfile,omitempty"`
+}
+
+// ClusterProfile defines configuration for using the ClusterProfile API in MultiKueue.
+type ClusterProfile struct {
+	// CredentialsProviders defines a list of providers to obtain credentials of worker clusters
+	// using the ClusterProfile API.
+	CredentialsProviders []ClusterProfileCredentialsProvider `json:"credentialsProviders,omitempty"`
+}
+
+// ClusterProfileCredentialsProvider defines a credentials provider in the ClusterProfile API.
+type ClusterProfileCredentialsProvider struct {
+	// Name is the name of the provider.
+	Name string `json:"name"`
+	//  ExecConfig is the exec configuration to obtain credentials.
+	ExecConfig clientcmdapi.ExecConfig `json:"execConfig"`
+}
+```
+
+  3. The plugin is responsible for the actual authentication process. This might involve calling an external HTTP endpoint (e.g., a cloud provider's metadata service or an OIDC provider) to generate a short-lived authentication token. The details of this process are specific to the plugin and are opaque to Kueue. It returns the credentials, including the token, to the controller.
+  4. The controller uses these credentials to configure a Kubernetes client for the worker cluster.
+
+  Token refreshing is also managed automatically by the client-go library. When a token is expired or about to expire, client-go re-invokes the plugin to fetch a new one.
+
+Creation of kubeconfig files or ClusterProfile objects is outside of the MultiKueue scope, and is cloud
+provider/environment dependent.
 
 #### AdmissionCheck Controller
 
@@ -316,6 +377,7 @@ type MultiKueue struct {
 	GCInterval *metav1.Duration `json:"gcInterval"`
 	Origin *string `json:"origin,omitempty"`
 	WorkerLostTimeout *metav1.Duration `json:"workerLostTimeout,omitempty"`
+	ClusterProfileConfig *ClusterProfileConfig `json:"clusterProfileConfig,omitempty"`
 }
 ```
 
@@ -327,6 +389,7 @@ This is used by multikueue in components like its [garbage collector](#garbage-c
 that ware created by this multikueue manager cluster and delete them if their local counterpart no longer exists.
 - `WorkerLostTimeout` - defines the time a local workload's multikueue admission check state is kept Ready
 if the connection with its reserving worker cluster is lost.
+- `ClusterProfileConfig` - defines the configuration for the ClusterProfile API.
 
 
 ### MultiKueue Dispatcher API
@@ -402,6 +465,10 @@ type MultiKueue struct {
 }
 ```
 
+### Cluster Role sharing
+
+MultiKueue Cluster Role Sharing enables Kueue cluster to simultaneously run both MultiKueue managed workloads and regular Kueue workloads, depending on the ClusterQueue configuration
+targeted by the workloads.
 
 ### Follow ups ideas
 

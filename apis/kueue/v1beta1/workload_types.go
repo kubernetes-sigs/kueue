@@ -23,6 +23,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const (
+	WorkloadPriorityClassSource = "kueue.x-k8s.io/workloadpriorityclass"
+	PodPriorityClassSource      = "scheduling.k8s.io/priorityclass"
+)
+
 // WorkloadSpec defines the desired state of Workload
 // +kubebuilder:validation:XValidation:rule="has(self.priorityClassName) ? has(self.priority) : true", message="priority should not be nil when priorityClassName is set"
 type WorkloadSpec struct {
@@ -537,7 +542,24 @@ type AdmissionCheckState struct {
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MaxLength=32768
 	Message string `json:"message" protobuf:"bytes,6,opt,name=message"`
-
+	// requeueAfterSeconds indicates how long to wait at least before
+	// retrying to admit the workload.
+	// The admission check controllers can set this field when State=Retry
+	// to implement delays between retry attempts.
+	//
+	// If nil when State=Retry, Kueue will retry immediately.
+	// If set, Kueue will add the workload back to the queue after
+	//   lastTransitionTime + RequeueAfterSeconds is over.
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	RequeueAfterSeconds *int32 `json:"requeueAfterSeconds,omitempty"`
+	// retryCount tracks retry attempts for this admission check.
+	// Kueue automatically increments the counter whenever the
+	// state transitions to Retry.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	RetryCount *int32 `json:"retryCount,omitempty"`
 	// podSetUpdates contains a list of pod set modifications suggested by AdmissionChecks.
 	// +optional
 	// +listType=atomic
@@ -754,7 +776,7 @@ const (
 
 // +genclient
 // +kubebuilder:object:root=true
-// +kubebuilder:storageversion
+// +kubebuilder:deprecatedversion:warning="This version is deprecated. Use v1beta2 instead."
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Queue",JSONPath=".spec.queueName",type="string",description="Name of the queue this workload was submitted to"
 // +kubebuilder:printcolumn:name="Reserved in",JSONPath=".status.admission.clusterQueue",type="string",description="Name of the ClusterQueue where the workload is reserving quota"

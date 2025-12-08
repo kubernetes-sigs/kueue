@@ -160,9 +160,17 @@ const (
 	// owner: @pajakd
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/582-preempt-based-on-flavor-order
 	//
-	// In flavor fungibility, the preference whether to preempt or borrow is inferred from flavor fungibility policy
-	// This feature gate is going to be replaced by an API before graduation or deprecation.
+	// In flavor fungibility, the preference whether to preempt or borrow is inferred from flavor fungibility policy.
+	//
+	// Deprecated: planned to be removed in v0.16.
 	FlavorFungibilityImplicitPreferenceDefault featuregate.Feature = "FlavorFungibilityImplicitPreferenceDefault"
+
+	// owner: @pajakd
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	//
+	// Use balanced placement algorithm in TAS. This feature gate is going to be replaced by an API
+	// before graduation or deprecation.
+	TASBalancedPlacement featuregate.Feature = "TASBalancedPlacement"
 
 	// owner: @alaypatel07
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2941-DRA
@@ -194,6 +202,7 @@ const (
 	//
 	// Allow insecure kubeconfigs in MultiKueue setup.
 	// Requires careful consideration as it may lead to security issues.
+	//
 	// Deprecated: planned to be removed in 0.17
 	MultiKueueAllowInsecureKubeconfigs featuregate.Feature = "MultiKueueAllowInsecureKubeconfigs"
 
@@ -201,6 +210,24 @@ const (
 	//
 	// Enables reclaimable pods counting towards quota.
 	ReclaimablePods featuregate.Feature = "ReclaimablePods"
+
+	// owner: @yaroslva-serdiuk
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/7597
+	// Do not remove job-name label from Workload PodTemplate object.
+	PropagateBatchJobLabelsToWorkload featuregate.Feature = "PropagateBatchJobLabelsToWorkload"
+
+	// owner: @hdp617
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/693-multikueue
+	//
+	// Enables ClusterProfile integration for MultiKueue.
+	MultiKueueClusterProfile featuregate.Feature = "MultiKueueClusterProfile"
+
+	// owner: @kshalot
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/6757
+	// Enabled failure recovery of pods stuck in terminating state.
+	FailureRecoveryPolicy featuregate.Feature = "FailureRecoveryPolicy"
 )
 
 func init() {
@@ -297,12 +324,17 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	FlavorFungibilityImplicitPreferenceDefault: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Deprecated}, // remove in 0.16
+	},
+	TASBalancedPlacement: {
+		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	DynamicResourceAllocation: {
 		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	MultiKueueAdaptersForCustomJobs: {
 		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
 	WorkloadRequestUseMergePatch: {
 		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
@@ -315,6 +347,16 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	ReclaimablePods: {
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
+	},
+	// PropagateBatchJobLabelsToWorkload is anabled from 0.13.10 and 0.14.5.
+	PropagateBatchJobLabelsToWorkload: {
+		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
+	},
+	MultiKueueClusterProfile: {
+		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	FailureRecoveryPolicy: {
+		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

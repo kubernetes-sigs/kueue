@@ -124,16 +124,6 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}); err != nil {
 		return err
 	}
-	if err := s.AddGeneratedConversionFunc((*FairSharing)(nil), (*v1beta2.FairSharing)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1beta1_FairSharing_To_v1beta2_FairSharing(a.(*FairSharing), b.(*v1beta2.FairSharing), scope)
-	}); err != nil {
-		return err
-	}
-	if err := s.AddGeneratedConversionFunc((*v1beta2.FairSharing)(nil), (*FairSharing)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1beta2_FairSharing_To_v1beta1_FairSharing(a.(*v1beta2.FairSharing), b.(*FairSharing), scope)
-	}); err != nil {
-		return err
-	}
 	if err := s.AddGeneratedConversionFunc((*v1beta2.Integrations)(nil), (*Integrations)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1beta2_Integrations_To_v1beta1_Integrations(a.(*v1beta2.Integrations), b.(*Integrations), scope)
 	}); err != nil {
@@ -151,11 +141,6 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}
 	if err := s.AddGeneratedConversionFunc((*MultiKueue)(nil), (*v1beta2.MultiKueue)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1beta1_MultiKueue_To_v1beta2_MultiKueue(a.(*MultiKueue), b.(*v1beta2.MultiKueue), scope)
-	}); err != nil {
-		return err
-	}
-	if err := s.AddGeneratedConversionFunc((*v1beta2.MultiKueue)(nil), (*MultiKueue)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1beta2_MultiKueue_To_v1beta1_MultiKueue(a.(*v1beta2.MultiKueue), b.(*MultiKueue), scope)
 	}); err != nil {
 		return err
 	}
@@ -209,16 +194,6 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}); err != nil {
 		return err
 	}
-	if err := s.AddGeneratedConversionFunc((*WaitForPodsReady)(nil), (*v1beta2.WaitForPodsReady)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1beta1_WaitForPodsReady_To_v1beta2_WaitForPodsReady(a.(*WaitForPodsReady), b.(*v1beta2.WaitForPodsReady), scope)
-	}); err != nil {
-		return err
-	}
-	if err := s.AddGeneratedConversionFunc((*v1beta2.WaitForPodsReady)(nil), (*WaitForPodsReady)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1beta2_WaitForPodsReady_To_v1beta1_WaitForPodsReady(a.(*v1beta2.WaitForPodsReady), b.(*WaitForPodsReady), scope)
-	}); err != nil {
-		return err
-	}
 	if err := s.AddGeneratedConversionFunc((*WorkloadRetentionPolicy)(nil), (*v1beta2.WorkloadRetentionPolicy)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1beta1_WorkloadRetentionPolicy_To_v1beta2_WorkloadRetentionPolicy(a.(*WorkloadRetentionPolicy), b.(*v1beta2.WorkloadRetentionPolicy), scope)
 	}); err != nil {
@@ -234,8 +209,33 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}); err != nil {
 		return err
 	}
+	if err := s.AddConversionFunc((*FairSharing)(nil), (*v1beta2.FairSharing)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta1_FairSharing_To_v1beta2_FairSharing(a.(*FairSharing), b.(*v1beta2.FairSharing), scope)
+	}); err != nil {
+		return err
+	}
 	if err := s.AddConversionFunc((*Integrations)(nil), (*v1beta2.Integrations)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1beta1_Integrations_To_v1beta2_Integrations(a.(*Integrations), b.(*v1beta2.Integrations), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddConversionFunc((*WaitForPodsReady)(nil), (*v1beta2.WaitForPodsReady)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta1_WaitForPodsReady_To_v1beta2_WaitForPodsReady(a.(*WaitForPodsReady), b.(*v1beta2.WaitForPodsReady), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddConversionFunc((*v1beta2.FairSharing)(nil), (*FairSharing)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta2_FairSharing_To_v1beta1_FairSharing(a.(*v1beta2.FairSharing), b.(*FairSharing), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddConversionFunc((*v1beta2.MultiKueue)(nil), (*MultiKueue)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta2_MultiKueue_To_v1beta1_MultiKueue(a.(*v1beta2.MultiKueue), b.(*MultiKueue), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddConversionFunc((*v1beta2.WaitForPodsReady)(nil), (*WaitForPodsReady)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta2_WaitForPodsReady_To_v1beta1_WaitForPodsReady(a.(*v1beta2.WaitForPodsReady), b.(*WaitForPodsReady), scope)
 	}); err != nil {
 		return err
 	}
@@ -296,7 +296,15 @@ func autoConvert_v1beta1_Configuration_To_v1beta2_Configuration(in *Configuratio
 	out.ManageJobsWithoutQueueName = in.ManageJobsWithoutQueueName
 	out.ManagedJobsNamespaceSelector = (*metav1.LabelSelector)(unsafe.Pointer(in.ManagedJobsNamespaceSelector))
 	out.InternalCertManagement = (*v1beta2.InternalCertManagement)(unsafe.Pointer(in.InternalCertManagement))
-	out.WaitForPodsReady = (*v1beta2.WaitForPodsReady)(unsafe.Pointer(in.WaitForPodsReady))
+	if in.WaitForPodsReady != nil {
+		in, out := &in.WaitForPodsReady, &out.WaitForPodsReady
+		*out = new(v1beta2.WaitForPodsReady)
+		if err := Convert_v1beta1_WaitForPodsReady_To_v1beta2_WaitForPodsReady(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.WaitForPodsReady = nil
+	}
 	out.ClientConnection = (*v1beta2.ClientConnection)(unsafe.Pointer(in.ClientConnection))
 	if in.Integrations != nil {
 		in, out := &in.Integrations, &out.Integrations
@@ -308,8 +316,24 @@ func autoConvert_v1beta1_Configuration_To_v1beta2_Configuration(in *Configuratio
 		out.Integrations = nil
 	}
 	// WARNING: in.QueueVisibility requires manual conversion: does not exist in peer-type
-	out.MultiKueue = (*v1beta2.MultiKueue)(unsafe.Pointer(in.MultiKueue))
-	out.FairSharing = (*v1beta2.FairSharing)(unsafe.Pointer(in.FairSharing))
+	if in.MultiKueue != nil {
+		in, out := &in.MultiKueue, &out.MultiKueue
+		*out = new(v1beta2.MultiKueue)
+		if err := Convert_v1beta1_MultiKueue_To_v1beta2_MultiKueue(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.MultiKueue = nil
+	}
+	if in.FairSharing != nil {
+		in, out := &in.FairSharing, &out.FairSharing
+		*out = new(v1beta2.FairSharing)
+		if err := Convert_v1beta1_FairSharing_To_v1beta2_FairSharing(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.FairSharing = nil
+	}
 	out.AdmissionFairSharing = (*v1beta2.AdmissionFairSharing)(unsafe.Pointer(in.AdmissionFairSharing))
 	out.Resources = (*v1beta2.Resources)(unsafe.Pointer(in.Resources))
 	out.FeatureGates = *(*map[string]bool)(unsafe.Pointer(&in.FeatureGates))
@@ -325,7 +349,15 @@ func autoConvert_v1beta2_Configuration_To_v1beta1_Configuration(in *v1beta2.Conf
 	out.ManageJobsWithoutQueueName = in.ManageJobsWithoutQueueName
 	out.ManagedJobsNamespaceSelector = (*metav1.LabelSelector)(unsafe.Pointer(in.ManagedJobsNamespaceSelector))
 	out.InternalCertManagement = (*InternalCertManagement)(unsafe.Pointer(in.InternalCertManagement))
-	out.WaitForPodsReady = (*WaitForPodsReady)(unsafe.Pointer(in.WaitForPodsReady))
+	if in.WaitForPodsReady != nil {
+		in, out := &in.WaitForPodsReady, &out.WaitForPodsReady
+		*out = new(WaitForPodsReady)
+		if err := Convert_v1beta2_WaitForPodsReady_To_v1beta1_WaitForPodsReady(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.WaitForPodsReady = nil
+	}
 	out.ClientConnection = (*ClientConnection)(unsafe.Pointer(in.ClientConnection))
 	if in.Integrations != nil {
 		in, out := &in.Integrations, &out.Integrations
@@ -336,8 +368,24 @@ func autoConvert_v1beta2_Configuration_To_v1beta1_Configuration(in *v1beta2.Conf
 	} else {
 		out.Integrations = nil
 	}
-	out.MultiKueue = (*MultiKueue)(unsafe.Pointer(in.MultiKueue))
-	out.FairSharing = (*FairSharing)(unsafe.Pointer(in.FairSharing))
+	if in.MultiKueue != nil {
+		in, out := &in.MultiKueue, &out.MultiKueue
+		*out = new(MultiKueue)
+		if err := Convert_v1beta2_MultiKueue_To_v1beta1_MultiKueue(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.MultiKueue = nil
+	}
+	if in.FairSharing != nil {
+		in, out := &in.FairSharing, &out.FairSharing
+		*out = new(FairSharing)
+		if err := Convert_v1beta2_FairSharing_To_v1beta1_FairSharing(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.FairSharing = nil
+	}
 	out.AdmissionFairSharing = (*AdmissionFairSharing)(unsafe.Pointer(in.AdmissionFairSharing))
 	out.Resources = (*Resources)(unsafe.Pointer(in.Resources))
 	out.FeatureGates = *(*map[string]bool)(unsafe.Pointer(&in.FeatureGates))
@@ -507,25 +555,14 @@ func Convert_v1beta2_DeviceClassMapping_To_v1beta1_DeviceClassMapping(in *v1beta
 }
 
 func autoConvert_v1beta1_FairSharing_To_v1beta2_FairSharing(in *FairSharing, out *v1beta2.FairSharing, s conversion.Scope) error {
-	out.Enable = in.Enable
+	// WARNING: in.Enable requires manual conversion: does not exist in peer-type
 	out.PreemptionStrategies = *(*[]v1beta2.PreemptionStrategy)(unsafe.Pointer(&in.PreemptionStrategies))
 	return nil
 }
 
-// Convert_v1beta1_FairSharing_To_v1beta2_FairSharing is an autogenerated conversion function.
-func Convert_v1beta1_FairSharing_To_v1beta2_FairSharing(in *FairSharing, out *v1beta2.FairSharing, s conversion.Scope) error {
-	return autoConvert_v1beta1_FairSharing_To_v1beta2_FairSharing(in, out, s)
-}
-
 func autoConvert_v1beta2_FairSharing_To_v1beta1_FairSharing(in *v1beta2.FairSharing, out *FairSharing, s conversion.Scope) error {
-	out.Enable = in.Enable
 	out.PreemptionStrategies = *(*[]PreemptionStrategy)(unsafe.Pointer(&in.PreemptionStrategies))
 	return nil
-}
-
-// Convert_v1beta2_FairSharing_To_v1beta1_FairSharing is an autogenerated conversion function.
-func Convert_v1beta2_FairSharing_To_v1beta1_FairSharing(in *v1beta2.FairSharing, out *FairSharing, s conversion.Scope) error {
-	return autoConvert_v1beta2_FairSharing_To_v1beta1_FairSharing(in, out, s)
 }
 
 func autoConvert_v1beta1_Integrations_To_v1beta2_Integrations(in *Integrations, out *v1beta2.Integrations, s conversion.Scope) error {
@@ -592,12 +629,8 @@ func autoConvert_v1beta2_MultiKueue_To_v1beta1_MultiKueue(in *v1beta2.MultiKueue
 	out.WorkerLostTimeout = (*metav1.Duration)(unsafe.Pointer(in.WorkerLostTimeout))
 	out.DispatcherName = (*string)(unsafe.Pointer(in.DispatcherName))
 	out.ExternalFrameworks = *(*[]MultiKueueExternalFramework)(unsafe.Pointer(&in.ExternalFrameworks))
+	// WARNING: in.ClusterProfile requires manual conversion: does not exist in peer-type
 	return nil
-}
-
-// Convert_v1beta2_MultiKueue_To_v1beta1_MultiKueue is an autogenerated conversion function.
-func Convert_v1beta2_MultiKueue_To_v1beta1_MultiKueue(in *v1beta2.MultiKueue, out *MultiKueue, s conversion.Scope) error {
-	return autoConvert_v1beta2_MultiKueue_To_v1beta1_MultiKueue(in, out, s)
 }
 
 func autoConvert_v1beta1_MultiKueueExternalFramework_To_v1beta2_MultiKueueExternalFramework(in *MultiKueueExternalFramework, out *v1beta2.MultiKueueExternalFramework, s conversion.Scope) error {
@@ -715,31 +748,24 @@ func Convert_v1beta2_Resources_To_v1beta1_Resources(in *v1beta2.Resources, out *
 }
 
 func autoConvert_v1beta1_WaitForPodsReady_To_v1beta2_WaitForPodsReady(in *WaitForPodsReady, out *v1beta2.WaitForPodsReady, s conversion.Scope) error {
-	out.Enable = in.Enable
-	out.Timeout = (*metav1.Duration)(unsafe.Pointer(in.Timeout))
+	// WARNING: in.Enable requires manual conversion: does not exist in peer-type
+	if err := metav1.Convert_Pointer_v1_Duration_To_v1_Duration(&in.Timeout, &out.Timeout, s); err != nil {
+		return err
+	}
 	out.BlockAdmission = (*bool)(unsafe.Pointer(in.BlockAdmission))
 	out.RequeuingStrategy = (*v1beta2.RequeuingStrategy)(unsafe.Pointer(in.RequeuingStrategy))
 	out.RecoveryTimeout = (*metav1.Duration)(unsafe.Pointer(in.RecoveryTimeout))
 	return nil
 }
 
-// Convert_v1beta1_WaitForPodsReady_To_v1beta2_WaitForPodsReady is an autogenerated conversion function.
-func Convert_v1beta1_WaitForPodsReady_To_v1beta2_WaitForPodsReady(in *WaitForPodsReady, out *v1beta2.WaitForPodsReady, s conversion.Scope) error {
-	return autoConvert_v1beta1_WaitForPodsReady_To_v1beta2_WaitForPodsReady(in, out, s)
-}
-
 func autoConvert_v1beta2_WaitForPodsReady_To_v1beta1_WaitForPodsReady(in *v1beta2.WaitForPodsReady, out *WaitForPodsReady, s conversion.Scope) error {
-	out.Enable = in.Enable
-	out.Timeout = (*metav1.Duration)(unsafe.Pointer(in.Timeout))
+	if err := metav1.Convert_v1_Duration_To_Pointer_v1_Duration(&in.Timeout, &out.Timeout, s); err != nil {
+		return err
+	}
 	out.BlockAdmission = (*bool)(unsafe.Pointer(in.BlockAdmission))
 	out.RequeuingStrategy = (*RequeuingStrategy)(unsafe.Pointer(in.RequeuingStrategy))
 	out.RecoveryTimeout = (*metav1.Duration)(unsafe.Pointer(in.RecoveryTimeout))
 	return nil
-}
-
-// Convert_v1beta2_WaitForPodsReady_To_v1beta1_WaitForPodsReady is an autogenerated conversion function.
-func Convert_v1beta2_WaitForPodsReady_To_v1beta1_WaitForPodsReady(in *v1beta2.WaitForPodsReady, out *WaitForPodsReady, s conversion.Scope) error {
-	return autoConvert_v1beta2_WaitForPodsReady_To_v1beta1_WaitForPodsReady(in, out, s)
 }
 
 func autoConvert_v1beta1_WorkloadRetentionPolicy_To_v1beta2_WorkloadRetentionPolicy(in *WorkloadRetentionPolicy, out *v1beta2.WorkloadRetentionPolicy, s conversion.Scope) error {

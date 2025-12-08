@@ -42,7 +42,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		managerNs *corev1.Namespace
 		worker1Ns *corev1.Namespace
@@ -120,34 +120,25 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			ControllerName(kueue.MultiKueueControllerName).
 			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", managerMultiKueueConfig.Name).
 			Obj()
-		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, multiKueueAC)).Should(gomega.Succeed())
-
-		ginkgo.By("wait for check active", func() {
-			updatedAc := kueue.AdmissionCheck{}
-			acKey := client.ObjectKeyFromObject(multiKueueAC)
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, acKey, &updatedAc)).To(gomega.Succeed())
-				g.Expect(updatedAc.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.AdmissionCheckActive))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
+		util.CreateAdmissionChecksAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC)
 
 		managerCq = utiltestingapi.MakeClusterQueue("q1").
 			AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAC.Name)).
 			Obj()
-		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, managerCq)).Should(gomega.Succeed())
+		util.CreateClusterQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, managerCq)
 
 		managerLq = utiltestingapi.MakeLocalQueue(managerCq.Name, managerNs.Name).ClusterQueue(managerCq.Name).Obj()
-		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, managerLq)).Should(gomega.Succeed())
+		util.CreateLocalQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, managerLq)
 
 		worker1Cq = utiltestingapi.MakeClusterQueue("q1").Obj()
-		gomega.Expect(worker1TestCluster.client.Create(worker1TestCluster.ctx, worker1Cq)).Should(gomega.Succeed())
+		util.CreateClusterQueuesAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq)
 		worker1Lq = utiltestingapi.MakeLocalQueue(worker1Cq.Name, worker1Ns.Name).ClusterQueue(worker1Cq.Name).Obj()
-		gomega.Expect(worker1TestCluster.client.Create(worker1TestCluster.ctx, worker1Lq)).Should(gomega.Succeed())
+		util.CreateLocalQueuesAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1Lq)
 
 		worker2Cq = utiltestingapi.MakeClusterQueue("q1").Obj()
-		gomega.Expect(worker2TestCluster.client.Create(worker2TestCluster.ctx, worker2Cq)).Should(gomega.Succeed())
+		util.CreateClusterQueuesAndWaitForActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2Cq)
 		worker2Lq = utiltestingapi.MakeLocalQueue(worker2Cq.Name, worker2Ns.Name).ClusterQueue(worker2Cq.Name).Obj()
-		gomega.Expect(worker2TestCluster.client.Create(worker2TestCluster.ctx, worker2Lq)).Should(gomega.Succeed())
+		util.CreateLocalQueuesAndWaitForActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2Lq)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -229,8 +220,8 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 					g.Expect(updatedCluster.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.MultiKueueClusterActive,
 						Status:  metav1.ConditionFalse,
-						Reason:  "BadConfig",
-						Message: `Secret "testing-secret" not found`,
+						Reason:  "BadKubeConfig",
+						Message: `load client config failed: Secret "testing-secret" not found`,
 					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -358,8 +349,8 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 					g.Expect(updatedCluster.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.MultiKueueClusterActive,
 						Status:  metav1.ConditionFalse,
-						Reason:  "BadConfig",
-						Message: fmt.Sprintf("open %s: no such file or directory", fsKubeConfig),
+						Reason:  "BadKubeConfig",
+						Message: fmt.Sprintf("load client config failed: open %s: no such file or directory", fsKubeConfig),
 					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -473,7 +464,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 						Type:    kueue.MultiKueueClusterActive,
 						Status:  metav1.ConditionFalse,
 						Reason:  "InsecureKubeConfig",
-						Message: "insecure kubeconfig: certificate-authority file paths are not allowed, use certificate-authority-data for cluster default-cluster",
+						Message: "load client config failed: certificate-authority file paths are not allowed, use certificate-authority-data for cluster default-cluster",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -585,7 +576,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 						Type:    kueue.MultiKueueClusterActive,
 						Status:  metav1.ConditionFalse,
 						Reason:  "InsecureKubeConfig",
-						Message: "insecure kubeconfig: tokenFile is not allowed",
+						Message: "load client config failed: tokenFile is not allowed",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -763,8 +754,8 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			updatedCluster := kueue.MultiKueueCluster{}
 			ginkgo.By("updating the cluster spec", func() {
 				gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, clusterKey, &updatedCluster)).To(gomega.Succeed())
-				updatedCluster.Spec.KubeConfig.LocationType = kueue.SecretLocationType
-				updatedCluster.Spec.KubeConfig.Location = secret.Name
+				updatedCluster.Spec.ClusterSource.KubeConfig.LocationType = kueue.SecretLocationType
+				updatedCluster.Spec.ClusterSource.KubeConfig.Location = secret.Name
 				gomega.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, &updatedCluster)).To(gomega.Succeed())
 			})
 
@@ -775,7 +766,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 						Type:    kueue.MultiKueueClusterActive,
 						Status:  metav1.ConditionFalse,
 						Reason:  "InsecureKubeConfig",
-						Message: "insecure kubeconfig: certificate-authority file paths are not allowed, use certificate-authority-data for cluster default-cluster",
+						Message: "load client config failed: certificate-authority file paths are not allowed, use certificate-authority-data for cluster default-cluster",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -816,6 +807,35 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 					g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
+		})
+	})
+
+	ginkgo.It("Should report no cluster providers configured", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueClusterProfile, true)
+
+		ginkgo.By("Create ClusterProfile", func() {
+			clusterProfile := utiltestingapi.MakeClusterProfile("test-profile", config.DefaultNamespace).Obj()
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, clusterProfile)).To(gomega.Succeed())
+		})
+
+		var workerCluster3 *kueue.MultiKueueCluster
+		ginkgo.By("Create a MultiKueueCluster with ClusterProfile as ClusterSource", func() {
+			workerCluster3 = utiltestingapi.MakeMultiKueueCluster("worker3").ClusterProfile("test-profile").Obj()
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, workerCluster3)).To(gomega.Succeed())
+		})
+
+		workerCluster3Key := client.ObjectKeyFromObject(workerCluster3)
+		ginkgo.By("Verify status of the MultiKueueCluster", func() {
+			mkc := &kueue.MultiKueueCluster{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, workerCluster3Key, mkc)).To(gomega.Succeed())
+				g.Expect(mkc.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
+					Type:    kueue.MultiKueueClusterActive,
+					Status:  metav1.ConditionFalse,
+					Reason:  "BadClusterProfile",
+					Message: "load client config failed: no credentials provider configured",
+				}, util.IgnoreConditionTimestampsAndObservedGeneration)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })

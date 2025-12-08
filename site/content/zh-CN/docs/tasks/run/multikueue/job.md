@@ -14,10 +14,6 @@ description: 运行 MultiKueue 调度的 Kubernetes Job。
 
 运行 MultiKueue 的推荐方式取决于集群中 `JobManagedBy` 特性门控的配置。
 
-{{% alert title="注意" color="primary" %}}
-`JobManagedBy` 特性门控在 Kubernetes v1.30 和 v1.31 版本中默认禁用，在 v1.32 版本中默认启用。
-{{% /alert %}}
-
 ### 集群启用 JobManagedBy {#cluster-with-jobmanagedby-enabled}
 
 当集群启用 `JobManagedBy` 时，建议配置 Kueue 启用 `MultiKueueBatchJobWithManagedBy` 特性门控。

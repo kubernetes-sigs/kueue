@@ -1,0 +1,34 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ .Release.Name }}-populator-resources-test"
+  namespace: "{{ .Release.Namespace }}"
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  serviceAccountName: "{{ .Release.Name }}-test-sa"
+  containers:
+    - name: check-clusterqueue
+      image: registry.k8s.io/kubectl:v1.33.6
+      command: ["kubectl"]
+      args: ["get", "clusterqueues.kueue.x-k8s.io", "{{ .Values.kueuePopulator.config.clusterQueue.name }}"]
+{{- if .Values.kueuePopulator.config.resourceFlavor }}
+    - name: check-resourceflavor
+      image: registry.k8s.io/kubectl:v1.33.6
+      command: ["kubectl"]
+      args: ["get", "resourceflavors.kueue.x-k8s.io", "tas-gpu-default"]
+{{- end }}
+{{- if .Values.kueuePopulator.config.topology }}
+{{- if .Values.kueuePopulator.config.topology.levels }}
+    - name: check-topology
+      image: registry.k8s.io/kubectl:v1.33.6
+      command: ["kubectl"]
+      args: ["get", "topologies.kueue.x-k8s.io", "default"]
+{{- end }}
+{{- end }}
+    - name: check-localqueue-default
+      image: registry.k8s.io/kubectl:v1.33.6
+      command: ["kubectl"]
+      args: ["get", "localqueues.kueue.x-k8s.io", "-n", "default", "{{ .Values.kueuePopulator.config.localQueue.name }}"]
+  restartPolicy: OnFailure

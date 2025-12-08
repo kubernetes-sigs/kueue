@@ -105,9 +105,11 @@ func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 	allErrs = append(allErrs, validateResourceGroups(cq.Spec.ResourceGroups, config, path.Child("resourceGroups"), false)...)
 	allErrs = append(allErrs,
 		validation.ValidateLabelSelector(cq.Spec.NamespaceSelector, validation.LabelSelectorValidationOptions{}, path.Child("namespaceSelector"))...)
-	allErrs = append(allErrs, validateCQAdmissionChecks(&cq.Spec, path)...)
 	if cq.Spec.Preemption != nil {
 		allErrs = append(allErrs, validatePreemption(cq.Spec.Preemption, path.Child("preemption"))...)
+	}
+	if cq.Spec.FlavorFungibility != nil {
+		allErrs = append(allErrs, validateFlavorFungibility(cq.Spec.FlavorFungibility, path.Child("flavorFungibility"))...)
 	}
 	allErrs = append(allErrs, validateFairSharing(cq.Spec.FairSharing, path.Child("fairSharing"))...)
 	allErrs = append(allErrs, validateTotalFlavors(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
@@ -174,12 +176,17 @@ func validatePreemption(preemption *kueue.ClusterQueuePreemption, path *field.Pa
 	return allErrs
 }
 
-func validateCQAdmissionChecks(spec *kueue.ClusterQueueSpec, path *field.Path) field.ErrorList {
+func validateFlavorFungibility(fungibility *kueue.FlavorFungibility, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
-	if spec.AdmissionChecksStrategy != nil && len(spec.AdmissionChecks) != 0 {
-		allErrs = append(allErrs, field.Invalid(path, spec, "Either AdmissionChecks or AdmissionCheckStrategy can be set, but not both"))
+	if fungibility.Preference != nil {
+		if fungibility.WhenCanBorrow != kueue.TryNextFlavor || fungibility.WhenCanPreempt != kueue.TryNextFlavor {
+			allErrs = append(allErrs, field.Invalid(
+				path.Child("preference"),
+				*fungibility.Preference,
+				fmt.Sprintf("preference %q requires both whenCanBorrow and whenCanPreempt to be TryNextFlavor", *fungibility.Preference),
+			))
+		}
 	}
-
 	return allErrs
 }
 

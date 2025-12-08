@@ -18,14 +18,14 @@ limitations under the License.
 package v1beta1
 
 import (
-	v1beta1 "volcano.sh/apis/pkg/apis/scheduling/v1beta1"
+	schedulingv1beta1 "volcano.sh/apis/pkg/apis/scheduling/v1beta1"
 )
 
 // NetworkTopologySpecApplyConfiguration represents a declarative configuration of the NetworkTopologySpec type for use
 // with apply.
 type NetworkTopologySpecApplyConfiguration struct {
-	Mode               *v1beta1.NetworkTopologyMode `json:"mode,omitempty"`
-	HighestTierAllowed *int                         `json:"highestTierAllowed,omitempty"`
+	Mode               *schedulingv1beta1.NetworkTopologyMode `json:"mode,omitempty"`
+	HighestTierAllowed *int                                   `json:"highestTierAllowed,omitempty"`
 }
 
 // NetworkTopologySpecApplyConfiguration constructs a declarative configuration of the NetworkTopologySpec type for use with
@@ -37,7 +37,7 @@ func NetworkTopologySpec() *NetworkTopologySpecApplyConfiguration {
 // WithMode sets the Mode field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Mode field is set to the value of the last call.
-func (b *NetworkTopologySpecApplyConfiguration) WithMode(value v1beta1.NetworkTopologyMode) *NetworkTopologySpecApplyConfiguration {
+func (b *NetworkTopologySpecApplyConfiguration) WithMode(value schedulingv1beta1.NetworkTopologyMode) *NetworkTopologySpecApplyConfiguration {
 	b.Mode = &value
 	return b
 }

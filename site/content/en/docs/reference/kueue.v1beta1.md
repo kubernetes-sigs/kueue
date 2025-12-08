@@ -1,5 +1,5 @@
 ---
-title: Kueue API
+title: Kueue v1beta1 API
 content_type: tool-reference
 package: kueue.x-k8s.io/v1beta1
 auto_generated: true
@@ -503,8 +503,8 @@ not necessarily a Kubernetes Pod or Deployment name. Cannot be empty.</p>
 <td>
    <p>retryDelayMinutes specifies how long to keep the workload suspended after
 a failed check (after it transitioned to False). When the delay period has passed, the check
-state goes to &quot;Unknown&quot;. The default is 15 min.
-Deprecated: retryDelayMinutes has already been deprecated since v0.8 and will be removed in v1beta2.</p>
+state goes to &quot;Unknown&quot;. The default is 15 min.</p>
+<p>Deprecated: retryDelayMinutes has already been deprecated since v0.8 and will be removed in v1beta2.</p>
 </td>
 </tr>
 <tr><td><code>parameters</code><br/>
@@ -560,6 +560,28 @@ This should be when the underlying condition changed.  If that is not known, the
 <td>
    <p>message is a human readable message indicating details about the transition.
 This may be an empty string.</p>
+</td>
+</tr>
+<tr><td><code>requeueAfterSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>requeueAfterSeconds indicates how long to wait at least before
+retrying to admit the workload.
+The admission check controllers can set this field when State=Retry
+to implement delays between retry attempts.</p>
+<p>If nil when State=Retry, Kueue will retry immediately.
+If set, Kueue will add the workload back to the queue after
+lastTransitionTime + RequeueAfterSeconds is over.</p>
+</td>
+</tr>
+<tr><td><code>retryCount</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>retryCount tracks retry attempts for this admission check.
+Kueue automatically increments the counter whenever the
+state transitions to Retry.</p>
 </td>
 </tr>
 <tr><td><code>podSetUpdates</code><br/>
@@ -803,6 +825,30 @@ policy can be preempted by the borrowing workload.</p>
 
 
 
+
+## `ClusterProfileReference`     {#kueue-x-k8s-io-v1beta1-ClusterProfileReference}
+    
+
+**Appears in:**
+
+- [MultiKueueClusterSpec](#kueue-x-k8s-io-v1beta1-MultiKueueClusterSpec)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>name of the ClusterProfile.</p>
+</td>
+</tr>
+</tbody>
+</table>
 
 ## `ClusterQueuePendingWorkload`     {#kueue-x-k8s-io-v1beta1-ClusterQueuePendingWorkload}
     
@@ -1175,8 +1221,8 @@ clusterQueue and haven't finished yet.</p>
 </td>
 <td>
    <p>pendingWorkloadsStatus contains the information exposed about the current
-status of the pending workloads in the cluster queue.
-Deprecated: This field is no longer effective since v0.14.0, which means Kueue no longer stores and updates information.
+status of the pending workloads in the cluster queue.</p>
+<p>Deprecated: This field is no longer effective since v0.14.0, which means Kueue no longer stores and updates information.
 You can migrate to VisibilityOnDemand
 (https://kueue.sigs.k8s.io/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/)
 instead.</p>
@@ -1471,10 +1517,40 @@ to fit in current flavor.</li>
 </ul>
 </td>
 </tr>
+<tr><td><code>preference</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-FlavorFungibilityPreference"><code>FlavorFungibilityPreference</code></a>
+</td>
+<td>
+   <p>preference guides the choosing of the flavor for admission in case all candidate flavors
+require either preemption, borrowing, or both. The possible values are:</p>
+<ul>
+<li><code>BorrowingOverPreemption</code> (default): prefer to use borrowing rather than preemption
+when such a choice is possible. More technically it minimizes the borrowing distance
+in the cohort tree, and solves tie-breaks by preferring better preemption mode
+(reclaim over preemption within ClusterQueue).</li>
+<li><code>PreemptionOverBorrowing</code>: prefer to use preemption rather than borrowing
+when such a choice is possible.  More technically it optimizes the preemption mode
+(reclaim over preemption within ClusterQueue), and solves tie-breaks by minimizing
+the borrowing distance in the cohort tree.</li>
+</ul>
+</td>
+</tr>
 </tbody>
 </table>
 
 ## `FlavorFungibilityPolicy`     {#kueue-x-k8s-io-v1beta1-FlavorFungibilityPolicy}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [FlavorFungibility](#kueue-x-k8s-io-v1beta1-FlavorFungibility)
+
+
+
+
+
+## `FlavorFungibilityPreference`     {#kueue-x-k8s-io-v1beta1-FlavorFungibilityPreference}
     
 (Alias of `string`)
 
@@ -1835,8 +1911,8 @@ workloads assigned to this LocalQueue.</p>
 <a href="#kueue-x-k8s-io-v1beta1-LocalQueueFlavorStatus"><code>[]LocalQueueFlavorStatus</code></a>
 </td>
 <td>
-   <p>flavors lists all currently available ResourceFlavors in specified ClusterQueue.
-Deprecated: Flavors is deprecated and marked for removal in v1beta2.</p>
+   <p>flavors lists all currently available ResourceFlavors in specified ClusterQueue.</p>
+<p>Deprecated: Flavors is deprecated and marked for removal in v1beta2.</p>
 </td>
 </tr>
 <tr><td><code>fairSharing</code><br/>
@@ -1880,6 +1956,15 @@ Deprecated: Flavors is deprecated and marked for removal in v1beta2.</p>
 </td>
 <td>
    <p>kubeConfig is information on how to connect to the cluster.</p>
+</td>
+</tr>
+<tr><td><code>clusterProfileRef</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-ClusterProfileReference"><code>ClusterProfileReference</code></a>
+</td>
+<td>
+   <p>clusterProfileRef is the reference to the ClusterProfile object used to connect to the cluster.</p>
+<p>This is only used to prevent data loss when converting between v1beta2 and v1beta1.
+It has no effect in v1beta1.</p>
 </td>
 </tr>
 </tbody>

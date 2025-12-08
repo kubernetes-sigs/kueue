@@ -24,13 +24,12 @@ import (
 // WorkloadSpecApplyConfiguration represents a declarative configuration of the WorkloadSpec type for use
 // with apply.
 type WorkloadSpecApplyConfiguration struct {
-	PodSets                     []PodSetApplyConfiguration   `json:"podSets,omitempty"`
-	QueueName                   *kueuev1beta2.LocalQueueName `json:"queueName,omitempty"`
-	PriorityClassName           *string                      `json:"priorityClassName,omitempty"`
-	Priority                    *int32                       `json:"priority,omitempty"`
-	PriorityClassSource         *string                      `json:"priorityClassSource,omitempty"`
-	Active                      *bool                        `json:"active,omitempty"`
-	MaximumExecutionTimeSeconds *int32                       `json:"maximumExecutionTimeSeconds,omitempty"`
+	PodSets                     []PodSetApplyConfiguration          `json:"podSets,omitempty"`
+	QueueName                   *kueuev1beta2.LocalQueueName        `json:"queueName,omitempty"`
+	PriorityClassRef            *PriorityClassRefApplyConfiguration `json:"priorityClassRef,omitempty"`
+	Priority                    *int32                              `json:"priority,omitempty"`
+	Active                      *bool                               `json:"active,omitempty"`
+	MaximumExecutionTimeSeconds *int32                              `json:"maximumExecutionTimeSeconds,omitempty"`
 }
 
 // WorkloadSpecApplyConfiguration constructs a declarative configuration of the WorkloadSpec type for use with
@@ -60,11 +59,11 @@ func (b *WorkloadSpecApplyConfiguration) WithQueueName(value kueuev1beta2.LocalQ
 	return b
 }
 
-// WithPriorityClassName sets the PriorityClassName field in the declarative configuration to the given value
+// WithPriorityClassRef sets the PriorityClassRef field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the PriorityClassName field is set to the value of the last call.
-func (b *WorkloadSpecApplyConfiguration) WithPriorityClassName(value string) *WorkloadSpecApplyConfiguration {
-	b.PriorityClassName = &value
+// If called multiple times, the PriorityClassRef field is set to the value of the last call.
+func (b *WorkloadSpecApplyConfiguration) WithPriorityClassRef(value *PriorityClassRefApplyConfiguration) *WorkloadSpecApplyConfiguration {
+	b.PriorityClassRef = value
 	return b
 }
 
@@ -73,14 +72,6 @@ func (b *WorkloadSpecApplyConfiguration) WithPriorityClassName(value string) *Wo
 // If called multiple times, the Priority field is set to the value of the last call.
 func (b *WorkloadSpecApplyConfiguration) WithPriority(value int32) *WorkloadSpecApplyConfiguration {
 	b.Priority = &value
-	return b
-}
-
-// WithPriorityClassSource sets the PriorityClassSource field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the PriorityClassSource field is set to the value of the last call.
-func (b *WorkloadSpecApplyConfiguration) WithPriorityClassSource(value string) *WorkloadSpecApplyConfiguration {
-	b.PriorityClassSource = &value
 	return b
 }
 

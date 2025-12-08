@@ -120,7 +120,6 @@ managerConfig:
       burst: 100
     #pprofBindAddress: :8083
     #waitForPodsReady:
-    #  enable: false
     #  timeout: 5m
     #  recoveryTimeout: 3m
     #  blockAdmission: false
@@ -153,14 +152,13 @@ managerConfig:
       - "kubeflow.org/xgboostjob"
       - "kubeflow.org/jaxjob"
       - "workload.codeflare.dev/appwrapper"
-    #  - "pod"
-    #  - "deployment" (requires enabling pod integration)
-    #  - "statefulset" (requires enabling pod integration)
-    #  - "leaderworkerset.x-k8s.io/leaderworkerset" (requires enabling pod integration)
+      - "pod"
+      - "deployment"
+      - "statefulset"
+      - "leaderworkerset.x-k8s.io/leaderworkerset"
     #  externalFrameworks:
     #  - "Foo.v1.example.com"
     #fairSharing:
-    #  enable: true
     #  preemptionStrategies: [LessThanOrEqualToFinalShare, LessThanInitialShare]
     #admissionFairSharing:
     #  usageHalfLifeTime: "168h" # 7 days

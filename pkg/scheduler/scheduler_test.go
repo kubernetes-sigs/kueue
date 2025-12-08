@@ -192,6 +192,8 @@ func TestSchedule(t *testing.T) {
 		wantAssignments map[workload.Reference]kueue.Admission
 		// wantWorkloads is the subset of workloads that got admitted in this cycle.
 		wantWorkloads []kueue.Workload
+		// workload version to compensate for the difference between use of Apply and Merge patch in FakeClient
+		wantWorkloadUseMergePatch []kueue.Workload
 		// wantLeft is the workload keys that are left in the queues after this cycle.
 		wantLeft map[kueue.ClusterQueueReference][]workload.Reference
 		// wantInadmissibleLeft is the workload keys that are left in the inadmissible state after this cycle.
@@ -252,14 +254,14 @@ func TestSchedule(t *testing.T) {
 				*utiltestingapi.MakeWorkload("new", "eng-alpha").
 					Queue("other").
 					Request(corev1.ResourceCPU, "20").
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionTrue,
 						Reason:             "QuotaReserved",
 						Message:            "Quota reserved in ClusterQueue other-alpha",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadAdmitted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Admitted",
@@ -1281,14 +1283,14 @@ func TestSchedule(t *testing.T) {
 							Assignment(corev1.ResourceCPU, "on-demand", "60000m").
 							Obj()).
 						Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to reclamation within the cohort; preemptor path: /eng/eng-beta; preemptee path: /eng/eng-alpha",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
@@ -1322,14 +1324,14 @@ func TestSchedule(t *testing.T) {
 							Assignment(corev1.ResourceCPU, "on-demand", "10000m").
 							Obj()).
 						Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue; preemptor path: /eng/eng-beta; preemptee path: /eng/eng-beta",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
@@ -1459,14 +1461,14 @@ func TestSchedule(t *testing.T) {
 							Assignment(corev1.ResourceCPU, "on-demand", "100").
 							Obj()).
 						Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to reclamation within the cohort; preemptor path: /other/other-beta; preemptee path: /other/other-alpha",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
@@ -1942,14 +1944,14 @@ func TestSchedule(t *testing.T) {
 						Request("example.com/gpu", "1").
 						Obj()).
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("eng-beta").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment("example.com/gpu", "model-a", "10").Count(10).Obj()).Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-new, JobUID: job-new) due to prioritization in the ClusterQueue; preemptor path: /eng/eng-beta; preemptee path: /eng/eng-beta",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
@@ -2024,14 +2026,14 @@ func TestSchedule(t *testing.T) {
 						Request("example.com/gpu", "1").
 						Obj()).
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("eng-beta").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment("example.com/gpu", "model-a", "10").Count(10).Obj()).Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-new, JobUID: job-new) due to prioritization in the ClusterQueue; preemptor path: /eng/eng-beta; preemptee path: /eng/eng-beta",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
@@ -3997,14 +3999,14 @@ func TestSchedule(t *testing.T) {
 							Assignment(corev1.ResourceCPU, "on-demand", "1").
 							Obj()).
 						Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-incoming, JobUID: job-incoming) due to prioritization in the ClusterQueue; preemptor path: /other/other-alpha; preemptee path: /other/other-alpha",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
@@ -4022,14 +4024,14 @@ func TestSchedule(t *testing.T) {
 							Assignment(corev1.ResourceCPU, "on-demand", "1").
 							Obj()).
 						Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-incoming, JobUID: job-incoming) due to prioritization in the ClusterQueue; preemptor path: /other/other-alpha; preemptee path: /other/other-alpha",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
@@ -4295,14 +4297,14 @@ func TestSchedule(t *testing.T) {
 				*utiltestingapi.MakeWorkload("alpha1", "eng-alpha").UID("alpha1").
 					Request(corev1.ResourceCPU, "20").
 					SimpleReserveQuota("eng-alpha", "on-demand", now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to Fair Sharing within the cohort; preemptor path: /eng/eng-beta; preemptee path: /eng/eng-alpha",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortFairSharing",
@@ -4342,14 +4344,14 @@ func TestSchedule(t *testing.T) {
 				*utiltestingapi.MakeWorkload("gamma1", "eng-gamma").UID("gamma1").
 					Request(corev1.ResourceCPU, "10").
 					SimpleReserveQuota("eng-gamma", "on-demand", now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to Fair Sharing within the cohort; preemptor path: /eng/eng-beta; preemptee path: /eng/eng-gamma",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortFairSharing",
@@ -4496,14 +4498,14 @@ func TestSchedule(t *testing.T) {
 							Assignment(corev1.ResourceCPU, "default", "2").
 							Obj()).
 						Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue; preemptor path: /other/other-alpha; preemptee path: /other/other-alpha",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
@@ -4541,14 +4543,14 @@ func TestSchedule(t *testing.T) {
 							Assignment(corev1.ResourceCPU, "default", "2").
 							Obj()).
 						Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue; preemptor path: /other/other-beta; preemptee path: /other/other-beta",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
@@ -4692,14 +4694,14 @@ func TestSchedule(t *testing.T) {
 							Assignment(corev1.ResourceCPU, "default", "2").
 							Obj()).
 						Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue; preemptor path: /other/other-beta; preemptee path: /other/other-beta",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
@@ -4841,14 +4843,14 @@ func TestSchedule(t *testing.T) {
 							Assignment(corev1.ResourceCPU, "default", "2").
 							Obj()).
 						Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue; preemptor path: /other/other-alpha; preemptee path: /other/other-alpha",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
@@ -5035,14 +5037,14 @@ func TestSchedule(t *testing.T) {
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "3").
 							Obj()).Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue; preemptor path: /other/other-alpha; preemptee path: /other/other-alpha",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
@@ -5078,14 +5080,14 @@ func TestSchedule(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("other-beta").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue; preemptor path: /other/other-beta; preemptee path: /other/other-beta",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
@@ -5121,14 +5123,14 @@ func TestSchedule(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("other-gamma").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue; preemptor path: /other/other-gamma; preemptee path: /other/other-gamma",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
@@ -5291,14 +5293,14 @@ func TestSchedule(t *testing.T) {
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment("alpha-resource", "default", "1").
 							Obj()).Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue; preemptor path: /other/other-alpha; preemptee path: /other/other-alpha",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
@@ -5365,14 +5367,14 @@ func TestSchedule(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("other-gamma").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "9").Obj()).Obj(), now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to Fair Sharing within the cohort; preemptor path: /other/other-alpha; preemptee path: /other/other-gamma",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortFairSharing",
@@ -5657,14 +5659,14 @@ func TestSchedule(t *testing.T) {
 					Queue("other").
 					Request("gpu", "5").
 					SimpleReserveQuota("other-beta", "spot", now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to reclamation within the cohort; preemptor path: /other/other-alpha; preemptee path: /other/other-beta",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
@@ -5774,14 +5776,14 @@ func TestSchedule(t *testing.T) {
 					Queue("other").
 					Request("gpu", "5").
 					SimpleReserveQuota("other-beta", "spot", now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to Fair Sharing within the cohort; preemptor path: /other/other-alpha; preemptee path: /other/other-beta",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortFairSharing",
@@ -5868,14 +5870,14 @@ func TestSchedule(t *testing.T) {
 					Queue("other").
 					Request("gpu", "5").
 					SimpleReserveQuota("other-alpha", "on-demand", now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue; preemptor path: /other/other-alpha; preemptee path: /other/other-alpha",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
@@ -6001,14 +6003,14 @@ func TestSchedule(t *testing.T) {
 					Queue("other").
 					Request("gpu", "6").
 					SimpleReserveQuota("other-alpha", "on-demand", now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue; preemptor path: /other/other-alpha; preemptee path: /other/other-alpha",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
@@ -6212,14 +6214,14 @@ func TestSchedule(t *testing.T) {
 					Priority(0).
 					Request("gpu", "5").
 					SimpleReserveQuota("CQ3", "on-demand", now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-WL2, JobUID: job-WL2) due to reclamation within the cohort; preemptor path: /other/CQ2; preemptee path: /other/CQ3",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
@@ -6853,6 +6855,48 @@ func TestSchedule(t *testing.T) {
 					Generation(1).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadFinished,
+						Message:            "Workload has finished",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadFinished,
+						Message:            "Workload has finished",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadFinished,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadSliceReplaced,
+						Message:            "Replaced to accommodate a workload (UID: , JobUID: ) due to workload slice aggregation",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					PastAdmittedTime(0).
+					Obj(),
+				*utiltestingapi.MakeWorkload("foo-2", "sales").
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "sales/foo-1").
+					ResourceVersion("2").
+					Queue("main").
+					PodSets(*utiltestingapi.MakePodSet("one", 15).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Admission(
+						utiltestingapi.MakeAdmission("sales").
+							PodSets(utiltestingapi.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "default", "15000m").
+								Count(15).
+								Obj()).
+							Obj(),
+					).
+					Generation(1).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionTrue,
 						Reason:             kueue.WorkloadQuotaReserved,
 						Message:            "Quota reserved in ClusterQueue sales",
@@ -6867,13 +6911,41 @@ func TestSchedule(t *testing.T) {
 						ObservedGeneration: 1,
 						LastTransitionTime: metav1.NewTime(now),
 					}).
+					Obj(),
+			},
+			wantWorkloadUseMergePatch: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo-1", "sales").
+					ResourceVersion("2").
+					Queue("main").
+					PodSets(*utiltestingapi.MakePodSet("one", 10).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Generation(1).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadFinished,
+						Message:            "Workload has finished",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadFinished,
+						Message:            "Workload has finished",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadFinished,
 						Status:             metav1.ConditionTrue,
 						Reason:             kueue.WorkloadSliceReplaced,
 						Message:            "Replaced to accommodate a workload (UID: , JobUID: ) due to workload slice aggregation",
+						ObservedGeneration: 1,
 						LastTransitionTime: metav1.NewTime(now),
 					}).
+					PastAdmittedTime(0).
 					Obj(),
 				*utiltestingapi.MakeWorkload("foo-2", "sales").
 					Annotation(workloadslicing.WorkloadSliceReplacementFor, "sales/foo-1").
@@ -7207,14 +7279,14 @@ func TestSchedule(t *testing.T) {
 					Queue("queue1").
 					Request("gpu", "2").
 					SimpleReserveQuota("queue1", "on-demand", now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-a2, JobUID: job-a2) due to prioritization in the ClusterQueue; preemptor path: /root-cohort/child-cohort/queue1; preemptee path: /root-cohort/child-cohort/queue1",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
@@ -7352,14 +7424,14 @@ func TestSchedule(t *testing.T) {
 					Queue("queue2").
 					Request("gpu", "2").
 					SimpleReserveQuota("queue2", "on-demand", now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to Fair Sharing within the cohort; preemptor path: /root-cohort/child-cohort/queue1; preemptee path: /root-cohort/child-cohort/queue2",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortFairSharing",
@@ -7377,6 +7449,158 @@ func TestSchedule(t *testing.T) {
 					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment("gpu", "on-demand", "2").
 						Obj()).
+					Obj(),
+			},
+		},
+		"pending admission check with nofit and fit flavors": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("pending-check", "eng-beta").
+					Queue("main").
+					Request(corev1.ResourceCPU, "80").
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStatePending,
+					}).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"eng-beta/pending-check": {
+					ClusterQueue: "eng-beta",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "spot", "80").
+							Obj(),
+					},
+				},
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("pending-check", "eng-beta").
+					Queue("main").
+					Request(corev1.ResourceCPU, "80").
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStatePending,
+					}).
+					Admission(
+						utiltestingapi.MakeAdmission("eng-beta").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+									Assignment(corev1.ResourceCPU, "spot", "80").
+									Obj(),
+							).
+							Obj(),
+					).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadQuotaReserved,
+						Message:            "Quota reserved in ClusterQueue eng-beta",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("eng-beta", "pending-check", "QuotaReserved", corev1.EventTypeNormal).
+					Message("Quota reserved in ClusterQueue eng-beta, wait time since queued was 9223372037s; " +
+						"Flavors considered: main: on-demand(NoFit;insufficient quota for cpu in flavor on-demand, " +
+						"previously considered podsets requests (0) + current podset request (80) > maximum capacity (60)), spot(Fit;borrow=1)").Obj(),
+			},
+		},
+		"admit to second flavor when first needs preemption; WhenCanPreempt: TryNextFlavor": {
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("preempt-attempts-cq").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					FlavorFungibility(kueue.FlavorFungibility{
+						WhenCanPreempt: kueue.TryNextFlavor,
+					}).
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "1").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("spot").
+							Resource(corev1.ResourceCPU, "1").Obj(),
+					).Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("preempt-attempts-lq", "eng-alpha").ClusterQueue("preempt-attempts-cq").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("blocker", "eng-alpha").
+					Queue("preempt-attempts-lq").
+					Request(corev1.ResourceCPU, "1").
+					Priority(50).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("preempt-attempts-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "1").
+							Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("test-wl", "eng-alpha").
+					Queue("preempt-attempts-lq").
+					Request(corev1.ResourceCPU, "1").
+					Priority(100).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("blocker", "eng-alpha").
+					Queue("preempt-attempts-lq").
+					Request(corev1.ResourceCPU, "1").
+					Priority(50).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("preempt-attempts-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "1").
+							Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("test-wl", "eng-alpha").
+					Queue("preempt-attempts-lq").
+					Request(corev1.ResourceCPU, "1").
+					Priority(100).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "QuotaReserved",
+						Message:            "Quota reserved in ClusterQueue preempt-attempts-cq",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Admitted",
+						Message:            "The workload is admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Admission(utiltestingapi.MakeAdmission("preempt-attempts-cq").
+						PodSets(
+							utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "spot", "1").
+								Obj()).
+						Obj()).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"eng-alpha/test-wl": {
+					ClusterQueue: "preempt-attempts-cq",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						utiltestingapi.MakePodSetAssignment("main").Assignment(corev1.ResourceCPU, "spot", "1").Obj(),
+					},
+				},
+				"eng-alpha/blocker": {
+					ClusterQueue: "preempt-attempts-cq",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						utiltestingapi.MakePodSetAssignment("main").Assignment(corev1.ResourceCPU, "on-demand", "1").Obj(),
+					},
+				},
+			},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("eng-alpha", "test-wl", "QuotaReserved", corev1.EventTypeNormal).
+					Message("Quota reserved in ClusterQueue preempt-attempts-cq, wait time since queued was 9223372037s; Flavors considered: main: on-demand(preemptionMode=Preempt;insufficient unused quota for cpu in flavor on-demand, 1 more needed)").
+					Obj(),
+				utiltesting.MakeEventRecord("eng-alpha", "test-wl", "Admitted", corev1.EventTypeNormal).
+					Message("Admitted by ClusterQueue preempt-attempts-cq, wait time since reservation was 0s").
 					Obj(),
 			},
 		},
@@ -7453,7 +7677,12 @@ func TestSchedule(t *testing.T) {
 					}
 				}
 
-				scheduler := New(qManager, cqCache, cl, recorder, WithFairSharing(&config.FairSharing{Enable: tc.enableFairSharing}), WithClock(t, fakeClock))
+				var fairSharing *config.FairSharing
+				if tc.enableFairSharing {
+					fairSharing = &config.FairSharing{}
+				}
+				scheduler := New(qManager, cqCache, cl, recorder,
+					WithFairSharing(fairSharing), WithClock(t, fakeClock))
 				wg := sync.WaitGroup{}
 				scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
 					func() { wg.Add(1) },
@@ -7499,8 +7728,14 @@ func TestSchedule(t *testing.T) {
 					cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type }),
 				}
 
-				if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, defaultWorkloadCmpOpts); diff != "" {
-					t.Errorf("Unexpected workloads (-want,+got):\n%s", diff)
+				if features.Enabled(features.WorkloadRequestUseMergePatch) && tc.wantWorkloadUseMergePatch != nil {
+					if diff := cmp.Diff(tc.wantWorkloadUseMergePatch, gotWorkloads.Items, defaultWorkloadCmpOpts); diff != "" {
+						t.Errorf("Unexpected workloads (-want,+got):\n%s", diff)
+					}
+				} else {
+					if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, defaultWorkloadCmpOpts); diff != "" {
+						t.Errorf("Unexpected workloads (-want,+got):\n%s", diff)
+					}
 				}
 
 				if len(gotAssignments) == 0 {
@@ -8351,14 +8586,14 @@ func TestLastSchedulingContext(t *testing.T) {
 							Obj()).
 						Obj(), now).
 					AdmittedAt(true, now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-new, JobUID: job-new) due to reclamation within the cohort; preemptor path: /cohort/eng-cohort-theta; preemptee path: /cohort/eng-cohort-alpha",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
@@ -8479,14 +8714,14 @@ func TestLastSchedulingContext(t *testing.T) {
 					Request(corev1.ResourceCPU, "22").
 					SimpleReserveQuota("eng-cohort-alpha", "on-demand", now).
 					AdmittedAt(true, now).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Preempted",
 						Message:            "Preempted to accommodate a workload (UID: wl-new, JobUID: job-new) due to reclamation within the cohort; preemptor path: /cohort/eng-cohort-beta; preemptee path: /cohort/eng-cohort-alpha",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SetOrReplaceCondition(metav1.Condition{
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "InCohortReclamation",
@@ -9024,5 +9259,186 @@ func TestResourcesToReserve(t *testing.T) {
 				t.Errorf("%s failed\n: Want reservedMem: %v, got: %v", tc.name, tc.wantReserved, got)
 			}
 		})
+	}
+}
+
+func TestSchedulerWhenWorkloadModifiedConcurrently(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+
+	ns := utiltesting.MakeNamespaceWrapper("default").Obj()
+	rf := utiltestingapi.MakeResourceFlavor("rf").Obj()
+	cq := utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas(rf.Name).
+				Resource(corev1.ResourceCPU, "1").
+				Obj(),
+		).Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", metav1.NamespaceDefault).ClusterQueue(cq.Name).Obj()
+
+	testCases := map[string]struct {
+		workload      *kueue.Workload
+		wantWorkloads []kueue.Workload
+		wantEvents    []utiltesting.EventRecord
+	}{
+		"use patch in admit": {
+			workload: utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).
+				ResourceVersion("1").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).
+					ResourceVersion("1").
+					Queue(kueue.LocalQueueName(lq.Name)).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ResourceVersion("3").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadQuotaReserved,
+						Message:            "Quota reserved in ClusterQueue cq",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Admission(
+						utiltestingapi.MakeAdmission(cq.Name).
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "1").
+								Obj()).
+							Obj(),
+					).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadAdmitted,
+						Message:            "The workload is admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord(metav1.NamespaceDefault, "wl", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord(metav1.NamespaceDefault, "wl", "Admitted", corev1.EventTypeNormal).Obj(),
+			},
+		},
+		"use patch in requeueAndUpdate": {
+			workload: utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).
+				ResourceVersion("1").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).
+					ResourceVersion("1").
+					Queue(kueue.LocalQueueName(lq.Name)).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ResourceVersion("3").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             "Pending",
+						Message:            "couldn't assign flavors to pod set main: insufficient quota for cpu in flavor rf, previously considered podsets requests (0) + current podset request (2) > maximum capacity (1)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: kueue.DefaultPodSetName,
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("2"),
+						},
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord(metav1.NamespaceDefault, "wl", "Pending", corev1.EventTypeWarning).Obj(),
+			},
+		},
+	}
+	for name, tc := range testCases {
+		for _, enabled := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s when the WorkloadRequestUseMergePatch feature is %t", name, enabled), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
+				ctx, log := utiltesting.ContextWithLog(t)
+				var patched bool
+				clientBuilder := utiltesting.NewClientBuilder().
+					WithObjects(ns.DeepCopy(), rf.DeepCopy(), cq.DeepCopy(), lq.DeepCopy(), tc.workload).
+					WithStatusSubresource(&kueue.Workload{}).
+					WithInterceptorFuncs(interceptor.Funcs{
+						SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+							if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" && !patched {
+								patched = true
+								// Simulate concurrent modification by another controller
+								wlCopy := tc.workload.DeepCopy()
+								if wlCopy.Labels == nil {
+									wlCopy.Labels = make(map[string]string, 1)
+								}
+								wlCopy.Labels["test.kueue.x-k8s.io/timestamp"] = time.Now().String()
+								if err := c.Update(ctx, wlCopy); err != nil {
+									return err
+								}
+							}
+							return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+						},
+					})
+				cl := clientBuilder.Build()
+				recorder := &utiltesting.EventRecorder{}
+
+				cqCache := schdcache.New(cl)
+				qManager := qcache.NewManager(cl, cqCache)
+
+				cqCache.AddOrUpdateResourceFlavor(log, rf.DeepCopy())
+				if err := cqCache.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
+					t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+				}
+				if err := qManager.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
+					t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+				}
+				if err := qManager.AddLocalQueue(ctx, lq.DeepCopy()); err != nil {
+					t.Fatalf("Inserting queue %s/%s in manager: %v", lq.Namespace, lq.Name, err)
+				}
+
+				scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, testingclock.NewFakeClock(now)))
+
+				wg := sync.WaitGroup{}
+				scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+					func() { wg.Add(1) },
+					func() { wg.Done() },
+				))
+
+				ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
+				go qManager.CleanUpOnContext(ctx)
+				defer cancel()
+
+				scheduler.schedule(ctx)
+				wg.Wait()
+
+				gotWorkloads := &kueue.WorkloadList{}
+				err := cl.List(ctx, gotWorkloads)
+				if err != nil {
+					t.Fatalf("Unexpected list workloads error: %v", err)
+				}
+
+				opts := cmp.Options{
+					cmpopts.EquateEmpty(),
+					cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Labels"),
+				}
+
+				if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, opts); diff != "" {
+					t.Errorf("Unexpected scheduled workloads (-want,+got):\n%s", diff)
+				}
+
+				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents,
+					cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message"),
+				); diff != "" {
+					t.Errorf("Unexpected events (-want/+got):\n%s", diff)
+				}
+			})
+		}
 	}
 }

@@ -29,6 +29,8 @@ import (
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	schedulingv1 "k8s.io/api/scheduling/v1"
+	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -40,8 +42,11 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/utils/ptr"
+	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
+	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -61,6 +66,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/controller/failurerecovery"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
@@ -70,9 +76,11 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	"sigs.k8s.io/kueue/pkg/util/cert"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/pkg/util/useragent"
+	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/version"
 	"sigs.k8s.io/kueue/pkg/visibility"
 	"sigs.k8s.io/kueue/pkg/webhooks"
@@ -99,6 +107,7 @@ func init() {
 	utilruntime.Must(configapiv1beta1.AddToScheme(scheme))
 	utilruntime.Must(configapi.AddToScheme(scheme))
 	utilruntime.Must(autoscaling.AddToScheme(scheme))
+	utilruntime.Must(inventoryv1alpha1.AddToScheme(scheme))
 	// Add any additional framework integration types.
 	utilruntime.Must(
 		jobframework.ForEachIntegration(func(_ string, cb jobframework.IntegrationCallbacks) error {
@@ -200,6 +209,24 @@ func main() {
 		kubeConfig.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(*cfg.ClientConnection.QPS, int(*cfg.ClientConnection.Burst))
 	}
 	setupLog.V(2).Info("K8S Client", "qps", *cfg.ClientConnection.QPS, "burst", *cfg.ClientConnection.Burst)
+
+	ctx := ctrl.SetupSignalHandler()
+	// Bootstrap certificates before creating the main manager
+	// This ensures certs are ready and CA bundles are injected into conversion CRDs
+	if cfg.InternalCertManagement != nil && *cfg.InternalCertManagement.Enable {
+		if err := cert.BootstrapCerts(ctx, kubeConfig, cfg); err != nil {
+			setupLog.Error(err, "Unable to bootstrap certificates")
+			os.Exit(1)
+		}
+	}
+
+	if features.Enabled(features.MultiKueueClusterProfile) {
+		if err := configureClusterProfileCache(ctx, &options, kubeConfig, cfg); err != nil {
+			setupLog.Error(err, "Unable to configure cluster profile")
+			os.Exit(1)
+		}
+	}
+
 	mgr, err := ctrl.NewManager(kubeConfig, options)
 	if err != nil {
 		setupLog.Error(err, "Unable to start manager")
@@ -234,7 +261,7 @@ func main() {
 		setupLog.Info("DRA mapper initialized from configuration")
 	}
 	if cfg.FairSharing != nil {
-		cacheOptions = append(cacheOptions, schdcache.WithFairSharing(cfg.FairSharing.Enable))
+		cacheOptions = append(cacheOptions, schdcache.WithFairSharing(fairsharing.Enabled(cfg.FairSharing)))
 	}
 	if cfg.AdmissionFairSharing != nil {
 		queueOptions = append(queueOptions, qcache.WithAdmissionFairSharing(cfg.AdmissionFairSharing))
@@ -243,7 +270,6 @@ func main() {
 	cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 	queues := qcache.NewManager(mgr.GetClient(), cCache, queueOptions...)
 
-	ctx := ctrl.SetupSignalHandler()
 	if err := setupIndexes(ctx, mgr, &cfg); err != nil {
 		setupLog.Error(err, "Unable to setup indexes")
 		os.Exit(1)
@@ -261,15 +287,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Cert won't be ready until manager starts, so start a goroutine here which
-	// will block until the cert is ready before setting up the controllers.
-	// Controllers who register after manager starts will start directly.
-	go func() {
-		if err := setupControllers(ctx, mgr, cCache, queues, certsReady, &cfg, serverVersionFetcher); err != nil {
-			setupLog.Error(err, "Unable to setup controllers")
-			os.Exit(1)
-		}
-	}()
+	if err := setupControllers(ctx, mgr, cCache, queues, &cfg, serverVersionFetcher); err != nil {
+		setupLog.Error(err, "Unable to setup controllers")
+		os.Exit(1)
+	}
+
+	if failedWebhook, err := webhooks.Setup(mgr); err != nil {
+		setupLog.Error(err, "Unable to create webhook", "webhook", failedWebhook)
+		os.Exit(1)
+	}
 
 	go queues.CleanUpOnContext(ctx)
 	go cCache.CleanUpOnContext(ctx)
@@ -326,13 +352,14 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 	return jobframework.SetupIndexes(ctx, mgr.GetFieldIndexer(), opts...)
 }
 
-func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Manager, certsReady chan struct{}, cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher) error {
-	// The controllers won't work until the webhooks are operating, and the webhook won't work until the
-	// certs are all in place.
-	cert.WaitForCertsReady(setupLog, certsReady)
-
+func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Manager, cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher) error {
 	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, cfg); err != nil {
 		return fmt.Errorf("unable to create controller %s: %w", failedCtrl, err)
+	}
+	if features.Enabled(features.FailureRecoveryPolicy) {
+		if failedCtrlName, err := failurerecovery.SetupControllers(mgr, cfg); err != nil {
+			return fmt.Errorf("could not setup FailureRecovery controller %s: %w", failedCtrlName, err)
+		}
 	}
 
 	// setup provision admission check controller
@@ -375,11 +402,12 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.C
 			multikueue.WithWorkerLostTimeout(cfg.MultiKueue.WorkerLostTimeout.Duration),
 			multikueue.WithAdapters(adapters),
 			multikueue.WithDispatcherName(ptr.Deref(cfg.MultiKueue.DispatcherName, configapi.MultiKueueDispatcherModeAllAtOnce)),
+			multikueue.WithClusterProfiles(cfg.MultiKueue.ClusterProfile),
 		); err != nil {
 			return fmt.Errorf("could not setup MultiKueue controller: %w", err)
 		}
 
-		if failedDispatcher, err := dispatcher.SetupControllers(mgr, cfg, ptr.Deref(cfg.MultiKueue.DispatcherName, configapi.MultiKueueDispatcherModeAllAtOnce)); err != nil {
+		if failedDispatcher, err := dispatcher.SetupControllers(mgr, cfg); err != nil {
 			return fmt.Errorf("could not setup Dispatcher controller %q for MultiKueue: %w", failedDispatcher, err)
 		}
 	}
@@ -388,10 +416,6 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.C
 		if failedCtrl, err := tas.SetupControllers(mgr, queues, cCache, cfg); err != nil {
 			return fmt.Errorf("could not setup TAS controller %s: %w", failedCtrl, err)
 		}
-	}
-
-	if failedWebhook, err := webhooks.Setup(mgr); err != nil {
-		return fmt.Errorf("unable to create webhook %s: %w", failedWebhook, err)
 	}
 
 	opts := []jobframework.Option{
@@ -484,7 +508,9 @@ func setupServerVersionFetcher(mgr ctrl.Manager, kubeConfig *rest.Config) (*kube
 }
 
 func blockForPodsReady(cfg *configapi.Configuration) bool {
-	return config.WaitForPodsReadyIsEnabled(cfg) && cfg.WaitForPodsReady.BlockAdmission != nil && *cfg.WaitForPodsReady.BlockAdmission
+	return waitforpodsready.Enabled(cfg.WaitForPodsReady) &&
+		cfg.WaitForPodsReady.BlockAdmission != nil &&
+		*cfg.WaitForPodsReady.BlockAdmission
 }
 
 func podsReadyRequeuingTimestamp(cfg *configapi.Configuration) configapi.RequeuingTimestamp {
@@ -506,4 +532,28 @@ func apply(configFile string) (ctrl.Options, configapi.Configuration, error) {
 	}
 	setupLog.Info("Successfully loaded configuration", "config", cfgStr)
 	return options, cfg, nil
+}
+
+func configureClusterProfileCache(ctx context.Context, options *ctrl.Options, kubeConfig *rest.Config, cfg configapi.Configuration) error {
+	crdClient, err := apiextensionsclient.NewForConfig(kubeConfig)
+	if err != nil {
+		return fmt.Errorf("%w: failed creating the CRD client", err)
+	}
+	if _, err := crdClient.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, "clusterprofiles.multicluster.x-k8s.io", metav1.GetOptions{}); err != nil {
+		if apierrors.IsNotFound(err) {
+			setupLog.Info("Skipping MultiKueue ClusterProfile setup as the ClusterProfile CRD is not installed")
+			return nil
+		}
+		return fmt.Errorf("%w: failed loading the ClusterProfile CRD", err)
+	}
+	objectKeyClusterProfile := new(inventoryv1alpha1.ClusterProfile)
+	if options.Cache.ByObject == nil {
+		options.Cache.ByObject = make(map[ctrlclient.Object]ctrlcache.ByObject)
+	}
+	options.Cache.ByObject[objectKeyClusterProfile] = ctrlcache.ByObject{
+		Namespaces: map[string]ctrlcache.Config{
+			*cfg.Namespace: {},
+		},
+	}
+	return nil
 }

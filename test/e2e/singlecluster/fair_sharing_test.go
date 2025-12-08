@@ -55,7 +55,6 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				Resource(corev1.ResourceMemory, "36G").
 				Obj()).
 			Obj()
-		util.MustCreate(ctx, k8sClient, cq1)
 		cq2 = utiltestingapi.MakeClusterQueue("cq2").
 			Cohort("cohort").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
@@ -63,7 +62,6 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				Resource(corev1.ResourceMemory, "36G").
 				Obj()).
 			Obj()
-		util.MustCreate(ctx, k8sClient, cq2)
 		cq3 = utiltestingapi.MakeClusterQueue("cq3").
 			Cohort("cohort").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
@@ -71,14 +69,12 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				Resource(corev1.ResourceMemory, "36G").
 				Obj()).
 			Obj()
-		util.MustCreate(ctx, k8sClient, cq3)
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq1, cq2, cq3)
 
 		lq1 = utiltestingapi.MakeLocalQueue("lq1", ns.Name).ClusterQueue(cq1.Name).Obj()
-		util.MustCreate(ctx, k8sClient, lq1)
 		lq2 = utiltestingapi.MakeLocalQueue("lq2", ns.Name).ClusterQueue(cq2.Name).Obj()
-		util.MustCreate(ctx, k8sClient, lq2)
 		lq3 = utiltestingapi.MakeLocalQueue("lq3", ns.Name).ClusterQueue(cq3.Name).Obj()
-		util.MustCreate(ctx, k8sClient, lq3)
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq1, lq2, lq3)
 	})
 
 	ginkgo.AfterEach(func() {

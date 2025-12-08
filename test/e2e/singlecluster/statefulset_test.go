@@ -28,10 +28,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	statefulsettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 	"sigs.k8s.io/kueue/test/util"
@@ -69,12 +68,10 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 			}).
 			Obj()
-		util.MustCreate(ctx, k8sClient, cq)
-		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 
 		lq = utiltestingapi.MakeLocalQueue(localQueueName, ns.Name).ClusterQueue(cq.Name).Obj()
-		util.MustCreate(ctx, k8sClient, lq)
-		util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -482,12 +479,15 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 				Name:      statefulset.GetWorkloadName(lowPrioritySTS.Name),
 				Namespace: ns.Name,
 			}
+
+			ginkgo.By("Verify the low-priority Workload created with workload priority class", func() {
+				util.ExpectWorkloadsWithWorkloadPriority(ctx, k8sClient, lowPriorityWPC.Name, lowPriorityWPC.Value, lowPriorityWlKey)
+			})
+
 			ginkgo.By("Check the low-priority Workload is created and admitted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, lowPriorityWlKey, createdLowPriorityWl)).To(gomega.Succeed())
-					g.Expect(createdLowPriorityWl.Spec.PriorityClassSource).To(gomega.Equal(constants.WorkloadPriorityClassSource))
-					g.Expect(createdLowPriorityWl.Spec.PriorityClassName).To(gomega.Equal(lowPriorityWPC.Name))
-					g.Expect(createdLowPriorityWl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+					g.Expect(createdLowPriorityWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -525,13 +525,123 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 				Name:      statefulset.GetWorkloadName(highPrioritySTS.Name),
 				Namespace: ns.Name,
 			}
+			ginkgo.By("Verify the high-priority Workload created with workload priority class", func() {
+				util.ExpectWorkloadsWithWorkloadPriority(ctx, k8sClient, highPriorityWPC.Name, highPriorityWPC.Value, highPriorityWlKey)
+			})
+
 			ginkgo.By("Await for the high-priority Workload to be admitted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, highPriorityWlKey, createdHighPriorityWl)).To(gomega.Succeed())
-					g.Expect(createdHighPriorityWl.Spec.PriorityClassSource).To(gomega.Equal(constants.WorkloadPriorityClassSource))
-					g.Expect(createdHighPriorityWl.Spec.PriorityClassName).To(gomega.Equal(highPriorityWPC.Name))
-					g.Expect(createdHighPriorityWl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+					g.Expect(createdHighPriorityWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Check the low priority Workload is preempted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, lowPriorityWlKey, createdLowPriorityWl)).To(gomega.Succeed())
+					g.Expect(createdLowPriorityWl.Status.Conditions).To(utiltesting.HaveConditionStatusFalse(kueue.WorkloadAdmitted))
+					g.Expect(createdLowPriorityWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPreempted))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
+
+	ginkgo.When("Workload deactivated", func() {
+		ginkgo.It("shouldn't delete deactivated Workload", func() {
+			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				TerminationGracePeriod(1).
+				Replicas(3).
+				Queue(lq.Name).
+				Obj()
+
+			ginkgo.By("Create StatefulSet", func() {
+				gomega.Expect(k8sClient.Create(ctx, statefulSet)).To(gomega.Succeed())
+			})
+
+			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.Name), Namespace: ns.Name}
+			createdWorkload := &kueue.Workload{}
+			ginkgo.By("Check workload is created", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			createdWorkloadUID := createdWorkload.UID
+
+			ginkgo.By("Waiting for all replicas to be ready", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdStatefulSet := &appsv1.StatefulSet{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
+					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Deactivate the workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					createdWorkload.Spec.Active = ptr.To(false)
+					g.Expect(k8sClient.Update(ctx, createdWorkload)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Check workload is deactivated", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(createdWorkload.UID).Should(gomega.Equal(createdWorkloadUID))
+					g.Expect(createdWorkload.Spec.Active).Should(gomega.Equal(ptr.To(false)))
+					g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadEvicted))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for all replicas to be not ready", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdStatefulSet := &appsv1.StatefulSet{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
+					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(0)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Re-activate the workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					createdWorkload.Spec.Active = ptr.To(true)
+					g.Expect(k8sClient.Update(ctx, createdWorkload)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Check workload is re-admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(createdWorkload.UID).Should(gomega.Equal(createdWorkloadUID))
+					g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for all replicas to be ready", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdStatefulSet := &appsv1.StatefulSet{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
+					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Delete StatefulSet", func() {
+				gomega.Expect(k8sClient.Delete(ctx, statefulSet)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Check all pods are deleted", func() {
+				pods := &corev1.PodList{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
+					g.Expect(pods.Items).Should(gomega.BeEmpty())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Check workload is deleted", func() {
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload, false, util.LongTimeout)
 			})
 		})
 	})

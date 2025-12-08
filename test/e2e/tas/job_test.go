@@ -30,7 +30,8 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/util/tas"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -67,6 +68,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 			tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
 				NodeLabel(tasNodeGroupLabel, instanceType).TopologyName(topology.Name).Obj()
 			util.MustCreate(ctx, k8sClient, tasFlavor)
+
 			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
@@ -74,11 +76,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 						Obj(),
 				).
 				Obj()
-			util.MustCreate(ctx, k8sClient, clusterQueue)
-			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
-			util.MustCreate(ctx, k8sClient, localQueue)
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
@@ -99,7 +100,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				RequestAndLimit(extraResource, "1").
 				Obj()
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
-				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, testing.DefaultRackTopologyLevel).
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultRackTopologyLevel).
 				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				Obj()
 			util.MustCreate(ctx, k8sClient, sampleJob)
@@ -120,9 +121,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				Parallelism(3).
 				Completions(3).
 				RequestAndLimit(extraResource, "1").
-				Obj()
-			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
-				PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, testing.DefaultRackTopologyLevel).
+				PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, utiltesting.DefaultRackTopologyLevel).
 				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				Obj()
 			util.MustCreate(ctx, k8sClient, sampleJob)
@@ -135,33 +134,30 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 					g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
-				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment.Levels).Should(gomega.BeComparableTo(
-					[]string{
-						corev1.LabelHostname,
-					},
-				))
-				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment.Domains).Should(gomega.BeComparableTo(
-					[]kueue.TopologyDomainAssignment{
-						{
-							Values: []string{"kind-worker"},
-							Count:  1,
+				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+					tas.V1Beta2From(&tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{
+							{
+								Values: []string{"kind-worker"},
+								Count:  1,
+							},
+							{
+								Values: []string{"kind-worker2"},
+								Count:  1,
+							},
+							{
+								Values: []string{"kind-worker3"},
+								Count:  1,
+							},
 						},
-						{
-							Values: []string{"kind-worker2"},
-							Count:  1,
-						},
-						{
-							Values: []string{"kind-worker3"},
-							Count:  1,
-						},
-					},
-				))
+					})))
 			})
 			ginkgo.By(fmt.Sprintf("verify the workload %q gets finished", wlLookupKey), func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-					g.Expect(workload.HasQuotaReservation(createdWorkload)).Should(gomega.BeTrue())
-					g.Expect(createdWorkload.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.WorkloadFinished))
+					g.Expect(workload.HasQuotaReservation(createdWorkload)).Should(gomega.BeFalse())
+					g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -172,9 +168,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				Parallelism(3).
 				Completions(3).
 				RequestAndLimit(extraResource, "1").
-				Obj()
-			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
-				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
 				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				Obj()
 			util.MustCreate(ctx, k8sClient, sampleJob)
@@ -187,34 +181,30 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 					g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
-				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment.Levels).Should(gomega.BeComparableTo(
-					[]string{
-						corev1.LabelHostname,
-					},
-				))
-				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment.Domains).Should(gomega.BeComparableTo(
-					[]kueue.TopologyDomainAssignment{
-						{
-							Values: []string{"kind-worker"},
-							Count:  1,
-						},
-						{
-							Values: []string{"kind-worker2"},
-							Count:  1,
-						},
-						{
-							Values: []string{"kind-worker3"},
-							Count:  1,
-						},
-					},
-				))
+				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+					tas.V1Beta2From(&tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{
+							{
+								Values: []string{"kind-worker"},
+								Count:  1,
+							},
+							{
+								Values: []string{"kind-worker2"},
+								Count:  1,
+							},
+							{
+								Values: []string{"kind-worker3"},
+								Count:  1,
+							},
+						}})))
 			})
 
 			ginkgo.By(fmt.Sprintf("verify the workload %q gets finished", wlLookupKey), func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-					g.Expect(workload.HasQuotaReservation(createdWorkload)).Should(gomega.BeTrue())
-					g.Expect(createdWorkload.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.WorkloadFinished))
+					g.Expect(workload.HasQuotaReservation(createdWorkload)).Should(gomega.BeFalse())
+					g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -225,9 +215,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				Parallelism(2).
 				Completions(3).
 				RequestAndLimit(extraResource, "1").
-				Obj()
-			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
-				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
 				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				Obj()
 			util.MustCreate(ctx, k8sClient, sampleJob)
@@ -238,9 +226,9 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 			ginkgo.By(fmt.Sprintf("verify the workload %q gets TopologyAssignment becomes finished", wlLookupKey), func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-					g.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
-					g.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).ShouldNot(gomega.BeNil())
-					g.Expect(createdWorkload.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.WorkloadFinished))
+					g.Expect(createdWorkload.Status.Admission).Should(gomega.BeNil())
+					g.Expect(workload.HasQuotaReservation(createdWorkload)).Should(gomega.BeFalse())
+					g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -253,9 +241,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				Completions(int32(numPods)).
 				Indexed(true).
 				RequestAndLimit(extraResource, "1").
-				Obj()
-			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
-				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Obj()
 			util.MustCreate(ctx, k8sClient, sampleJob)

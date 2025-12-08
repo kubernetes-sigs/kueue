@@ -167,14 +167,14 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 	stoppedNow := false
 
 	if !j.IsSuspended() {
-		if err := clientutil.Patch(ctx, c, object, func() (client.Object, bool, error) {
+		if err := clientutil.Patch(ctx, c, object, func() (bool, error) {
 			j.Suspend()
 			if j.Annotations == nil {
 				j.Annotations = map[string]string{}
 			}
 			// We are using annotation to be sure that all updates finished successfully.
 			j.Annotations[StoppingAnnotation] = "true"
-			return object, true, nil
+			return true, nil
 		}); err != nil {
 			return false, fmt.Errorf("suspend: %w", err)
 		}
@@ -183,18 +183,18 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 
 	// Reset start time if necessary, so we can update the scheduling directives.
 	if j.Status.StartTime != nil {
-		if err := clientutil.PatchStatus(ctx, c, object, func() (client.Object, bool, error) {
+		if err := clientutil.PatchStatus(ctx, c, object, func() (bool, error) {
 			j.Status.StartTime = nil
-			return object, true, nil
+			return true, nil
 		}); err != nil {
 			return stoppedNow, fmt.Errorf("reset status: %w", err)
 		}
 	}
 
-	if err := clientutil.Patch(ctx, c, object, func() (client.Object, bool, error) {
+	if err := clientutil.Patch(ctx, c, object, func() (bool, error) {
 		j.RestorePodSetsInfo(podSetsInfo)
 		delete(j.Annotations, StoppingAnnotation)
-		return object, true, nil
+		return true, nil
 	}); err != nil {
 		return false, fmt.Errorf("restore info: %w", err)
 	}
@@ -233,11 +233,15 @@ var (
 	// the legacy names are no longer defined in the api, only in k/2/apis/batch
 	legacyJobNameLabel       = "job-name"
 	legacyControllerUIDLabel = "controller-uid"
-	ManagedLabels            = []string{legacyJobNameLabel, legacyControllerUIDLabel, batchv1.JobNameLabel, batchv1.ControllerUidLabel}
+	managedLabels            = []string{legacyJobNameLabel, legacyControllerUIDLabel, batchv1.JobNameLabel, batchv1.ControllerUidLabel}
 )
 
-func cleanManagedLabels(pt *corev1.PodTemplateSpec) *corev1.PodTemplateSpec {
-	for _, managedLabel := range ManagedLabels {
+// Clean labels that are managed by the job controller except job-name label.
+func cleanLabels(pt *corev1.PodTemplateSpec) *corev1.PodTemplateSpec {
+	for _, managedLabel := range managedLabels {
+		if features.Enabled(features.PropagateBatchJobLabelsToWorkload) && managedLabel == batchv1.JobNameLabel {
+			continue
+		}
 		delete(pt.Labels, managedLabel)
 	}
 	return pt
@@ -246,7 +250,7 @@ func cleanManagedLabels(pt *corev1.PodTemplateSpec) *corev1.PodTemplateSpec {
 func (j *Job) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	podSet := kueue.PodSet{
 		Name:     kueue.DefaultPodSetName,
-		Template: *cleanManagedLabels(j.Spec.Template.DeepCopy()),
+		Template: *cleanLabels(j.Spec.Template.DeepCopy()),
 		Count:    j.podsCount(),
 		MinCount: j.minPodsCount(),
 	}
@@ -296,7 +300,7 @@ func (j *Job) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 		}
 	}
 	info := podSetsInfo[0]
-	for _, managedLabel := range ManagedLabels {
+	for _, managedLabel := range managedLabels {
 		if v, found := j.Spec.Template.Labels[managedLabel]; found {
 			info.AddOrUpdateLabel(managedLabel, v)
 		}

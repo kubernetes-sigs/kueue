@@ -31,7 +31,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/util/tas"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
@@ -77,11 +78,10 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 						Obj(),
 				).
 				Obj()
-			util.MustCreate(ctx, k8sClient, clusterQueue)
-			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
-			util.MustCreate(ctx, k8sClient, localQueue)
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
 			if nodeToRestore != nil {
@@ -129,8 +129,8 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 						Parallelism: int32(parallelism),
 						Completions: int32(parallelism),
 						PodAnnotations: map[string]string{
-							kueue.PodSetPreferredTopologyAnnotation:     testing.DefaultBlockTopologyLevel,
-							kueue.PodSetSliceRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+							kueue.PodSetPreferredTopologyAnnotation:     utiltesting.DefaultBlockTopologyLevel,
+							kueue.PodSetSliceRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 							kueue.PodSetSliceSizeAnnotation:             "3",
 						},
 					},
@@ -207,8 +207,8 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 						Parallelism: int32(parallelism),
 						Completions: int32(parallelism),
 						PodAnnotations: map[string]string{
-							kueue.PodSetPreferredTopologyAnnotation:     testing.DefaultBlockTopologyLevel,
-							kueue.PodSetSliceRequiredTopologyAnnotation: testing.DefaultRackTopologyLevel,
+							kueue.PodSetPreferredTopologyAnnotation:     utiltesting.DefaultBlockTopologyLevel,
+							kueue.PodSetSliceRequiredTopologyAnnotation: utiltesting.DefaultRackTopologyLevel,
 							kueue.PodSetSliceSizeAnnotation:             "2",
 						},
 					},
@@ -292,9 +292,9 @@ func expectWorkloadTopologyAssignment(ctx context.Context, k8sClient client.Clie
 		topologyAssignment := wl.Status.Admission.PodSetAssignments[0].TopologyAssignment
 		g.Expect(topologyAssignment).NotTo(gomega.BeNil())
 		g.Expect(topologyAssignment.Levels).To(gomega.BeEquivalentTo([]string{corev1.LabelHostname}))
-		g.Expect(topologyAssignment.Domains).To(gomega.HaveLen(numPods))
+		g.Expect(tas.TotalDomainCount(topologyAssignment)).To(gomega.Equal(numPods))
 		chosenNodes := []string{}
-		for _, domain := range topologyAssignment.Domains {
+		for domain := range tas.InternalSeqFrom(topologyAssignment) {
 			g.Expect(domain.Count).To(gomega.Equal(int32(1)))
 			chosenNodes = append(chosenNodes, domain.Values...)
 		}

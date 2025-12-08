@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/test/util"
@@ -65,12 +65,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, fu
 					Obj(),
 			).
 			Obj()
-		util.MustCreate(ctx, k8sClient, clusterQueue)
-		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-		util.MustCreate(ctx, k8sClient, localQueue)
-		util.ExpectLocalQueuesToBeActive(ctx, k8sClient, localQueue)
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteAllRayJobsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -116,7 +114,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, fu
 							},
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
-									kueue.PodSetPreferredTopologyAnnotation: testing.DefaultRackTopologyLevel,
+									kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultRackTopologyLevel,
 								},
 							},
 						},
@@ -148,7 +146,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, fu
 							},
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
-									kueue.PodSetPreferredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+									kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 								},
 							},
 						},
@@ -174,7 +172,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, fu
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+							kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 						},
 					},
 				}).

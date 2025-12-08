@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 	"sigs.k8s.io/kueue/test/util"
@@ -64,12 +64,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", func() {
 					Obj(),
 			).
 			Obj()
-		util.MustCreate(ctx, k8sClient, clusterQueue)
-		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-		util.MustCreate(ctx, k8sClient, localQueue)
-		util.ExpectLocalQueuesToBeActive(ctx, k8sClient, localQueue)
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteAllMPIJobsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -97,7 +95,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", func() {
 						ReplicaCount:  launcherReplicas,
 						RestartPolicy: corev1.RestartPolicyOnFailure,
 						Annotations: map[string]string{
-							kueue.PodSetPreferredTopologyAnnotation: testing.DefaultRackTopologyLevel,
+							kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultRackTopologyLevel,
 						},
 					},
 					testingmpijob.MPIJobReplicaSpecRequirement{
@@ -105,7 +103,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", func() {
 						ReplicaCount:  workerReplicas,
 						RestartPolicy: corev1.RestartPolicyOnFailure,
 						Annotations: map[string]string{
-							kueue.PodSetPreferredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+							kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 						},
 					},
 				).

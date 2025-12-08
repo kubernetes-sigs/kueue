@@ -19,11 +19,13 @@ package multikueue
 import (
 	"time"
 
+	"sigs.k8s.io/cluster-inventory-api/pkg/credentials"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 )
 
@@ -34,12 +36,13 @@ const (
 )
 
 type SetupOptions struct {
-	gcInterval        time.Duration
-	origin            string
-	workerLostTimeout time.Duration
-	eventsBatchPeriod time.Duration
-	adapters          map[string]jobframework.MultiKueueAdapter
-	dispatcherName    string
+	gcInterval           time.Duration
+	origin               string
+	workerLostTimeout    time.Duration
+	eventsBatchPeriod    time.Duration
+	adapters             map[string]jobframework.MultiKueueAdapter
+	dispatcherName       string
+	clusterProfileConfig *configapi.ClusterProfile
 }
 
 type SetupOption func(o *SetupOptions)
@@ -90,6 +93,12 @@ func WithDispatcherName(dispatcherName string) SetupOption {
 	}
 }
 
+func WithClusterProfiles(clusterProfiles *configapi.ClusterProfile) SetupOption {
+	return func(o *SetupOptions) {
+		o.clusterProfileConfig = clusterProfiles
+	}
+}
+
 func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) error {
 	options := &SetupOptions{
 		gcInterval:        defaultGCInterval,
@@ -115,7 +124,22 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		return err
 	}
 
-	cRec := newClustersReconciler(mgr.GetClient(), namespace, options.gcInterval, options.origin, fsWatcher, options.adapters)
+	var cpCreds clusterProfileCreds
+	if features.Enabled(features.MultiKueueClusterProfile) && options.clusterProfileConfig != nil {
+		p := make([]credentials.Provider, 0, len(options.clusterProfileConfig.CredentialsProviders))
+		for _, provider := range options.clusterProfileConfig.CredentialsProviders {
+			p = append(p, credentials.Provider{
+				Name:       provider.Name,
+				ExecConfig: &provider.ExecConfig,
+			})
+		}
+		cpCreds = credentials.New(p)
+	}
+	if cpCreds == nil {
+		cpCreds = &NoOpClusterProfileCreds{}
+	}
+
+	cRec := newClustersReconciler(mgr.GetClient(), namespace, options.gcInterval, options.origin, fsWatcher, options.adapters, cpCreds)
 	err = cRec.setupWithManager(mgr)
 	if err != nil {
 		return err

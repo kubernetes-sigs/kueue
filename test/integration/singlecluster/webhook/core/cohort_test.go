@@ -17,7 +17,6 @@ limitations under the License.
 package core
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/onsi/ginkgo/v2"
@@ -27,19 +26,16 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
 )
 
 var _ = ginkgo.Describe("Cohort Webhook", ginkgo.Ordered, func() {
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, func(ctx context.Context, mgr manager.Manager) {
-			managerSetup(ctx, mgr)
-		})
+		fwk.StartManager(ctx, cfg, managerSetup)
 	})
 	ginkgo.AfterAll(func() {
 		fwk.StopManager(ctx)
@@ -56,7 +52,7 @@ var _ = ginkgo.Describe("Cohort Webhook", ginkgo.Ordered, func() {
 		},
 			ginkgo.Entry("Should disallow empty name",
 				utiltestingapi.MakeCohort("").Obj(),
-				testing.BeInvalidError()),
+				utiltesting.BeInvalidError()),
 			ginkgo.Entry("Should allow default Cohort",
 				utiltestingapi.MakeCohort("cohort").Obj(),
 				gomega.Succeed()),
@@ -65,25 +61,25 @@ var _ = ginkgo.Describe("Cohort Webhook", ginkgo.Ordered, func() {
 				gomega.Succeed()),
 			ginkgo.Entry("Should reject invalid parent name",
 				utiltestingapi.MakeCohort("cohort").Parent("@prod").Obj(),
-				testing.BeInvalidError()),
+				utiltesting.BeInvalidError()),
 			ginkgo.Entry("ResourceGroup should have at least one flavor",
 				utiltestingapi.MakeCohort("cohort").ResourceGroup().Obj(),
-				testing.BeInvalidError()),
+				utiltesting.BeInvalidError()),
 			ginkgo.Entry("FlavorQuota should have at least one resource",
 				utiltestingapi.MakeCohort("cohort").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("foo").Obj()).
 					Obj(),
-				testing.BeInvalidError()),
+				utiltesting.BeInvalidError()),
 			ginkgo.Entry("Should reject invalid flavor name",
 				utiltestingapi.MakeCohort("cohort").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("@x86").Resource(corev1.ResourceCPU, "5").Obj()).
 					Obj(),
-				testing.BeInvalidError()),
+				utiltesting.BeInvalidError()),
 			ginkgo.Entry("Should allow valid resource name",
 				utiltestingapi.MakeCohort("cohort").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("x86").Resource("@cpu", "5").Obj()).
 					Obj(),
-				testing.BeForbiddenError()),
+				utiltesting.BeForbiddenError()),
 			ginkgo.Entry("Should reject too many flavors in resource group",
 				func() *kueue.Cohort {
 					var flavors []kueue.FlavorQuotas
@@ -98,7 +94,7 @@ var _ = ginkgo.Describe("Cohort Webhook", ginkgo.Ordered, func() {
 						ResourceGroup(flavors...).
 						Obj()
 				}(),
-				testing.BeInvalidError()),
+				utiltesting.BeInvalidError()),
 			ginkgo.Entry("Should reject too many resources in resource group",
 				func() *kueue.Cohort {
 					fq := utiltestingapi.MakeFlavorQuotas("flavor")
@@ -109,7 +105,7 @@ var _ = ginkgo.Describe("Cohort Webhook", ginkgo.Ordered, func() {
 						ResourceGroup(*fq.Obj()).
 						Obj()
 				}(),
-				testing.BeInvalidError()),
+				utiltesting.BeInvalidError()),
 			ginkgo.Entry("Should allow resource with valid name",
 				utiltestingapi.MakeCohort("cohort").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU).Obj()).
@@ -119,7 +115,7 @@ var _ = ginkgo.Describe("Cohort Webhook", ginkgo.Ordered, func() {
 				utiltestingapi.MakeCohort("cohort").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("@cpu").Obj()).
 					Obj(),
-				testing.BeForbiddenError()),
+				utiltesting.BeForbiddenError()),
 			ginkgo.Entry("Should allow extended resources with valid name",
 				utiltestingapi.MakeCohort("cohort").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("example.com/gpu").Obj()).
@@ -134,28 +130,28 @@ var _ = ginkgo.Describe("Cohort Webhook", ginkgo.Ordered, func() {
 				utiltestingapi.MakeCohort("cohort").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("x_86").Resource(corev1.ResourceCPU).Obj()).
 					Obj(),
-				testing.BeInvalidError()),
+				utiltesting.BeInvalidError()),
 			ginkgo.Entry("Should reject negative nominal quota",
 				utiltestingapi.MakeCohort("cohort").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "-1").Obj()).
 					Obj(),
-				testing.BeForbiddenError()),
+				utiltesting.BeForbiddenError()),
 			ginkgo.Entry("Should reject negative borrowing limit",
 				utiltestingapi.MakeCohort("cohort").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "1", "-1").Obj()).
 					Obj(),
-				testing.BeForbiddenError()),
+				utiltesting.BeForbiddenError()),
 			ginkgo.Entry("Should reject negative lending limit",
 				utiltestingapi.MakeCohort("cohort").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "1", "", "-1").Obj()).
 					Obj(),
-				testing.BeForbiddenError()),
+				utiltesting.BeForbiddenError()),
 			ginkgo.Entry("Should reject borrowingLimit when no parent",
 				utiltestingapi.MakeCohort("cohort").
 					ResourceGroup(
 						*utiltestingapi.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "1", "1").Obj()).
 					Obj(),
-				testing.BeForbiddenError()),
+				utiltesting.BeForbiddenError()),
 			ginkgo.Entry("Should allow borrowingLimit 0 when parent exists",
 				utiltestingapi.MakeCohort("cohort").
 					ResourceGroup(
@@ -178,7 +174,7 @@ var _ = ginkgo.Describe("Cohort Webhook", ginkgo.Ordered, func() {
 							Obj(),
 					).
 					Obj(),
-				testing.BeForbiddenError()),
+				utiltesting.BeForbiddenError()),
 			ginkgo.Entry("Should allow lendingLimit when parent exists",
 				utiltestingapi.MakeCohort("cohort").
 					ResourceGroup(
@@ -254,7 +250,7 @@ var _ = ginkgo.Describe("Cohort Webhook", ginkgo.Ordered, func() {
 						},
 					},
 				},
-				testing.BeForbiddenError()),
+				utiltesting.BeForbiddenError()),
 			ginkgo.Entry("Should reject missing resources in a flavor",
 				&kueue.Cohort{
 					ObjectMeta: metav1.ObjectMeta{
@@ -273,7 +269,7 @@ var _ = ginkgo.Describe("Cohort Webhook", ginkgo.Ordered, func() {
 						},
 					},
 				},
-				testing.BeInvalidError()),
+				utiltesting.BeInvalidError()),
 			ginkgo.Entry("Should reject resource not defined in resource group",
 				&kueue.Cohort{
 					ObjectMeta: metav1.ObjectMeta{
@@ -293,7 +289,7 @@ var _ = ginkgo.Describe("Cohort Webhook", ginkgo.Ordered, func() {
 						},
 					},
 				},
-				testing.BeInvalidError()),
+				utiltesting.BeInvalidError()),
 			ginkgo.Entry("Should reject resource in more than one resource group",
 				utiltestingapi.MakeCohort("cohort").
 					ResourceGroup(
@@ -308,7 +304,7 @@ var _ = ginkgo.Describe("Cohort Webhook", ginkgo.Ordered, func() {
 							Obj(),
 					).
 					Obj(),
-				testing.BeForbiddenError()),
+				utiltesting.BeForbiddenError()),
 			ginkgo.Entry("Should reject flavor in more than one resource group",
 				utiltestingapi.MakeCohort("cohort").
 					ResourceGroup(
@@ -319,7 +315,7 @@ var _ = ginkgo.Describe("Cohort Webhook", ginkgo.Ordered, func() {
 						*utiltestingapi.MakeFlavorQuotas("beta").Resource(corev1.ResourceMemory).Obj(),
 					).
 					Obj(),
-				testing.BeForbiddenError()),
+				utiltesting.BeForbiddenError()),
 			ginkgo.Entry("Should allow FairSharing weight",
 				utiltestingapi.MakeCohort("cohort").FairWeight(resource.MustParse("1")).Obj(),
 				gomega.Succeed()),
@@ -328,7 +324,7 @@ var _ = ginkgo.Describe("Cohort Webhook", ginkgo.Ordered, func() {
 				gomega.Succeed()),
 			ginkgo.Entry("Should forbid negative FairSharing weight",
 				utiltestingapi.MakeCohort("cohort").FairWeight(resource.MustParse("-1")).Obj(),
-				testing.BeForbiddenError()),
+				utiltesting.BeForbiddenError()),
 			ginkgo.Entry("Should allow fractional FairSharing weight",
 				utiltestingapi.MakeCohort("cohort").FairWeight(resource.MustParse("0.5")).Obj(),
 				gomega.Succeed()),
@@ -347,11 +343,11 @@ var _ = ginkgo.Describe("Cohort Webhook", ginkgo.Ordered, func() {
 			ginkgo.Entry("Should forbid threshold FairSharing weight",
 				// 10^-9
 				utiltestingapi.MakeCohort("cohort").FairWeight(resource.MustParse("1n")).Obj(),
-				testing.BeForbiddenError()),
+				utiltesting.BeForbiddenError()),
 			ginkgo.Entry("Should forbid collapsed FairSharing weight",
 				// 10^-10
 				utiltestingapi.MakeCohort("cohort").FairWeight(resource.MustParse("0.0000000001")).Obj(),
-				testing.BeForbiddenError()),
+				utiltesting.BeForbiddenError()),
 		)
 	})
 

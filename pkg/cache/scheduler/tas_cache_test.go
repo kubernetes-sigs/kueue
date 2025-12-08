@@ -30,6 +30,7 @@ import (
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -44,14 +45,15 @@ type PodSetTestCase struct {
 	tolerations     []corev1.Toleration
 	nodeSelector    map[string]string
 	podSetGroupName *string
-	wantAssignment  *kueue.TopologyAssignment
+	wantAssignment  *tas.TopologyAssignment
 	wantReason      string
 }
 
 func TestFindTopologyAssignments(t *testing.T) {
 	const (
-		tasBlockLabel = "cloud.com/topology-block"
-		tasRackLabel  = "cloud.com/topology-rack"
+		tasBlockLabel    = "cloud.com/topology-block"
+		tasRackLabel     = "cloud.com/topology-rack"
+		tasSubBlockLabel = "cloud.com/topology-subblock"
 	)
 
 	//      b1                   b2
@@ -462,9 +464,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 4,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 1,
 							Values: []string{
@@ -542,9 +544,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 2,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 1,
 							Values: []string{
@@ -609,9 +611,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 2,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 2,
 							Values: []string{
@@ -633,9 +635,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 2,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 2,
 							Values: []string{
@@ -655,9 +657,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 6,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{Count: 1, Values: []string{"x1"}},
 						{Count: 1, Values: []string{"x3"}},
 						{Count: 1, Values: []string{"x5"}},
@@ -678,9 +680,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 6,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{Count: 1, Values: []string{"x1"}},
 						{Count: 1, Values: []string{"x3"}},
 						{Count: 1, Values: []string{"x5"}},
@@ -701,9 +703,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 1,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 1,
 							Values: []string{
@@ -725,9 +727,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 1,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 1,
 							Values: []string{
@@ -750,9 +752,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 1,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 1,
 							Values: []string{
@@ -775,9 +777,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 4,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 1,
 							Values: []string{
@@ -817,9 +819,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 1,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 1,
 							Values: []string{
@@ -842,9 +844,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 1,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 1,
 							Values: []string{
@@ -866,9 +868,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 1,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 1,
 							Values: []string{
@@ -891,9 +893,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 2,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 2,
 							Values: []string{
@@ -916,9 +918,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 2,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 2,
 							Values: []string{
@@ -956,9 +958,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 1,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 1,
 							Values: []string{
@@ -981,9 +983,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 1,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultTwoLevels,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 1,
 							Values: []string{
@@ -1006,9 +1008,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 1,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 1,
 							Values: []string{
@@ -1031,9 +1033,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 2,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultTwoLevels,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 2,
 							Values: []string{
@@ -1057,9 +1059,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 3,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultTwoLevels,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 3,
 							Values: []string{
@@ -1107,9 +1109,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 5,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: []string{tasBlockLabel},
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 1,
 							Values: []string{
@@ -1137,9 +1139,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 2,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultTwoLevels,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 2,
 							Values: []string{
@@ -1176,9 +1178,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 1,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 1,
 							Values: []string{
@@ -1201,9 +1203,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 2,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 1,
 							Values: []string{
@@ -1232,12 +1234,12 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 1,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: []string{
 						tasBlockLabel,
 						tasRackLabel,
 					},
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 1,
 							Values: []string{
@@ -1260,12 +1262,12 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 4,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: []string{
 						tasBlockLabel,
 						tasRackLabel,
 					},
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 1,
 							Values: []string{
@@ -1295,9 +1297,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 4,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultTwoLevels,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 1,
 							Values: []string{
@@ -1355,9 +1357,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceMemory: 1024,
 				},
 				count: 4,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultTwoLevels,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 4,
 							Values: []string{
@@ -1380,9 +1382,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 4,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultTwoLevels,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 1,
 							Values: []string{
@@ -1412,9 +1414,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 6,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultTwoLevels,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 1,
 							Values: []string{
@@ -1451,9 +1453,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 6,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultTwoLevels,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 1,
 							Values: []string{
@@ -1542,9 +1544,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 1,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 1,
 							Values: []string{
@@ -1611,9 +1613,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 600,
 				},
 				count: 1,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 1,
 							Values: []string{
@@ -1655,9 +1657,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 600,
 				},
 				count: 1,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 1,
 							Values: []string{
@@ -1767,9 +1769,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 600,
 				},
 				count: 1,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 1,
 							Values: []string{
@@ -1901,9 +1903,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 1,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 1,
 							Values: []string{
@@ -2060,9 +2062,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 1,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 1,
 							Values: []string{
@@ -2126,9 +2128,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 6,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 2,
 							Values: []string{
@@ -2211,9 +2213,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 12,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 4,
 							Values: []string{
@@ -2286,9 +2288,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 4,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 2,
 							Values: []string{
@@ -2395,9 +2397,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 4,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 1,
 							Values: []string{
@@ -2439,9 +2441,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 4,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 1,
 							Values: []string{
@@ -2514,9 +2516,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 6,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 2,
 							Values: []string{
@@ -2583,9 +2585,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 4,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 2,
 							Values: []string{
@@ -2674,9 +2676,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 8,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 2,
 							Values: []string{
@@ -2761,9 +2763,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 12,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 3,
 							Values: []string{
@@ -2785,6 +2787,1452 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 				},
 			}},
+		},
+		//         b1
+		//       /  |
+		//     r1   r2
+		//    /     |
+		// x1:15   x2:15
+		// request: 25
+		// expected outcome: x1:13, x2:12
+		"balanced placement; basic": {
+			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("15"),
+						corev1.ResourcePods: resource.MustParse("25"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("15"),
+						corev1.ResourcePods: resource.MustParse("25"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred: ptr.To(tasRackLabel),
+				},
+				requests: resources.Requests{
+					"example.com/gpu": 1,
+				},
+				count: 25,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{
+							Count:  13,
+							Values: []string{"x1"},
+						},
+						{
+							Count:  12,
+							Values: []string{"x2"},
+						},
+					},
+				},
+			}},
+		},
+		//        b1
+		//         |
+		//        r1
+		//    /    |    \
+		// x1:15, x2:13, x3:10
+		// request: 23
+		// expected outcome: x1:12, x2:11
+		"balanced placement; select optmial set of domains": {
+			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("15"),
+						corev1.ResourcePods: resource.MustParse("23"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("13"),
+						corev1.ResourcePods: resource.MustParse("23"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x3").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("10"),
+						corev1.ResourcePods: resource.MustParse("23"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred: ptr.To(tasRackLabel),
+				},
+				requests: resources.Requests{
+					"example.com/gpu": 1,
+				},
+				count: 23,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{
+							Count:  12,
+							Values: []string{"x1"},
+						},
+						{
+							Count:  11,
+							Values: []string{"x2"},
+						},
+					},
+				},
+			}},
+		},
+		//        b1
+		//         |
+		//        r1
+		//    /    |    \
+		// x1:20, x2:15, x3:10
+		// request: 25
+		// sliceSize: 5
+		// expected outcome: x2:15, x3:10
+		"balanced placement; select optmial set of domains; with slices": {
+			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("20"),
+						corev1.ResourcePods: resource.MustParse("25"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("15"),
+						corev1.ResourcePods: resource.MustParse("25"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x3").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("10"),
+						corev1.ResourcePods: resource.MustParse("25"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred:                   ptr.To(tasRackLabel),
+					PodSetSliceSize:             ptr.To(int32(5)),
+					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+				},
+				requests: resources.Requests{
+					"example.com/gpu": 1,
+				},
+				count: 25,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{
+							Count:  15,
+							Values: []string{"x2"},
+						},
+						{
+							Count:  10,
+							Values: []string{"x3"},
+						},
+					},
+				},
+			}},
+		},
+		//         b1      b2
+		//         |       |
+		//        r1        r2
+		//    /     |      |    \
+		// x1:20   x2:10  x3:15   x4:15
+		// request: 22
+		// expected outcome: x3:11, x4:11
+		"balanced placement; select correct block": {
+			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("20"),
+						corev1.ResourcePods: resource.MustParse("22"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("10"),
+						corev1.ResourcePods: resource.MustParse("22"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b2-r2-x3").
+					Label(tasBlockLabel, "b2").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("15"),
+						corev1.ResourcePods: resource.MustParse("22"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b2-r2-x4").
+					Label(tasBlockLabel, "b2").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("15"),
+						corev1.ResourcePods: resource.MustParse("22"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred:       ptr.To(tasRackLabel),
+					PodSetSliceSize: ptr.To(int32(1)),
+				},
+				requests: resources.Requests{
+					"example.com/gpu": 1,
+				},
+				count: 22,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{
+							Count:  11,
+							Values: []string{"x3"},
+						},
+						{
+							Count:  11,
+							Values: []string{"x4"},
+						},
+					},
+				},
+			}},
+		},
+		//         b1      b2
+		//         |       |
+		//        r1        r2
+		//    /     |      |    \
+		// x1:14   x2:11  x3:15   x4:10
+		// request: 25
+		// expected outcome: x1:14, x2:11
+		"balanced placement; cannot chose domains from different blocks": {
+			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("14"),
+						corev1.ResourcePods: resource.MustParse("25"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("11"),
+						corev1.ResourcePods: resource.MustParse("25"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b2-r2-x3").
+					Label(tasBlockLabel, "b2").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("15"),
+						corev1.ResourcePods: resource.MustParse("25"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b2-r2-x4").
+					Label(tasBlockLabel, "b2").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("10"),
+						corev1.ResourcePods: resource.MustParse("25"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred:       ptr.To(tasRackLabel),
+					PodSetSliceSize: ptr.To(int32(1)),
+				},
+				requests: resources.Requests{
+					"example.com/gpu": 1,
+				},
+				count: 25,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{
+							Count:  14,
+							Values: []string{"x1"},
+						},
+						{
+							Count:  11,
+							Values: []string{"x2"},
+						},
+					},
+				},
+			}},
+		},
+		//          b1     b2
+		//        / |      |
+		//     r1   r2     r3
+		//    /     |      |    \
+		// x1:15   x2:15  x3:15   x4:15
+		// request: 25
+		// sizeSize: 5
+		// expected outcome: x3:15, x4:10
+		"balanced placement; select correct block; prefer blocks with single rack; with slices": {
+			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("15"),
+						corev1.ResourcePods: resource.MustParse("25"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("15"),
+						corev1.ResourcePods: resource.MustParse("25"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r3-x3").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r3").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("15"),
+						corev1.ResourcePods: resource.MustParse("25"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r3-x4").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r3").
+					Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("15"),
+						corev1.ResourcePods: resource.MustParse("25"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred:                   ptr.To(tasRackLabel),
+					PodSetSliceSize:             ptr.To(int32(5)),
+					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+				},
+				requests: resources.Requests{
+					"example.com/gpu": 1,
+				},
+				count: 25,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{
+							Count:  15,
+							Values: []string{"x3"},
+						},
+						{
+							Count:  10,
+							Values: []string{"x4"},
+						},
+					},
+				},
+			}},
+		},
+		//           b1
+		//         /     \
+		//        sb1     sb2
+		//      /   |      |   \
+		//     r1   r2     r3   r4
+		//    /     |      |     |     \
+		// x1:18   x2:8    x3:15 x4:9  x5:7
+		// request: 20
+		// sliceSize: 2
+		// expected outcome: x3:10, x4:8, x5:2
+		"balanced placement; four level topology; slice two levels below balanced level": {
+			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-sb1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasSubBlockLabel, "sb1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("18"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-sb1-r2-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasSubBlockLabel, "sb1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("8"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-sb1-r3-x3").
+					Label(tasBlockLabel, "b1").
+					Label(tasSubBlockLabel, "sb2").
+					Label(tasRackLabel, "r3").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("15"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-sb1-r3-x4").
+					Label(tasBlockLabel, "b1").
+					Label(tasSubBlockLabel, "sb2").
+					Label(tasRackLabel, "r4").
+					Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("9"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-sb1-r3-x5").
+					Label(tasBlockLabel, "b1").
+					Label(tasSubBlockLabel, "sb2").
+					Label(tasRackLabel, "r4").
+					Label(corev1.LabelHostname, "x5").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("7"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: []string{tasBlockLabel, tasSubBlockLabel, tasRackLabel, corev1.LabelHostname},
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred:                   ptr.To(string(tasSubBlockLabel)),
+					PodSetSliceSize:             ptr.To(int32(2)),
+					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+				},
+				requests: resources.Requests{
+					"example.com/gpu": 1,
+				},
+				count: 20,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: []string{corev1.LabelHostname},
+					Domains: []tas.TopologyDomainAssignment{
+						{
+							Count:  10,
+							Values: []string{"x3"},
+						},
+						{
+							Count:  8,
+							Values: []string{"x4"},
+						},
+						{
+							Count:  2,
+							Values: []string{"x5"},
+						},
+					},
+				},
+			}},
+		},
+		//           b1
+		//         /     \
+		//        sb1     sb2
+		//      /   |      |   \
+		//     r1   r2     r3   r4
+		//    /     |      |     |     \
+		// x1:18   x2:8    x3:15 x4:9  x5:7
+		// request: 20
+		// expected outcome: x3:10, x4:3, x5:7
+		"balanced placement; four level topology; slice one level below balanced level": {
+			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-sb1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasSubBlockLabel, "sb1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("18"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-sb1-r2-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasSubBlockLabel, "sb1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("8"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-sb1-r3-x3").
+					Label(tasBlockLabel, "b1").
+					Label(tasSubBlockLabel, "sb2").
+					Label(tasRackLabel, "r3").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("15"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-sb1-r3-x4").
+					Label(tasBlockLabel, "b1").
+					Label(tasSubBlockLabel, "sb2").
+					Label(tasRackLabel, "r4").
+					Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("9"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-sb1-r3-x5").
+					Label(tasBlockLabel, "b1").
+					Label(tasSubBlockLabel, "sb2").
+					Label(tasRackLabel, "r4").
+					Label(corev1.LabelHostname, "x5").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("7"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: []string{tasBlockLabel, tasSubBlockLabel, tasRackLabel, corev1.LabelHostname},
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred:                   ptr.To(string(tasSubBlockLabel)),
+					PodSetSliceSize:             ptr.To(int32(2)),
+					PodSetSliceRequiredTopology: ptr.To(tasRackLabel),
+				},
+				requests: resources.Requests{
+					"example.com/gpu": 1,
+				},
+				count: 20,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: []string{corev1.LabelHostname},
+					Domains: []tas.TopologyDomainAssignment{
+						{
+							Count:  10,
+							Values: []string{"x3"},
+						},
+						{
+							Count:  3,
+							Values: []string{"x4"},
+						},
+						{
+							Count:  7,
+							Values: []string{"x5"},
+						},
+					},
+				},
+			}},
+		},
+		//           b1
+		//         /     \
+		//        sb1     sb2
+		//      /   |      | \
+		//     r1   r2     r3 r4
+		//    /     |      |     \
+		// x1:18   x2:8    x3:15 x4:15
+		// request: 20
+		// sliceSize: 2
+		// expected outcome: x3:10, x4:10
+		"balanced placement; four level topology; balance on rack level; slice not on the lowest level": {
+			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-sb1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasSubBlockLabel, "sb1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("18"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-sb1-r2-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasSubBlockLabel, "sb1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("8"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-sb1-r3-x3").
+					Label(tasBlockLabel, "b1").
+					Label(tasSubBlockLabel, "sb2").
+					Label(tasRackLabel, "r3").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("15"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-sb1-r3-x4").
+					Label(tasBlockLabel, "b1").
+					Label(tasSubBlockLabel, "sb2").
+					Label(tasRackLabel, "r4").
+					Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("15"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: []string{tasBlockLabel, tasSubBlockLabel, tasRackLabel},
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred:                   ptr.To(string(tasSubBlockLabel)),
+					PodSetSliceSize:             ptr.To(int32(2)),
+					PodSetSliceRequiredTopology: ptr.To(tasRackLabel),
+				},
+				requests: resources.Requests{
+					"example.com/gpu": 1,
+				},
+				count: 20,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: []string{tasBlockLabel, tasSubBlockLabel, tasRackLabel},
+					Domains: []tas.TopologyDomainAssignment{
+						{
+							Count:  10,
+							Values: []string{"b1", "sb2", "r3"},
+						},
+						{
+							Count:  10,
+							Values: []string{"b1", "sb2", "r4"},
+						},
+					},
+				},
+			}},
+		},
+		//        b1
+		//         |        \
+		//        r1             r2
+		//    /    |    \         |     \
+		// x1:15, x2:13, x3:10   x4:20   x5:8
+		// request: 22
+		// sliceSize: 2
+		// expected outcome: x2:12, x3:10
+		"balanced placement; three level topology; balance on the same level as slice": {
+			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("15"),
+						corev1.ResourcePods: resource.MustParse("22"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("13"),
+						corev1.ResourcePods: resource.MustParse("22"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x3").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("10"),
+						corev1.ResourcePods: resource.MustParse("22"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x4").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("20"),
+						corev1.ResourcePods: resource.MustParse("22"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x5").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x5").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("8"),
+						corev1.ResourcePods: resource.MustParse("22"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred:                   ptr.To(string(corev1.LabelHostname)),
+					PodSetSliceSize:             ptr.To(int32(2)),
+					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+				},
+				requests: resources.Requests{
+					"example.com/gpu": 1,
+				},
+				count: 22,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{
+							Count:  12,
+							Values: []string{"x2"},
+						},
+						{
+							Count:  10,
+							Values: []string{"x3"},
+						},
+					},
+				},
+			}},
+		},
+		//        b1
+		//         |        \
+		//        r1             r2
+		//    /    |        /     |     \
+		// x1:20  x2:8  x3:15   x4:13   x5:10
+		// request: 22
+		// expected outcome: x3:11, x4:11
+		"balanced placement; three level topology; balance on the lowest level": {
+			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("20"),
+						corev1.ResourcePods: resource.MustParse("22"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("8"),
+						corev1.ResourcePods: resource.MustParse("22"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x3").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("15"),
+						corev1.ResourcePods: resource.MustParse("22"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x4").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("13"),
+						corev1.ResourcePods: resource.MustParse("22"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x5").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x5").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("10"),
+						corev1.ResourcePods: resource.MustParse("22"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred: ptr.To(string(corev1.LabelHostname)),
+				},
+				requests: resources.Requests{
+					"example.com/gpu": 1,
+				},
+				count: 22,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{
+							Count:  11,
+							Values: []string{"x3"},
+						},
+						{
+							Count:  11,
+							Values: []string{"x4"},
+						},
+					},
+				},
+			}},
+		},
+		//        b1
+		//         |
+		//        r1
+		//    /    |    \
+		// x1:20, x2:15, x3:12
+		// request: 25
+		// sliceSize: 5
+		// leaders: 1
+		// expected outcome: x2:15, x3:10 + leader
+		"balanced placement; leader worker set": {
+			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("20"),
+						corev1.ResourcePods: resource.MustParse("24"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("15"),
+						corev1.ResourcePods: resource.MustParse("24"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x3").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("12"),
+						corev1.ResourcePods: resource.MustParse("24"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Preferred:                   ptr.To(string(tasRackLabel)),
+						PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+					},
+					requests: resources.Requests{
+						"example.com/gpu": 1,
+					},
+					podSetGroupName: ptr.To("sameGroup"),
+					count:           1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{
+								Count:  1,
+								Values: []string{"x3"},
+							},
+						},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Preferred:                   ptr.To(string(tasRackLabel)),
+						PodSetSliceSize:             ptr.To(int32(5)),
+						PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+					},
+					requests: resources.Requests{
+						"example.com/gpu": 1,
+					},
+					podSetGroupName: ptr.To("sameGroup"),
+					count:           25,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{
+								Count:  15,
+								Values: []string{"x2"},
+							},
+							{
+								Count:  10,
+								Values: []string{"x3"},
+							},
+						},
+					},
+				},
+			},
+		},
+		//                  b1
+		//              /        \
+		//            r1         r2
+		//        /   |        /  |   \
+		//     x1:10 x2:5  x3:5  x4:5  x5:5
+		// request: 15
+		// expected outcome: x3:5, x4:5, x5:5
+		"balanced placement; prioritize (using entropy) balanced domains; second rack wins": {
+			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("10"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("5"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x3").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("5"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x4").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("5"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x5").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x5").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("5"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred: ptr.To(string(tasRackLabel)),
+				},
+				requests: resources.Requests{
+					"example.com/gpu": 1,
+				},
+				count: 15,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{
+							Count:  5,
+							Values: []string{"x3"},
+						},
+						{
+							Count:  5,
+							Values: []string{"x4"},
+						},
+						{
+							Count:  5,
+							Values: []string{"x5"},
+						},
+					},
+				},
+			}},
+		},
+		//                  b1
+		//              /        \
+		//            r1          r2
+		//        /   |    \     |   \
+		//     x1:8 x2:8  x3:8  x4:16  x5:8
+		// request: 24
+		// expected outcome: x1:8, x2:8, x3:8
+		"balanced placement; prioritize (using entropy) balanced domains; first rack wins": {
+			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("8"),
+						corev1.ResourcePods: resource.MustParse("24"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("8"),
+						corev1.ResourcePods: resource.MustParse("24"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x3").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("8"),
+						corev1.ResourcePods: resource.MustParse("24"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x4").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("16"),
+						corev1.ResourcePods: resource.MustParse("24"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x5").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x5").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("8"),
+						corev1.ResourcePods: resource.MustParse("24"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred: ptr.To(string(tasRackLabel)),
+				},
+				requests: resources.Requests{
+					"example.com/gpu": 1,
+				},
+				count: 24,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{
+							Count:  8,
+							Values: []string{"x1"},
+						},
+						{
+							Count:  8,
+							Values: []string{"x2"},
+						},
+						{
+							Count:  8,
+							Values: []string{"x3"},
+						},
+					},
+				},
+			}},
+		},
+		//        r1             r2
+		//    /    |        /     |     \
+		// x1:21  x2:9  x3:11   x4:10   x5:10
+		// request: 23
+		// expected outcome: x1:12, x3:11
+		"balanced placement; two level topology; balance on the highest level": {
+			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("r1-x1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("21"),
+						corev1.ResourcePods: resource.MustParse("22"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("r1-x2").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("9"),
+						corev1.ResourcePods: resource.MustParse("22"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("r2-x3").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("11"),
+						corev1.ResourcePods: resource.MustParse("22"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("r2-x4").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("10"),
+						corev1.ResourcePods: resource.MustParse("22"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("r2-x5").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x5").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("10"),
+						corev1.ResourcePods: resource.MustParse("22"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: []string{tasRackLabel, corev1.LabelHostname},
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred: ptr.To(string(tasRackLabel)),
+				},
+				requests: resources.Requests{
+					"example.com/gpu": 1,
+				},
+				count: 23,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{
+							Count:  12,
+							Values: []string{"x1"},
+						},
+						{
+							Count:  11,
+							Values: []string{"x3"},
+						},
+					},
+				},
+			}},
+		},
+		//          b1                                b2
+		//        /      \                      /        |    \
+		//     r1         r2                r3           r4    r5
+		//    /  \       /   \        /   |    |    \     |    |
+		// x1:5  x2:5  x3:5   x4:5  x5:10 x6:4 x7:4 x8:4  x9:5 x10:5
+		// request: 20
+		// expected outcome: x1:5, x2:5, x3:5, x4:5
+		"balanced placement; select correct block taking into account pruning": {
+			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("5"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("5"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x3").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("5"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x4").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("5"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b2-r3-x5").
+					Label(tasBlockLabel, "b2").
+					Label(tasRackLabel, "r3").
+					Label(corev1.LabelHostname, "x5").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("10"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b2-r3-x6").
+					Label(tasBlockLabel, "b2").
+					Label(tasRackLabel, "r3").
+					Label(corev1.LabelHostname, "x6").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b2-r3-x7").
+					Label(tasBlockLabel, "b2").
+					Label(tasRackLabel, "r3").
+					Label(corev1.LabelHostname, "x7").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b2-r3-x8").
+					Label(tasBlockLabel, "b2").
+					Label(tasRackLabel, "r3").
+					Label(corev1.LabelHostname, "x8").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b2-r4-x9").
+					Label(tasBlockLabel, "b2").
+					Label(tasRackLabel, "r4").
+					Label(corev1.LabelHostname, "x9").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("5"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b2-r5-x10").
+					Label(tasBlockLabel, "b2").
+					Label(tasRackLabel, "r5").
+					Label(corev1.LabelHostname, "x10").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("5"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred: ptr.To(tasRackLabel),
+				},
+				requests: resources.Requests{
+					"example.com/gpu": 1,
+				},
+				count: 20,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{
+							Count:  5,
+							Values: []string{"x1"},
+						},
+						{
+							Count:  5,
+							Values: []string{"x2"},
+						},
+						{
+							Count:  5,
+							Values: []string{"x3"},
+						},
+						{
+							Count:  5,
+							Values: []string{"x4"},
+						},
+					},
+				},
+			}},
+		},
+		//        b1
+		//         |
+		//        r1
+		//    /    |
+		// x1:6  x2:5
+		// request: 10
+		// leaders: 1
+		// expected outcome: x1:5 + leader, x2:5
+		"balanced placement; should not prune domain": {
+			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("6"),
+						corev1.ResourcePods: resource.MustParse("24"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("5"),
+						corev1.ResourcePods: resource.MustParse("24"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Preferred:                   ptr.To(string(tasRackLabel)),
+						PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+					},
+					requests: resources.Requests{
+						"example.com/gpu": 1,
+					},
+					podSetGroupName: ptr.To("sameGroup"),
+					count:           1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{
+								Count:  1,
+								Values: []string{"x1"},
+							},
+						},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Preferred: ptr.To(string(tasRackLabel)),
+					},
+					requests: resources.Requests{
+						"example.com/gpu": 1,
+					},
+					podSetGroupName: ptr.To("sameGroup"),
+					count:           10,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{
+								Count:  5,
+								Values: []string{"x1"},
+							},
+							{
+								Count:  5,
+								Values: []string{"x2"},
+							},
+						},
+					},
+				},
+			},
 		},
 		"block required for podset; rack required for slices; podset fits in a block, but slices do not fit in racks": {
 
@@ -2972,9 +4420,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 6,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 3,
 							Values: []string{
@@ -3087,9 +4535,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 6,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 2,
 							Values: []string{
@@ -3124,9 +4572,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 6,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 4,
 							Values: []string{
@@ -3155,9 +4603,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count: 4,
-				wantAssignment: &kueue.TopologyAssignment{
+				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Count: 1,
 							Values: []string{
@@ -3218,9 +4666,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceCPU: 1000,
 					},
 					count: 3,
-					wantAssignment: &kueue.TopologyAssignment{
+					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{tasBlockLabel},
-						Domains: []kueue.TopologyDomainAssignment{
+						Domains: []tas.TopologyDomainAssignment{
 							{
 								Count: 2,
 								Values: []string{
@@ -3245,9 +4693,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceCPU: 1000,
 					},
 					count: 3,
-					wantAssignment: &kueue.TopologyAssignment{
+					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{tasBlockLabel},
-						Domains: []kueue.TopologyDomainAssignment{
+						Domains: []tas.TopologyDomainAssignment{
 							{
 								Count: 1,
 								Values: []string{
@@ -3308,9 +4756,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 					podSetGroupName: ptr.To("sameGroup"),
 					count:           1,
-					wantAssignment: &kueue.TopologyAssignment{
+					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{tasBlockLabel},
-						Domains: []kueue.TopologyDomainAssignment{
+						Domains: []tas.TopologyDomainAssignment{
 							{
 								Count: 1,
 								Values: []string{
@@ -3331,9 +4779,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 					podSetGroupName: ptr.To("sameGroup"),
 					count:           4,
-					wantAssignment: &kueue.TopologyAssignment{
+					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{tasBlockLabel},
-						Domains: []kueue.TopologyDomainAssignment{
+						Domains: []tas.TopologyDomainAssignment{
 							{
 								Count: 4,
 								Values: []string{
@@ -3386,9 +4834,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceCPU: 1000,
 					},
 					count: 1,
-					wantAssignment: &kueue.TopologyAssignment{
+					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{tasBlockLabel},
-						Domains: []kueue.TopologyDomainAssignment{
+						Domains: []tas.TopologyDomainAssignment{
 							{
 								Count:  1,
 								Values: []string{"b1"},
@@ -3406,9 +4854,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 						"example.com/gpu":  2,
 					},
 					count: 4,
-					wantAssignment: &kueue.TopologyAssignment{
+					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{tasBlockLabel},
-						Domains: []kueue.TopologyDomainAssignment{
+						Domains: []tas.TopologyDomainAssignment{
 							{
 								Count:  4,
 								Values: []string{"b2"},
@@ -3503,9 +4951,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 					podSetGroupName: ptr.To("sameGroup"),
 					count:           1,
-					wantAssignment: &kueue.TopologyAssignment{
+					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{tasBlockLabel},
-						Domains: []kueue.TopologyDomainAssignment{
+						Domains: []tas.TopologyDomainAssignment{
 							{
 								Count: 1,
 								Values: []string{
@@ -3526,9 +4974,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 					podSetGroupName: ptr.To("sameGroup"),
 					count:           4,
-					wantAssignment: &kueue.TopologyAssignment{
+					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{tasBlockLabel},
-						Domains: []kueue.TopologyDomainAssignment{
+						Domains: []tas.TopologyDomainAssignment{
 							{
 								Count: 4,
 								Values: []string{
@@ -3677,9 +5125,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 					podSetGroupName: ptr.To("sameGroup"),
 					count:           1,
-					wantAssignment: &kueue.TopologyAssignment{
+					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{corev1.LabelHostname},
-						Domains: []kueue.TopologyDomainAssignment{
+						Domains: []tas.TopologyDomainAssignment{
 							{
 								Count: 1,
 								Values: []string{
@@ -3700,9 +5148,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 					podSetGroupName: ptr.To("sameGroup"),
 					count:           2,
-					wantAssignment: &kueue.TopologyAssignment{
+					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{corev1.LabelHostname},
-						Domains: []kueue.TopologyDomainAssignment{
+						Domains: []tas.TopologyDomainAssignment{
 							{
 								Count: 1,
 								Values: []string{
@@ -3830,9 +5278,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 					podSetGroupName: ptr.To("sameGroup"),
 					count:           1,
-					wantAssignment: &kueue.TopologyAssignment{
+					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{corev1.LabelHostname},
-						Domains: []kueue.TopologyDomainAssignment{
+						Domains: []tas.TopologyDomainAssignment{
 							{
 								Count: 1,
 								Values: []string{
@@ -3853,9 +5301,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 					podSetGroupName: ptr.To("sameGroup"),
 					count:           2,
-					wantAssignment: &kueue.TopologyAssignment{
+					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{corev1.LabelHostname},
-						Domains: []kueue.TopologyDomainAssignment{
+						Domains: []tas.TopologyDomainAssignment{
 							{
 								Count: 1,
 								Values: []string{
@@ -3886,9 +5334,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceCPU: 1000,
 					},
 					count: 2,
-					wantAssignment: &kueue.TopologyAssignment{
+					wantAssignment: &tas.TopologyAssignment{
 						Levels: defaultTwoLevels,
-						Domains: []kueue.TopologyDomainAssignment{
+						Domains: []tas.TopologyDomainAssignment{
 							{
 								Count:  2,
 								Values: []string{"b1", "r1"},
@@ -3905,9 +5353,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceMemory: 1024,
 					},
 					count: 1,
-					wantAssignment: &kueue.TopologyAssignment{
+					wantAssignment: &tas.TopologyAssignment{
 						Levels: defaultTwoLevels,
-						Domains: []kueue.TopologyDomainAssignment{
+						Domains: []tas.TopologyDomainAssignment{
 							{
 								Count:  1,
 								Values: []string{"b1", "r1"},
@@ -3932,9 +5380,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceCPU: 1000,
 					},
 					count: 9,
-					wantAssignment: &kueue.TopologyAssignment{
+					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{corev1.LabelHostname},
-						Domains: []kueue.TopologyDomainAssignment{
+						Domains: []tas.TopologyDomainAssignment{
 							{Count: 9, Values: []string{"x2"}},
 						},
 					},
@@ -3948,9 +5396,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceCPU: 1000,
 					},
 					count: 2,
-					wantAssignment: &kueue.TopologyAssignment{
+					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{corev1.LabelHostname},
-						Domains: []kueue.TopologyDomainAssignment{
+						Domains: []tas.TopologyDomainAssignment{
 							{Count: 2, Values: []string{"x3"}},
 						},
 					},
@@ -3972,9 +5420,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceCPU: 1000,
 					},
 					count: 1,
-					wantAssignment: &kueue.TopologyAssignment{
+					wantAssignment: &tas.TopologyAssignment{
 						Levels: defaultTwoLevels,
-						Domains: []kueue.TopologyDomainAssignment{
+						Domains: []tas.TopologyDomainAssignment{
 							{Count: 1, Values: []string{"b1", "r1"}},
 						},
 					},
@@ -3989,9 +5437,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceCPU:    1000,
 					},
 					count: 1,
-					wantAssignment: &kueue.TopologyAssignment{
+					wantAssignment: &tas.TopologyAssignment{
 						Levels: defaultTwoLevels,
-						Domains: []kueue.TopologyDomainAssignment{
+						Domains: []tas.TopologyDomainAssignment{
 							{Count: 1, Values: []string{"b1", "r1"}},
 						},
 					},
@@ -4013,9 +5461,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceCPU: 1000,
 					},
 					count: 10,
-					wantAssignment: &kueue.TopologyAssignment{
+					wantAssignment: &tas.TopologyAssignment{
 						Levels: defaultTwoLevels,
-						Domains: []kueue.TopologyDomainAssignment{
+						Domains: []tas.TopologyDomainAssignment{
 							{Count: 10, Values: []string{"b1", "r1"}},
 						},
 					},
@@ -4029,9 +5477,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceCPU: 1000,
 					},
 					count: 2,
-					wantAssignment: &kueue.TopologyAssignment{
+					wantAssignment: &tas.TopologyAssignment{
 						Levels: defaultTwoLevels,
-						Domains: []kueue.TopologyDomainAssignment{
+						Domains: []tas.TopologyDomainAssignment{
 							{Count: 2, Values: []string{"b2", "r1"}},
 						},
 					},
@@ -4053,9 +5501,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceCPU: 1000,
 					},
 					count: 8,
-					wantAssignment: &kueue.TopologyAssignment{
+					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{corev1.LabelHostname},
-						Domains: []kueue.TopologyDomainAssignment{
+						Domains: []tas.TopologyDomainAssignment{
 							{Count: 8, Values: []string{"x2"}},
 						},
 					},
@@ -4069,9 +5517,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceCPU: 1000,
 					},
 					count: 2,
-					wantAssignment: &kueue.TopologyAssignment{
+					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{corev1.LabelHostname},
-						Domains: []kueue.TopologyDomainAssignment{
+						Domains: []tas.TopologyDomainAssignment{
 							{Count: 2, Values: []string{"x2"}},
 						},
 					},
@@ -4111,9 +5559,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceMemory: 1000,
 					},
 					count: 1,
-					wantAssignment: &kueue.TopologyAssignment{
+					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{corev1.LabelHostname},
-						Domains: []kueue.TopologyDomainAssignment{
+						Domains: []tas.TopologyDomainAssignment{
 							{Count: 1, Values: []string{"x1"}},
 						},
 					},

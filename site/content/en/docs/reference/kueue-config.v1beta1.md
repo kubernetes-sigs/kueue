@@ -1,5 +1,5 @@
 ---
-title: Kueue Configuration API
+title: Kueue Configuration v1beta1 API
 content_type: tool-reference
 package: config.kueue.x-k8s.io/v1beta1
 auto_generated: true
@@ -469,9 +469,9 @@ Possible options:</p>
 <li>&quot;trainer.kubeflow.org/trainjob&quot;</li>
 <li>&quot;workload.codeflare.dev/appwrapper&quot;</li>
 <li>&quot;pod&quot;</li>
-<li>&quot;deployment&quot; (requires enabling pod integration)</li>
-<li>&quot;statefulset&quot; (requires enabling pod integration)</li>
-<li>&quot;leaderworkerset.x-k8s.io/leaderworkerset&quot; (requires enabling pod integration)</li>
+<li>&quot;deployment&quot;</li>
+<li>&quot;statefulset&quot;</li>
+<li>&quot;leaderworkerset.x-k8s.io/leaderworkerset&quot;</li>
 </ul>
 </td>
 </tr>
@@ -487,8 +487,8 @@ the expected format is <code>Kind.version.group.com</code>.</p>
 <a href="#config-kueue-x-k8s-io-v1beta1-PodIntegrationOptions"><code>PodIntegrationOptions</code></a>
 </td>
 <td>
-   <p>PodOptions defines kueue controller behaviour for pod objects
-Deprecated: This field will be removed on v1beta2, use ManagedJobsNamespaceSelector
+   <p>PodOptions defines kueue controller behaviour for pod objects</p>
+<p>Deprecated: This field will be removed on v1beta2, use ManagedJobsNamespaceSelector
 (https://kueue.sigs.k8s.io/docs/tasks/run/plain_pods/)
 instead.</p>
 </td>

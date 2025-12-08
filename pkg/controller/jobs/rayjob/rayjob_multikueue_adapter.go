@@ -63,9 +63,9 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 			log.V(2).Info("Skipping the sync since the local job is still suspended")
 			return nil
 		}
-		return clientutil.PatchStatus(ctx, localClient, &localJob, func() (client.Object, bool, error) {
+		return clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
 			localJob.Status = remoteJob.Status
-			return &localJob, true, nil
+			return true, nil
 		})
 	}
 

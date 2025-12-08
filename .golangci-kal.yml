@@ -68,6 +68,43 @@ linters:
       linters:
         - kubeapilinter
 
+    ## Exclusions for intentional API design decisions
+    # PodSets field intentionally excludes omitempty
+    - text: "optionalfields: field PodSets should have the omitempty tag."
+      path: "apis/kueue/v1beta2"
+
+    # Spec and Status fields - Kubernetes convention (not pointers, specific omitempty rules)
+    - text: "optionalfields: field (Spec|Status) should (be a pointer|have the omitempty tag)."
+      path: "apis/kueue/v1beta2"
+
+    # Various optional fields intentionally not pointers for API stability
+    - text: "optionalfields: field (QueueName|PriorityClassName|PriorityClassSource|ClusterQueue|ParentName|CohortName|QueueingStrategy|LocationType|Description|Policy|WhenCanBorrow|WhenCanPreempt|ReclaimWithinCohort|WithinClusterQueue|Borrowed|Total|PendingWorkloads|ReservingWorkloads|AdmittedWorkloads) should (be a pointer|have the omitempty tag)."
+      path: "apis/kueue/v1beta2"
+
+    # Name and Count fields - intentional design decisions
+    - text: "(optionalfields|requiredfields): field (Name|Count) should (be a pointer|have the omitempty tag)."
+      path: "apis/kueue/v1beta2"
+
+    # PodSetAssignments intentionally excludes omitempty
+    - text: "optionalfields: field PodSetAssignments should have the omitempty tag."
+      path: "apis/kueue/v1beta2"
+
+    # Required fields with valid zero values - validation is intentionally incomplete
+    - text: "requiredfields: field .* has a valid zero value.*should be a pointer"
+      path: "apis/kueue/v1beta2"
+
+    # Required fields that intentionally exclude omitempty
+    - text: "requiredfields: field (ControllerName|LastUpdate|Reason|UnderlyingCause|Message|WeightedShare|Value|ConsumedResources|Location) should have the omitempty tag."
+      path: "apis/kueue/v1beta2"
+
+    # ResourceList fields (map types required for Kubernetes compatibility)
+    - text: "(nomaps|optionalfields): (field )?(ResourceUsage|Resources|ConsumedResources) should (not use a map type|be a pointer)"
+      path: "apis/kueue/v1beta2"
+
+    # Bool fields for API compatibility (Active mirrors Job.Suspend, Unconstrained is existing API)
+    - text: "(nobools|optionalorrequired): field (Active|Unconstrained) .*(should not use a bool|must be marked as optional or required)"
+      path: "apis/kueue/v1beta2"
+
 issues:
   max-same-issues: 0
   max-issues-per-linter: 0

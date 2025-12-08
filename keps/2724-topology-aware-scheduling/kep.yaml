@@ -3,6 +3,7 @@ kep-number: 2724
 authors:
   - "@mimowo"
   - "@mwielgus"
+  - "@olekzabl"
   - "@pbundyra"
 status: provisional
 creation-date: 2023-07-30
@@ -42,6 +43,7 @@ feature-gates:
   - name: TASFailedNodeReplacement
   - name: TASFailedNodeReplacementFailFast
   - name: TASReplaceNodeOnPodTermination
+  - name: TASBalancedPlacement
 disable-supported: true
 
 # The following PRR answers are required at beta release

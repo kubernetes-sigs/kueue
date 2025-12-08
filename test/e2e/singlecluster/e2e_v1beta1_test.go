@@ -27,7 +27,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util"
@@ -42,6 +42,7 @@ var _ = ginkgo.Describe("Kueue v1beta2", func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 		sampleJob = testingjob.MakeJob("test-job", ns.Name).
 			Queue("main").
+			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 			RequestAndLimit(corev1.ResourceCPU, "1").
 			RequestAndLimit(corev1.ResourceMemory, "20Mi").
 			Obj()
@@ -130,8 +131,8 @@ var _ = ginkgo.Describe("Kueue v1beta2", func() {
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob.Name, sampleJob.UID), Namespace: ns.Name}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-				g.Expect(hasQuotaReservation(createdWorkload)).Should(gomega.BeTrue())
-				g.Expect(createdWorkload.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.WorkloadFinished))
+				g.Expect(hasQuotaReservation(createdWorkload)).Should(gomega.BeFalse())
+				g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})

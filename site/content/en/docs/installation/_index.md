@@ -156,7 +156,6 @@ data:
       webhookServiceName: kueue-webhook-service
       webhookSecretName: kueue-webhook-server-cert
     waitForPodsReady:
-      enable: true
       timeout: 10m
     integrations:
       frameworks:
@@ -237,7 +236,25 @@ To install and configure Kueue with [Helm](https://helm.sh/), follow the [instru
 
 Kueue uses a similar mechanism to configure features as described in [Kubernetes Feature Gates](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates).
 
-In order to change the default of a feature, you need to edit the `kueue-controller-manager` deployment within the kueue installation namespace and change the `manager` container arguments to include
+You can edit the `kueue-manager-config` `ConfigMap` and add the feature gate you would like to manage, for example:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+  name: kueue-manager-config
+  namespace: kueue-system
+data:
+  controller_manager_config.yaml: |
+    apiVersion: config.kueue.x-k8s.io/v1beta1
+    kind: Configuration
+    featureGates:
+      ManagedJobsNamespaceSelectorAlwaysRespected: true
+  ...
+```
+
+After changing the `ConfigMap`, you need to restart the `kueue-controller-manager` deployment to have the change enforced, for example using: `kubectl rollout restart deploy kueue-controller-manager -n kueue-system`.
+
+Alternatively, you can edit the `kueue-controller-manager` deployment within the kueue installation namespace and change the `manager` container arguments to include
 
 ```
 --feature-gates=...,<FeatureName>=<true|false>
@@ -296,14 +313,19 @@ spec:
 | `ElasticJobsViaWorkloadSlices`                | `false` | Alpha | 0.13  |       |
 | `ManagedJobsNamespaceSelectorAlwaysRespected` | `false` | Alpha | 0.13  | 0.15  |
 | `ManagedJobsNamespaceSelectorAlwaysRespected` | `true`  | Beta  | 0.15  |       |
-| `FlavorFungibilityImplicitPreferenceDefault`  | `false` | Alpha | 0.13  |       |
+| `FlavorFungibilityImplicitPreferenceDefault`  | `false` | Alpha | 0.13  | 0.16  |
 | `WorkloadRequestUseMergePatch`                | `false` | Alpha | 0.14  |       |
 | `SanitizePodSets`                             | `true`  | Beta  | 0.13  |       |
 | `MultiKueueAllowInsecureKubeconfigs`          | `false` | Alpha | 0.13  |       |
 | `ReclaimablePods`                             | `true`  | Beta  | 0.15  |       |
+| `MultiKueueAdaptersForCustomJobs`             | `false` | Alpha | 0.14  | 0.14  |
+| `MultiKueueAdaptersForCustomJobs`             | `true`  | Beta  | 0.15  |       |
+| `PropagateBatchJobLabelsToWorkload`           | `true`  | Beta  | 0.15  |       |
+| `FailureRecoveryPolicy`                       | `false` | Alpha | 0.15  |       |
 
 {{% alert title="Note" color="primary" %}}
 The SanitizePodSets and MultiKueueAllowInsecureKubeconfigs features are available starting from versions 0.13.8 and 0.14.3.
+The PropagateBatchJobLabelsToWorkload feature is available starting from versions 0.13.10 and 0.14.5.
 {{% /alert %}}
 
 ### Feature gates for graduated or deprecated features

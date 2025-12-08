@@ -27,7 +27,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	deploymenttesting "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	"sigs.k8s.io/kueue/test/util"
@@ -65,10 +65,10 @@ var _ = ginkgo.Describe("Deployment", func() {
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 			}).
 			Obj()
-		util.MustCreate(ctx, k8sClient, cq)
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 
 		lq = utiltestingapi.MakeLocalQueue(localQueueName, ns.Name).ClusterQueue(cq.Name).Obj()
-		util.MustCreate(ctx, k8sClient, lq)
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -111,7 +111,7 @@ var _ = ginkgo.Describe("Deployment", func() {
 					Namespace: p.Namespace,
 				}
 				gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				gomega.Expect(createdWorkload.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+				gomega.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
 				createdWorkloads = append(createdWorkloads, createdWorkload)
 			}
 		})
@@ -161,7 +161,7 @@ var _ = ginkgo.Describe("Deployment", func() {
 				g.Expect(k8sClient.List(ctx, createdWorkloads, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				g.Expect(createdWorkloads.Items).To(gomega.HaveLen(3))
 				for _, wl := range createdWorkloads.Items {
-					g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusFalse(kueue.WorkloadQuotaReserved))
+					g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusFalse(kueue.WorkloadQuotaReserved))
 				}
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -202,7 +202,7 @@ var _ = ginkgo.Describe("Deployment", func() {
 				g.Expect(k8sClient.List(ctx, createdWorkloads, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				g.Expect(createdWorkloads.Items).To(gomega.HaveLen(3))
 				for _, wl := range createdWorkloads.Items {
-					g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+					g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
 				}
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})

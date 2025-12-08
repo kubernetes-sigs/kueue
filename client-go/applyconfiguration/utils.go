@@ -59,6 +59,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.AdmissionScopeApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("BorrowWithinCohort"):
 		return &kueuev1beta1.BorrowWithinCohortApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("ClusterProfileReference"):
+		return &kueuev1beta1.ClusterProfileReferenceApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ClusterQueue"):
 		return &kueuev1beta1.ClusterQueueApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ClusterQueuePendingWorkload"):
@@ -189,12 +191,12 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta2.AdmissionCheckStatusApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("AdmissionCheckStrategyRule"):
 		return &kueuev1beta2.AdmissionCheckStrategyRuleApplyConfiguration{}
-	case v1beta2.SchemeGroupVersion.WithKind("AdmissionFairSharingStatus"):
-		return &kueuev1beta2.AdmissionFairSharingStatusApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("AdmissionScope"):
 		return &kueuev1beta2.AdmissionScopeApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("BorrowWithinCohort"):
 		return &kueuev1beta2.BorrowWithinCohortApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("ClusterProfileReference"):
+		return &kueuev1beta2.ClusterProfileReferenceApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("ClusterQueue"):
 		return &kueuev1beta2.ClusterQueueApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("ClusterQueuePreemption"):
@@ -203,6 +205,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta2.ClusterQueueSpecApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("ClusterQueueStatus"):
 		return &kueuev1beta2.ClusterQueueStatusApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("ClusterSource"):
+		return &kueuev1beta2.ClusterSourceApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("Cohort"):
 		return &kueuev1beta2.CohortApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("CohortSpec"):
@@ -223,6 +227,10 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta2.KubeConfigApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("LocalQueue"):
 		return &kueuev1beta2.LocalQueueApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("LocalQueueAdmissionFairSharingStatus"):
+		return &kueuev1beta2.LocalQueueAdmissionFairSharingStatusApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("LocalQueueFairSharingStatus"):
+		return &kueuev1beta2.LocalQueueFairSharingStatusApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("LocalQueueFlavorUsage"):
 		return &kueuev1beta2.LocalQueueFlavorUsageApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("LocalQueueResourceUsage"):
@@ -251,6 +259,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta2.PodSetTopologyRequestApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("PodSetUpdate"):
 		return &kueuev1beta2.PodSetUpdateApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("PriorityClassRef"):
+		return &kueuev1beta2.PriorityClassRefApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("ProvisioningRequestConfig"):
 		return &kueuev1beta2.ProvisioningRequestConfigApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("ProvisioningRequestConfigSpec"):
@@ -281,8 +291,14 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta2.TopologyApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("TopologyAssignment"):
 		return &kueuev1beta2.TopologyAssignmentApplyConfiguration{}
-	case v1beta2.SchemeGroupVersion.WithKind("TopologyDomainAssignment"):
-		return &kueuev1beta2.TopologyDomainAssignmentApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("TopologyAssignmentSlice"):
+		return &kueuev1beta2.TopologyAssignmentSliceApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("TopologyAssignmentSliceLevelIndividualValues"):
+		return &kueuev1beta2.TopologyAssignmentSliceLevelIndividualValuesApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("TopologyAssignmentSliceLevelValues"):
+		return &kueuev1beta2.TopologyAssignmentSliceLevelValuesApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("TopologyAssignmentSlicePodCounts"):
+		return &kueuev1beta2.TopologyAssignmentSlicePodCountsApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("TopologyLevel"):
 		return &kueuev1beta2.TopologyLevelApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("TopologySpec"):

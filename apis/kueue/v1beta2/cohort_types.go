@@ -33,7 +33,7 @@ type CohortSpec struct {
 	// removed.  We prevent further admission while the cycle
 	// exists.
 	// +optional
-	ParentName CohortReference `json:"parentName,omitempty"` //nolint:kubeapilinter // should not be a pointer
+	ParentName CohortReference `json:"parentName,omitempty"`
 
 	// resourceGroups describes groupings of Resources and
 	// Flavors.  Each ResourceGroup defines a list of Resources
@@ -81,6 +81,8 @@ type CohortStatus struct {
 }
 
 // +genclient
+// +genclient:nonNamespaced
+// +kubebuilder:storageversion
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster
 // +kubebuilder:subresource:status
@@ -98,10 +100,10 @@ type Cohort struct {
 
 	// spec is the specification of the Cohort.
 	// +optional
-	Spec CohortSpec `json:"spec"` //nolint:kubeapilinter // spec should not be a pointer
+	Spec CohortSpec `json:"spec"`
 	// status is the status of the Cohort.
 	// +optional
-	Status CohortStatus `json:"status,omitempty"` //nolint:kubeapilinter // status should not be a pointer
+	Status CohortStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -116,3 +118,5 @@ type CohortList struct {
 func init() {
 	SchemeBuilder.Register(&Cohort{}, &CohortList{})
 }
+
+func (src *Cohort) Hub() {}

@@ -21,6 +21,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	configv1alpha1 "k8s.io/component-base/config/v1alpha1"
 )
 
@@ -215,20 +216,15 @@ type ControllerConfigurationSpec struct {
 // WaitForPodsReady defines configuration for the Wait For Pods Ready feature,
 // which is used to ensure that all Pods are ready within the specified time.
 type WaitForPodsReady struct {
-	// Enable indicates whether to enable wait for pods ready feature.
-	// Defaults to false.
-	Enable bool `json:"enable,omitempty"`
-
 	// Timeout defines the time for an admitted workload to reach the
 	// PodsReady=true condition. When the timeout is exceeded, the workload
 	// evicted and requeued in the same cluster queue.
-	// Defaults to 5min.
-	// +optional
-	Timeout *metav1.Duration `json:"timeout,omitempty"`
+	Timeout metav1.Duration `json:"timeout"`
 
-	// BlockAdmission when true, cluster queue will block admissions for all
+	// BlockAdmission when true, the cluster queue will block admissions for all
 	// subsequent jobs until the jobs reach the PodsReady=true condition.
-	// This setting is only honored when `Enable` is set to true.
+	// Defaults to false.
+	// +optional
 	BlockAdmission *bool `json:"blockAdmission,omitempty"`
 
 	// RequeuingStrategy defines the strategy for requeuing a Workload.
@@ -240,8 +236,7 @@ type WaitForPodsReady struct {
 	// Such a transition may happen when a Pod failed and the replacement Pod
 	// is awaited to be scheduled.
 	// After exceeding the timeout the corresponding job gets suspended again
-	// and requeued after the backoff delay. The timeout is enforced only if waitForPodsReady.enable=true.
-	// If not set, there is no timeout.
+	// and requeued after the backoff delay.
 	// +optional
 	RecoveryTimeout *metav1.Duration `json:"recoveryTimeout,omitempty"`
 }
@@ -278,6 +273,10 @@ type MultiKueue struct {
 	// GroupVersionKind (GVK) for MultiKueue operations.
 	// +optional
 	ExternalFrameworks []MultiKueueExternalFramework `json:"externalFrameworks,omitempty"`
+
+	// ClusterProfile defines configuration for using the ClusterProfile API.
+	// +optional
+	ClusterProfile *ClusterProfile `json:"clusterProfile,omitempty"`
 }
 
 // MultiKueueExternalFramework defines a framework that is not built-in.
@@ -371,6 +370,21 @@ type InternalCertManagement struct {
 	WebhookSecretName *string `json:"webhookSecretName,omitempty"`
 }
 
+// ClusterProfile defines configuration for using the ClusterProfile API in MultiKueue.
+type ClusterProfile struct {
+	// CredentialsProviders defines a list of providers to obtain credentials of worker clusters
+	// using the ClusterProfile API.
+	CredentialsProviders []ClusterProfileCredentialsProvider `json:"credentialsProviders,omitempty"`
+}
+
+// ClusterProfileCredentialsProvider defines a credentials provider in the ClusterProfile API.
+type ClusterProfileCredentialsProvider struct {
+	// Name is the name of the provider.
+	Name string `json:"name"`
+	//  ExecConfig is the exec configuration to obtain credentials.
+	ExecConfig clientcmdapi.ExecConfig `json:"execConfig"`
+}
+
 type ClientConnection struct {
 	// QPS controls the number of queries per second allowed for K8S api server
 	// connection.
@@ -398,9 +412,9 @@ type Integrations struct {
 	//  - "trainer.kubeflow.org/trainjob"
 	//  - "workload.codeflare.dev/appwrapper"
 	//  - "pod"
-	//  - "deployment" (requires enabling pod integration)
-	//  - "statefulset" (requires enabling pod integration)
-	//  - "leaderworkerset.x-k8s.io/leaderworkerset" (requires enabling pod integration)
+	//  - "deployment"
+	//  - "statefulset"
+	//  - "leaderworkerset.x-k8s.io/leaderworkerset"
 	Frameworks []string `json:"frameworks,omitempty"`
 	// List of GroupVersionKinds that are managed for Kueue by external controllers;
 	// the expected format is `Kind.version.group.com`.
@@ -480,10 +494,6 @@ const (
 )
 
 type FairSharing struct {
-	// enable indicates whether to enable Fair Sharing for all cohorts.
-	// Defaults to false.
-	Enable bool `json:"enable"`
-
 	// preemptionStrategies indicates which constraints should a preemption satisfy.
 	// The preemption algorithm will only use the next strategy in the list if the
 	// incoming workload (preemptor) doesn't fit after using the previous strategies.
@@ -499,8 +509,7 @@ type FairSharing struct {
 	//   This strategy doesn't depend on the share usage of the workload being preempted.
 	//   As a result, the strategy chooses to preempt workloads with the lowest priority and
 	//   newest start time first.
-	// The default strategy is ["LessThanOrEqualToFinalShare", "LessThanInitialShare"].
-	PreemptionStrategies []PreemptionStrategy `json:"preemptionStrategies,omitempty"`
+	PreemptionStrategies []PreemptionStrategy `json:"preemptionStrategies"`
 }
 
 type AdmissionFairSharing struct {

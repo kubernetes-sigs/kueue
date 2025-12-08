@@ -35,6 +35,8 @@ spec:
       name: Admitted Workloads
       priority: 1
       type: integer
+    deprecated: true
+    deprecationWarning: This version is deprecated. Use v1beta2 instead.
     name: v1beta1
     schema:
       openAPIV3Schema:
@@ -163,6 +165,22 @@ spec:
                   flavorFungibility defines whether a workload should try the next flavor
                   before borrowing or preempting in the flavor being evaluated.
                 properties:
+                  preference:
+                    description: |-
+                      preference guides the choosing of the flavor for admission in case all candidate flavors
+                      require either preemption, borrowing, or both. The possible values are:
+                      - `BorrowingOverPreemption` (default): prefer to use borrowing rather than preemption
+                      when such a choice is possible. More technically it minimizes the borrowing distance
+                      in the cohort tree, and solves tie-breaks by preferring better preemption mode
+                      (reclaim over preemption within ClusterQueue).
+                      - `PreemptionOverBorrowing`: prefer to use preemption rather than borrowing
+                      when such a choice is possible.  More technically it optimizes the preemption mode
+                      (reclaim over preemption within ClusterQueue), and solves tie-breaks by minimizing
+                      the borrowing distance in the cohort tree.
+                    enum:
+                    - BorrowingOverPreemption
+                    - PreemptionOverBorrowing
+                    type: string
                   whenCanBorrow:
                     default: MayStopSearch
                     description: |-
@@ -195,6 +213,11 @@ spec:
                     - Preempt
                     type: string
                 type: object
+                x-kubernetes-validations:
+                - message: preference can only be set when both whenCanBorrow and
+                    whenCanPreempt are TryNextFlavor
+                  rule: '!has(self.preference) || (self.whenCanBorrow == ''TryNextFlavor''
+                    && self.whenCanPreempt == ''TryNextFlavor'')'
               namespaceSelector:
                 description: |-
                   namespaceSelector defines which namespaces are allowed to submit workloads to
@@ -733,6 +756,7 @@ spec:
                 description: |-
                   pendingWorkloadsStatus contains the information exposed about the current
                   status of the pending workloads in the cluster queue.
+
                   Deprecated: This field is no longer effective since v0.14.0, which means Kueue no longer stores and updates information.
                   You can migrate to VisibilityOnDemand
                   (https://kueue.sigs.k8s.io/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/)
@@ -776,7 +800,7 @@ spec:
             type: object
         type: object
     served: true
-    storage: true
+    storage: false
     subresources:
       status: {}
   - additionalPrinterColumns:
@@ -823,21 +847,9 @@ spec:
           spec:
             description: spec is the specification of the ClusterQueue.
             properties:
-              admissionChecks:
-                description: |-
-                  admissionChecks lists the AdmissionChecks required by this ClusterQueue.
-                  Cannot be used along with AdmissionCheckStrategy.
-                  Admission checks are limited to at most 64 items.
-                items:
-                  description: AdmissionCheckReference is the name of an AdmissionCheck.
-                  maxLength: 316
-                  minLength: 1
-                  type: string
-                type: array
               admissionChecksStrategy:
-                description: |-
-                  admissionChecksStrategy defines a list of strategies to determine which ResourceFlavors require AdmissionChecks.
-                  This property cannot be used in conjunction with the 'admissionChecks' property.
+                description: admissionChecksStrategy defines a list of strategies
+                  to determine which ResourceFlavors require AdmissionChecks.
                 properties:
                   admissionChecks:
                     description: admissionChecks is a list of strategies for AdmissionChecks
@@ -941,6 +953,22 @@ spec:
                   flavorFungibility defines whether a workload should try the next flavor
                   before borrowing or preempting in the flavor being evaluated.
                 properties:
+                  preference:
+                    description: |-
+                      preference guides the choosing of the flavor for admission in case all candidate flavors
+                      require either preemption, borrowing, or both. The possible values are:
+                      - `BorrowingOverPreemption` (default): prefer to use borrowing rather than preemption
+                      when such a choice is possible. More technically it minimizes the borrowing distance
+                      in the cohort tree, and solves tie-breaks by preferring better preemption mode
+                      (reclaim over preemption within ClusterQueue).
+                      - `PreemptionOverBorrowing`: prefer to use preemption rather than borrowing
+                      when such a choice is possible.  More technically it optimizes the preemption mode
+                      (reclaim over preemption within ClusterQueue), and solves tie-breaks by minimizing
+                      the borrowing distance in the cohort tree.
+                    enum:
+                    - BorrowingOverPreemption
+                    - PreemptionOverBorrowing
+                    type: string
                   whenCanBorrow:
                     default: MayStopSearch
                     description: |-
@@ -969,6 +997,11 @@ spec:
                     - TryNextFlavor
                     type: string
                 type: object
+                x-kubernetes-validations:
+                - message: preference can only be set when both whenCanBorrow and
+                    whenCanPreempt are TryNextFlavor
+                  rule: '!has(self.preference) || (self.whenCanBorrow == ''TryNextFlavor''
+                    && self.whenCanPreempt == ''TryNextFlavor'')'
               namespaceSelector:
                 description: |-
                   namespaceSelector defines which namespaces are allowed to submit workloads to
@@ -1353,31 +1386,6 @@ spec:
                   when participating in Fair Sharing.
                   This is recorded only when Fair Sharing is enabled in the Kueue configuration.
                 properties:
-                  admissionFairSharingStatus:
-                    description: admissionFairSharingStatus represents information
-                      relevant to the Admission Fair Sharing
-                    properties:
-                      consumedResources:
-                        additionalProperties:
-                          anyOf:
-                          - type: integer
-                          - type: string
-                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                          x-kubernetes-int-or-string: true
-                        description: |-
-                          consumedResources represents the aggregated usage of resources over time,
-                          with decaying function applied.
-                          The value is populated if usage consumption functionality is enabled in Kueue config.
-                        type: object
-                      lastUpdate:
-                        description: lastUpdate is the time when share and consumed
-                          resources were updated.
-                        format: date-time
-                        type: string
-                    required:
-                    - consumedResources
-                    - lastUpdate
-                    type: object
                   weightedShare:
                     description: |-
                       weightedShare represents the maximum of the ratios of usage
@@ -1516,6 +1524,6 @@ spec:
             type: object
         type: object
     served: true
-    storage: false
+    storage: true
     subresources:
       status: {}

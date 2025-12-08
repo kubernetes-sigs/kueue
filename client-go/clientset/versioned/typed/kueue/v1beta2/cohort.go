@@ -32,7 +32,7 @@ import (
 // CohortsGetter has a method to return a CohortInterface.
 // A group's client should implement this interface.
 type CohortsGetter interface {
-	Cohorts(namespace string) CohortInterface
+	Cohorts() CohortInterface
 }
 
 // CohortInterface has methods to work with Cohort resources.
@@ -59,13 +59,13 @@ type cohorts struct {
 }
 
 // newCohorts returns a Cohorts
-func newCohorts(c *KueueV1beta2Client, namespace string) *cohorts {
+func newCohorts(c *KueueV1beta2Client) *cohorts {
 	return &cohorts{
 		gentype.NewClientWithListAndApply[*kueuev1beta2.Cohort, *kueuev1beta2.CohortList, *applyconfigurationkueuev1beta2.CohortApplyConfiguration](
 			"cohorts",
 			c.RESTClient(),
 			scheme.ParameterCodec,
-			namespace,
+			"",
 			func() *kueuev1beta2.Cohort { return &kueuev1beta2.Cohort{} },
 			func() *kueuev1beta2.CohortList { return &kueuev1beta2.CohortList{} },
 		),

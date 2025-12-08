@@ -25,13 +25,15 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/util/slices"
+	"sigs.k8s.io/kueue/pkg/features"
+	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
@@ -44,7 +46,7 @@ func getClientBuilder(ctx context.Context) *fake.ClientBuilder {
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(kueue.AddToScheme(scheme))
-	utilruntime.Must(kueue.AddToScheme(scheme))
+	utilruntime.Must(inventoryv1alpha1.AddToScheme(scheme))
 
 	utilruntime.Must(jobframework.ForEachIntegration(func(_ string, cb jobframework.IntegrationCallbacks) error {
 		if cb.MultiKueueAdapter != nil && cb.AddToScheme != nil {
@@ -67,7 +69,8 @@ func TestListMultiKueueClustersUsingKubeConfig(t *testing.T) {
 		wantList      []string
 	}{
 		"no clusters": {
-			filter: client.MatchingFields{UsingKubeConfigs: TestNamespace + "/secret1"},
+			filter:   client.MatchingFields{UsingKubeConfigs: TestNamespace + "/secret1"},
+			wantList: []string{},
 		},
 		"single cluster, single match": {
 			clusters: []*kueue.MultiKueueCluster{
@@ -80,7 +83,8 @@ func TestListMultiKueueClustersUsingKubeConfig(t *testing.T) {
 			clusters: []*kueue.MultiKueueCluster{
 				utiltestingapi.MakeMultiKueueCluster("cluster2").KubeConfig(kueue.SecretLocationType, "secret2").Obj(),
 			},
-			filter: client.MatchingFields{UsingKubeConfigs: TestNamespace + "/secret1"},
+			filter:   client.MatchingFields{UsingKubeConfigs: TestNamespace + "/secret1"},
+			wantList: []string{},
 		},
 		"multiple clusters, single match": {
 			clusters: []*kueue.MultiKueueCluster{
@@ -95,22 +99,83 @@ func TestListMultiKueueClustersUsingKubeConfig(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			builder := getClientBuilder(ctx)
-			k8sclient := builder.Build()
+			k8sClient := builder.Build()
 			for _, req := range tc.clusters {
-				if err := k8sclient.Create(ctx, req); err != nil {
+				if err := k8sClient.Create(ctx, req); err != nil {
 					t.Fatalf("Unable to create %q cluster: %v", client.ObjectKeyFromObject(req), err)
 				}
 			}
 
-			lst := &kueue.MultiKueueClusterList{}
+			mkClusters := &kueue.MultiKueueClusterList{}
 
-			gotListErr := k8sclient.List(ctx, lst, tc.filter)
-			if diff := cmp.Diff(tc.wantListError, gotListErr); diff != "" {
+			gotErr := k8sClient.List(ctx, mkClusters, tc.filter)
+			if diff := cmp.Diff(tc.wantListError, gotErr); diff != "" {
 				t.Errorf("unexpected list error (-want/+got):\n%s", diff)
 			}
 
-			gotList := slices.Map(lst.Items, func(mkc *kueue.MultiKueueCluster) string { return mkc.Name })
-			if diff := cmp.Diff(tc.wantList, gotList, cmpopts.EquateEmpty(), cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+			gotMKClusterNames := utilslices.Map(mkClusters.Items, func(mkc *kueue.MultiKueueCluster) string { return mkc.Name })
+			if diff := cmp.Diff(tc.wantList, gotMKClusterNames, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+				t.Errorf("unexpected list (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestListMultiKueueClustersUsingClusterProfile(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.MultiKueueClusterProfile, true)
+	cases := map[string]struct {
+		clusters      []*kueue.MultiKueueCluster
+		filter        client.ListOption
+		wantListError error
+		wantList      []string
+	}{
+		"no clusters": {
+			filter:   client.MatchingFields{UsingClusterProfiles: TestNamespace + "/clusterprofile1"},
+			wantList: []string{},
+		},
+		"single cluster, single match": {
+			clusters: []*kueue.MultiKueueCluster{
+				utiltestingapi.MakeMultiKueueCluster("cluster1").ClusterProfile("clusterprofile1").Obj(),
+			},
+			filter:   client.MatchingFields{UsingClusterProfiles: TestNamespace + "/clusterprofile1"},
+			wantList: []string{"cluster1"},
+		},
+		"single cluster, no match": {
+			clusters: []*kueue.MultiKueueCluster{
+				utiltestingapi.MakeMultiKueueCluster("cluster2").ClusterProfile("clusterprofile2").Obj(),
+			},
+			filter:   client.MatchingFields{UsingClusterProfiles: TestNamespace + "/clusterprofile1"},
+			wantList: []string{},
+		},
+		"multiple clusters, single match": {
+			clusters: []*kueue.MultiKueueCluster{
+				utiltestingapi.MakeMultiKueueCluster("cluster1").ClusterProfile("clusterprofile1").Obj(),
+				utiltestingapi.MakeMultiKueueCluster("cluster2").ClusterProfile("clusterprofile2").Obj(),
+			},
+			filter:   client.MatchingFields{UsingClusterProfiles: TestNamespace + "/clusterprofile1"},
+			wantList: []string{"cluster1"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			builder := getClientBuilder(ctx)
+			k8sClient := builder.Build()
+			for _, req := range tc.clusters {
+				if err := k8sClient.Create(ctx, req); err != nil {
+					t.Fatalf("Unable to create %q cluster: %v", client.ObjectKeyFromObject(req), err)
+				}
+			}
+
+			mkClusters := &kueue.MultiKueueClusterList{}
+
+			gotErr := k8sClient.List(ctx, mkClusters, tc.filter)
+			if diff := cmp.Diff(tc.wantListError, gotErr); diff != "" {
+				t.Errorf("unexpected list error (-want/+got):\n%s", diff)
+			}
+
+			gotMKClusterNames := utilslices.Map(mkClusters.Items, func(mkc *kueue.MultiKueueCluster) string { return mkc.Name })
+			if diff := cmp.Diff(tc.wantList, gotMKClusterNames, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
 				t.Errorf("unexpected list (-want/+got):\n%s", diff)
 			}
 		})
@@ -125,7 +190,8 @@ func TestListMultiKueueConfigsUsingMultiKueueClusters(t *testing.T) {
 		wantList      []string
 	}{
 		"no configs": {
-			filter: client.MatchingFields{UsingMultiKueueClusters: "cluster1"},
+			filter:   client.MatchingFields{UsingMultiKueueClusters: "cluster1"},
+			wantList: []string{},
 		},
 		"single config, single match": {
 			configs: []*kueue.MultiKueueConfig{
@@ -138,7 +204,8 @@ func TestListMultiKueueConfigsUsingMultiKueueClusters(t *testing.T) {
 			configs: []*kueue.MultiKueueConfig{
 				utiltestingapi.MakeMultiKueueConfig("config2").Clusters("cluster2").Obj(),
 			},
-			filter: client.MatchingFields{UsingMultiKueueClusters: "cluster1"},
+			filter:   client.MatchingFields{UsingMultiKueueClusters: "cluster1"},
+			wantList: []string{},
 		},
 		"multiple configs, single match": {
 			configs: []*kueue.MultiKueueConfig{
@@ -153,22 +220,22 @@ func TestListMultiKueueConfigsUsingMultiKueueClusters(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			builder := getClientBuilder(ctx)
-			k8sclient := builder.Build()
+			k8sClient := builder.Build()
 			for _, config := range tc.configs {
-				if err := k8sclient.Create(ctx, config); err != nil {
+				if err := k8sClient.Create(ctx, config); err != nil {
 					t.Fatalf("Unable to create %q config: %v", client.ObjectKeyFromObject(config), err)
 				}
 			}
 
-			lst := &kueue.MultiKueueConfigList{}
+			mkConfigs := &kueue.MultiKueueConfigList{}
 
-			gotListErr := k8sclient.List(ctx, lst, tc.filter)
-			if diff := cmp.Diff(tc.wantListError, gotListErr); diff != "" {
+			gotErr := k8sClient.List(ctx, mkConfigs, tc.filter)
+			if diff := cmp.Diff(tc.wantListError, gotErr); diff != "" {
 				t.Errorf("unexpected list error (-want/+got):\n%s", diff)
 			}
 
-			gotList := slices.Map(lst.Items, func(mkc *kueue.MultiKueueConfig) string { return mkc.Name })
-			if diff := cmp.Diff(tc.wantList, gotList, cmpopts.EquateEmpty(), cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+			gotMKConfigNames := utilslices.Map(mkConfigs.Items, func(mkc *kueue.MultiKueueConfig) string { return mkc.Name })
+			if diff := cmp.Diff(tc.wantList, gotMKConfigNames, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
 				t.Errorf("unexpected list (-want/+got):\n%s", diff)
 			}
 		})
@@ -241,7 +308,7 @@ func TestListWorkloadsWithAdmissionCheck(t *testing.T) {
 				t.Errorf("unexpected error (-want/+got):\n%s", diff)
 			}
 
-			gotList := slices.Map(lst.Items, func(wl *kueue.Workload) string { return wl.Name })
+			gotList := utilslices.Map(lst.Items, func(wl *kueue.Workload) string { return wl.Name })
 			if diff := cmp.Diff(tc.wantList, gotList, cmpopts.EquateEmpty(), cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
 				t.Errorf("unexpected (-want/+got):\n%s", diff)
 			}

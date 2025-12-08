@@ -138,7 +138,6 @@ To enable Fair Sharing, [use a Kueue Configuration](/docs/installation#install-a
 apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 fairSharing:
-  enable: true
   preemptionStrategies: [LessThanOrEqualToFinalShare, LessThanInitialShare]
 ```
 
@@ -185,7 +184,6 @@ The values you can put in the `preemptionStrategies` list are:
   Note that this strategy doesn't depend on the share usage of the Workload being preempted.
   As a result, the strategy chooses to first preempt workloads with the lowest priority and
   newest start time within the target ClusterQueue.
-The default strategy is `[LessThanOrEqualToFinalShare, LessThanInitialShare]`
 
 ### Algorithm overview
 

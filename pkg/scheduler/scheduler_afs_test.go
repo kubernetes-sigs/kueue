@@ -37,6 +37,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
+	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -64,32 +65,14 @@ func TestScheduleForAFS(t *testing.T) {
 		*utiltestingapi.MakeLocalQueue("lq-a", "default").
 			FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
 			ClusterQueue("cq1").
-			FairSharingStatus(&kueue.FairSharingStatus{
-				WeightedShare: 1,
-				AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
-					ConsumedResources: corev1.ResourceList{},
-				},
-			}).
 			Obj(),
 		*utiltestingapi.MakeLocalQueue("lq-b", "default").
 			FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
 			ClusterQueue("cq1").
-			FairSharingStatus(&kueue.FairSharingStatus{
-				WeightedShare: 1,
-				AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
-					ConsumedResources: corev1.ResourceList{},
-				},
-			}).
 			Obj(),
 		*utiltestingapi.MakeLocalQueue("lq-c", "default").
 			FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
 			ClusterQueue("cq1").
-			FairSharingStatus(&kueue.FairSharingStatus{
-				WeightedShare: 1,
-				AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
-					ConsumedResources: corev1.ResourceList{},
-				},
-			}).
 			Obj(),
 	}
 
@@ -512,6 +495,81 @@ func TestScheduleForAFS(t *testing.T) {
 					Obj(),
 			},
 		},
+		"admits workload from lq-b with uninitialized cache": {
+			enableFairSharing: true,
+			initialUsage: map[string]corev1.ResourceList{
+				"lq-a": {corev1.ResourceCPU: resource.MustParse("8")},
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-a1", "default").
+					Queue("lq-a").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "8").
+						Obj()).
+					Creation(now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-b1", "default").
+					Queue("lq-b").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "8").
+						Obj()).
+					Creation(now.Add(1 * time.Second)).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-a1", "default").
+					Queue("lq-a").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "8").
+						Obj()).
+					Creation(now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             "Pending",
+						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor default, 8 more needed",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("8"),
+						},
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-b1", "default").
+					Queue("lq-b").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "8").
+						Obj()).
+					Creation(now.Add(1 * time.Second)).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "QuotaReserved",
+						Message:            "Quota reserved in ClusterQueue cq1",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Admitted",
+						Message:            "The workload is admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Admission(
+						utiltestingapi.MakeAdmission("cq1").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment("one").
+									Assignment(corev1.ResourceCPU, "default", "8").
+									Count(1).
+									Obj(),
+							).
+							Obj(),
+					).
+					Obj(),
+			},
+		},
 	}
 
 	for name, tc := range cases {
@@ -519,12 +577,6 @@ func TestScheduleForAFS(t *testing.T) {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
 				features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, tc.enableFairSharing)
-
-				for i, q := range queues {
-					if resList, found := tc.initialUsage[q.Name]; found {
-						queues[i].Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources = resList
-					}
-				}
 
 				clientBuilder := utiltesting.NewClientBuilder().
 					WithLists(
@@ -538,10 +590,7 @@ func TestScheduleForAFS(t *testing.T) {
 					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 				cl := clientBuilder.Build()
 
-				fairSharing := &config.FairSharing{
-					Enable: tc.enableFairSharing,
-				}
-				cqCache := schdcache.New(cl, schdcache.WithFairSharing(fairSharing.Enable), schdcache.WithAdmissionFairSharing(afsConfig))
+				cqCache := schdcache.New(cl, schdcache.WithFairSharing(tc.enableFairSharing), schdcache.WithAdmissionFairSharing(afsConfig))
 				qManager := qcache.NewManager(cl, cqCache, qcache.WithAdmissionFairSharing(afsConfig))
 
 				ctx, log := utiltesting.ContextWithLog(t)
@@ -549,6 +598,10 @@ func TestScheduleForAFS(t *testing.T) {
 					if err := qManager.AddLocalQueue(ctx, &q); err != nil {
 						t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
 					}
+				}
+				for lqName, resources := range tc.initialUsage {
+					lqKey := utilqueue.LocalQueueReference(fmt.Sprintf("default/%s", lqName))
+					qManager.AfsConsumedResources.Set(lqKey, resources, fakeClock.Now())
 				}
 				for _, rf := range resourceFlavors {
 					cqCache.AddOrUpdateResourceFlavor(log, rf)
@@ -562,8 +615,12 @@ func TestScheduleForAFS(t *testing.T) {
 					}
 				}
 				recorder := &utiltesting.EventRecorder{}
+				var preemptionFairSharing *config.FairSharing
+				if tc.enableFairSharing {
+					preemptionFairSharing = &config.FairSharing{}
+				}
 				scheduler := New(qManager, cqCache, cl, recorder,
-					WithFairSharing(fairSharing),
+					WithFairSharing(preemptionFairSharing),
 					WithAdmissionFairSharing(afsConfig),
 					WithClock(t, fakeClock))
 				wg := sync.WaitGroup{}

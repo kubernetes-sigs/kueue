@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -39,7 +38,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/util/tas"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
@@ -54,13 +54,11 @@ const (
 	priorityValue     int32 = 10
 )
 
-var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, ginkgo.ContinueOnFailure, func() {
-	var realClock = clock.RealClock{}
-
+var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, ginkgo.ContinueOnFailure, func() {
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
 			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
-		unmanagedNamespace := testing.MakeNamespace("unmanaged-ns")
+		unmanagedNamespace := utiltesting.MakeNamespace("unmanaged-ns")
 		util.MustCreate(ctx, k8sClient, unmanagedNamespace)
 	})
 	ginkgo.AfterAll(func() {
@@ -109,7 +107,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 
 		ginkgo.It("Should reconcile JobSets", func() {
 			ginkgo.By("checking the JobSet gets suspended when created unsuspended")
-			priorityClass := testing.MakePriorityClass(priorityClassName).
+			priorityClass := utiltesting.MakePriorityClass(priorityClassName).
 				PriorityValue(priorityValue).Obj()
 			util.MustCreate(ctx, k8sClient, priorityClass)
 
@@ -146,9 +144,9 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 			gomega.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(kueue.LocalQueueName("")), "The Workload shouldn't have .spec.queueName set")
 			gomega.Expect(metav1.IsControlledBy(createdWorkload, createdJobSet)).To(gomega.BeTrue(), "The Workload should be owned by the JobSet")
 
-			ginkgo.By("checking the workload is created with priority and priorityName")
-			gomega.Expect(createdWorkload.Spec.PriorityClassName).Should(gomega.Equal(priorityClassName))
-			gomega.Expect(*createdWorkload.Spec.Priority).Should(gomega.Equal(priorityValue))
+			ginkgo.By("checking the workload is created with workload priority class", func() {
+				util.ExpectWorkloadsWithPodPriority(ctx, k8sClient, priorityClassName, priorityValue, wlLookupKey)
+			})
 
 			ginkgo.By("checking the workload is updated with queue name when the JobSet does")
 			var jobSetQueueName kueue.LocalQueueName = "test-queue"
@@ -173,7 +171,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 			key := types.NamespacedName{Name: secondWl.Name, Namespace: secondWl.Namespace}
 			gomega.Eventually(func(g gomega.Gomega) {
 				wl := &kueue.Workload{}
-				g.Expect(k8sClient.Get(ctx, key, wl)).Should(testing.BeNotFoundError())
+				g.Expect(k8sClient.Get(ctx, key, wl)).Should(utiltesting.BeNotFoundError())
 				// check the original wl is still there
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -200,7 +198,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, lookupKey, createdJobSet)).Should(gomega.Succeed())
 				g.Expect(ptr.Deref(createdJobSet.Spec.Suspend, false)).Should(gomega.BeFalse())
-				ok, _ := testing.CheckEventRecordedFor(ctx, k8sClient, "Started", corev1.EventTypeNormal, fmt.Sprintf("Admitted by clusterQueue %v", clusterQueue.Name), lookupKey)
+				ok, _ := utiltesting.CheckEventRecordedFor(ctx, k8sClient, "Started", corev1.EventTypeNormal, fmt.Sprintf("Admitted by clusterQueue %v", clusterQueue.Name), lookupKey)
 				g.Expect(ok).Should(gomega.BeTrue())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			gomega.Expect(createdJobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.NodeSelector).Should(gomega.Equal(map[string]string{instanceKey: onDemandFlavor.Name}))
@@ -218,7 +216,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 				g.Expect(jobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.NodeSelector).Should(gomega.BeEmpty())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
-				ok, _ := testing.CheckEventRecordedFor(ctx, k8sClient, "DeletedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching Workload: %v", wlLookupKey.String()), lookupKey)
+				ok, _ := utiltesting.CheckEventRecordedFor(ctx, k8sClient, "DeletedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching Workload: %v", wlLookupKey.String()), lookupKey)
 				g.Expect(ok).Should(gomega.BeTrue())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -298,7 +296,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: jobSetName, Namespace: jobSet.Namespace}, createdJobSet)).Should(gomega.Succeed())
 				g.Expect(ptr.Deref(createdJobSet.Spec.Suspend, false)).Should(gomega.BeFalse())
-				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(testing.BeNotFoundError())
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(utiltesting.BeNotFoundError())
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 
@@ -354,7 +352,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 			ginkgo.By("preempt the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-					g.Expect(workload.UpdateStatus(ctx, k8sClient, createdWorkload, kueue.WorkloadEvicted, metav1.ConditionTrue, kueue.WorkloadEvictedByPreemption, "By test", "evict", clock.RealClock{})).To(gomega.Succeed())
+					g.Expect(workload.SetConditionAndUpdate(ctx, k8sClient, createdWorkload, kueue.WorkloadEvicted, metav1.ConditionTrue, kueue.WorkloadEvictedByPreemption, "By test", "evict", util.RealClock)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -368,7 +366,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 			ginkgo.By("the workload should stay admitted", func() {
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-					g.Expect(createdWorkload.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadQuotaReserved))
+					g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadQuotaReserved))
 				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 
@@ -591,7 +589,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 								},
 							},
 						},
-					}, realClock)
+					}, util.RealClock)
 					g.Expect(k8sClient.Status().Update(ctx, &newWL)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -684,7 +682,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 	})
 })
 
-var _ = ginkgo.Describe("JobSet controller for workloads when only jobs with queue are managed", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("JobSet controller for workloads when only jobs with queue are managed", ginkgo.Label("job:jobset", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup())
 	})
@@ -726,7 +724,7 @@ var _ = ginkgo.Describe("JobSet controller for workloads when only jobs with que
 		createdWorkload := &kueue.Workload{}
 		wlLookupKey := types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSet.Name, jobSet.UID), Namespace: ns.Name}
 		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(testing.BeNotFoundError())
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(utiltesting.BeNotFoundError())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("checking the workload is created when queue name is set")
@@ -743,7 +741,7 @@ var _ = ginkgo.Describe("JobSet controller for workloads when only jobs with que
 	})
 })
 
-var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkgo.Label("job:jobset", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	type podsReadyTestSpec struct {
 		beforeJobSetStatus *jobsetapi.JobSetStatus
 		beforeCondition    *metav1.Condition
@@ -755,7 +753,7 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 	var defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{Enable: true})))
+		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{})))
 
 		ginkgo.By("Create a resource flavor")
 		util.MustCreate(ctx, k8sClient, defaultFlavor)
@@ -954,7 +952,7 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 	)
 })
 
-var _ = ginkgo.Describe("JobSet controller interacting with scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("JobSet controller interacting with scheduler", ginkgo.Label("job:jobset", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(false))
 	})
@@ -1023,7 +1021,6 @@ var _ = ginkgo.Describe("JobSet controller interacting with scheduler", ginkgo.O
 			g.Expect(*createdJobSet.Spec.Suspend).Should(gomega.BeFalse())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-		fmt.Println(createdJobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.NodeSelector)
 		gomega.Expect(createdJobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
 		gomega.Expect(createdJobSet.Spec.ReplicatedJobs[1].Template.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
@@ -1137,7 +1134,7 @@ var _ = ginkgo.Describe("JobSet controller interacting with scheduler", ginkgo.O
 	})
 })
 
-var _ = ginkgo.Describe("JobSet controller with TopologyAwareScheduling", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("JobSet controller with TopologyAwareScheduling", ginkgo.Label("job:jobset", "area:jobs", "feature:tas"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	const (
 		nodeGroupLabel = "node-group"
 	)
@@ -1165,8 +1162,8 @@ var _ = ginkgo.Describe("JobSet controller with TopologyAwareScheduling", ginkgo
 		nodes = []corev1.Node{
 			*testingnode.MakeNode("b1r1").
 				Label(nodeGroupLabel, "tas").
-				Label(testing.DefaultBlockTopologyLevel, "b1").
-				Label(testing.DefaultRackTopologyLevel, "r1").
+				Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+				Label(utiltesting.DefaultRackTopologyLevel, "r1").
 				StatusAllocatable(corev1.ResourceList{
 					corev1.ResourceCPU:    resource.MustParse("1"),
 					corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -1193,6 +1190,7 @@ var _ = ginkgo.Describe("JobSet controller with TopologyAwareScheduling", ginkgo
 
 		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 		util.MustCreate(ctx, k8sClient, localQueue)
+		util.ExpectLocalQueuesToBeActive(ctx, k8sClient, localQueue)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -1215,7 +1213,7 @@ var _ = ginkgo.Describe("JobSet controller with TopologyAwareScheduling", ginkgo
 					Parallelism: 1,
 					Completions: 1,
 					PodAnnotations: map[string]string{
-						kueue.PodSetRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+						kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 					},
 					Image: util.GetAgnHostImage(),
 					Args:  util.BehaviorExitFast,
@@ -1226,7 +1224,7 @@ var _ = ginkgo.Describe("JobSet controller with TopologyAwareScheduling", ginkgo
 					Parallelism: 1,
 					Completions: 1,
 					PodAnnotations: map[string]string{
-						kueue.PodSetPreferredTopologyAnnotation: testing.DefaultRackTopologyLevel,
+						kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultRackTopologyLevel,
 					},
 					Image: util.GetAgnHostImage(),
 					Args:  util.BehaviorExitFast,
@@ -1253,7 +1251,7 @@ var _ = ginkgo.Describe("JobSet controller with TopologyAwareScheduling", ginkgo
 						Name:  "rj1",
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required:           ptr.To(testing.DefaultBlockTopologyLevel),
+							Required:           ptr.To(utiltesting.DefaultBlockTopologyLevel),
 							PodIndexLabel:      ptr.To(batchv1.JobCompletionIndexAnnotation),
 							SubGroupIndexLabel: ptr.To(jobsetapi.JobIndexKey),
 							SubGroupCount:      ptr.To[int32](1),
@@ -1263,7 +1261,7 @@ var _ = ginkgo.Describe("JobSet controller with TopologyAwareScheduling", ginkgo
 						Name:  "rj2",
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Preferred:          ptr.To(testing.DefaultRackTopologyLevel),
+							Preferred:          ptr.To(utiltesting.DefaultRackTopologyLevel),
 							PodIndexLabel:      ptr.To(batchv1.JobCompletionIndexAnnotation),
 							SubGroupIndexLabel: ptr.To(jobsetapi.JobIndexKey),
 							SubGroupCount:      ptr.To[int32](1),
@@ -1284,16 +1282,16 @@ var _ = ginkgo.Describe("JobSet controller with TopologyAwareScheduling", ginkgo
 				g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
 				g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(2))
 				g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
-					&kueue.TopologyAssignment{
-						Levels:  []string{testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel},
-						Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
-					},
+					tas.V1Beta2From(&tas.TopologyAssignment{
+						Levels:  []string{utiltesting.DefaultBlockTopologyLevel, utiltesting.DefaultRackTopologyLevel},
+						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
+					}),
 				))
 				g.Expect(wl.Status.Admission.PodSetAssignments[1].TopologyAssignment).Should(gomega.BeComparableTo(
-					&kueue.TopologyAssignment{
-						Levels:  []string{testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel},
-						Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
-					},
+					tas.V1Beta2From(&tas.TopologyAssignment{
+						Levels:  []string{utiltesting.DefaultBlockTopologyLevel, utiltesting.DefaultRackTopologyLevel},
+						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
+					}),
 				))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})

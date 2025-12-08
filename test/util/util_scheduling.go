@@ -24,7 +24,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -46,7 +45,6 @@ func FinishRunningWorkloadsInCQ(ctx context.Context, k8sClient client.Client, cq
 }
 
 func finishEvictionsOfAnyWorkloadsInCq(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue) sets.Set[types.UID] {
-	var realClock = clock.RealClock{}
 	finished := sets.New[types.UID]()
 	var wList kueue.WorkloadList
 	gomega.Expect(k8sClient.List(ctx, &wList)).To(gomega.Succeed())
@@ -57,8 +55,8 @@ func finishEvictionsOfAnyWorkloadsInCq(ctx context.Context, k8sClient client.Cli
 		evicted := meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted)
 		quotaReserved := meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 		if evicted && quotaReserved {
-			gomega.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, &wl, realClock, func() (*kueue.Workload, bool, error) {
-				return &wl, workload.UnsetQuotaReservationWithCondition(&wl, "Pending", "Eviction finished by test", time.Now()), nil
+			gomega.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, &wl, RealClock, func(wl *kueue.Workload) (bool, error) {
+				return workload.UnsetQuotaReservationWithCondition(wl, "Pending", "Eviction finished by test", time.Now()), nil
 			}),
 			).To(gomega.Succeed())
 			finished.Insert(wl.UID)

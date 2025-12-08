@@ -38,7 +38,7 @@ INTEGRATION_OUTPUT_OPTIONS ?= --output-interceptor-mode=none
 
 # Folder where the e2e tests are located.
 E2E_TARGET ?= ./test/e2e/...
-E2E_K8S_VERSIONS ?= 1.31.12 1.32.8 1.33.4 1.34.0
+E2E_K8S_VERSIONS ?= 1.32.8 1.33.4 1.34.0
 E2E_K8S_VERSION ?= 1.34
 E2E_K8S_FULL_VERSION ?= $(filter $(E2E_K8S_VERSION).%,$(E2E_K8S_VERSIONS))
 # Default to E2E_K8S_VERSION.0 if no match is found
@@ -46,6 +46,7 @@ E2E_K8S_FULL_VERSION := $(or $(E2E_K8S_FULL_VERSION),$(E2E_K8S_VERSION).0)
 E2E_KIND_VERSION ?= kindest/node:v$(E2E_K8S_FULL_VERSION)
 E2E_RUN_ONLY_ENV ?= false
 E2E_USE_HELM ?= false
+KUEUE_UPGRADE_FROM_VERSION ?= v0.14.4
 
 # For local testing, we should allow user to use different kind cluster name
 # Default will delete default kind cluster
@@ -66,6 +67,22 @@ endif
 .PHONY: test
 test: gotestsum ## Run tests.
 	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) $(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(shell $(GO_CMD) list $(GO_TEST_TARGET)/... | grep -v '/test/') -coverpkg=$(GO_TEST_TARGET)/... -coverprofile $(ARTIFACTS)/cover.out
+
+## Label Taxonomy:
+##   Controllers: controller:workload, controller:localqueue, controller:clusterqueue, controller:admissioncheck, controller:resourceflavor, controller:provisioning
+##   Job Types: job:batch, job:pod, job:jobset, job:pytorch, job:tensorflow, job:mpi, job:paddle, job:xgboost, job:jax, job:train, job:ray, job:appwrapper
+##   Features: feature:tas, feature:multikueue, feature:provisioning, feature:fairsharing, feature:admissionfairsharing
+##   Areas: area:core, area:jobs, area:admissionchecks, area:multikueue
+##
+## Examples:
+##   Run only LocalQueue tests: INTEGRATION_FILTERS="--label-filter=controller:localqueue" make test-integration
+##   Run all job tests: INTEGRATION_FILTERS="--label-filter=area:jobs" make test-integration
+##   Run PyTorch job tests: INTEGRATION_FILTERS="--label-filter=job:pytorch" make test-integration
+##   Run all tests except slow: INTEGRATION_FILTERS="--label-filter=!slow" make test-integration
+##   Run core tests except slow: INTEGRATION_FILTERS="--label-filter=area:core && !slow" make test-integration
+##   Run TAS-related tests: INTEGRATION_FILTERS="--label-filter=feature:tas" make test-integration
+##   Run FairSharing tests: INTEGRATION_FILTERS="--label-filter=feature:fairsharing" make test-integration
+##   Run AdmissionFairSharing tests: INTEGRATION_FILTERS="--label-filter=feature:admissionfairsharing" make test-integration
 
 .PHONY: test-integration
 test-integration: compile-crd-manifests gomod-download envtest ginkgo dep-crds kueuectl ginkgo-top ## Run integration tests for all singlecluster suites.
@@ -128,6 +145,12 @@ test-e2e-customconfigs-helm: test-e2e-customconfigs
 
 .PHONY: test-e2e-certmanager
 test-e2e-certmanager: setup-e2e-env run-test-e2e-certmanager-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+.PHONY: test-e2e-upgrade
+test-e2e-upgrade: setup-e2e-env run-test-e2e-upgrade-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+.PHONY: test-e2e-certmanager-upgrade
+test-e2e-certmanager-upgrade: setup-e2e-env run-test-e2e-certmanager-upgrade-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 run-test-e2e-singlecluster-%: K8S_VERSION = $(@:run-test-e2e-singlecluster-%=%)
 run-test-e2e-singlecluster-%:
@@ -200,6 +223,29 @@ run-test-e2e-certmanager-%:
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
+		./hack/e2e-test.sh
+
+run-test-e2e-upgrade-%: K8S_VERSION = $(@:run-test-e2e-upgrade-%=%)
+run-test-e2e-upgrade-%:
+	@echo Running upgrade e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="upgrade" \
+		KUEUE_UPGRADE_FROM_VERSION=$(KUEUE_UPGRADE_FROM_VERSION) \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
+		./hack/e2e-test.sh
+
+run-test-e2e-certmanager-upgrade-%: K8S_VERSION = $(@:run-test-e2e-certmanager-upgrade-%=%)
+run-test-e2e-certmanager-upgrade-%:
+	@echo Running upgrade e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="upgrade" \
+		KUEUE_UPGRADE_FROM_VERSION=$(KUEUE_UPGRADE_FROM_VERSION) \
+		CERTMANAGER_VERSION=$(CERTMANAGER_VERSION) \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		./hack/e2e-test.sh
 
 SCALABILITY_RUNNER := $(BIN_DIR)/performance-scheduler-runner

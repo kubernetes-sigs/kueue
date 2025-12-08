@@ -1,5 +1,5 @@
 ---
-title: Kueue Configuration API
+title: Kueue Configuration v1beta2 API
 content_type: tool-reference
 package: config.kueue.x-k8s.io/v1beta2
 auto_generated: true
@@ -80,6 +80,66 @@ connection.</p>
 </td>
 <td>
    <p>Burst allows extra queries to accumulate when a client is exceeding its rate.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `ClusterProfile`     {#config-kueue-x-k8s-io-v1beta2-ClusterProfile}
+    
+
+**Appears in:**
+
+- [MultiKueue](#config-kueue-x-k8s-io-v1beta2-MultiKueue)
+
+
+<p>ClusterProfile defines configuration for using the ClusterProfile API in MultiKueue.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>credentialsProviders</code> <B>[Required]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-ClusterProfileCredentialsProvider"><code>[]ClusterProfileCredentialsProvider</code></a>
+</td>
+<td>
+   <p>CredentialsProviders defines a list of providers to obtain credentials of worker clusters
+using the ClusterProfile API.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `ClusterProfileCredentialsProvider`     {#config-kueue-x-k8s-io-v1beta2-ClusterProfileCredentialsProvider}
+    
+
+**Appears in:**
+
+- [ClusterProfile](#config-kueue-x-k8s-io-v1beta2-ClusterProfile)
+
+
+<p>ClusterProfileCredentialsProvider defines a credentials provider in the ClusterProfile API.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>Name is the name of the provider.</p>
+</td>
+</tr>
+<tr><td><code>execConfig</code> <B>[Required]</B><br/>
+<code>k8s.io/client-go/tools/clientcmd/api.ExecConfig</code>
+</td>
+<td>
+   <p>ExecConfig is the exec configuration to obtain credentials.</p>
 </td>
 </tr>
 </tbody>
@@ -373,14 +433,6 @@ The total length of each name must not exceed 253 characters.</p>
 <tbody>
     
   
-<tr><td><code>enable</code> <B>[Required]</B><br/>
-<code>bool</code>
-</td>
-<td>
-   <p>enable indicates whether to enable Fair Sharing for all cohorts.
-Defaults to false.</p>
-</td>
-</tr>
 <tr><td><code>preemptionStrategies</code> <B>[Required]</B><br/>
 <a href="#config-kueue-x-k8s-io-v1beta2-PreemptionStrategy"><code>[]PreemptionStrategy</code></a>
 </td>
@@ -400,8 +452,7 @@ as high as possible.</li>
 with the incoming workload is strictly less than the share of the preemptee CQ.
 This strategy doesn't depend on the share usage of the workload being preempted.
 As a result, the strategy chooses to preempt workloads with the lowest priority and
-newest start time first.
-The default strategy is [&quot;LessThanOrEqualToFinalShare&quot;, &quot;LessThanInitialShare&quot;].</li>
+newest start time first.</li>
 </ul>
 </td>
 </tr>
@@ -441,9 +492,9 @@ Possible options:</p>
 <li>&quot;trainer.kubeflow.org/trainjob&quot;</li>
 <li>&quot;workload.codeflare.dev/appwrapper&quot;</li>
 <li>&quot;pod&quot;</li>
-<li>&quot;deployment&quot; (requires enabling pod integration)</li>
-<li>&quot;statefulset&quot; (requires enabling pod integration)</li>
-<li>&quot;leaderworkerset.x-k8s.io/leaderworkerset&quot; (requires enabling pod integration)</li>
+<li>&quot;deployment&quot;</li>
+<li>&quot;statefulset&quot;</li>
+<li>&quot;leaderworkerset.x-k8s.io/leaderworkerset&quot;</li>
 </ul>
 </td>
 </tr>
@@ -581,6 +632,13 @@ if the connection with its reserving worker cluster is lost.</p>
    <p>ExternalFrameworks defines a list of external frameworks that should be supported
 by the generic MultiKueue adapter. Each entry defines how to handle a specific
 GroupVersionKind (GVK) for MultiKueue operations.</p>
+</td>
+</tr>
+<tr><td><code>clusterProfile</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-ClusterProfile"><code>ClusterProfile</code></a>
+</td>
+<td>
+   <p>ClusterProfile defines configuration for using the ClusterProfile API.</p>
 </td>
 </tr>
 </tbody>
@@ -836,31 +894,22 @@ which is used to ensure that all Pods are ready within the specified time.</p>
 <tbody>
     
   
-<tr><td><code>enable</code> <B>[Required]</B><br/>
-<code>bool</code>
-</td>
-<td>
-   <p>Enable indicates whether to enable wait for pods ready feature.
-Defaults to false.</p>
-</td>
-</tr>
-<tr><td><code>timeout</code><br/>
+<tr><td><code>timeout</code> <B>[Required]</B><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
 </td>
 <td>
    <p>Timeout defines the time for an admitted workload to reach the
 PodsReady=true condition. When the timeout is exceeded, the workload
-evicted and requeued in the same cluster queue.
-Defaults to 5min.</p>
+evicted and requeued in the same cluster queue.</p>
 </td>
 </tr>
-<tr><td><code>blockAdmission</code> <B>[Required]</B><br/>
+<tr><td><code>blockAdmission</code><br/>
 <code>bool</code>
 </td>
 <td>
-   <p>BlockAdmission when true, cluster queue will block admissions for all
+   <p>BlockAdmission when true, the cluster queue will block admissions for all
 subsequent jobs until the jobs reach the PodsReady=true condition.
-This setting is only honored when <code>Enable</code> is set to true.</p>
+Defaults to false.</p>
 </td>
 </tr>
 <tr><td><code>requeuingStrategy</code><br/>
@@ -879,8 +928,7 @@ last transition to the PodsReady=false condition after a Workload is Admitted an
 Such a transition may happen when a Pod failed and the replacement Pod
 is awaited to be scheduled.
 After exceeding the timeout the corresponding job gets suspended again
-and requeued after the backoff delay. The timeout is enforced only if waitForPodsReady.enable=true.
-If not set, there is no timeout.</p>
+and requeued after the backoff delay.</p>
 </td>
 </tr>
 </tbody>

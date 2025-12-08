@@ -22,7 +22,7 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) and watch the Kueu
 - **Integrations:** Built-in support for popular jobs, e.g. [BatchJob](https://kueue.sigs.k8s.io/docs/tasks/run/jobs/), [Kubeflow training jobs](https://kueue.sigs.k8s.io/docs/tasks/run/kubeflow/), [RayJob](https://kueue.sigs.k8s.io/docs/tasks/run/rayjobs/), [RayCluster](https://kueue.sigs.k8s.io/docs/tasks/run/rayclusters/), [JobSet](https://kueue.sigs.k8s.io/docs/tasks/run/jobsets/),  [plain Pod and Pod Groups](https://kueue.sigs.k8s.io/docs/tasks/run/plain_pods/).
 - **System insight:** Build-in [prometheus metrics](https://kueue.sigs.k8s.io/docs/reference/metrics/) to help monitor the state of the system, and on-demand visibility endpoint for [monitoring of pending workloads](https://kueue.sigs.k8s.io/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/).
 - **AdmissionChecks:** A mechanism for internal or external components to influence whether a workload can be [admitted](https://kueue.sigs.k8s.io/docs/concepts/admission_check/).
-- **Advanced autoscaling support:** Integration with cluster-autoscaler's [provisioningRequest](https://kueue.sigs.k8s.io/docs/admission-check-controllers/provisioning/#job-using-a-provisioningrequest) via admissionChecks.
+- **Advanced autoscaling support:** Integration with cluster-autoscaler's [provisioningRequest](https://kueue.sigs.k8s.io/docs/concepts/admission_check/provisioning_request/#job-using-a-provisioningrequest) via admissionChecks.
 - **All-or-nothing with ready Pods:** A timeout-based implementation of [All-or-nothing scheduling](https://kueue.sigs.k8s.io/docs/tasks/manage/setup_wait_for_pods_ready/).
 - **Partial admission and dynamic reclaim:** mechanisms to run a job with [reduced parallelism](https://kueue.sigs.k8s.io/docs/tasks/run/jobs/#partial-admission), based on available quota, and to [release](https://kueue.sigs.k8s.io/docs/concepts/workload/#dynamic-reclaim) the quota the pods complete..
 - **Mixing training and inference**: Simultaneous management of batch workloads along with serving workloads (such as [Deployments](https://kueue.sigs.k8s.io/docs/tasks/run/deployment/) or [StatefulSets](https://kueue.sigs.k8s.io/docs/tasks/run/statefulset/))
@@ -31,14 +31,13 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) and watch the Kueu
 
 ## Production Readiness status
 
-- ✔️ API version: v1beta1, respecting [Kubernetes Deprecation Policy](https://kubernetes.io/docs/reference/using-api/deprecation-policy/)
+- ✔️ API version: v1beta2, respecting [Kubernetes Deprecation Policy](https://kubernetes.io/docs/reference/using-api/deprecation-policy/)
 - ✔️ Up-to-date [documentation](https://kueue.sigs.k8s.io/docs).
 - ✔️ Test Coverage:
   - ✔️ Unit Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-unit-main).
   - ✔️ Integration Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-main)
   - ✔️ Integration MultiKueue Tests [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-multikueue-main)
   - ✔️ E2E Tests for Kubernetes
-    [1.31](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-main-1-31),
     [1.32](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-main-1-32),
     [1.33](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-main-1-33),
     [1.34](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-main-1-34),
@@ -63,7 +62,7 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) and watch the Kueu
 To install the latest release of Kueue in your cluster, run the following command:
 
 ```shell
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.14.3/manifests.yaml
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.15.0/manifests.yaml
 ```
 
 The controller runs in the `kueue-system` namespace.

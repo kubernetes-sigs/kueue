@@ -24,12 +24,11 @@ import (
 	nodev1 "k8s.io/api/node/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/slices"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -126,7 +125,6 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		})
 
 		ginkgo.It("the workload should have appropriate AdditionalChecks added", framework.SlowSpec, func() {
-			var realClock = clock.RealClock{}
 			wl := utiltestingapi.MakeWorkload("wl", ns.Name).
 				Queue("queue").
 				Request(resourceGPU, "3").
@@ -168,12 +166,12 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 						Name:    "check1",
 						State:   kueue.CheckStateReady,
 						Message: "check successfully passed",
-					}, realClock)
+					}, util.RealClock)
 					workload.SetAdmissionCheckState(&updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:    "check3",
 						State:   kueue.CheckStateReady,
 						Message: "check successfully passed",
-					}, realClock)
+					}, util.RealClock)
 					g.Expect(k8sClient.Status().Update(ctx, &updatedWl)).Should(gomega.Succeed())
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(&updatedWl)).Should(gomega.BeTrue(), "should have been admitted")
@@ -186,7 +184,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		ginkgo.BeforeEach(func() {
 			util.MustCreate(ctx, k8sClient, onDemandFlavor)
 
-			runtimeClass = testing.MakeRuntimeClass("kata", "bar-handler").PodOverhead(resources).Obj()
+			runtimeClass = utiltesting.MakeRuntimeClass("kata", "bar-handler").PodOverhead(resources).Obj()
 			util.MustCreate(ctx, k8sClient, runtimeClass)
 			clusterQueue = utiltestingapi.MakeClusterQueue("clusterqueue").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(onDemandFlavor.Name).
@@ -295,7 +293,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 
 	ginkgo.When("LimitRanges are defined", func() {
 		ginkgo.BeforeEach(func() {
-			limitRange := testing.MakeLimitRange("limits", ns.Name).WithValue("DefaultRequest", corev1.ResourceCPU, "3").Obj()
+			limitRange := utiltesting.MakeLimitRange("limits", ns.Name).WithValue("DefaultRequest", corev1.ResourceCPU, "3").Obj()
 			util.MustCreate(ctx, k8sClient, limitRange)
 			util.MustCreate(ctx, k8sClient, onDemandFlavor)
 			clusterQueue = utiltestingapi.MakeClusterQueue("clusterqueue").
@@ -571,7 +569,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 
 	ginkgo.When("RuntimeClass is defined and change", func() {
 		ginkgo.BeforeEach(func() {
-			runtimeClass = testing.MakeRuntimeClass("kata", "bar-handler").
+			runtimeClass = utiltesting.MakeRuntimeClass("kata", "bar-handler").
 				PodOverhead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}).
 				Obj()
 			util.MustCreate(ctx, k8sClient, runtimeClass)
@@ -663,7 +661,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 	ginkgo.When("LimitRanges are defined and change", func() {
 		var limitRange *corev1.LimitRange
 		ginkgo.BeforeEach(func() {
-			limitRange = testing.MakeLimitRange("limits", ns.Name).WithValue("DefaultRequest", corev1.ResourceCPU, "3").Obj()
+			limitRange = utiltesting.MakeLimitRange("limits", ns.Name).WithValue("DefaultRequest", corev1.ResourceCPU, "3").Obj()
 			util.MustCreate(ctx, k8sClient, limitRange)
 			util.MustCreate(ctx, k8sClient, onDemandFlavor)
 			clusterQueue = utiltestingapi.MakeClusterQueue("clusterqueue").
@@ -749,7 +747,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 	ginkgo.When("a LimitRange event occurs near workload deletion time", func() {
 		var limitRange *corev1.LimitRange
 		ginkgo.BeforeEach(func() {
-			limitRange = testing.MakeLimitRange("limits", ns.Name).WithValue("DefaultRequest", corev1.ResourceCPU, "3").Obj()
+			limitRange = utiltesting.MakeLimitRange("limits", ns.Name).WithValue("DefaultRequest", corev1.ResourceCPU, "3").Obj()
 			util.MustCreate(ctx, k8sClient, limitRange)
 			util.MustCreate(ctx, k8sClient, onDemandFlavor)
 			clusterQueue = utiltestingapi.MakeClusterQueue("clusterqueue").

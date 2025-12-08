@@ -33,6 +33,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -44,6 +45,7 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 )
@@ -200,9 +202,8 @@ webhook:
 apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 waitForPodsReady:
-  enable: true
   timeout: 50s
-  blockAdmission: false
+  blockAdmission: true
   recoveryTimeout: 3m
   requeuingStrategy:
     timestamp: Creation
@@ -292,6 +293,19 @@ multiKueue:
   origin: multikueue-manager1
   workerLostTimeout: 10m
   dispatcherName: kueue.x-k8s.io/multikueue-dispatcher-incremental
+  clusterProfile:
+    credentialsProviders:
+      - name: test-provider
+        execConfig:
+          command: /usr/bin/test-command
+          apiVersion: client.authentication.k8s.io/v1
+          interactiveMode: Never
+          args:
+            - arg1
+            - arg2
+          env:
+            - name: TEST_ENV
+              value: test-value
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
 	}
@@ -398,14 +412,14 @@ objectRetentionPolicies:
 		DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
 	}
 
-	defaultWaitForPodsReady := &configapi.WaitForPodsReady{}
-
 	testcases := []struct {
-		name              string
-		configFile        string
-		wantConfiguration configapi.Configuration
-		wantOptions       ctrl.Options
-		wantError         error
+		name                 string
+		configFile           string
+		enableClusterProfile bool
+		withClusterProfile   bool
+		wantConfiguration    configapi.Configuration
+		wantOptions          ctrl.Options
+		wantError            error
 	}{
 		{
 			name:       "default config",
@@ -417,7 +431,6 @@ objectRetentionPolicies:
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: ctrl.Options{
 				Cache:                  defaultControlCacheOptions(configapi.DefaultNamespace),
@@ -454,7 +467,6 @@ objectRetentionPolicies:
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -492,7 +504,6 @@ objectRetentionPolicies:
 						},
 					},
 				},
-				WaitForPodsReady: defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions("kueue-tenant-a"),
 		},
@@ -511,7 +522,6 @@ objectRetentionPolicies:
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: ctrl.Options{
 				Cache:                  defaultControlCacheOptions(configapi.DefaultNamespace),
@@ -553,7 +563,6 @@ objectRetentionPolicies:
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -574,7 +583,6 @@ objectRetentionPolicies:
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -593,7 +601,6 @@ objectRetentionPolicies:
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: ctrl.Options{
 				Cache:                  defaultControlCacheOptions("kueue-system"),
@@ -628,9 +635,8 @@ objectRetentionPolicies:
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
-					Enable:          true,
-					BlockAdmission:  ptr.To(false),
-					Timeout:         &metav1.Duration{Duration: 50 * time.Second},
+					BlockAdmission:  ptr.To(true),
+					Timeout:         metav1.Duration{Duration: 50 * time.Second},
 					RecoveryTimeout: &metav1.Duration{Duration: 3 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						Timestamp:          ptr.To(configapi.CreationTimestamp),
@@ -683,7 +689,6 @@ objectRetentionPolicies:
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -705,7 +710,6 @@ objectRetentionPolicies:
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: ctrl.Options{
 				Cache:                  defaultControlCacheOptions(configapi.DefaultNamespace),
@@ -759,7 +763,6 @@ objectRetentionPolicies:
 				},
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: ctrl.Options{
 				Cache:                  defaultControlCacheOptions(configapi.DefaultNamespace),
@@ -801,9 +804,24 @@ objectRetentionPolicies:
 					Origin:            ptr.To("multikueue-manager1"),
 					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
 					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeIncremental),
+					ClusterProfile: &configapi.ClusterProfile{
+						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+							{
+								Name: "test-provider",
+								ExecConfig: clientcmdapi.ExecConfig{
+									Command:         "/usr/bin/test-command",
+									APIVersion:      "client.authentication.k8s.io/v1",
+									InteractiveMode: clientcmdapi.NeverExecInteractiveMode,
+									Args:            []string{"arg1", "arg2"},
+									Env: []clientcmdapi.ExecEnvVar{
+										{Name: "TEST_ENV", Value: "test-value"},
+									},
+								},
+							},
+						},
+					},
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -849,7 +867,6 @@ objectRetentionPolicies:
 						},
 					},
 				},
-				WaitForPodsReady: defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -882,7 +899,6 @@ objectRetentionPolicies:
 						AfterDeactivatedByKueue: &metav1.Duration{Duration: 30 * time.Minute},
 					},
 				},
-				WaitForPodsReady: defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -993,7 +1009,6 @@ func TestEncode(t *testing.T) {
 					"workerLostTimeout": "15m0s",
 					"dispatcherName":    configapi.MultiKueueDispatcherModeAllAtOnce,
 				},
-				"waitForPodsReady": map[string]any{},
 			},
 		},
 	}
@@ -1020,25 +1035,21 @@ func TestWaitForPodsReadyIsEnabled(t *testing.T) {
 		cfg  *configapi.Configuration
 		want bool
 	}{
-		"cfg.WaitForPodsReadyIsEnabled.enable is false": {
+		"waitforpodsready.Enabled() is false": {
+			cfg: &configapi.Configuration{},
+		},
+		"waitforpodsready.Enabled() is true": {
 			cfg: &configapi.Configuration{
 				WaitForPodsReady: &configapi.WaitForPodsReady{},
-			},
-		},
-		"waitForPodsReady is true": {
-			cfg: &configapi.Configuration{
-				WaitForPodsReady: &configapi.WaitForPodsReady{
-					Enable: true,
-				},
 			},
 			want: true,
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := WaitForPodsReadyIsEnabled(tc.cfg)
+			got := waitforpodsready.Enabled(tc.cfg.WaitForPodsReady)
 			if tc.want != got {
-				t.Errorf("Unexpected result from WaitForPodsReadyIsEnabled\nwant:\n%v\ngot:%v\n", tc.want, got)
+				t.Errorf("Unexpected result from waitforpodsready.Enabled()\nwant:\n%v\ngot:%v\n", tc.want, got)
 			}
 		})
 	}

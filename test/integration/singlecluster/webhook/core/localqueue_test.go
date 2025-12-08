@@ -17,15 +17,12 @@ limitations under the License.
 package core
 
 import (
-	"context"
-
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -40,9 +37,7 @@ var _ = ginkgo.Describe("Queue validating webhook", ginkgo.Ordered, func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, func(ctx context.Context, mgr manager.Manager) {
-			managerSetup(ctx, mgr)
-		})
+		fwk.StartManager(ctx, cfg, managerSetup)
 	})
 	ginkgo.AfterAll(func() {
 		fwk.StopManager(ctx)
@@ -51,7 +46,7 @@ var _ = ginkgo.Describe("Queue validating webhook", ginkgo.Ordered, func() {
 		ginkgo.It("Should reject bad value for spec.clusterQueue", func() {
 			ginkgo.By("Creating a new Queue")
 			obj := utiltestingapi.MakeLocalQueue(queueName, ns.Name).ClusterQueue("invalid_name").Obj()
-			gomega.Expect(k8sClient.Create(ctx, obj)).Should(testing.BeInvalidError())
+			gomega.Expect(k8sClient.Create(ctx, obj)).Should(utiltesting.BeInvalidError())
 		})
 		ginkgo.It("Should reject the change of spec.clusterQueue", func() {
 			ginkgo.By("Creating a new Queue")
@@ -63,7 +58,7 @@ var _ = ginkgo.Describe("Queue validating webhook", ginkgo.Ordered, func() {
 				var updatedQ kueue.LocalQueue
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(obj), &updatedQ)).Should(gomega.Succeed())
 				updatedQ.Spec.ClusterQueue = "bar"
-				g.Expect(k8sClient.Update(ctx, &updatedQ)).Should(testing.BeInvalidError())
+				g.Expect(k8sClient.Update(ctx, &updatedQ)).Should(utiltesting.BeInvalidError())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})

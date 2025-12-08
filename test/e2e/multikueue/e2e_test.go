@@ -110,16 +110,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			ControllerName(kueue.MultiKueueControllerName).
 			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", multiKueueConfig.Name).
 			Obj()
-		util.MustCreate(ctx, k8sManagerClient, multiKueueAc)
+		util.CreateAdmissionChecksAndWaitForActive(ctx, k8sManagerClient, multiKueueAc)
 
-		ginkgo.By("wait for check active", func() {
-			updatedAc := kueue.AdmissionCheck{}
-			acKey := client.ObjectKeyFromObject(multiKueueAc)
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sManagerClient.Get(ctx, acKey, &updatedAc)).To(gomega.Succeed())
-				g.Expect(updatedAc.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.AdmissionCheckActive))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
 		managerFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		util.MustCreate(ctx, k8sManagerClient, managerFlavor)
 
@@ -132,10 +124,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			).
 			AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAc.Name)).
 			Obj()
-		util.MustCreate(ctx, k8sManagerClient, managerCq)
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sManagerClient, managerCq)
 
 		managerLq = utiltestingapi.MakeLocalQueue(managerCq.Name, managerNs.Name).ClusterQueue(managerCq.Name).Obj()
-		util.MustCreate(ctx, k8sManagerClient, managerLq)
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sManagerClient, managerLq)
 
 		worker1Flavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		util.MustCreate(ctx, k8sWorker1Client, worker1Flavor)
@@ -148,10 +140,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					Obj(),
 			).
 			Obj()
-		util.MustCreate(ctx, k8sWorker1Client, worker1Cq)
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sWorker1Client, worker1Cq)
 
 		worker1Lq = utiltestingapi.MakeLocalQueue(worker1Cq.Name, worker1Ns.Name).ClusterQueue(worker1Cq.Name).Obj()
-		util.MustCreate(ctx, k8sWorker1Client, worker1Lq)
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sWorker1Client, worker1Lq)
 
 		worker2Flavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		util.MustCreate(ctx, k8sWorker2Client, worker2Flavor)
@@ -164,10 +156,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					Obj(),
 			).
 			Obj()
-		util.MustCreate(ctx, k8sWorker2Client, worker2Cq)
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sWorker2Client, worker2Cq)
 
 		worker2Lq = utiltestingapi.MakeLocalQueue(worker2Cq.Name, worker2Ns.Name).ClusterQueue(worker2Cq.Name).Obj()
-		util.MustCreate(ctx, k8sWorker2Client, worker2Lq)
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sWorker2Client, worker2Lq)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -984,7 +976,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Obj(),
 				).
 				Obj()
-			util.MustCreate(ctx, k8sWorker1Client, worker1Cq2)
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sWorker1Client, worker1Cq2)
 
 			worker1Container := fmt.Sprintf("%s-control-plane", worker1ClusterName)
 			worker1ClusterKey := client.ObjectKeyFromObject(workerCluster1)
@@ -1031,13 +1023,88 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Waiting for Kueue and kube-system pods to become active again", func() {
+			ginkgo.By("Waiting for kube-system to become available again", func() {
 				util.WaitForKubeSystemControllersAvailability(ctx, k8sWorker1Client, worker1Container)
-				util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sWorker1Client)
+			})
+
+			ginkgo.By("Restart Kueue and wait for availability again", func() {
+				util.RestartKueueController(ctx, k8sWorker1Client, worker1ClusterName)
 			})
 
 			ginkgo.By("Checking that the Kueue is operational after reconnection", func() {
 				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Cq2, true, util.StartUpTimeout)
+			})
+		})
+	})
+
+	ginkgo.When("Cluster Role Sharing", func() {
+		var (
+			// Regular Kueue Cluster Queues and Local Queues
+			managerRegularCq *kueue.ClusterQueue
+			managerRegularLq *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			managerRegularCq = utiltestingapi.MakeClusterQueue("q2").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(managerFlavor.Name).
+						Resource(corev1.ResourceCPU, "1").
+						Resource(corev1.ResourceMemory, "2G").
+						Obj(),
+				).
+				Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sManagerClient, managerRegularCq)
+			managerRegularLq = utiltestingapi.MakeLocalQueue(managerRegularCq.Name, managerNs.Name).ClusterQueue(managerRegularCq.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sManagerClient, managerRegularLq)
+		})
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerRegularCq, true, util.LongTimeout)
+		})
+
+		ginkgo.It("should allow to run a MultiKueue and a regular Job on the same cluster", func() {
+			jobMk := testingjob.MakeJob("job-mk", managerNs.Name).
+				Queue(kueue.LocalQueueName(managerLq.Name)).
+				RequestAndLimit(corev1.ResourceCPU, "1").
+				RequestAndLimit(corev1.ResourceMemory, "2G").
+				TerminationGracePeriod(1).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Obj()
+			jobRegular := testingjob.MakeJob("job-regular", managerNs.Name).
+				Queue(kueue.LocalQueueName(managerRegularLq.Name)).
+				RequestAndLimit(corev1.ResourceCPU, "1").
+				RequestAndLimit(corev1.ResourceMemory, "2G").
+				TerminationGracePeriod(1).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Obj()
+
+			ginkgo.By("Creating jobs", func() {
+				util.MustCreate(ctx, k8sManagerClient, jobMk)
+				expectJobToBeCreatedAndManagedBy(ctx, k8sManagerClient, jobMk, kueue.MultiKueueControllerName)
+				util.MustCreate(ctx, k8sManagerClient, jobRegular)
+				expectJobToBeCreatedAndManagedBy(ctx, k8sManagerClient, jobRegular, "")
+			})
+
+			ginkgo.By("Verifying both jobs are unsuspended and running", func() {
+				for _, job := range []*batchv1.Job{jobMk, jobRegular} {
+					util.ExpectJobUnsuspended(ctx, k8sManagerClient, client.ObjectKeyFromObject(job))
+					util.ExpectJobToBeRunning(ctx, k8sManagerClient, job)
+				}
+			})
+
+			ginkgo.By("Finishing the MK job's pod", func() {
+				listOpts := util.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", jobMk.Name))
+				util.WaitForActivePodsAndTerminate(ctx, k8sWorker2Client, worker2RestClient, worker2Cfg, jobMk.Namespace, 1, 0, listOpts)
+			})
+
+			ginkgo.By("Finishing the regular job's pod", func() {
+				listOpts := util.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", jobRegular.Name))
+				util.WaitForActivePodsAndTerminate(ctx, k8sManagerClient, managerRestClient, managerCfg, jobRegular.Namespace, 1, 0, listOpts)
+			})
+
+			ginkgo.By("Waiting for both jobs to complete", func() {
+				util.ExpectJobToBeCompleted(ctx, k8sManagerClient, jobMk)
+				util.ExpectJobToBeCompleted(ctx, k8sManagerClient, jobRegular)
 			})
 		})
 	})
@@ -1118,5 +1185,14 @@ func expectObjectToBeDeletedOnWorkerClusters[PtrT objAsPtr[T], T any](ctx contex
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		util.ExpectObjectToBeDeleted(ctx, k8sWorker1Client, obj, false)
 		util.ExpectObjectToBeDeleted(ctx, k8sWorker2Client, obj, false)
+	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+}
+
+func expectJobToBeCreatedAndManagedBy(ctx context.Context, c client.Client, job *batchv1.Job, managedBy string) {
+	ginkgo.GinkgoHelper()
+	createdJob := &batchv1.Job{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
+		g.Expect(ptr.Deref(createdJob.Spec.ManagedBy, "")).To(gomega.Equal(managedBy))
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 }

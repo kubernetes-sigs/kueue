@@ -24,6 +24,7 @@ import (
 // +genclient
 // +genclient:nonNamespaced
 // +kubebuilder:object:root=true
+// +kubebuilder:storageversion
 // +kubebuilder:resource:scope=Cluster,shortName={flavor,flavors,rf}
 
 // ResourceFlavor is the Schema for the resourceflavors API.
@@ -35,7 +36,7 @@ type ResourceFlavor struct {
 
 	// spec is the specification of the ResourceFlavor.
 	// +optional
-	Spec ResourceFlavorSpec `json:"spec,omitempty"` //nolint:kubeapilinter // spec should not be a pointer
+	Spec ResourceFlavorSpec `json:"spec,omitempty"`
 }
 
 // TopologyReference is the name of the Topology.
@@ -105,7 +106,7 @@ type ResourceFlavorSpec struct {
 	// nodes matching to the Resource Flavor node labels.
 	//
 	// +optional
-	TopologyName *TopologyReference `json:"topologyName,omitempty"` //nolint:kubeapilinter // should be a pointer
+	TopologyName *TopologyReference `json:"topologyName,omitempty"`
 }
 
 // +kubebuilder:object:root=true

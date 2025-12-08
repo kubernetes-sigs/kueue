@@ -180,25 +180,32 @@ func (r *nodeFailureReconciler) getWorkloadsOnNode(ctx context.Context, nodeName
 	}
 	tasWorkloadsOnNode := sets.New[types.NamespacedName]()
 	for _, wl := range allWorkloads.Items {
-		if !isAdmittedByTAS(&wl) {
-			continue
-		}
-		for _, podSetAssignment := range wl.Status.Admission.PodSetAssignments {
-			topologyAssignment := podSetAssignment.TopologyAssignment
-			if topologyAssignment == nil {
-				continue
-			}
-			if !utiltas.IsLowestLevelHostname(topologyAssignment.Levels) {
-				continue
-			}
-			for _, domain := range topologyAssignment.Domains {
-				if nodeName == domain.Values[len(domain.Values)-1] {
-					tasWorkloadsOnNode.Insert(types.NamespacedName{Name: wl.Name, Namespace: wl.Namespace})
-				}
-			}
+		if hasTASAssignmentOnNode(&wl, nodeName) {
+			tasWorkloadsOnNode.Insert(types.NamespacedName{Name: wl.Name, Namespace: wl.Namespace})
 		}
 	}
 	return tasWorkloadsOnNode, nil
+}
+
+func hasTASAssignmentOnNode(wl *kueue.Workload, nodeName string) bool {
+	if !isAdmittedByTAS(wl) {
+		return false
+	}
+	for _, podSetAssignment := range wl.Status.Admission.PodSetAssignments {
+		topologyAssignment := podSetAssignment.TopologyAssignment
+		if topologyAssignment == nil {
+			continue
+		}
+		if !utiltas.IsLowestLevelHostname(topologyAssignment.Levels) {
+			continue
+		}
+		for value := range utiltas.LowestLevelValues(topologyAssignment) {
+			if value == nodeName {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (r *nodeFailureReconciler) getWorkloadsForImmediateReplacement(ctx context.Context, nodeName string) (sets.Set[types.NamespacedName], error) {
@@ -335,11 +342,11 @@ func (r *nodeFailureReconciler) handleHealthyNode(ctx context.Context, nodeName 
 
 func (r *nodeFailureReconciler) removeUnhealthyNodes(ctx context.Context, wl *kueue.Workload, nodeName string) error {
 	if workload.HasUnhealthyNode(wl, nodeName) {
-		return workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func() (*kueue.Workload, bool, error) {
+		return workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			wl.Status.UnhealthyNodes = slices.DeleteFunc(wl.Status.UnhealthyNodes, func(n kueue.UnhealthyNode) bool {
 				return n.Name == nodeName
 			})
-			return wl, true, nil
+			return true, nil
 		})
 	}
 	return nil
@@ -347,9 +354,9 @@ func (r *nodeFailureReconciler) removeUnhealthyNodes(ctx context.Context, wl *ku
 
 func (r *nodeFailureReconciler) addUnhealthyNode(ctx context.Context, wl *kueue.Workload, nodeName string) error {
 	if !workload.HasUnhealthyNode(wl, nodeName) {
-		return workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func() (*kueue.Workload, bool, error) {
+		return workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			wl.Status.UnhealthyNodes = append(wl.Status.UnhealthyNodes, kueue.UnhealthyNode{Name: nodeName})
-			return wl, true, nil
+			return true, nil
 		})
 	}
 	return nil

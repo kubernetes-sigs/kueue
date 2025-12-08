@@ -160,6 +160,7 @@ type Parameter string
 // +genclient
 // +genclient:nonNamespaced
 // +kubebuilder:object:root=true
+// +kubebuilder:storageversion
 // +kubebuilder:resource:scope=Cluster
 
 // ProvisioningRequestConfig is the Schema for the provisioningrequestconfig API
@@ -171,7 +172,7 @@ type ProvisioningRequestConfig struct {
 
 	// spec is the specification of the ProvisioningRequestConfig.
 	// +optional
-	Spec ProvisioningRequestConfigSpec `json:"spec"` //nolint:kubeapilinter // should not be a pointer
+	Spec ProvisioningRequestConfigSpec `json:"spec"`
 }
 
 // +kubebuilder:object:root=true

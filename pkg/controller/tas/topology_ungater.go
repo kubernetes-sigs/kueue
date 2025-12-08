@@ -43,7 +43,6 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
-	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
@@ -239,14 +238,14 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 	err := parallelize.Until(ctx, len(allToUngate), func(i int) error {
 		podWithUngateInfo := &allToUngate[i]
 		var ungated bool
-		e := utilclient.Patch(ctx, r.client, podWithUngateInfo.pod, func() (client.Object, bool, error) {
+		e := utilclient.Patch(ctx, r.client, podWithUngateInfo.pod, func() (bool, error) {
 			log.V(3).Info("ungating pod", "pod", klog.KObj(podWithUngateInfo.pod), "nodeLabels", podWithUngateInfo.nodeLabels)
 			ungated = utilpod.Ungate(podWithUngateInfo.pod, kueue.TopologySchedulingGate)
 			if podWithUngateInfo.pod.Spec.NodeSelector == nil {
 				podWithUngateInfo.pod.Spec.NodeSelector = make(map[string]string)
 			}
 			maps.Copy(podWithUngateInfo.pod.Spec.NodeSelector, podWithUngateInfo.nodeLabels)
-			return podWithUngateInfo.pod, true, nil
+			return true, nil
 		})
 		if e != nil {
 			// We won't observe this cleanup in the event handler.
@@ -281,7 +280,7 @@ func (r *topologyUngater) Generic(event.TypedGenericEvent[*kueue.Workload]) bool
 func (r *topologyUngater) podsForPodSet(ctx context.Context, ns, wlName string, psName kueue.PodSetReference) ([]*corev1.Pod, error) {
 	var pods corev1.PodList
 	if err := r.client.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{
-		controllerconsts.PodSetLabel: string(psName),
+		constants.PodSetLabel: string(psName),
 	}, client.MatchingFields{
 		indexer.WorkloadNameKey: wlName,
 	}); err != nil {
@@ -303,7 +302,7 @@ func podsToUngateInfo(
 	psa *kueue.PodSetAssignment,
 	podToUngateWithDomain []podWithDomain) []podWithUngateInfo {
 	domainIDToLabelValues := make(map[utiltas.TopologyDomainID][]string)
-	for _, psaDomain := range psa.TopologyAssignment.Domains {
+	for psaDomain := range utiltas.InternalSeqFrom(psa.TopologyAssignment) {
 		domainID := utiltas.DomainID(psaDomain.Values)
 		domainIDToLabelValues[domainID] = psaDomain.Values
 	}
@@ -336,13 +335,13 @@ func assignGatedPodsToDomainsByRanks(
 	psa *kueue.PodSetAssignment,
 	rankToGatedPod map[int]*corev1.Pod) []podWithDomain {
 	toUngate := make([]podWithDomain, 0)
-	totalCount := 0
-	for i := range psa.TopologyAssignment.Domains {
-		totalCount += int(psa.TopologyAssignment.Domains[i].Count)
+	totalPodCount := 0
+	for count := range utiltas.PodCounts(psa.TopologyAssignment) {
+		totalPodCount += int(count)
 	}
-	rankToDomainID := make([]utiltas.TopologyDomainID, totalCount)
+	rankToDomainID := make([]utiltas.TopologyDomainID, totalPodCount)
 	index := int32(0)
-	for _, domain := range psa.TopologyAssignment.Domains {
+	for domain := range utiltas.InternalSeqFrom(psa.TopologyAssignment) {
 		for s := range domain.Count {
 			rankToDomainID[index+s] = utiltas.DomainID(domain.Values)
 		}
@@ -379,7 +378,7 @@ func assignGatedPodsToDomainsGreedy(
 		"domainIDToUngatedCount", domainIDToUngatedCnt,
 		"levelKeys", levelKeys)
 	toUngate := make([]podWithDomain, 0)
-	for _, psaDomain := range psa.TopologyAssignment.Domains {
+	for psaDomain := range utiltas.InternalSeqFrom(psa.TopologyAssignment) {
 		domainID := utiltas.DomainID(psaDomain.Values)
 		ungatedInDomainCnt := domainIDToUngatedCnt[domainID]
 		remainingUngatedInDomain := max(psaDomain.Count-ungatedInDomainCnt, 0)

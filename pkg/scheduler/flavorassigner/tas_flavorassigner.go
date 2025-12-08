@@ -25,6 +25,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -57,7 +58,7 @@ func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info, cq *schdcache.
 }
 
 func (psa *PodSetAssignment) HasUnhealthyNode(wl *workload.Info) bool {
-	return workload.HasUnhealthyNodes(wl.Obj) && slices.ContainsFunc(psa.TopologyAssignment.Domains, func(domain kueue.TopologyDomainAssignment) bool {
+	return workload.HasUnhealthyNodes(wl.Obj) && slices.ContainsFunc(psa.TopologyAssignment.Domains, func(domain tas.TopologyDomainAssignment) bool {
 		return workload.HasUnhealthyNode(wl.Obj, domain.Values[len(domain.Values)-1])
 	})
 }
@@ -77,9 +78,9 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 	if err != nil {
 		return nil, err
 	}
-	if !workload.HasQuotaReservation(wl.Obj) && cq.HasProvRequestAdmissionCheck(*tasFlvr) {
-		// We delay TAS as this is the first scheduling pass, and there is a
-		// ProvisioningRequest admission check used for the flavor.
+	if cq.HasMultiKueueAdmissionCheck() || (!workload.HasQuotaReservation(wl.Obj) && cq.HasProvRequestAdmissionCheck(*tasFlvr)) {
+		// Delay TAS when MultiKueue is used (topology always assigned on worker cluster).
+		// For ProvisioningRequest, delay TAS on first scheduling pass only (topology assigned after provisioning).
 		psAssignment.DelayedTopologyRequest = ptr.To(kueue.DelayedTopologyRequestStatePending)
 		return nil, nil
 	}

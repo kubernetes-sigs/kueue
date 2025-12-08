@@ -29,7 +29,7 @@ import (
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	leaderworkersettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 	"sigs.k8s.io/kueue/test/util"
@@ -59,12 +59,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-flavor").Resource(extraResource, "8").Resource(corev1.ResourceCPU, "1").Obj()).
 			Obj()
-		util.MustCreate(ctx, k8sClient, clusterQueue)
-		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 		localQueue = utiltestingapi.MakeLocalQueue("test-queue", ns.Name).ClusterQueue("cluster-queue").Obj()
-		util.MustCreate(ctx, k8sClient, localQueue)
-		util.ExpectLocalQueuesToBeActive(ctx, k8sClient, localQueue)
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -92,7 +90,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 				WorkerTemplate(corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+							kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 						},
 					},
 					Spec: corev1.PodSpec{
@@ -124,7 +122,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(replicas))
-					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
+					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -185,7 +183,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 				WorkerTemplate(corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+							kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 							kueue.PodSetGroupName:                  "same-group",
 						},
 					},
@@ -210,7 +208,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 				LeaderTemplate(corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+							kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 							kueue.PodSetGroupName:                  "same-group",
 						},
 					},
@@ -243,7 +241,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(replicas))
-					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
+					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -294,7 +292,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 				WorkerTemplate(corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+							kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 							kueue.PodSetGroupName:                  "same-group",
 						},
 					},
@@ -321,7 +319,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 				LeaderTemplate(corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+							kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 							kueue.PodSetGroupName:                  "same-group",
 						},
 					},
@@ -354,7 +352,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(replicas))
-					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
+					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 

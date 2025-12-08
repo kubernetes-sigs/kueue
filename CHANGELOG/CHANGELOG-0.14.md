@@ -1,3 +1,58 @@
+## v0.14.5
+
+Changes since `v0.14.4`:
+
+## Urgent Upgrade Notes
+
+### (No, really, you MUST read this before you upgrade)
+
+- TAS: It supports the Kubeflow TrainJob.
+
+  You should update Kubeflow Trainer to v2.1.0 at least when using Trainer v2. (#7755, @IrvingMg)
+
+## Changes by Kind
+
+### Bug or Regression
+
+- AdmissionFairSharing: Fix the bug that occasionally a workload may get admitted from a busy LocalQueue,
+  bypassing the entry penalties. (#7914, @IrvingMg)
+- Fix a bug that an error during workload preemption could leave the scheduler stuck without retrying. (#7818, @olekzabl)
+- Fix a bug that the cohort client-go lib is for a Namespaced resource, even though the cohort is a Cluster-scoped resource. (#7802, @tenzen-y)
+- Fix integration of `manageJobWithoutQueueName` and `managedJobsNamespaceSelector` with JobSet by ensuring that jobSets without a queue are  not managed by Kueue if are not selected by the  `managedJobsNamespaceSelector`. (#7762, @MaysaMacedo)
+- Fix issue #6711 where an inactive workload could transiently get admitted into a queue. (#7939, @olekzabl)
+- Fix the bug that a workload which was deactivated by setting the `spec.active=false` would not have the
+  `wl.Status.RequeueState` cleared. (#7768, @sohankunkerkar)
+- Fix the bug that the kubernetes.io/job-name label was not propagated from the k8s Job to the PodTemplate in
+  the Workload object, and later to the pod template in the ProvisioningRequest.
+
+  As a consequence the ClusterAutoscaler could not properly resolve pod affinities referring to that label,
+  via podAffinity.requiredDuringSchedulingIgnoredDuringExecution.labelSelector. For example,
+  such pod affinities can be used to request ClusterAutoscaler to provision a single node which is large enough
+  to accommodate all Pods on a single Node.
+
+  We also introduce the PropagateBatchJobLabelsToWorkload feature gate to disable the new behavior in case of
+  complications. (#7613, @yaroslava-serdiuk)
+- Fix the race condition which could result that the Kueue scheduler occasionally does not record the reason
+  for admission failure of a workload if the workload was modified in the meanwhile by another controller. (#7884, @mbobrovskyi)
+- TAS: Fix the `requiredDuringSchedulingIgnoredDuringExecution` node affinity setting being ignored in topology-aware scheduling. (#7937, @kshalot)
+
+## v0.14.4
+
+Changes since `v0.14.3`:
+
+## Changes by Kind
+
+### Feature
+
+- `ReclaimablePods` feature gate is introduced to enable users switching on and off the reclaimable Pods feature (#7537, @PBundyra)
+
+### Bug or Regression
+
+- Fix eviction of jobs with memory requests in decimal format (#7556, @brejman)
+- Fix the bug for the StatefulSet integration that the scale up could get stuck if
+  triggered immediately after scale down to zero. (#7500, @IrvingMg)
+- MultiKueue: Remove remoteClient from clusterReconciler when kubeconfig is detected as invalid or insecure, preventing workloads from being admitted to misconfigured clusters. (#7517, @mszadkow)
+
 ## v0.14.3
 
 Changes since `v0.14.2`:

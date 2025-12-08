@@ -26,7 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	awtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -62,15 +62,12 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for AppWrapper", func() {
 					Obj(),
 			).
 			Obj()
-		util.MustCreate(ctx, k8sClient, clusterQueue)
-		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-		util.MustCreate(ctx, k8sClient, localQueue)
-		util.ExpectLocalQueuesToBeActive(ctx, k8sClient, localQueue)
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 	})
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteAllAppWrappersInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
@@ -91,7 +88,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for AppWrapper", func() {
 						RequestAndLimit(extraResource, "1").
 						Suspend(false).
 						Image(util.GetAgnHostImage(), util.BehaviorExitFast).
-						PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, testing.DefaultRackTopologyLevel).
+						PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, utiltesting.DefaultRackTopologyLevel).
 						SetTypeMeta().Obj(),
 				}).
 				Queue(localQueue.Name).
@@ -133,7 +130,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for AppWrapper", func() {
 				Indexed(true).
 				Suspend(false).
 				RequestAndLimit(extraResource, "1").
-				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
 				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				SetTypeMeta().
 				Obj()

@@ -51,10 +51,10 @@ var _ = ginkgo.Describe("CertManager", ginkgo.Ordered, func() {
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(defaultRf.Name).
 				Resource(corev1.ResourceCPU, "2").
 				Resource(corev1.ResourceMemory, "2G").Obj()).Obj()
-		util.MustCreate(ctx, k8sClient, clusterQueue)
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 		localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
-		util.MustCreate(ctx, k8sClient, localQueue)
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -68,6 +68,7 @@ var _ = ginkgo.Describe("CertManager", ginkgo.Ordered, func() {
 		ginkgo.It("should admit a Job", func() {
 			testJob := testingjob.MakeJob("test-job", ns.Name).
 				Queue("main").
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Suspend(false).
 				Obj()
 			util.MustCreate(ctx, k8sClient, testJob)

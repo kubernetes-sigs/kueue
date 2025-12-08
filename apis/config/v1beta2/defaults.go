@@ -43,7 +43,6 @@ const (
 	DefaultLeaderElectionRetryPeriod              = 2 * time.Second
 	DefaultClientConnectionQPS            float32 = 20.0
 	DefaultClientConnectionBurst          int32   = 30
-	defaultPodsReadyTimeout                       = 5 * time.Minute
 	defaultJobFrameworkName                       = "batch/job"
 	DefaultMultiKueueGCInterval                   = time.Minute
 	DefaultMultiKueueOrigin                       = "multikueue"
@@ -92,10 +91,8 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	cfg.ClientConnection.QPS = cmp.Or(cfg.ClientConnection.QPS, ptr.To(DefaultClientConnectionQPS))
 	cfg.ClientConnection.Burst = cmp.Or(cfg.ClientConnection.Burst, ptr.To(DefaultClientConnectionBurst))
 
-	cfg.WaitForPodsReady = cmp.Or(cfg.WaitForPodsReady, &WaitForPodsReady{Enable: false})
-	if cfg.WaitForPodsReady.Enable {
-		cfg.WaitForPodsReady.Timeout = cmp.Or(cfg.WaitForPodsReady.Timeout, &metav1.Duration{Duration: defaultPodsReadyTimeout})
-		cfg.WaitForPodsReady.BlockAdmission = cmp.Or(cfg.WaitForPodsReady.BlockAdmission, &cfg.WaitForPodsReady.Enable)
+	if cfg.WaitForPodsReady != nil {
+		cfg.WaitForPodsReady.BlockAdmission = cmp.Or(cfg.WaitForPodsReady.BlockAdmission, ptr.To(false))
 		cfg.WaitForPodsReady.RequeuingStrategy = cmp.Or(cfg.WaitForPodsReady.RequeuingStrategy, &RequeuingStrategy{})
 		cfg.WaitForPodsReady.RequeuingStrategy.Timestamp = cmp.Or(cfg.WaitForPodsReady.RequeuingStrategy.Timestamp, ptr.To(EvictionTimestamp))
 		cfg.WaitForPodsReady.RequeuingStrategy.BackoffBaseSeconds = cmp.Or(cfg.WaitForPodsReady.RequeuingStrategy.BackoffBaseSeconds, ptr.To[int32](DefaultRequeuingBackoffBaseSeconds))
@@ -123,9 +120,6 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	cfg.MultiKueue.WorkerLostTimeout = cmp.Or(cfg.MultiKueue.WorkerLostTimeout, &metav1.Duration{Duration: DefaultMultiKueueWorkerLostTimeout})
 	cfg.MultiKueue.DispatcherName = cmp.Or(cfg.MultiKueue.DispatcherName, ptr.To(MultiKueueDispatcherModeAllAtOnce))
 
-	if fs := cfg.FairSharing; fs != nil && fs.Enable && len(fs.PreemptionStrategies) == 0 {
-		fs.PreemptionStrategies = []PreemptionStrategy{LessThanOrEqualToFinalShare, LessThanInitialShare}
-	}
 	if afs := cfg.AdmissionFairSharing; afs != nil {
 		afs.UsageSamplingInterval.Duration = cmp.Or(afs.UsageSamplingInterval.Duration, 5*time.Minute)
 	}

@@ -347,7 +347,9 @@ func TestFinish(t *testing.T) {
 			args: args{
 				clnt: testWorkloadClientBuilder().
 					WithObjects(testWorkload("test", "test-job", "job-uid", now).Obj()).
-					WithStatusSubresource(testWorkload("test", "test-job", "job-uid", now).Obj()).Build(),
+					WithStatusSubresource(testWorkload("test", "test-job", "job-uid", now).Obj()).
+					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+					Build(),
 				workloadSlice: testWorkload("test", "test-job", "job-uid", now).Obj(),
 				reason:        "TestReason",
 				message:       "Test Message.",
@@ -356,12 +358,20 @@ func TestFinish(t *testing.T) {
 				workload: testWorkload("test", "test-job", "job-uid", now).
 					ResourceVersion("2").
 					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadFinished,
+						Message:            "Workload has finished",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
 						Type:               kueue.WorkloadFinished,
 						Status:             metav1.ConditionTrue,
 						Reason:             "TestReason",
 						Message:            "Test Message.",
 						LastTransitionTime: metav1.NewTime(now),
-					}).Obj(),
+					}).
+					Obj(),
 			},
 		},
 	}
@@ -831,6 +841,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						Creation(now).
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).
+					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
 					Build(),
 				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()},
 				jobObject:    testJobObject,

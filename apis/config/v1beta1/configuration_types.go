@@ -84,6 +84,7 @@ type Configuration struct {
 
 	// QueueVisibility is configuration to expose the information about the top
 	// pending workloads.
+	//
 	// Deprecated: This field will be removed on v1beta2, use VisibilityOnDemand
 	// (https://kueue.sigs.k8s.io/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/)
 	// instead.
@@ -405,14 +406,15 @@ type Integrations struct {
 	//  - "trainer.kubeflow.org/trainjob"
 	//  - "workload.codeflare.dev/appwrapper"
 	//  - "pod"
-	//  - "deployment" (requires enabling pod integration)
-	//  - "statefulset" (requires enabling pod integration)
-	//  - "leaderworkerset.x-k8s.io/leaderworkerset" (requires enabling pod integration)
+	//  - "deployment"
+	//  - "statefulset"
+	//  - "leaderworkerset.x-k8s.io/leaderworkerset"
 	Frameworks []string `json:"frameworks,omitempty"`
 	// List of GroupVersionKinds that are managed for Kueue by external controllers;
 	// the expected format is `Kind.version.group.com`.
 	ExternalFrameworks []string `json:"externalFrameworks,omitempty"`
 	// PodOptions defines kueue controller behaviour for pod objects
+	//
 	// Deprecated: This field will be removed on v1beta2, use ManagedJobsNamespaceSelector
 	// (https://kueue.sigs.k8s.io/docs/tasks/run/plain_pods/)
 	// instead.

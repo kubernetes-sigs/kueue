@@ -63,6 +63,8 @@ spec:
           jsonPath: .status.admittedWorkloads
           name: Admitted Workloads
           type: integer
+      deprecated: true
+      deprecationWarning: This version is deprecated. Use v1beta2 instead.
       name: v1beta1
       schema:
         openAPIV3Schema:
@@ -294,6 +296,7 @@ spec:
                 flavors:
                   description: |-
                     flavors lists all currently available ResourceFlavors in specified ClusterQueue.
+
                     Deprecated: Flavors is deprecated and marked for removal in v1beta2.
                   items:
                     description: 'Deprecated: LocalQueueFlavorStatus is deprecated and marked for removal in v1beta2.'
@@ -439,7 +442,7 @@ spec:
               type: object
           type: object
       served: true
-      storage: true
+      storage: false
       subresources:
         status: {}
     - additionalPrinterColumns:
@@ -740,6 +743,6 @@ spec:
               type: object
           type: object
       served: true
-      storage: false
+      storage: true
       subresources:
         status: {}

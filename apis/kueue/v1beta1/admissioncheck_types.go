@@ -57,6 +57,7 @@ type AdmissionCheckSpec struct {
 	// state goes to "Unknown". The default is 15 min.
 	// +optional
 	// +kubebuilder:default=15
+	//
 	// Deprecated: retryDelayMinutes has already been deprecated since v0.8 and will be removed in v1beta2.
 	RetryDelayMinutes *int64 `json:"retryDelayMinutes,omitempty"`
 
@@ -102,7 +103,7 @@ const (
 // +genclient
 // +genclient:nonNamespaced
 // +kubebuilder:object:root=true
-// +kubebuilder:storageversion
+// +kubebuilder:deprecatedversion:warning="This version is deprecated. Use v1beta2 instead."
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster
 

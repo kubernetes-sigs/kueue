@@ -21,9 +21,10 @@ For more information, see [Kueue's overview](/docs/overview).
 
 ## Before you begin
 
-1. Learn how to [install Kueue with a custom manager configuration](/docs/installation/#install-a-custom-configured-released-version).
+1. The `deployment` integration is enabled by default.
 
-2. Ensure that you have the `deployment` integration enabled, for example:
+2. For Kueue v0.15 and earlier, learn how to [install Kueue with a custom manager configuration](/docs/installation/#install-a-custom-configured-released-version),
+   and ensure that you have the `deployment` integration enabled, for example:
    ```yaml
    apiVersion: config.kueue.x-k8s.io/v1beta2
    kind: Configuration
@@ -88,5 +89,5 @@ Here is a sample Deployment:
 
 You can create the Deployment using the following command:
 ```sh
-kubectl create -f sample-deployment.yaml
+kubectl create -f https://kueue.sigs.k8s.io/examples/serving-workloads/sample-deployment.yaml
 ```

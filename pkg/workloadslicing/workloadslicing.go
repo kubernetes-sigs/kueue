@@ -104,15 +104,7 @@ func Finish(ctx context.Context, clnt client.Client, clk clock.Clock, workloadSl
 	if apimeta.IsStatusConditionTrue(workloadSlice.Status.Conditions, kueue.WorkloadFinished) {
 		return nil
 	}
-	if err := clientutil.PatchStatus(ctx, clnt, workloadSlice, func() (client.Object, bool, error) {
-		return workloadSlice, apimeta.SetStatusCondition(&workloadSlice.Status.Conditions, metav1.Condition{
-			Type:               kueue.WorkloadFinished,
-			Status:             metav1.ConditionTrue,
-			Reason:             reason,
-			Message:            message,
-			LastTransitionTime: metav1.NewTime(clk.Now()),
-		}), nil
-	}); err != nil {
+	if err := workload.Finish(ctx, clnt, workloadSlice, reason, message, clk); err != nil {
 		return fmt.Errorf("failed to patch workload slice status: %w", err)
 	}
 	return nil
@@ -283,8 +275,8 @@ func StartWorkloadSlicePods(ctx context.Context, clnt client.Client, object clie
 		return fmt.Errorf("failed to list job pods: %w", err)
 	}
 	for i := range list.Items {
-		if err := clientutil.Patch(ctx, clnt, &list.Items[i], func() (client.Object, bool, error) {
-			return &list.Items[i], pod.Ungate(&list.Items[i], kueue.ElasticJobSchedulingGate), nil
+		if err := clientutil.Patch(ctx, clnt, &list.Items[i], func() (bool, error) {
+			return pod.Ungate(&list.Items[i], kueue.ElasticJobSchedulingGate), nil
 		}); err != nil {
 			return fmt.Errorf("failed to patch pod: %w", err)
 		}

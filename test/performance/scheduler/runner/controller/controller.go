@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/performance/scheduler/runner/generator"
 	"sigs.k8s.io/kueue/test/performance/scheduler/runner/recorder"
+	"sigs.k8s.io/kueue/test/util"
 )
 
 type reconciler struct {
@@ -51,10 +52,6 @@ type reconciler struct {
 	recorder      *recorder.Recorder
 	clock         clock.Clock
 }
-
-var (
-	realClock = clock.RealClock{}
-)
 
 func (r *reconciler) getAdmittedTime(uid types.UID) (time.Time, bool) {
 	r.atLock.RLock()
@@ -120,8 +117,8 @@ func (r *reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	// this should only:
 	// 1. finish the workloads eviction
 	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
-		err := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func() (*kueue.Workload, bool, error) {
-			return &wl, workload.UnsetQuotaReservationWithCondition(&wl, "Pending", "Evicted by the test runner", time.Now()), nil
+		err := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+			return workload.UnsetQuotaReservationWithCondition(wl, "Pending", "Evicted by the test runner", time.Now()), nil
 		})
 		if err == nil {
 			log.V(5).Info("Finish eviction")
@@ -146,7 +143,7 @@ func (r *reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		if remaining > 0 {
 			return reconcile.Result{RequeueAfter: remaining}, nil
 		} else {
-			err := workload.UpdateStatus(ctx, r.client, &wl, kueue.WorkloadFinished, metav1.ConditionTrue, "ByTest", "By test runner", constants.JobControllerName, r.clock)
+			err := workload.SetConditionAndUpdate(ctx, r.client, &wl, kueue.WorkloadFinished, metav1.ConditionTrue, "ByTest", "By test runner", constants.JobControllerName, r.clock)
 			if err == nil {
 				log.V(5).Info("Finish Workload")
 			}
@@ -178,7 +175,7 @@ type options struct {
 type Option func(*options)
 
 var defaultOptions = options{
-	clock: realClock,
+	clock: util.RealClock,
 }
 
 func WithClock(_ testing.TB, c clock.Clock) Option {

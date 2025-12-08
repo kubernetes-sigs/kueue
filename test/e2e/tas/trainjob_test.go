@@ -30,7 +30,7 @@ import (
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
@@ -61,6 +61,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", func() {
 			tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
 				NodeLabel(tasNodeGroupLabel, instanceType).TopologyName(topology.Name).Obj()
 			util.MustCreate(ctx, k8sClient, tasFlavor)
+
 			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
@@ -68,11 +69,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", func() {
 						Obj(),
 				).
 				Obj()
-			util.MustCreate(ctx, k8sClient, clusterQueue)
-			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
-			util.MustCreate(ctx, k8sClient, localQueue)
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteAllTrainJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
@@ -101,7 +101,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", func() {
 						Parallelism: int32(parallelism),
 						Completions: int32(parallelism),
 						PodAnnotations: map[string]string{
-							kueue.PodSetPreferredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+							kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 						},
 					}).
 				RequestAndLimit("node", extraResource, "1").Obj().Spec)
@@ -117,7 +117,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", func() {
 			util.MustCreate(ctx, k8sClient, trainingRuntime)
 			util.MustCreate(ctx, k8sClient, trainjob)
 
-			ginkgo.By("JobSet is unsuspended", func() {
+			ginkgo.By("TrainJob is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(trainjob), trainjob)).To(gomega.Succeed())
 					g.Expect(trainjob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
@@ -171,8 +171,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", func() {
 						Parallelism: int32(parallelism),
 						Completions: int32(parallelism),
 						PodAnnotations: map[string]string{
-							kueue.PodSetPreferredTopologyAnnotation:     testing.DefaultBlockTopologyLevel,
-							kueue.PodSetSliceRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+							kueue.PodSetPreferredTopologyAnnotation:     utiltesting.DefaultBlockTopologyLevel,
+							kueue.PodSetSliceRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 							kueue.PodSetSliceSizeAnnotation:             "3",
 						},
 					}).
@@ -243,7 +243,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", func() {
 						Parallelism: int32(parallelism),
 						Completions: int32(parallelism),
 						PodAnnotations: map[string]string{
-							kueue.PodSetSliceRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+							kueue.PodSetSliceRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 							kueue.PodSetSliceSizeAnnotation:             "3",
 						},
 					}).

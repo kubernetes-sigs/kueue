@@ -29,7 +29,7 @@ import (
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	"sigs.k8s.io/kueue/test/util"
@@ -66,11 +66,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 						Obj(),
 				).
 				Obj()
-			util.MustCreate(ctx, k8sClient, clusterQueue)
-			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
-			util.MustCreate(ctx, k8sClient, localQueue)
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteAllJobSetsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
@@ -98,7 +97,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 						Parallelism: int32(parallelism),
 						Completions: int32(parallelism),
 						PodAnnotations: map[string]string{
-							kueue.PodSetPreferredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+							kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 						},
 					},
 				).
@@ -161,8 +160,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 						Parallelism: int32(parallelism),
 						Completions: int32(parallelism),
 						PodAnnotations: map[string]string{
-							kueue.PodSetPreferredTopologyAnnotation:     testing.DefaultBlockTopologyLevel,
-							kueue.PodSetSliceRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+							kueue.PodSetPreferredTopologyAnnotation:     utiltesting.DefaultBlockTopologyLevel,
+							kueue.PodSetSliceRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 							kueue.PodSetSliceSizeAnnotation:             "3",
 						},
 					},
@@ -226,7 +225,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 						Parallelism: int32(parallelism),
 						Completions: int32(parallelism),
 						PodAnnotations: map[string]string{
-							kueue.PodSetSliceRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+							kueue.PodSetSliceRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 							kueue.PodSetSliceSizeAnnotation:             "3",
 						},
 					},

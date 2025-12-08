@@ -116,13 +116,13 @@ var _ = ginkgo.Describe("Metrics", func() {
 						Obj(),
 				).
 				Obj()
-			util.MustCreate(ctx, k8sClient, clusterQueue)
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 			localQueue = utiltestingapi.MakeLocalQueue("", ns.Name).
 				GeneratedName("test-lq-").
 				ClusterQueue(clusterQueue.Name).
 				Obj()
-			util.MustCreate(ctx, k8sClient, localQueue)
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 
 			workload = utiltestingapi.MakeWorkload("test-workload", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
@@ -251,16 +251,17 @@ var _ = ginkgo.Describe("Metrics", func() {
 				).
 				AdmissionChecks(kueue.AdmissionCheckReference(admissionCheck.Name)).
 				Obj()
-			util.MustCreate(ctx, k8sClient, clusterQueue)
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 			localQueue = utiltestingapi.MakeLocalQueue("", ns.Name).
 				GeneratedName("test-admission-checked-lq-").
 				ClusterQueue(clusterQueue.Name).
 				Obj()
-			util.MustCreate(ctx, k8sClient, localQueue)
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 
 			createdJob = testingjob.MakeJob("admission-checked-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				Obj()
 			util.MustCreate(ctx, k8sClient, createdJob)
@@ -271,23 +272,16 @@ var _ = ginkgo.Describe("Metrics", func() {
 				Namespace: ns.Name,
 			}
 
-			createdWorkload = &kueue.Workload{}
-
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, workloadKey, createdWorkload)).Should(gomega.Succeed())
-				g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadQuotaReserved))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectWorkloadsToHaveQuotaReservationByKey(ctx, k8sClient, clusterQueue.Name, workloadKey)
 		})
 
 		ginkgo.AfterEach(func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, createdJob, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, createdWorkload, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, admissionCheck, true)
 		})
 
 		ginkgo.It("should ensure the admission check metrics are available", func() {
+			createdWorkload = &kueue.Workload{}
 			ginkgo.By("setting the check as successful", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, workloadKey, createdWorkload)).Should(gomega.Succeed())
@@ -295,7 +289,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 					workload.SetAdmissionCheckState(&patch.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:  kueue.AdmissionCheckReference(admissionCheck.Name),
 						State: kueue.CheckStateReady,
-					}, realClock)
+					}, util.RealClock)
 					g.Expect(k8sClient.Status().
 						Patch(ctx, patch, client.Apply, client.FieldOwner("test-admission-check-controller"), client.ForceOwnership)).
 						Should(gomega.Succeed())
@@ -367,8 +361,6 @@ var _ = ginkgo.Describe("Metrics", func() {
 					},
 				}).
 				Obj()
-			util.MustCreate(ctx, k8sClient, clusterQueue1)
-
 			clusterQueue2 = utiltestingapi.MakeClusterQueue("").
 				GeneratedName("test-cq-2-").
 				Cohort("test-cohort").
@@ -385,25 +377,24 @@ var _ = ginkgo.Describe("Metrics", func() {
 					},
 				}).
 				Obj()
-			util.MustCreate(ctx, k8sClient, clusterQueue2)
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue1, clusterQueue2)
 
 			localQueue1 = utiltestingapi.MakeLocalQueue("", ns.Name).
 				GeneratedName("test-lq-1-").
 				ClusterQueue(clusterQueue1.Name).
 				Obj()
-			util.MustCreate(ctx, k8sClient, localQueue1)
-
 			localQueue2 = utiltestingapi.MakeLocalQueue("", ns.Name).
 				GeneratedName("test-lq-2-").
 				ClusterQueue(clusterQueue2.Name).
 				Obj()
-			util.MustCreate(ctx, k8sClient, localQueue2)
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue1, localQueue2)
 
 			highPriorityClass = utiltesting.MakePriorityClass("high").PriorityValue(100).Obj()
 			util.MustCreate(ctx, k8sClient, highPriorityClass)
 
 			lowerJob1 = testingjob.MakeJob("lower-job-1", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue1.Name)).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				Obj()
 			util.MustCreate(ctx, k8sClient, lowerJob1)
@@ -423,6 +414,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 
 			lowerJob2 = testingjob.MakeJob("lower-job-2", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue2.Name)).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				Obj()
 			util.MustCreate(ctx, k8sClient, lowerJob2)
@@ -442,6 +434,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 
 			blockerJob = testingjob.MakeJob("blocker", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue2.Name)).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				PriorityClass(highPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "3").
 				Obj()
@@ -462,6 +455,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 
 			higherJob1 = testingjob.MakeJob("high-large-1", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue1.Name)).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				PriorityClass(highPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "4").
 				Obj()
@@ -469,6 +463,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 
 			higherJob2 = testingjob.MakeJob("high-large-2", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue2.Name)).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				PriorityClass(highPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "4").
 				Obj()

@@ -1,5 +1,5 @@
 ---
-title: Kueue API
+title: Kueue v1beta2 API
 content_type: tool-reference
 package: kueue.x-k8s.io/v1beta2
 auto_generated: true
@@ -466,8 +466,6 @@ The description is limited to a maximum of 2048 characters.</p>
 
 - [AdmissionCheckStrategyRule](#kueue-x-k8s-io-v1beta2-AdmissionCheckStrategyRule)
 
-- [ClusterQueueSpec](#kueue-x-k8s-io-v1beta2-ClusterQueueSpec)
-
 
 <p>AdmissionCheckReference is the name of an AdmissionCheck.</p>
 
@@ -551,6 +549,28 @@ This should be when the underlying condition changed.  If that is not known, the
 <td>
    <p>message is a human readable message indicating details about the transition.
 This may be an empty string.</p>
+</td>
+</tr>
+<tr><td><code>requeueAfterSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>requeueAfterSeconds indicates how long to wait at least before
+retrying to admit the workload.
+The admission check controllers can set this field when State=Retry
+to implement delays between retry attempts.</p>
+<p>If nil when State=Retry, Kueue will retry immediately.
+If set, Kueue will add the workload back to the queue after
+lastTransitionTime + RequeueAfterSeconds is over.</p>
+</td>
+</tr>
+<tr><td><code>retryCount</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>retryCount tracks retry attempts for this admission check.
+Kueue automatically increments the counter whenever the
+state transitions to Retry.</p>
 </td>
 </tr>
 <tr><td><code>podSetUpdates</code><br/>
@@ -646,39 +666,6 @@ If empty, the AdmissionCheck will run for all workloads submitted to the Cluster
 </td>
 <td>
    <p>admissionChecks is a list of strategies for AdmissionChecks</p>
-</td>
-</tr>
-</tbody>
-</table>
-
-## `AdmissionFairSharingStatus`     {#kueue-x-k8s-io-v1beta2-AdmissionFairSharingStatus}
-    
-
-**Appears in:**
-
-- [FairSharingStatus](#kueue-x-k8s-io-v1beta2-FairSharingStatus)
-
-
-
-<table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
-<tbody>
-    
-  
-<tr><td><code>consumedResources</code> <B>[Required]</B><br/>
-<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcelist-v1-core"><code>k8s.io/api/core/v1.ResourceList</code></a>
-</td>
-<td>
-   <p>consumedResources represents the aggregated usage of resources over time,
-with decaying function applied.
-The value is populated if usage consumption functionality is enabled in Kueue config.</p>
-</td>
-</tr>
-<tr><td><code>lastUpdate</code> <B>[Required]</B><br/>
-<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Time</code></a>
-</td>
-<td>
-   <p>lastUpdate is the time when share and consumed resources were updated.</p>
 </td>
 </tr>
 </tbody>
@@ -795,6 +782,30 @@ policy can be preempted by the borrowing workload.</p>
 
 
 
+
+## `ClusterProfileReference`     {#kueue-x-k8s-io-v1beta2-ClusterProfileReference}
+    
+
+**Appears in:**
+
+- [ClusterSource](#kueue-x-k8s-io-v1beta2-ClusterSource)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>name of the ClusterProfile.</p>
+</td>
+</tr>
+</tbody>
+</table>
 
 ## `ClusterQueuePreemption`     {#kueue-x-k8s-io-v1beta2-ClusterQueuePreemption}
     
@@ -984,21 +995,11 @@ before borrowing or preempting in the flavor being evaluated.</p>
    <p>preemption defines the preemption policies.</p>
 </td>
 </tr>
-<tr><td><code>admissionChecks</code><br/>
-<a href="#kueue-x-k8s-io-v1beta2-AdmissionCheckReference"><code>[]AdmissionCheckReference</code></a>
-</td>
-<td>
-   <p>admissionChecks lists the AdmissionChecks required by this ClusterQueue.
-Cannot be used along with AdmissionCheckStrategy.
-Admission checks are limited to at most 64 items.</p>
-</td>
-</tr>
 <tr><td><code>admissionChecksStrategy</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-AdmissionChecksStrategy"><code>AdmissionChecksStrategy</code></a>
 </td>
 <td>
-   <p>admissionChecksStrategy defines a list of strategies to determine which ResourceFlavors require AdmissionChecks.
-This property cannot be used in conjunction with the 'admissionChecks' property.</p>
+   <p>admissionChecksStrategy defines a list of strategies to determine which ResourceFlavors require AdmissionChecks.</p>
 </td>
 </tr>
 <tr><td><code>stopPolicy</code><br/>
@@ -1107,6 +1108,37 @@ clusterQueue and haven't finished yet.</p>
    <p>fairSharing contains the current state for this ClusterQueue
 when participating in Fair Sharing.
 This is recorded only when Fair Sharing is enabled in the Kueue configuration.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `ClusterSource`     {#kueue-x-k8s-io-v1beta2-ClusterSource}
+    
+
+**Appears in:**
+
+- [MultiKueueClusterSpec](#kueue-x-k8s-io-v1beta2-MultiKueueClusterSpec)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>kubeConfig,omitempty,omitzero</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-KubeConfig"><code>KubeConfig</code></a>
+</td>
+<td>
+   <p>kubeConfig is information on how to connect to the cluster.</p>
+</td>
+</tr>
+<tr><td><code>clusterProfileRef</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-ClusterProfileReference"><code>ClusterProfileReference</code></a>
+</td>
+<td>
+   <p>clusterProfileRef is the reference to the ClusterProfile object used to connect to the cluster.</p>
 </td>
 </tr>
 </tbody>
@@ -1309,8 +1341,6 @@ When not 0, Weight must be greater than 10^-9.</p>
 
 - [CohortStatus](#kueue-x-k8s-io-v1beta2-CohortStatus)
 
-- [LocalQueueStatus](#kueue-x-k8s-io-v1beta2-LocalQueueStatus)
-
 
 <p>FairSharingStatus contains the information about the current status of Fair Sharing.</p>
 
@@ -1331,13 +1361,6 @@ divided by the weight.  If zero, it means that the usage of
 the Node is below the nominal quota.  If the Node has a
 weight of zero and is borrowing, this will return
 9223372036854775807, the maximum possible share value.</p>
-</td>
-</tr>
-<tr><td><code>admissionFairSharingStatus</code><br/>
-<a href="#kueue-x-k8s-io-v1beta2-AdmissionFairSharingStatus"><code>AdmissionFairSharingStatus</code></a>
-</td>
-<td>
-   <p>admissionFairSharingStatus represents information relevant to the Admission Fair Sharing</p>
 </td>
 </tr>
 </tbody>
@@ -1387,10 +1410,40 @@ to fit in current flavor.</li>
 </ul>
 </td>
 </tr>
+<tr><td><code>preference</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-FlavorFungibilityPreference"><code>FlavorFungibilityPreference</code></a>
+</td>
+<td>
+   <p>preference guides the choosing of the flavor for admission in case all candidate flavors
+require either preemption, borrowing, or both. The possible values are:</p>
+<ul>
+<li><code>BorrowingOverPreemption</code> (default): prefer to use borrowing rather than preemption
+when such a choice is possible. More technically it minimizes the borrowing distance
+in the cohort tree, and solves tie-breaks by preferring better preemption mode
+(reclaim over preemption within ClusterQueue).</li>
+<li><code>PreemptionOverBorrowing</code>: prefer to use preemption rather than borrowing
+when such a choice is possible.  More technically it optimizes the preemption mode
+(reclaim over preemption within ClusterQueue), and solves tie-breaks by minimizing
+the borrowing distance in the cohort tree.</li>
+</ul>
+</td>
+</tr>
 </tbody>
 </table>
 
 ## `FlavorFungibilityPolicy`     {#kueue-x-k8s-io-v1beta2-FlavorFungibilityPolicy}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [FlavorFungibility](#kueue-x-k8s-io-v1beta2-FlavorFungibility)
+
+
+
+
+
+## `FlavorFungibilityPreference`     {#kueue-x-k8s-io-v1beta2-FlavorFungibilityPreference}
     
 (Alias of `string`)
 
@@ -1472,7 +1525,7 @@ There could be up to 64 resources.</p>
 
 **Appears in:**
 
-- [MultiKueueClusterSpec](#kueue-x-k8s-io-v1beta2-MultiKueueClusterSpec)
+- [ClusterSource](#kueue-x-k8s-io-v1beta2-ClusterSource)
 
 
 
@@ -1495,6 +1548,78 @@ which the kueue controller manager is running. The config should be stored in th
 </td>
 <td>
    <p>locationType of the KubeConfig.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `LocalQueueAdmissionFairSharingStatus`     {#kueue-x-k8s-io-v1beta2-LocalQueueAdmissionFairSharingStatus}
+    
+
+**Appears in:**
+
+- [LocalQueueFairSharingStatus](#kueue-x-k8s-io-v1beta2-LocalQueueFairSharingStatus)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>consumedResources</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcelist-v1-core"><code>k8s.io/api/core/v1.ResourceList</code></a>
+</td>
+<td>
+   <p>consumedResources represents the aggregated usage of resources over time,
+with decaying function applied.
+The value is populated if usage consumption functionality is enabled in Kueue config.</p>
+</td>
+</tr>
+<tr><td><code>lastUpdate</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Time</code></a>
+</td>
+<td>
+   <p>lastUpdate is the time when share and consumed resources were updated.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `LocalQueueFairSharingStatus`     {#kueue-x-k8s-io-v1beta2-LocalQueueFairSharingStatus}
+    
+
+**Appears in:**
+
+- [LocalQueueStatus](#kueue-x-k8s-io-v1beta2-LocalQueueStatus)
+
+
+<p>LocalQueueFairSharingStatus contains the information about the current status of Fair Sharing.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>weightedShare</code> <B>[Required]</B><br/>
+<code>int64</code>
+</td>
+<td>
+   <p>weightedShare represents the maximum of the ratios of usage
+above nominal quota to the lendable resources in the
+Cohort, among all the resources provided by the Node, and
+divided by the weight.  If zero, it means that the usage of
+the Node is below the nominal quota.  If the Node has a
+weight of zero and is borrowing, this will return
+9223372036854775807, the maximum possible share value.</p>
+</td>
+</tr>
+<tr><td><code>admissionFairSharingStatus</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-LocalQueueAdmissionFairSharingStatus"><code>LocalQueueAdmissionFairSharingStatus</code></a>
+</td>
+<td>
+   <p>admissionFairSharingStatus represents information relevant to the Admission Fair Sharing</p>
 </td>
 </tr>
 </tbody>
@@ -1691,7 +1816,7 @@ workloads assigned to this LocalQueue.</p>
 </td>
 </tr>
 <tr><td><code>fairSharing</code><br/>
-<a href="#kueue-x-k8s-io-v1beta2-FairSharingStatus"><code>FairSharingStatus</code></a>
+<a href="#kueue-x-k8s-io-v1beta2-LocalQueueFairSharingStatus"><code>LocalQueueFairSharingStatus</code></a>
 </td>
 <td>
    <p>fairSharing contains the information about the current status of fair sharing.</p>
@@ -1726,11 +1851,11 @@ workloads assigned to this LocalQueue.</p>
 <tbody>
     
   
-<tr><td><code>kubeConfig,omitempty,omitzero</code> <B>[Required]</B><br/>
-<a href="#kueue-x-k8s-io-v1beta2-KubeConfig"><code>KubeConfig</code></a>
+<tr><td><code>clusterSource</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta2-ClusterSource"><code>ClusterSource</code></a>
 </td>
 <td>
-   <p>kubeConfig is information on how to connect to the cluster.</p>
+   <p>clusterSource is the source to connect to the cluster.</p>
 </td>
 </tr>
 </tbody>
@@ -1924,46 +2049,144 @@ in that case spec.podSets[*].count value will be used.</p>
 topology domains corresponding to the lowest level of the topology.
 The assignment specifies the number of Pods to be scheduled per topology
 domain and specifies the node selectors for each topology domain, in the
-following way: the node selector keys are specified by the levels field
-(same for all domains), and the corresponding node selector value is
-specified by the domains.values subfield. If the TopologySpec.Levels field contains
-&quot;kubernetes.io/hostname&quot; label, topologyAssignment will contain data only for
-this label, and omit higher levels in the topology</p>
-<p>Example:</p>
+following way:</p>
+<ul>
+<li><code>levels</code> specifies the node selector keys (same for all domains).
+<ul>
+<li>If the TopologySpec.Levels field contains &quot;kubernetes.io/hostname&quot; label,
+topologyAssignment will contain data only for this label,
+and omit higher levels in the topology.</li>
+</ul>
+</li>
+<li><code>slices</code> specifies the node selector values and pod counts for all domains
+(which may be partitioned into separate slices).
+<ul>
+<li>The node selector values are arranged first by topology level, only then by domain.
+(This allows &quot;optimizing&quot; similar values; see below).</li>
+</ul>
+</li>
+<li>The format of <code>slices</code> supports the following variations
+(aimed to optimize the total bytesize for very large number of domains; see examples below):
+<ul>
+<li>When all node selector values (at a given topology level, in a given slice)
+share a common prefix and/or suffix, these may be stored
+in dedicated <code>prefix</code>/<code>suffix</code> fields.
+If so, the array of <code>roots</code> will only store the remaining parts of these strings.</li>
+<li>When all node selector values (at a given topology level, in a given slice)
+are identical, this may be represented by <code>universal</code> value.</li>
+<li>When all pod counts (in a given slice) are identical,
+this may be represented by <code>universal</code> pod count.</li>
+</ul>
+</li>
+</ul>
+<p>Example 1:</p>
+<p>The following represents an assignment in which:</p>
+<ul>
+<li>4 Pods are to be scheduled on nodes matching the node selector:
+<ul>
+<li>cloud.provider.com/topology-block: block-1</li>
+<li>cloud.provider.com/topology-rack: rack-1</li>
+</ul>
+</li>
+<li>2 Pods are to be scheduled on nodes matching the node selector:
+<ul>
+<li>cloud.provider.com/topology-block: block-1</li>
+<li>cloud.provider.com/topology-rack: rack-2</li>
+</ul>
+</li>
+</ul>
 <p>topologyAssignment:
 levels:</p>
 <ul>
 <li>cloud.provider.com/topology-block</li>
 <li>cloud.provider.com/topology-rack
-domains:</li>
-<li>values: [block-1, rack-1]
-count: 4</li>
-<li>values: [block-1, rack-2]
-count: 2</li>
-</ul>
-<p>Here:</p>
+slices:</li>
+<li>domainCount: 2
+valuesPerLevel:
 <ul>
-<li>4 Pods are to be scheduled on nodes matching the node selector:
-cloud.provider.com/topology-block: block-1
-cloud.provider.com/topology-rack: rack-1</li>
-<li>2 Pods are to be scheduled on nodes matching the node selector:
-cloud.provider.com/topology-block: block-1
-cloud.provider.com/topology-rack: rack-2</li>
+<li>individual:
+roots: [block-1, block-1]</li>
+<li>individual:
+roots: [rack-1, rack-2]
+podCounts:
+individual: [4, 2]</li>
 </ul>
-<p>Example:
-Below there is an equivalent of the above example assuming, Topology
-object defines kubernetes.io/hostname as the lowest level in topology.
-Hence we omit higher level of topologies, since the hostname label
-is sufficient to explicitly identify a proper node.</p>
+</li>
+</ul>
+<p>Example 2:</p>
+<p>The following is equivalent to Example 1 - but using extracted prefix and universalValue.</p>
+<p>topologyAssignment:
+levels:</p>
+<ul>
+<li>cloud.provider.com/topology-block</li>
+<li>cloud.provider.com/topology-rack
+slices:</li>
+<li>domainCount: 2
+valuesPerLevel:
+<ul>
+<li>universal: block-1</li>
+<li>individual:
+prefix: rack-
+roots: [1, 2]
+podCounts:
+individual: [4, 2]</li>
+</ul>
+</li>
+</ul>
+<p>Example 3:</p>
+<p>Now suppose that:</p>
+<ul>
+<li>the Topology object defines kubernetes.io/hostname as the lowest level
+(and hence, in the topologyAssignment, we omit all other levels
+since the hostname label suffices to explicitly identify a proper node),</li>
+<li>we assign 1 Pod per each node,</li>
+<li>the node naming scheme is <code>block-{blockId}-rack-{rackId}-node-{nodeId}</code>.
+Then, using the &quot;extraction of commons&quot;, the assignment from Examples 1-2 would look as follows:</li>
+</ul>
 <p>topologyAssignment:
 levels:</p>
 <ul>
 <li>kubernetes.io/hostname
-domains:</li>
-<li>values: [hostname-1]
-count: 4</li>
-<li>values: [hostname-2]
-count: 2</li>
+slices:</li>
+<li>domainCount: 6
+valuesPerLevel:
+<ul>
+<li>individual:
+prefix: block-1-rack-
+roots: [1-node-1, 1-node-2, 1-node-3, 1-node-4, 2-node-1, 2-node-2]
+podCounts:
+universal: 1</li>
+</ul>
+</li>
+</ul>
+<p>Example 4:</p>
+<p>By using multiple slices, we can afford even longer common prefixes.
+The assignment from Example 3 can be alternatively represented as follows:</p>
+<p>topologyAssignment:
+levels:</p>
+<ul>
+<li>kubernetes.io/hostname
+slices:</li>
+<li>domainCount: 4
+valuesPerLevel:
+<ul>
+<li>individual:
+prefix: block-1-rack-1-node-
+roots: [1, 2, 3, 4]
+podCounts:
+universal: 1</li>
+</ul>
+</li>
+<li>domainCount: 2
+valuesPerLevel:
+<ul>
+<li>individual:
+prefix: block-1-rack-2-node-
+roots: [1, 2]
+podCounts:
+universal: 1</li>
+</ul>
+</li>
 </ul>
 </td>
 </tr>
@@ -2211,6 +2434,82 @@ result in failure during workload admission.</p>
 
 
 
+
+## `PriorityClassGroup`     {#kueue-x-k8s-io-v1beta2-PriorityClassGroup}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [PriorityClassRef](#kueue-x-k8s-io-v1beta2-PriorityClassRef)
+
+
+<p>PriorityClassGroup indicates the API group of the PriorityClass object.</p>
+
+
+
+
+## `PriorityClassKind`     {#kueue-x-k8s-io-v1beta2-PriorityClassKind}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [PriorityClassRef](#kueue-x-k8s-io-v1beta2-PriorityClassRef)
+
+
+<p>PriorityClassKind is the kind of the PriorityClass object.</p>
+
+
+
+
+## `PriorityClassRef`     {#kueue-x-k8s-io-v1beta2-PriorityClassRef}
+    
+
+**Appears in:**
+
+- [WorkloadSpec](#kueue-x-k8s-io-v1beta2-WorkloadSpec)
+
+
+<p>PriorityClassRef references a PriorityClass in a specific API group.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>group</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta2-PriorityClassGroup"><code>PriorityClassGroup</code></a>
+</td>
+<td>
+   <p>group is the API group of the PriorityClass object.
+Use &quot;kueue.x-k8s.io&quot; for WorkloadPriorityClass.
+Use &quot;scheduling.k8s.io&quot; for Pod PriorityClass.</p>
+</td>
+</tr>
+<tr><td><code>kind</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta2-PriorityClassKind"><code>PriorityClassKind</code></a>
+</td>
+<td>
+   <p>kind is the kind of the PriorityClass object.</p>
+</td>
+</tr>
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>name is the name of the PriorityClass the Workload is associated with.
+If specified, indicates the workload's priority.
+&quot;system-node-critical&quot; and &quot;system-cluster-critical&quot; are two special
+keywords which indicate the highest priorities with the former being
+the highest priority. Any other name must be defined by creating a
+PriorityClass object with that name. If not specified, the workload
+priority will be default or zero if there is no default.</p>
+</td>
+</tr>
+</tbody>
+</table>
 
 ## `ProvisioningRequestConfigPodSetMergePolicy`     {#kueue-x-k8s-io-v1beta2-ProvisioningRequestConfigPodSetMergePolicy}
     
@@ -2795,18 +3094,18 @@ topology (i.e. node label keys), from the highest to the lowest level of
 the topology.</p>
 </td>
 </tr>
-<tr><td><code>domains</code> <B>[Required]</B><br/>
-<a href="#kueue-x-k8s-io-v1beta2-TopologyDomainAssignment"><code>[]TopologyDomainAssignment</code></a>
+<tr><td><code>slices</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta2-TopologyAssignmentSlice"><code>[]TopologyAssignmentSlice</code></a>
 </td>
 <td>
-   <p>domains is a list of topology assignments split by topology domains at
-the lowest level of the topology.</p>
+   <p>slices represent topology assignments for subsets of pods of a workload.
+The full assignment is obtained as a union of all slices.</p>
 </td>
 </tr>
 </tbody>
 </table>
 
-## `TopologyDomainAssignment`     {#kueue-x-k8s-io-v1beta2-TopologyDomainAssignment}
+## `TopologyAssignmentSlice`     {#kueue-x-k8s-io-v1beta2-TopologyAssignmentSlice}
     
 
 **Appears in:**
@@ -2820,21 +3119,136 @@ the lowest level of the topology.</p>
 <tbody>
     
   
-<tr><td><code>values</code> <B>[Required]</B><br/>
-<code>[]string</code>
-</td>
-<td>
-   <p>values is an ordered list of node selector values describing a topology
-domain. The values correspond to the consecutive topology levels, from
-the highest to the lowest.</p>
-</td>
-</tr>
-<tr><td><code>count</code> <B>[Required]</B><br/>
+<tr><td><code>domainCount</code> <B>[Required]</B><br/>
 <code>int32</code>
 </td>
 <td>
-   <p>count indicates the number of Pods to be scheduled in the topology
-domain indicated by the values field.</p>
+   <p>domainCount is the number of domains covered by this slice.</p>
+</td>
+</tr>
+<tr><td><code>valuesPerLevel</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta2-TopologyAssignmentSliceLevelValues"><code>[]TopologyAssignmentSliceLevelValues</code></a>
+</td>
+<td>
+   <p>valuesPerLevel has one entry for each of the Levels specified in the TopologyAssignment.
+The entry corresponding to a particular level specifies the placement of pods at that level.</p>
+</td>
+</tr>
+<tr><td><code>podCounts</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta2-TopologyAssignmentSlicePodCounts"><code>TopologyAssignmentSlicePodCounts</code></a>
+</td>
+<td>
+   <p>podCounts specifies the number of pods allocated per each domain.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `TopologyAssignmentSliceLevelIndividualValues`     {#kueue-x-k8s-io-v1beta2-TopologyAssignmentSliceLevelIndividualValues}
+    
+
+**Appears in:**
+
+- [TopologyAssignmentSliceLevelValues](#kueue-x-k8s-io-v1beta2-TopologyAssignmentSliceLevelValues)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>prefix</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>prefix specifies a common prefix for all values in this slice assignment.
+It must be either nil pointer or a non-empty string.</p>
+</td>
+</tr>
+<tr><td><code>suffix</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>suffix specifies a common suffix for all values in this slice assignment.
+It must be either nil pointer or a non-empty string.</p>
+</td>
+</tr>
+<tr><td><code>roots</code> <B>[Required]</B><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>roots specifies the values in this assignment (excluding prefix and suffix, if non-empty).
+Its length must be equal to the &quot;domainCount&quot; field of the TopologyAssignmentSlice.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `TopologyAssignmentSliceLevelValues`     {#kueue-x-k8s-io-v1beta2-TopologyAssignmentSliceLevelValues}
+    
+
+**Appears in:**
+
+- [TopologyAssignmentSlice](#kueue-x-k8s-io-v1beta2-TopologyAssignmentSlice)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>universal</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>universal - if set - specifies a single topology placement value (at a particular topology level)
+that applies to all pods in the current TopologyAssignmentSlice.
+Exactly one of universal, individual must be set.</p>
+</td>
+</tr>
+<tr><td><code>individual</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-TopologyAssignmentSliceLevelIndividualValues"><code>TopologyAssignmentSliceLevelIndividualValues</code></a>
+</td>
+<td>
+   <p>individual - if set - specifies multiple topology placement values (at a particular topology level)
+that apply to the pods in the current TopologyAssignmentSlice.
+Exactly one of universal, individual must be set.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `TopologyAssignmentSlicePodCounts`     {#kueue-x-k8s-io-v1beta2-TopologyAssignmentSlicePodCounts}
+    
+
+**Appears in:**
+
+- [TopologyAssignmentSlice](#kueue-x-k8s-io-v1beta2-TopologyAssignmentSlice)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>universal</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>universal - if set - specifies the number of pods allocated in every domain in this slice.
+Exactly one of universal, individual must be set.</p>
+</td>
+</tr>
+<tr><td><code>individual</code><br/>
+<code>[]int32</code>
+</td>
+<td>
+   <p>individual - if set - specifies the number of pods allocated in each domain in this slice.
+If set, its length must be equal to the &quot;domainCount&quot; field of the TopologyAssignmentSlice.
+Exactly one of universal, individual must be set.</p>
 </td>
 </tr>
 </tbody>
@@ -3010,17 +3424,11 @@ podSets cannot be changed.</p>
 queueName cannot be changed while .status.admission is not null.</p>
 </td>
 </tr>
-<tr><td><code>priorityClassName</code><br/>
-<code>string</code>
+<tr><td><code>priorityClassRef</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-PriorityClassRef"><code>PriorityClassRef</code></a>
 </td>
 <td>
-   <p>priorityClassName is the name of the PriorityClass the Workload is associated with.
-If specified, indicates the workload's priority.
-&quot;system-node-critical&quot; and &quot;system-cluster-critical&quot; are two special
-keywords which indicate the highest priorities with the former being
-the highest priority. Any other name must be defined by creating a
-PriorityClass object with that name. If not specified, the workload
-priority will be default or zero if there is no default.</p>
+   <p>priorityClassRef references a PriorityClass object that defines the workload's priority.</p>
 </td>
 </tr>
 <tr><td><code>priority</code><br/>
@@ -3029,18 +3437,9 @@ priority will be default or zero if there is no default.</p>
 <td>
    <p>priority determines the order of access to the resources managed by the
 ClusterQueue where the workload is queued.
-The priority value is populated from PriorityClassName.
+The priority value is populated from the referenced PriorityClass (via priorityClassRef).
 The higher the value, the higher the priority.
-If priorityClassName is specified, priority must not be null.</p>
-</td>
-</tr>
-<tr><td><code>priorityClassSource</code><br/>
-<code>string</code>
-</td>
-<td>
-   <p>priorityClassSource determines whether the priorityClass field refers to a pod PriorityClass or kueue.x-k8s.io/workloadpriorityclass.
-Workload's PriorityClass can accept the name of a pod priorityClass or a workloadPriorityClass.
-When using pod PriorityClass, a priorityClassSource field has the scheduling.k8s.io/priorityclass value.</p>
+If priorityClassRef is specified, priority must not be null.</p>
 </td>
 </tr>
 <tr><td><code>active</code> <B>[Required]</B><br/>

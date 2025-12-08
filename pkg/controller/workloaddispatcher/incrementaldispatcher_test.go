@@ -35,7 +35,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	kueueconfig "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
@@ -51,57 +50,45 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 	baseWorkload := utiltestingapi.MakeWorkload(workloadName, metav1.NamespaceDefault)
 
 	tests := map[string]struct {
-		dispatcherName string
 		workload       *kueue.Workload
 		mkAcState      *kueue.AdmissionCheckState
 		wantErr        error
 		remoteClusters []string
 		clusters       []kueue.MultiKueueCluster
 	}{
-		"dispatcher name mismatch": {
-			dispatcherName: "other",
-			workload:       baseWorkload.Clone().Obj(),
-		},
 		"workload not found": {
-			dispatcherName: kueueconfig.MultiKueueDispatcherModeIncremental,
-			workload:       nil,
-			wantErr:        apierrors.NewNotFound(schema.GroupResource{Group: kueue.GroupVersion.Group, Resource: "workloads"}, workloadName),
+			workload: nil,
+			wantErr:  apierrors.NewNotFound(schema.GroupResource{Group: kueue.GroupVersion.Group, Resource: "workloads"}, workloadName),
 		},
 		"workload deleted": {
-			dispatcherName: kueueconfig.MultiKueueDispatcherModeIncremental,
-			workload:       baseWorkload.Clone().DeletionTimestamp(now).Finalizers("kubernetes").Obj(),
+			workload: baseWorkload.Clone().DeletionTimestamp(now).Finalizers("kubernetes").Obj(),
 		},
 		"admission check nil": {
-			dispatcherName: kueueconfig.MultiKueueDispatcherModeIncremental,
-			workload:       baseWorkload.Clone().Obj(),
+			workload: baseWorkload.Clone().Obj(),
 		},
 		"admission check is rejected": {
-			dispatcherName: kueueconfig.MultiKueueDispatcherModeIncremental,
-			workload:       baseWorkload.Clone().Obj(),
+			workload: baseWorkload.Clone().Obj(),
 			mkAcState: &kueue.AdmissionCheckState{
 				Name:  "ac1",
 				State: kueue.CheckStateRejected,
 			},
 		},
 		"admission check is ready": {
-			dispatcherName: kueueconfig.MultiKueueDispatcherModeIncremental,
-			workload:       baseWorkload.Clone().Obj(),
+			workload: baseWorkload.Clone().Obj(),
 			mkAcState: &kueue.AdmissionCheckState{
 				Name:  "ac1",
 				State: kueue.CheckStateReady,
 			},
 		},
 		"already assigned to cluster": {
-			dispatcherName: kueueconfig.MultiKueueDispatcherModeIncremental,
-			workload:       baseWorkload.Clone().ClusterName("assigned").Obj(),
+			workload: baseWorkload.Clone().ClusterName("assigned").Obj(),
 			mkAcState: &kueue.AdmissionCheckState{
 				Name:  "ac1",
 				State: kueue.CheckStatePending,
 			},
 		},
 		"workload is already finished": {
-			dispatcherName: kueueconfig.MultiKueueDispatcherModeIncremental,
-			workload:       baseWorkload.Clone().Finished().Obj(),
+			workload: baseWorkload.Clone().Finished().Obj(),
 			mkAcState: &kueue.AdmissionCheckState{
 				Name:  "ac1",
 				State: kueue.CheckStatePending,
@@ -115,8 +102,7 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 			},
 		},
 		"workload has quota reserved": {
-			dispatcherName: kueueconfig.MultiKueueDispatcherModeIncremental,
-			workload:       baseWorkload.Clone().Obj(),
+			workload: baseWorkload.Clone().Obj(),
 			mkAcState: &kueue.AdmissionCheckState{
 				Name:  "ac1",
 				State: kueue.CheckStatePending,
@@ -168,7 +154,6 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 				client:          cl,
 				helper:          helper,
 				clock:           fakeClock,
-				dispatcherName:  tc.dispatcherName,
 				roundStartTimes: utilmaps.NewSyncMap[types.NamespacedName, time.Time](0),
 			}
 

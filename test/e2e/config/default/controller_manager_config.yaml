@@ -1,4 +1,4 @@
-apiVersion: config.kueue.x-k8s.io/v1beta1
+apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 metrics:
   enableClusterQueueResources: true
@@ -13,7 +13,7 @@ controller:
     ClusterQueue.kueue.x-k8s.io: 1
     ResourceFlavor.kueue.x-k8s.io: 1
 fairSharing:
-  enable: true
+  preemptionStrategies: ["LessThanOrEqualToFinalShare", "LessThanInitialShare"]
 clientConnection:
   qps: 50
   burst: 100

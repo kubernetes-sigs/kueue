@@ -52,20 +52,39 @@ type KubeConfig struct {
 	// +kubebuilder:validation:MaxLength=256
 	// +kubebuilder:validation:MinLength=1
 	// +required
-	Location string `json:"location,omitempty"`
+	Location string `json:"location"`
 
 	// locationType of the KubeConfig.
 	//
 	// +kubebuilder:default=Secret
 	// +optional
 	// +kubebuilder:validation:Enum=Secret;Path
-	LocationType LocationType `json:"locationType"` //nolint:kubeapilinter // should not be a pointer
+	LocationType LocationType `json:"locationType,omitempty"`
 }
 
 type MultiKueueClusterSpec struct {
-	// kubeConfig is information on how to connect to the cluster.
+	// clusterSource is the source to connect to the cluster.
 	// +required
-	KubeConfig KubeConfig `json:"kubeConfig,omitempty,omitzero"`
+	ClusterSource ClusterSource `json:"clusterSource,omitempty"`
+}
+
+// +kubebuilder:validation:ExactlyOneOf=kubeConfig;clusterProfileRef
+type ClusterSource struct {
+	// kubeConfig is information on how to connect to the cluster.
+	// +optional
+	KubeConfig *KubeConfig `json:"kubeConfig,omitempty,omitzero"`
+
+	// clusterProfileRef is the reference to the ClusterProfile object used to connect to the cluster.
+	// +optional
+	ClusterProfileRef *ClusterProfileReference `json:"clusterProfileRef,omitempty"`
+}
+
+type ClusterProfileReference struct {
+	// name of the ClusterProfile.
+	// +kubebuilder:validation:MaxLength=256
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Name string `json:"name,omitempty"`
 }
 
 type MultiKueueClusterStatus struct {
@@ -84,6 +103,7 @@ type MultiKueueClusterStatus struct {
 // +genclient
 // +genclient:nonNamespaced
 // +kubebuilder:object:root=true
+// +kubebuilder:storageversion
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster
 
@@ -98,11 +118,11 @@ type MultiKueueCluster struct {
 
 	// spec is the specification of the MultiKueueCluster.
 	// +optional
-	Spec MultiKueueClusterSpec `json:"spec,omitempty,omitzero"` //nolint:kubeapilinter // spec should not be a pointer
+	Spec MultiKueueClusterSpec `json:"spec,omitempty,omitzero"`
 
 	// status is the status of the MultiKueueCluster.
 	// +optional
-	Status MultiKueueClusterStatus `json:"status,omitempty"` //nolint:kubeapilinter // status should not be a pointer
+	Status MultiKueueClusterStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -129,6 +149,7 @@ type MultiKueueConfigSpec struct {
 // +genclient
 // +genclient:nonNamespaced
 // +kubebuilder:object:root=true
+// +kubebuilder:storageversion
 // +kubebuilder:resource:scope=Cluster
 
 // MultiKueueConfig is the Schema for the multikueue API
@@ -140,7 +161,7 @@ type MultiKueueConfig struct {
 
 	// spec is the specification of the MultiKueueConfig.
 	// +optional
-	Spec MultiKueueConfigSpec `json:"spec,omitempty"` //nolint:kubeapilinter // spec should not be a pointer
+	Spec MultiKueueConfigSpec `json:"spec,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -155,3 +176,5 @@ type MultiKueueConfigList struct {
 func init() {
 	SchemeBuilder.Register(&MultiKueueConfig{}, &MultiKueueConfigList{}, &MultiKueueCluster{}, &MultiKueueClusterList{})
 }
+
+func (*MultiKueueCluster) Hub() {}

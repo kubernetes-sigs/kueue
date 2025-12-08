@@ -32,7 +32,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadpaddlejob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/paddlejob"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/util/tas"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpaddlejob "sigs.k8s.io/kueue/pkg/util/testingjobs/paddlejob"
@@ -50,7 +51,7 @@ var _ = ginkgo.Describe("Job controller", framework.RedundantSpec, ginkgo.Ordere
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
 			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
-		unmanagedNamespace := testing.MakeNamespace("unmanaged-ns")
+		unmanagedNamespace := utiltesting.MakeNamespace("unmanaged-ns")
 		util.MustCreate(ctx, k8sClient, unmanagedNamespace)
 	})
 
@@ -99,7 +100,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", framewor
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{Enable: true})))
+		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{})))
 
 		ginkgo.By("Create a resource flavor")
 		util.MustCreate(ctx, k8sClient, defaultFlavor)
@@ -311,8 +312,8 @@ var _ = ginkgo.Describe("PaddleJob controller with TopologyAwareScheduling", fra
 		nodes = []corev1.Node{
 			*testingnode.MakeNode("b1r1").
 				Label(nodeGroupLabel, "tas").
-				Label(testing.DefaultBlockTopologyLevel, "b1").
-				Label(testing.DefaultRackTopologyLevel, "r1").
+				Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+				Label(utiltesting.DefaultRackTopologyLevel, "r1").
 				StatusAllocatable(corev1.ResourceList{
 					corev1.ResourceCPU:    resource.MustParse("1"),
 					corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -358,14 +359,14 @@ var _ = ginkgo.Describe("PaddleJob controller with TopologyAwareScheduling", fra
 					ReplicaType:  kftraining.PaddleJobReplicaTypeMaster,
 					ReplicaCount: 1,
 					Annotations: map[string]string{
-						kueue.PodSetRequiredTopologyAnnotation: testing.DefaultRackTopologyLevel,
+						kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultRackTopologyLevel,
 					},
 				},
 				testingpaddlejob.PaddleReplicaSpecRequirement{
 					ReplicaType:  kftraining.PaddleJobReplicaTypeWorker,
 					ReplicaCount: 1,
 					Annotations: map[string]string{
-						kueue.PodSetPreferredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+						kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 					},
 				},
 			).
@@ -388,7 +389,7 @@ var _ = ginkgo.Describe("PaddleJob controller with TopologyAwareScheduling", fra
 						Name:  kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeMaster)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required:      ptr.To(testing.DefaultRackTopologyLevel),
+							Required:      ptr.To(utiltesting.DefaultRackTopologyLevel),
 							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel),
 						},
 					},
@@ -396,7 +397,7 @@ var _ = ginkgo.Describe("PaddleJob controller with TopologyAwareScheduling", fra
 						Name:  kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeWorker)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Preferred:     ptr.To(testing.DefaultBlockTopologyLevel),
+							Preferred:     ptr.To(utiltesting.DefaultBlockTopologyLevel),
 							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel),
 						},
 					},
@@ -415,16 +416,16 @@ var _ = ginkgo.Describe("PaddleJob controller with TopologyAwareScheduling", fra
 				g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
 				g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(2))
 				g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
-					&kueue.TopologyAssignment{
-						Levels:  []string{testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel},
-						Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
-					},
+					tas.V1Beta2From(&tas.TopologyAssignment{
+						Levels:  []string{utiltesting.DefaultBlockTopologyLevel, utiltesting.DefaultRackTopologyLevel},
+						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
+					}),
 				))
 				g.Expect(wl.Status.Admission.PodSetAssignments[1].TopologyAssignment).Should(gomega.BeComparableTo(
-					&kueue.TopologyAssignment{
-						Levels:  []string{testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel},
-						Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
-					},
+					tas.V1Beta2From(&tas.TopologyAssignment{
+						Levels:  []string{utiltesting.DefaultBlockTopologyLevel, utiltesting.DefaultRackTopologyLevel},
+						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
+					}),
 				))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
