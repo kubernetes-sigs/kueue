@@ -154,6 +154,11 @@ func (w *RayJobWebhook) validateCreate(ctx context.Context, job *rayv1.RayJob) (
 		clusterSpec := spec.RayClusterSpec
 		clusterSpecPath := specPath.Child("rayClusterSpec")
 
+		// Should not use auto scaler. Once the resources are reserved by queue the cluster should do its best to use them.
+		if ptr.Deref(clusterSpec.EnableInTreeAutoscaling, false) && !workloadslicing.Enabled(job) {
+			allErrors = append(allErrors, field.Invalid(clusterSpecPath.Child("enableInTreeAutoscaling"), clusterSpec.EnableInTreeAutoscaling, "a kueue managed job should only use autoscaling when workload slicing is enabled"))
+		}
+
 		// Should limit the worker count to 8 - 1 (max podSets num - cluster head)
 		if len(clusterSpec.WorkerGroupSpecs) > 7 {
 			allErrors = append(allErrors, field.TooMany(clusterSpecPath.Child("workerGroupSpecs"), len(clusterSpec.WorkerGroupSpecs), 7))
