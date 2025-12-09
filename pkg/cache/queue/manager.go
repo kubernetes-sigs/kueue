@@ -813,3 +813,16 @@ func (m *Manager) NotifyWorkloadUpdateWatchers(oldWorkload, newWorkload *kueue.W
 func (m *Manager) AddWorkloadUpdateWatcher(watcher WorkloadUpdateWatcher) {
 	m.workloadUpdateWatchers = append(m.workloadUpdateWatchers, watcher)
 }
+
+// HasStrictFIFOHigherPriorityPending returns true if the specified ClusterQueue
+// uses StrictFIFO queueing strategy and has a workload in its heap with higher
+// priority than the given priority.
+func (m *Manager) HasStrictFIFOHigherPriorityPending(cqName kueue.ClusterQueueReference, p int32) bool {
+	m.RLock()
+	defer m.RUnlock()
+	cq := m.hm.ClusterQueue(cqName)
+	if cq == nil {
+		return false
+	}
+	return cq.HasStrictFIFOHigherPriorityPending(p)
+}

@@ -660,3 +660,19 @@ func (c *ClusterQueue) deleteLocalQueue(lqKey utilqueue.LocalQueueReference) {
 	defer c.rwm.Unlock()
 	delete(c.localQueuesInClusterQueue, lqKey)
 }
+
+// HasStrictFIFOHigherPriorityPending returns true if the ClusterQueue uses
+// StrictFIFO queueing strategy and there is a workload in the heap with
+// higher priority than the given priority.
+func (c *ClusterQueue) HasStrictFIFOHigherPriorityPending(p int32) bool {
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
+	if c.queueingStrategy != kueue.StrictFIFO {
+		return false
+	}
+	head := c.heap.Peek()
+	if head == nil {
+		return false
+	}
+	return utilpriority.Priority(head.Obj) > p
+}

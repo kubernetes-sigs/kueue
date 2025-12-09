@@ -232,6 +232,38 @@ func TestHeap_GetByKey(t *testing.T) {
 	}
 }
 
+// TestHeap_Peek tests Heap.Peek function.
+func TestHeap_Peek(t *testing.T) {
+	h := New(testHeapObjectKeyFunc, compareInts)
+
+	if obj := h.Peek(); obj != nil {
+		t.Fatalf("expected nil on empty heap, got %v", obj)
+	}
+
+	h.PushOrUpdate(mkHeapObj("foo", 10))
+	h.PushOrUpdate(mkHeapObj("bar", 1))
+	h.PushOrUpdate(mkHeapObj("baz", 11))
+
+	obj := h.Peek()
+	if obj == nil || obj.val != 1 {
+		t.Fatalf("expected value 1, got %v", obj)
+	}
+
+	if h.Len() != 3 {
+		t.Fatalf("expected length 3, got %d", h.Len())
+	}
+
+	poppedObj := h.Pop()
+	if poppedObj.val != 1 {
+		t.Fatalf("expected value 1, got %v", poppedObj)
+	}
+
+	obj = h.Peek()
+	if obj == nil || obj.val != 10 {
+		t.Fatalf("expected value 10, got %v", obj)
+	}
+}
+
 // TestHeap_List tests Heap.List function.
 func TestHeap_List(t *testing.T) {
 	h := New(testHeapObjectKeyFunc, compareInts)

@@ -311,6 +311,14 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			continue
 		}
 
+		// Check if a higher-priority workload was added to the queue after we popped this workload.
+		// This can happen due to race conditions during workload eviction.
+		if s.queues.HasStrictFIFOHigherPriorityPending(e.ClusterQueue, priority.Priority(e.Obj)) {
+			log.V(2).Info("Skipping workload due to higher priority workload in StrictFIFO queue")
+			setSkipped(e, "Higher priority workload pending in StrictFIFO queue")
+			continue
+		}
+
 		if !s.cache.PodsReadyForAllAdmittedWorkloads(log) {
 			log.V(5).Info("Waiting for all admitted workloads to be in the PodsReady condition")
 			// If WaitForPodsReady is enabled and WaitForPodsReady.BlockAdmission is true
