@@ -192,6 +192,7 @@ func TestGetPriorityFromWorkloadPriorityClass(t *testing.T) {
 
 	for desc, tt := range tests {
 		t.Run(desc, func(t *testing.T) {
+			t.Parallel()
 
 			builder := fake.NewClientBuilder().WithScheme(scheme).WithLists(tt.workloadPriorityClassList)
 			client := builder.Build()

@@ -382,7 +382,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 		levels             []string
 		nodeLabels         map[string]string
 		podSets            []PodSetTestCase
-		avoidanceLabel     string
 	}{
 		"minimize the number of used racks before optimizing the number of nodes; BestFit": {
 			// Solution by optimizing the number of racks then nodes: [r3]: [x1,x6,x2,x4]
@@ -5602,8 +5601,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 
 			tasCache := NewTASCache(client)
 			topologyInformation := topologyInformation{
-				Levels:         tc.levels,
-				AvoidanceLabel: tc.avoidanceLabel,
+				Levels: tc.levels,
 			}
 			flavorInformation := flavorInformation{
 				TopologyName: "default",
@@ -5649,8 +5647,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				}
 				wantResult[kueue.PodSetReference(ps.podSetName)] = wantPodSetResult
 			}
-			gotResult := snapshot.FindTopologyAssignmentsForFlavor(flavorTASRequests, func(o *findTopologyAssignmentsOption) {
-			})
+			gotResult := snapshot.FindTopologyAssignmentsForFlavor(flavorTASRequests)
 			if diff := cmp.Diff(wantResult, gotResult); diff != "" {
 				t.Errorf("unexpected topology assignment (-want,+got): %s", diff)
 			}
