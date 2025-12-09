@@ -4336,7 +4336,7 @@ func TestRaySubmitterJobCopyLabelAndAnnotationFromOwner(t *testing.T) {
 				rayJob := utiltestingrayjob.MakeJob("parent", testNamespace.Name).
 					EnableInTreeAutoscaling().
 					Queue("parent-queue").
-					AddAnnotation(workloadslicing.EnabledAnnotationKey, "true").
+					Annotation(workloadslicing.EnabledAnnotationKey, "true").
 					Obj()
 				rayJob.UID = types.UID("parent-uid")
 				return rayJob
@@ -4378,7 +4378,7 @@ func TestRaySubmitterJobCopyLabelAndAnnotationFromOwner(t *testing.T) {
 			owner: func() *rayv1.RayJob {
 				rayJob := utiltestingrayjob.MakeJob("parent", testNamespace.Name).
 					Queue("parent-queue").
-					AddAnnotation(workloadslicing.EnabledAnnotationKey, "true").
+					Annotation(workloadslicing.EnabledAnnotationKey, "true").
 					Obj()
 				rayJob.UID = types.UID("parent-uid")
 				return rayJob
@@ -4425,7 +4425,7 @@ func TestRaySubmitterJobCopyLabelAndAnnotationFromOwner(t *testing.T) {
 			client := builder.Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			RaySubmitterJobCopyLabelAndAnnotationFromOwner(ctx, job, client)
+			copyRaySubmitterJobMetadata(ctx, job, client)
 
 			// Check queue label
 			actualQueue := ""
