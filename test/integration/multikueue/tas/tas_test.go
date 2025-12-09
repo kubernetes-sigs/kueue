@@ -273,7 +273,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Label("area:multikue
 		})
 
 		ginkgo.It("should admit workload which fits in a required topology domain", func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueBatchJobWithManagedBy, true)
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
 
 			job := testingjob.MakeJob("job", managerNs.Name).
@@ -457,7 +456,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Label("area:multikue
 		})
 
 		ginkgo.It("should admit workload when nodes are provisioned", func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueBatchJobWithManagedBy, true)
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
 
 			job := testingjob.MakeJob("job", managerNs.Name).

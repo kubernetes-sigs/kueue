@@ -35,7 +35,6 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -214,8 +213,6 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 	})
 
 	ginkgo.It("Share worker cluster between MultiKueue and regular Kueue", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueBatchJobWithManagedBy, true)
-
 		var jobMk, jobNonMk *batchv1.Job
 		ginkgo.By("creating the jobs in the management cluster for MultiKueue and non-MultiKueue Cluster Queues", func() {
 			jobMk = testingjob.MakeJob("job-mk", managerNs.Name).
@@ -397,8 +394,6 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 	})
 
 	ginkgo.It("Share manager cluster between MultiKueue and regular Kueue", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueBatchJobWithManagedBy, true)
-
 		var jobMk, jobNonMk *batchv1.Job
 		ginkgo.By("creating the jobs in the management cluster for MultiKueue and non-MultiKueue Cluster Queues", func() {
 			jobMk = testingjob.MakeJob("job-mk", managerNs.Name).
