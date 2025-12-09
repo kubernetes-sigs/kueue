@@ -399,7 +399,7 @@ if the connection with its reserving worker cluster is lost.
 Since Kueue 0.13, in order to meet the requirements of [Story 3](#story-3), we introduce an API for custom dispatching algorithms.
 When a custom Dispatcher API is used, instead of creating the copy of the workload on all clusters the
 the MultiKueue Workload Controller only creates the copy of the workload on the subset of worker clusters
-specified in the workload's .status.nominatedClusterNames field.
+specified in the workload's `.status.nominatedClusterNames` field.
 
 Additionally, we implement a built-in incremental dispatcher as a reference implementation.
 Including the pre-existing dispatching algorithm until 0.12, we distinguish the following dispatchers:
