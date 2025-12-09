@@ -405,46 +405,46 @@ func GetWorkloadNameForJob(jobName string, jobUID types.UID) string {
 	return jobframework.GetWorkloadNameForOwnerWithGVK(jobName, jobUID, gvk)
 }
 
-func isRaySubmitterJobWithAutoScaling(ctx context.Context, jobObj client.Object, k8sClient client.Client) (bool, *rayv1.RayJob) {
+func isRaySubmitterJobWithAutoScaling(ctx context.Context, jobObj client.Object, k8sClient client.Client) (error, bool, *rayv1.RayJob) {
 	log := ctrl.LoggerFrom(ctx).WithValues("jobName", jobObj.GetName(), "jobNamespace", jobObj.GetNamespace())
 
 	owner := metav1.GetControllerOf(jobObj)
 	if owner == nil {
 		log.V(12).Info("Did not find owner for job")
-		return false, nil
+		return nil, false, nil
 	}
 
 	createdByRayJob := owner.APIVersion == rayv1.GroupVersion.String() && owner.Kind == "RayJob"
 	if !createdByRayJob {
 		log.V(12).Info("Owner object for job is not RayJob", "ownerKind", owner.Kind, "ownerName", owner.Name)
-		return false, nil
+		return nil, false, nil
 	}
 
 	parentObj := jobframework.GetEmptyOwnerObject(owner)
 	if parentObj == nil {
 		log.V(12).Info("Did not get empty owner object for job", "ownerKind", owner.Kind, "ownerName", owner.Name)
-		return false, nil
+		return nil, false, nil
 	}
 
 	err := k8sClient.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: jobObj.GetNamespace()}, parentObj)
 	if err != nil {
 		log.Error(err, "Failed to get owner object from k8s", "ownerKind", owner.Kind, "ownerName", owner.Name)
-		return false, nil
+		return err, false, nil
 	}
 	log.V(12).Info("Got owner object for job", "ownerKind", owner.Kind, "ownerName", owner.Name)
 
 	rayJob, ok := parentObj.(*rayv1.RayJob)
 	if !ok {
 		log.V(12).Info("Owner object cannot be converted to RayJob", "ownerKind", owner.Kind, "ownerName", owner.Name)
-		return false, nil
+		return nil, false, nil
 	}
 
 	if rayJob.Spec.RayClusterSpec == nil ||
 		!ptr.Deref(rayJob.Spec.RayClusterSpec.EnableInTreeAutoscaling, false) {
-		return false, nil
+		return nil, false, nil
 	}
 
-	return true, rayJob
+	return nil, true, rayJob
 }
 
 // RaySubmitterJobCopyLabelAndAnnotationFromOwner checks whether the job is Ray submitter job, if it is, copy queue label
@@ -456,7 +456,11 @@ func copyRaySubmitterJobMetadata(ctx context.Context, jobObj client.Object, k8sC
 
 	// Copy label and annotation for Ray submitter job with autoscaling
 	// See https://github.com/kubernetes-sigs/kueue/pull/8082
-	isRaySubmitterJob, parentObj := isRaySubmitterJobWithAutoScaling(ctx, jobObj, k8sClient)
+	err, isRaySubmitterJob, parentObj := isRaySubmitterJobWithAutoScaling(ctx, jobObj, k8sClient)
+	if err != nil {
+		// error already logged inside isRaySubmitterJobWithAutoScaling, do not log again
+		return
+	}
 	if !isRaySubmitterJob {
 		return
 	}
