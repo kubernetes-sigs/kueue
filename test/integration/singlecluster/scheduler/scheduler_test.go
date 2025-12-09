@@ -2690,6 +2690,86 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			})
 		})
 	})
+	ginkgo.When("Pending workloads should not get unnecessary API writes", func() {
+		ginkgo.It("Should throttle status updates for pending workloads", func() {
+			ginkgo.By("Creating a ClusterQueue with limited quota")
+			cq := createQueue(utiltestingapi.MakeClusterQueue("api-writes-test-cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "10").Obj()).
+				Obj())
+
+			lq := utiltestingapi.MakeLocalQueue("api-writes-test-lq", ns.Name).ClusterQueue(cq.Name).Obj()
+			util.MustCreate(ctx, k8sClient, lq)
+
+			ginkgo.By("Creating a blocker workload that uses most of the quota")
+			blockerWl := utiltestingapi.MakeWorkload("blocker-wl", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "8").
+				Obj()
+			util.MustCreate(ctx, k8sClient, blockerWl)
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, blockerWl)
+
+			ginkgo.By("Creating a stuck workload that cannot fit")
+			stuckWl := utiltestingapi.MakeWorkload("stuck-wl", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "5"). // Needs 5 CPU, only 2 available
+				Obj()
+			util.MustCreate(ctx, k8sClient, stuckWl)
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, stuckWl)
+
+			ginkgo.By("Recording the stuck workload's resourceVersion and message after it gets Pending condition")
+			var stuckWlAfterPending kueue.Workload
+			var initialMessage string
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(stuckWl), &stuckWlAfterPending)).To(gomega.Succeed())
+				cond := meta.FindStatusCondition(stuckWlAfterPending.Status.Conditions, kueue.WorkloadQuotaReserved)
+				g.Expect(cond).NotTo(gomega.BeNil())
+				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+				g.Expect(cond.Reason).To(gomega.Equal("Pending"))
+				g.Expect(cond.Message).To(gomega.ContainSubstring("insufficient unused quota"))
+				initialMessage = cond.Message
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			initialResourceVersion := stuckWlAfterPending.ResourceVersion
+
+			ginkgo.By("Creating and admitting multiple small workloads to trigger scheduling cycles")
+			// Each small workload triggers a scheduling cycle. With throttling,
+			// message-only updates are suppressed within the throttle window.
+			for i := range 5 {
+				smallWl := utiltestingapi.MakeWorkload(fmt.Sprintf("small-wl-%d", i), ns.Name).
+					Queue(kueue.LocalQueueName(lq.Name)).
+					Request(corev1.ResourceCPU, "1"). // Small workload that can fit in remaining 2 CPU
+					Obj()
+				util.MustCreate(ctx, k8sClient, smallWl)
+				// Wait for it to be processed (either admitted or pending)
+				gomega.Eventually(func(g gomega.Gomega) {
+					var wl kueue.Workload
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(smallWl), &wl)).To(gomega.Succeed())
+					cond := meta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+					g.Expect(cond).NotTo(gomega.BeNil())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}
+
+			ginkgo.By("Verifying the stuck workload's resourceVersion did not change during rapid scheduling")
+			var stuckWlFinal kueue.Workload
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(stuckWl), &stuckWlFinal)).To(gomega.Succeed())
+
+			// resourceVersion unchanged = status updates were throttled.
+			gomega.Expect(stuckWlFinal.ResourceVersion).To(gomega.Equal(initialResourceVersion),
+				"Stuck workload resourceVersion changed during rapid scheduling cycles, "+
+					"indicating throttling is not working. Initial: %s, Final: %s",
+				initialResourceVersion, stuckWlFinal.ResourceVersion)
+
+			// Verify the condition is still correct
+			cond := meta.FindStatusCondition(stuckWlFinal.Status.Conditions, kueue.WorkloadQuotaReserved)
+			gomega.Expect(cond).NotTo(gomega.BeNil())
+			gomega.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+			gomega.Expect(cond.Reason).To(gomega.Equal("Pending"))
+
+			// Message unchanged = throttling prevented updates even as quota changed.
+			gomega.Expect(cond.Message).To(gomega.Equal(initialMessage),
+				"Condition message changed from %q, throttling not working", initialMessage)
+		})
+	})
 	ginkgo.When("Deleting ClusterQueue should update cohort borrowable resources", func() {
 		ginkgo.It("Should prevent incorrect admission through borrowing after ClusterQueue deletion", func() {
 			ginkgo.By("Creating two ClusterQueues in the same cohort")

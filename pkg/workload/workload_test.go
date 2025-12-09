@@ -2332,3 +2332,164 @@ func TestSetRequeueState(t *testing.T) {
 		})
 	}
 }
+
+func TestUnsetQuotaReservationWithCondition(t *testing.T) {
+	now := time.Now()
+
+	cases := map[string]struct {
+		workload    *kueue.Workload
+		reason      string
+		message     string
+		wantUpdated bool
+	}{
+		// Core test for the optimization: update when only message differs (unthrottled)
+		"update when only message differs (unthrottled)": {
+			workload: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{Generation: 1},
+				Status: kueue.WorkloadStatus{
+					Conditions: []metav1.Condition{{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             "Pending",
+						Message:            "insufficient quota: 5 more needed",
+						ObservedGeneration: 1,
+					}},
+				},
+			},
+			reason:      "Pending",
+			message:     "insufficient quota: 3 more needed",
+			wantUpdated: true,
+		},
+		// Tests for each condition that should trigger an update
+		"update when reason changes": {
+			workload: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{Generation: 1},
+				Status: kueue.WorkloadStatus{
+					Conditions: []metav1.Condition{{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             "Pending",
+						ObservedGeneration: 1,
+					}},
+				},
+			},
+			reason:      "Waiting",
+			message:     "new message",
+			wantUpdated: true,
+		},
+		"update when generation changes": {
+			workload: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{Generation: 2},
+				Status: kueue.WorkloadStatus{
+					Conditions: []metav1.Condition{{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             "Pending",
+						ObservedGeneration: 1,
+					}},
+				},
+			},
+			reason:      "Pending",
+			message:     "message",
+			wantUpdated: true,
+		},
+		"update when admission needs clearing": {
+			workload: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{Generation: 1},
+				Status: kueue.WorkloadStatus{
+					Conditions: []metav1.Condition{{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             "Pending",
+						ObservedGeneration: 1,
+					}},
+					Admission: &kueue.Admission{ClusterQueue: "test-cq"},
+				},
+			},
+			reason:      "Pending",
+			message:     "message",
+			wantUpdated: true,
+		},
+		"update on first call": {
+			workload: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{Generation: 1},
+				Status:     kueue.WorkloadStatus{},
+			},
+			reason:      "Pending",
+			message:     "insufficient quota",
+			wantUpdated: true,
+		},
+		"update when status transitions from true to false": {
+			workload: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{Generation: 1},
+				Status: kueue.WorkloadStatus{
+					Conditions: []metav1.Condition{{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "QuotaReserved",
+						ObservedGeneration: 1,
+					}},
+				},
+			},
+			reason:      "Pending",
+			message:     "insufficient quota",
+			wantUpdated: true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			gotUpdated := UnsetQuotaReservationWithCondition(tc.workload, tc.reason, tc.message, now, time.Time{})
+			if gotUpdated != tc.wantUpdated {
+				t.Errorf("UnsetQuotaReservationWithCondition() = %v, want %v", gotUpdated, tc.wantUpdated)
+			}
+			// When updated, verify the main effects
+			if tc.wantUpdated {
+				cond := apimeta.FindStatusCondition(tc.workload.Status.Conditions, kueue.WorkloadQuotaReserved)
+				if cond == nil || cond.Status != metav1.ConditionFalse {
+					t.Errorf("QuotaReserved condition should be False after update")
+				}
+				if tc.workload.Status.Admission != nil {
+					t.Errorf("Admission should be nil after update")
+				}
+			}
+		})
+	}
+}
+
+func TestUnsetQuotaReservationWithCondition_Throttling(t *testing.T) {
+	now := time.Now()
+	lastUpdate := now.Add(-2 * time.Second) // Less than 5s
+
+	wl := &kueue.Workload{
+		ObjectMeta: metav1.ObjectMeta{Generation: 1},
+		Status: kueue.WorkloadStatus{
+			Conditions: []metav1.Condition{{
+				Type:               kueue.WorkloadQuotaReserved,
+				Status:             metav1.ConditionFalse,
+				Reason:             "Pending",
+				Message:            "old message",
+				ObservedGeneration: 1,
+			}},
+		},
+	}
+
+	// Should be throttled
+	updated := UnsetQuotaReservationWithCondition(wl, "Pending", "new message", now, lastUpdate)
+	if updated {
+		t.Errorf("Expected update to be throttled")
+	}
+
+	// Should not be throttled if time passed
+	lastUpdateOld := now.Add(-6 * time.Second)
+	updated = UnsetQuotaReservationWithCondition(wl, "Pending", "new message", now, lastUpdateOld)
+	if !updated {
+		t.Errorf("Expected update to proceed")
+	}
+
+	// Should not be throttled if reason changed
+	updated = UnsetQuotaReservationWithCondition(wl, "OtherReason", "new message", now, lastUpdate)
+	if !updated {
+		t.Errorf("Expected update to proceed when reason changes")
+	}
+}

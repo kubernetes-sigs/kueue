@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -85,6 +86,8 @@ type Scheduler struct {
 	// schedulingCycle identifies the number of scheduling
 	// attempts since the last restart.
 	schedulingCycle int64
+
+	lastStatusUpdate *utilmaps.SyncMap[string, time.Time]
 }
 
 type options struct {
@@ -158,6 +161,7 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 		clock:                   options.clock,
 		admissionFairSharing:    options.admissionFairSharing,
 		roleTracker:             options.roleTracker,
+		lastStatusUpdate:        utilmaps.NewSyncMap[string, time.Time](0),
 	}
 	return s
 }
@@ -329,7 +333,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			// PodsReady condition if the waitForPodsReady is enabled
 			wl := e.Obj.DeepCopy()
 			if err := workload.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
-				return workload.UnsetQuotaReservationWithCondition(wl, "Waiting", "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now()), nil
+				return workload.UnsetQuotaReservationWithCondition(wl, "Waiting", "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now(), time.Time{}), nil
 			}, workload.WithLooseOnApply(), workload.WithRetryOnConflictForPatch()); err != nil {
 				log.Error(err, "Could not update Workload status")
 			}
@@ -696,6 +700,9 @@ func (s *Scheduler) assumeWorkload(log logr.Logger, e *entry, cq *schdcache.Clus
 	e.status = assumed
 	log.V(2).Info("Workload assumed in the cache")
 
+	// Clean up the status update throttle tracker since this workload is now admitted.
+	s.lastStatusUpdate.Delete(string(workload.Key(e.Obj)))
+
 	if afs.Enabled(s.admissionFairSharing) {
 		s.updateEntryPenalty(log, e, add)
 		// Trigger LocalQueue reconciler to apply any pending penalties
@@ -813,7 +820,11 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 	if e.status == notNominated || e.status == skipped {
 		wl := e.Obj.DeepCopy()
 		if err := workload.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
-			updated := workload.UnsetQuotaReservationWithCondition(wl, "Pending", e.inadmissibleMsg, s.clock.Now())
+			lastUpdate, _ := s.lastStatusUpdate.Get(string(workload.Key(wl)))
+			updated := workload.UnsetQuotaReservationWithCondition(wl, "Pending", e.inadmissibleMsg, s.clock.Now(), lastUpdate)
+			if updated {
+				s.lastStatusUpdate.Add(string(workload.Key(wl)), s.clock.Now())
+			}
 			if workload.PropagateResourceRequests(wl, &e.Info) {
 				updated = true
 			}
