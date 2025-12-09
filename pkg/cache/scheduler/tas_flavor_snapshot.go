@@ -135,13 +135,10 @@ type TASFlavorSnapshot struct {
 
 	// tolerations represents the list of tolerations defined for the resource flavor
 	tolerations []corev1.Toleration
-
-	// avoidanceLabel is the label key used to identify avoided nodes.
-	avoidanceLabel string
 }
 
 func newTASFlavorSnapshot(log logr.Logger, topologyName kueue.TopologyReference,
-	levels []string, tolerations []corev1.Toleration, avoidanceLabel string) *TASFlavorSnapshot {
+	levels []string, tolerations []corev1.Toleration) *TASFlavorSnapshot {
 	domainsPerLevel := make([]domainByID, len(levels))
 	for level := range levels {
 		domainsPerLevel[level] = make(domainByID)
@@ -156,7 +153,6 @@ func newTASFlavorSnapshot(log logr.Logger, topologyName kueue.TopologyReference,
 		domains:         make(domainByID),
 		roots:           make(domainByID),
 		domainsPerLevel: domainsPerLevel,
-		avoidanceLabel:  avoidanceLabel,
 	}
 	return snapshot
 }

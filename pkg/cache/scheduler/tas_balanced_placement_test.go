@@ -73,7 +73,7 @@ func TestSelectOptimalDomainSetToFit(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", []string{}, nil, "")
+			s := newTASFlavorSnapshot(log, "dummy", []string{}, nil)
 			got := selectOptimalDomainSetToFit(s, tc.domains, tc.workerCount, tc.leaderCount, 1, true)
 			gotIDs := make([]string, len(got))
 			for i, d := range got {
@@ -153,7 +153,7 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			domains := make([]*domain, len(tc.domains))
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", []string{}, nil, "")
+			s := newTASFlavorSnapshot(log, "dummy", []string{}, nil)
 			for i, d := range tc.domains {
 				clone := *d
 				domains[i] = &clone
