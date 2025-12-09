@@ -35,19 +35,19 @@ func isRaySubmitterJobWithAutoScaling(ctx context.Context, jobObj client.Object,
 
 	owner := metav1.GetControllerOf(jobObj)
 	if owner == nil {
-		log.V(12).Info("Did not find owner for job")
+		log.V(5).Info("Did not find owner for job")
 		return false, nil, nil
 	}
 
 	createdByRayJob := owner.APIVersion == rayv1.GroupVersion.String() && owner.Kind == "RayJob"
 	if !createdByRayJob {
-		log.V(12).Info("Owner object for job is not RayJob", "ownerKind", owner.Kind, "ownerName", owner.Name)
+		log.V(5).Info("Owner object for job is not RayJob", "ownerKind", owner.Kind, "ownerName", owner.Name)
 		return false, nil, nil
 	}
 
 	parentObj := jobframework.GetEmptyOwnerObject(owner)
 	if parentObj == nil {
-		log.V(12).Info("Did not get empty owner object for job", "ownerKind", owner.Kind, "ownerName", owner.Name)
+		log.V(5).Info("Did not get empty owner object for job", "ownerKind", owner.Kind, "ownerName", owner.Name)
 		return false, nil, nil
 	}
 
@@ -56,11 +56,11 @@ func isRaySubmitterJobWithAutoScaling(ctx context.Context, jobObj client.Object,
 		log.Error(err, "Failed to get owner object from k8s", "ownerKind", owner.Kind, "ownerName", owner.Name)
 		return false, nil, err
 	}
-	log.V(12).Info("Got owner object for job", "ownerKind", owner.Kind, "ownerName", owner.Name)
+	log.V(5).Info("Got owner object for job", "ownerKind", owner.Kind, "ownerName", owner.Name)
 
 	rayJob, ok := parentObj.(*rayv1.RayJob)
 	if !ok {
-		log.V(12).Info("Owner object cannot be converted to RayJob", "ownerKind", owner.Kind, "ownerName", owner.Name)
+		log.V(5).Info("Owner object cannot be converted to RayJob", "ownerKind", owner.Kind, "ownerName", owner.Name)
 		return false, nil, nil
 	}
 
