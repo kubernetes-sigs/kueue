@@ -39,7 +39,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -403,85 +402,4 @@ func SetupIndexes(ctx context.Context, fieldIndexer client.FieldIndexer) error {
 
 func GetWorkloadNameForJob(jobName string, jobUID types.UID) string {
 	return jobframework.GetWorkloadNameForOwnerWithGVK(jobName, jobUID, gvk)
-}
-
-func isRaySubmitterJobWithAutoScaling(ctx context.Context, jobObj client.Object, k8sClient client.Client) (error, bool, *rayv1.RayJob) {
-	log := ctrl.LoggerFrom(ctx).WithValues("jobName", jobObj.GetName(), "jobNamespace", jobObj.GetNamespace())
-
-	owner := metav1.GetControllerOf(jobObj)
-	if owner == nil {
-		log.V(12).Info("Did not find owner for job")
-		return nil, false, nil
-	}
-
-	createdByRayJob := owner.APIVersion == rayv1.GroupVersion.String() && owner.Kind == "RayJob"
-	if !createdByRayJob {
-		log.V(12).Info("Owner object for job is not RayJob", "ownerKind", owner.Kind, "ownerName", owner.Name)
-		return nil, false, nil
-	}
-
-	parentObj := jobframework.GetEmptyOwnerObject(owner)
-	if parentObj == nil {
-		log.V(12).Info("Did not get empty owner object for job", "ownerKind", owner.Kind, "ownerName", owner.Name)
-		return nil, false, nil
-	}
-
-	err := k8sClient.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: jobObj.GetNamespace()}, parentObj)
-	if err != nil {
-		log.Error(err, "Failed to get owner object from k8s", "ownerKind", owner.Kind, "ownerName", owner.Name)
-		return err, false, nil
-	}
-	log.V(12).Info("Got owner object for job", "ownerKind", owner.Kind, "ownerName", owner.Name)
-
-	rayJob, ok := parentObj.(*rayv1.RayJob)
-	if !ok {
-		log.V(12).Info("Owner object cannot be converted to RayJob", "ownerKind", owner.Kind, "ownerName", owner.Name)
-		return nil, false, nil
-	}
-
-	if rayJob.Spec.RayClusterSpec == nil ||
-		!ptr.Deref(rayJob.Spec.RayClusterSpec.EnableInTreeAutoscaling, false) {
-		return nil, false, nil
-	}
-
-	return nil, true, rayJob
-}
-
-// RaySubmitterJobCopyLabelAndAnnotationFromOwner checks whether the job is Ray submitter job, if it is, copy queue label
-// and workload slicing annotation from the owner RayJob to the submitter job.
-func copyRaySubmitterJobMetadata(ctx context.Context, jobObj client.Object, k8sClient client.Client) {
-	if jobframework.QueueNameForObject(jobObj) != "" {
-		return
-	}
-
-	// Copy label and annotation for Ray submitter job with autoscaling
-	// See https://github.com/kubernetes-sigs/kueue/pull/8082
-	err, isRaySubmitterJob, parentObj := isRaySubmitterJobWithAutoScaling(ctx, jobObj, k8sClient)
-	if err != nil {
-		// error already logged inside isRaySubmitterJobWithAutoScaling, do not log again
-		return
-	}
-	if !isRaySubmitterJob {
-		return
-	}
-
-	queueName := parentObj.GetLabels()[constants.QueueLabel]
-	if queueName != "" {
-		jobLabels := jobObj.GetLabels()
-		if jobLabels == nil {
-			jobLabels = make(map[string]string, 1)
-		}
-		jobLabels[constants.QueueLabel] = queueName
-		jobObj.SetLabels(jobLabels)
-	}
-
-	workloadslicingAnnotationValue := parentObj.GetAnnotations()[workloadslicing.EnabledAnnotationKey]
-	if workloadslicingAnnotationValue != "" {
-		jobAnnotations := jobObj.GetAnnotations()
-		if jobAnnotations == nil {
-			jobAnnotations = make(map[string]string, 1)
-		}
-		jobAnnotations[workloadslicing.EnabledAnnotationKey] = workloadslicingAnnotationValue
-		jobObj.SetAnnotations(jobAnnotations)
-	}
 }
