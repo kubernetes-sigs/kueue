@@ -111,7 +111,7 @@ func TestWorkloadShouldBeSuspended(t *testing.T) {
 	}
 }
 
-func TestCopyLabelAndAnnotationFromOwner(t *testing.T) {
+func TestRaySubmitterJobCopyLabelAndAnnotationFromOwner(t *testing.T) {
 	t.Cleanup(EnableIntegrationsForTest(t, "batch/job", "ray.io/rayjob"))
 
 	testNamespace := utiltesting.MakeNamespaceWrapper("test-ns").Obj()
@@ -222,7 +222,7 @@ func TestCopyLabelAndAnnotationFromOwner(t *testing.T) {
 			client := builder.Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			CopyLabelAndAnnotationFromOwner(ctx, job, client)
+			RaySubmitterJobCopyLabelAndAnnotationFromOwner(ctx, job, client)
 
 			// Check queue label
 			actualQueue := ""

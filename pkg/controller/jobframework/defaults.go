@@ -100,7 +100,9 @@ func ApplyDefaultLocalQueue(jobObj client.Object, defaultQueueExist func(string)
 	}
 }
 
-func CopyLabelAndAnnotationFromOwner(ctx context.Context, jobObj client.Object, k8sClient client.Client) {
+// RaySubmitterJobCopyLabelAndAnnotationFromOwner checks whether the job is Ray submitter job, if it is, copy queue label
+// and workload slicing annotation from the owner RayJob to the submitter job.
+func RaySubmitterJobCopyLabelAndAnnotationFromOwner(ctx context.Context, jobObj client.Object, k8sClient client.Client) {
 	if QueueNameForObject(jobObj) != "" {
 		return
 	}
