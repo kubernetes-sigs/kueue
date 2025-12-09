@@ -66,20 +66,24 @@ func init() {
 }
 
 func main() {
-	os.Exit(mainWithExitCode())
+	initFlags()
+	flag.Parse()
+	os.Exit(run())
 }
 
-func mainWithExitCode() int {
-	opts := zap.Options{
-		TimeEncoder: zapcore.RFC3339NanoTimeEncoder,
-		ZapOpts:     []zaplog.Option{zaplog.AddCaller()},
-		Development: true,
-		Level:       zaplog.NewAtomicLevelAt(zapcore.ErrorLevel),
-	}
-	opts.BindFlags(flag.CommandLine)
-	flag.Parse()
-	log := zap.New(zap.UseFlagOptions(&opts))
+var logOptions = zap.Options{
+	TimeEncoder: zapcore.RFC3339NanoTimeEncoder,
+	ZapOpts:     []zaplog.Option{zaplog.AddCaller()},
+	Development: true,
+	Level:       zaplog.NewAtomicLevelAt(zapcore.ErrorLevel),
+}
 
+func initFlags() {
+	logOptions.BindFlags(flag.CommandLine)
+}
+
+func run() int {
+	log := zap.New(zap.UseFlagOptions(&logOptions))
 	ctrl.SetLogger(log)
 	log.Info("Start")
 

@@ -35,8 +35,9 @@ type options struct {
 }
 
 func main() {
-	opts, err := parseOptions()
-	if err != nil {
+	opts := initFlags()
+	flag.Parse()
+	if err := opts.validate(); err != nil {
 		log.Fatalf("Failed to parse options: %v", err)
 	}
 
@@ -67,7 +68,7 @@ func main() {
 	fileProcessor.ProcessPlan(*processingPlan)
 }
 
-func parseOptions() (*options, error) {
+func initFlags() *options {
 	opts := &options{}
 
 	flag.StringVar(&opts.LogLevel, "zap-log-level", "info", "Minimum enabled logging level")
@@ -76,15 +77,16 @@ func parseOptions() (*options, error) {
 		flag.PrintDefaults()
 	}
 
-	flag.Parse()
+	return opts
+}
+
+func (o *options) validate() error {
 	if flag.NArg() != 1 {
 		flag.Usage()
-		return nil, errors.New("exactly one processing plan file argument is required")
+		return errors.New("exactly one processing plan file argument is required")
 	}
-
-	opts.ProcessingPlan = flag.Arg(0)
-
-	return opts, nil
+	o.ProcessingPlan = flag.Arg(0)
+	return nil
 }
 
 func newLogger(logLevel string) (*zap.Logger, error) {
