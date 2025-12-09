@@ -115,7 +115,7 @@ func (a adapter[PtrT, T]) SyncJob(
 	}
 
 	if err == nil {
-		if a.fromObject(localJob).IsSuspended() {
+		if a.fromObject(localJob).IsSuspended() && !a.fromObject(localJob).IsActive() {
 			// Ensure the job is unsuspended before updating its status; otherwise, it will fail when patching the spec.
 			log.V(2).Info("Skipping the sync since the local job is still suspended")
 			return nil
