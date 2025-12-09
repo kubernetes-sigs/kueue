@@ -277,7 +277,7 @@ func StartWorkloadSlicePods(ctx context.Context, clnt client.Client, object clie
 		return fmt.Errorf("failed to list job pods: %w", err)
 	}
 	for i := range list.Items {
-		log.V(2).Info("Patching pod to remove elastic job scheduling gate", "podName", list.Items[i].Name)
+		log.V(4).Info("Patching pod to remove elastic job scheduling gate", "podName", list.Items[i].Name)
 		if err := clientutil.Patch(ctx, clnt, &list.Items[i], func() (bool, error) {
 			return pod.Ungate(&list.Items[i], kueue.ElasticJobSchedulingGate), nil
 		}); err != nil {

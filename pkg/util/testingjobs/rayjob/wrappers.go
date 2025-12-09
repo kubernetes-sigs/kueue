@@ -296,12 +296,10 @@ func (j *JobWrapper) ManagedBy(c string) *JobWrapper {
 }
 
 func (j *JobWrapper) Annotation(key string, value string) *JobWrapper {
-	annotations := j.Annotations
-	if annotations == nil {
-		annotations = make(map[string]string)
+	if j.Annotations == nil {
+		j.Annotations = make(map[string]string)
 	}
-	annotations[key] = value
-	j.Annotations = annotations
+	j.Annotations[key] = value
 	return j
 }
 
