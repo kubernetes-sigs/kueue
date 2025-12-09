@@ -1055,9 +1055,6 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 	}
 	levelDomains := slices.Collect(maps.Values(domains))
 	sortedDomain := s.sortedDomainsWithLeader(levelDomains, unconstrained)
-	if len(sortedDomain) == 0 {
-		return 0, nil, fmt.Sprintf("no topology domains at level: %s", s.levelKeys[levelIdx])
-	}
 	topDomain := sortedDomain[0]
 
 	sliceCount := podSetSize / sliceSize

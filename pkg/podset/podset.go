@@ -24,7 +24,6 @@ import (
 	"slices"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -163,7 +162,6 @@ func Merge(meta *metav1.ObjectMeta, spec *corev1.PodSpec, info PodSetInfo) error
 		NodeSelector:    spec.NodeSelector,
 		Tolerations:     spec.Tolerations,
 		SchedulingGates: spec.SchedulingGates,
-		Affinity:        spec.Affinity,
 	}
 	if err := tmp.Merge(info); err != nil {
 		return err
@@ -173,9 +171,6 @@ func Merge(meta *metav1.ObjectMeta, spec *corev1.PodSpec, info PodSetInfo) error
 	spec.NodeSelector = tmp.NodeSelector
 	spec.Tolerations = tmp.Tolerations
 	spec.SchedulingGates = tmp.SchedulingGates
-	if info.Affinity != nil {
-		spec.Affinity = info.Affinity.DeepCopy()
-	}
 	return nil
 }
 
@@ -201,10 +196,6 @@ func RestorePodSpec(meta *metav1.ObjectMeta, spec *corev1.PodSpec, info PodSetIn
 	}
 	if !slices.Equal(spec.SchedulingGates, info.SchedulingGates) {
 		spec.SchedulingGates = slices.Clone(info.SchedulingGates)
-		changed = true
-	}
-	if !equality.Semantic.DeepEqual(spec.Affinity, info.Affinity) {
-		spec.Affinity = info.Affinity.DeepCopy()
 		changed = true
 	}
 	return changed

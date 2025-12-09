@@ -441,7 +441,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		} else if err := workload.ValidateLimitRange(ctx, s.client, &w); err != nil {
 			e.inadmissibleMsg = fmt.Sprintf("%s: %v", errLimitRangeConstraintsUnsatisfiedResources, err.ToAggregate())
 		} else {
-			e.assignment, e.preemptionTargets = s.getAssignments(ctx, log, &e.Info, snap)
+			e.assignment, e.preemptionTargets = s.getAssignments(log, &e.Info, snap)
 			e.inadmissibleMsg = e.assignment.Message()
 			e.LastAssignment = &e.assignment.LastState
 			entries = append(entries, e)
@@ -504,8 +504,8 @@ type partialAssignment struct {
 	preemptionTargets []*preemption.Target
 }
 
-func (s *Scheduler) getAssignments(ctx context.Context, log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
-	assignment, targets := s.getInitialAssignments(ctx, log, wl, snap)
+func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
+	assignment, targets := s.getInitialAssignments(log, wl, snap)
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 	updateAssignmentForTAS(snap, cq, wl, &assignment, targets)
 	return assignment, targets
@@ -533,7 +533,7 @@ func (s *Scheduler) getAssignments(ctx context.Context, log logr.Logger, wl *wor
 //     identified during scheduling.
 //
 // If no valid assignment can be made, returns the original full assignment with no preemption targets.
-func (s *Scheduler) getInitialAssignments(ctx context.Context, log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
+func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 
 	preemptionTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
