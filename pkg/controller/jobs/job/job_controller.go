@@ -210,10 +210,7 @@ func (j *Job) GVK() schema.GroupVersionKind {
 }
 
 func (j *Job) IsTopLevel() bool {
-	if j.Labels[constants.QueueLabel] == "" {
-		return false
-	}
-
+	// TODO call isRaySubmitterJobWithAutoScaling to check ray submitter job
 	owner := metav1.GetControllerOf(j)
 	if owner == nil {
 		return true

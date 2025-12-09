@@ -134,11 +134,11 @@ func TestValidateCreate(t *testing.T) {
 	bigWorkerGroup := []rayv1.WorkerGroupSpec{worker, worker, worker, worker, worker, worker, worker, worker}
 
 	testcases := map[string]struct {
-		job                      *rayv1.RayJob
-		manageAll                bool
-		wantErr                  error
-		localQueueDefaulting     bool
-		topologyAwareScheduling  bool
+		job                          *rayv1.RayJob
+		manageAll                    bool
+		wantErr                      error
+		localQueueDefaulting         bool
+		topologyAwareScheduling      bool
 		elasticJobsViaWorkloadSlices bool
 	}{
 		"invalid unmanaged": {
@@ -206,7 +206,7 @@ func TestValidateCreate(t *testing.T) {
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj(),
 			elasticJobsViaWorkloadSlices: true,
-			wantErr: nil,
+			wantErr:                      nil,
 		},
 		"invalid managed - too many worker groups": {
 			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
