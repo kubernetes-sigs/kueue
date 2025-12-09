@@ -177,21 +177,21 @@ var _ = ginkgo.Describe("Kuberay", func() {
 			gomega.Expect(k8sClient.Create(ctx, rayJob)).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("Checking at least one workload is created and admitted or finished", func() {
+		ginkgo.By("Checking one workload is created and admitted", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				workloadList := &kueue.WorkloadList{}
 				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				g.Expect(workloadList.Items).NotTo(gomega.BeEmpty(), "Expected at least one workload in namespace")
-				hasAdmittedOrFinishedWorkload := false
+				hasAdmittedWorkload := false
 				for _, wl := range workloadList.Items {
 					if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadAdmitted) ||
 						apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
-						hasAdmittedOrFinishedWorkload = true
+						hasAdmittedWorkload = true
 						break
 					}
 				}
-				g.Expect(hasAdmittedOrFinishedWorkload).To(gomega.BeTrue(), "Expected at least one admitted or finished workload")
-			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+				g.Expect(hasAdmittedWorkload).To(gomega.BeTrue(), "Expected admitted workload")
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Waiting for the RayJob cluster become ready", func() {
