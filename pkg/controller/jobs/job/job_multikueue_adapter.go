@@ -165,10 +165,8 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
 	job := batchv1.Job{}
-	err := remoteClient.Get(ctx, key, &job)
-	if err != nil {
-		return client.IgnoreNotFound(err)
-	}
+	job.SetName(key.Name)
+	job.SetNamespace(key.Namespace)
 	return client.IgnoreNotFound(remoteClient.Delete(ctx, &job, client.PropagationPolicy(metav1.DeletePropagationBackground)))
 }
 
