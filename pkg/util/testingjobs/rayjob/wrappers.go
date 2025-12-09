@@ -295,7 +295,7 @@ func (j *JobWrapper) ManagedBy(c string) *JobWrapper {
 	return j
 }
 
-func (j *JobWrapper) AddAnnotation(key string, value string) *JobWrapper {
+func (j *JobWrapper) Annotation(key string, value string) *JobWrapper {
 	annotations := j.Annotations
 	if annotations == nil {
 		annotations = make(map[string]string)
