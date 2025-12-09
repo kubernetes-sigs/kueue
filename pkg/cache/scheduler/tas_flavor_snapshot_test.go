@@ -857,11 +857,6 @@ func TestFindTopologyAssignmentsForFlavorWithRequiredAndPreferredAffinity(t *tes
 		t.Fatalf("Expected 1 domain, got %d", len(assignment.Domains))
 	}
 
-	// node-excluded matches preferred (us-west) but not required (zone=us).
-	// node-preferred matches both.
-	// node-other matches required but not preferred.
-	// So node-preferred should be chosen.
-
 	if assignment.Domains[0].Values[0] != "node-preferred" {
 		t.Errorf("Expected assignment to node-preferred, got %s", assignment.Domains[0].Values[0])
 	}
