@@ -49,7 +49,7 @@ spec:
 
 {{% alert title="Note" color="primary" %}}
 
-The controller is **not** limited to pods managed by Kueue (i.e. having the `kueue.x-k8s.io/managed` or `kueue.x-k8s.io/podset label`).
+The controller is **not** limited to pods managed by Kueue (i.e. having the `kueue.x-k8s.io/managed` or `kueue.x-k8s.io/podset` label).
 All pods in the cluster that have the new annotation will be affected.
 
 {{% /alert %}}
