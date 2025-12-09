@@ -29,8 +29,6 @@ import (
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	schedulingv1 "k8s.io/api/scheduling/v1"
-	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -44,9 +42,7 @@ import (
 	"k8s.io/utils/ptr"
 	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
-	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
-	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -79,6 +75,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	"sigs.k8s.io/kueue/pkg/util/cert"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/useragent"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/version"
@@ -221,7 +218,7 @@ func main() {
 	}
 
 	if features.Enabled(features.MultiKueueClusterProfile) {
-		if err := configureClusterProfileCache(ctx, &options, kubeConfig, cfg); err != nil {
+		if err := config.ConfigureClusterProfileCache(ctx, setupLog, &options, kubeConfig, cfg); err != nil {
 			setupLog.Error(err, "Unable to configure cluster profile")
 			os.Exit(1)
 		}
@@ -231,6 +228,15 @@ func main() {
 	if err != nil {
 		setupLog.Error(err, "Unable to start manager")
 		os.Exit(1)
+	}
+
+	var roleTracker *roletracker.RoleTracker
+	if cfg.LeaderElection != nil && ptr.Deref(cfg.LeaderElection.LeaderElect, false) {
+		roleTracker = roletracker.NewRoleTracker(mgr.Elected())
+		go roleTracker.Start(ctx, setupLog)
+		setupLog.Info("RoleTracker: leader election enabled")
+	} else {
+		setupLog.Info("RoleTracker: running in standalone mode")
 	}
 
 	certsReady := make(chan struct{})
@@ -249,7 +255,7 @@ func main() {
 		cacheOptions = append(cacheOptions, schdcache.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes))
 		queueOptions = append(queueOptions, qcache.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes))
 	}
-	if features.Enabled(features.ConfigurableResourceTransformations) && cfg.Resources != nil && len(cfg.Resources.Transformations) > 0 {
+	if cfg.Resources != nil && len(cfg.Resources.Transformations) > 0 {
 		cacheOptions = append(cacheOptions, schdcache.WithResourceTransformations(cfg.Resources.Transformations))
 		queueOptions = append(queueOptions, qcache.WithResourceTransformations(cfg.Resources.Transformations))
 	}
@@ -287,12 +293,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := setupControllers(ctx, mgr, cCache, queues, &cfg, serverVersionFetcher); err != nil {
+	if err := setupControllers(ctx, mgr, cCache, queues, &cfg, serverVersionFetcher, roleTracker); err != nil {
 		setupLog.Error(err, "Unable to setup controllers")
 		os.Exit(1)
 	}
 
-	if failedWebhook, err := webhooks.Setup(mgr); err != nil {
+	if failedWebhook, err := webhooks.Setup(mgr, webhooks.WithRoleTracker(roleTracker)); err != nil {
 		setupLog.Error(err, "Unable to create webhook", "webhook", failedWebhook)
 		os.Exit(1)
 	}
@@ -352,12 +358,12 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 	return jobframework.SetupIndexes(ctx, mgr.GetFieldIndexer(), opts...)
 }
 
-func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Manager, cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher) error {
-	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, cfg); err != nil {
+func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Manager, cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher, roleTracker *roletracker.RoleTracker) error {
+	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, cfg, core.WithSetupRoleTracker(roleTracker)); err != nil {
 		return fmt.Errorf("unable to create controller %s: %w", failedCtrl, err)
 	}
 	if features.Enabled(features.FailureRecoveryPolicy) {
-		if failedCtrlName, err := failurerecovery.SetupControllers(mgr, cfg); err != nil {
+		if failedCtrlName, err := failurerecovery.SetupControllers(mgr, cfg, failurerecovery.SetupWithRoleTracker(roleTracker)); err != nil {
 			return fmt.Errorf("could not setup FailureRecovery controller %s: %w", failedCtrlName, err)
 		}
 	}
@@ -407,13 +413,13 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.C
 			return fmt.Errorf("could not setup MultiKueue controller: %w", err)
 		}
 
-		if failedDispatcher, err := dispatcher.SetupControllers(mgr, cfg); err != nil {
+		if failedDispatcher, err := dispatcher.SetupControllers(mgr, cfg, dispatcher.WithRoleTracker(roleTracker)); err != nil {
 			return fmt.Errorf("could not setup Dispatcher controller %q for MultiKueue: %w", failedDispatcher, err)
 		}
 	}
 
 	if features.Enabled(features.TopologyAwareScheduling) {
-		if failedCtrl, err := tas.SetupControllers(mgr, queues, cCache, cfg); err != nil {
+		if failedCtrl, err := tas.SetupControllers(mgr, queues, cCache, cfg, tas.WithRoleTracker(roleTracker)); err != nil {
 			return fmt.Errorf("could not setup TAS controller %s: %w", failedCtrl, err)
 		}
 	}
@@ -429,6 +435,7 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.C
 		jobframework.WithCache(cCache),
 		jobframework.WithQueues(queues),
 		jobframework.WithObjectRetentionPolicies(cfg.ObjectRetentionPolicies),
+		jobframework.WithRoleTracker(roleTracker),
 	}
 	nsSelector, err := metav1.LabelSelectorAsSelector(cfg.ManagedJobsNamespaceSelector)
 	if err != nil {
@@ -532,28 +539,4 @@ func apply(configFile string) (ctrl.Options, configapi.Configuration, error) {
 	}
 	setupLog.Info("Successfully loaded configuration", "config", cfgStr)
 	return options, cfg, nil
-}
-
-func configureClusterProfileCache(ctx context.Context, options *ctrl.Options, kubeConfig *rest.Config, cfg configapi.Configuration) error {
-	crdClient, err := apiextensionsclient.NewForConfig(kubeConfig)
-	if err != nil {
-		return fmt.Errorf("%w: failed creating the CRD client", err)
-	}
-	if _, err := crdClient.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, "clusterprofiles.multicluster.x-k8s.io", metav1.GetOptions{}); err != nil {
-		if apierrors.IsNotFound(err) {
-			setupLog.Info("Skipping MultiKueue ClusterProfile setup as the ClusterProfile CRD is not installed")
-			return nil
-		}
-		return fmt.Errorf("%w: failed loading the ClusterProfile CRD", err)
-	}
-	objectKeyClusterProfile := new(inventoryv1alpha1.ClusterProfile)
-	if options.Cache.ByObject == nil {
-		options.Cache.ByObject = make(map[ctrlclient.Object]ctrlcache.ByObject)
-	}
-	options.Cache.ByObject[objectKeyClusterProfile] = ctrlcache.ByObject{
-		Namespaces: map[string]ctrlcache.Config{
-			*cfg.Namespace: {},
-		},
-	}
-	return nil
 }

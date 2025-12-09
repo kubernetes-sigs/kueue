@@ -71,6 +71,7 @@ var (
 		kueue.WorkloadPreempted,
 		kueue.WorkloadRequeued,
 		kueue.WorkloadDeactivationTarget,
+		kueue.WorkloadFinished,
 	}
 )
 
@@ -496,9 +497,7 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 		}
 		specRequests := resourcehelpers.PodRequests(&corev1.Pod{Spec: ps.Template.Spec}, resourcehelpers.PodResourcesOptions{})
 		effectiveRequests := dropExcludedResources(specRequests, info.excludedResourcePrefixes)
-		if features.Enabled(features.ConfigurableResourceTransformations) {
-			effectiveRequests = applyResourceTransformations(effectiveRequests, info.resourceTransformations)
-		}
+		effectiveRequests = applyResourceTransformations(effectiveRequests, info.resourceTransformations)
 		setRes.Requests = resources.NewRequests(effectiveRequests)
 		if features.Enabled(features.DynamicResourceAllocation) && info.preprocessedDRAResources != nil {
 			if draRes, exists := info.preprocessedDRAResources[ps.Name]; exists {
@@ -593,28 +592,9 @@ func SetConditionAndUpdate(ctx context.Context,
 		Reason:             reason,
 		Message:            api.TruncateConditionMessage(message),
 	}
-
-	var (
-		wlCopy *kueue.Workload
-		err    error
-	)
-
-	if features.Enabled(features.WorkloadRequestUseMergePatch) {
-		wlCopy = wl.DeepCopy()
-		err = clientutil.PatchStatus(ctx, c, wlCopy, func() (bool, error) {
-			return apimeta.SetStatusCondition(&wlCopy.Status.Conditions, condition), nil
-		})
-	} else {
-		wlCopy = BaseSSAWorkload(wl, true)
-		wlCopy.Status.Conditions = []metav1.Condition{condition}
-		err = c.Status().Patch(ctx, wlCopy, client.Apply, client.FieldOwner(managerPrefix+"-"+condition.Type))
-	}
-	if err != nil {
-		return err
-	}
-
-	wlCopy.DeepCopyInto(wl)
-	return nil
+	return PatchStatus(ctx, c, wl, client.FieldOwner(managerPrefix+"-"+condition.Type), func(wl *kueue.Workload) (bool, error) {
+		return apimeta.SetStatusCondition(&wl.Status.Conditions, condition), nil
+	})
 }
 
 // UnsetQuotaReservationWithCondition sets the QuotaReserved condition to false, clears
@@ -957,14 +937,6 @@ func admissionChecksStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, c clo
 	}
 }
 
-// ApplyAdmissionStatus updated all the admission related status fields of a workload with SSA.
-// If strict is true, resourceVersion will be part of the patch, make this call fail if Workload
-// was changed.
-func ApplyAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, strict bool, clk clock.Clock) error {
-	wlCopy := PrepareWorkloadPatch(w, strict, clk)
-	return c.Status().Patch(ctx, wlCopy, client.Apply, client.FieldOwner(constants.AdmissionName), client.ForceOwnership)
-}
-
 func PrepareWorkloadPatch(w *kueue.Workload, strict bool, clk clock.Clock) *kueue.Workload {
 	wlCopy := BaseSSAWorkload(w, strict)
 	admissionStatusPatch(w, wlCopy)
@@ -972,12 +944,14 @@ func PrepareWorkloadPatch(w *kueue.Workload, strict bool, clk clock.Clock) *kueu
 	return wlCopy
 }
 
-// PatchAdmissionStatusOption defines a functional option for customizing PatchAdmissionStatusOptions.
-// It follows the functional options pattern, allowing callers to configure
-// patch behavior at call sites without directly manipulating PatchAdmissionStatusOptions.
-type PatchAdmissionStatusOption func(*PatchAdmissionStatusOptions)
+type UpdateFunc func(*kueue.Workload) (bool, error)
 
-// PatchAdmissionStatusOptions contains configuration parameters that control how patches
+// PatchStatusOption defines a functional option for customizing PatchStatusOptions.
+// It follows the functional options pattern, allowing callers to configure
+// patch behavior at call sites without directly manipulating PatchStatusOptions.
+type PatchStatusOption func(*PatchStatusOptions)
+
+// PatchStatusOptions contains configuration parameters that control how patches
 // are generated and applied.
 //
 // Fields:
@@ -990,28 +964,29 @@ type PatchAdmissionStatusOption func(*PatchAdmissionStatusOptions)
 //     patch. Defaults to true. Setting StrictPatch=false preserves the current
 //     ResourceVersion.
 //
-// Typically, PatchAdmissionStatusOptions are constructed via DefaultPatchAdmissionStatusOptions and
-// modified using PatchAdmissionStatusOption functions (e.g., WithLoose).
-type PatchAdmissionStatusOptions struct {
+// Typically, PatchStatusOptions are constructed via DefaultPatchStatusOptions and
+// modified using PatchStatusOption functions (e.g., WithLoose).
+type PatchStatusOptions struct {
 	StrictPatch             bool
 	StrictApply             bool
 	RetryOnConflictForPatch bool
+	ForceApply              bool
 }
 
-// DefaultPatchAdmissionStatusOptions returns a new PatchAdmissionStatusOptions instance configured with
+// DefaultPatchStatusOptions returns a new PatchStatusOptions instance configured with
 // default settings.
 //
 // By default, StrictPatch and StrictApply is set to true, meaning ResourceVersion is cleared
 // from the original object so it will always be included in the generated
 // patch. This ensures stricter version handling during patch application.
-func DefaultPatchAdmissionStatusOptions() *PatchAdmissionStatusOptions {
-	return &PatchAdmissionStatusOptions{
+func DefaultPatchStatusOptions() *PatchStatusOptions {
+	return &PatchStatusOptions{
 		StrictPatch: true, // default is strict
 		StrictApply: true, // default is strict
 	}
 }
 
-// WithLooseOnApply returns a PatchAdmissionStatusOption that resets the StrictApply field on PatchAdmissionStatusOptions.
+// WithLooseOnApply returns a PatchStatusOption that resets the StrictApply field on PatchStatusOptions.
 //
 // When using Patch Apply, setting StrictApply to false enforces looser
 // version handling only for Patch Apply.
@@ -1023,51 +998,90 @@ func DefaultPatchAdmissionStatusOptions() *PatchAdmissionStatusOptions {
 //	    return updateFn(obj), nil
 //	}, WithLooseOnApply()) // disables strict mode for Patch Apply
 
-func WithLooseOnApply() PatchAdmissionStatusOption {
-	return func(o *PatchAdmissionStatusOptions) {
+func WithLooseOnApply() PatchStatusOption {
+	return func(o *PatchStatusOptions) {
 		o.StrictApply = false
 	}
 }
 
-// WithRetryOnConflictForPatch configures PatchAdmissionStatusOptions to enable retry logic on conflicts.
+// WithRetryOnConflictForPatch configures PatchStatusOptions to enable retry logic on conflicts.
 // Note: This only works with merge patches.
-func WithRetryOnConflictForPatch() PatchAdmissionStatusOption {
-	return func(o *PatchAdmissionStatusOptions) {
+func WithRetryOnConflictForPatch() PatchStatusOption {
+	return func(o *PatchStatusOptions) {
 		o.RetryOnConflictForPatch = true
 	}
 }
 
-// PatchAdmissionStatus updates the admission status of a workload.
-// If the WorkloadRequestUseMergePatch feature is enabled, it uses a Merge Patch with update function.
-// Otherwise, it runs the update function and, if updated, applies the SSA Patch status.
-func PatchAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, clk clock.Clock, update func(*kueue.Workload) (bool, error), options ...PatchAdmissionStatusOption) error {
-	opts := DefaultPatchAdmissionStatusOptions()
+// WithForceApply is a PatchStatusOption that forces the use of the apply patch.
+func WithForceApply() PatchStatusOption {
+	return func(o *PatchStatusOptions) {
+		o.ForceApply = true
+	}
+}
+
+func patchStatusOptions(options []PatchStatusOption) *PatchStatusOptions {
+	opts := DefaultPatchStatusOptions()
 	for _, opt := range options {
 		opt(opts)
 	}
-	var err error
-	wlCopy := w.DeepCopy()
-	if features.Enabled(features.WorkloadRequestUseMergePatch) {
-		var patchOptions []clientutil.PatchOption
+	return opts
+}
+
+// patchStatus updates the status of a workload.
+// If the WorkloadRequestUseMergePatch feature is enabled, it uses a Merge Patch with update function.
+// Otherwise, it runs the update function and, if updated, applies the SSA Patch status.
+func patchStatus(ctx context.Context, c client.Client, wl *kueue.Workload, owner client.FieldOwner, update UpdateFunc, opts *PatchStatusOptions) error {
+	wlCopy := wl.DeepCopy()
+	if !opts.ForceApply && features.Enabled(features.WorkloadRequestUseMergePatch) {
+		patchOptions := make([]clientutil.PatchOption, 0, 2)
 		if !opts.StrictPatch {
 			patchOptions = append(patchOptions, clientutil.WithLoose())
 		}
 		if opts.RetryOnConflictForPatch {
 			patchOptions = append(patchOptions, clientutil.WithRetryOnConflict())
 		}
-		err = clientutil.PatchStatus(ctx, c, wlCopy, func() (bool, error) {
+		err := clientutil.PatchStatus(ctx, c, wlCopy, func() (bool, error) {
 			return update(wlCopy)
 		}, patchOptions...)
+		if err != nil {
+			return err
+		}
 	} else {
 		if updated, err := update(wlCopy); err != nil || !updated {
 			return err
 		}
-		err = ApplyAdmissionStatus(ctx, c, wlCopy, opts.StrictApply, clk)
+		err := c.Status().Patch(ctx, wlCopy, client.Apply, owner, client.ForceOwnership)
+		if err != nil {
+			return err
+		}
 	}
-	if err == nil {
-		wlCopy.DeepCopyInto(w)
-	}
-	return err
+	wlCopy.DeepCopyInto(wl)
+	return nil
+}
+
+func PatchStatus(ctx context.Context, c client.Client, wl *kueue.Workload, owner client.FieldOwner, update UpdateFunc, options ...PatchStatusOption) error {
+	opts := patchStatusOptions(options)
+	return patchStatus(ctx, c, wl, owner, func(wl *kueue.Workload) (bool, error) {
+		if !features.Enabled(features.WorkloadRequestUseMergePatch) {
+			wlPatch := BaseSSAWorkload(wl, opts.StrictApply)
+			wlPatch.DeepCopyInto(wl)
+		}
+		return update(wl)
+	}, opts)
+}
+
+func PatchAdmissionStatus(ctx context.Context, c client.Client, wl *kueue.Workload, clk clock.Clock, update UpdateFunc, options ...PatchStatusOption) error {
+	opts := patchStatusOptions(options)
+	return patchStatus(ctx, c, wl, constants.AdmissionName, func(wl *kueue.Workload) (bool, error) {
+		if updated, err := update(wl); err != nil || !updated {
+			return updated, err
+		}
+		if !features.Enabled(features.WorkloadRequestUseMergePatch) {
+			wlPatch := PrepareWorkloadPatch(wl, opts.StrictApply, clk)
+			wlPatch.DeepCopyInto(wl)
+		}
+		return true, nil
+	}, opts)
 }
 
 type Ordering struct {
@@ -1103,10 +1117,11 @@ func HasQuotaReservation(w *kueue.Workload) bool {
 }
 
 // UpdateReclaimablePods updates the ReclaimablePods list for the workload with SSA.
-func UpdateReclaimablePods(ctx context.Context, c client.Client, w *kueue.Workload, reclaimablePods []kueue.ReclaimablePod) error {
-	patch := BaseSSAWorkload(w, false)
-	patch.Status.ReclaimablePods = reclaimablePods
-	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.ReclaimablePodsMgr))
+func UpdateReclaimablePods(ctx context.Context, c client.Client, wl *kueue.Workload, reclaimablePods []kueue.ReclaimablePod) error {
+	return PatchStatus(ctx, c, wl, constants.ReclaimablePodsMgr, func(wl *kueue.Workload) (bool, error) {
+		wl.Status.ReclaimablePods = reclaimablePods
+		return true, nil
+	})
 }
 
 // ReclaimablePodsAreEqual checks if two Reclaimable pods are semantically equal
@@ -1369,14 +1384,9 @@ func setFinish(wl *kueue.Workload, reason, msg string, now time.Time) bool {
 }
 
 func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, msg string, clock clock.Clock) error {
-	if features.Enabled(features.WorkloadRequestUseMergePatch) {
-		return clientutil.PatchStatus(ctx, c, wl, func() (bool, error) {
-			return setFinish(wl, reason, msg, clock.Now()), nil
-		})
-	}
-	wlPatch := PrepareWorkloadPatch(wl, true, clock)
-	setFinish(wlPatch, reason, msg, clock.Now())
-	return c.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(constants.AdmissionName), client.ForceOwnership)
+	return PatchAdmissionStatus(ctx, c, wl, clock, func(wl *kueue.Workload) (bool, error) {
+		return setFinish(wl, reason, msg, clock.Now()), nil
+	})
 }
 
 func PriorityClassName(wl *kueue.Workload) string {

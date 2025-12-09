@@ -528,11 +528,8 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 				Obj()
 			util.MustCreate(ctx, k8sClient, wl)
 
-			err := workload.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{
-				{Name: "ps1", Count: 4},
-				{Name: "ps2", Count: 1},
-			})
-			gomega.Expect(err).Should(utiltesting.BeForbiddenError())
+			reclaimablePods := []kueue.ReclaimablePod{{Name: "ps1", Count: 4}, {Name: "ps2", Count: 1}}
+			expectUpdateReclaimablePodsBeForbiddenError(client.ObjectKeyFromObject(wl), reclaimablePods)
 		})
 	})
 
@@ -1139,9 +1136,7 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 				).
 				Obj()
 			util.MustCreate(ctx, k8sClient, wl)
-			gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{
-				{Name: "ps1", Count: 1},
-			})).Should(gomega.Succeed())
+			util.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: "ps1", Count: 1}})
 
 			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl),
 				utiltestingapi.MakeAdmission("cluster-queue").
@@ -1151,11 +1146,8 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 					Obj())
 
 			ginkgo.By("Updating reclaimable pods")
-			err := workload.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{
-				{Name: "ps1", Count: 2},
-				{Name: "ps2", Count: 1},
-			})
-			gomega.Expect(err).Should(gomega.Succeed())
+			reclaimablePods := []kueue.ReclaimablePod{{Name: "ps1", Count: 2}, {Name: "ps2", Count: 1}}
+			util.UpdateReclaimablePods(ctx, k8sClient, wl, reclaimablePods)
 		})
 
 		ginkgo.It("reclaimable pod count cannot change down", func() {
@@ -1167,10 +1159,8 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 				).
 				Obj()
 			util.MustCreate(ctx, k8sClient, wl)
-			gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{
-				{Name: "ps1", Count: 2},
-				{Name: "ps2", Count: 1},
-			})).Should(gomega.Succeed())
+			reclaimablePods := []kueue.ReclaimablePod{{Name: "ps1", Count: 2}, {Name: "ps2", Count: 1}}
+			util.UpdateReclaimablePods(ctx, k8sClient, wl, reclaimablePods)
 
 			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl),
 				utiltestingapi.MakeAdmission("cluster-queue").
@@ -1180,10 +1170,7 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 					Obj())
 
 			ginkgo.By("Updating reclaimable pods")
-			err := workload.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{
-				{Name: "ps1", Count: 1},
-			})
-			gomega.Expect(err).Should(utiltesting.BeForbiddenError())
+			expectUpdateReclaimablePodsBeForbiddenError(client.ObjectKeyFromObject(wl), []kueue.ReclaimablePod{{Name: "ps1", Count: 1}})
 		})
 
 		ginkgo.It("podSetUpdates should be immutable when state is ready", func() {
@@ -1723,4 +1710,13 @@ func validSliceFor(levels []string, suffix int) kueue.TopologyAssignmentSlice {
 		})
 	}
 	return res
+}
+
+func expectUpdateReclaimablePodsBeForbiddenError(wlKey client.ObjectKey, reclaimablePods []kueue.ReclaimablePod) {
+	ginkgo.GinkgoHelper()
+	wl := &kueue.Workload{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+		g.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, wl, reclaimablePods)).Should(utiltesting.BeForbiddenError())
+	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 }

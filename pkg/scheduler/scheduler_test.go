@@ -7506,6 +7506,104 @@ func TestSchedule(t *testing.T) {
 						"previously considered podsets requests (0) + current podset request (80) > maximum capacity (60)), spot(Fit;borrow=1)").Obj(),
 			},
 		},
+		"admit to second flavor when first needs preemption; WhenCanPreempt: TryNextFlavor": {
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("preempt-attempts-cq").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					FlavorFungibility(kueue.FlavorFungibility{
+						WhenCanPreempt: kueue.TryNextFlavor,
+					}).
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "1").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("spot").
+							Resource(corev1.ResourceCPU, "1").Obj(),
+					).Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("preempt-attempts-lq", "eng-alpha").ClusterQueue("preempt-attempts-cq").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("blocker", "eng-alpha").
+					Queue("preempt-attempts-lq").
+					Request(corev1.ResourceCPU, "1").
+					Priority(50).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("preempt-attempts-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "1").
+							Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("test-wl", "eng-alpha").
+					Queue("preempt-attempts-lq").
+					Request(corev1.ResourceCPU, "1").
+					Priority(100).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("blocker", "eng-alpha").
+					Queue("preempt-attempts-lq").
+					Request(corev1.ResourceCPU, "1").
+					Priority(50).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("preempt-attempts-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "1").
+							Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("test-wl", "eng-alpha").
+					Queue("preempt-attempts-lq").
+					Request(corev1.ResourceCPU, "1").
+					Priority(100).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "QuotaReserved",
+						Message:            "Quota reserved in ClusterQueue preempt-attempts-cq",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Admitted",
+						Message:            "The workload is admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Admission(utiltestingapi.MakeAdmission("preempt-attempts-cq").
+						PodSets(
+							utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "spot", "1").
+								Obj()).
+						Obj()).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"eng-alpha/test-wl": {
+					ClusterQueue: "preempt-attempts-cq",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						utiltestingapi.MakePodSetAssignment("main").Assignment(corev1.ResourceCPU, "spot", "1").Obj(),
+					},
+				},
+				"eng-alpha/blocker": {
+					ClusterQueue: "preempt-attempts-cq",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						utiltestingapi.MakePodSetAssignment("main").Assignment(corev1.ResourceCPU, "on-demand", "1").Obj(),
+					},
+				},
+			},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("eng-alpha", "test-wl", "QuotaReserved", corev1.EventTypeNormal).
+					Message("Quota reserved in ClusterQueue preempt-attempts-cq, wait time since queued was 9223372037s; Flavors considered: main: on-demand(preemptionMode=Preempt;insufficient unused quota for cpu in flavor on-demand, 1 more needed)").
+					Obj(),
+				utiltesting.MakeEventRecord("eng-alpha", "test-wl", "Admitted", corev1.EventTypeNormal).
+					Message("Admitted by ClusterQueue preempt-attempts-cq, wait time since reservation was 0s").
+					Obj(),
+			},
+		},
 	}
 	for name, tc := range cases {
 		for _, enabled := range []bool{false, true} {

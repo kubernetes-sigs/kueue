@@ -470,8 +470,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			})
 
 			ginkgo.By("Reclaim one pod from the first workload", func() {
-				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, firstWl, []kueue.ReclaimablePod{{Name: "third", Count: 1}})).To(gomega.Succeed())
-
+				util.UpdateReclaimablePods(ctx, k8sClient, firstWl, []kueue.ReclaimablePod{{Name: "third", Count: 1}})
 				util.ExpectPendingWorkloadsMetric(preemptionClusterQ, 0, 0)
 				util.ExpectAdmittedWorkloadsTotalMetric(preemptionClusterQ, "", 1)
 			})
@@ -494,8 +493,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			})
 
 			ginkgo.By("Reclaim two pods from the second workload so that the first workload is resumed", func() {
-				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, secondWl, []kueue.ReclaimablePod{{Name: "first", Count: 1}, {Name: "second", Count: 1}})).To(gomega.Succeed())
-
+				reclaimablePods := []kueue.ReclaimablePod{{Name: "first", Count: 1}, {Name: "second", Count: 1}}
+				util.UpdateReclaimablePods(ctx, k8sClient, secondWl, reclaimablePods)
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, firstWl, secondWl)
 				util.ExpectPendingWorkloadsMetric(preemptionClusterQ, 0, 0)
 				util.ExpectReservingActiveWorkloadsMetric(preemptionClusterQ, 2)
@@ -531,7 +530,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			})
 
 			ginkgo.By("Reclaim one pod from the first workload and admitting the second one", func() {
-				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, firstWl, []kueue.ReclaimablePod{{Name: "third", Count: 1}})).To(gomega.Succeed())
+				util.UpdateReclaimablePods(ctx, k8sClient, firstWl, []kueue.ReclaimablePod{{Name: "third", Count: 1}})
 				util.ExpectPendingWorkloadsMetric(preemptionClusterQ, 0, 0)
 				util.ExpectAdmittedWorkloadsTotalMetric(preemptionClusterQ, "", 2)
 			})
@@ -567,7 +566,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			})
 
 			ginkgo.By("Reclaim one pod from the first workload and admitting the second one", func() {
-				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, firstWl, []kueue.ReclaimablePod{{Name: "third", Count: 1}})).To(gomega.Succeed())
+				util.UpdateReclaimablePods(ctx, k8sClient, firstWl, []kueue.ReclaimablePod{{Name: "third", Count: 1}})
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, firstWl)
 				util.ExpectPendingWorkloadsMetric(preemptionClusterQ, 0, 1)
 				util.ExpectAdmittedWorkloadsTotalMetric(preemptionClusterQ, "", 1)
@@ -734,8 +733,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 0)
 			})
 			ginkgo.By("Mark one pod as reclaimable", func() {
-				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 1}})).To(gomega.Succeed())
-
+				util.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 1}})
 				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wl)
 				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
 				util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 1)

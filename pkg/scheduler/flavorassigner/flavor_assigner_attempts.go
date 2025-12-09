@@ -19,7 +19,6 @@ package flavorassigner
 import (
 	"fmt"
 	"slices"
-	"sort"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -27,15 +26,17 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 )
 
 // FlavorAssignmentAttempt captures one attempted flavor and its worst-case outcome
 // across the requested resources.
 type FlavorAssignmentAttempt struct {
-	Flavor  kueue.ResourceFlavorReference
-	Mode    FlavorAssignmentMode
-	Borrow  int
-	Reasons []string
+	Flavor                kueue.ResourceFlavorReference
+	Mode                  FlavorAssignmentMode
+	Borrow                int
+	PreemptionPossibility *preemptioncommon.PreemptionPossibility
+	Reasons               []string
 }
 
 type FlavorAssignmentAttempts []FlavorAssignmentAttempt
@@ -58,16 +59,18 @@ func (fa *FlavorAssignmentAttempts) AddNoFitFlavorAttempt(flavor kueue.ResourceF
 
 func (fa *FlavorAssignmentAttempts) AddRepresentativeModeFlavorAttempt(
 	flavor kueue.ResourceFlavorReference,
-	mode FlavorAssignmentMode,
+	preemptionMode preemptionMode,
 	maxBorrow int, reasons []string,
 ) {
+	flavorAssignmentMode := preemptionMode.flavorAssignmentMode()
 	flavorAttempt := FlavorAssignmentAttempt{
-		Flavor: flavor,
-		Mode:   mode,
-		Borrow: maxBorrow,
+		Flavor:                flavor,
+		Mode:                  flavorAssignmentMode,
+		PreemptionPossibility: preemptionMode.preemptionPossibility(),
+		Borrow:                maxBorrow,
 	}
 	if len(reasons) > 0 {
-		sort.Strings(reasons)
+		slices.Sort(reasons)
 		flavorAttempt.Reasons = append(flavorAttempt.Reasons, reasons...)
 	}
 	*fa = append(*fa, flavorAttempt)
@@ -100,7 +103,7 @@ func mergeFlavorAttemptsForResource(
 					at.Mode = NoFit
 				}
 				at.Reasons = mergeUnique(at.Reasons, []string{msg})
-				sort.Strings(at.Reasons)
+				slices.Sort(at.Reasons)
 				dst[flv] = at
 			}
 		}
@@ -116,24 +119,31 @@ func mergeFlavorAttempts(dst map[kueue.ResourceFlavorReference]FlavorAssignmentA
 			maxBorrow := existing.Borrow
 			maxBorrow = max(at.Borrow, maxBorrow)
 
+			existingPreemption := existing.PreemptionPossibility
+			if at.PreemptionPossibility != nil && (existingPreemption == nil || *at.PreemptionPossibility < *existingPreemption) {
+				existingPreemption = at.PreemptionPossibility
+			}
+
 			reasons := mergeUnique(existing.Reasons, at.Reasons)
-			sort.Strings(reasons)
+			slices.Sort(reasons)
 			dst[at.Flavor] = FlavorAssignmentAttempt{
-				Flavor:  at.Flavor,
-				Mode:    worst,
-				Borrow:  maxBorrow,
-				Reasons: reasons,
+				Flavor:                at.Flavor,
+				Mode:                  worst,
+				Borrow:                maxBorrow,
+				PreemptionPossibility: existingPreemption,
+				Reasons:               reasons,
 			}
 			continue
 		}
 
 		cp := FlavorAssignmentAttempt{
-			Flavor:  at.Flavor,
-			Mode:    at.Mode,
-			Borrow:  at.Borrow,
-			Reasons: mergeUnique(nil, at.Reasons),
+			Flavor:                at.Flavor,
+			Mode:                  at.Mode,
+			Borrow:                at.Borrow,
+			PreemptionPossibility: at.PreemptionPossibility,
+			Reasons:               mergeUnique(nil, at.Reasons),
 		}
-		sort.Strings(cp.Reasons)
+		slices.Sort(cp.Reasons)
 		dst[at.Flavor] = cp
 	}
 }
@@ -186,7 +196,11 @@ func FormatFlavorAssignmentAttemptsForEvents(a Assignment) string {
 			}
 			attemptsBuilder.WriteString(string(att.Flavor))
 			attemptsBuilder.WriteString("(")
-			attemptsBuilder.WriteString(att.Mode.String())
+			if att.PreemptionPossibility == nil {
+				attemptsBuilder.WriteString(att.Mode.String())
+			} else {
+				attemptsBuilder.WriteString(fmt.Sprintf("preemptionMode=%s", att.PreemptionPossibility))
+			}
 			if att.Borrow > 0 {
 				attemptsBuilder.WriteString(fmt.Sprintf(";borrow=%d", att.Borrow))
 			}

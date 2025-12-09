@@ -32,15 +32,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
 type ResourceFlavorWebhook struct{}
 
-func setupWebhookForResourceFlavor(mgr ctrl.Manager) error {
+func setupWebhookForResourceFlavor(mgr ctrl.Manager, roleTracker *roletracker.RoleTracker) error {
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&kueue.ResourceFlavor{}).
 		WithDefaulter(&ResourceFlavorWebhook{}).
 		WithValidator(&ResourceFlavorWebhook{}).
+		WithLogConstructor(roletracker.WebhookLogConstructor(roleTracker)).
 		Complete()
 }
 

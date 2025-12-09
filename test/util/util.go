@@ -120,6 +120,9 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 	if ns == nil {
 		return nil
 	}
+	if err := DeleteAllAppWrappersInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
 	if err := DeleteAllJobSetsInNamespace(ctx, c, ns); err != nil {
 		return err
 	}
@@ -1179,9 +1182,9 @@ func KExecute(ctx context.Context, cfg *rest.Config, client *rest.RESTClient, ns
 	return out.Bytes(), outErr.Bytes(), nil
 }
 
-// GetProjectBaseDir retrieves the project base directory either from an environment variable or by searching for a Makefile.
+// getProjectBaseDir retrieves the project base directory either from an environment variable or by searching for a Makefile.
 // The fallback to the search is useful for running in IDEs like vs-code which don't set the PROJECT_DIR env. variable by default.
-func GetProjectBaseDir() string {
+func getProjectBaseDir() string {
 	projectBasePath, found := os.LookupEnv("PROJECT_DIR")
 	if found {
 		return filepath.Dir(projectBasePath)
@@ -1189,8 +1192,7 @@ func GetProjectBaseDir() string {
 
 	projectBaseDir, err := findMakefileDir()
 	if err != nil {
-		klog.Error(err)
-		return ""
+		ginkgo.Fail(fmt.Sprintf("Failed to find project base directory: %v", err))
 	}
 	return projectBaseDir
 }
@@ -1254,6 +1256,14 @@ func CreateLocalQueuesAndWaitForActive(ctx context.Context, c client.Client, lqs
 		MustCreate(ctx, c, lq)
 	}
 	ExpectLocalQueuesToBeActive(ctx, c, lqs...)
+}
+
+func CreateAdmissionChecksAndWaitForActive(ctx context.Context, c client.Client, acs ...*kueue.AdmissionCheck) {
+	ginkgo.GinkgoHelper()
+	for _, ac := range acs {
+		MustCreate(ctx, c, ac)
+	}
+	ExpectAdmissionChecksToBeActive(ctx, c, acs...)
 }
 
 func MustHaveOwnerReference(g gomega.Gomega, ownerRefs []metav1.OwnerReference, obj client.Object, scheme *runtime.Scheme) {
@@ -1384,4 +1394,13 @@ func ExpectJobToBeCompleted(ctx context.Context, c client.Client, job *batchv1.J
 			},
 			cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime", "Reason", "Message"))))
 	}, LongTimeout, Interval).Should(gomega.Succeed())
+}
+
+func UpdateReclaimablePods(ctx context.Context, c client.Client, wl *kueue.Workload, reclaimablePods []kueue.ReclaimablePod) {
+	ginkgo.GinkgoHelper()
+	createdWl := &kueue.Workload{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(wl), createdWl)).To(gomega.Succeed())
+		g.Expect(workload.UpdateReclaimablePods(ctx, c, createdWl, reclaimablePods)).To(gomega.Succeed())
+	}, Timeout, Interval).Should(gomega.Succeed())
 }

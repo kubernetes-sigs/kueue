@@ -26,8 +26,11 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
@@ -47,7 +50,16 @@ import (
 )
 
 var (
-	errTest = errors.New("test error")
+	errTest         = errors.New("test error")
+	errTestNotFound = apierrors.NewNotFound(
+		schema.GroupResource{Group: "kueue.x-k8s.io", Resource: "workloads"},
+		"test",
+	)
+	errTestConflict = apierrors.NewConflict(
+		schema.GroupResource{Group: "kueue.x-k8s.io", Resource: "workloads"},
+		"test",
+		errors.New("object was modified"),
+	)
 )
 
 func TestNewInfo(t *testing.T) {
@@ -523,7 +535,7 @@ func TestSetConditionAndUpdate(t *testing.T) {
 	}
 	for name, tc := range cases {
 		for _, useMergePatch := range []bool{false, true} {
-			t.Run(name, func(t *testing.T) {
+			t.Run(fmt.Sprintf("%s with WorkloadRequestUseMergePatch enabled: %t", name, useMergePatch), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
 
 				ctx, _ := utiltesting.ContextWithLog(t)
@@ -559,6 +571,77 @@ func TestSetConditionAndUpdate(t *testing.T) {
 					updatedWl.Status,
 					cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 				); diff != "" {
+					t.Errorf("Unexpected status after updating (-want,+got):\n%s", diff)
+				}
+			})
+		}
+	}
+}
+
+func TestUpdateReclaimablePods(t *testing.T) {
+	cases := map[string]struct {
+		oldStatus       kueue.WorkloadStatus
+		reclaimablePods []kueue.ReclaimablePod
+		err             error
+		wantStatus      kueue.WorkloadStatus
+		wantErr         error
+	}{
+		"set reclaimable pods": {
+			reclaimablePods: []kueue.ReclaimablePod{{Name: "ps1", Count: 1}},
+			wantStatus: kueue.WorkloadStatus{
+				ReclaimablePods: []kueue.ReclaimablePod{{Name: "ps1", Count: 1}},
+			},
+		},
+		"set reclaimable pods with error": {
+			err:             errTest,
+			reclaimablePods: []kueue.ReclaimablePod{{Name: "ps1", Count: 1}},
+			wantStatus:      kueue.WorkloadStatus{},
+			wantErr:         errTest,
+		},
+		"update reclaimable pods": {
+			oldStatus: kueue.WorkloadStatus{
+				ReclaimablePods: []kueue.ReclaimablePod{{Name: "ps1", Count: 1}},
+			},
+			reclaimablePods: []kueue.ReclaimablePod{{Name: "ps1", Count: 2}},
+			wantStatus: kueue.WorkloadStatus{
+				ReclaimablePods: []kueue.ReclaimablePod{{Name: "ps1", Count: 2}},
+			},
+		},
+	}
+	for name, tc := range cases {
+		for _, useMergePatch := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s with WorkloadRequestUseMergePatch enabled %t", name, useMergePatch), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
+
+				ctx, _ := utiltesting.ContextWithLog(t)
+
+				workload := utiltestingapi.MakeWorkload("foo", metav1.NamespaceDefault).Obj()
+				workload.Status = tc.oldStatus
+
+				cl := utiltesting.NewClientBuilder().
+					WithObjects(workload).
+					WithStatusSubresource(&kueue.Workload{}).
+					WithInterceptorFuncs(interceptor.Funcs{
+						SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+							if tc.err != nil {
+								return tc.err
+							}
+							return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+						},
+					}).
+					Build()
+
+				err := UpdateReclaimablePods(ctx, cl, workload, tc.reclaimablePods)
+				if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+					t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+				}
+
+				var updatedWl kueue.Workload
+				if err := cl.Get(ctx, client.ObjectKeyFromObject(workload), &updatedWl); err != nil {
+					t.Fatalf("Failed obtaining updated object: %v", err)
+				}
+
+				if diff := cmp.Diff(tc.wantStatus, updatedWl.Status); diff != "" {
 					t.Errorf("Unexpected status after updating (-want,+got):\n%s", diff)
 				}
 			})
@@ -1649,58 +1732,401 @@ func TestSetQuotaReservation(t *testing.T) {
 	}
 }
 
-func TestPatchAdmissionStatus(t *testing.T) {
-	now := time.Now()
-	fakeClock := testingclock.NewFakeClock(now)
-	type patchCall struct {
-		updated bool
-		err     error
+func TestPatchStatus(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+
+	baseWl := utiltestingapi.MakeWorkload("test", metav1.NamespaceDefault).ResourceVersion("2")
+
+	baseCond := metav1.Condition{
+		Type:               "TestCondition",
+		Status:             metav1.ConditionTrue,
+		ObservedGeneration: 1,
+		LastTransitionTime: metav1.NewTime(now),
+		Reason:             "By test",
+		Message:            "By test",
 	}
 
-	errUpdate := errors.New("update error")
+	type args struct {
+		wl     *kueue.Workload
+		update func(wl *kueue.Workload) (bool, error)
+		opts   []PatchStatusOption
+	}
+
+	type want struct {
+		wl  *kueue.Workload
+		err error
+	}
 
 	tests := map[string]struct {
-		patchCall patchCall
-		wantErr   error
+		skipApplyPatch bool
+		skipMergePatch bool
+		conflict       bool
+		args           args
+		want           want
 	}{
 		"update returns true": {
-			patchCall: patchCall{updated: true, err: nil},
-			wantErr:   nil,
+			args: args{
+				wl: baseWl.DeepCopy(),
+				update: func(wl *kueue.Workload) (bool, error) {
+					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
+					return true, nil
+				},
+			},
+			want: want{
+				wl: baseWl.Clone().ResourceVersion("3").Condition(baseCond).Obj(),
+			},
+		},
+		"update returns true with conflict error": {
+			conflict: true,
+			args: args{
+				wl: baseWl.DeepCopy(),
+				update: func(wl *kueue.Workload) (bool, error) {
+					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
+					return true, nil
+				},
+			},
+			want: want{
+				wl:  baseWl.Clone().ResourceVersion("3").Obj(),
+				err: errTestConflict,
+			},
+		},
+		"update returns true with conflict error and WithLooseOnApply options": {
+			skipMergePatch: true,
+			conflict:       true,
+			args: args{
+				wl: baseWl.DeepCopy(),
+				update: func(wl *kueue.Workload) (bool, error) {
+					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
+					return true, nil
+				},
+				opts: []PatchStatusOption{WithLooseOnApply()},
+			},
+			want: want{
+				wl: baseWl.Clone().ResourceVersion("4").Condition(baseCond).Obj(),
+			},
+		},
+		"update returns true with conflict error and WithRetryOnConflictForPatch options": {
+			skipApplyPatch: true,
+			conflict:       true,
+			args: args{
+				wl: baseWl.DeepCopy(),
+				update: func(wl *kueue.Workload) (bool, error) {
+					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
+					return true, nil
+				},
+				opts: []PatchStatusOption{WithRetryOnConflictForPatch()},
+			},
+			want: want{
+				wl: baseWl.Clone().ResourceVersion("4").Condition(baseCond).Obj(),
+			},
 		},
 		"update returns false": {
-			patchCall: patchCall{updated: false, err: nil},
-			wantErr:   nil,
+			args: args{
+				wl: baseWl.DeepCopy(),
+				update: func(wl *kueue.Workload) (bool, error) {
+					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
+					return false, nil
+				},
+			},
+			want: want{
+				wl: baseWl.DeepCopy(),
+			},
 		},
-		"update returns error": {
-			patchCall: patchCall{updated: false, err: errUpdate},
-			wantErr:   errUpdate,
+		"update returns true with not found error": {
+			conflict: true,
+			args: args{
+				wl: baseWl.DeepCopy(),
+				update: func(wl *kueue.Workload) (bool, error) {
+					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
+					return false, errTestNotFound
+				},
+			},
+			want: want{
+				wl:  baseWl.DeepCopy(),
+				err: errTestNotFound,
+			},
+		},
+		"update returns false with not found error": {
+			conflict: true,
+			args: args{
+				wl: baseWl.DeepCopy(),
+				update: func(wl *kueue.Workload) (bool, error) {
+					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
+					return false, errTestNotFound
+				},
+			},
+			want: want{
+				wl:  baseWl.DeepCopy(),
+				err: errTestNotFound,
+			},
 		},
 	}
 	for name, tc := range tests {
-		for _, featureEnabled := range []bool{true, false} {
-			t.Run(name, func(t *testing.T) {
-				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, featureEnabled)
-				ctx, _ := utiltesting.ContextWithLog(t)
-				wl := utiltestingapi.MakeWorkload("foo", "default").Obj()
-				var cl client.Client
-				if !featureEnabled {
-					cl = utiltesting.NewFakeClientSSAAsSM(wl)
-				} else {
-					cl = utiltesting.NewFakeClient(wl)
+		if tc.skipMergePatch && tc.skipApplyPatch {
+			t.Fatalf("skipMergePatch and skipApplyPatch both enabled")
+		}
+
+		for _, useMergePatch := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s with WorkloadRequestUseMergePatch enabled: %t", name, useMergePatch), func(t *testing.T) {
+				switch {
+				case tc.skipMergePatch && useMergePatch:
+					t.Skip("Skipping test due to skipMergePatch being enabled")
+				case tc.skipApplyPatch && !useMergePatch:
+					t.Skip("Skipping test due to skipApplyPatch being enabled")
 				}
-				called := false
-				gotErr := PatchAdmissionStatus(ctx, cl, wl, fakeClock, func(wl *kueue.Workload) (bool, error) {
-					called = true
-					return tc.patchCall.updated, tc.patchCall.err
-				})
-				if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
+
+				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
+				ctx, _ := utiltesting.ContextWithLog(t)
+				wl := tc.args.wl.DeepCopy()
+				patched := false
+
+				cl := utiltesting.NewClientBuilder().
+					WithObjects(wl).
+					WithStatusSubresource(&kueue.Workload{}).
+					WithInterceptorFuncs(interceptor.Funcs{
+						SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+							if tc.conflict {
+								if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" && !patched {
+									patched = true
+									// Simulate concurrent modification by another controller
+									wlCopy := wl.DeepCopy()
+									if wlCopy.Labels == nil {
+										wlCopy.Labels = make(map[string]string, 1)
+									}
+									wlCopy.Labels["test.kueue.x-k8s.io/timestamp"] = time.Now().String()
+									if err := c.Update(ctx, wlCopy); err != nil {
+										return err
+									}
+								}
+							}
+							return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+						},
+					}).
+					Build()
+
+				gotErr := PatchStatus(ctx, cl, wl, "test-owner", tc.args.update, tc.args.opts...)
+				if diff := cmp.Diff(tc.want.err, gotErr); diff != "" {
 					t.Errorf("Unexpected error (-want/+got)\n%s", diff)
 				}
-				if featureEnabled && !called {
-					t.Errorf("expected update func to be called when feature enabled")
+
+				updatedWl := &kueue.Workload{}
+				if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), updatedWl); err != nil {
+					t.Fatalf("Failed obtaining updated object: %v", err)
 				}
-				if !featureEnabled && tc.patchCall.updated && !called {
-					t.Errorf("expected update func to be called when feature disabled and update true")
+
+				if diff := cmp.Diff(tc.want.wl, updatedWl, cmpopts.EquateEmpty(), cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Labels")); diff != "" {
+					t.Errorf("Unexpected status after updating (-want,+got):\n%s", diff)
+				}
+			})
+		}
+	}
+}
+
+func TestPatchAdmissionStatus(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	fakeClock := testingclock.NewFakeClock(now)
+
+	baseWl := utiltestingapi.MakeWorkload("test", metav1.NamespaceDefault).ResourceVersion("2")
+
+	baseCond := metav1.Condition{
+		Type:               kueue.WorkloadQuotaReserved,
+		Status:             metav1.ConditionTrue,
+		ObservedGeneration: 1,
+		LastTransitionTime: metav1.NewTime(now),
+		Reason:             "By test",
+		Message:            "By test",
+	}
+
+	type args struct {
+		wl     *kueue.Workload
+		update func(wl *kueue.Workload) (bool, error)
+		opts   []PatchStatusOption
+	}
+
+	type want struct {
+		wl  *kueue.Workload
+		err error
+	}
+
+	tests := map[string]struct {
+		skipApplyPatch bool
+		skipMergePatch bool
+		conflict       bool
+		args           args
+		want           want
+	}{
+		"update returns true": {
+			args: args{
+				wl: baseWl.DeepCopy(),
+				update: func(wl *kueue.Workload) (bool, error) {
+					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
+					return true, nil
+				},
+			},
+			want: want{
+				wl: baseWl.Clone().ResourceVersion("3").Condition(baseCond).Obj(),
+			},
+		},
+		"update returns true with unmanaged condition": {
+			skipMergePatch: true,
+			args: args{
+				wl: baseWl.DeepCopy(),
+				update: func(wl *kueue.Workload) (bool, error) {
+					apimeta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{
+						Type:               "TestCondition",
+						Status:             metav1.ConditionTrue,
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             "By test",
+						Message:            "By test",
+					})
+					return true, nil
+				},
+			},
+			want: want{
+				wl: baseWl.Clone().ResourceVersion("3").Obj(),
+			},
+		},
+		"update returns true with conflict error": {
+			conflict: true,
+			args: args{
+				wl: baseWl.DeepCopy(),
+				update: func(wl *kueue.Workload) (bool, error) {
+					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
+					return true, nil
+				},
+			},
+			want: want{
+				wl:  baseWl.Clone().ResourceVersion("3").Obj(),
+				err: errTestConflict,
+			},
+		},
+		"update returns true with conflict error and WithLooseOnApply options": {
+			skipMergePatch: true,
+			conflict:       true,
+			args: args{
+				wl: baseWl.DeepCopy(),
+				update: func(wl *kueue.Workload) (bool, error) {
+					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
+					return true, nil
+				},
+				opts: []PatchStatusOption{WithLooseOnApply()},
+			},
+			want: want{
+				wl: baseWl.Clone().ResourceVersion("4").Condition(baseCond).Obj(),
+			},
+		},
+		"update returns true with conflict error and WithRetryOnConflictForPatch options": {
+			skipApplyPatch: true,
+			conflict:       true,
+			args: args{
+				wl: baseWl.DeepCopy(),
+				update: func(wl *kueue.Workload) (bool, error) {
+					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
+					return true, nil
+				},
+				opts: []PatchStatusOption{WithRetryOnConflictForPatch()},
+			},
+			want: want{
+				wl: baseWl.Clone().ResourceVersion("4").Condition(baseCond).Obj(),
+			},
+		},
+		"update returns false": {
+			args: args{
+				wl: baseWl.DeepCopy(),
+				update: func(wl *kueue.Workload) (bool, error) {
+					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
+					return false, nil
+				},
+			},
+			want: want{
+				wl: baseWl.DeepCopy(),
+			},
+		},
+		"update returns true with not found error": {
+			conflict: true,
+			args: args{
+				wl: baseWl.DeepCopy(),
+				update: func(wl *kueue.Workload) (bool, error) {
+					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
+					return false, errTestNotFound
+				},
+			},
+			want: want{
+				wl:  baseWl.DeepCopy(),
+				err: errTestNotFound,
+			},
+		},
+		"update returns false with not found error": {
+			conflict: true,
+			args: args{
+				wl: baseWl.DeepCopy(),
+				update: func(wl *kueue.Workload) (bool, error) {
+					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
+					return false, errTestNotFound
+				},
+			},
+			want: want{
+				wl:  baseWl.DeepCopy(),
+				err: errTestNotFound,
+			},
+		},
+	}
+	for name, tc := range tests {
+		if tc.skipMergePatch && tc.skipApplyPatch {
+			t.Fatalf("skipMergePatch and skipApplyPatch both enabled")
+		}
+
+		for _, useMergePatch := range []bool{false, true} {
+			switch {
+			case tc.skipMergePatch && useMergePatch:
+				t.Skip("Skipping test due to skipMergePatch being enabled")
+			case tc.skipApplyPatch && !useMergePatch:
+				t.Skip("Skipping test due to skipApplyPatch being enabled")
+			}
+
+			t.Run(fmt.Sprintf("%s with WorkloadRequestUseMergePatch enabled: %t", name, useMergePatch), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
+				ctx, _ := utiltesting.ContextWithLog(t)
+				wl := tc.args.wl.DeepCopy()
+				patched := false
+
+				cl := utiltesting.NewClientBuilder().
+					WithObjects(wl).
+					WithStatusSubresource(&kueue.Workload{}).
+					WithInterceptorFuncs(interceptor.Funcs{
+						SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+							if tc.conflict {
+								if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" && !patched {
+									patched = true
+									// Simulate concurrent modification by another controller
+									wlCopy := wl.DeepCopy()
+									if wlCopy.Labels == nil {
+										wlCopy.Labels = make(map[string]string, 1)
+									}
+									wlCopy.Labels["test.kueue.x-k8s.io/timestamp"] = time.Now().String()
+									if err := c.Update(ctx, wlCopy); err != nil {
+										return err
+									}
+								}
+							}
+							return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+						},
+					}).
+					Build()
+
+				gotErr := PatchAdmissionStatus(ctx, cl, wl, fakeClock, tc.args.update, tc.args.opts...)
+				if diff := cmp.Diff(tc.want.err, gotErr); diff != "" {
+					t.Errorf("Unexpected error (-want/+got)\n%s", diff)
+				}
+
+				updatedWl := &kueue.Workload{}
+				if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), updatedWl); err != nil {
+					t.Fatalf("Failed obtaining updated object: %v", err)
+				}
+
+				if diff := cmp.Diff(tc.want.wl, updatedWl, cmpopts.EquateEmpty(), cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Labels")); diff != "" {
+					t.Errorf("Unexpected status after updating (-want,+got):\n%s", diff)
 				}
 			})
 		}

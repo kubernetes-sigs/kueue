@@ -51,6 +51,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/resource"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -70,6 +71,7 @@ type ClusterQueueReconciler struct {
 	reportResourceMetrics bool
 	fairSharingEnabled    bool
 	clock                 clock.Clock
+	roleTracker           *roletracker.RoleTracker
 }
 
 var _ reconcile.Reconciler = (*ClusterQueueReconciler)(nil)
@@ -80,6 +82,7 @@ type ClusterQueueReconcilerOptions struct {
 	ReportResourceMetrics bool
 	FairSharingEnabled    bool
 	clock                 clock.Clock
+	roleTracker           *roletracker.RoleTracker
 }
 
 // ClusterQueueReconcilerOption configures the reconciler.
@@ -100,6 +103,12 @@ func WithReportResourceMetrics(report bool) ClusterQueueReconcilerOption {
 func WithFairSharing(enabled bool) ClusterQueueReconcilerOption {
 	return func(o *ClusterQueueReconcilerOptions) {
 		o.FairSharingEnabled = enabled
+	}
+}
+
+func WithClusterQueueRoleTracker(tracker *roletracker.RoleTracker) ClusterQueueReconcilerOption {
+	return func(o *ClusterQueueReconcilerOptions) {
+		o.roleTracker = tracker
 	}
 }
 
@@ -127,6 +136,7 @@ func NewClusterQueueReconciler(
 		reportResourceMetrics: options.ReportResourceMetrics,
 		fairSharingEnabled:    options.FairSharingEnabled,
 		clock:                 options.clock,
+		roleTracker:           options.roleTracker,
 	}
 }
 
@@ -524,6 +534,7 @@ func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.
 		WithOptions(controller.Options{
 			NeedLeaderElection:      ptr.To(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("ClusterQueue").GroupKind().String()],
+			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "clusterqueue-reconciler"),
 		}).
 		Watches(&corev1.Namespace{}, &nsHandler).
 		WatchesRawSource(source.Channel(r.nonCQObjectUpdateCh, &nonCQObjectHandler{})).

@@ -488,6 +488,7 @@ func TestSortedDomainsWithPreferredAffinity(t *testing.T) {
 		nil,
 		preferredAffinity,
 		"",
+		newExclusionStats(),
 	)
 
 	domains := []*domain{
@@ -565,6 +566,7 @@ func TestSortedDomainsWithLeaderWithPreferredAffinity(t *testing.T) {
 		nil,
 		preferredAffinity,
 		"",
+		newExclusionStats(),
 	)
 
 	domains := []*domain{
@@ -639,6 +641,7 @@ func TestAffinityScorePropagation(t *testing.T) {
 		nil,
 		preferredAffinity,
 		"",
+		newExclusionStats(),
 	)
 
 	rackPreferred := s.domainsPerLevel[0][tas.DomainID([]string{"rack-preferred"})]
@@ -706,6 +709,7 @@ func TestFindTopologyAssignmentsForFlavorWithAffinity(t *testing.T) {
 		nil,
 		preferredAffinity,
 		"",
+		newExclusionStats(),
 	)
 
 	podSet := kueue.PodSet{

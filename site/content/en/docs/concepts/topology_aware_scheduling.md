@@ -103,6 +103,9 @@ following annotations set at the PodTemplate level:
     topology considerations. In other words, this considers if all pods could be accommodated 
     within any nodes which helps to minimize fragmentation by filling the small gaps
     on nodes across the cluster.
+- `kueue.x-k8s.io/podset-group-name` - indicates the name of the group of PodSets. PodSet Group
+    is a unit of flavor assignment and topology domain fitting. This is useful when you want to
+    ensure that multiple PodSets are scheduled in the same topology domain.
 
 #### Example
 

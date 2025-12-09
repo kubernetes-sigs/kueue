@@ -28,7 +28,6 @@ import (
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -37,10 +36,6 @@ import (
 
 func NewFakeClient(objs ...client.Object) client.Client {
 	return NewClientBuilder().WithObjects(objs...).WithStatusSubresource(objs...).Build()
-}
-
-func NewFakeClientSSAAsSM(objs ...client.Object) client.Client {
-	return NewClientBuilder().WithObjects(objs...).WithStatusSubresource(objs...).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: TreatSSAAsStrategicMerge}).Build()
 }
 
 func NewClientBuilder(addToSchemes ...func(s *runtime.Scheme) error) *fake.ClientBuilder {

@@ -92,11 +92,7 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 			ControllerName(kueue.MultiKueueControllerName).
 			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", multiKueueConfig.Name).
 			Obj()
-		util.MustCreate(ctx, k8sManagerClient, multiKueueAc)
-
-		ginkgo.By("wait for check active", func() {
-			util.ExpectAdmissionChecksToBeActive(ctx, k8sManagerClient, multiKueueAc)
-		})
+		util.CreateAdmissionChecksAndWaitForActive(ctx, k8sManagerClient, multiKueueAc)
 
 		managerTopology = utiltestingapi.MakeTopology("default").Levels(corev1.LabelHostname).Obj()
 		util.MustCreate(ctx, k8sManagerClient, managerTopology)

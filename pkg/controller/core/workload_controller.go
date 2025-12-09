@@ -61,6 +61,7 @@ import (
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	qutil "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/resource"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -115,6 +116,13 @@ func WithAdmissionFairSharing(value *config.AdmissionFairSharing) Option {
 	}
 }
 
+// WithWorkloadRoleTracker sets the role tracker for HA setups.
+func WithWorkloadRoleTracker(value *roletracker.RoleTracker) Option {
+	return func(r *WorkloadReconciler) {
+		r.roleTracker = value
+	}
+}
+
 type WorkloadUpdateWatcher interface {
 	NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload)
 }
@@ -132,6 +140,7 @@ type WorkloadReconciler struct {
 	workloadRetention   *workloadRetentionConfig
 	draReconcileChannel chan event.TypedGenericEvent[*kueue.Workload]
 	admissionFSConfig   *config.AdmissionFairSharing
+	roleTracker         *roletracker.RoleTracker
 }
 
 var _ reconcile.Reconciler = (*WorkloadReconciler)(nil)
@@ -221,11 +230,15 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		workload.AdjustResources(ctx, r.client, &wl)
 		if workload.HasResourceClaim(&wl) {
 			log.V(3).Info("Workload is inadmissible because it uses resource claims which is not supported")
-			if workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, "DynamicResourceAllocation feature does not support use of resource claims", r.clock.Now()) {
-				workload.SetRequeuedCondition(&wl, kueue.WorkloadInadmissible, "DRA resource claims not supported", false)
-				if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock); err != nil {
-					return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA resource claims error: %w", err)
+			err := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+				updated := workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadInadmissible, "DynamicResourceAllocation feature does not support use of resource claims", r.clock.Now())
+				if updated && workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible, "DRA resource claims not supported", false) {
+					updated = true
 				}
+				return updated, nil
+			})
+			if err != nil {
+				return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA resource claims error: %w", err)
 			}
 			return ctrl.Result{}, nil
 		}
@@ -235,11 +248,15 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if len(fieldErrs) > 0 {
 			err := fieldErrs.ToAggregate()
 			log.Error(err, "Failed to process DRA resources for workload")
-			if workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, err.Error(), r.clock.Now()) {
-				workload.SetRequeuedCondition(&wl, kueue.WorkloadInadmissible, err.Error(), false)
-				if updateErr := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock); updateErr != nil {
-					return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA error: %w", updateErr)
+			updateErr := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+				updated := workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadInadmissible, err.Error(), r.clock.Now())
+				if updated && workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible, err.Error(), false) {
+					updated = true
 				}
+				return updated, nil
+			})
+			if updateErr != nil {
+				return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA error: %w", updateErr)
 			}
 			return ctrl.Result{}, err
 		}
@@ -267,12 +284,12 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 
 		if workload.IsActive(&wl) && !workload.HasQuotaReservation(&wl) {
-			if err := r.queues.AddOrUpdateWorkload(log, &wl, queueOptions...); err != nil {
+			if err := r.queues.AddOrUpdateWorkload(log, wl.DeepCopy(), queueOptions...); err != nil {
 				log.V(2).Info("Failed to add DRA workload to queue", "error", err)
 				return ctrl.Result{}, err
 			}
 		} else {
-			if !r.cache.AddOrUpdateWorkload(log, &wl) {
+			if !r.cache.AddOrUpdateWorkload(log, wl.DeepCopy()) {
 				log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 			}
 		}
@@ -1031,6 +1048,7 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 		WithOptions(controller.Options{
 			NeedLeaderElection:      ptr.To(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("Workload").GroupKind().String()],
+			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "workload-reconciler"),
 		}).
 		Watches(&corev1.LimitRange{}, ruh).
 		Watches(&nodev1.RuntimeClass{}, ruh).

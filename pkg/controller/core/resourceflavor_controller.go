@@ -40,6 +40,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
 type ResourceFlavorUpdateWatcher interface {
@@ -48,12 +49,13 @@ type ResourceFlavorUpdateWatcher interface {
 
 // ResourceFlavorReconciler reconciles a ResourceFlavor object
 type ResourceFlavorReconciler struct {
-	log        logr.Logger
-	qManager   *qcache.Manager
-	cache      *schdcache.Cache
-	client     client.Client
-	cqUpdateCh chan event.GenericEvent
-	watchers   []ResourceFlavorUpdateWatcher
+	log         logr.Logger
+	qManager    *qcache.Manager
+	cache       *schdcache.Cache
+	client      client.Client
+	cqUpdateCh  chan event.GenericEvent
+	watchers    []ResourceFlavorUpdateWatcher
+	roleTracker *roletracker.RoleTracker
 }
 
 var _ reconcile.Reconciler = (*ResourceFlavorReconciler)(nil)
@@ -63,13 +65,15 @@ func NewResourceFlavorReconciler(
 	client client.Client,
 	qMgr *qcache.Manager,
 	cache *schdcache.Cache,
+	roleTracker *roletracker.RoleTracker,
 ) *ResourceFlavorReconciler {
 	return &ResourceFlavorReconciler{
-		log:        ctrl.Log.WithName("resourceflavor-reconciler"),
-		cache:      cache,
-		client:     client,
-		qManager:   qMgr,
-		cqUpdateCh: make(chan event.GenericEvent, updateChBuffer),
+		log:         ctrl.Log.WithName("resourceflavor-reconciler"),
+		cache:       cache,
+		client:      client,
+		qManager:    qMgr,
+		cqUpdateCh:  make(chan event.GenericEvent, updateChBuffer),
+		roleTracker: roleTracker,
 	}
 }
 
@@ -257,6 +261,7 @@ func (r *ResourceFlavorReconciler) SetupWithManager(mgr ctrl.Manager, cfg *confi
 		WithOptions(controller.Options{
 			NeedLeaderElection:      ptr.To(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("ResourceFlavor").GroupKind().String()],
+			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "resourceflavor-reconciler"),
 		}).
 		WatchesRawSource(source.Channel(r.cqUpdateCh, &h)).
 		Complete(WithLeadingManager(mgr, r, &kueue.ResourceFlavor{}, cfg))
