@@ -778,7 +778,7 @@ func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj 
 			)
 			return topLevelJob, nil
 		}
-		parentObj := getEmptyOwnerObject(owner)
+		parentObj := GetEmptyOwnerObject(owner)
 		managed := parentObj != nil
 		if parentObj == nil {
 			parentObj = &metav1.PartialObjectMetadata{
