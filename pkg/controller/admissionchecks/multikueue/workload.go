@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -51,6 +52,10 @@ import (
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
+)
+
+const (
+	WorkloadEvictedOnManagerCluster = "EvictedOnManagerCluster"
 )
 
 var (
@@ -306,7 +311,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 	acs := admissioncheck.FindAdmissionCheck(group.local.Status.AdmissionChecks, group.acName)
 
-	// 0. Ignore Elastic workloads Finished when:
+	// 1. Ignore Elastic workloads Finished when:
 	// - Workload is "Finished" as a result workload slice replacement, OR
 	// - Workload doesn't have quota reservation as a result of scale-up, i.e., scaling-up in progress.
 	if group.IsElasticWorkload() &&
@@ -315,7 +320,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		return reconcile.Result{}, nil
 	}
 
-	// 1. delete all remote workloads when local workload is finished or has no quota reservation.
+	// 2. Delete all remote workloads when the local workload is finished or has no quota reservation.
 	if group.IsFinished() || !workload.HasQuotaReservation(group.local) {
 		var errs []error
 		for rem := range group.remotes {
@@ -327,9 +332,10 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		return reconcile.Result{}, errors.Join(errs...)
 	}
 
+	// 3. Finish the local workload when the remote workload is finished.
 	if remoteFinishedCond, remote := group.bestMatchByCondition(kueue.WorkloadFinished); remoteFinishedCond != nil {
-		// NOTE: we can have a race condition setting the wl status here and it being updated by the job controller
-		// it should not be problematic but the "From remote xxxx:" could be lost ....
+		// NOTE: we can have a race condition setting the wl status here, and it being updated by the job controller,
+		// it should not be problematic, but the "From remote xxxx:" could be lost ....
 
 		if group.jobAdapter != nil {
 			if err := group.jobAdapter.SyncJob(ctx, w.client, group.remoteClients[remote].client, group.controllerKey, group.local.Name, w.origin); err != nil {
@@ -345,7 +351,26 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		return reconcile.Result{}, workload.Finish(ctx, w.client, group.local, remoteFinishedCond.Reason, remoteFinishedCond.Message, w.clock)
 	}
 
-	// 2. delete all workloads that are out of sync (other than scaled-down elastic workloads)
+	// 4. Handle workload evicted on manager cluster
+	remoteEvictCond, evictedRemote := group.bestMatchByCondition(kueue.WorkloadEvicted)
+	if remoteEvictCond != nil && strings.Contains(remoteEvictCond.Reason, WorkloadEvictedOnManagerCluster) {
+		remoteCl := group.remoteClients[evictedRemote].client
+		remoteWl := group.remotes[evictedRemote]
+
+		log = log.WithValues("remote", evictedRemote, "remoteWorkload", klog.KObj(remoteWl))
+		ctx = ctrl.LoggerInto(ctx, log)
+
+		if err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin); err != nil {
+			log.Error(err, "Syncing remote controller object")
+			// We'll retry this in the next reconciling.
+			return reconcile.Result{}, err
+		}
+
+		// Wait for QuotaReserved=false in the local job.
+		return reconcile.Result{}, nil
+	}
+
+	// 5. Delete all workloads that are out of sync (other than scaled-down elastic workloads)
 	// or are not in the chosen worker.
 	for rem, remWl := range group.remotes {
 		if remWl != nil && !equality.Semantic.DeepEqual(group.local.Spec, remWl.Spec) {
@@ -366,7 +391,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		}
 	}
 
-	// 3. get the first reserving
+	// 6. Get the first reserving
 	if remoteQuotaReservedCond, reservingRemote := group.bestMatchByCondition(kueue.WorkloadQuotaReserved); remoteQuotaReservedCond != nil {
 		// remove the non-reserving worker workloads
 		for rem, remWl := range group.remotes {
@@ -379,10 +404,30 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			}
 		}
 
-		acs := admissioncheck.FindAdmissionCheck(group.local.Status.AdmissionChecks, group.acName)
-		if err := group.jobAdapter.SyncJob(ctx, w.client, group.remoteClients[reservingRemote].client, group.controllerKey, group.local.Name, w.origin); err != nil {
-			log.V(2).Error(err, "creating remote controller object", "remote", reservingRemote)
-			// We'll retry this in the next reconcile.
+		remoteCl := group.remoteClients[reservingRemote].client
+		remoteWl := group.remotes[reservingRemote]
+
+		log = log.WithValues("remote", reservingRemote, "remoteWorkload", klog.KObj(remoteWl))
+		ctrl.LoggerInto(ctx, log)
+
+		evictedCond := apimeta.FindStatusCondition(group.local.Status.Conditions, kueue.WorkloadEvicted)
+		if workload.HasQuotaReservation(group.local) && evictedCond != nil && evictedCond.Status == metav1.ConditionTrue {
+			err := workload.PatchAdmissionStatus(ctx, remoteCl, remoteWl, w.clock, func(remoteWl *kueue.Workload) (bool, error) {
+				return workload.SetDeactivationTarget(
+					remoteWl,
+					WorkloadEvictedOnManagerCluster,
+					api.TruncateConditionMessage(fmt.Sprintf("Evicted on manager: %s", evictedCond.Message)),
+				), nil
+			})
+			if err != nil {
+				log.Error(err, "Failed to patch workload status")
+			}
+			return reconcile.Result{}, err
+		}
+
+		if err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin); err != nil {
+			log.Error(err, "Syncing remote controller object")
+			// We'll retry this in the next reconciling.
 			return reconcile.Result{}, err
 		}
 
