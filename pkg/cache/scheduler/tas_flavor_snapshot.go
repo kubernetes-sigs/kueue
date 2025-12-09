@@ -1264,13 +1264,6 @@ func (s *TASFlavorSnapshot) lowerLevelDomains(domains []*domain) []*domain {
 	return result
 }
 
-// This function sorts domains based on a specified algorithm: BestFit or LeastFreeCapacity.
-//
-// The sorting criteria are:
-// - **BestFit**: `leaderState` (descending), `sliceStateWithLeader` (descending), `stateWithLeader` (descending), `levelValues` (ascending)
-// - **LeastFreeCapacity**: `leaderState` (descending), `sliceStateWithLeader` (ascending), `stateWithLeader` (ascending), `levelValues` (ascending)
-//
-// `leaderState` is always sorted descending.
 func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstrained bool) []*domain {
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 
