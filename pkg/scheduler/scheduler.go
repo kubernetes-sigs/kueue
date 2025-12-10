@@ -52,6 +52,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	"sigs.k8s.io/kueue/pkg/util/wait"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -79,6 +80,7 @@ type Scheduler struct {
 	fairSharing             *config.FairSharing
 	admissionFairSharing    *config.AdmissionFairSharing
 	clock                   clock.Clock
+	roleTracker             *roletracker.RoleTracker
 
 	// schedulingCycle identifies the number of scheduling
 	// attempts since the last restart.
@@ -90,6 +92,7 @@ type options struct {
 	fairSharing                 *config.FairSharing
 	admissionFairSharing        *config.AdmissionFairSharing
 	clock                       clock.Clock
+	roleTracker                 *roletracker.RoleTracker
 }
 
 // Option configures the reconciler.
@@ -128,6 +131,13 @@ func WithClock(_ testing.TB, c clock.Clock) Option {
 	}
 }
 
+// WithRoleTracker sets the role tracker for HA logging.
+func WithRoleTracker(tracker *roletracker.RoleTracker) Option {
+	return func(o *options) {
+		o.roleTracker = tracker
+	}
+}
+
 func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recorder record.EventRecorder, opts ...Option) *Scheduler {
 	options := defaultOptions
 	for _, opt := range opts {
@@ -147,13 +157,14 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 		workloadOrdering:        wo,
 		clock:                   options.clock,
 		admissionFairSharing:    options.admissionFairSharing,
+		roleTracker:             options.roleTracker,
 	}
 	return s
 }
 
 // Start implements the Runnable interface to run scheduler as a controller.
 func (s *Scheduler) Start(ctx context.Context) error {
-	log := ctrl.LoggerFrom(ctx).WithName("scheduler")
+	log := roletracker.WithReplicaRole(ctrl.LoggerFrom(ctx).WithName("scheduler"), s.roleTracker)
 	ctx = ctrl.LoggerInto(ctx, log)
 	go wait.UntilWithBackoff(ctx, s.schedule)
 	return nil

@@ -62,7 +62,7 @@ var _ predicate.TypedPredicate[*kueue.Topology] = (*topologyReconciler)(nil)
 
 func newTopologyReconciler(c client.Client, queues *qcache.Manager, cache *schdcache.Cache, roleTracker *roletracker.RoleTracker) *topologyReconciler {
 	return &topologyReconciler{
-		log:              ctrl.Log.WithName(TASTopologyController),
+		log:              roletracker.WithReplicaRole(ctrl.Log.WithName(TASTopologyController), roleTracker),
 		client:           c,
 		queues:           queues,
 		cache:            cache,

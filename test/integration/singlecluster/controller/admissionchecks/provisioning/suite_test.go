@@ -134,7 +134,7 @@ func managerSetup(options ...managerSetupOption) framework.ManagerSetup {
 
 		reconciler, err := provisioning.NewController(
 			mgr.GetClient(),
-			mgr.GetEventRecorderFor("kueue-provisioning-request-controller"))
+			mgr.GetEventRecorderFor("kueue-provisioning-request-controller"), nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		err = reconciler.SetupWithManager(mgr)
