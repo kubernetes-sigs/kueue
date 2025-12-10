@@ -74,20 +74,19 @@ func isRaySubmitterJobWithAutoScaling(ctx context.Context, jobObj client.Object,
 
 // RaySubmitterJobCopyLabelAndAnnotationFromOwner checks whether the job is Ray submitter job, if it is, copy queue label
 // and workload slicing annotation from the owner RayJob to the submitter job.
-func copyRaySubmitterJobMetadata(ctx context.Context, jobObj client.Object, k8sClient client.Client) {
+func copyRaySubmitterJobMetadata(ctx context.Context, jobObj client.Object, k8sClient client.Client) error {
 	if jobframework.QueueNameForObject(jobObj) != "" {
-		return
+		return nil
 	}
 
 	// Copy label and annotation for Ray submitter job with autoscaling
 	// See https://github.com/kubernetes-sigs/kueue/pull/8082
 	isRaySubmitterJob, parentObj, err := isRaySubmitterJobWithAutoScaling(ctx, jobObj, k8sClient)
 	if err != nil {
-		// error already logged inside isRaySubmitterJobWithAutoScaling, do not log again
-		return
+		return err
 	}
 	if !isRaySubmitterJob {
-		return
+		return nil
 	}
 
 	queueName := parentObj.GetLabels()[constants.QueueLabel]
@@ -109,4 +108,5 @@ func copyRaySubmitterJobMetadata(ctx context.Context, jobObj client.Object, k8sC
 		jobAnnotations[workloadslicing.EnabledAnnotationKey] = workloadslicingAnnotationValue
 		jobObj.SetAnnotations(jobAnnotations)
 	}
+	return nil
 }
