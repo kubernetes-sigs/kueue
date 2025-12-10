@@ -18,7 +18,7 @@ Make sure the following conditions are met:
 - A Kubernetes cluster is running.
 - The kubectl command-line tool has communication with your cluster.
 - [Kueue is installed](/docs/installation).
-- The cluster has [quotas configured](/docs/tasks/administer_cluster_quotas).
+- The cluster has [quotas configured](/docs/tasks/manage/administer_cluster_quotas).
 
 ## 0. Identify the queues available in your namespace
 
@@ -81,4 +81,4 @@ job-sample-cronjob-28373363-e2aa0   user-queue   cluster-queue   68m
 job-sample-cronjob-28373364-b42ac   user-queue   cluster-queue   67m
 ```
 
-You can also [Monitoring Status of the Workload](/docs/tasks/run_jobs#3-optional-monitor-the-status-of-the-workload).
+You can also [Monitoring Status of the Workload](/docs/tasks/run/jobs#3-optional-monitor-the-status-of-the-workload).

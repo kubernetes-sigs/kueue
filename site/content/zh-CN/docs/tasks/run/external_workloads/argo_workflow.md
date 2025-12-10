@@ -14,7 +14,7 @@ description: >
 欲了解更多信息，请参见 [Kueue 概述](/zh-CN/docs/overview)。
 
 目前，Kueue 不直接支持 Argo Workflow 的 [Workflow](https://argo-workflows.readthedocs.io/en/latest/workflow-concepts/) 资源，
-但你可以利用 Kueue [管理普通 Pod](/zh-CN/docs/tasks/run_plain_pods) 的能力来集成它们。
+但你可以利用 Kueue [管理普通 Pod](/zh-CN/docs/tasks/run/plain_pods) 的能力来集成它们。
 
 ## 开始之前
 
