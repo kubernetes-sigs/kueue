@@ -39,6 +39,7 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -49,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -75,10 +77,11 @@ func newProvisioningConfigHelper(c client.Client) (*provisioningConfigHelper, er
 }
 
 type Controller struct {
-	client client.Client
-	record record.EventRecorder
-	helper *provisioningConfigHelper
-	clock  clock.Clock
+	client      client.Client
+	record      record.EventRecorder
+	helper      *provisioningConfigHelper
+	clock       clock.Clock
+	roleTracker *roletracker.RoleTracker
 }
 
 type workloadInfo struct {
@@ -96,16 +99,17 @@ var _ reconcile.Reconciler = (*Controller)(nil)
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=provisioningrequestconfigs,verbs=get;list;watch
 
-func NewController(client client.Client, record record.EventRecorder) (*Controller, error) {
+func NewController(client client.Client, record record.EventRecorder, roleTracker *roletracker.RoleTracker) (*Controller, error) {
 	helper, err := newProvisioningConfigHelper(client)
 	if err != nil {
 		return nil, err
 	}
 	return &Controller{
-		client: client,
-		record: record,
-		helper: helper,
-		clock:  realClock,
+		client:      client,
+		record:      record,
+		helper:      helper,
+		clock:       realClock,
+		roleTracker: roleTracker,
 	}, nil
 }
 
@@ -794,6 +798,9 @@ func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&autoscaling.ProvisioningRequest{}).
 		Watches(&kueue.AdmissionCheck{}, ach).
 		Watches(&kueue.ProvisioningRequestConfig{}, prch).
+		WithOptions(controller.Options{
+			LogConstructor: roletracker.NewLogConstructor(c.roleTracker, "provisioning-workload"),
+		}).
 		Complete(c)
 	if err != nil {
 		return err
@@ -811,6 +818,9 @@ func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 		Named("provisioning_admissioncheck").
 		For(&kueue.AdmissionCheck{}).
 		Watches(&kueue.ProvisioningRequestConfig{}, prcACh).
+		WithOptions(controller.Options{
+			LogConstructor: roletracker.NewLogConstructor(c.roleTracker, "provisioning-admissioncheck"),
+		}).
 		Complete(acReconciler)
 }
 

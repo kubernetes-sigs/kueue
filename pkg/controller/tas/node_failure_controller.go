@@ -152,7 +152,7 @@ func (r *nodeFailureReconciler) Delete(e event.TypedDeleteEvent[*corev1.Node]) b
 func newNodeFailureReconciler(client client.Client, recorder record.EventRecorder, roleTracker *roletracker.RoleTracker) *nodeFailureReconciler {
 	return &nodeFailureReconciler{
 		client:      client,
-		log:         ctrl.Log.WithName(TASNodeFailureController),
+		log:         roletracker.WithReplicaRole(ctrl.Log.WithName(TASNodeFailureController), roleTracker),
 		clock:       clock.RealClock{},
 		recorder:    recorder,
 		roleTracker: roleTracker,

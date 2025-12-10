@@ -120,6 +120,7 @@ func WithAdmissionFairSharing(value *config.AdmissionFairSharing) Option {
 func WithWorkloadRoleTracker(value *roletracker.RoleTracker) Option {
 	return func(r *WorkloadReconciler) {
 		r.roleTracker = value
+		r.log = roletracker.WithReplicaRole(r.log, value)
 	}
 }
 

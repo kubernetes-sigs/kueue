@@ -128,7 +128,7 @@ func NewClusterQueueReconciler(
 	}
 	return &ClusterQueueReconciler{
 		client:                client,
-		log:                   ctrl.Log.WithName("cluster-queue-reconciler"),
+		log:                   roletracker.WithReplicaRole(ctrl.Log.WithName("cluster-queue-reconciler"), options.roleTracker),
 		qManager:              qMgr,
 		cache:                 cache,
 		nonCQObjectUpdateCh:   make(chan event.TypedGenericEvent[iter.Seq[kueue.ClusterQueueReference]], updateChBuffer),

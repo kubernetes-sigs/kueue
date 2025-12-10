@@ -29,20 +29,23 @@ import (
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
 // ACReconciler implements the reconciler for all the admission checks controlled by multikueue.
 // Its main task being to maintain the active state of the admission checks based on the heath
 // of its referenced MultiKueueClusters.
 type ACReconciler struct {
-	client client.Client
-	helper *admissioncheck.MultiKueueStoreHelper
+	client      client.Client
+	helper      *admissioncheck.MultiKueueStoreHelper
+	roleTracker *roletracker.RoleTracker
 }
 
 var _ reconcile.Reconciler = (*ACReconciler)(nil)
@@ -131,10 +134,11 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueconfigs,verbs=get;list;watch
 
-func newACReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelper) *ACReconciler {
+func newACReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelper, roleTracker *roletracker.RoleTracker) *ACReconciler {
 	return &ACReconciler{
-		client: c,
-		helper: helper,
+		client:      c,
+		helper:      helper,
+		roleTracker: roleTracker,
 	}
 }
 
@@ -144,6 +148,9 @@ func (a *ACReconciler) setupWithManager(mgr ctrl.Manager) error {
 		For(&kueue.AdmissionCheck{}).
 		Watches(&kueue.MultiKueueConfig{}, &mkConfigHandler{client: a.client}).
 		Watches(&kueue.MultiKueueCluster{}, &mkClusterHandler{client: a.client}).
+		WithOptions(controller.Options{
+			LogConstructor: roletracker.NewLogConstructor(a.roleTracker, "multikueue-admissioncheck"),
+		}).
 		Complete(a)
 }
 

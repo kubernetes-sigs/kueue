@@ -40,6 +40,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -91,6 +92,12 @@ type JobReconciler struct {
 	labelKeysToCopy              []string
 	clock                        clock.Clock
 	workloadRetentionPolicy      WorkloadRetentionPolicy
+	roleTracker                  *roletracker.RoleTracker
+}
+
+// RoleTracker returns the role tracker for HA logging.
+func (r *JobReconciler) RoleTracker() *roletracker.RoleTracker {
+	return r.roleTracker
 }
 
 type Options struct {
@@ -252,6 +259,7 @@ func NewReconciler(
 		labelKeysToCopy:              options.LabelKeysToCopy,
 		clock:                        options.Clock,
 		workloadRetentionPolicy:      options.WorkloadRetentionPolicy,
+		roleTracker:                  options.RoleTracker,
 	}
 }
 
@@ -1524,8 +1532,12 @@ func (r *genericReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 }
 
 func (r *genericReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	controllerName := strings.ToLower(r.newJob().GVK().Kind)
 	b := ctrl.NewControllerManagedBy(mgr).
-		For(r.newJob().Object()).Owns(&kueue.Workload{})
+		For(r.newJob().Object()).Owns(&kueue.Workload{}).
+		WithOptions(controller.Options{
+			LogConstructor: roletracker.NewLogConstructor(r.jr.RoleTracker(), controllerName),
+		})
 	c := mgr.GetClient()
 	for _, f := range r.setup {
 		b = f(b, c)

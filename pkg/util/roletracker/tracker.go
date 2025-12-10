@@ -44,8 +44,8 @@ func NewRoleTracker(electedChan <-chan struct{}) *RoleTracker {
 	return rt
 }
 
-// NewFakeRoleTracker creates a RoleTracker with a fixed role for testing.
-func NewFakeRoleTracker(role string) *RoleTracker {
+// newFakeRoleTracker creates a RoleTracker with a fixed role for testing.
+func newFakeRoleTracker(role string) *RoleTracker {
 	rt := &RoleTracker{}
 	rt.role.Store(role)
 	return rt

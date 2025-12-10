@@ -123,7 +123,7 @@ func NewLocalQueueReconciler(
 		opt(&options)
 	}
 	return &LocalQueueReconciler{
-		log:               ctrl.Log.WithName("localqueue-reconciler"),
+		log:               roletracker.WithReplicaRole(ctrl.Log.WithName("localqueue-reconciler"), options.roleTracker),
 		queues:            queues,
 		cache:             cache,
 		client:            client,

@@ -55,6 +55,7 @@ import (
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
@@ -113,6 +114,8 @@ type Reconciler struct {
 	expectationsStore *expectations.Store
 }
 
+const controllerName = "v1_pod"
+
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	return r.ReconcileGenericJob(ctx, req, NewPod(WithExcessPodExpectations(r.expectationsStore), WithClock(realClock)))
 }
@@ -121,11 +124,12 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	concurrency := mgr.GetControllerOptions().GroupKindConcurrency[gvk.GroupKind().String()]
 	ctrl.Log.V(3).Info("Setting up Pod reconciler", "concurrency", max(1, concurrency))
 	return ctrl.NewControllerManagedBy(mgr).
-		Named("v1_pod").
+		Named(controllerName).
 		Watches(&corev1.Pod{}, &podEventHandler{cleanedUpPodsExpectations: r.expectationsStore}).
 		Watches(&kueue.Workload{}, &workloadHandler{}).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: concurrency,
+			LogConstructor:          roletracker.NewLogConstructor(r.RoleTracker(), controllerName),
 		}).
 		Complete(r)
 }

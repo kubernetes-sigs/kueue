@@ -68,7 +68,7 @@ func NewResourceFlavorReconciler(
 	roleTracker *roletracker.RoleTracker,
 ) *ResourceFlavorReconciler {
 	return &ResourceFlavorReconciler{
-		log:         ctrl.Log.WithName("resourceflavor-reconciler"),
+		log:         roletracker.WithReplicaRole(ctrl.Log.WithName("resourceflavor-reconciler"), roleTracker),
 		cache:       cache,
 		client:      client,
 		qManager:    qMgr,

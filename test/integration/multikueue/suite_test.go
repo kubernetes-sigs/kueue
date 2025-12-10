@@ -340,7 +340,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 
 	provReconciler, err := provisioning.NewController(
 		mgr.GetClient(),
-		mgr.GetEventRecorderFor("kueue-provisioning-request-controller"))
+		mgr.GetEventRecorderFor("kueue-provisioning-request-controller"), nil)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = provReconciler.SetupWithManager(mgr)
