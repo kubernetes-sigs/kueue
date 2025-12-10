@@ -104,8 +104,7 @@ func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	log.V(5).Info("Applying defaults")
 
 	jobframework.ApplyDefaultLocalQueue(job.Object(), w.queues.DefaultLocalQueueExist)
-	err := copyRaySubmitterJobMetadata(ctx, job.Object(), w.client)
-	if err != nil {
+	if err := copyRaySubmitterJobMetadata(ctx, job.Object(), w.client); err != nil {
 		return err
 	}
 
