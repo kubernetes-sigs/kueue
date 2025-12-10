@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
-func TestRaySubmitterJobCopyLabelAndAnnotationFromOwner(t *testing.T) {
+func TestCopyRaySubmitterJobMetadata(t *testing.T) {
 	testNamespace := utiltesting.MakeNamespaceWrapper("test-ns").Obj()
 
 	cases := map[string]struct {
