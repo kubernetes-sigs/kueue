@@ -17,7 +17,6 @@ limitations under the License.
 package e2e
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/onsi/ginkgo/v2"
@@ -53,6 +52,17 @@ var _ = ginkgo.Describe("Kuberay", func() {
 		cq *kueue.ClusterQueue
 		lq *kueue.LocalQueue
 	)
+
+	// countWorkerPods counts the number of pods that have "workers" in their name
+	countWorkerPods := func(podList *corev1.PodList) int {
+		workerPodCount := 0
+		for _, pod := range podList.Items {
+			if strings.Contains(pod.Name, "workers") {
+				workerPodCount++
+			}
+		}
+		return workerPodCount
+	}
 
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "kuberay-e2e-")
@@ -239,19 +249,6 @@ print([ray.get(my_task.remote(i, 1)) for i in range(40)])`,
 				workloadList := &kueue.WorkloadList{}
 				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				g.Expect(workloadList.Items).NotTo(gomega.BeEmpty(), "Expected at least one workload in namespace")
-
-				// Print workload names
-				fmt.Printf("Found %d workload(s) in namespace %s:\n", len(workloadList.Items), ns.Name)
-				for i, wl := range workloadList.Items {
-					status := "pending"
-					if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadAdmitted) {
-						status = "admitted"
-					} else if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
-						status = "finished"
-					}
-					fmt.Printf("  %d. %s (status: %s)\n", i+1, wl.Name, status)
-				}
-
 				hasAdmittedWorkload := false
 				for _, wl := range workloadList.Items {
 					if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadAdmitted) ||
@@ -280,12 +277,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(40)])`,
 				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				g.Expect(podList.Items).To(gomega.HaveLen(3), "Expected exactly 3 pods in rayjob namespace")
 				// Count pods that have "workers" in their name
-				workerPodCount := 0
-				for _, pod := range podList.Items {
-					if strings.Contains(pod.Name, "workers") {
-						workerPodCount++
-					}
-				}
+				workerPodCount := countWorkerPods(podList)
 				g.Expect(workerPodCount).To(gomega.Equal(1), "Expected exactly 1 pod with 'workers' in the name")
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -295,12 +287,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(40)])`,
 				podList := &corev1.PodList{}
 				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				// Count pods that have "workers" in their name
-				workerPodCount := 0
-				for _, pod := range podList.Items {
-					if strings.Contains(pod.Name, "workers") {
-						workerPodCount++
-					}
-				}
+				workerPodCount := countWorkerPods(podList)
 				g.Expect(workerPodCount).To(gomega.Equal(5), "Expected exactly 5 pods with 'workers' in the name")
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -310,12 +297,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(40)])`,
 				podList := &corev1.PodList{}
 				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				// Count pods that have "workers" in their name
-				workerPodCount := 0
-				for _, pod := range podList.Items {
-					if strings.Contains(pod.Name, "workers") {
-						workerPodCount++
-					}
-				}
+				workerPodCount := countWorkerPods(podList)
 				g.Expect(workerPodCount).To(gomega.Equal(1), "Expected exactly 5 pods with 'workers' in the name")
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
