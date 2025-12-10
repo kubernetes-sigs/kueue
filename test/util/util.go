@@ -70,6 +70,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -528,7 +529,7 @@ func ExpectAdmissionAttemptsMetric(pending, admitted int) {
 	vals := []int{pending, admitted}
 
 	for i, status := range attemptStatuses {
-		metric := metrics.AdmissionAttemptsTotal.WithLabelValues(string(status))
+		metric := metrics.AdmissionAttemptsTotal.WithLabelValues(string(status), roletracker.RoleStandalone)
 		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 			v, err := testutil.GetCounterMetricValue(metric)
 			g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -542,7 +543,7 @@ var pendingStatuses = []string{metrics.PendingStatusActive, metrics.PendingStatu
 func ExpectLQPendingWorkloadsMetric(lq *kueue.LocalQueue, active, inadmissible int) {
 	vals := []int{active, inadmissible}
 	for i, status := range pendingStatuses {
-		metric := metrics.LocalQueuePendingWorkloads.WithLabelValues(lq.Name, lq.Namespace, status)
+		metric := metrics.LocalQueuePendingWorkloads.WithLabelValues(lq.Name, lq.Namespace, status, roletracker.RoleStandalone)
 		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 			v, err := testutil.GetGaugeMetricValue(metric)
 			g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -552,7 +553,7 @@ func ExpectLQPendingWorkloadsMetric(lq *kueue.LocalQueue, active, inadmissible i
 }
 
 func ExpectLQReservingActiveWorkloadsMetric(lq *kueue.LocalQueue, value int) {
-	metric := metrics.LocalQueueReservingActiveWorkloads.WithLabelValues(lq.Name, lq.Namespace)
+	metric := metrics.LocalQueueReservingActiveWorkloads.WithLabelValues(lq.Name, lq.Namespace, roletracker.RoleStandalone)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		v, err := testutil.GetGaugeMetricValue(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -561,12 +562,12 @@ func ExpectLQReservingActiveWorkloadsMetric(lq *kueue.LocalQueue, value int) {
 }
 
 func ExpectLQAdmittedWorkloadsTotalMetric(lq *kueue.LocalQueue, priorityClass string, value int) {
-	metric := metrics.LocalQueueAdmittedWorkloadsTotal.WithLabelValues(lq.Name, lq.Namespace, priorityClass)
+	metric := metrics.LocalQueueAdmittedWorkloadsTotal.WithLabelValues(lq.Name, lq.Namespace, priorityClass, roletracker.RoleStandalone)
 	expectCounterMetric(metric, value)
 }
 
 func ExpectLQQuotaReservedWorkloadsTotalMetric(lq *kueue.LocalQueue, priorityClass string, value int) {
-	metric := metrics.LocalQueueQuotaReservedWorkloadsTotal.WithLabelValues(lq.Name, lq.Namespace, priorityClass)
+	metric := metrics.LocalQueueQuotaReservedWorkloadsTotal.WithLabelValues(lq.Name, lq.Namespace, priorityClass, roletracker.RoleStandalone)
 	expectCounterMetric(metric, value)
 }
 
@@ -577,7 +578,7 @@ func ExpectLQByStatusMetric(lq *kueue.LocalQueue, status metav1.ConditionStatus)
 			if metrics.ConditionStatusValues[i] == status {
 				wantV = 1
 			}
-			metric := metrics.LocalQueueByStatus.WithLabelValues(lq.Name, lq.Namespace, string(s))
+			metric := metrics.LocalQueueByStatus.WithLabelValues(lq.Name, lq.Namespace, string(s), roletracker.RoleStandalone)
 			v, err := testutil.GetGaugeMetricValue(metric)
 			g.Expect(err).ToNot(gomega.HaveOccurred())
 			g.Expect(v).Should(gomega.Equal(wantV), "local_queue_status with status=%s", s)
@@ -588,7 +589,7 @@ func ExpectLQByStatusMetric(lq *kueue.LocalQueue, status metav1.ConditionStatus)
 func ExpectPendingWorkloadsMetric(cq *kueue.ClusterQueue, active, inadmissible int) {
 	vals := []int{active, inadmissible}
 	for i, status := range pendingStatuses {
-		metric := metrics.PendingWorkloads.WithLabelValues(cq.Name, status)
+		metric := metrics.PendingWorkloads.WithLabelValues(cq.Name, status, roletracker.RoleStandalone)
 		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 			v, err := testutil.GetGaugeMetricValue(metric)
 			g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -598,7 +599,7 @@ func ExpectPendingWorkloadsMetric(cq *kueue.ClusterQueue, active, inadmissible i
 }
 
 func ExpectReservingActiveWorkloadsMetric(cq *kueue.ClusterQueue, value int) {
-	metric := metrics.ReservingActiveWorkloads.WithLabelValues(cq.Name)
+	metric := metrics.ReservingActiveWorkloads.WithLabelValues(cq.Name, roletracker.RoleStandalone)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		v, err := testutil.GetGaugeMetricValue(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -607,13 +608,13 @@ func ExpectReservingActiveWorkloadsMetric(cq *kueue.ClusterQueue, value int) {
 }
 
 func ExpectAdmittedWorkloadsTotalMetric(cq *kueue.ClusterQueue, priorityClass string, v int) {
-	metric := metrics.AdmittedWorkloadsTotal.WithLabelValues(cq.Name, priorityClass)
+	metric := metrics.AdmittedWorkloadsTotal.WithLabelValues(cq.Name, priorityClass, roletracker.RoleStandalone)
 	expectCounterMetric(metric, v)
 }
 
 func ExpectAdmissionWaitTimeMetric(cq *kueue.ClusterQueue, priorityClass string, count int) {
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		metric := metrics.AdmissionWaitTime.WithLabelValues(cq.Name, priorityClass)
+		metric := metrics.AdmissionWaitTime.WithLabelValues(cq.Name, priorityClass, roletracker.RoleStandalone)
 		v, err := testutil.GetHistogramMetricCount(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(int(v)).Should(gomega.Equal(count))
@@ -622,7 +623,7 @@ func ExpectAdmissionWaitTimeMetric(cq *kueue.ClusterQueue, priorityClass string,
 
 func ExpectAdmissionChecksWaitTimeMetric(cq *kueue.ClusterQueue, priorityClass string, count int) {
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		metric := metrics.AdmissionChecksWaitTime.WithLabelValues(cq.Name, priorityClass)
+		metric := metrics.AdmissionChecksWaitTime.WithLabelValues(cq.Name, priorityClass, roletracker.RoleStandalone)
 		v, err := testutil.GetHistogramMetricCount(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(int(v)).Should(gomega.Equal(count))
@@ -631,7 +632,7 @@ func ExpectAdmissionChecksWaitTimeMetric(cq *kueue.ClusterQueue, priorityClass s
 
 func ExpectLQAdmissionChecksWaitTimeMetric(lq *kueue.LocalQueue, priorityClass string, count int) {
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		metric := metrics.LocalQueueAdmissionChecksWaitTime.WithLabelValues(lq.Name, lq.Namespace, priorityClass)
+		metric := metrics.LocalQueueAdmissionChecksWaitTime.WithLabelValues(lq.Name, lq.Namespace, priorityClass, roletracker.RoleStandalone)
 		v, err := testutil.GetHistogramMetricCount(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(int(v)).Should(gomega.Equal(count))
@@ -640,7 +641,7 @@ func ExpectLQAdmissionChecksWaitTimeMetric(lq *kueue.LocalQueue, priorityClass s
 
 func ExpectReadyWaitTimeMetricAtLeast(cq *kueue.ClusterQueue, priorityClass string, minCount int) {
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		metric := metrics.QueuedUntilReadyWaitTime.WithLabelValues(cq.Name, priorityClass)
+		metric := metrics.QueuedUntilReadyWaitTime.WithLabelValues(cq.Name, priorityClass, roletracker.RoleStandalone)
 		v, err := testutil.GetHistogramMetricCount(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(int(v)).Should(gomega.BeNumerically(">=", minCount))
@@ -649,7 +650,7 @@ func ExpectReadyWaitTimeMetricAtLeast(cq *kueue.ClusterQueue, priorityClass stri
 
 func ExpectAdmittedUntilReadyWaitTimeMetricAtLeast(cq *kueue.ClusterQueue, priorityClass string, minCount int) {
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		metric := metrics.AdmittedUntilReadyWaitTime.WithLabelValues(cq.Name, priorityClass)
+		metric := metrics.AdmittedUntilReadyWaitTime.WithLabelValues(cq.Name, priorityClass, roletracker.RoleStandalone)
 		v, err := testutil.GetHistogramMetricCount(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(int(v)).Should(gomega.BeNumerically(">=", minCount))
@@ -658,7 +659,7 @@ func ExpectAdmittedUntilReadyWaitTimeMetricAtLeast(cq *kueue.ClusterQueue, prior
 
 func ExpectLocalQueueReadyWaitTimeMetricAtLeast(lq *kueue.LocalQueue, priorityClass string, minCount int) {
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		metric := metrics.LocalQueueQueuedUntilReadyWaitTime.WithLabelValues(lq.Name, lq.Namespace, priorityClass)
+		metric := metrics.LocalQueueQueuedUntilReadyWaitTime.WithLabelValues(lq.Name, lq.Namespace, priorityClass, roletracker.RoleStandalone)
 		v, err := testutil.GetHistogramMetricCount(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(int(v)).Should(gomega.BeNumerically(">=", minCount))
@@ -667,7 +668,7 @@ func ExpectLocalQueueReadyWaitTimeMetricAtLeast(lq *kueue.LocalQueue, priorityCl
 
 func ExpectLocalQueueAdmittedUntilReadyWaitTimeMetricAtLeast(lq *kueue.LocalQueue, priorityClass string, minCount int) {
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		metric := metrics.LocalQueueAdmittedUntilReadyWaitTime.WithLabelValues(lq.Name, lq.Namespace, priorityClass)
+		metric := metrics.LocalQueueAdmittedUntilReadyWaitTime.WithLabelValues(lq.Name, lq.Namespace, priorityClass, roletracker.RoleStandalone)
 		v, err := testutil.GetHistogramMetricCount(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(int(v)).Should(gomega.BeNumerically(">=", minCount))
@@ -676,7 +677,7 @@ func ExpectLocalQueueAdmittedUntilReadyWaitTimeMetricAtLeast(lq *kueue.LocalQueu
 
 func ExpectLocalQueueReservedWaitTimeMetric(lq *kueue.LocalQueue, priorityClass string, count int) {
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		metric := metrics.LocalQueueQuotaReservedWaitTime.WithLabelValues(lq.Name, lq.Namespace, priorityClass)
+		metric := metrics.LocalQueueQuotaReservedWaitTime.WithLabelValues(lq.Name, lq.Namespace, priorityClass, roletracker.RoleStandalone)
 		v, err := testutil.GetHistogramMetricCount(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(int(v)).Should(gomega.Equal(count))
@@ -684,38 +685,37 @@ func ExpectLocalQueueReservedWaitTimeMetric(lq *kueue.LocalQueue, priorityClass 
 }
 
 func ExpectEvictedWorkloadsTotalMetric(cqName, reason, underlyingCause, priorityClass string, v int) {
-	metric := metrics.EvictedWorkloadsTotal.WithLabelValues(cqName, reason, underlyingCause, priorityClass)
+	metric := metrics.EvictedWorkloadsTotal.WithLabelValues(cqName, reason, underlyingCause, priorityClass, roletracker.RoleStandalone)
 	expectCounterMetric(metric, v)
 }
 
 func ExpectPodsReadyToEvictedTimeSeconds(cqName, reason, underlyingCause string, v int) {
-	metric := metrics.PodsReadyToEvictedTimeSeconds
-	expectHistogramMetric(metric, cqName, reason, underlyingCause, v)
+	expectHistogramMetric(metrics.PodsReadyToEvictedTimeSeconds, cqName, reason, underlyingCause, v)
 }
 
 func ExpectEvictedWorkloadsOnceTotalMetric(cqName string, reason, underlyingCause, priorityClass string, v int) {
-	metric := metrics.EvictedWorkloadsOnceTotal.WithLabelValues(cqName, reason, underlyingCause, priorityClass)
+	metric := metrics.EvictedWorkloadsOnceTotal.WithLabelValues(cqName, reason, underlyingCause, priorityClass, roletracker.RoleStandalone)
 	expectCounterMetric(metric, v)
 }
 
 func ExpectLQEvictedWorkloadsTotalMetric(lq *kueue.LocalQueue, reason, underlyingCause, priorityClass string, v int) {
-	metric := metrics.LocalQueueEvictedWorkloadsTotal.WithLabelValues(lq.Name, lq.Namespace, reason, underlyingCause, priorityClass)
+	metric := metrics.LocalQueueEvictedWorkloadsTotal.WithLabelValues(lq.Name, lq.Namespace, reason, underlyingCause, priorityClass, roletracker.RoleStandalone)
 	expectCounterMetric(metric, v)
 }
 
 func ExpectPreemptedWorkloadsTotalMetric(preemptorCqName, reason string, v int) {
-	metric := metrics.PreemptedWorkloadsTotal.WithLabelValues(preemptorCqName, reason)
+	metric := metrics.PreemptedWorkloadsTotal.WithLabelValues(preemptorCqName, reason, roletracker.RoleStandalone)
 	expectCounterMetric(metric, v)
 }
 
 func ExpectQuotaReservedWorkloadsTotalMetric(cq *kueue.ClusterQueue, priorityClass string, v int) {
-	metric := metrics.QuotaReservedWorkloadsTotal.WithLabelValues(cq.Name, priorityClass)
+	metric := metrics.QuotaReservedWorkloadsTotal.WithLabelValues(cq.Name, priorityClass, roletracker.RoleStandalone)
 	expectCounterMetric(metric, v)
 }
 
 func ExpectQuotaReservedWaitTimeMetric(cq *kueue.ClusterQueue, priorityClass string, count int) {
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		metric := metrics.QuotaReservedWaitTime.WithLabelValues(cq.Name, priorityClass)
+		metric := metrics.QuotaReservedWaitTime.WithLabelValues(cq.Name, priorityClass, roletracker.RoleStandalone)
 		v, err := testutil.GetHistogramMetricCount(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(int(v)).Should(gomega.Equal(count))
@@ -732,7 +732,7 @@ func expectCounterMetric(metric prometheus.Counter, count int) {
 
 func expectHistogramMetric(metric *prometheus.HistogramVec, cqName, preemptionReason, underlyingCause string, count int) {
 	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
-		v, err := testutil.GetHistogramMetricCount(metric.WithLabelValues(cqName, preemptionReason, underlyingCause))
+		v, err := testutil.GetHistogramMetricCount(metric.WithLabelValues(cqName, preemptionReason, underlyingCause, roletracker.RoleStandalone))
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(int(v)).Should(gomega.Equal(count))
 	}, Timeout, Interval).Should(gomega.Succeed())
@@ -741,7 +741,7 @@ func expectHistogramMetric(metric *prometheus.HistogramVec, cqName, preemptionRe
 func ExpectLQAdmissionWaitTimeMetric(lq *kueue.LocalQueue, priorityClass string, count int) {
 	metric := metrics.LocalQueueAdmissionWaitTime
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		v, err := testutil.GetHistogramMetricCount(metric.WithLabelValues(lq.Name, lq.Namespace, priorityClass))
+		v, err := testutil.GetHistogramMetricCount(metric.WithLabelValues(lq.Name, lq.Namespace, priorityClass, roletracker.RoleStandalone))
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(int(v)).Should(gomega.Equal(count))
 	}, Timeout, Interval).Should(gomega.Succeed())
@@ -753,7 +753,7 @@ func ExpectClusterQueueStatusMetric(cq *kueue.ClusterQueue, status metrics.Clust
 		if metrics.CQStatuses[i] == status {
 			wantV = 1
 		}
-		metric := metrics.ClusterQueueByStatus.WithLabelValues(cq.Name, string(s))
+		metric := metrics.ClusterQueueByStatus.WithLabelValues(cq.Name, string(s), roletracker.RoleStandalone)
 		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 			v, err := testutil.GetGaugeMetricValue(metric)
 			g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -763,7 +763,7 @@ func ExpectClusterQueueStatusMetric(cq *kueue.ClusterQueue, status metrics.Clust
 }
 
 func ExpectClusterQueueWeightedShareMetric(cq *kueue.ClusterQueue, value float64) {
-	metric := metrics.ClusterQueueWeightedShare.WithLabelValues(cq.Name, string(cq.Spec.CohortName))
+	metric := metrics.ClusterQueueWeightedShare.WithLabelValues(cq.Name, string(cq.Spec.CohortName), roletracker.RoleStandalone)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		v, err := testutil.GetGaugeMetricValue(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -772,7 +772,7 @@ func ExpectClusterQueueWeightedShareMetric(cq *kueue.ClusterQueue, value float64
 }
 
 func ExpectLocalQueueResourceMetric(queue *kueue.LocalQueue, flavorName, resourceName string, value float64) {
-	metric := metrics.LocalQueueResourceUsage.WithLabelValues(queue.Name, queue.Namespace, flavorName, resourceName)
+	metric := metrics.LocalQueueResourceUsage.WithLabelValues(queue.Name, queue.Namespace, flavorName, resourceName, roletracker.RoleStandalone)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		v, err := testutil.GetGaugeMetricValue(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -781,7 +781,7 @@ func ExpectLocalQueueResourceMetric(queue *kueue.LocalQueue, flavorName, resourc
 }
 
 func ExpectLocalQueueResourceReservationsMetric(queue *kueue.LocalQueue, flavorName, resourceName string, value float64) {
-	metric := metrics.LocalQueueResourceReservations.WithLabelValues(queue.Name, queue.Namespace, flavorName, resourceName)
+	metric := metrics.LocalQueueResourceReservations.WithLabelValues(queue.Name, queue.Namespace, flavorName, resourceName, roletracker.RoleStandalone)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		v, err := testutil.GetGaugeMetricValue(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -790,7 +790,7 @@ func ExpectLocalQueueResourceReservationsMetric(queue *kueue.LocalQueue, flavorN
 }
 
 func ExpectCQResourceNominalQuota(cq *kueue.ClusterQueue, flavor, resource string, value float64) {
-	metric := metrics.ClusterQueueResourceNominalQuota.WithLabelValues(string(cq.Spec.CohortName), cq.Name, flavor, resource)
+	metric := metrics.ClusterQueueResourceNominalQuota.WithLabelValues(string(cq.Spec.CohortName), cq.Name, flavor, resource, roletracker.RoleStandalone)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		v, err := testutil.GetGaugeMetricValue(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -799,7 +799,7 @@ func ExpectCQResourceNominalQuota(cq *kueue.ClusterQueue, flavor, resource strin
 }
 
 func ExpectCQResourceBorrowingQuota(cq *kueue.ClusterQueue, flavor, resource string, value float64) {
-	metric := metrics.ClusterQueueResourceBorrowingLimit.WithLabelValues(string(cq.Spec.CohortName), cq.Name, flavor, resource)
+	metric := metrics.ClusterQueueResourceBorrowingLimit.WithLabelValues(string(cq.Spec.CohortName), cq.Name, flavor, resource, roletracker.RoleStandalone)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		v, err := testutil.GetGaugeMetricValue(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -808,7 +808,7 @@ func ExpectCQResourceBorrowingQuota(cq *kueue.ClusterQueue, flavor, resource str
 }
 
 func ExpectCQResourceReservations(cq *kueue.ClusterQueue, flavor, resource string, value float64) {
-	metric := metrics.ClusterQueueResourceReservations.WithLabelValues(string(cq.Spec.CohortName), cq.Name, flavor, resource)
+	metric := metrics.ClusterQueueResourceReservations.WithLabelValues(string(cq.Spec.CohortName), cq.Name, flavor, resource, roletracker.RoleStandalone)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		v, err := testutil.GetGaugeMetricValue(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())

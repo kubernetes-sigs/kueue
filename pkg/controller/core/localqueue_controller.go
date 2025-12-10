@@ -222,7 +222,7 @@ func (r *LocalQueueReconciler) Create(e event.TypedCreateEvent[*kueue.LocalQueue
 	}
 
 	if features.Enabled(features.LocalQueueMetrics) {
-		recordLocalQueueUsageMetrics(e.Object)
+		recordLocalQueueUsageMetrics(e.Object, r.roleTracker)
 	}
 
 	return true
@@ -250,7 +250,7 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 	log.V(2).Info("Queue update event")
 
 	if features.Enabled(features.LocalQueueMetrics) {
-		updateLocalQueueResourceMetrics(e.ObjectNew)
+		updateLocalQueueResourceMetrics(e.ObjectNew, r.roleTracker)
 	}
 
 	oldStopPolicy := ptr.Deref(e.ObjectOld.Spec.StopPolicy, kueue.None)
@@ -366,22 +366,22 @@ func localQueueReferenceFromLocalQueue(lq *kueue.LocalQueue) metrics.LocalQueueR
 	}
 }
 
-func recordLocalQueueUsageMetrics(queue *kueue.LocalQueue) {
+func recordLocalQueueUsageMetrics(queue *kueue.LocalQueue, tracker *roletracker.RoleTracker) {
 	for _, flavor := range queue.Status.FlavorsUsage {
 		for _, r := range flavor.Resources {
-			metrics.ReportLocalQueueResourceUsage(localQueueReferenceFromLocalQueue(queue), string(flavor.Name), string(r.Name), resource.QuantityToFloat(&r.Total))
+			metrics.ReportLocalQueueResourceUsage(localQueueReferenceFromLocalQueue(queue), string(flavor.Name), string(r.Name), resource.QuantityToFloat(&r.Total), tracker)
 		}
 	}
 	for _, flavor := range queue.Status.FlavorsReservation {
 		for _, r := range flavor.Resources {
-			metrics.ReportLocalQueueResourceReservations(localQueueReferenceFromLocalQueue(queue), string(flavor.Name), string(r.Name), resource.QuantityToFloat(&r.Total))
+			metrics.ReportLocalQueueResourceReservations(localQueueReferenceFromLocalQueue(queue), string(flavor.Name), string(r.Name), resource.QuantityToFloat(&r.Total), tracker)
 		}
 	}
 }
 
-func updateLocalQueueResourceMetrics(queue *kueue.LocalQueue) {
+func updateLocalQueueResourceMetrics(queue *kueue.LocalQueue, tracker *roletracker.RoleTracker) {
 	metrics.ClearLocalQueueResourceMetrics(localQueueReferenceFromLocalQueue(queue))
-	recordLocalQueueUsageMetrics(queue)
+	recordLocalQueueUsageMetrics(queue, tracker)
 }
 
 func (r *LocalQueueReconciler) Generic(e event.TypedGenericEvent[*kueue.LocalQueue]) bool {
@@ -538,7 +538,7 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 			metrics.ReportLocalQueueStatus(metrics.LocalQueueReference{
 				Name:      kueue.LocalQueueName(queue.Name),
 				Namespace: queue.Namespace,
-			}, conditionStatus)
+			}, conditionStatus, r.roleTracker)
 		}
 	}
 	if !equality.Semantic.DeepEqual(oldStatus, queue.Status) {
