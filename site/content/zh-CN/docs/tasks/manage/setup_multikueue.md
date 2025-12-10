@@ -6,7 +6,7 @@ description: >
   设置 MultiKueue 集群所需的额外步骤。
 ---
 
-本教程解释了如何在 MultiKueue 环境中配置管理集群和一个工作集群来运行 [JobSets](/zh-CN/docs/tasks/run_jobsets/#jobset-definition) 和 [batch/Jobs](/zh-CN/docs/tasks/run_jobs/#1-define-the-job)。
+本教程解释了如何在 MultiKueue 环境中配置管理集群和一个工作集群来运行 [JobSets](/zh-CN/docs/tasks/run/jobsets/#jobset-definition) 和 [batch/Jobs](/zh-CN/docs/tasks/run/jobs/#1-define-the-job)。
 
 请查看概念部分了解 [MultiKueue 概述](/zh-CN/docs/concepts/multikueue/)。
 

@@ -119,7 +119,7 @@ MultiKueue supports a wide variety of workloads. You can learn how to:
 
 - [Dispatch a Kueue managed Deployment](docs/tasks/run/multikueue/deployment).
 - [Dispatch a Kueue managed batch/Job](docs/tasks/run/multikueue/job).
-- [Dispatch a Kueue managed JobSet](docs/tasks/run/multikueue/jobset).
+- [Dispatch a Kueue managed JobSet](docs/tasks/run/multikueue/jobsets).
 - [Dispatch a Kueue managed Kubeflow Jobs](docs/tasks/run/multikueue/kubeflow).
 - [Dispatch a Kueue managed KubeRay workloads](docs/tasks/run/multikueue/kuberay).
 - [Dispatch a Kueue managed MPIJob](docs/tasks/run/multikueue/mpijob).

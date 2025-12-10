@@ -6,7 +6,7 @@ description: >
   Additional steps needed to setup the multikueue clusters.
 ---
 
-This tutorial explains how you can configure a management cluster and one worker cluster to run [JobSets](/docs/tasks/run_jobsets/#jobset-definition) and [batch/Jobs](/docs/tasks/run_jobs/#1-define-the-job) in a MultiKueue environment.
+This tutorial explains how you can configure a management cluster and one worker cluster to run [JobSets](/docs/tasks/run/jobsets/#jobset-definition) and [batch/Jobs](/docs/tasks/run/jobs/#1-define-the-job) in a MultiKueue environment.
 
 Check the concepts section for a [MultiKueue overview](/docs/concepts/multikueue/). 
 

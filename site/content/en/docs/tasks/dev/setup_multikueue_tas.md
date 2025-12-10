@@ -6,7 +6,7 @@ description: >
   Configure MultiKueue with Topology-Aware Scheduling for local development and testing.
 ---
 
-This tutorial explains how you can configure a manager cluster and worker clusters to run jobs with [Topology-Aware Scheduling (TAS)](/docs/tasks/run/topology_aware_scheduling/) in a MultiKueue environment. We also outline the automated steps using Kind for local testing.
+This tutorial explains how you can configure a manager cluster and worker clusters to run jobs with [Topology-Aware Scheduling (TAS)](/docs/tasks/run/leaderworkerset/#configure-topology-aware-scheduling) in a MultiKueue environment. We also outline the automated steps using Kind for local testing.
 
 Check the concepts section for a [MultiKueue overview](/docs/concepts/multikueue/) and [Topology-Aware Scheduling overview](/docs/concepts/topology_aware_scheduling/).
 
