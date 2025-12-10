@@ -275,7 +275,7 @@ hello world
 ```
 
 你可以进一步自定义作业，并可以在 [Flux Operator 问题板](https://github.com/flux-framework/flux-operator/issues)上提问。
-最后，有关如何使用 YAML 在 Python 之外完成此操作的说明，请参见[运行 Flux MiniCluster](/zh-CN/docs/tasks/run_flux_minicluster/)。
+最后，有关如何使用 YAML 在 Python 之外完成此操作的说明，请参见[运行 Flux MiniCluster](/zh-CN/docs/tasks/run/external_workloads/flux_miniclusters/)。
 
 ### MPI Operator  {#mpi-operator-job}
 
@@ -378,5 +378,4 @@ pi is approximately 3.1410376000000002
 ```
 
 看起来像是 pi！🎉️🥧️
-如果你有兴趣在 Python 之外使用 YAML 运行此示例，请参见[运行 MPIJob](/zh-CN/docs/tasks/run_kubeflow_jobs/run_mpijobs/)。
-
+如果你有兴趣在 Python 之外使用 YAML 运行此示例，请参见[运行 MPIJob](/zh-CN/docs/tasks/run/kubeflow/mpijobs/)。
