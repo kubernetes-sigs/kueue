@@ -17,13 +17,23 @@ limitations under the License.
 package main
 
 import (
+	"context"
+	"errors"
 	"log"
+	"net/http"
+	"os/signal"
+	"syscall"
 
+	"github.com/go-logr/stdr"
 	"kueueviz/config"
 	"kueueviz/handlers"
+	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 func main() {
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer cancel()
+
 	// Initialize server configuration
 	serverConfig := config.NewServerConfig()
 
@@ -31,7 +41,7 @@ func main() {
 	config.SetupPprof()
 
 	// Create Kubernetes client
-	_, dynamicClient, err := createK8sClient()
+	dynamicClient, manager, err := createK8sClient(ctx)
 	if err != nil {
 		log.Fatalf("Error creating Kubernetes client: %v", err)
 	}
@@ -42,12 +52,38 @@ func main() {
 		log.Fatalf("Error setting up Gin engine: %v", err)
 	}
 
-	// Initialize routes
-	handlers.InitializeWebSocketRoutes(r, dynamicClient)
-	handlers.InitializeAPIRoutes(r, dynamicClient)
+	srv := &http.Server{
+		Addr:    serverConfig.GetServerAddress(),
+		Handler: r.Handler(),
+	}
 
-	// Start server
-	if err := r.Run(serverConfig.GetServerAddress()); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+	h := handlers.New(handlers.NewClientFromManager(manager))
+
+	// Initialize routes
+	h.InitializeWebSocketRoutes(r)
+	h.InitializeAPIRoutes(r, dynamicClient)
+
+	ctrllog.SetLogger(stdr.New(log.Default()))
+
+	// Start manager in a separate goroutine
+	go func() {
+		if err = manager.Start(ctx); err != nil {
+			log.Fatalf("Failed to start manager: %v", err)
+		}
+	}()
+
+	// Start HTTP server in a separate goroutine
+	go func() {
+		log.Printf("Starting server on %s", srv.Addr)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("Failed to start HTTP server: %v", err)
+		}
+	}()
+
+	<-ctx.Done()
+
+	// Shutdown the server gracefully
+	if err := srv.Shutdown(context.Background()); err != nil {
+		log.Fatalf("Server forced to shutdown: %v", err)
 	}
 }
