@@ -140,7 +140,10 @@ func TestRaySubmitterJobCopyLabelAndAnnotationFromOwner(t *testing.T) {
 			client := builder.Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			copyRaySubmitterJobMetadata(ctx, job, client)
+			err := copyRaySubmitterJobMetadata(ctx, job, client)
+			if err != nil {
+				t.Errorf("error copying ray submitter job metadata: %v", err)
+			}
 
 			// Check queue label
 			actualQueue := ""
