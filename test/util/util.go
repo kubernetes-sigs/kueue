@@ -297,25 +297,23 @@ func FinishWorkloads(ctx context.Context, k8sClient client.Client, workloads ...
 
 func ExpectWorkloadsToHaveQuotaReservation(ctx context.Context, k8sClient client.Client, cqName string, wls ...*kueue.Workload) {
 	ginkgo.GinkgoHelper()
-	wlKeys := make([]client.ObjectKey, len(wls))
-	for index, wl := range wls {
-		wlKeys[index] = client.ObjectKeyFromObject(wl)
-	}
-	ExpectWorkloadsToHaveQuotaReservationByKey(ctx, k8sClient, cqName, wlKeys...)
+	wlKeys := workloadKeys(wls...)
+	ExpectWorkloadsToHaveQuotaReservationByKey(ctx, k8sClient, cqName, wlKeys.UnsortedList()...)
 }
 
 func ExpectWorkloadsToHaveQuotaReservationByKey(ctx context.Context, k8sClient client.Client, cqName string, wlKeys ...client.ObjectKey) {
 	ginkgo.GinkgoHelper()
+	wls := sets.New(wlKeys...)
 	gomega.Eventually(func(g gomega.Gomega) {
-		admitted := 0
+		admitted := sets.New[client.ObjectKey]()
 		var updatedWorkload kueue.Workload
 		for _, wlKey := range wlKeys {
 			g.Expect(k8sClient.Get(ctx, wlKey, &updatedWorkload)).To(gomega.Succeed())
 			if workload.HasQuotaReservation(&updatedWorkload) && string(updatedWorkload.Status.Admission.ClusterQueue) == cqName {
-				admitted++
+				admitted.Insert(wlKey)
 			}
 		}
-		g.Expect(admitted).Should(gomega.Equal(len(wlKeys)), "Not enough workloads were admitted")
+		g.Expect(admitted).Should(gomega.Equal(wls), "Unexpected workloads were admitted")
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
@@ -338,8 +336,9 @@ func filterWorkloads(ctx context.Context, k8sClient client.Client, filter func(*
 }
 
 func ExpectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
+	wlKeys := workloadKeys(wls...)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		pending := 0
+		pending := sets.New[client.ObjectKey]()
 		var updatedWorkload kueue.Workload
 		for _, wl := range wls {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
@@ -348,23 +347,30 @@ func ExpectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wl
 				continue
 			}
 			if cond.Status == metav1.ConditionFalse && cond.Reason == "Pending" {
-				pending++
+				pending.Insert(client.ObjectKeyFromObject(wl))
 			}
 		}
-		g.Expect(pending).Should(gomega.Equal(len(wls)), "Not enough workloads are pending")
+		g.Expect(pending).Should(gomega.Equal(wlKeys), "Unexpected workloads are pending")
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 func ExpectWorkloadsToBeAdmitted(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
-	expectWorkloadsToBeAdmittedCountWithOffset(ctx, 2, k8sClient, len(wls), wls...)
+	wlKeys := workloadKeys(wls...)
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		admitted := sets.New[client.ObjectKey]()
+		var updatedWorkload kueue.Workload
+		for _, wl := range wls {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
+			if apimeta.IsStatusConditionTrue(updatedWorkload.Status.Conditions, kueue.WorkloadAdmitted) {
+				admitted.Insert(client.ObjectKeyFromObject(wl))
+			}
+		}
+		g.Expect(admitted).Should(gomega.Equal(wlKeys), "Unexpected workloads are admitted")
+	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 func ExpectWorkloadsToBeAdmittedCount(ctx context.Context, k8sClient client.Client, count int, wls ...*kueue.Workload) {
-	expectWorkloadsToBeAdmittedCountWithOffset(ctx, 2, k8sClient, count, wls...)
-}
-
-func expectWorkloadsToBeAdmittedCountWithOffset(ctx context.Context, offset int, k8sClient client.Client, count int, wls ...*kueue.Workload) {
-	gomega.EventuallyWithOffset(offset, func(g gomega.Gomega) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		admitted := 0
 		var updatedWorkload kueue.Workload
 		for _, wl := range wls {
@@ -436,23 +442,25 @@ func ExpectWorkloadToHaveRequeueState(ctx context.Context, k8sClient client.Clie
 }
 
 func ExpectWorkloadsToBePreempted(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
+	wlKeys := workloadKeys(wls...)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		preempted := 0
+		preempted := sets.New[client.ObjectKey]()
 		var updatedWorkload kueue.Workload
 		for _, wl := range wls {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
 			if cond := apimeta.FindStatusCondition(updatedWorkload.Status.Conditions, kueue.WorkloadEvicted); cond != nil &&
 				cond.Status == metav1.ConditionTrue && cond.Reason == kueue.WorkloadPreempted {
-				preempted++
+				preempted.Insert(client.ObjectKeyFromObject(wl))
 			}
 		}
-		g.Expect(preempted).Should(gomega.Equal(len(wls)), "Not enough workloads are preempted")
+		g.Expect(preempted).Should(gomega.Equal(wlKeys), "Unexpected workloads are preempted")
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 func ExpectWorkloadsToBeWaiting(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
+	wlKeys := workloadKeys(wls...)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		pending := 0
+		pending := sets.New[client.ObjectKey]()
 		var updatedWorkload kueue.Workload
 		for _, wl := range wls {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
@@ -461,16 +469,17 @@ func ExpectWorkloadsToBeWaiting(ctx context.Context, k8sClient client.Client, wl
 				continue
 			}
 			if cond.Status == metav1.ConditionFalse && cond.Reason == "Waiting" {
-				pending++
+				pending.Insert(client.ObjectKeyFromObject(wl))
 			}
 		}
-		g.Expect(pending).Should(gomega.Equal(len(wls)), "Not enough workloads are waiting")
+		g.Expect(pending).Should(gomega.Equal(wlKeys), "Unexpected workloads are waiting")
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 func ExpectWorkloadsToBeFrozen(ctx context.Context, k8sClient client.Client, cq string, wls ...*kueue.Workload) {
+	wlKeys := workloadKeys(wls...)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		frozen := 0
+		frozen := sets.New[client.ObjectKey]()
 		var updatedWorkload kueue.Workload
 		for _, wl := range wls {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
@@ -480,10 +489,10 @@ func ExpectWorkloadsToBeFrozen(ctx context.Context, k8sClient client.Client, cq 
 			}
 			msg := fmt.Sprintf("ClusterQueue %s is inactive", cq)
 			if cond.Status == metav1.ConditionFalse && cond.Reason == "Inadmissible" && cond.Message == msg {
-				frozen++
+				frozen.Insert(client.ObjectKeyFromObject(wl))
 			}
 		}
-		g.Expect(frozen).Should(gomega.Equal(len(wls)), "Not enough workloads are frozen")
+		g.Expect(frozen).Should(gomega.Equal(wlKeys), "Unexpected workloads are frozen")
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
@@ -822,16 +831,17 @@ func SyncAdmittedConditionForWorkloads(ctx context.Context, k8sClient client.Cli
 }
 
 func FinishEvictionForWorkloads(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
+	wlKeys := workloadKeys(wls...)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		evicting := 0
+		evicting := sets.New[client.ObjectKey]()
 		var updatedWorkload kueue.Workload
 		for _, wl := range wls {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
 			if cond := apimeta.FindStatusCondition(updatedWorkload.Status.Conditions, kueue.WorkloadEvicted); cond != nil && cond.Status == metav1.ConditionTrue {
-				evicting++
+				evicting.Insert(client.ObjectKeyFromObject(wl))
 			}
 		}
-		g.Expect(evicting).Should(gomega.Equal(len(wls)), "Not enough workloads were marked for eviction")
+		g.Expect(evicting).Should(gomega.Equal(wlKeys), "Unexpected workloads were marked for eviction")
 	}, Timeout, Interval).Should(gomega.Succeed())
 	// unset the quota reservation
 	for i := range wls {
@@ -1362,4 +1372,12 @@ func ExpectJobToBeCompleted(ctx context.Context, c client.Client, job *batchv1.J
 			},
 			cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime", "Reason", "Message"))))
 	}, LongTimeout, Interval).Should(gomega.Succeed())
+}
+
+func workloadKeys(wls ...*kueue.Workload) sets.Set[client.ObjectKey] {
+	wlKeys := sets.New[client.ObjectKey]()
+	for _, wl := range wls {
+		wlKeys.Insert(client.ObjectKeyFromObject(wl))
+	}
+	return wlKeys
 }
