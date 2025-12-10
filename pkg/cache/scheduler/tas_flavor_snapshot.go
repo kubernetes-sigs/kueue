@@ -1078,7 +1078,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 		// At this point we have assigned all leaders, so we sort remaining domains based on worker capacity
 		// and assign remaining workers.
 		sortedDomain = s.sortedDomains(sortedDomain[idx:], unconstrained)
-		for idx := 0; remainingSliceCount > 0 && idx < len(sortedDomain) && sortedDomain[idx].sliceState > 0; idx++ {
+		for idx := 0; remainingSliceCount > 0 && idx < len(sortedDomain); idx++ {
 			domain := sortedDomain[idx]
 			if useBestFitAlgorithm(unconstrained) && sortedDomain[idx].sliceState >= remainingSliceCount {
 				// optimize the last domain
@@ -1243,7 +1243,7 @@ func (s *TASFlavorSnapshot) buildTopologyAssignmentForLevels(domains []*domain, 
 	assignment.Levels = s.levelKeys[levelIdx:]
 	for _, domain := range domains {
 		if domain.state == 0 {
-			// It may happen when PodSet count is 0.
+			// It may happen when PodSet count is 0 or when using LeastFreeCapacity algorithm.
 			continue
 		}
 		assignment.Domains = append(assignment.Domains, kueue.TopologyDomainAssignment{

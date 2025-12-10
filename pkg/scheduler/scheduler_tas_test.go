@@ -145,6 +145,42 @@ func TestScheduleForTAS(t *testing.T) {
 			Obj(),
 	}
 
+	//    r1
+	//  /  |  \
+	// x1  x2  x3
+	nodesWithZeroCapacityInstance := []corev1.Node{
+		*testingnode.MakeNode("x1").
+			Label("tas-node", "true").
+			Label(corev1.LabelHostname, "x1").
+			Label(tasRackLabel, "r1").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("0"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("x2").
+			Label("tas-node", "true").
+			Label(corev1.LabelHostname, "x2").
+			Label(tasRackLabel, "r1").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("1"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("x3").
+			Label("tas-node", "true").
+			Label(corev1.LabelHostname, "x3").
+			Label(tasRackLabel, "r1").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("1"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+	}
+
 	defaultSingleLevelTopology := *utiltestingapi.MakeDefaultOneLevelTopology("tas-single-level")
 	defaultTwoLevelTopology := *utiltestingapi.MakeTopology("tas-two-level").
 		Levels(tasRackLabel, corev1.LabelHostname).
@@ -2464,6 +2500,114 @@ func TestScheduleForTAS(t *testing.T) {
 							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 							Obj()).
 						Obj()).
+					Obj(),
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
+			},
+		},
+		"admits workload when nodes are partially empty; unconstrained": {
+			nodes:           nodesWithZeroCapacityInstance,
+			topologies:      []kueue.Topology{defaultTwoLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASTwoLevelFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo", "default").
+					Queue("tas-main").
+					PodSets(
+						*utiltestingapi.MakePodSet("one", 2).
+							UnconstrainedTopologyRequest().
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/foo": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(
+						utiltestingapi.MakePodSetAssignment("one").
+							Count(2).
+							Assignment(corev1.ResourceCPU, "tas-default", "2000m").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x3"}, 1).Obj()).
+								Obj()).
+							Obj(),
+					).
+					Obj(),
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
+			},
+		},
+		"admits workload when nodes are partially empty; preferred": {
+			nodes:           nodesWithZeroCapacityInstance,
+			topologies:      []kueue.Topology{defaultTwoLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASTwoLevelFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo", "default").
+					Queue("tas-main").
+					PodSets(
+						*utiltestingapi.MakePodSet("one", 2).
+							PreferredTopologyRequest(tasRackLabel).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/foo": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(
+						utiltestingapi.MakePodSetAssignment("one").
+							Count(2).
+							Assignment(corev1.ResourceCPU, "tas-default", "2000m").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x3"}, 1).Obj()).
+								Obj()).
+							Obj(),
+					).
+					Obj(),
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
+			},
+		},
+		"admits workload when nodes are partially empty; required": {
+			nodes:           nodesWithZeroCapacityInstance,
+			topologies:      []kueue.Topology{defaultTwoLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASTwoLevelFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo", "default").
+					Queue("tas-main").
+					PodSets(
+						*utiltestingapi.MakePodSet("one", 2).
+							RequiredTopologyRequest(tasRackLabel).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/foo": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(
+						utiltestingapi.MakePodSetAssignment("one").
+							Count(2).
+							Assignment(corev1.ResourceCPU, "tas-default", "2000m").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x3"}, 1).Obj()).
+								Obj()).
+							Obj(),
+					).
 					Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
