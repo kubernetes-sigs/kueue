@@ -102,17 +102,17 @@ func TestGetMetricsRole(t *testing.T) {
 		},
 		{
 			name:     "follower tracker returns follower",
-			tracker:  newFakeRoleTracker(RoleFollower),
+			tracker:  NewFakeRoleTracker(RoleFollower),
 			expected: RoleFollower,
 		},
 		{
 			name:     "leader tracker returns leader",
-			tracker:  newFakeRoleTracker(RoleLeader),
+			tracker:  NewFakeRoleTracker(RoleLeader),
 			expected: RoleLeader,
 		},
 		{
 			name:     "standalone tracker returns standalone",
-			tracker:  newFakeRoleTracker(RoleStandalone),
+			tracker:  NewFakeRoleTracker(RoleStandalone),
 			expected: RoleStandalone,
 		},
 	}

@@ -919,7 +919,7 @@ func TestFairPreemptions(t *testing.T) {
 			recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
 			preemptor := New(cl, workload.Ordering{}, recorder, &config.FairSharing{
 				PreemptionStrategies: tc.strategies,
-			}, false, clocktesting.NewFakeClock(now))
+			}, false, clocktesting.NewFakeClock(now), nil)
 
 			beforeSnapshot, err := cqCache.Snapshot(ctx)
 			if err != nil {

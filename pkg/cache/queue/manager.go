@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/queue"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -88,6 +89,13 @@ func WithResourceTransformations(transforms []config.ResourceTransformation) Opt
 	}
 }
 
+// WithRoleTracker sets the roleTracker for HA metrics.
+func WithRoleTracker(tracker *roletracker.RoleTracker) Option {
+	return func(m *Manager) {
+		m.roleTracker = tracker
+	}
+}
+
 // SetDRAReconcileChannel sets the DRA reconcile channel after manager creation.
 func (m *Manager) SetDRAReconcileChannel(ch chan<- event.TypedGenericEvent[*kueue.Workload]) {
 	m.draReconcileChannel = ch
@@ -125,6 +133,8 @@ type Manager struct {
 	workloadUpdateWatchers []WorkloadUpdateWatcher
 
 	draReconcileChannel chan<- event.TypedGenericEvent[*kueue.Workload]
+
+	roleTracker *roletracker.RoleTracker
 }
 
 func NewManager(client client.Client, checker StatusChecker, options ...Option) *Manager {
@@ -716,7 +726,7 @@ func (m *Manager) reportLQPendingWorkloads(lq *LocalQueue) {
 	metrics.ReportLocalQueuePendingWorkloads(metrics.LocalQueueReference{
 		Name:      lqName,
 		Namespace: namespace,
-	}, active, inadmissible)
+	}, active, inadmissible, m.roleTracker)
 }
 
 func (m *Manager) reportPendingWorkloads(cqName kueue.ClusterQueueReference, cq *ClusterQueue) {
@@ -725,7 +735,7 @@ func (m *Manager) reportPendingWorkloads(cqName kueue.ClusterQueueReference, cq 
 		inadmissible += active
 		active = 0
 	}
-	metrics.ReportPendingWorkloads(cqName, active, inadmissible)
+	metrics.ReportPendingWorkloads(cqName, active, inadmissible, m.roleTracker)
 }
 
 func (m *Manager) GetClusterQueueNames() []kueue.ClusterQueueReference {

@@ -242,8 +242,14 @@ func main() {
 	} else {
 		close(certsReady)
 	}
-	cacheOptions := []schdcache.Option{schdcache.WithPodsReadyTracking(blockForPodsReady(&cfg))}
-	queueOptions := []qcache.Option{qcache.WithPodsReadyRequeuingTimestamp(podsReadyRequeuingTimestamp(&cfg))}
+	cacheOptions := []schdcache.Option{
+		schdcache.WithPodsReadyTracking(blockForPodsReady(&cfg)),
+		schdcache.WithRoleTracker(roleTracker),
+	}
+	queueOptions := []qcache.Option{
+		qcache.WithPodsReadyRequeuingTimestamp(podsReadyRequeuingTimestamp(&cfg)),
+		qcache.WithRoleTracker(roleTracker),
+	}
 	if cfg.Resources != nil && len(cfg.Resources.ExcludeResourcePrefixes) > 0 {
 		cacheOptions = append(cacheOptions, schdcache.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes))
 		queueOptions = append(queueOptions, qcache.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes))

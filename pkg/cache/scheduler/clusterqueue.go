@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/queue"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -88,6 +89,8 @@ type clusterQueue struct {
 
 	workloadsNotAccountedForTAS sets.Set[workload.Reference]
 	AdmissionScope              *kueue.AdmissionScope
+
+	roleTracker *roletracker.RoleTracker
 }
 
 func (c *clusterQueue) GetName() kueue.ClusterQueueReference {
@@ -228,7 +231,7 @@ func (c *clusterQueue) updateQueueStatus(log logr.Logger) {
 	if status != c.Status {
 		log.V(3).Info("Updating status in cache", "clusterQueue", c.Name, "newStatus", status, "oldStatus", c.Status)
 		c.Status = status
-		metrics.ReportClusterQueueStatus(c.Name, c.Status)
+		metrics.ReportClusterQueueStatus(c.Name, c.Status, c.roleTracker)
 	}
 }
 
@@ -464,14 +467,16 @@ func (c *clusterQueue) deleteWorkload(log logr.Logger, w *kueue.Workload) {
 }
 
 func (c *clusterQueue) reportActiveWorkloads() {
-	metrics.AdmittedActiveWorkloads.WithLabelValues(string(c.Name)).Set(float64(c.admittedWorkloadsCount))
-	metrics.ReservingActiveWorkloads.WithLabelValues(string(c.Name)).Set(float64(len(c.Workloads)))
+	role := roletracker.GetRole(c.roleTracker)
+	metrics.AdmittedActiveWorkloads.WithLabelValues(string(c.Name), role).Set(float64(c.admittedWorkloadsCount))
+	metrics.ReservingActiveWorkloads.WithLabelValues(string(c.Name), role).Set(float64(len(c.Workloads)))
 }
 
-func (q *LocalQueue) reportActiveWorkloads() {
+func (q *LocalQueue) reportActiveWorkloads(tracker *roletracker.RoleTracker) {
+	role := roletracker.GetRole(tracker)
 	namespace, name := queue.MustParseLocalQueueReference(q.key)
-	metrics.LocalQueueAdmittedActiveWorkloads.WithLabelValues(string(name), namespace).Set(float64(q.admittedWorkloads))
-	metrics.LocalQueueReservingActiveWorkloads.WithLabelValues(string(name), namespace).Set(float64(q.reservingWorkloads))
+	metrics.LocalQueueAdmittedActiveWorkloads.WithLabelValues(string(name), namespace, role).Set(float64(q.admittedWorkloads))
+	metrics.LocalQueueReservingActiveWorkloads.WithLabelValues(string(name), namespace, role).Set(float64(q.reservingWorkloads))
 }
 
 // updateWorkloadUsage updates the usage of the ClusterQueue for the workload
@@ -501,7 +506,7 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 			lq.admittedWorkloads += op.asSignedOne()
 		}
 		if features.Enabled(features.LocalQueueMetrics) {
-			lq.reportActiveWorkloads()
+			lq.reportActiveWorkloads(c.roleTracker)
 		}
 	}
 }
@@ -571,7 +576,7 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 	}
 	c.localQueues[qKey] = qImpl
 	if features.Enabled(features.LocalQueueMetrics) {
-		qImpl.reportActiveWorkloads()
+		qImpl.reportActiveWorkloads(c.roleTracker)
 	}
 	return nil
 }
