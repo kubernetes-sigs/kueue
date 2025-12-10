@@ -87,7 +87,7 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Webhooks
-		failedWebhook, err := webhooks.Setup(mgr)
+		failedWebhook, err := webhooks.Setup(mgr, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 		mappings := []config.DeviceClassMapping{
@@ -125,7 +125,7 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 		queues := qcache.NewManager(mgr.GetClient(), cCache)
 
 		// Core controllers
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg)
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		// Scheduler - required for workload admission

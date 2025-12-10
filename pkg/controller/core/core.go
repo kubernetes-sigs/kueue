@@ -35,38 +35,20 @@ const (
 	updateChBuffer = 10
 )
 
-// SetupOption configures SetupControllers.
-type SetupOption func(*setupOptions)
-
-type setupOptions struct {
-	roleTracker *roletracker.RoleTracker
-}
-
-// WithSetupRoleTracker sets the role tracker for HA setups.
-func WithSetupRoleTracker(tracker *roletracker.RoleTracker) SetupOption {
-	return func(o *setupOptions) {
-		o.roleTracker = tracker
-	}
-}
-
 // SetupControllers sets up the core controllers. It returns the name of the
 // controller that failed to create and an error, if any.
-func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.Cache, cfg *configapi.Configuration, opts ...SetupOption) (string, error) {
-	options := &setupOptions{}
-	for _, opt := range opts {
-		opt(options)
-	}
-	rfRec := NewResourceFlavorReconciler(mgr.GetClient(), qManager, cc, options.roleTracker)
+func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.Cache, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker) (string, error) {
+	rfRec := NewResourceFlavorReconciler(mgr.GetClient(), qManager, cc, roleTracker)
 	if err := rfRec.SetupWithManager(mgr, cfg); err != nil {
 		return "ResourceFlavor", err
 	}
-	acRec := NewAdmissionCheckReconciler(mgr.GetClient(), qManager, cc, options.roleTracker)
+	acRec := NewAdmissionCheckReconciler(mgr.GetClient(), qManager, cc, roleTracker)
 	if err := acRec.SetupWithManager(mgr, cfg); err != nil {
 		return "AdmissionCheck", err
 	}
 	qRec := NewLocalQueueReconciler(mgr.GetClient(), qManager, cc,
 		WithAdmissionFairSharingConfig(cfg.AdmissionFairSharing),
-		WithRoleTracker(options.roleTracker))
+		WithRoleTracker(roleTracker))
 	if err := qRec.SetupWithManager(mgr, cfg); err != nil {
 		return "LocalQueue", err
 	}
@@ -76,7 +58,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 	if features.Enabled(features.HierarchicalCohorts) {
 		cohortRec := NewCohortReconciler(mgr.GetClient(), cc, qManager,
 			CohortReconcilerWithFairSharing(fairSharingEnabled),
-			CohortReconcilerWithRoleTracker(options.roleTracker))
+			CohortReconcilerWithRoleTracker(roleTracker))
 		if err := cohortRec.SetupWithManager(mgr, cfg); err != nil {
 			return "Cohort", err
 		}
@@ -90,7 +72,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		WithReportResourceMetrics(cfg.Metrics.EnableClusterQueueResources),
 		WithFairSharing(fairSharingEnabled),
 		WithWatchers(watchers...),
-		WithClusterQueueRoleTracker(options.roleTracker),
+		WithClusterQueueRoleTracker(roleTracker),
 	)
 	rfRec.AddUpdateWatcher(cqRec)
 	acRec.AddUpdateWatchers(cqRec)
@@ -103,7 +85,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		WithWorkloadUpdateWatchers(qRec, cqRec),
 		WithWaitForPodsReady(waitForPodsReady(cfg.WaitForPodsReady)),
 		WithWorkloadRetention(workloadRetention(cfg.ObjectRetentionPolicies)),
-		WithWorkloadRoleTracker(options.roleTracker),
+		WithWorkloadRoleTracker(roleTracker),
 	)
 	if features.Enabled(features.DynamicResourceAllocation) {
 		qManager.SetDRAReconcileChannel(workloadRec.GetDRAReconcileChannel())
