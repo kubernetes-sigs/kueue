@@ -17,12 +17,16 @@ limitations under the License.
 package e2e
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -60,7 +64,7 @@ var _ = ginkgo.Describe("Kuberay", func() {
 		cq = utiltestingapi.MakeClusterQueue(clusterQueueName).
 			ResourceGroup(
 				*utiltestingapi.MakeFlavorQuotas(rf.Name).
-					Resource(corev1.ResourceCPU, "1").Obj()).
+					Resource(corev1.ResourceCPU, "3").Obj()).
 			Obj()
 		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 
@@ -145,14 +149,41 @@ var _ = ginkgo.Describe("Kuberay", func() {
 	ginkgo.It("Should run a rayjob with InTreeAutoscaling", func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
+		// Create ConfigMap with Python script
+		configMap := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "rayjob-autoscaling",
+				Namespace: ns.Name,
+			},
+			Data: map[string]string{
+				"sample_code.py": `import ray
+import os
+
+ray.init()
+
+@ray.remote
+def my_task(x, s):
+    import time
+    time.sleep(s)
+    return x * x
+
+# run tasks in sequence to avoid triggering autoscaling in the beginning
+print([ray.get(my_task.remote(i, 1)) for i in range(20)])
+# run tasks in parallel to trigger autoscaling (scaling up)
+print(ray.get([my_task.remote(i, 10) for i in range(10)]))
+# run tasks in sequence to trigger scaling down
+print([ray.get(my_task.remote(i, 1)) for i in range(40)])`,
+			},
+		}
+
 		rayJob := testingrayjob.MakeJob("rayjob-autoscaling", ns.Name).
 			Queue(localQueueName).
 			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			EnableInTreeAutoscaling().
 			WithSubmissionMode(rayv1.K8sJobMode).
-			Entrypoint("python -c \"import ray; ray.init(); print(ray.cluster_resources())\"").
-			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "300m").
-			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "300m").
+			Entrypoint("python /home/ray/samples/sample_code.py").
+			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "200m").
+			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "200m").
 			WithSubmitterPodTemplate(corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
@@ -161,10 +192,10 @@ var _ = ginkgo.Describe("Kuberay", func() {
 							Image: kuberayTestImage,
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
-									corev1.ResourceCPU: resource.MustParse("300m"),
+									corev1.ResourceCPU: resource.MustParse("200m"),
 								},
 								Limits: corev1.ResourceList{
-									corev1.ResourceCPU: resource.MustParse("300m"),
+									corev1.ResourceCPU: resource.MustParse("200m"),
 								},
 							},
 						},
@@ -175,6 +206,30 @@ var _ = ginkgo.Describe("Kuberay", func() {
 			Image(rayv1.HeadNode, kuberayTestImage).
 			Image(rayv1.WorkerNode, kuberayTestImage).Obj()
 
+		// Add volume and volumeMount to head node for the ConfigMap
+		rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Volumes = []corev1.Volume{
+			{
+				Name: "script-volume",
+				VolumeSource: corev1.VolumeSource{
+					ConfigMap: &corev1.ConfigMapVolumeSource{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: "rayjob-autoscaling",
+						},
+					},
+				},
+			},
+		}
+		rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{
+			{
+				Name:      "script-volume",
+				MountPath: "/home/ray/samples",
+			},
+		}
+
+		ginkgo.By("Creating the ConfigMap", func() {
+			gomega.Expect(k8sClient.Create(ctx, configMap)).Should(gomega.Succeed())
+		})
+
 		ginkgo.By("Creating the rayJob", func() {
 			gomega.Expect(k8sClient.Create(ctx, rayJob)).Should(gomega.Succeed())
 		})
@@ -184,6 +239,19 @@ var _ = ginkgo.Describe("Kuberay", func() {
 				workloadList := &kueue.WorkloadList{}
 				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				g.Expect(workloadList.Items).NotTo(gomega.BeEmpty(), "Expected at least one workload in namespace")
+
+				// Print workload names
+				fmt.Printf("Found %d workload(s) in namespace %s:\n", len(workloadList.Items), ns.Name)
+				for i, wl := range workloadList.Items {
+					status := "pending"
+					if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadAdmitted) {
+						status = "admitted"
+					} else if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
+						status = "finished"
+					}
+					fmt.Printf("  %d. %s (status: %s)\n", i+1, wl.Name, status)
+				}
+
 				hasAdmittedWorkload := false
 				for _, wl := range workloadList.Items {
 					if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadAdmitted) ||
@@ -202,6 +270,53 @@ var _ = ginkgo.Describe("Kuberay", func() {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayJob), createdRayJob)).To(gomega.Succeed())
 				g.Expect(createdRayJob.Spec.Suspend).To(gomega.BeFalse())
 				g.Expect(createdRayJob.Status.JobDeploymentStatus).To(gomega.Equal(rayv1.JobDeploymentStatusRunning))
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Waiting for 3 pods in rayjob namespace", func() {
+			// 3 rayjob pods: head, worker, submitter job
+			gomega.Eventually(func(g gomega.Gomega) {
+				podList := &corev1.PodList{}
+				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				g.Expect(podList.Items).To(gomega.HaveLen(3), "Expected exactly 3 pods in rayjob namespace")
+				// Count pods that have "workers" in their name
+				workerPodCount := 0
+				for _, pod := range podList.Items {
+					if strings.Contains(pod.Name, "workers") {
+						workerPodCount++
+					}
+				}
+				g.Expect(workerPodCount).To(gomega.Equal(1), "Expected exactly 1 pod with 'workers' in the name")
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Waiting for 5 workers due to scaling up", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				podList := &corev1.PodList{}
+				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				// Count pods that have "workers" in their name
+				workerPodCount := 0
+				for _, pod := range podList.Items {
+					if strings.Contains(pod.Name, "workers") {
+						workerPodCount++
+					}
+				}
+				g.Expect(workerPodCount).To(gomega.Equal(5), "Expected exactly 5 pods with 'workers' in the name")
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Waiting for workers reduced to 1 due to scaling down", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				podList := &corev1.PodList{}
+				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				// Count pods that have "workers" in their name
+				workerPodCount := 0
+				for _, pod := range podList.Items {
+					if strings.Contains(pod.Name, "workers") {
+						workerPodCount++
+					}
+				}
+				g.Expect(workerPodCount).To(gomega.Equal(1), "Expected exactly 5 pods with 'workers' in the name")
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
