@@ -509,6 +509,14 @@ func (p *PodSetWrapper) PreferredTopologyRequest(level string) *PodSetWrapper {
 	return p
 }
 
+func (p *PodSetWrapper) UnconstrainedTopologyRequest() *PodSetWrapper {
+	if p.TopologyRequest == nil {
+		p.TopologyRequest = &kueue.PodSetTopologyRequest{}
+	}
+	p.TopologyRequest.Unconstrained = ptr.To(true)
+	return p
+}
+
 func (p *PodSetWrapper) PodIndexLabel(label *string) *PodSetWrapper {
 	if p.TopologyRequest == nil {
 		p.TopologyRequest = &kueue.PodSetTopologyRequest{}
