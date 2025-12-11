@@ -137,6 +137,11 @@ type ControllerManager struct {
 	// registered within this manager.
 	// +optional
 	Controller *ControllerConfigurationSpec `json:"controller,omitempty"`
+
+	// TLS contains TLS security settings for all Kueue API servers
+	// (webhooks, metrics, and visibility).
+	// +optional
+	TLS *TLSOptions `json:"tls,omitempty"`
 }
 
 // ControllerWebhook defines the webhook server for the controller.
@@ -368,6 +373,55 @@ type InternalCertManagement struct {
 	// WebhookSecretName is the name of the Secret used to store CA and server certs.
 	// Defaults to kueue-webhook-server-cert.
 	WebhookSecretName *string `json:"webhookSecretName,omitempty"`
+}
+
+// TLSVersion represents a TLS version string
+// +kubebuilder:validation:Enum={"1.2","1.3"}
+type TLSVersion string
+
+const (
+	// TLSVersion12 represents TLS version 1.2
+	TLSVersion12 TLSVersion = "1.2"
+	// TLSVersion13 represents TLS version 1.3
+	TLSVersion13 TLSVersion = "1.3"
+)
+
+// CipherSuite represents a TLS cipher suite name
+// +kubebuilder:validation:Enum=TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA;TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA;TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA;TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA;TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256;TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384;TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256;TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384;TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256;TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256;TLS_AES_128_GCM_SHA256;TLS_AES_256_GCM_SHA384;TLS_CHACHA20_POLY1305_SHA256
+type CipherSuite string
+
+const (
+	// TLS 1.2 cipher suites
+	CipherSuiteTLSECDHEECDSAWithAES128CBCSHA           CipherSuite = "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA"
+	CipherSuiteTLSECDHEECDSAWithAES256CBCSHA           CipherSuite = "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA"
+	CipherSuiteTLSECDHERSAWithAES128CBCSHA             CipherSuite = "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA"
+	CipherSuiteTLSECDHERSAWithAES256CBCSHA             CipherSuite = "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA"
+	CipherSuiteTLSECDHEECDSAWithAES128GCMSHA256        CipherSuite = "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"
+	CipherSuiteTLSECDHEECDSAWithAES256GCMSHA384        CipherSuite = "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
+	CipherSuiteTLSECDHERSAWithAES128GCMSHA256          CipherSuite = "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+	CipherSuiteTLSECDHERSAWithAES256GCMSHA384          CipherSuite = "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+	CipherSuiteTLSECDHERSAWithCHACHA20POLY1305SHA256   CipherSuite = "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256"
+	CipherSuiteTLSECDHEECDSAWithCHACHA20POLY1305SHA256 CipherSuite = "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256"
+
+	// TLS 1.3 cipher suites
+	CipherSuiteTLSAES128GCMSHA256        CipherSuite = "TLS_AES_128_GCM_SHA256"
+	CipherSuiteTLSAES256GCMSHA384        CipherSuite = "TLS_AES_256_GCM_SHA384"
+	CipherSuiteTLSCHACHA20POLY1305SHA256 CipherSuite = "TLS_CHACHA20_POLY1305_SHA256"
+)
+
+// TLSOptions defines TLS security settings for Kueue servers
+type TLSOptions struct {
+	// MinTLSVersion specifies the minimum TLS version that is acceptable.
+	// If not specified, defaults to "1.2" for backward compatibility.
+	// +optional
+	MinTLSVersion TLSVersion `json:"minTLSVersion,omitempty"`
+
+	// CipherSuites specifies the list of enabled TLS cipher suites.
+	// If not specified, a secure default list will be used.
+	// The available cipher suites are defined in Go's crypto/tls package.
+	// See https://golang.org/pkg/crypto/tls/#pkg-constants for valid values.
+	// +optional
+	CipherSuites []CipherSuite `json:"cipherSuites,omitempty"`
 }
 
 // ClusterProfile defines configuration for using the ClusterProfile API in MultiKueue.

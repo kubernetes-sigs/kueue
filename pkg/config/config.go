@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	"sigs.k8s.io/kueue/pkg/util/tlsconfig"
 )
 
 var (
@@ -96,6 +97,15 @@ func addTo(o *ctrl.Options, cfg *configapi.Configuration) {
 		if cfg.Webhook.CertDir != "" {
 			wo.CertDir = cfg.Webhook.CertDir
 		}
+
+		// Apply TLS configuration if provided
+		if cfg.TLS != nil {
+			tlsOpts, err := tlsconfig.BuildTLSOptions(cfg.TLS)
+			if err == nil {
+				wo.TLSOpts = append(wo.TLSOpts, tlsOpts...)
+			}
+		}
+
 		o.WebhookServer = webhook.NewServer(wo)
 	}
 
