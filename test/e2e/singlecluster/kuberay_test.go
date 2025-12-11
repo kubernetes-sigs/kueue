@@ -154,8 +154,6 @@ var _ = ginkgo.Describe("Kuberay", func() {
 		})
 	})
 
-	// TODO enhance to test scale up / down operations
-	// See https://github.com/kubernetes-sigs/kueue/pull/8082#discussion_r2605582024
 	ginkgo.It("Should run a rayjob with InTreeAutoscaling", func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
