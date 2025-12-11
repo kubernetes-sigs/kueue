@@ -296,7 +296,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(40)])`,
 				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				// Count pods that have "workers" in their name
 				workerPodCount := countWorkerPods(podList)
-				g.Expect(workerPodCount).To(gomega.Equal(1), "Expected exactly 5 pods with 'workers' in the name")
+				g.Expect(workerPodCount).To(gomega.Equal(1), "Expected exactly 1 pods with 'workers' in the name")
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
