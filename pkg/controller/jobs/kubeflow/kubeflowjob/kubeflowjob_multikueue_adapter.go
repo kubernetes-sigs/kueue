@@ -74,10 +74,6 @@ func (a adapter[PtrT, T]) GVK() schema.GroupVersionKind {
 	return a.gvk
 }
 
-func (a adapter[PtrT, T]) KeepAdmissionCheckPending() bool {
-	return false
-}
-
 func (a adapter[PtrT, T]) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
 	kJobObj := PtrT(new(T))
 	err := c.Get(ctx, key, kJobObj)

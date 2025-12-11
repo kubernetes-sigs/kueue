@@ -49,6 +49,7 @@ import (
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
@@ -256,8 +257,20 @@ func (p *Pod) Suspend() {
 }
 
 // Run will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
-func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, recorder record.EventRecorder, msg string) error {
+func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, recorder record.EventRecorder, msg string, wl *kueue.Workload) error {
 	log := ctrl.LoggerFrom(ctx)
+
+	if features.Enabled(features.MultiKueue) {
+		skip, err := admissioncheck.ShouldSkipLocalExecution(ctx, c, wl)
+		if err != nil {
+			log.V(3).Info("Failed to check for MultiKueue admission check", "workload", klog.KObj(wl), "error", err)
+			return err
+		}
+		if skip {
+			log.V(3).Info("Workload has MultiKueue admission check, skipping local pod ungating", "workload", klog.KObj(wl))
+			return nil
+		}
+	}
 
 	if !p.isGroup {
 		if len(podSetsInfo) != 1 {
