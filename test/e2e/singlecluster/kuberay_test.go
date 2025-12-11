@@ -242,15 +242,14 @@ print([ray.get(my_task.remote(i, 1)) for i in range(40)])`,
 			gomega.Expect(k8sClient.Create(ctx, rayJob)).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("Checking one workload is created and admitted", func() {
+		ginkgo.By("Checking one workload is created", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				workloadList := &kueue.WorkloadList{}
 				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				g.Expect(workloadList.Items).NotTo(gomega.BeEmpty(), "Expected at least one workload in namespace")
 				hasAdmittedWorkload := false
 				for _, wl := range workloadList.Items {
-					if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadAdmitted) ||
-						apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
+					if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadAdmitted) {
 						hasAdmittedWorkload = true
 						break
 					}
@@ -280,6 +279,15 @@ print([ray.get(my_task.remote(i, 1)) for i in range(40)])`,
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		ginkgo.By("Waiting for 2 workloads", func() {
+			// 2 workloads: one for the ray job, another for the submitter job created by the ray job
+			gomega.Eventually(func(g gomega.Gomega) {
+				workloadList := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				g.Expect(workloadList.Items).To(gomega.HaveLen(2), "Expected exactly 2 workloads")
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
 		ginkgo.By("Waiting for 5 workers due to scaling up", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				podList := &corev1.PodList{}
@@ -287,6 +295,15 @@ print([ray.get(my_task.remote(i, 1)) for i in range(40)])`,
 				// Count pods that have "workers" in their name
 				workerPodCount := countRunningWorkerPods(podList)
 				g.Expect(workerPodCount).To(gomega.Equal(5), "Expected exactly 5 pods with 'workers' in the name")
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Waiting for 3 workloads", func() {
+			// 3 workloads now, after scaling up, a new workload will be created for the new resource request
+			gomega.Eventually(func(g gomega.Gomega) {
+				workloadList := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				g.Expect(workloadList.Items).To(gomega.HaveLen(3), "Expected exactly 3 workloads")
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
