@@ -76,6 +76,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/cert"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	"sigs.k8s.io/kueue/pkg/util/tlsconfig"
 	"sigs.k8s.io/kueue/pkg/util/useragent"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/version"
@@ -168,6 +169,16 @@ func main() {
 		BindAddress:    cfg.Metrics.BindAddress,
 		SecureServing:  true,
 		FilterProvider: filters.WithAuthenticationAndAuthorization,
+	}
+
+	// Apply TLS configuration from config
+	if cfg.TLS != nil {
+		tlsOpts, err := tlsconfig.BuildTLSOptions(cfg.TLS)
+		if err != nil {
+			setupLog.Error(err, "Unable to build TLS options from configuration")
+			os.Exit(1)
+		}
+		metricsServerOptions.TLSOpts = append(metricsServerOptions.TLSOpts, tlsOpts...)
 	}
 
 	if cfg.InternalCertManagement == nil || !*cfg.InternalCertManagement.Enable {
@@ -307,7 +318,7 @@ func main() {
 
 	if features.Enabled(features.VisibilityOnDemand) {
 		go func() {
-			if err := visibility.CreateAndStartVisibilityServer(ctx, queues, *cfg.InternalCertManagement.Enable, kubeConfig); err != nil {
+			if err := visibility.CreateAndStartVisibilityServer(ctx, queues, *cfg.InternalCertManagement.Enable, kubeConfig, cfg.TLS); err != nil {
 				setupLog.Error(err, "Unable to create and start visibility server")
 				os.Exit(1)
 			}
