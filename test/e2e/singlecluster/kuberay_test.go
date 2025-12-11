@@ -176,11 +176,13 @@ def my_task(x, s):
     return x * x
 
 # run tasks in sequence to avoid triggering autoscaling in the beginning
-print([ray.get(my_task.remote(i, 1)) for i in range(20)])
+print([ray.get(my_task.remote(i, 1)) for i in range(4)])
+
 # run tasks in parallel to trigger autoscaling (scaling up)
-print(ray.get([my_task.remote(i, 10) for i in range(10)]))
+print(ray.get([my_task.remote(i, 4) for i in range(6)]))
+
 # run tasks in sequence to trigger scaling down
-print([ray.get(my_task.remote(i, 1)) for i in range(40)])`,
+print([ray.get(my_task.remote(i, 1)) for i in range(8)])`,
 			},
 		}
 
@@ -298,7 +300,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(40)])`,
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("Waiting for 3 workloads", func() {
+		ginkgo.By("Waiting for 3 workloads due to scaling up creating another workload", func() {
 			// 3 workloads now, after scaling up, a new workload will be created for the new resource request
 			gomega.Eventually(func(g gomega.Gomega) {
 				workloadList := &kueue.WorkloadList{}
