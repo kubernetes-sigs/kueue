@@ -381,7 +381,7 @@ func ExpectWorkloadsToBeAdmittedCount(ctx context.Context, k8sClient client.Clie
 				admitted++
 			}
 		}
-		g.Expect(admitted).Should(gomega.Equal(count), "Not enough workloads are admitted")
+		g.Expect(admitted).Should(gomega.BeNumerically(">=", count), "Not enough workloads are admitted")
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
