@@ -42,6 +42,7 @@ import (
 	visibilityv1beta1 "sigs.k8s.io/kueue/apis/visibility/v1beta1"
 	visibilityv1beta2 "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	"sigs.k8s.io/kueue/pkg/util/tlsconfig"
 	"sigs.k8s.io/kueue/pkg/visibility/storage"
 
 	_ "k8s.io/component-base/metrics/prometheus/restclient" // for client-go metrics registration
@@ -73,9 +74,9 @@ func init() {
 // +kubebuilder:rbac:groups=flowcontrol.apiserver.k8s.io,resources=flowschemas/status,verbs=patch
 
 // CreateAndStartVisibilityServer creates a visibility server injecting KueueManager and starts it
-func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manager, enableInternalCertManagement bool, kubeConfig *rest.Config) error {
+func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manager, enableInternalCertManagement bool, kubeConfig *rest.Config, tlsOpts *tlsconfig.TLS) error {
 	config := newVisibilityServerConfig(kubeConfig)
-	if err := applyVisibilityServerOptions(config, enableInternalCertManagement); err != nil {
+	if err := applyVisibilityServerOptions(config, enableInternalCertManagement, tlsOpts); err != nil {
 		return fmt.Errorf("unable to apply VisibilityServerOptions: %w", err)
 	}
 
@@ -95,7 +96,7 @@ func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manage
 	return nil
 }
 
-func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, enableInternalCertManagement bool) error {
+func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, enableInternalCertManagement bool, tlsOpts *tlsconfig.TLS) error {
 	o := genericoptions.NewRecommendedOptions("", codecs.LegacyCodec(
 		visibilityv1beta2.SchemeGroupVersion,
 		visibilityv1beta1.SchemeGroupVersion,
@@ -113,7 +114,18 @@ func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, en
 	if err := o.SecureServing.MaybeDefaultWithSelfSignedCerts("localhost", nil, []net.IP{net.ParseIP("127.0.0.1")}); err != nil {
 		return fmt.Errorf("error creating self-signed certificates: %v", err)
 	}
-	return o.ApplyTo(config)
+
+	if err := o.ApplyTo(config); err != nil {
+		return err
+	}
+
+	// Only apply TLS options if the feature gate is enabled
+	if tlsOpts != nil && config.SecureServing != nil {
+		config.SecureServing.MinTLSVersion = tlsOpts.MinVersion
+		config.SecureServing.CipherSuites = tlsOpts.CipherSuites
+	}
+
+	return nil
 }
 
 func newVisibilityServerConfig(kubeConfig *rest.Config) *genericapiserver.RecommendedConfig {

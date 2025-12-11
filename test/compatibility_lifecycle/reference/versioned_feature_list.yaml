@@ -237,6 +237,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.14"
+- name: TLSOptions
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.16"
 - name: TopologyAwareScheduling
   versionedSpecs:
   - default: false
