@@ -53,11 +53,11 @@ var _ = ginkgo.Describe("Kuberay", func() {
 		lq *kueue.LocalQueue
 	)
 
-	// countWorkerPods counts the number of pods that have "workers" in their name
-	countWorkerPods := func(podList *corev1.PodList) int {
+	// countRunningWorkerPods counts the number of running pods that have "workers" in their name
+	countRunningWorkerPods := func(podList *corev1.PodList) int {
 		workerPodCount := 0
 		for _, pod := range podList.Items {
-			if strings.Contains(pod.Name, "workers") {
+			if strings.Contains(pod.Name, "workers") && pod.Status.Phase == corev1.PodRunning {
 				workerPodCount++
 			}
 		}
@@ -275,7 +275,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(40)])`,
 				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				g.Expect(podList.Items).To(gomega.HaveLen(3), "Expected exactly 3 pods in rayjob namespace")
 				// Count pods that have "workers" in their name
-				workerPodCount := countWorkerPods(podList)
+				workerPodCount := countRunningWorkerPods(podList)
 				g.Expect(workerPodCount).To(gomega.Equal(1), "Expected exactly 1 pod with 'workers' in the name")
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -285,7 +285,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(40)])`,
 				podList := &corev1.PodList{}
 				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				// Count pods that have "workers" in their name
-				workerPodCount := countWorkerPods(podList)
+				workerPodCount := countRunningWorkerPods(podList)
 				g.Expect(workerPodCount).To(gomega.Equal(5), "Expected exactly 5 pods with 'workers' in the name")
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -295,7 +295,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(40)])`,
 				podList := &corev1.PodList{}
 				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				// Count pods that have "workers" in their name
-				workerPodCount := countWorkerPods(podList)
+				workerPodCount := countRunningWorkerPods(podList)
 				g.Expect(workerPodCount).To(gomega.Equal(1), "Expected exactly 1 pods with 'workers' in the name")
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
