@@ -295,8 +295,8 @@ func (m *Manager) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 }
 
 func (m *Manager) DefaultLocalQueueExist(namespace string) bool {
-	m.Lock()
-	defer m.Unlock()
+	m.RLock()
+	defer m.RUnlock()
 
 	_, ok := m.localQueues[queue.DefaultQueueKey(namespace)]
 	return ok
@@ -313,7 +313,8 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 	qImpl := newLocalQueue(q)
 	m.localQueues[key] = qImpl
 
-	if cq := m.hm.ClusterQueue(qImpl.ClusterQueue); cq != nil {
+	cq := m.hm.ClusterQueue(qImpl.ClusterQueue)
+	if cq != nil {
 		cq.addLocalQueue(key)
 	}
 
@@ -340,7 +341,7 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		workload.AdjustResources(ctx, m.client, &w)
 		qImpl.AddOrUpdate(workload.NewInfo(&w, m.workloadInfoOptions...))
 	}
-	cq := m.hm.ClusterQueue(qImpl.ClusterQueue)
+
 	if cq != nil && cq.AddFromLocalQueue(qImpl) {
 		m.Broadcast()
 	}
