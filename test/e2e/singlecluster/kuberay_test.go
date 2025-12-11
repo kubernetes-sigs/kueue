@@ -182,7 +182,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(4)])
 print(ray.get([my_task.remote(i, 4) for i in range(6)]))
 
 # run tasks in sequence to trigger scaling down
-print([ray.get(my_task.remote(i, 1)) for i in range(8)])`,
+print([ray.get(my_task.remote(i, 1)) for i in range(16)])`,
 			},
 		}
 
