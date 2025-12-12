@@ -1150,6 +1150,11 @@ func IsActive(w *kueue.Workload) bool {
 	return ptr.Deref(w.Spec.Active, true)
 }
 
+// IsAdmissible returns true if the workload can be added to the queue.
+func IsAdmissible(w *kueue.Workload) bool {
+	return !IsFinished(w) && IsActive(w) && !HasQuotaReservation(w)
+}
+
 // HasDRA returns true if the workload has DRA resources (ResourceClaims or ResourceClaimTemplates).
 func HasDRA(w *kueue.Workload) bool {
 	return HasResourceClaim(w) || HasResourceClaimTemplates(w)
