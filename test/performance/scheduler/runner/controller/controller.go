@@ -116,7 +116,7 @@ func (r *reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	log := ctrl.LoggerFrom(ctx)
 	// this should only:
 	// 1. finish the workloads eviction
-	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
+	if workload.IsEvicted(&wl) {
 		err := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			return workload.UnsetQuotaReservationWithCondition(wl, "Pending", "Evicted by the test runner", time.Now()), nil
 		})

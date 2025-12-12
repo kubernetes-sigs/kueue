@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/performance/scheduler/runner/generator"
 )
 
@@ -423,9 +424,9 @@ func (r *Recorder) RecordWorkloadState(wl *kueue.Workload) {
 		},
 		UID:       wl.UID,
 		ClassName: wl.Labels[generator.ClassLabel],
-		Admitted:  apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadAdmitted),
-		Evicted:   apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted),
-		Finished:  apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished),
+		Admitted:  workload.IsAdmitted(wl),
+		Evicted:   workload.IsEvicted(wl),
+		Finished:  workload.IsFinished(wl),
 	}
 }
 
