@@ -38,6 +38,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
@@ -112,7 +113,10 @@ func (t *Target) GetObject() client.Object {
 // order to make room for wl.
 func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment flavorassigner.Assignment, snapshot *schdcache.Snapshot) []*Target {
 	cq := snapshot.ClusterQueue(wl.ClusterQueue)
-	tasRequests := assignment.WorkloadsTopologyRequests(&wl, cq)
+	var tasRequests schdcache.WorkloadTASRequests
+	if features.Enabled(features.TopologyAwareScheduling) {
+		tasRequests = assignment.WorkloadsTopologyRequests(&wl, cq)
+	}
 	return p.getTargets(&preemptionCtx{
 		clock:             p.clock,
 		log:               log,
