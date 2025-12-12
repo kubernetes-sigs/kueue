@@ -1,3 +1,39 @@
+## v0.15.1
+
+Changes since `v0.15.0`:
+
+## Changes by Kind
+
+### Feature
+
+- TAS: extend the information in condition messages and events about nodes excluded from calculating the
+  assignment due to various recognized reasons like: taints, node affinity, node resource constraints. (#8132, @sohankunkerkar)
+
+### Bug or Regression
+
+- Fix `TrainJob` controller not correctly setting the `PodSet` count value based on `numNodes` for the expected number of training nodes. (#8145, @kaisoz)
+- Fix a performance bug as some "read-only" functions would be taking unnecessary "write" lock. (#8183, @ErikJiang)
+- Fix the race condition bug where the kueue_pending_workloads metric may not be updated to 0 after the last 
+  workload is admitted and there are no new workloads incoming. (#8049, @Singularity23x0)
+- Fixed a bug that Kueue's scheduler would re-evaluate and update already finished workloads, significantly
+  impacting overall scheduling throughput. This re-evaluation of a finished workload would be triggered when:
+  1. Kueue is restarted
+  2. There is any event related to LimitRange or RuntimeClass instances referenced by the workload (#8198, @mimowo)
+- Fixed the following bugs for the StatefulSet integration by ensuring the Workload object
+  has the ownerReference to the StatefulSet:
+  1. Kueue doesn't keep the StatefulSet as deactivated
+  2. Kueue marks the Workload as Finished if all StatefulSet's Pods are deleted
+  3. changing the "queue-name" label could occasionally result in the StatefulSet getting stuck (#8105, @mbobrovskyi)
+- MultiKueue via ClusterProfile: Fix the panic if the configuration for ClusterProfiles wasn't not provided in the configMap. (#8097, @mszadkow)
+- TAS: Fix handling of admission for workloads using the LeastFreeCapacity algorithm when the  "unconstrained"
+  mode is used. In that case scheduling would fail if there is at least one node in the cluster which does not have
+  enough capacity to accommodate at least one Pod. (#8172, @PBundyra)
+- TAS: fix bug that when TopologyAwareScheduling is disabled, but there is a ResourceFlavor configured with topologyName, then preemptions fail with "workload requires Topology, but there is no TAS cache information". (#8195, @zhifei92)
+
+### Other (Cleanup or Flake)
+
+- Fix: Removed outdated comments incorrectly stating that deployment, statefulset, and leaderworkerset integrations require pod integration to be enabled. (#8054, @IrvingMg)
+
 ## v0.15.0
 
 Changes since `v0.14.0`:
