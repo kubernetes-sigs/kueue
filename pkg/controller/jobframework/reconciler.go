@@ -53,6 +53,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
@@ -1139,11 +1140,25 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 	}
 	msg := fmt.Sprintf("Admitted by clusterQueue %v", wl.Status.Admission.ClusterQueue)
 
+	log := ctrl.LoggerFrom(ctx)
+
 	if cj, implements := job.(ComposableJob); implements {
-		if err := cj.Run(ctx, r.client, info, r.record, msg); err != nil {
+		if err := cj.Run(ctx, r.client, info, r.record, msg, wl); err != nil {
 			return err
 		}
 	} else {
+		if !features.Enabled(features.MultiKueueBatchJobWithManagedBy) {
+			skip, err := admissioncheck.ShouldSkipLocalExecution(ctx, r.client, wl)
+			if err != nil {
+				log.V(3).Info("Failed to check for MultiKueue admission check", "workload", klog.KObj(wl), "error", err)
+				return err
+			}
+			if skip {
+				log.V(3).Info("Workload has MultiKueue admission check, skipping local job start", "workload", klog.KObj(wl))
+				return nil
+			}
+		}
+
 		if err := clientutil.Patch(ctx, r.client, object, func() (bool, error) {
 			return true, job.RunWithPodSetsInfo(ctx, info)
 		}); err != nil {

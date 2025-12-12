@@ -126,7 +126,7 @@ type ComposableJob interface {
 	Load(ctx context.Context, c client.Client, key *types.NamespacedName) (removeFinalizers bool, err error)
 	// Run unsuspends all members of the ComposableJob and injects the node affinity with podSet
 	// counts extracting from workload to all members of the ComposableJob.
-	Run(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, r record.EventRecorder, msg string) error
+	Run(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, r record.EventRecorder, msg string, wl *kueue.Workload) error
 	// ConstructComposableWorkload returns a new Workload that's assembled out of all members of the ComposableJob.
 	ConstructComposableWorkload(ctx context.Context, c client.Client, r record.EventRecorder, labelKeysToCopy []string) (*kueue.Workload, error)
 	// ListChildWorkloads returns all workloads related to the composable job.
@@ -245,10 +245,6 @@ type MultiKueueAdapter interface {
 	// - a reason indicating why the job is not managed by Kueue
 	// - any API error encountered during the check
 	IsJobManagedByKueue(ctx context.Context, localClient client.Client, key types.NamespacedName) (bool, string, error)
-	// KeepAdmissionCheckPending returns true if the state of the multikueue admission check should be
-	// kept Pending while the job runs in a worker. This might be needed to keep the managers job
-	// suspended and not start the execution locally.
-	KeepAdmissionCheckPending() bool
 	// GVK returns GVK (Group Version Kind) for the job.
 	GVK() schema.GroupVersionKind
 }
