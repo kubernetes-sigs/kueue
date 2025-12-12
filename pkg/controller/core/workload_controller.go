@@ -846,7 +846,7 @@ func (r *WorkloadReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) b
 	// When assigning a clusterQueue to a workload, we assume it in the cache. If
 	// the state is unknown, the workload could have been assumed, and we need
 	// to clear it from the cache.
-	if workload.HasQuotaReservation(e.Object) || e.DeleteStateUnknown {
+	if workload.IsFinished(e.Object) || workload.HasQuotaReservation(e.Object) || e.DeleteStateUnknown {
 		// trigger the move of associated inadmissibleWorkloads if required.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, e.Object, func() {
 			// Delete the workload from cache while holding the queues lock
