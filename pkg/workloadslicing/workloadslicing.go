@@ -102,7 +102,7 @@ func ReplacementForKey(wl *kueue.Workload) *workload.Reference {
 // 3. If the patch fails, it returns an error.
 func Finish(ctx context.Context, clnt client.Client, clk clock.Clock, workloadSlice *kueue.Workload, reason, message string) error {
 	// NOOP if the workload already has "Finished" condition (irrespective of reason and message values).
-	if apimeta.IsStatusConditionTrue(workloadSlice.Status.Conditions, kueue.WorkloadFinished) {
+	if workload.IsFinished(workloadSlice) {
 		return nil
 	}
 	if err := workload.Finish(ctx, clnt, workloadSlice, reason, message, clk); err != nil {
@@ -141,7 +141,7 @@ func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject
 
 	// Filter out workloads with activated "Finished" condition.
 	return slices.DeleteFunc(list.Items, func(w kueue.Workload) bool {
-		return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished)
+		return workload.IsFinished(&w)
 	}), nil
 }
 

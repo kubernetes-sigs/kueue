@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/onsi/gomega"
-	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -36,7 +35,7 @@ func FinishRunningWorkloadsInCQ(ctx context.Context, k8sClient client.Client, cq
 	finished := 0
 	for i := 0; i < len(wList.Items) && finished < n; i++ {
 		wl := wList.Items[i]
-		if wl.Status.Admission != nil && string(wl.Status.Admission.ClusterQueue) == cq.Name && !meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
+		if wl.Status.Admission != nil && string(wl.Status.Admission.ClusterQueue) == cq.Name && !workload.IsFinished(&wl) {
 			FinishWorkloads(ctx, k8sClient, &wl)
 			finished++
 		}

@@ -99,7 +99,7 @@ func (r *reconciler) Update(ev event.UpdateEvent) bool {
 
 	r.recorder.RecordWorkloadState(wl)
 
-	return admitted && !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished)
+	return admitted && !workload.IsFinished(wl)
 }
 
 func (r *reconciler) Generic(_ event.GenericEvent) bool {
