@@ -1050,3 +1050,79 @@ func TestFsAdmission(t *testing.T) {
 		})
 	}
 }
+
+func TestHasStrictFIFOHigherPriorityPending(t *testing.T) {
+	ctx := context.Background()
+	cases := map[string]struct {
+		workloads        []*kueue.Workload
+		queueingStrategy kueue.QueueingStrategy
+		checkPriority    int32
+		want             bool
+	}{
+		"empty queue returns false": {
+			workloads:        nil,
+			queueingStrategy: kueue.StrictFIFO,
+			checkPriority:    100,
+			want:             false,
+		},
+		"no higher priority workload": {
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("wl-low", defaultNamespace).Priority(50).Obj(),
+				utiltestingapi.MakeWorkload("wl-medium", defaultNamespace).Priority(100).Obj(),
+			},
+			queueingStrategy: kueue.StrictFIFO,
+			checkPriority:    100,
+			want:             false,
+		},
+		"higher priority workload exists with StrictFIFO": {
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("wl-low", defaultNamespace).Priority(50).Obj(),
+				utiltestingapi.MakeWorkload("wl-high", defaultNamespace).Priority(200).Obj(),
+			},
+			queueingStrategy: kueue.StrictFIFO,
+			checkPriority:    100,
+			want:             true,
+		},
+		"equal priority is not higher": {
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("wl-equal", defaultNamespace).Priority(100).Obj(),
+			},
+			queueingStrategy: kueue.StrictFIFO,
+			checkPriority:    100,
+			want:             false,
+		},
+		"higher priority workload exists but BestEffortFIFO returns false": {
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("wl-high", defaultNamespace).Priority(200).Obj(),
+			},
+			queueingStrategy: kueue.BestEffortFIFO,
+			checkPriority:    100,
+			want:             false,
+		},
+		"higher priority workload exists but empty strategy returns false": {
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("wl-high", defaultNamespace).Priority(200).Obj(),
+			},
+			queueingStrategy: "",
+			checkPriority:    100,
+			want:             false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()))
+			cq.namespaceSelector = labels.Everything()
+			cq.queueingStrategy = tc.queueingStrategy
+
+			for _, wl := range tc.workloads {
+				cq.PushOrUpdate(workload.NewInfo(wl))
+			}
+
+			got := cq.HasStrictFIFOHigherPriorityPending(tc.checkPriority)
+			if got != tc.want {
+				t.Errorf("HasStrictFIFOHigherPriorityPending(%d) = %v, want %v", tc.checkPriority, got, tc.want)
+			}
+		})
+	}
+}
