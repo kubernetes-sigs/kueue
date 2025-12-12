@@ -706,6 +706,6 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 			g.Expect(client.IgnoreNotFound(err)).Should(gomega.Succeed())
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).Should(gomega.Succeed())
 			g.Expect(createdJob.Spec.Suspend).Should(gomega.BeFalse())
-		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 	})
 })

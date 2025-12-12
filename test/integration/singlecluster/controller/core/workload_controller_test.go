@@ -709,7 +709,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo
 					})
 					g.Expect(err).NotTo(gomega.HaveOccurred())
 					g.Expect(found).To(gomega.BeTrue())
-				}, util.ShortTimeout, util.Interval).ShouldNot(gomega.Succeed())
+				}, util.ConsistentDuration, util.ShortInterval).ShouldNot(gomega.Succeed())
 			})
 		})
 
@@ -995,9 +995,9 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 			})
 
 			ginkgo.By("workload should not be deleted before the retention period", func() {
-				gomega.Consistently(func() error {
-					return k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWorkload)
-				}, util.ShortTimeout, util.Interval).Should(gomega.Succeed())
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWorkload)).To(gomega.Succeed())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 		})
 	})
