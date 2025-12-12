@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"strconv"
 
-	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -209,14 +208,20 @@ func (j *Job) GVK() schema.GroupVersionKind {
 }
 
 func (j *Job) IsTopLevel(k8sClient client.Client) bool {
-	// TODO call isRaySubmitterJobWithAutoScaling to check ray submitter job
 	owner := metav1.GetControllerOf(j)
 	if owner == nil {
 		return true
 	}
 
+	ctx := context.Background()
+
 	// Special handling for RayJob created batch/Job, since RayJob will create a submitter Job
-	createdByRayJob := owner.APIVersion == rayv1.GroupVersion.String() && owner.Kind == "RayJob"
+	createdByRayJob, _, err := isRaySubmitterJobWithAutoScaling(ctx, j.Object(), k8sClient)
+	if err != nil {
+		log := ctrl.LoggerFrom(ctx).WithValues("jobName", j.Name, "jobNamespace", j.Namespace)
+		log.Error(err, "Failed to check if job is ray submitter job")
+		return false
+	}
 	if !createdByRayJob {
 		// TODO improve this in the future, now assume the job not top level if it is not created by RayJob
 		return false
