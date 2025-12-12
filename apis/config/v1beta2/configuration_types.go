@@ -459,6 +459,13 @@ type ResourceTransformation struct {
 	// Defaults to Retain
 	Strategy *ResourceTransformationStrategy `json:"strategy,omitempty"`
 
+	// MultiplyBy indicates the resource name requested by a workload, if
+	// specified.
+	// The requested amount of the resource is used to multiply the requested
+	// amount of the resource indicated by the "input" field.
+	// +optional
+	MultiplyBy corev1.ResourceName `json:"multiplyBy,omitempty"`
+
 	// Outputs specifies the output resources and quantities per unit of input resource.
 	// An empty Outputs combined with a `Replace` Strategy causes the Input resource to be ignored by Kueue.
 	Outputs corev1.ResourceList `json:"outputs,omitempty"`
