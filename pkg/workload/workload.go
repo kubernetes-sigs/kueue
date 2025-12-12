@@ -83,7 +83,7 @@ func NewReference(namespace, name string) Reference {
 }
 
 func Status(w *kueue.Workload) string {
-	if apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished) {
+	if IsFinished(w) {
 		return StatusFinished
 	}
 	if IsAdmitted(w) {
