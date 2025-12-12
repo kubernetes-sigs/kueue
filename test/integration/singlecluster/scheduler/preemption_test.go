@@ -591,7 +591,10 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, useAllAlphaWl)
 			util.FinishEvictionForWorkloads(ctx, k8sClient, useAllAlphaWl)
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, preemptorBetaWl)
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, useAllAlphaWl, pendingAlphaWl)
+			// here we only assert tha the "use-all" workload is pending. The other
+			// workload "pending" may occasionally get admitted, see the issue analysis
+			// under https://github.com/kubernetes-sigs/kueue/issues/8141#issuecomment-3641580881
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, useAllAlphaWl)
 		})
 	})
 
