@@ -321,7 +321,7 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 	})
 }
 
-func (p *Pod) IsTopLevel() bool {
+func (p *Pod) IsTopLevel(k8sClient client.Client) bool {
 	return true
 }
 

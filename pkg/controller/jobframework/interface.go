@@ -175,7 +175,7 @@ type JobWithManagedBy interface {
 // owner references.
 type TopLevelJob interface {
 	// IsTopLevel returns true if the Job owns/manages the Workload.
-	IsTopLevel() bool
+	IsTopLevel(k8sClient client.Client) bool
 }
 
 func QueueName(job GenericJob) kueue.LocalQueueName {
