@@ -200,7 +200,7 @@ tests:
         backend:
           env:
             - name: KUEUEVIZ_ALLOWED_ORIGINS
-              value: "frontend.kueueviz.local"
+              value: "https://frontend.kueueviz.local"
             - name: KUEUEVIZ_PORT
               value: "8080"
     asserts:
@@ -209,7 +209,7 @@ tests:
           value: KUEUEVIZ_ALLOWED_ORIGINS
       - equal:
           path: spec.template.spec.containers[0].env[0].value
-          value: "frontend.kueueviz.local"
+          value: "https://frontend.kueueviz.local"
       - equal:
           path: spec.template.spec.containers[0].env[1].name
           value: KUEUEVIZ_PORT
