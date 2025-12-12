@@ -284,7 +284,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			queueOptions = append(queueOptions, workload.WithPreprocessedDRAResources(draResources))
 		}
 
-		if workload.IsActive(&wl) && !workload.HasQuotaReservation(&wl) {
+		if workload.IsAdmissible(&wl) {
 			if err := r.queues.AddOrUpdateWorkload(log, wl.DeepCopy(), queueOptions...); err != nil {
 				log.V(2).Info("Failed to add DRA workload to queue", "error", err)
 				return ctrl.Result{}, err
@@ -373,7 +373,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		reason := kueue.WorkloadDeactivated
 		message := "The workload is deactivated"
 		dtCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadDeactivationTarget)
-		if !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
+		if !workload.IsEvicted(&wl) {
 			if dtCond != nil {
 				underlyingCause = kueue.EvictionUnderlyingCause(dtCond.Reason)
 				message = fmt.Sprintf("%s due to %s", message, dtCond.Message)
@@ -596,7 +596,7 @@ func (r *WorkloadReconciler) reconcileMaxExecutionTime(ctx context.Context, wl *
 // reconcileCheckBasedEviction evicts or deactivates the given Workload if any admission checks have failed.
 // Returns true if the Workload was rejected or deactivated, and false otherwise.
 func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl *kueue.Workload) (bool, error) {
-	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) || (!workload.HasRetryChecks(wl) && !workload.HasRejectedChecks(wl)) {
+	if workload.IsEvicted(wl) || (!workload.HasRetryChecks(wl) && !workload.HasRejectedChecks(wl)) {
 		return false, nil
 	}
 	log := ctrl.LoggerFrom(ctx)
@@ -647,7 +647,7 @@ func (r *WorkloadReconciler) reconcileOnLocalQueueActiveState(ctx context.Contex
 		if queueStopPolicy != kueue.HoldAndDrain {
 			return false, nil
 		}
-		if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
+		if workload.IsEvicted(wl) {
 			log.V(3).Info("Workload is already evicted.")
 			return false, nil
 		}
@@ -688,7 +688,7 @@ func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Cont
 		if queueStopPolicy != kueue.HoldAndDrain {
 			return false, nil
 		}
-		if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
+		if workload.IsEvicted(wl) {
 			log.V(3).Info("Workload is already evicted.")
 			return false, nil
 		}
@@ -753,7 +753,7 @@ func syncAdmissionCheckConditions(conds []kueue.AdmissionCheckState, admissionCh
 func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req ctrl.Request, wl *kueue.Workload) (time.Duration, error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	if !workload.IsActive(wl) || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
+	if !workload.IsActive(wl) || workload.IsEvicted(wl) {
 		// the workload has already been evicted by the PodsReadyTimeout or been deactivated.
 		return 0, nil
 	}
@@ -820,7 +820,7 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 		return true
 	}
 
-	if workload.IsActive(e.Object) && !workload.HasQuotaReservation(e.Object) {
+	if workload.IsAdmissible(e.Object) {
 		if err := r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
 			log.V(2).Info("ignored an error for now", "error", err)
 		}
@@ -846,7 +846,7 @@ func (r *WorkloadReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) b
 	// When assigning a clusterQueue to a workload, we assume it in the cache. If
 	// the state is unknown, the workload could have been assumed, and we need
 	// to clear it from the cache.
-	if workload.HasQuotaReservation(e.Object) || e.DeleteStateUnknown {
+	if workload.IsFinished(e.Object) || workload.HasQuotaReservation(e.Object) || e.DeleteStateUnknown {
 		// trigger the move of associated inadmissibleWorkloads if required.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, e.Object, func() {
 			// Delete the workload from cache while holding the queues lock
@@ -1168,7 +1168,7 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, q
 			continue
 		}
 
-		if workload.IsActive(wlCopy) && !workload.HasQuotaReservation(wlCopy) {
+		if workload.IsAdmissible(wlCopy) {
 			if err = h.r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
 				log.V(2).Info("ignored an error for now", "error", err)
 			}

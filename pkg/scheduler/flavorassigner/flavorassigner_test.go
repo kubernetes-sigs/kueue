@@ -204,7 +204,6 @@ func TestAssignFlavors(t *testing.T) {
 		simulationResult                    map[resources.FlavorResource]simulationResultForFlavor
 		elasticJobsViaWorkloadSlicesEnabled bool
 		preemptWorkloadSlice                *workload.Info
-		enableImplicitPreferenceDefault     bool
 		featureGates                        map[featuregate.Feature]bool
 	}{
 		"single flavor, fits": {
@@ -3230,195 +3229,12 @@ func TestAssignFlavors(t *testing.T) {
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
 			},
 		},
-		"preferPreemption; preempt without borrowing is preferred over fit with borrowing; preempt within cohort": {
-			enableImplicitPreferenceDefault: true,
-			wlPods: []kueue.PodSet{
-				*utiltestingapi.MakePodSet("main", 1).
-					Request(corev1.ResourceCPU, "10").
-					Obj(),
-			},
-			clusterQueue: *utiltestingapi.MakeClusterQueue("cq-test").
-				Cohort("cohort").
-				FlavorFungibility(kueue.FlavorFungibility{
-					WhenCanPreempt: kueue.TryNextFlavor,
-					WhenCanBorrow:  kueue.TryNextFlavor,
-				}).
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("one").
-						Resource(corev1.ResourceCPU, "10").
-						Obj(),
-					*utiltestingapi.MakeFlavorQuotas("two").
-						Resource(corev1.ResourceCPU, "5").
-						Obj(),
-				).Obj(),
-			secondaryClusterQueue: utiltestingapi.MakeClusterQueue("cq-secondary").
-				Cohort("cohort").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("one").
-						Resource(corev1.ResourceCPU, "5").
-						Obj(),
-					*utiltestingapi.MakeFlavorQuotas("two").
-						Resource(corev1.ResourceCPU, "5").
-						Obj(),
-				).
-				Obj(),
-			secondaryClusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 10_000,
-			},
-			wantRepMode: Preempt,
-			wantAssignment: Assignment{
-				PodSets: []PodSetAssignment{{
-					Name: "main",
-					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "one", Mode: Preempt, TriedFlavorIdx: -1},
-					},
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("10"),
-					},
-					Status: *NewStatus("insufficient unused quota for cpu in flavor one, 5 more needed"),
-					Count:  1,
-					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
-						{
-							Flavor:                "one",
-							Mode:                  Preempt,
-							PreemptionPossibility: ptr.To(preemptioncommon.Preempt),
-							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 5 more needed"},
-						},
-						{Flavor: "two", Mode: Fit, Borrow: 1},
-					},
-				}},
-				Borrowing: 0,
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "one", Resource: corev1.ResourceCPU}: 10_000,
-				}},
-			},
-		},
-		"preferPreemption; preempt without borrowing is preferred over fit with borrowing; preempt in own CQ": {
-			enableImplicitPreferenceDefault: true,
-			wlPods: []kueue.PodSet{
-				*utiltestingapi.MakePodSet("main", 1).
-					Request(corev1.ResourceCPU, "10").
-					Obj(),
-			},
-			clusterQueue: *utiltestingapi.MakeClusterQueue("cq-test").
-				Cohort("cohort").
-				FlavorFungibility(kueue.FlavorFungibility{
-					WhenCanPreempt: kueue.TryNextFlavor,
-					WhenCanBorrow:  kueue.TryNextFlavor,
-				}).
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("one").
-						Resource(corev1.ResourceCPU, "10").
-						Obj(),
-					*utiltestingapi.MakeFlavorQuotas("two").
-						Resource(corev1.ResourceCPU, "5").
-						Obj(),
-				).Obj(),
-			secondaryClusterQueue: utiltestingapi.MakeClusterQueue("cq-secondary").
-				Cohort("cohort").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("one").
-						Resource(corev1.ResourceCPU, "5").
-						Obj(),
-					*utiltestingapi.MakeFlavorQuotas("two").
-						Resource(corev1.ResourceCPU, "5").
-						Obj(),
-				).
-				Obj(),
-			clusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 10_000,
-			},
-			wantRepMode: Preempt,
-			wantAssignment: Assignment{
-				PodSets: []PodSetAssignment{{
-					Name: "main",
-					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "one", Mode: Preempt, TriedFlavorIdx: -1},
-					},
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("10"),
-					},
-					Status: *NewStatus("insufficient unused quota for cpu in flavor one, 5 more needed"),
-					Count:  1,
-					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
-						{
-							Flavor:                "one",
-							Mode:                  Preempt,
-							PreemptionPossibility: ptr.To(preemptioncommon.Preempt),
-							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 5 more needed"},
-						},
-						{Flavor: "two", Mode: Fit, Borrow: 1},
-					},
-				}},
-				Borrowing: 0,
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "one", Resource: corev1.ResourceCPU}: 10_000,
-				}},
-			},
-		},
-		"preferPreemption; fit without borrowing is preferred over fit with borrowing": {
-			enableImplicitPreferenceDefault: true,
-			wlPods: []kueue.PodSet{
-				*utiltestingapi.MakePodSet("main", 1).
-					Request(corev1.ResourceCPU, "10").
-					Obj(),
-			},
-			clusterQueue: *utiltestingapi.MakeClusterQueue("cq-test").
-				Cohort("cohort").
-				FlavorFungibility(kueue.FlavorFungibility{
-					WhenCanPreempt: kueue.TryNextFlavor,
-					WhenCanBorrow:  kueue.TryNextFlavor,
-				}).
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("one").
-						Resource(corev1.ResourceCPU, "5").
-						Obj(),
-					*utiltestingapi.MakeFlavorQuotas("two").
-						Resource(corev1.ResourceCPU, "10").
-						Obj(),
-				).Obj(),
-			secondaryClusterQueue: utiltestingapi.MakeClusterQueue("cq-secondary").
-				Cohort("cohort").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("one").
-						Resource(corev1.ResourceCPU, "5").
-						Obj(),
-					*utiltestingapi.MakeFlavorQuotas("two").
-						Resource(corev1.ResourceCPU, "5").
-						Obj(),
-				).
-				Obj(),
-			wantRepMode: Fit,
-			wantAssignment: Assignment{
-				PodSets: []PodSetAssignment{{
-					Name: "main",
-					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
-					},
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("10"),
-					},
-					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
-						{Flavor: "one", Mode: Fit, Borrow: 1},
-						{Flavor: "two", Mode: Fit},
-					},
-					Count: 1,
-				}},
-				Borrowing: 0,
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "two", Resource: corev1.ResourceCPU}: 10_000,
-				}},
-			},
-		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 			if tc.disableLendingLimit {
 				features.SetFeatureGateDuringTest(t, features.LendingLimit, false)
-			}
-			if tc.enableImplicitPreferenceDefault {
-				features.SetFeatureGateDuringTest(t, features.FlavorFungibilityImplicitPreferenceDefault, true)
 			}
 			for fg, enabled := range tc.featureGates {
 				features.SetFeatureGateDuringTest(t, fg, enabled)
@@ -4005,7 +3821,6 @@ func TestIsPreferred(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		enableGate    bool
 		a             granularMode
 		b             granularMode
 		config        kueue.FlavorFungibility
@@ -4020,30 +3835,9 @@ func TestIsPreferred(t *testing.T) {
 			},
 			wantPreferred: true,
 		},
-		"both policies try default to borrowing preference": {
-			enableGate: true,
-			a:          granularMode{preemptionMode: preempt, borrowingLevel: 1},
-			b:          granularMode{preemptionMode: fit, borrowingLevel: 2},
-			config: kueue.FlavorFungibility{
-				WhenCanBorrow:  kueue.TryNextFlavor,
-				WhenCanPreempt: kueue.TryNextFlavor,
-			},
-			wantPreferred: true,
-		},
-		"mismatched policies default to preemption preference": {
-			enableGate: true,
-			a:          granularMode{preemptionMode: preempt, borrowingLevel: 0},
-			b:          granularMode{preemptionMode: fit, borrowingLevel: 1},
-			config: kueue.FlavorFungibility{
-				WhenCanBorrow:  kueue.MayStopSearch,
-				WhenCanPreempt: kueue.TryNextFlavor,
-			},
-			wantPreferred: false,
-		},
 		"explicit BorrowingOverPreemption prioritises borrowing distance": {
-			enableGate: false,
-			a:          granularMode{preemptionMode: preempt, borrowingLevel: 1},
-			b:          granularMode{preemptionMode: fit, borrowingLevel: 2},
+			a: granularMode{preemptionMode: preempt, borrowingLevel: 1},
+			b: granularMode{preemptionMode: fit, borrowingLevel: 2},
 			config: kueue.FlavorFungibility{
 				WhenCanBorrow:  kueue.TryNextFlavor,
 				WhenCanPreempt: kueue.TryNextFlavor,
@@ -4052,9 +3846,8 @@ func TestIsPreferred(t *testing.T) {
 			wantPreferred: true,
 		},
 		"explicit PreemptionOverBorrowing prioritises lower preemption": {
-			enableGate: false,
-			a:          granularMode{preemptionMode: preempt, borrowingLevel: 1},
-			b:          granularMode{preemptionMode: fit, borrowingLevel: 2},
+			a: granularMode{preemptionMode: preempt, borrowingLevel: 1},
+			b: granularMode{preemptionMode: fit, borrowingLevel: 2},
 			config: kueue.FlavorFungibility{
 				WhenCanBorrow:  kueue.TryNextFlavor,
 				WhenCanPreempt: kueue.TryNextFlavor,
@@ -4063,9 +3856,8 @@ func TestIsPreferred(t *testing.T) {
 			wantPreferred: false,
 		},
 		"explicit PreemptionOverBorrowing breaks borrowing ties with preemption": {
-			enableGate: false,
-			a:          granularMode{preemptionMode: preempt, borrowingLevel: 1},
-			b:          granularMode{preemptionMode: fit, borrowingLevel: 1},
+			a: granularMode{preemptionMode: preempt, borrowingLevel: 1},
+			b: granularMode{preemptionMode: fit, borrowingLevel: 1},
 			config: kueue.FlavorFungibility{
 				WhenCanBorrow:  kueue.TryNextFlavor,
 				WhenCanPreempt: kueue.TryNextFlavor,
@@ -4077,8 +3869,6 @@ func TestIsPreferred(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.FlavorFungibilityImplicitPreferenceDefault, tc.enableGate)
-
 			if got := isPreferred(tc.a, tc.b, tc.config); got != tc.wantPreferred {
 				t.Fatalf("isPreferred(%+v, %+v, %+v)=%t, want %t", tc.a, tc.b, tc.config, got, tc.wantPreferred)
 			}

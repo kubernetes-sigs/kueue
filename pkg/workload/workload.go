@@ -83,7 +83,7 @@ func NewReference(namespace, name string) Reference {
 }
 
 func Status(w *kueue.Workload) string {
-	if apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished) {
+	if IsFinished(w) {
 		return StatusFinished
 	}
 	if IsAdmitted(w) {
@@ -1150,6 +1150,11 @@ func IsActive(w *kueue.Workload) bool {
 	return ptr.Deref(w.Spec.Active, true)
 }
 
+// IsAdmissible returns true if the workload can be added to the queue.
+func IsAdmissible(w *kueue.Workload) bool {
+	return !IsFinished(w) && IsActive(w) && !HasQuotaReservation(w)
+}
+
 // HasDRA returns true if the workload has DRA resources (ResourceClaims or ResourceClaimTemplates).
 func HasDRA(w *kueue.Workload) bool {
 	return HasResourceClaim(w) || HasResourceClaimTemplates(w)
@@ -1209,7 +1214,7 @@ func IsEvictedByAdmissionCheck(w *kueue.Workload) (*metav1.Condition, bool) {
 }
 
 func IsEvicted(w *kueue.Workload) bool {
-	return apimeta.IsStatusConditionPresentAndEqual(w.Status.Conditions, kueue.WorkloadEvicted, metav1.ConditionTrue)
+	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadEvicted)
 }
 
 // HasConditionWithTypeAndReason checks if there is a condition in Workload's status

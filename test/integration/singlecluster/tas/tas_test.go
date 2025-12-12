@@ -3538,7 +3538,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Consistently(func(g gomega.Gomega) {
 						evictedWorkloads := util.FilterEvictedWorkloads(ctx, k8sClient, allWorkloads...)
 						g.Expect(evictedWorkloads).To(gomega.BeEmpty())
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 				})
 
 				ginkgo.It("Should admit workload with preferred topology after preemption", func() {

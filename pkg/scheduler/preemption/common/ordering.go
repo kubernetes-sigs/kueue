@@ -42,8 +42,8 @@ func CandidatesOrdering(log logr.Logger, afsEnabled bool, a, b *workload.Info, c
 	return cmputil.LazyOr(
 		func() int {
 			return cmputil.CompareBool(
-				meta.IsStatusConditionTrue(a.Obj.Status.Conditions, kueue.WorkloadEvicted),
-				meta.IsStatusConditionTrue(b.Obj.Status.Conditions, kueue.WorkloadEvicted),
+				workload.IsEvicted(a.Obj),
+				workload.IsEvicted(b.Obj),
 			)
 		},
 		func() int {
