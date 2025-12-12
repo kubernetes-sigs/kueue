@@ -5072,6 +5072,157 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 		},
+		// With LeastFreeCapacity (Unconstrained), domains are sorted by slice capacity ascending.
+		// b1: 8 GPU -> 4 slices, b2: 5 GPU -> 2 slices, b3: 4 GPU -> 2 slices
+		// b3 is selected because it has fewer slices, and as tiebreaker, less free worker capacity than b2.
+		"podset group with LeastFreeCapacity prefers domain with less slice capacity": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1").
+					Label(tasBlockLabel, "b1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("20"),
+						"example.com/gpu":   resource.MustParse("8"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b2").
+					Label(tasBlockLabel, "b2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("20"),
+						"example.com/gpu":   resource.MustParse("5"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b3").
+					Label(tasBlockLabel, "b3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("20"),
+						"example.com/gpu":   resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: []string{tasBlockLabel},
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained: ptr.To(true),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 1000,
+					},
+					podSetGroupName: ptr.To("sameGroup"),
+					count:           1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: []string{tasBlockLabel},
+						Domains: []tas.TopologyDomainAssignment{
+							{
+								Count:  1,
+								Values: []string{"b3"},
+							},
+						},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained:               ptr.To(true),
+						PodSetSliceSize:             ptr.To(int32(2)),
+						PodSetSliceRequiredTopology: ptr.To(tasBlockLabel),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 1000,
+						"example.com/gpu":  1,
+					},
+					podSetGroupName: ptr.To("sameGroup"),
+					count:           4,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: []string{tasBlockLabel},
+						Domains: []tas.TopologyDomainAssignment{
+							{
+								Count:  4,
+								Values: []string{"b3"},
+							},
+						},
+					},
+				},
+			},
+		},
+		// When slice capacity is equal, the tiebreaker is free worker capacity (ascending).
+		// b1: 5 GPU -> 2 slices, 5 workers; b2: 4 GPU -> 2 slices, 4 workers
+		// b2 is selected because both have 2 slices, but b2 has less free worker capacity.
+		"podset group with LeastFreeCapacity tiebreaker prefers domain with less free worker capacity": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1").
+					Label(tasBlockLabel, "b1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("20"),
+						"example.com/gpu":   resource.MustParse("5"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b2").
+					Label(tasBlockLabel, "b2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("20"),
+						"example.com/gpu":   resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: []string{tasBlockLabel},
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained: ptr.To(true),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 1000,
+					},
+					podSetGroupName: ptr.To("sameGroup"),
+					count:           1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: []string{tasBlockLabel},
+						Domains: []tas.TopologyDomainAssignment{
+							{
+								Count:  1,
+								Values: []string{"b2"},
+							},
+						},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained:               ptr.To(true),
+						PodSetSliceSize:             ptr.To(int32(2)),
+						PodSetSliceRequiredTopology: ptr.To(tasBlockLabel),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 1000,
+						"example.com/gpu":  1,
+					},
+					podSetGroupName: ptr.To("sameGroup"),
+					count:           4,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: []string{tasBlockLabel},
+						Domains: []tas.TopologyDomainAssignment{
+							{
+								Count:  4,
+								Values: []string{"b2"},
+							},
+						},
+					},
+				},
+			},
+		},
 		"find topology assignment for two podsets with the same group - leader does not fit anywhere": {
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1").
