@@ -213,6 +213,12 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/6757
 	// Enabled failure recovery of pods stuck in terminating state.
 	FailureRecoveryPolicy featuregate.Feature = "FailureRecoveryPolicy"
+
+	// owner: @mykysha
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/3899-remove-finalizers-with-strict-patch
+	//
+	// Finalizers are removed using a strict patch not to cause race conditions.
+	RemoveFinalizersWithStrictPatch featuregate.Feature = "RemoveFinalizersWithStrictPatch"
 )
 
 func init() {
@@ -333,6 +339,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	FailureRecoveryPolicy: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	RemoveFinalizersWithStrictPatch: {
+		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 
