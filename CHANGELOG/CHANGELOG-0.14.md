@@ -1,3 +1,34 @@
+## v0.14.6
+
+Changes since `v0.14.5`:
+
+## Changes by Kind
+
+### Feature
+
+- TAS: extend the information in condition messages and events about nodes excluded from calculating the
+  assignment due to various recognized reasons like: taints, node affinity, node resource constraints. (#8169, @sohankunkerkar)
+
+### Bug or Regression
+
+- Fix `TrainJob` controller not correctly setting the `PodSet` count value based on `numNodes` for the expected number of training nodes. (#8146, @kaisoz)
+- Fix a performance bug as some "read-only" functions would be taking unnecessary "write" lock. (#8182, @ErikJiang)
+- Fix the race condition bug where the kueue_pending_workloads metric may not be updated to 0 after the last 
+  workload is admitted and there are no new workloads incoming. (#8048, @Singularity23x0)
+- Fixed the following bugs for the StatefulSet integration by ensuring the Workload object
+  has the ownerReference to the StatefulSet:
+  1. Kueue doesn't keep the StatefulSet as deactivated
+  2. Kueue marks the Workload as Finished if all StatefulSet's Pods are deleted
+  3. changing the "queue-name" label could occasionally result in the StatefulSet getting stuck (#8104, @mbobrovskyi)
+- TAS: Fix handling of admission for workloads using the LeastFreeCapacity algorithm when the  "unconstrained"
+  mode is used. In that case scheduling would fail if there is at least one node in the cluster which does not have
+  enough capacity to accommodate at least one Pod. (#8171, @PBundyra)
+- TAS: fix bug that when TopologyAwareScheduling is disabled, but there is a ResourceFlavor configured with topologyName, then preemptions fail with "workload requires Topology, but there is no TAS cache information". (#8196, @zhifei92)
+
+### Other (Cleanup or Flake)
+
+- Add safe-guard to protect against re-evaluating Finished workloads by scheduler which caused a bug. (#8199, @mimowo)
+
 ## v0.14.5
 
 Changes since `v0.14.4`:

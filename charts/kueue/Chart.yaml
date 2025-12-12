@@ -16,9 +16,9 @@ type: application
 # NOTE: Do not modify manually. In Kueue, the version and appVersion are
 # overridden to GIT_TAG when building the artifacts, including the helm charts,
 # via Makefile.
-version: 0.14.5
+version: 0.14.6
 # This is the version number of the application being deployed. This version number should be
 # incremented each time you make changes to the application. Versions are not expected to
 # follow Semantic Versioning. They should reflect the version the application is using.
 # It is recommended to use it with quotes.
-appVersion: "v0.14.5"
+appVersion: "v0.14.6"
