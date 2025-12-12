@@ -1,0 +1,77 @@
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: hami-flavor
+spec:
+  nodeLabels:
+    gpu: "on"
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: hami-queue
+spec:
+  namespaceSelector: {}
+  resourceGroups:
+  - coveredResources:
+    - nvidia.com/gpu
+    - nvidia.com/gpucores
+    - nvidia.com/gpumem
+    flavors:
+    - name: hami-flavor
+      resources:
+      - name: nvidia.com/gpu
+        nominalQuota: 20
+      - name: nvidia.com/gpucores
+        nominalQuota: 300
+      - name: nvidia.com/gpumem
+        nominalQuota: 20480
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kueue-test
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: LocalQueue
+metadata:
+  name: user-queue
+  namespace: kueue-test
+spec:
+  clusterQueue: "hami-queue"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gpu-burn
+  namespace: kueue-test
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app-name: gpu-burn
+  template:
+    metadata:
+      labels:
+        app-name: gpu-burn
+    spec:
+      containers:
+      - args:
+        - while :; do /app/gpu_burn 300 || true; sleep 300; done
+        command:
+        - /bin/sh
+        - -lc
+        image: oguzpastirmaci/gpu-burn:latest
+        imagePullPolicy: IfNotPresent
+        name: main
+        resources:
+          limits:
+            nvidia.com/gpu: "1"        # requesting 1 GPU
+            nvidia.com/gpucores: "30"  # each GPU allocates 30% device cores
+            nvidia.com/gpumem: "1024"  # each GPU 1024M memory
+          requests:
+            nvidia.com/gpu: "1"
+            nvidia.com/gpucores: "30"
+            nvidia.com/gpumem: "1024"
