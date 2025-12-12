@@ -254,8 +254,8 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			queueOptions = append(queueOptions, workload.WithPreprocessedDRAResources(draResources))
 		}
 
-		if workload.IsActive(&wl) && !workload.HasQuotaReservation(&wl) {
-			if err := r.queues.AddOrUpdateWorkload(&wl, queueOptions...); err != nil {
+		if workload.IsAdmissible(&wl) {
+			if err := r.queues.AddOrUpdateWorkload(wl.DeepCopy(), queueOptions...); err != nil {
 				log.V(2).Info("Failed to add DRA workload to queue", "error", err)
 				return ctrl.Result{}, err
 			}
@@ -752,7 +752,7 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 		return true
 	}
 
-	if workload.IsActive(e.Object) && !workload.HasQuotaReservation(e.Object) {
+	if workload.IsAdmissible(e.Object) {
 		if err := r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
 			log.V(2).Info("ignored an error for now", "error", err)
 		}
@@ -1108,7 +1108,7 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, q
 			continue
 		}
 
-		if workload.IsActive(wlCopy) && !workload.HasQuotaReservation(wlCopy) {
+		if workload.IsAdmissible(wlCopy) {
 			if err = h.r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
 				log.V(2).Info("ignored an error for now", "error", err)
 			}

@@ -695,6 +695,61 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo
 				}, util.ShortTimeout, util.Interval).ShouldNot(gomega.Succeed())
 			})
 		})
+
+		ginkgo.It("should not temporarily admit a finished workload", func() {
+			wl = utiltestingapi.MakeWorkload("wl1", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "1").
+				RuntimeClass(runtimeClassName).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			wlKey := client.ObjectKeyFromObject(wl)
+
+			ginkgo.By("creating a workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("waiting for admission", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			})
+
+			ginkgo.By("finishing the workload", func() {
+				util.FinishWorkloads(ctx, k8sClient, wl)
+			})
+
+			ginkgo.By("waiting for finish", func() {
+				util.ExpectWorkloadToFinish(ctx, k8sClient, wlKey)
+			})
+
+			ginkgo.By("changing the runtime class", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					runtimeClassKey := client.ObjectKeyFromObject(runtimeClass)
+					g.Expect(k8sClient.Get(ctx, runtimeClassKey, runtimeClass)).To(gomega.Succeed())
+					if runtimeClass.ObjectMeta.Annotations == nil {
+						runtimeClass.ObjectMeta.Annotations = map[string]string{}
+					}
+					runtimeClass.ObjectMeta.Annotations["foo"] = "bar"
+					g.Expect(k8sClient.Update(ctx, runtimeClass)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("checking no 'quota reserved' event appearing for the workload", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					count, err := testing.HasMatchingEventAppearedTimes(ctx, k8sClient, func(e *corev1.Event) bool {
+						return e.Reason == "QuotaReserved" &&
+							e.Type == corev1.EventTypeNormal &&
+							e.InvolvedObject.Kind == "Workload" &&
+							e.InvolvedObject.Name == wl.Name &&
+							e.InvolvedObject.Namespace == wl.Namespace
+					})
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(count).To(gomega.Equal(1))
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			})
+		})
 	})
 })
 
