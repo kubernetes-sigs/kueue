@@ -18,6 +18,7 @@ package job
 
 import (
 	"context"
+	"fmt"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -49,6 +50,12 @@ func isRaySubmitterJobWithAutoScaling(ctx context.Context, jobObj client.Object,
 	if parentObj == nil {
 		log.V(5).Info("Did not get empty owner object for job", "ownerKind", owner.Kind, "ownerName", owner.Name)
 		return false, nil, nil
+	}
+
+	if k8sClient == nil {
+		err := fmt.Errorf("nil k8sClient for job %s/%s", jobObj.GetNamespace(), jobObj.GetName())
+		log.Error(err, "Failed to get owner object from k8s", "ownerKind", owner.Kind, "ownerName", owner.Name)
+		return false, nil, err
 	}
 
 	err := k8sClient.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: jobObj.GetNamespace()}, parentObj)
