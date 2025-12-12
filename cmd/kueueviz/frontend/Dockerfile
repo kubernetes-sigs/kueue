@@ -21,9 +21,6 @@ FROM node:25-slim AS runtime
 
 WORKDIR /app
 
-# Install serve for production static file serving
-RUN npm install -g serve
-
 # Copy only the built files from builder
 COPY --from=builder /app/build ./build
 COPY start.sh /app/start.sh
