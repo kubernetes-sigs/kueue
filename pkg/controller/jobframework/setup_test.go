@@ -31,6 +31,7 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
@@ -164,13 +165,18 @@ func TestSetupControllers(t *testing.T) {
 				t.Fatalf("Failed to setup manager: %v", err)
 			}
 
+			manager.createCrdNotifiersMap()
+			if err := manager.prepareChannelsForEnabledIntegrations(mgr, tc.opts...); err != nil {
+				t.Fatalf("Failed to prepare CRD channels: %v", err)
+			}
+
 			gotError := manager.setupControllers(ctx, mgr, logger, tc.opts...)
 			if diff := cmp.Diff(tc.wantError, gotError, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Errorf("Unexpected error from SetupControllers (-want,+got):\n%s", diff)
 			}
 
 			if len(tc.delayedGVKs) > 0 {
-				simulateDelayedIntegration(mgr, tc.delayedGVKs)
+				simulateDelayedIntegration(mgr, &manager, tc.delayedGVKs)
 				for _, gvk := range tc.delayedGVKs {
 					testDelayedIntegration(&manager, gvk.Group+"/"+strings.ToLower(gvk.Kind))
 				}
@@ -196,13 +202,21 @@ func (m *TestRESTMapper) RESTMapping(gk schema.GroupKind, versions ...string) (*
 }
 
 // Simulates the delayed availability of GVKs
-func simulateDelayedIntegration(mgr ctrlmgr.Manager, delayedGVKs []*schema.GroupVersionKind) {
+func simulateDelayedIntegration(mgr ctrlmgr.Manager, manager *integrationManager, delayedGVKs []*schema.GroupVersionKind) {
 	mapper := mgr.GetRESTMapper().(*TestRESTMapper)
 	mapper.lock.Lock()
-	defer mapper.lock.Unlock()
-
 	for _, gvk := range delayedGVKs {
 		mapper.Add(*gvk, apimeta.RESTScopeNamespace)
+	}
+	mapper.lock.Unlock()
+
+	manager.crdNotifiersMu.Lock()
+	defer manager.crdNotifiersMu.Unlock()
+	for _, gvk := range delayedGVKs {
+		if notifier, exists := manager.crdNotifiers[*gvk]; exists {
+			close(notifier)
+			delete(manager.crdNotifiers, *gvk)
+		}
 	}
 }
 
@@ -300,6 +314,126 @@ func TestSetupIndexes(t *testing.T) {
 					cmpopts.SortSlices(func(a, b string) bool { return a < b })); len(diff) != 0 {
 					t.Errorf("Unexpected list workloads (-want,+got):\n%s", diff)
 				}
+			}
+		})
+	}
+}
+
+func TestIsCRDEstablished(t *testing.T) {
+	tests := []struct {
+		name string
+		crd  *apiextensionsv1.CustomResourceDefinition
+		want bool
+	}{
+		{
+			name: "established true",
+			crd: &apiextensionsv1.CustomResourceDefinition{
+				Status: apiextensionsv1.CustomResourceDefinitionStatus{
+					Conditions: []apiextensionsv1.CustomResourceDefinitionCondition{{
+						Type:   apiextensionsv1.Established,
+						Status: apiextensionsv1.ConditionTrue,
+					}},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "not established",
+			crd: &apiextensionsv1.CustomResourceDefinition{
+				Status: apiextensionsv1.CustomResourceDefinitionStatus{
+					Conditions: []apiextensionsv1.CustomResourceDefinitionCondition{{
+						Type:   apiextensionsv1.Established,
+						Status: apiextensionsv1.ConditionFalse,
+					}},
+				},
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			isEstablished := isCRDEstablished(tt.crd)
+			if isEstablished != tt.want {
+				t.Errorf("isCRDEstablished() = %v, want %v", isEstablished, tt.want)
+			}
+		})
+	}
+}
+
+func TestNotifyCRDAvailable(t *testing.T) {
+	tests := []struct {
+		name    string
+		crd     *apiextensionsv1.CustomResourceDefinition
+		wantGVK schema.GroupVersionKind
+	}{
+		{
+			name: "CRD becomes established",
+			crd: &apiextensionsv1.CustomResourceDefinition{
+				Spec: apiextensionsv1.CustomResourceDefinitionSpec{
+					Group: "testgroup",
+					Names: apiextensionsv1.CustomResourceDefinitionNames{
+						Kind:     "TestKind",
+						Plural:   "testkinds",
+						Singular: "testkind",
+					},
+					Versions: []apiextensionsv1.CustomResourceDefinitionVersion{
+						{
+							Name:    "v1",
+							Served:  true,
+							Storage: true,
+						},
+					},
+					Scope: apiextensionsv1.NamespaceScoped,
+				},
+				Status: apiextensionsv1.CustomResourceDefinitionStatus{
+					Conditions: []apiextensionsv1.CustomResourceDefinitionCondition{
+						{
+							Type:   apiextensionsv1.Established,
+							Status: apiextensionsv1.ConditionTrue,
+						},
+					},
+				},
+			},
+			wantGVK: schema.GroupVersionKind{
+				Group:   "testgroup",
+				Version: "v1",
+				Kind:    "TestKind",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manager := integrationManager{}
+			manager.createCrdNotifiersMap()
+
+			_, logger := utiltesting.ContextWithLog(t)
+			crdNotifyCh := make(chan struct{}, 1)
+			manager.crdNotifiers[tt.wantGVK] = crdNotifyCh
+
+			manager.notifyCRDAvailable(tt.crd, logger)
+
+			select {
+			case <-crdNotifyCh:
+			case <-time.After(2 * time.Second):
+				t.Errorf("Timeout waiting for CRD notification for %v", tt.wantGVK)
+			}
+
+			wrongGVK := schema.GroupVersionKind{
+				Group:   "wronggroup",
+				Version: "v1",
+				Kind:    "WrongKind",
+			}
+			wrongCh := make(chan struct{}, 1)
+			manager.crdNotifiers[wrongGVK] = wrongCh
+
+			manager.notifyCRDAvailable(tt.crd, logger)
+
+			select {
+			case <-wrongCh:
+				t.Errorf("Notification incorrectly sent for wrong GVK: %v", wrongGVK)
+			case <-time.After(2 * time.Second):
 			}
 		})
 	}

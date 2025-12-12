@@ -111,6 +111,8 @@ type integrationManager struct {
 	externalIntegrations          map[string]runtime.Object
 	implicitlyEnabledIntegrations sets.Set[string]
 	gvkToName                     map[schema.GroupVersionKind]string
+	crdNotifiers                  map[schema.GroupVersionKind]chan struct{}
+	crdNotifiersMu                sync.RWMutex
 	mu                            sync.RWMutex
 }
 
