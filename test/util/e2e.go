@@ -39,8 +39,10 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
@@ -369,6 +371,56 @@ func RestartKueueController(ctx context.Context, k8sClient client.Client, kindCl
 	WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
 	waitForDeploymentWithOnlyAvailableReplicas(ctx, k8sClient, kcmKey)
 	WaitForLeaderElection(ctx, k8sClient, restartStartTime)
+	waitForWebhookEndpointsReady(ctx, k8sClient)
+}
+
+func isPodReady(pod *corev1.Pod) bool {
+	for _, cond := range pod.Status.Conditions {
+		if cond.Type == corev1.PodReady {
+			return cond.Status == corev1.ConditionTrue
+		}
+	}
+	return false
+}
+
+// waitForWebhookEndpointsReady waits for the webhook service EndpointSlice
+// to contain the current controller pod IPs before making webhook requests.
+func waitForWebhookEndpointsReady(ctx context.Context, k8sClient client.Client) {
+	ginkgo.GinkgoHelper()
+	kueueNS := GetKueueNamespace()
+
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		pods := &corev1.PodList{}
+		g.Expect(k8sClient.List(ctx, pods,
+			client.InNamespace(kueueNS),
+			client.MatchingLabels{"control-plane": "controller-manager"},
+		)).To(gomega.Succeed())
+
+		podIPs := sets.New[string]()
+		for _, pod := range pods.Items {
+			if isPodReady(&pod) && pod.DeletionTimestamp == nil && pod.Status.PodIP != "" {
+				podIPs.Insert(pod.Status.PodIP)
+			}
+		}
+		g.Expect(podIPs.Len()).NotTo(gomega.BeZero(), "no ready controller pods")
+
+		endpointSlices := &discoveryv1.EndpointSliceList{}
+		g.Expect(k8sClient.List(ctx, endpointSlices,
+			client.InNamespace(kueueNS),
+			client.MatchingLabels{discoveryv1.LabelServiceName: "kueue-webhook-service"},
+		)).To(gomega.Succeed())
+
+		readyIPs := sets.New[string]()
+		for _, slice := range endpointSlices.Items {
+			for _, ep := range slice.Endpoints {
+				if ep.Conditions.Ready == nil || *ep.Conditions.Ready {
+					readyIPs.Insert(ep.Addresses...)
+				}
+			}
+		}
+
+		g.Expect(readyIPs).To(gomega.Equal(podIPs))
+	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 func waitForDeploymentWithOnlyAvailableReplicas(ctx context.Context, k8sClient client.Client, key types.NamespacedName) {
