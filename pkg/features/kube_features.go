@@ -213,6 +213,9 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/6757
 	// Enabled failure recovery of pods stuck in terminating state.
 	FailureRecoveryPolicy featuregate.Feature = "FailureRecoveryPolicy"
+
+	// owner: @kannon92
+	WallTimeLimits featuregate.Feature = "WallTimeLimits"
 )
 
 func init() {
@@ -229,6 +232,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	PartialAdmission: {
 		{Version: version.MustParse("0.4"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.5"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	WallTimeLimits: {
+		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	FlavorFungibility: {

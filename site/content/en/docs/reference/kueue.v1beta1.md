@@ -1149,6 +1149,13 @@ if FairSharing is enabled in the Kueue configuration.</p>
    <p>admissionScope indicates whether ClusterQueue uses the Admission Fair Sharing</p>
 </td>
 </tr>
+<tr><td><code>wallTimePolicy</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-WallTimePolicy"><code>WallTimePolicy</code></a>
+</td>
+<td>
+   <p>wallTimePolicy defines the wallTimePolicy for the ClusterQueue.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -1235,6 +1242,13 @@ instead.</p>
    <p>fairSharing contains the current state for this ClusterQueue
 when participating in Fair Sharing.
 This is recorded only when Fair Sharing is enabled in the Kueue configuration.</p>
+</td>
+</tr>
+<tr><td><code>wallTimeFlavorUsage</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-WallTimeFlavorUsage"><code>[]WallTimeFlavorUsage</code></a>
+</td>
+<td>
+   <p>wallTimeFlavorUsage contains the current wall time usage for this ClusterQueue.</p>
 </td>
 </tr>
 </tbody>
@@ -1841,6 +1855,13 @@ participating in AdmissionFairSharing.  The values are only relevant
 if AdmissionFairSharing is enabled in the Kueue configuration.</p>
 </td>
 </tr>
+<tr><td><code>wallTimePolicy</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-LocalQueueWallTimeLimits"><code>LocalQueueWallTimeLimits</code></a>
+</td>
+<td>
+   <p>wallTimePolicy defines the wallTimePolicy for the LocalQueue.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -1920,6 +1941,45 @@ workloads assigned to this LocalQueue.</p>
 </td>
 <td>
    <p>fairSharing contains the information about the current status of fair sharing.</p>
+</td>
+</tr>
+<tr><td><code>wallTimeFlavorUsage</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-WallTimeFlavorUsage"><code>[]WallTimeFlavorUsage</code></a>
+</td>
+<td>
+   <p>wallTimeFlavorUsage contains the current wall time usage for this LocalQueue.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `LocalQueueWallTimeLimits`     {#kueue-x-k8s-io-v1beta1-LocalQueueWallTimeLimits}
+    
+
+**Appears in:**
+
+- [LocalQueueSpec](#kueue-x-k8s-io-v1beta1-LocalQueueSpec)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>wallTimeAllocatedHours</code> <B>[Required]</B><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>wallTimeAllocatedHours is the number of hours that this wall time quota applies to.</p>
+</td>
+</tr>
+<tr><td><code>actionWhenWallTimeExhausted</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-StopPolicy"><code>StopPolicy</code></a>
+</td>
+<td>
+   <p>actionWhenWallTimeExhausted defines the action to take when the budget is exhausted.
+The possible values are:</p>
 </td>
 </tr>
 </tbody>
@@ -2732,6 +2792,10 @@ this time would be reset to null.</p>
 
 - [PodSetAssignment](#kueue-x-k8s-io-v1beta1-PodSetAssignment)
 
+- [WallTimeFlavor](#kueue-x-k8s-io-v1beta1-WallTimeFlavor)
+
+- [WallTimeFlavorUsage](#kueue-x-k8s-io-v1beta1-WallTimeFlavorUsage)
+
 
 <p>ResourceFlavorReference is the name of the ResourceFlavor.</p>
 
@@ -2998,6 +3062,10 @@ words, it's the used quota that is over the nominalQuota.</p>
 
 - [LocalQueueSpec](#kueue-x-k8s-io-v1beta1-LocalQueueSpec)
 
+- [LocalQueueWallTimeLimits](#kueue-x-k8s-io-v1beta1-LocalQueueWallTimeLimits)
+
+- [WallTimeFlavor](#kueue-x-k8s-io-v1beta1-WallTimeFlavor)
+
 
 
 
@@ -3194,6 +3262,118 @@ level.</p>
 </td>
 <td>
    <p>name is the name of the unhealthy node.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `WallTimeFlavor`     {#kueue-x-k8s-io-v1beta1-WallTimeFlavor}
+    
+
+**Appears in:**
+
+- [WallTimePolicy](#kueue-x-k8s-io-v1beta1-WallTimePolicy)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-ResourceFlavorReference"><code>ResourceFlavorReference</code></a>
+</td>
+<td>
+   <p>name of this flavor. The name should match the .metadata.name of a
+ResourceFlavor. If a matching ResourceFlavor does not exist, the
+ClusterQueue will have an Active condition set to False.</p>
+</td>
+</tr>
+<tr><td><code>wallTimeAllocatedHours</code> <B>[Required]</B><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>wallTimeAllocatedHours is the number of hours that this wall time quota applies to.</p>
+</td>
+</tr>
+<tr><td><code>actionWhenWallTimeExhausted</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-StopPolicy"><code>StopPolicy</code></a>
+</td>
+<td>
+   <p>actionWhenWallTimeExhausted defines the action to take when the budget is exhausted.
+The possible values are:</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `WallTimeFlavorUsage`     {#kueue-x-k8s-io-v1beta1-WallTimeFlavorUsage}
+    
+
+**Appears in:**
+
+- [ClusterQueueStatus](#kueue-x-k8s-io-v1beta1-ClusterQueueStatus)
+
+- [LocalQueueStatus](#kueue-x-k8s-io-v1beta1-LocalQueueStatus)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-ResourceFlavorReference"><code>ResourceFlavorReference</code></a>
+</td>
+<td>
+   <p>name of the flavor.</p>
+</td>
+</tr>
+<tr><td><code>wallTimeAllocated</code> <B>[Required]</B><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>wallTimeAllocated is the total number of hours allocated for this ClusterQueue.</p>
+</td>
+</tr>
+<tr><td><code>wallTimeUsed</code> <B>[Required]</B><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>wallTimeUsed is the number of hours used.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `WallTimePolicy`     {#kueue-x-k8s-io-v1beta1-WallTimePolicy}
+    
+
+**Appears in:**
+
+- [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>wallTimeFlavors</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-WallTimeFlavor"><code>[]WallTimeFlavor</code></a>
+</td>
+<td>
+   <p>WallTimeFlavors describes a group of resources that this wall time limits applies to.
+flavors is the list of flavors that provide the resources of this group.
+Typically, different flavors represent different hardware models
+(e.g., gpu models, cpu architectures) or pricing models (on-demand vs spot
+cpus).
+Each flavor MUST list all the resources listed for this group in the same
+order as the .resources field.
+The list cannot be empty and it can contain up to 16 flavors.</p>
 </td>
 </tr>
 </tbody>
@@ -3410,6 +3590,14 @@ admission.resourceUsage contains the detailed information.</p>
 <td>
    <p>accumulatedPastExexcutionTimeSeconds holds the total time, in seconds, the workload spent
 in Admitted state, in the previous <code>Admit</code> - <code>Evict</code> cycles.</p>
+</td>
+</tr>
+<tr><td><code>wallTimeSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>wallTimeSeconds holds the total time, in seconds, the workload spent
+in Admitted state.</p>
 </td>
 </tr>
 <tr><td><code>schedulingStats</code><br/>
