@@ -617,12 +617,25 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo
 		wl           *kueue.Workload
 	)
 
-	ginkgo.BeforeAll(func() {
+	startManager := func() {
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
+	}
+
+	stopManager := func() {
+		fwk.StopManager(ctx)
+	}
+
+	restartManager := func() {
+		stopManager()
+		startManager()
+	}
+
+	ginkgo.BeforeAll(func() {
+		startManager()
 	})
 
 	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
+		stopManager()
 	})
 
 	ginkgo.When("workload's runtime class is changed", func() {
@@ -653,7 +666,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, runtimeClass, true)
 		})
 
-		ginkgo.It("should not temporarily admit an inactive workload", func() {
+		ginkgo.It("should not temporarily admit an inactive workload after changing the runtime class", func() {
 			ginkgo.By("creating an inactive workload", func() {
 				wl = utiltestingapi.MakeWorkload("wl1", ns.Name).
 					Queue(kueue.LocalQueueName(localQueue.Name)).
@@ -681,7 +694,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("checking no 'quota reseved' event appearing for the workload", func() {
+			ginkgo.By("checking no 'quota reserved' event appearing for the workload", func() {
 				gomega.Consistently(func(g gomega.Gomega) {
 					found, err := testing.HasMatchingEventAppeared(ctx, k8sClient, func(e *corev1.Event) bool {
 						return e.Reason == "QuotaReserved" &&
@@ -696,7 +709,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo
 			})
 		})
 
-		ginkgo.It("should not temporarily admit a finished workload", func() {
+		ginkgo.It("should not temporarily admit a finished workload after changing the runtime class", func() {
 			wl = utiltestingapi.MakeWorkload("wl1", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Request(corev1.ResourceCPU, "1").
@@ -739,6 +752,56 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo
 			ginkgo.By("checking no 'quota reserved' event appearing for the workload", func() {
 				gomega.Consistently(func(g gomega.Gomega) {
 					count, err := testing.HasMatchingEventAppearedTimes(ctx, k8sClient, func(e *corev1.Event) bool {
+						return e.Reason == "QuotaReserved" &&
+							e.Type == corev1.EventTypeNormal &&
+							e.InvolvedObject.Kind == "Workload" &&
+							e.InvolvedObject.Name == wl.Name &&
+							e.InvolvedObject.Namespace == wl.Namespace
+					})
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(count).To(gomega.Equal(1))
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should not temporarily admit a finished workload on restart manager", func() {
+			wl = utiltestingapi.MakeWorkload("wl1", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "1").
+				RuntimeClass(runtimeClassName).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			wlKey := client.ObjectKeyFromObject(wl)
+
+			ginkgo.By("creating a workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("waiting for admission", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			})
+
+			ginkgo.By("finishing the workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+					g.Expect(workload.Finish(ctx, k8sClient, wl, "ByTest", "By test", util.RealClock)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("waiting for finish", func() {
+				util.ExpectWorkloadToFinish(ctx, k8sClient, wlKey)
+			})
+
+			ginkgo.By("restarting the manager", func() {
+				restartManager()
+			})
+
+			ginkgo.By("checking no 'quota reserved' event appearing for the workload", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					count, err := utiltesting.HasMatchingEventAppearedTimes(ctx, k8sClient, func(e *corev1.Event) bool {
 						return e.Reason == "QuotaReserved" &&
 							e.Type == corev1.EventTypeNormal &&
 							e.InvolvedObject.Kind == "Workload" &&
