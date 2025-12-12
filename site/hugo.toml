@@ -99,10 +99,10 @@ ignoreFiles = []
   # The major.minor version tag for the version of the docs represented in this
   # branch of the repository. Used in the "version-banner" partial to display a
   # version number for this doc set.
-  version = "v0.14.5"
+  version = "v0.14.6"
 
   # Version of Kueue without the leading "v", as used for Helm charts.
-  chart_version = "0.14.5"
+  chart_version = "0.14.6"
 
   # Flag used in the "version-banner" partial to decide whether to display a
   # banner on every page indicating that this is an archived version of the docs.
