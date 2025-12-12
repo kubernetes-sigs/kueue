@@ -58,7 +58,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 	// if the remote exists, just copy the status
 	if err == nil {
-		if localAppWrapper.Spec.Suspend {
+		if fromObject(&localAppWrapper).IsSuspended() && !fromObject(&localAppWrapper).IsActive() {
 			// Ensure the appwrapper is unsuspended before updating its status; otherwise, it will fail when patching the spec.
 			log.V(2).Info("Skipping the sync since the local appwrapper is still suspended")
 			return nil

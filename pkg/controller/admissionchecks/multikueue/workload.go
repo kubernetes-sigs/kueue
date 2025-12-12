@@ -399,8 +399,32 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			}
 		}
 
+		// If the local workload is evicted but the quota is still reserved, copy its status to the remote workload.
+		if workload.HasQuotaReservation(group.local) && workload.IsEvicted(group.local) {
+			updated := false
+			err := workload.PatchAdmissionStatus(ctx, group.remoteClients[reservingRemote].client, group.remotes[reservingRemote], w.clock, func(wl *kueue.Workload) (bool, error) {
+				evictCond := apimeta.FindStatusCondition(group.local.Status.Conditions, kueue.WorkloadEvicted)
+				if evictCond != nil && apimeta.SetStatusCondition(&wl.Status.Conditions, *evictCond) {
+					updated = true
+				}
+				preemptionCond := apimeta.FindStatusCondition(group.local.Status.Conditions, kueue.WorkloadPreempted)
+				if preemptionCond != nil && apimeta.SetStatusCondition(&wl.Status.Conditions, *preemptionCond) {
+					updated = true
+				}
+				return updated, nil
+			})
+			if err != nil {
+				log.Error(err, "Failed to patch workload status", "workload", klog.KObj(group.remotes[reservingRemote]))
+				return reconcile.Result{}, err
+			}
+			if updated {
+				// To finish an eviction process.
+				return reconcile.Result{}, nil
+			}
+		}
+
 		if err := group.jobAdapter.SyncJob(ctx, w.client, group.remoteClients[reservingRemote].client, group.controllerKey, group.local.Name, w.origin); err != nil {
-			log.V(2).Error(err, "creating remote controller object", "remote", reservingRemote)
+			log.Error(err, "syncing remote controller object", "remote", reservingRemote)
 			// We'll retry this in the next reconcile.
 			return reconcile.Result{}, err
 		}
