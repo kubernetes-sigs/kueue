@@ -1209,7 +1209,7 @@ func IsEvictedByAdmissionCheck(w *kueue.Workload) (*metav1.Condition, bool) {
 }
 
 func IsEvicted(w *kueue.Workload) bool {
-	return apimeta.IsStatusConditionPresentAndEqual(w.Status.Conditions, kueue.WorkloadEvicted, metav1.ConditionTrue)
+	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadEvicted)
 }
 
 // HasConditionWithTypeAndReason checks if there is a condition in Workload's status

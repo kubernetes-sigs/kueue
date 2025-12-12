@@ -320,9 +320,7 @@ func ExpectWorkloadsToHaveQuotaReservationByKey(ctx context.Context, k8sClient c
 }
 
 func FilterEvictedWorkloads(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) []*kueue.Workload {
-	return filterWorkloads(ctx, k8sClient, func(wl *kueue.Workload) bool {
-		return apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted)
-	}, wls...)
+	return filterWorkloads(ctx, k8sClient, workload.IsEvicted, wls...)
 }
 
 func filterWorkloads(ctx context.Context, k8sClient client.Client, filter func(*kueue.Workload) bool, wls ...*kueue.Workload) []*kueue.Workload {

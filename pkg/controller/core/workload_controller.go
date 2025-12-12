@@ -373,7 +373,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		reason := kueue.WorkloadDeactivated
 		message := "The workload is deactivated"
 		dtCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadDeactivationTarget)
-		if !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
+		if !workload.IsEvicted(&wl) {
 			if dtCond != nil {
 				underlyingCause = kueue.EvictionUnderlyingCause(dtCond.Reason)
 				message = fmt.Sprintf("%s due to %s", message, dtCond.Message)
@@ -596,7 +596,7 @@ func (r *WorkloadReconciler) reconcileMaxExecutionTime(ctx context.Context, wl *
 // reconcileCheckBasedEviction evicts or deactivates the given Workload if any admission checks have failed.
 // Returns true if the Workload was rejected or deactivated, and false otherwise.
 func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl *kueue.Workload) (bool, error) {
-	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) || (!workload.HasRetryChecks(wl) && !workload.HasRejectedChecks(wl)) {
+	if workload.IsEvicted(wl) || (!workload.HasRetryChecks(wl) && !workload.HasRejectedChecks(wl)) {
 		return false, nil
 	}
 	log := ctrl.LoggerFrom(ctx)
@@ -647,7 +647,7 @@ func (r *WorkloadReconciler) reconcileOnLocalQueueActiveState(ctx context.Contex
 		if queueStopPolicy != kueue.HoldAndDrain {
 			return false, nil
 		}
-		if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
+		if workload.IsEvicted(wl) {
 			log.V(3).Info("Workload is already evicted.")
 			return false, nil
 		}
@@ -688,7 +688,7 @@ func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Cont
 		if queueStopPolicy != kueue.HoldAndDrain {
 			return false, nil
 		}
-		if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
+		if workload.IsEvicted(wl) {
 			log.V(3).Info("Workload is already evicted.")
 			return false, nil
 		}
@@ -753,7 +753,7 @@ func syncAdmissionCheckConditions(conds []kueue.AdmissionCheckState, admissionCh
 func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req ctrl.Request, wl *kueue.Workload) (time.Duration, error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	if !workload.IsActive(wl) || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
+	if !workload.IsActive(wl) || workload.IsEvicted(wl) {
 		// the workload has already been evicted by the PodsReadyTimeout or been deactivated.
 		return 0, nil
 	}

@@ -52,9 +52,7 @@ func finishEvictionsOfAnyWorkloadsInCq(ctx context.Context, k8sClient client.Cli
 		if wl.Status.Admission == nil || string(wl.Status.Admission.ClusterQueue) != cq.Name {
 			continue
 		}
-		evicted := meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted)
-		quotaReserved := meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-		if evicted && quotaReserved {
+		if workload.IsEvicted(&wl) && workload.HasQuotaReservation(&wl) {
 			gomega.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, &wl, RealClock, func(wl *kueue.Workload) (bool, error) {
 				return workload.UnsetQuotaReservationWithCondition(wl, "Pending", "Eviction finished by test", time.Now()), nil
 			}),
