@@ -125,7 +125,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | enableVisibilityAPF | bool | `false` | Enable API Priority and Fairness configuration for the visibility API |
 | fullnameOverride | string | `""` | Override the resource name |
 | kubernetesClusterDomain | string | `"cluster.local"` | Kubernetes cluster's domain |
-| kueueViz.backend.env | list | `[{"name":"KUEUEVIZ_ALLOWED_ORIGINS","value":"frontend.kueueviz.local"}]` | Environment variables for KueueViz backend deployment |
+| kueueViz.backend.env | list | `[{"name":"KUEUEVIZ_ALLOWED_ORIGINS","value":"https://frontend.kueueviz.local"}]` | Environment variables for KueueViz backend deployment |
 | kueueViz.backend.image.pullPolicy | string | `"Always"` | KueueViz dashboard backend image pullPolicy. This should be set to 'IfNotPresent' for released version |
 | kueueViz.backend.image.repository | string | `"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend"` | KueueViz dashboard backend image repository |
 | kueueViz.backend.image.tag | string | `"main"` | KueueViz dashboard backend image tag |
