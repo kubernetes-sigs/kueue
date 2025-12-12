@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/queue"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -95,6 +96,13 @@ func WithAdmissionFairSharing(afs *config.AdmissionFairSharing) Option {
 	}
 }
 
+// WithRoleTracker sets the roleTracker for HA metrics.
+func WithRoleTracker(tracker *roletracker.RoleTracker) Option {
+	return func(c *Cache) {
+		c.roleTracker = tracker
+	}
+}
+
 // Cache keeps track of the Workloads that got admitted through ClusterQueues.
 type Cache struct {
 	sync.RWMutex
@@ -112,6 +120,8 @@ type Cache struct {
 	hm hierarchy.Manager[*clusterQueue, *cohort]
 
 	tasCache tasCache
+
+	roleTracker *roletracker.RoleTracker
 }
 
 func New(client client.Client, options ...Option) *Cache {
@@ -144,6 +154,7 @@ func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clust
 		AdmissionScope:      cq.Spec.AdmissionScope,
 
 		workloadsNotAccountedForTAS: sets.New[workload.Reference](),
+		roleTracker:                 c.roleTracker,
 	}
 	c.hm.AddClusterQueue(cqImpl)
 	c.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.CohortName)
@@ -359,7 +370,7 @@ func (c *Cache) TerminateClusterQueue(name kueue.ClusterQueueReference) {
 	defer c.Unlock()
 	if cq := c.hm.ClusterQueue(name); cq != nil {
 		cq.Status = terminating
-		metrics.ReportClusterQueueStatus(cq.Name, cq.Status)
+		metrics.ReportClusterQueueStatus(cq.Name, cq.Status, c.roleTracker)
 	}
 }
 
