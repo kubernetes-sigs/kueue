@@ -419,6 +419,14 @@ func applyResourceTransformations(input corev1.ResourceList, transforms map[core
 	output := make(corev1.ResourceList)
 	for inputName, inputQuantity := range input {
 		if mapping, ok := transforms[inputName]; ok {
+			// If MultiplyBy is specified, multiply the input quantity by
+			// the value of the resource specified in MultiplyBy.
+			if mapping.MultiplyBy != "" {
+				if q, ok := input[mapping.MultiplyBy]; ok {
+					inputQuantity.Mul(q.Value())
+				}
+			}
+
 			for outputName, baseFactor := range mapping.Outputs {
 				outputQuantity := baseFactor.DeepCopy()
 				outputQuantity.Mul(inputQuantity.Value())

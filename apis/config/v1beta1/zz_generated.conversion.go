@@ -702,6 +702,7 @@ func Convert_v1beta2_RequeuingStrategy_To_v1beta1_RequeuingStrategy(in *v1beta2.
 func autoConvert_v1beta1_ResourceTransformation_To_v1beta2_ResourceTransformation(in *ResourceTransformation, out *v1beta2.ResourceTransformation, s conversion.Scope) error {
 	out.Input = v1.ResourceName(in.Input)
 	out.Strategy = (*v1beta2.ResourceTransformationStrategy)(unsafe.Pointer(in.Strategy))
+	out.MultiplyBy = v1.ResourceName(in.MultiplyBy)
 	out.Outputs = *(*v1.ResourceList)(unsafe.Pointer(&in.Outputs))
 	return nil
 }
@@ -714,6 +715,7 @@ func Convert_v1beta1_ResourceTransformation_To_v1beta2_ResourceTransformation(in
 func autoConvert_v1beta2_ResourceTransformation_To_v1beta1_ResourceTransformation(in *v1beta2.ResourceTransformation, out *ResourceTransformation, s conversion.Scope) error {
 	out.Input = v1.ResourceName(in.Input)
 	out.Strategy = (*ResourceTransformationStrategy)(unsafe.Pointer(in.Strategy))
+	out.MultiplyBy = v1.ResourceName(in.MultiplyBy)
 	out.Outputs = *(*v1.ResourceList)(unsafe.Pointer(&in.Outputs))
 	return nil
 }

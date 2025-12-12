@@ -402,6 +402,16 @@ func TestNewInfo(t *testing.T) {
 						Request("nvidia.com/gpu", "1").
 						Request(corev1.ResourceCPU, "2").
 						Obj(),
+					*utiltestingapi.MakePodSet("c", 1).
+						Request("nvidia.com/vgpu", "2").
+						Request("nvidia.com/vgpucores", "20").
+						Request("nvidia.com/vgpumem", "1024").
+						Obj(),
+					*utiltestingapi.MakePodSet("d", 2).
+						Request("nvidia.com/vgpu", "2").
+						Request("nvidia.com/vgpucores", "30").
+						Request("nvidia.com/vgpumem", "2048").
+						Obj(),
 				).
 				Obj(),
 			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
@@ -429,6 +439,22 @@ func TestNewInfo(t *testing.T) {
 						"example.com/credits":            resource.MustParse("100"),
 					},
 				},
+				{
+					Input:      "nvidia.com/vgpucores",
+					Strategy:   ptr.To(config.Replace),
+					MultiplyBy: "nvidia.com/vgpu",
+					Outputs: corev1.ResourceList{
+						"nvidia.com/total-vgpucores": resource.MustParse("1"),
+					},
+				},
+				{
+					Input:      "nvidia.com/vgpumem",
+					Strategy:   ptr.To(config.Replace),
+					MultiplyBy: "nvidia.com/vgpu",
+					Outputs: corev1.ResourceList{
+						"nvidia.com/total-vgpumem": resource.MustParse("1"),
+					},
+				},
 			})},
 			wantInfo: Info{
 				TotalRequests: []PodSetResources{
@@ -448,6 +474,24 @@ func TestNewInfo(t *testing.T) {
 							corev1.ResourceName("example.com/accelerator-memory"): 80 * 1024,
 							corev1.ResourceName("example.com/credits"):            200,
 							corev1.ResourceName("nvidia.com/gpu"):                 2,
+						},
+						Count: 2,
+					},
+					{
+						Name: "c",
+						Requests: resources.Requests{
+							corev1.ResourceName("nvidia.com/vgpu"):            2,
+							corev1.ResourceName("nvidia.com/total-vgpucores"): 2 * 20,
+							corev1.ResourceName("nvidia.com/total-vgpumem"):   2 * 1024,
+						},
+						Count: 1,
+					},
+					{
+						Name: "d",
+						Requests: resources.Requests{
+							corev1.ResourceName("nvidia.com/vgpu"):            2 * 2,
+							corev1.ResourceName("nvidia.com/total-vgpucores"): 2 * 2 * 30,
+							corev1.ResourceName("nvidia.com/total-vgpumem"):   2 * 2 * 2048,
 						},
 						Count: 2,
 					},
