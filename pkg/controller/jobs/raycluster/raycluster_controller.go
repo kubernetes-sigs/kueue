@@ -97,7 +97,7 @@ func (j *RayCluster) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
-func (j *RayCluster) IsTopLevel() bool {
+func (j *RayCluster) IsTopLevel(k8sClient client.Client) bool {
 	// Short term solution to support RayJob InTreeAutoscaling: https://github.com/kubernetes-sigs/kueue/issues/7605
 	return ptr.Deref(j.Spec.EnableInTreeAutoscaling, false) &&
 		jobframework.WorkloadSliceEnabled(j) &&

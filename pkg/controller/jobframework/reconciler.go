@@ -348,7 +348,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		isTopLevelJob bool
 	)
 
-	if topLevelJob, ok := job.(TopLevelJob); ok && topLevelJob.IsTopLevel() {
+	if topLevelJob, ok := job.(TopLevelJob); ok && topLevelJob.IsTopLevel(r.client) {
 		// Skipping traversal to top-level ancestor job because this is already a top-level job.
 		isTopLevelJob = true
 	} else {

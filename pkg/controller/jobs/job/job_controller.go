@@ -208,7 +208,7 @@ func (j *Job) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
-func (j *Job) IsTopLevel() bool {
+func (j *Job) IsTopLevel(k8sClient client.Client) bool {
 	// TODO call isRaySubmitterJobWithAutoScaling to check ray submitter job
 	owner := metav1.GetControllerOf(j)
 	if owner == nil {

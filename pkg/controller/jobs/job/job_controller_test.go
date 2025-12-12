@@ -4307,7 +4307,7 @@ func TestJobIsTopLevel(t *testing.T) {
 
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
-			got := tc.job.IsTopLevel()
+			got := tc.job.IsTopLevel(nil)
 			if got != tc.want {
 				t.Errorf("Job.IsTopLevel() = %v, want %v", got, tc.want)
 			}
