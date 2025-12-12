@@ -282,7 +282,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(16)])`,
 		})
 
 		ginkgo.By("Waiting for 2 workloads", func() {
-			// 2 workloads: one for the ray job, another for the submitter job created by the ray job
+			// 2 workloads: one for the ray cluster, another for the submitter job created by the ray job
 			gomega.Eventually(func(g gomega.Gomega) {
 				workloadList := &kueue.WorkloadList{}
 				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
