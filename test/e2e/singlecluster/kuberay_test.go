@@ -239,6 +239,9 @@ print([ray.get(my_task.remote(i, 1)) for i in range(16)])`,
 		ginkgo.By("Creating the ConfigMap", func() {
 			gomega.Expect(k8sClient.Create(ctx, configMap)).Should(gomega.Succeed())
 		})
+		ginkgo.DeferCleanup(func() {
+			gomega.Expect(k8sClient.Delete(ctx, configMap)).Should(gomega.Succeed())
+		})
 
 		ginkgo.By("Creating the rayJob", func() {
 			gomega.Expect(k8sClient.Create(ctx, rayJob)).Should(gomega.Succeed())
