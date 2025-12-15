@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -253,6 +254,10 @@ print([ray.get(my_task.remote(i, 1)) for i in range(16)])`,
 				Name:      "script-volume",
 				MountPath: "/home/ray/samples",
 			},
+		}
+		rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.TerminationGracePeriodSeconds = ptr.To(int64(5))
+		for i := range len(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs) {
+			rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[i].Template.Spec.TerminationGracePeriodSeconds = ptr.To(int64(5))
 		}
 
 		ginkgo.By("Creating the ConfigMap", func() {
