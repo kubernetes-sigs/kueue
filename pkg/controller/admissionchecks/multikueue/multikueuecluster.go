@@ -48,6 +48,7 @@ import (
 	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	"sigs.k8s.io/cluster-inventory-api/pkg/credentials"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -440,6 +441,11 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 		if updateErr := c.updateStatus(ctx, cluster, false, reason, fmt.Sprintf("load client config failed: %v", err)); updateErr != nil {
 			return reconcile.Result{}, fmt.Errorf("failed to update MultiKueueCluster status: %w after failing to load client config: %w", updateErr, err)
 		}
+		// Skip triggering another reconciliation without config present,
+		// it will be triggered again when the ClusterProfile or the Secret gets created
+		if apierrors.IsNotFound(err) {
+			return reconcile.Result{}, nil
+		}
 		return reconcile.Result{}, fmt.Errorf("failed to load client config, reason: %s, error: %w", reason, err)
 	}
 
@@ -761,13 +767,22 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 		},
 	}
 
-	return ctrl.NewControllerManagedBy(mgr).
+	controllerBuilder := ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.MultiKueueCluster{}).
 		Watches(&corev1.Secret{}, &secretHandler{client: c.localClient}).
 		WatchesRawSource(source.Channel(c.watchEndedCh, syncHndl)).
 		WatchesRawSource(source.Channel(c.fsWatcher.reconcile, fsWatcherHndl)).
-		WithEventFilter(filter).
-		Complete(c)
+		WithEventFilter(filter)
+	if features.Enabled(features.MultiKueueClusterProfile) {
+		systemNamespacePredicate := predicate.NewPredicateFuncs(func(obj client.Object) bool {
+			return obj.GetNamespace() == c.configNamespace
+		})
+
+		controllerBuilder = controllerBuilder.
+			Watches(&inventoryv1alpha1.ClusterProfile{}, &clusterProfileHandler{client: c.localClient}, builder.WithPredicates(systemNamespacePredicate))
+	}
+
+	return controllerBuilder.Complete(c)
 }
 
 type secretHandler struct {
@@ -835,4 +850,48 @@ func (s *secretHandler) queue(ctx context.Context, secret *corev1.Secret, q work
 		q.Add(req)
 	}
 	return nil
+}
+
+type clusterProfileHandler struct {
+	client client.Client
+}
+
+var _ handler.EventHandler = (*clusterProfileHandler)(nil)
+
+func (cp *clusterProfileHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	cp.handleEvent(ctx, event.Object, q)
+}
+
+func (cp *clusterProfileHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	cp.handleEvent(ctx, event.ObjectNew, q)
+}
+
+func (cp *clusterProfileHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	cp.handleEvent(ctx, event.Object, q)
+}
+
+func (cp *clusterProfileHandler) Generic(ctx context.Context, event event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (cp *clusterProfileHandler) handleEvent(ctx context.Context, object client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	clusterprofile, isClusterProfile := object.(*inventoryv1alpha1.ClusterProfile)
+	if !isClusterProfile {
+		ctrl.LoggerFrom(ctx).Error(errors.New("not a clusterprofile"), "Failure on event")
+		return
+	}
+
+	mkcList := &kueue.MultiKueueClusterList{}
+	if err := cp.client.List(ctx, mkcList, client.MatchingFields{UsingClusterProfiles: strings.Join([]string{clusterprofile.Namespace, clusterprofile.Name}, "/")}); err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "Failure on event", "clusterprofile", klog.KObj(object))
+		return
+	}
+
+	for _, mkc := range mkcList.Items {
+		req := reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name: mkc.Name,
+			},
+		}
+		q.Add(req)
+	}
 }
