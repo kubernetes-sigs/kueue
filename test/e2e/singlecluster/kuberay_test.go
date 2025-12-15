@@ -278,7 +278,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(16)])`,
 				// Count pods that have "workers" in their name
 				workerPodCount := countRunningWorkerPods(podList)
 				g.Expect(workerPodCount).To(gomega.Equal(1), "Expected exactly 1 pod with 'workers' in the name")
-			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Waiting for 2 workloads", func() {
@@ -287,7 +287,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(16)])`,
 				workloadList := &kueue.WorkloadList{}
 				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				g.Expect(workloadList.Items).To(gomega.HaveLen(2), "Expected exactly 2 workloads")
-			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Waiting for 5 workers due to scaling up", func() {
@@ -306,7 +306,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(16)])`,
 				workloadList := &kueue.WorkloadList{}
 				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				g.Expect(workloadList.Items).To(gomega.HaveLen(3), "Expected exactly 3 workloads")
-			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Waiting for workers reduced to 1 due to scaling down", func() {
