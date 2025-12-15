@@ -418,6 +418,8 @@ The supported transformations enable mapping an input resource into one or more
 output resources by multiplying the input resource quantity by a scaling factor.
 The input resource may either be retained (default) or removed from the transformed resources. If no transformation is defined for an input resource, it is retained without change.
 
+For a practical example of using resource transformations with vGPU resources, see [Using HAMi](/docs/tasks/run/using_hami).
+
 Follow the [installation instructions for using a custom configuration](/docs/installation#install-a-custom-configured-released-version)
 and extend the Kueue configuration with fields similar to the following:
 
