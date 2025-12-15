@@ -53,15 +53,34 @@ var _ = ginkgo.Describe("Kuberay", func() {
 		lq *kueue.LocalQueue
 	)
 
-	// countRunningWorkerPods counts the number of running pods that have "workers" in their name
-	countRunningWorkerPods := func(podList *corev1.PodList) int {
-		workerPodCount := 0
+	// getRunningWorkerPodNames returns the names of running pods that have "workers" in their name
+	getRunningWorkerPodNames := func(podList *corev1.PodList) []string {
+		var podNames []string
 		for _, pod := range podList.Items {
 			if strings.Contains(pod.Name, "workers") && pod.Status.Phase == corev1.PodRunning {
-				workerPodCount++
+				podNames = append(podNames, pod.Name)
 			}
 		}
-		return workerPodCount
+		return podNames
+	}
+
+	// verifyPodNamesAreSuperset checks that superset contains all names from subset
+	verifyPodNamesAreSuperset := func(superset, subset []string) bool {
+		if len(superset) < len(subset) {
+			return false
+		}
+
+		supersetMap := make(map[string]bool)
+		for _, name := range superset {
+			supersetMap[name] = true
+		}
+
+		for _, subsetName := range subset {
+			if !supersetMap[subsetName] {
+				return false
+			}
+		}
+		return true
 	}
 
 	ginkgo.BeforeEach(func() {
@@ -247,6 +266,11 @@ print([ray.get(my_task.remote(i, 1)) for i in range(16)])`,
 			gomega.Expect(k8sClient.Create(ctx, rayJob)).Should(gomega.Succeed())
 		})
 
+		// Variable to store initial pod names for verification during scaling
+		var initialPodNames []string
+		// Variable to store scaled-up pod names for verification during scaling down
+		var scaledUpPodNames []string
+
 		ginkgo.By("Checking one workload is created", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				workloadList := &kueue.WorkloadList{}
@@ -278,9 +302,12 @@ print([ray.get(my_task.remote(i, 1)) for i in range(16)])`,
 				podList := &corev1.PodList{}
 				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				g.Expect(podList.Items).To(gomega.HaveLen(3), "Expected exactly 3 pods in rayjob namespace")
-				// Count pods that have "workers" in their name
-				workerPodCount := countRunningWorkerPods(podList)
-				g.Expect(workerPodCount).To(gomega.Equal(1), "Expected exactly 1 pod with 'workers' in the name")
+				// Get worker pod names and check count
+				workerPodNames := getRunningWorkerPodNames(podList)
+				g.Expect(workerPodNames).To(gomega.HaveLen(1), "Expected exactly 1 pod with 'workers' in the name")
+
+				// Store initial pod names for later verification
+				initialPodNames = workerPodNames
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -297,9 +324,17 @@ print([ray.get(my_task.remote(i, 1)) for i in range(16)])`,
 			gomega.Eventually(func(g gomega.Gomega) {
 				podList := &corev1.PodList{}
 				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				// Count pods that have "workers" in their name
-				workerPodCount := countRunningWorkerPods(podList)
-				g.Expect(workerPodCount).To(gomega.Equal(5), "Expected exactly 5 pods with 'workers' in the name")
+				// Get worker pod names and check count
+				currentPodNames := getRunningWorkerPodNames(podList)
+				g.Expect(currentPodNames).To(gomega.HaveLen(5), "Expected exactly 5 pods with 'workers' in the name")
+
+				// Verify that the current pod names are a superset of the initial pod names
+				g.Expect(verifyPodNamesAreSuperset(currentPodNames, initialPodNames)).To(gomega.BeTrue(),
+					"Current worker pod names should be a superset of initial pod names. "+
+						"Initial pods: %v, Current pods: %v", initialPodNames, currentPodNames)
+
+				// Store scaled-up pod names for later verification during scaling down
+				scaledUpPodNames = currentPodNames
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -316,9 +351,14 @@ print([ray.get(my_task.remote(i, 1)) for i in range(16)])`,
 			gomega.Eventually(func(g gomega.Gomega) {
 				podList := &corev1.PodList{}
 				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				// Count pods that have "workers" in their name
-				workerPodCount := countRunningWorkerPods(podList)
-				g.Expect(workerPodCount).To(gomega.Equal(1), "Expected exactly 1 pods with 'workers' in the name")
+				// Get worker pod names and check count
+				workerPodNames := getRunningWorkerPodNames(podList)
+				g.Expect(workerPodNames).To(gomega.HaveLen(1), "Expected exactly 1 pods with 'workers' in the name")
+
+				// Verify that the previous scaled-up pod names are a superset of the current pod names
+				g.Expect(verifyPodNamesAreSuperset(scaledUpPodNames, workerPodNames)).To(gomega.BeTrue(),
+					"Previous scaled-up worker pod names should be a superset of current pod names. "+
+						"Scaled-up pods: %v, Current pods: %v", scaledUpPodNames, workerPodNames)
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
