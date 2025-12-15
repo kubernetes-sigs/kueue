@@ -201,10 +201,6 @@ func DeleteAllRayJobsInNamespace(ctx context.Context, c client.Client, ns *corev
 	return deleteAllObjectsInNamespace(ctx, c, ns, &rayv1.RayJob{})
 }
 
-func DeleteAllRayJobSetsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
-	return deleteAllObjectsInNamespace(ctx, c, ns, &rayv1.RayJob{})
-}
-
 func DeleteAllPodsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
 	return deleteAllPodsInNamespace(ctx, c, ns, 2)
 }
