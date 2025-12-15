@@ -5,3 +5,6 @@ reviewers:
 
 emeritus_approvers:
 - trasc
+
+approvers:
+- test-approvers
