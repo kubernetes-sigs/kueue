@@ -18,6 +18,7 @@ package statefulset
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -43,6 +44,7 @@ var (
 )
 
 func TestReconciler(t *testing.T) {
+	now := time.Now()
 	cases := map[string]struct {
 		stsKey          client.ObjectKey
 		statefulSet     *appsv1.StatefulSet
@@ -125,6 +127,25 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					Obj(),
 			},
+		},
+		"should finalize deleted pod": {
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				Replicas(0).
+				Queue("lq").
+				DeepCopy(),
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				Replicas(0).
+				Queue("lq").
+				DeepCopy(),
+			pods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", "ns").
+					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					KueueFinalizer().
+					DeletionTimestamp(now).
+					Obj(),
+			},
+			wantPods: nil,
 		},
 		"statefulset with update revision": {
 			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
