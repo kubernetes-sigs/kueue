@@ -13,5 +13,7 @@ aliases:
     - pajakd
   dependency-approvers:
     - mbobrovskyi
+    - pbundyra
   test-approvers:
     - mbobrovskyi
+    - pbundyra
