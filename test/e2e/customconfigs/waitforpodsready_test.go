@@ -28,13 +28,16 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -483,6 +486,124 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 			util.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, [][]string{
 				{"kueue_evicted_workloads_once_total", ns.Name},
 			})
+		})
+	})
+})
+
+var _ = ginkgo.Describe("WaitForPodsReady with for JobSet", ginkgo.Ordered, func() {
+	var (
+		ns *corev1.Namespace
+		rf *kueue.ResourceFlavor
+		cq *kueue.ClusterQueue
+		lq *kueue.LocalQueue
+	)
+
+	ginkgo.BeforeAll(func() {
+		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
+			cfg.WaitForPodsReady = &configapi.WaitForPodsReady{Timeout: metav1.Duration{Duration: util.LongTimeout}}
+		})
+	})
+
+	ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "wfpr-")
+
+		rf = utiltestingapi.MakeResourceFlavor("default").Obj()
+		util.MustCreate(ctx, k8sClient, rf)
+
+		cq = utiltestingapi.MakeClusterQueue("cq").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).Resource(corev1.ResourceCPU, "10").Obj()).
+			Obj()
+		util.MustCreate(ctx, k8sClient, cq)
+
+		lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
+		util.MustCreate(ctx, k8sClient, lq)
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
+		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+	})
+
+	ginkgo.It("should update podReady condition correctly as jobs run", func() {
+		jobSet := testingjobset.MakeJobSet("job-set", ns.Name).
+			Queue(lq.Name).
+			ReplicatedJobs(
+				testingjobset.ReplicatedJobRequirements{
+					Name:        "replicated-job-1",
+					Image:       util.GetAgnHostImage(),
+					Args:        util.BehaviorWaitForDeletion,
+					Replicas:    1,
+					Parallelism: 1,
+					Completions: 1,
+				},
+				testingjobset.ReplicatedJobRequirements{
+					Name:  "replicated-job-2",
+					Image: util.GetAgnHostImage(),
+					Args:  util.BehaviorWaitForDeletion,
+					StartupProbe: &corev1.Probe{
+						InitialDelaySeconds: 5,
+						ProbeHandler: corev1.ProbeHandler{
+							Exec: &corev1.ExecAction{
+								Command: []string{"/bin/sh", "-c", "echo 'Hello, World!'"},
+							},
+						},
+					},
+					Replicas:    1,
+					Parallelism: 1,
+					Completions: 1,
+					DependsOn: []jobsetapi.DependsOn{
+						{
+							Name:   "replicated-job-1",
+							Status: jobsetapi.DependencyReady,
+						},
+					},
+				},
+			).
+			Obj()
+
+		ginkgo.By("Creating the jobSet", func() {
+			util.MustCreate(ctx, k8sClient, jobSet)
+		})
+
+		ginkgo.By("Waiting for podready condition to be true", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdLeaderWorkload := &kueue.Workload{}
+				wlLookupKey := types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSet.Name, jobSet.UID), Namespace: ns.Name}
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
+				g.Expect(createdLeaderWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPodsReady))
+			}, util.LongTimeout, util.ShortInterval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Waiting for podready condition to be false due to initialDelaySeconds on second job", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdLeaderWorkload := &kueue.Workload{}
+				wlLookupKey := types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSet.Name, jobSet.UID), Namespace: ns.Name}
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
+				// check that the workload is not ready as the initialDelaySeconds is set on the second job
+				g.Expect(createdLeaderWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusFalse(kueue.WorkloadPodsReady))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Waiting for the second job to be ready", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				jobList := &batchv1.JobList{}
+				g.Expect(k8sClient.List(ctx, jobList, client.InNamespace(ns.Name), client.MatchingLabels{jobsetapi.ReplicatedJobNameKey: "replicated-job-2"})).To(gomega.Succeed())
+				g.Expect(jobList.Items).To(gomega.HaveLen(1))
+				g.Expect(jobList.Items[0].Status).ToNot(gomega.BeNil())
+				g.Expect(*jobList.Items[0].Status.Ready).To(gomega.Equal(int32(1)))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Waiting for podready condition to be true", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdLeaderWorkload := &kueue.Workload{}
+				wlLookupKey := types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSet.Name, jobSet.UID), Namespace: ns.Name}
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
+				// check that the workload is ready when initialDelaySeconds has passed
+				g.Expect(createdLeaderWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPodsReady))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })
