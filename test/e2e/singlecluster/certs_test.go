@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Kueue Certs", func() {
+var _ = ginkgo.Describe("Kueue Certs", ginkgo.Serial, func() {
 	var (
 		ns             *corev1.Namespace
 		onDemandFlavor *kueue.ResourceFlavor
@@ -48,12 +48,12 @@ var _ = ginkgo.Describe("Kueue Certs", func() {
 
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-certs-")
-		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").
+		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand-"+ns.Name).
 			NodeLabel("instance-type", "on-demand").Obj()
 		util.MustCreate(ctx, k8sClient, onDemandFlavor)
-		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue-" + ns.Name).
 			ResourceGroup(
-				*utiltestingapi.MakeFlavorQuotas("on-demand").
+				*utiltestingapi.MakeFlavorQuotas(onDemandFlavor.Name).
 					Resource(corev1.ResourceCPU, "1").
 					Resource(corev1.ResourceMemory, "1Gi").
 					Obj(),
@@ -61,7 +61,7 @@ var _ = ginkgo.Describe("Kueue Certs", func() {
 			Obj()
 		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
-		localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
+		localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 	})
 

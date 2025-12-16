@@ -35,21 +35,22 @@ import (
 )
 
 var _ = ginkgo.Describe("Kuberay", func() {
-	const (
-		resourceFlavorName = "kuberay-rf"
-		clusterQueueName   = "kuberay-cq"
-		localQueueName     = "kuberay-lq"
-	)
-
 	var (
-		ns *corev1.Namespace
-		rf *kueue.ResourceFlavor
-		cq *kueue.ClusterQueue
-		lq *kueue.LocalQueue
+		ns                 *corev1.Namespace
+		rf                 *kueue.ResourceFlavor
+		cq                 *kueue.ClusterQueue
+		lq                 *kueue.LocalQueue
+		resourceFlavorName string
+		clusterQueueName   string
+		localQueueName     string
 	)
 
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "kuberay-e2e-")
+		resourceFlavorName = "kuberay-rf-" + ns.Name
+		clusterQueueName = "kuberay-cq-" + ns.Name
+		localQueueName = "kuberay-lq-" + ns.Name
+
 		rf = utiltestingapi.MakeResourceFlavor(resourceFlavorName).
 			NodeLabel("instance-type", "on-demand").
 			Obj()
