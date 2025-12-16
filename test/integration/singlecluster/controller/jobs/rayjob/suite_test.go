@@ -64,7 +64,7 @@ var _ = ginkgo.BeforeSuite(func() {
 })
 
 var _ = ginkgo.AfterSuite(func() {
-	fwk.StopManager(ctx)
+	fwk.Teardown()
 })
 
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
