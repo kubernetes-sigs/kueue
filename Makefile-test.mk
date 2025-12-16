@@ -123,7 +123,7 @@ test-e2e-helm: E2E_USE_HELM=true
 test-e2e-helm: test-e2e
 
 .PHONY: test-multikueue-e2e
-test-multikueue-e2e: setup-e2e-env kind-ray-project-mini-image-build run-test-multikueue-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-multikueue-e2e: setup-e2e-env kind-ray-project-mini-image-build kind-secretreader-plugin-image-build run-test-multikueue-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-multikueue-e2e-helm
 test-multikueue-e2e-helm: E2E_USE_HELM=true
