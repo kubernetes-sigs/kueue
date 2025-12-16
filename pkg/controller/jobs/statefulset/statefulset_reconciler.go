@@ -140,7 +140,7 @@ func shouldUngate(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
 }
 
 func shouldFinalize(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
-	return shouldUngate(sts, pod) || utilpod.IsTerminated(pod)
+	return shouldUngate(sts, pod) || utilpod.IsTerminated(pod) || pod.DeletionTimestamp != nil
 }
 
 func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.StatefulSet) error {
