@@ -171,7 +171,7 @@ func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient
 }
 
 func (b *multiKueueAdapter) KeepAdmissionCheckPending() bool {
-	return !features.Enabled(features.MultiKueueBatchJobWithManagedBy)
+	return false
 }
 
 func (b *multiKueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {

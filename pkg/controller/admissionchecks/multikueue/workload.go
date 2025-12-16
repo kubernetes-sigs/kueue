@@ -653,11 +653,7 @@ func (w *wlReconciler) syncReservingRemoteState(ctx context.Context, group *wlGr
 		}
 
 		if needsACUpdate {
-			if group.jobAdapter.KeepAdmissionCheckPending() {
-				acs.State = kueue.CheckStatePending
-			} else {
-				acs.State = kueue.CheckStateReady
-			}
+			acs.State = kueue.CheckStateReady
 			// update the message
 			acs.Message = fmt.Sprintf("The workload got reservation on %q", reservingRemote)
 			// update the transition time since is used to detect the lost worker state.

@@ -1033,8 +1033,9 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 				acs := admissioncheck.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
 				g.Expect(acs).NotTo(gomega.BeNil())
-				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStatePending))
+				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStateReady))
 				g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
+				g.Expect(apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeTrue())
 				ok, err := utiltesting.HasEventAppeared(managerTestCluster.ctx, managerTestCluster.client, corev1.Event{
 					Reason:  "MultiKueue",
 					Type:    corev1.EventTypeNormal,
@@ -1147,8 +1148,9 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 				acs := admissioncheck.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
 				g.Expect(acs).NotTo(gomega.BeNil())
-				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStatePending))
+				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStateReady))
 				g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
+				g.Expect(apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeTrue())
 				ok, err := utiltesting.HasEventAppeared(managerTestCluster.ctx, managerTestCluster.client, corev1.Event{
 					Reason:  "MultiKueue",
 					Type:    corev1.EventTypeNormal,
