@@ -134,7 +134,8 @@ helm-verify: $(HELM) helm-dep-build ## Run Helm chart lint test.
 
 .PHONY: helm-unit-test
 helm-unit-test: $(HELM) helm-dep-build ## Run Helm chart unit tests.
-	$(HELM) unittest charts/kueue-populator --strict --debug
+	cd $(ROOT_DIR) && $(MAKE) helm-unittest-plugin
+	HELM_PLUGINS=$(BIN_DIR)/helm-plugins $(HELM) unittest charts/kueue-populator --strict --debug
 
 .PHONY: helm-test
 helm-test: helm-lint helm-verify helm-unit-test ## Run Helm chart integration tests (requires active cluster).
