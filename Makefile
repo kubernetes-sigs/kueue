@@ -221,8 +221,8 @@ i18n-verify: ## Verify all localized docs are in sync with English version. Usag
 
 # test
 .PHONY: helm-unit-test
-helm-unit-test: helm
-	$(HELM) unittest charts/kueue --strict --debug
+helm-unit-test: helm helm-unittest-plugin
+	HELM_PLUGINS=$(BIN_DIR)/helm-plugins $(HELM) unittest charts/kueue --strict --debug
 
 .PHONY: vet
 vet: ## Run go vet against code.
