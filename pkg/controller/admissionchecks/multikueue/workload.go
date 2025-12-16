@@ -422,11 +422,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 		if acs.State != kueue.CheckStateRetry && acs.State != kueue.CheckStateRejected {
 			if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func() (*kueue.Workload, bool, error) {
-				if group.jobAdapter.KeepAdmissionCheckPending() {
-					acs.State = kueue.CheckStatePending
-				} else {
-					acs.State = kueue.CheckStateReady
-				}
+				acs.State = kueue.CheckStateReady
 				// update the message
 				acs.Message = fmt.Sprintf("The workload got reservation on %q", reservingRemote)
 				// update the transition time since is used to detect the lost worker state.

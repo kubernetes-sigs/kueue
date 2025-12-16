@@ -530,7 +530,7 @@ func TestWlReconcile(t *testing.T) {
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
-						State:   kueue.CheckStatePending,
+						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
@@ -595,7 +595,7 @@ func TestWlReconcile(t *testing.T) {
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
-						State:   kueue.CheckStatePending,
+						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
@@ -707,7 +707,7 @@ func TestWlReconcile(t *testing.T) {
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
-						State:   kueue.CheckStatePending,
+						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
@@ -736,7 +736,7 @@ func TestWlReconcile(t *testing.T) {
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
-						State:   kueue.CheckStatePending,
+						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").

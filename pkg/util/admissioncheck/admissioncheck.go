@@ -209,6 +209,19 @@ func GetMultiKueueAdmissionCheck(ctx context.Context, c client.Client, wl *kueue
 	return nil, nil
 }
 
+// ShouldSkipLocalExecution returns true if the workload has a MultiKueue admission check,
+// meaning the job should only run on a worker cluster, not locally.
+func ShouldSkipLocalExecution(ctx context.Context, c client.Client, wl *kueue.Workload) (bool, error) {
+	if wl == nil {
+		return false, nil
+	}
+	ac, err := GetMultiKueueAdmissionCheck(ctx, c, wl)
+	if err != nil {
+		return false, err
+	}
+	return ac != nil, nil
+}
+
 func GetRemoteClusters(ctx context.Context, helper *MultiKueueStoreHelper, acName kueue.AdmissionCheckReference) (sets.Set[string], error) {
 	cfg, err := helper.ConfigForAdmissionCheck(ctx, acName)
 	if err != nil {
