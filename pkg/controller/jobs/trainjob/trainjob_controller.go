@@ -267,6 +267,17 @@ func (t *TrainJob) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.
 	if t.Annotations == nil {
 		t.Annotations = map[string]string{}
 	}
+	// Filter out the existing overrides that were added by Kueue
+	// (identified by the presence of the PodSetLabel).
+	// This makes the function idempotent, preventing duplicate overrides
+	// if the update operation is retried.
+	var userOverrides []kftrainer.PodTemplateOverride
+	for _, o := range t.Spec.PodTemplateOverrides {
+		if o.Metadata == nil || o.Metadata.Labels == nil || o.Metadata.Labels[constants.PodSetLabel] == "" {
+			userOverrides = append(userOverrides, o)
+		}
+	}
+	t.Spec.PodTemplateOverrides = userOverrides
 	for _, info := range podSetsInfo {
 		// The trainjob controller merges each podSpecOverride sequentially, so any existing user provided override will be processed first
 		t.Spec.PodTemplateOverrides = append(t.Spec.PodTemplateOverrides, kftrainer.PodTemplateOverride{
