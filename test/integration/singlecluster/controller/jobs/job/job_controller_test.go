@@ -2566,7 +2566,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			waitForPodsReadyRecoveryTimeout = nil
 		})
 
-		ginkgo.It("shouldn't evict workload due waitForPodsReady.recoveryTimeout", framework.SlowSpec, func() {
+		ginkgo.It("shouldn't evict workload due waitForPodsReady.recoveryTimeout", func() {
 			ginkgo.By("creating job")
 			job := testingjob.MakeJob("job", ns.Name).Queue(kueue.LocalQueueName(lq.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			util.MustCreate(ctx, k8sClient, job)
