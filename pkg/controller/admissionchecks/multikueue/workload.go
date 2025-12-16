@@ -103,39 +103,23 @@ func (g *wlGroup) IsElasticWorkload() bool {
 	return workloadslicing.IsElasticWorkload(g.local)
 }
 
-// FirstReserving returns true if there is a workload reserving quota,
+// bestMatchByCondition returns true if there is a workload with a specified condition type,
 // the string identifies the remote cluster.
-func (g *wlGroup) FirstReserving() (bool, string) {
-	found := false
-	bestMatch := ""
-	var bestTime time.Time
+func (g *wlGroup) bestMatchByCondition(conditionType string) (*metav1.Condition, string) {
+	var (
+		bestMatchCond   *metav1.Condition
+		bestMatchRemote string
+	)
 	for remote, wl := range g.remotes {
-		if wl == nil {
-			continue
-		}
-		c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-		if c != nil && c.Status == metav1.ConditionTrue && (!found || bestTime.IsZero() || c.LastTransitionTime.Time.Before(bestTime)) {
-			found = true
-			bestMatch = remote
-			bestTime = c.LastTransitionTime.Time
+		if wl != nil {
+			cond := apimeta.FindStatusCondition(wl.Status.Conditions, conditionType)
+			if cond != nil && cond.Status == metav1.ConditionTrue && (bestMatchCond == nil || cond.LastTransitionTime.Before(&bestMatchCond.LastTransitionTime)) {
+				bestMatchCond = cond
+				bestMatchRemote = remote
+			}
 		}
 	}
-	return found, bestMatch
-}
-
-func (g *wlGroup) RemoteFinishedCondition() (*metav1.Condition, string) {
-	var bestMatch *metav1.Condition
-	bestMatchRemote := ""
-	for remote, wl := range g.remotes {
-		if wl == nil {
-			continue
-		}
-		if c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished); c != nil && c.Status == metav1.ConditionTrue && (bestMatch == nil || c.LastTransitionTime.Before(&bestMatch.LastTransitionTime)) {
-			bestMatch = c
-			bestMatchRemote = remote
-		}
-	}
-	return bestMatch, bestMatchRemote
+	return bestMatchCond, bestMatchRemote
 }
 
 func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error {
@@ -344,7 +328,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		return reconcile.Result{}, errors.Join(errs...)
 	}
 
-	if remoteFinishedCond, remote := group.RemoteFinishedCondition(); remoteFinishedCond != nil {
+	if remoteFinishedCond, remote := group.bestMatchByCondition(kueue.WorkloadFinished); remoteFinishedCond != nil {
 		// NOTE: we can have a race condition setting the wl status here and it being updated by the job controller
 		// it should not be problematic but the "From remote xxxx:" could be lost ....
 
@@ -400,8 +384,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	}
 
 	// 3. get the first reserving
-	hasReserving, reservingRemote := group.FirstReserving()
-	if hasReserving {
+	if remoteQuotaReservedCond, reservingRemote := group.bestMatchByCondition(kueue.WorkloadQuotaReserved); remoteQuotaReservedCond != nil {
 		// remove the non-reserving worker workloads
 		for rem, remWl := range group.remotes {
 			if remWl != nil && rem != reservingRemote {
