@@ -3898,7 +3898,7 @@ var _ = ginkgo.Describe("Job reconciliation", ginkgo.Ordered, func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ManagedJobsNamespaceSelectorAlwaysRespected, false)
 		})
 
-		ginkgo.It("should reconcile a job in an unmanaged namespace with queue name set and create a workload", framework.SlowSpec, func() {
+		ginkgo.It("should reconcile a job in an unmanaged namespace with queue name set and create a workload", func() {
 			job := testingjob.MakeJob("unmanaged-job-with-queue-name", unmanagedNs.Name).
 				Queue(kueue.LocalQueueName(lq.Name)).
 				Suspend(true).
