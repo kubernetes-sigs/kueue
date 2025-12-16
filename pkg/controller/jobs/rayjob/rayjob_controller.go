@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -104,7 +105,16 @@ func (j *RayJob) Suspend() {
 func (j *RayJob) Skip(ctx context.Context) bool {
 	// Skip reconciliation for RayJobs that use clusterSelector to reference existing clusters.
 	// These jobs are not managed by Kueue.
-	return len(j.Spec.ClusterSelector) > 0
+	if len(j.Spec.ClusterSelector) > 0 {
+		return true
+	}
+	// Short term solution to support RayJob InTreeAutoscaling: https://github.com/kubernetes-sigs/kueue/issues/7605
+	if j.Spec.RayClusterSpec != nil &&
+		ptr.Deref(j.Spec.RayClusterSpec.EnableInTreeAutoscaling, false) &&
+		jobframework.WorkloadSliceEnabled(j) {
+		return true
+	}
+	return false
 }
 
 func (j *RayJob) GVK() schema.GroupVersionKind {
