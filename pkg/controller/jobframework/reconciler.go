@@ -835,7 +835,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 	}
 
 	// If workload slicing is enabled for this job, use the slice-based processing path.
-	if workloadSliceEnabled(job) {
+	if WorkloadSliceEnabled(job) {
 		podSets, err := JobPodSets(job)
 		if err != nil {
 			return nil, fmt.Errorf("failed to retrieve pod sets from job: %w", err)
