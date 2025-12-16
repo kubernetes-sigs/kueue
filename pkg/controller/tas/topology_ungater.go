@@ -240,13 +240,16 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 		podWithUngateInfo := &allToUngate[i]
 		var ungated bool
 		e := utilclient.Patch(ctx, r.client, podWithUngateInfo.pod, func() (client.Object, bool, error) {
-			log.V(3).Info("ungating pod", "pod", klog.KObj(podWithUngateInfo.pod), "nodeLabels", podWithUngateInfo.nodeLabels)
 			ungated = utilpod.Ungate(podWithUngateInfo.pod, kueue.TopologySchedulingGate)
-			if podWithUngateInfo.pod.Spec.NodeSelector == nil {
-				podWithUngateInfo.pod.Spec.NodeSelector = make(map[string]string)
+			if ungated {
+				log.V(3).Info("ungating pod", "pod", klog.KObj(podWithUngateInfo.pod), "nodeLabels", podWithUngateInfo.nodeLabels)
+				if podWithUngateInfo.pod.Spec.NodeSelector == nil {
+					podWithUngateInfo.pod.Spec.NodeSelector = make(map[string]string)
+				}
+				maps.Copy(podWithUngateInfo.pod.Spec.NodeSelector, podWithUngateInfo.nodeLabels)
 			}
 			maps.Copy(podWithUngateInfo.pod.Spec.NodeSelector, podWithUngateInfo.nodeLabels)
-			return podWithUngateInfo.pod, true, nil
+			return podWithUngateInfo.pod, ungated, nil
 		})
 		if e != nil {
 			// We won't observe this cleanup in the event handler.
