@@ -53,6 +53,8 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/component-base/metrics/testutil"
 	"k8s.io/klog/v2"
@@ -1428,4 +1430,15 @@ func workloadKeys(wls ...*kueue.Workload) sets.Set[client.ObjectKey] {
 		wlKeys.Insert(client.ObjectKeyFromObject(wl))
 	}
 	return wlKeys
+}
+
+func GetClusterServerAddress(clusterName string) string {
+	return "https://" + clusterName + "-control-plane:6443"
+}
+
+func GetAuthInfoFromKubeConfig(kubeConfig []byte) *clientcmdapi.AuthInfo {
+	ginkgo.GinkgoHelper()
+	cfg, err := clientcmd.Load(kubeConfig)
+	gomega.Expect(err).To(gomega.Succeed())
+	return cfg.AuthInfos[cfg.Contexts[cfg.CurrentContext].AuthInfo]
 }

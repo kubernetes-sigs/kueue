@@ -33,9 +33,13 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/clientcmd/api"
+	apiv1 "k8s.io/client-go/tools/clientcmd/api/v1"
 	"k8s.io/utils/ptr"
 	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -1282,7 +1286,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		)
 
 		ginkgo.BeforeAll(func() {
-			ginkgo.By("setting MultiKueue Dispatcher to Incremental", func() {
+			ginkgo.By("setting MultiKueueClusterProfile feature gate", func() {
 				defaultManagerKueueCfg = util.GetKueueConfiguration(ctx, k8sManagerClient)
 				newCfg := defaultManagerKueueCfg.DeepCopy()
 				util.UpdateKueueConfiguration(ctx, k8sManagerClient, newCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
@@ -1291,7 +1295,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 		})
 		ginkgo.AfterAll(func() {
-			ginkgo.By("setting MultiKueue Dispatcher back to AllAtOnce", func() {
+			ginkgo.By("resetting feature gates back", func() {
 				util.ApplyKueueConfiguration(ctx, k8sManagerClient, defaultManagerKueueCfg)
 				util.RestartKueueController(ctx, k8sManagerClient, managerClusterName)
 			})
@@ -1371,6 +1375,261 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						},
 						util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
+
+	ginkgo.When("Connection via ClusterProfile with plugins", ginkgo.Ordered, func() {
+		const (
+			secretReaderPath = "/plugins/secretreader-plugin"
+			volumeName       = "plugins"
+			volumeMountPath  = "/plugins"
+		)
+		var (
+			defaultManagerKueueCfg  *kueueconfig.Configuration
+			secretReaderRoleBinding *rbacv1.RoleBinding
+			secretReaderRole        *rbacv1.Role
+
+			cpSecrets     = make([]*corev1.Secret, 0)
+			cp            = make([]*inventoryv1alpha1.ClusterProfile, 0)
+			deploymentKey = types.NamespacedName{Namespace: kueueNS, Name: "kueue-controller-manager"}
+		)
+
+		ginkgo.BeforeAll(func() {
+			ginkgo.By("Updating MultiKueue configuration with CredentialsProviders", func() {
+				defaultManagerKueueCfg = util.GetKueueConfiguration(ctx, k8sManagerClient)
+				newCfg := defaultManagerKueueCfg.DeepCopy()
+				util.UpdateKueueConfiguration(ctx, k8sManagerClient, newCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
+					cfg.FeatureGates[string(features.MultiKueueClusterProfile)] = true
+					if cfg.MultiKueue == nil {
+						cfg.MultiKueue = &kueueconfig.MultiKueue{}
+					}
+					cfg.MultiKueue.ClusterProfile = &kueueconfig.ClusterProfile{
+						CredentialsProviders: []kueueconfig.ClusterProfileCredentialsProvider{
+							{
+								Name: "secretreader",
+								ExecConfig: api.ExecConfig{
+									APIVersion:         "client.authentication.k8s.io/v1",
+									Command:            secretReaderPath,
+									ProvideClusterInfo: true,
+									InteractiveMode:    api.NeverExecInteractiveMode,
+								},
+							},
+						},
+					}
+				})
+			})
+
+			ginkgo.By("Creating Role and RoleBinding for secretreader-plugin", func() {
+				secretReaderRole = utiltesting.MakeRole("secretreader", kueueNS).
+					Rule([]string{""}, []string{"secrets"}, []string{"get", "list", "watch"}).
+					Obj()
+				util.MustCreate(ctx, k8sManagerClient, secretReaderRole)
+
+				secretReaderRoleBinding = utiltesting.MakeRoleBinding("secretreader-binding", kueueNS).
+					Subject(rbacv1.ServiceAccountKind, "kueue-controller-manager", kueueNS).
+					RoleRef(rbacv1.GroupName, "ClusterRole", secretReaderRole.Name).
+					Obj()
+				util.MustCreate(ctx, k8sManagerClient, secretReaderRoleBinding)
+			})
+
+			ginkgo.By("Update 'kueue-controller-manager' deployment to have the secretreader-plugin binary", func() {
+				updatedDeployment := &appsv1.Deployment{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sManagerClient.Get(ctx, deploymentKey, updatedDeployment)).To(gomega.Succeed())
+					updatedDeployment.Spec.Template.Spec.InitContainers = []corev1.Container{
+						*utiltesting.MakeContainer().
+							Name("secretreader-plugin-init").
+							Image("us-central1-docker.pkg.dev/k8s-staging-images/kueue/secretreader-plugin").
+							ImagePullPolicy(corev1.PullIfNotPresent).
+							Command("cp", "/app/secretreader-plugin", secretReaderPath).
+							VolumeMount(volumeName, volumeMountPath).
+							Obj(),
+					}
+
+					for i, container := range updatedDeployment.Spec.Template.Spec.Containers {
+						if container.Name == "manager" {
+							found := false
+							for _, vm := range container.VolumeMounts {
+								if vm.Name == volumeName {
+									found = true
+									break
+								}
+							}
+							if !found {
+								updatedDeployment.Spec.Template.Spec.Containers[i].VolumeMounts = append(
+									updatedDeployment.Spec.Template.Spec.Containers[i].VolumeMounts,
+									corev1.VolumeMount{
+										Name:      volumeName,
+										MountPath: volumeMountPath,
+									},
+								)
+							}
+						}
+					}
+					found := false
+					for _, v := range updatedDeployment.Spec.Template.Spec.Volumes {
+						if v.Name == volumeName {
+							found = true
+							break
+						}
+					}
+					if !found {
+						updatedDeployment.Spec.Template.Spec.Volumes = append(
+							updatedDeployment.Spec.Template.Spec.Volumes,
+							corev1.Volume{
+								Name: volumeName,
+								VolumeSource: corev1.VolumeSource{
+									EmptyDir: &corev1.EmptyDirVolumeSource{},
+								},
+							},
+						)
+					}
+					g.Expect(k8sManagerClient.Update(ctx, updatedDeployment)).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			util.WaitForKueueAvailability(ctx, k8sManagerClient)
+		})
+		ginkgo.AfterAll(func() {
+			updatedDeployment := &appsv1.Deployment{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sManagerClient.Get(ctx, deploymentKey, updatedDeployment)).To(gomega.Succeed())
+				// Remove the init container named "secretreader-plugin-init"
+				var newInitContainers []corev1.Container
+				for _, c := range updatedDeployment.Spec.Template.Spec.InitContainers {
+					if c.Name != "secretreader-plugin-init" {
+						newInitContainers = append(newInitContainers, c)
+					}
+				}
+				updatedDeployment.Spec.Template.Spec.InitContainers = newInitContainers
+
+				// Remove the volume mount from the "manager" container
+				for i, container := range updatedDeployment.Spec.Template.Spec.Containers {
+					if container.Name == "manager" {
+						var newVolumeMounts []corev1.VolumeMount
+						for _, vm := range container.VolumeMounts {
+							if vm.Name != volumeName || vm.MountPath != volumeMountPath {
+								newVolumeMounts = append(newVolumeMounts, vm)
+							}
+						}
+						updatedDeployment.Spec.Template.Spec.Containers[i].VolumeMounts = newVolumeMounts
+					}
+				}
+
+				// Remove the volume named "plugins"
+				var newVolumes []corev1.Volume
+				for _, v := range updatedDeployment.Spec.Template.Spec.Volumes {
+					if v.Name != volumeName {
+						newVolumes = append(newVolumes, v)
+					}
+				}
+				updatedDeployment.Spec.Template.Spec.Volumes = newVolumes
+
+				g.Expect(k8sManagerClient.Update(ctx, updatedDeployment)).Should(gomega.Succeed())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("setting configuration back", func() {
+				util.ApplyKueueConfiguration(ctx, k8sManagerClient, defaultManagerKueueCfg)
+				util.RestartKueueController(ctx, k8sManagerClient, managerClusterName)
+			})
+
+			for _, s := range cpSecrets {
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, s, true, util.Timeout)
+			}
+
+			for _, c := range cp {
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, c, true, util.Timeout)
+			}
+
+			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, secretReaderRoleBinding, true, util.LongTimeout)
+			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, secretReaderRole, true, util.LongTimeout)
+		})
+
+		ginkgo.It("Should be able to use ClusterProfile as way to connect worker cluster", func() {
+			ginkgo.By("create secrets with tokens to read from", func() {
+				worker1AuthInfo := util.GetAuthInfoFromKubeConfig(worker1Kconfig)
+				worker2AuthInfo := util.GetAuthInfoFromKubeConfig(worker2Kconfig)
+
+				secretsData := map[string]string{
+					"multikueue1-cp": worker1AuthInfo.Token,
+					"multikueue2-cp": worker2AuthInfo.Token,
+				}
+				for name, token := range secretsData {
+					secret := utiltesting.MakeSecret(name, kueueNS).Data("token", []byte(token)).Obj()
+					util.MustCreate(ctx, k8sManagerClient, secret)
+					cpSecrets = append(cpSecrets, secret)
+				}
+			})
+
+			mkc := []*kueue.MultiKueueCluster{workerCluster1, workerCluster2}
+			ginkgo.By("Update existing worker clusters to use ClusterProfiles", func() {
+				for _, wc := range mkc {
+					gomega.Eventually(func(g gomega.Gomega) {
+						createdCluster := &kueue.MultiKueueCluster{}
+						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(wc), createdCluster)).To(gomega.Succeed())
+						createdCluster.Spec.ClusterSource.KubeConfig = nil
+						createdCluster.Spec.ClusterSource.ClusterProfileRef = &kueue.ClusterProfileReference{Name: wc.Name}
+						g.Expect(k8sManagerClient.Update(ctx, createdCluster)).To(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}
+			})
+			ginkgo.By("Create ClusterProfiles for existing worker clusters", func() {
+				for _, wc := range mkc {
+					c := utiltestingapi.MakeClusterProfile(wc.Name, kueueNS).ClusterManager("secretreader").Obj()
+					util.MustCreate(ctx, k8sManagerClient, c)
+					cp = append(cp, c)
+				}
+			})
+			ginkgo.By("Update ClusterProfiles with AccessProviders", func() {
+				secrets := []string{"multikueue1-cp", "multikueue2-cp"}
+				workerClusterNames := []string{worker1ClusterName, worker2ClusterName}
+				workerCAData := [][]byte{worker1Cfg.CAData, worker2Cfg.CAData}
+				for i, wc := range mkc {
+					gomega.Eventually(func(g gomega.Gomega) {
+						createdCp := &inventoryv1alpha1.ClusterProfile{}
+						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKey{Namespace: kueueNS, Name: wc.Name}, createdCp)).To(gomega.Succeed())
+						createdCp.Status.AccessProviders = []inventoryv1alpha1.AccessProvider{
+							{
+								Name: "secretreader",
+								Cluster: apiv1.Cluster{
+									Server:                   util.GetClusterServerAddress(workerClusterNames[i]),
+									CertificateAuthorityData: workerCAData[i],
+									Extensions: []apiv1.NamedExtension{
+										{
+											Name: "client.authentication.k8s.io/exec",
+											Extension: runtime.RawExtension{
+												Raw: fmt.Appendf(nil, `{"clusterName":"%s"}`, secrets[i]),
+											},
+										},
+									},
+								},
+							},
+						}
+						g.Expect(k8sManagerClient.Status().Update(ctx, createdCp)).To(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}
+			})
+
+			ginkgo.By("Check MultiKueueCluster status", func() {
+				for _, wc := range mkc {
+					gomega.Eventually(func(g gomega.Gomega) {
+						createdCluster := &kueue.MultiKueueCluster{}
+						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(wc), createdCluster)).To(gomega.Succeed())
+						g.Expect(createdCluster.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
+							metav1.Condition{
+								Type:    kueue.MultiKueueClusterActive,
+								Status:  metav1.ConditionTrue,
+								Reason:  "Active",
+								Message: "Connected",
+							},
+							util.IgnoreConditionTimestampsAndObservedGeneration)))
+					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}
+			})
+
+			ginkgo.By("Check AdmissionChecks are active after switching to ClusterProfiles", func() {
+				util.ExpectAdmissionChecksToBeActive(ctx, k8sManagerClient, multiKueueAc)
 			})
 		})
 	})

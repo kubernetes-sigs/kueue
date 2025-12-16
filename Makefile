@@ -568,3 +568,18 @@ ray-project-mini-image-build:
 kind-ray-project-mini-image-build: PLATFORMS=$(HOST_IMAGE_PLATFORM)
 kind-ray-project-mini-image-build: PUSH=--load
 kind-ray-project-mini-image-build: ray-project-mini-image-build
+
+# Build the secretreader-plugin image
+.PHONY: secretreader-plugin-image-build
+secretreader-plugin-image-build:
+	$(IMAGE_BUILD_CMD) \
+		-t $(IMAGE_REGISTRY)/secretreader-plugin \
+		--platform=$(PLATFORMS) \
+		$(PUSH) \
+		-f hack/multikueue/secretreader/Dockerfile ./ \
+
+# The step is required for local e2e test run
+.PHONY: kind-secretreader-plugin-image-build
+kind-secretreader-plugin-image-build: PLATFORMS=$(HOST_IMAGE_PLATFORM)
+kind-secretreader-plugin-image-build: PUSH=--load
+kind-secretreader-plugin-image-build: secretreader-plugin-image-build
