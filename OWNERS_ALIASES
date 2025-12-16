@@ -1,0 +1,17 @@
+aliases:
+  kueue-approvers:
+    - gabesaba
+    - mimowo
+    - tenzen-y
+  kueue-reviewers:
+    - gabesaba
+    - mbobrovskyi
+    - mimowo
+    - pbundyra
+    - tenzen-y
+    - kannon92
+    - pajakd
+  dependency-approvers:
+    - mbobrovskyi
+  test-approvers:
+    - mbobrovskyi
