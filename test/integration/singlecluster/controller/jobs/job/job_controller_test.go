@@ -2566,7 +2566,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			waitForPodsReadyRecoveryTimeout = nil
 		})
 
-		ginkgo.It("shouldn't evict workload due waitForPodsReady.recoveryTimeout", func() {
+		ginkgo.It("shouldn't evict workload due waitForPodsReady.recoveryTimeout", framework.SlowSpec, func() {
 			ginkgo.By("creating job")
 			job := testingjob.MakeJob("job", ns.Name).Queue(kueue.LocalQueueName(lq.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			util.MustCreate(ctx, k8sClient, job)
@@ -3299,7 +3299,7 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 				afterDeactivatedByKueue = &metav1.Duration{Duration: util.TinyTimeout}
 			})
 
-			ginkgo.It("should delete job", func() {
+			ginkgo.It("should delete job", framework.SlowSpec, func() {
 				job := testingjob.MakeJob("job", ns.Name).
 					Queue(kueue.LocalQueueName(lq.Name)).
 					Request(corev1.ResourceCPU, "2").
@@ -3898,7 +3898,7 @@ var _ = ginkgo.Describe("Job reconciliation", ginkgo.Ordered, func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ManagedJobsNamespaceSelectorAlwaysRespected, false)
 		})
 
-		ginkgo.It("should reconcile a job in an unmanaged namespace with queue name set and create a workload", func() {
+		ginkgo.It("should reconcile a job in an unmanaged namespace with queue name set and create a workload", framework.SlowSpec, func() {
 			job := testingjob.MakeJob("unmanaged-job-with-queue-name", unmanagedNs.Name).
 				Queue(kueue.LocalQueueName(lq.Name)).
 				Suspend(true).

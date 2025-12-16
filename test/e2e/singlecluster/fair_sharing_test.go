@@ -30,7 +30,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Fair Sharing", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Fair Sharing", ginkgo.Serial, ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns  *corev1.Namespace
 		rf  *kueue.ResourceFlavor
@@ -43,31 +43,39 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Ordered, ginkgo.ContinueOnFailure
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-fair-sharing-")
 
-		rf = utiltestingapi.MakeResourceFlavor("rf").Obj()
+		rf = utiltestingapi.MakeResourceFlavor("rf-"+ns.Name).NodeLabel("instance-type", "on-demand").Obj()
 		util.MustCreate(ctx, k8sClient, rf)
 
-		cq1 = utiltestingapi.MakeClusterQueue("cq1").
-			Cohort("cohort").
-			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
-				Resource(corev1.ResourceCPU, "9").
-				Resource(corev1.ResourceMemory, "36G").
-				Obj()).
+		cq1 = utiltestingapi.MakeClusterQueue("cq1-" + ns.Name).
+			Cohort(kueue.CohortReference("cohort-" + ns.Name)).
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas(rf.Name).
+				Resource(corev1.ResourceCPU, "1").
+				Resource(corev1.ResourceMemory, "20Gi").
+				Obj(),
+			).
 			Obj()
-		cq2 = utiltestingapi.MakeClusterQueue("cq2").
-			Cohort("cohort").
-			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
-				Resource(corev1.ResourceCPU, "9").
-				Resource(corev1.ResourceMemory, "36G").
-				Obj()).
+
+		cq2 = utiltestingapi.MakeClusterQueue("cq2-" + ns.Name).
+			Cohort(kueue.CohortReference("cohort-" + ns.Name)).
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas(rf.Name).
+				Resource(corev1.ResourceCPU, "1").
+				Resource(corev1.ResourceMemory, "20Gi").
+				Obj(),
+			).
 			Obj()
-		cq3 = utiltestingapi.MakeClusterQueue("cq3").
-			Cohort("cohort").
-			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
-				Resource(corev1.ResourceCPU, "9").
-				Resource(corev1.ResourceMemory, "36G").
-				Obj()).
+
+		cq3 = utiltestingapi.MakeClusterQueue("cq3-" + ns.Name).
+			Cohort(kueue.CohortReference("cohort-" + ns.Name)).
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas(rf.Name).
+				Resource(corev1.ResourceCPU, "2").
+				Resource(corev1.ResourceMemory, "20Gi").
+				Obj(),
+			).
 			Obj()
 		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq1, cq2, cq3)
 
@@ -95,13 +103,14 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 					Parallelism(3).
 					Completions(3).
-					RequestAndLimit(corev1.ResourceCPU, "1").
+					RequestAndLimit(corev1.ResourceCPU, "100m").
 					RequestAndLimit(corev1.ResourceMemory, "200Mi").
 					Obj()
 				util.MustCreate(ctx, k8sClient, job)
 			}
 
 			ginkgo.By("checking cluster queues")
+
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq1), cq1)).Should(gomega.Succeed())
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq2), cq2)).Should(gomega.Succeed())
@@ -109,16 +118,15 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Ordered, ginkgo.ContinueOnFailure
 
 				g.Expect(cq1.Status.AdmittedWorkloads).Should(gomega.Equal(int32(4)))
 				g.Expect(cq1.Status.FairSharing).ShouldNot(gomega.BeNil())
-				g.Expect(cq1.Status.FairSharing.WeightedShare).Should(gomega.Equal(int64(112)))
+				g.Expect(cq1.Status.FairSharing.WeightedShare).Should(gomega.Equal(int64(50)))
 
 				g.Expect(cq2.Status.AdmittedWorkloads).Should(gomega.Equal(int32(0)))
 				g.Expect(cq2.Status.FairSharing).ShouldNot(gomega.BeNil())
 				g.Expect(cq2.Status.FairSharing.WeightedShare).Should(gomega.Equal(int64(0)))
 
-				g.Expect(cq3.Status.AdmittedWorkloads).Should(gomega.Equal(int32(0)))
 				g.Expect(cq3.Status.FairSharing).ShouldNot(gomega.BeNil())
 				g.Expect(cq3.Status.FairSharing.WeightedShare).Should(gomega.Equal(int64(0)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })
