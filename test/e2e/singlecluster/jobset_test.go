@@ -92,9 +92,7 @@ var _ = ginkgo.Describe("JobSet", func() {
 				Obj()
 
 			ginkgo.By("Creating the jobSet", func() {
-				gomega.Eventually(func() error {
-					return k8sClient.Create(ctx, jobSet)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, jobSet)
 			})
 
 			createdLeaderWorkload := &kueue.Workload{}
@@ -177,9 +175,7 @@ var _ = ginkgo.Describe("JobSet", func() {
 				Obj()
 
 			ginkgo.By("Creating the jobSet", func() {
-				gomega.Eventually(func() error {
-					return k8sClient.Create(ctx, jobSet)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, jobSet)
 			})
 
 			ginkgo.By("Waiting for the jobSet to be unsuspended", func() {

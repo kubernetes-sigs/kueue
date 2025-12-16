@@ -110,7 +110,6 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Serial, ginkgo.Ordered, ginkgo.Co
 			}
 
 			ginkgo.By("checking cluster queues")
-
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq1), cq1)).Should(gomega.Succeed())
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq2), cq2)).Should(gomega.Succeed())
