@@ -52,6 +52,13 @@ KUEUE_UPGRADE_FROM_VERSION ?= v0.14.4
 # Default will delete default kind cluster
 KIND_CLUSTER_NAME ?= kind
 
+# Number of processes to use during e2e tests.
+E2E_NPROCS ?= 4
+
+ifneq ($(E2E_NPROCS),1)
+	GINKGO_ARGS += -procs=$(E2E_NPROCS)
+endif
+
 # For restricting to a specific directory
 GO_TEST_TARGET ?= .
 
