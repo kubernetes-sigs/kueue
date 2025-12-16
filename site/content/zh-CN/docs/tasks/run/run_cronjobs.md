@@ -17,7 +17,7 @@ description: 在启用了 Kueue 的环境里运行 CronJob
 - 已运行 Kubernetes 集群。
 - kubectl 命令行工具已与你的集群建立通信。
 - [Kueue 安装文档](/zh-CN/docs/installation)。
-- 集群已配置 [配额](/zh-CN/docs/tasks/administer_cluster_quotas)。
+- 集群已配置 [配额](/zh-CN/docs/tasks/manage/administer_cluster_quotas)。
 
 ## 0. 识别你命名空间中的可用队列 {#0-identify-the-queues-available-in-your-namespace}
 
@@ -80,4 +80,4 @@ job-sample-cronjob-28373363-e2aa0   user-queue   cluster-queue   68m
 job-sample-cronjob-28373364-b42ac   user-queue   cluster-queue   67m
 ```
 
-你还可以[监控 Workload 的状态](/zh-CN/docs/tasks/run_jobs#3-optional-monitor-the-status-of-the-workload)。
+你还可以[监控 Workload 的状态](/zh-CN/docs/tasks/run/jobs#3-optional-monitor-the-status-of-the-workload)。

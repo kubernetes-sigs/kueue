@@ -37,6 +37,7 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -49,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -69,6 +71,7 @@ type wlReconciler struct {
 	recorder          record.EventRecorder
 	clock             clock.Clock
 	dispatcherName    string
+	roleTracker       *roletracker.RoleTracker
 }
 
 var _ reconcile.Reconciler = (*wlReconciler)(nil)
@@ -92,7 +95,7 @@ func WithClock(_ testing.TB, c clock.Clock) Option {
 
 // IsFinished returns true if the local workload is finished.
 func (g *wlGroup) IsFinished() bool {
-	return apimeta.IsStatusConditionTrue(g.local.Status.Conditions, kueue.WorkloadFinished)
+	return workload.IsFinished(g.local)
 }
 
 // IsElasticWorkload returns true if the workload is considered elastic,
@@ -396,7 +399,6 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			}
 		}
 
-		acs := admissioncheck.FindAdmissionCheck(group.local.Status.AdmissionChecks, group.acName)
 		if err := group.jobAdapter.SyncJob(ctx, w.client, group.remoteClients[reservingRemote].client, group.controllerKey, group.local.Name, w.origin); err != nil {
 			log.V(2).Error(err, "creating remote controller object", "remote", reservingRemote)
 			// We'll retry this in the next reconcile.
@@ -495,7 +497,7 @@ func (w *wlReconciler) Generic(_ event.GenericEvent) bool {
 
 func newWlReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelper, cRec *clustersReconciler, origin string,
 	recorder record.EventRecorder, workerLostTimeout, eventsBatchPeriod time.Duration,
-	adapters map[string]jobframework.MultiKueueAdapter, dispatcherName string,
+	adapters map[string]jobframework.MultiKueueAdapter, dispatcherName string, roleTracker *roletracker.RoleTracker,
 	options ...Option,
 ) *wlReconciler {
 	r := &wlReconciler{
@@ -510,6 +512,7 @@ func newWlReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelp
 		recorder:          recorder,
 		clock:             realClock,
 		dispatcherName:    dispatcherName,
+		roleTracker:       roleTracker,
 	}
 	for _, option := range options {
 		option(r)
@@ -592,6 +595,9 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 		WatchesRawSource(source.Channel(w.clusters.wlUpdateCh, syncHndl)).
 		Watches(&kueue.MultiKueueConfig{}, &configHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod}).
 		WithEventFilter(w).
+		WithOptions(controller.Options{
+			LogConstructor: roletracker.NewLogConstructor(w.roleTracker, "multikueue-workload"),
+		}).
 		Complete(w)
 }
 

@@ -28,7 +28,6 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -52,6 +51,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	"sigs.k8s.io/kueue/pkg/util/wait"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -79,6 +79,7 @@ type Scheduler struct {
 	fairSharing             *config.FairSharing
 	admissionFairSharing    *config.AdmissionFairSharing
 	clock                   clock.Clock
+	roleTracker             *roletracker.RoleTracker
 
 	// schedulingCycle identifies the number of scheduling
 	// attempts since the last restart.
@@ -90,6 +91,7 @@ type options struct {
 	fairSharing                 *config.FairSharing
 	admissionFairSharing        *config.AdmissionFairSharing
 	clock                       clock.Clock
+	roleTracker                 *roletracker.RoleTracker
 }
 
 // Option configures the reconciler.
@@ -128,6 +130,13 @@ func WithClock(_ testing.TB, c clock.Clock) Option {
 	}
 }
 
+// WithRoleTracker sets the role tracker for HA logging.
+func WithRoleTracker(tracker *roletracker.RoleTracker) Option {
+	return func(o *options) {
+		o.roleTracker = tracker
+	}
+}
+
 func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recorder record.EventRecorder, opts ...Option) *Scheduler {
 	options := defaultOptions
 	for _, opt := range opts {
@@ -147,13 +156,14 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 		workloadOrdering:        wo,
 		clock:                   options.clock,
 		admissionFairSharing:    options.admissionFairSharing,
+		roleTracker:             options.roleTracker,
 	}
 	return s
 }
 
 // Start implements the Runnable interface to run scheduler as a controller.
 func (s *Scheduler) Start(ctx context.Context) error {
-	log := ctrl.LoggerFrom(ctx).WithName("scheduler")
+	log := roletracker.WithReplicaRole(ctrl.LoggerFrom(ctx).WithName("scheduler"), s.roleTracker)
 	ctx = ctrl.LoggerInto(ctx, log)
 	go wait.UntilWithBackoff(ctx, s.schedule)
 	return nil
@@ -579,7 +589,11 @@ func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, sn
 func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, log logr.Logger, wl *kueue.Workload) error {
 	log.V(3).Info("Evicting workload after failed try to find a node replacement; TASFailedNodeReplacementFailFast enabled")
 	msg := fmt.Sprintf("Workload was evicted as there was no replacement for a failed node: %s", wl.Status.UnhealthyNodes[0].Name)
-	if err := workload.Evict(ctx, s.client, s.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, msg, "", s.clock); err != nil {
+	err := workload.Evict(
+		ctx, s.client, s.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, msg, "", s.clock,
+		workload.EvictWithLooseOnApply(), workload.EvictWithRetryOnConflictForPatch(),
+	)
+	if err != nil {
 		return err
 	}
 	return nil
@@ -872,7 +886,7 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(newWorkload, originalWorkload 
 //  5. The function reports metrics for the aggregation of workload slices for the old queue.
 func (s *Scheduler) replaceWorkloadSlice(ctx context.Context, oldQueue kueue.ClusterQueueReference, newSlice, oldSlice *kueue.Workload) error {
 	log := ctrl.LoggerFrom(ctx)
-	if meta.IsStatusConditionTrue(oldSlice.Status.Conditions, kueue.WorkloadFinished) {
+	if workload.IsFinished(oldSlice) {
 		log.V(3).Info("Workload slice already finished", "old-slice", klog.KObj(oldSlice), "new-slice", klog.KObj(newSlice))
 		return nil
 	}

@@ -292,7 +292,6 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 	})
 
 	ginkgo.It("Should run a job on worker if admitted (ManagedBy)", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueBatchJobWithManagedBy, true)
 		job := testingjob.MakeJob("job", managerNs.Name).
 			ManagedBy(kueue.MultiKueueControllerName).
 			Queue(kueue.LocalQueueName(managerLq.Name)).

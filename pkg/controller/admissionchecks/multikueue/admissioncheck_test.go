@@ -256,7 +256,7 @@ func TestReconcile(t *testing.T) {
 			c := builder.Build()
 
 			helper, _ := admissioncheck.NewMultiKueueStoreHelper(c)
-			reconciler := newACReconciler(c, helper)
+			reconciler := newACReconciler(c, helper, nil)
 
 			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor}})
 			if diff := cmp.Diff(tc.wantError, gotErr); diff != "" {

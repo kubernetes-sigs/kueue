@@ -26,40 +26,22 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
-// SetupOption configures the TAS controllers setup.
-type SetupOption func(*setupOptions)
-
-type setupOptions struct {
-	roleTracker *roletracker.RoleTracker
-}
-
-// WithRoleTracker sets the roleTracker for TAS controllers.
-func WithRoleTracker(tracker *roletracker.RoleTracker) SetupOption {
-	return func(o *setupOptions) {
-		o.roleTracker = tracker
-	}
-}
-
-func SetupControllers(mgr ctrl.Manager, queues *qcache.Manager, cache *schdcache.Cache, cfg *configapi.Configuration, opts ...SetupOption) (string, error) {
-	options := &setupOptions{}
-	for _, opt := range opts {
-		opt(options)
-	}
+func SetupControllers(mgr ctrl.Manager, queues *qcache.Manager, cache *schdcache.Cache, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker) (string, error) {
 	recorder := mgr.GetEventRecorderFor(TASResourceFlavorController)
-	topologyRec := newTopologyReconciler(mgr.GetClient(), queues, cache, options.roleTracker)
+	topologyRec := newTopologyReconciler(mgr.GetClient(), queues, cache, roleTracker)
 	if ctrlName, err := topologyRec.setupWithManager(mgr, cfg); err != nil {
 		return ctrlName, err
 	}
-	rfRec := newRfReconciler(mgr.GetClient(), queues, cache, recorder, options.roleTracker)
+	rfRec := newRfReconciler(mgr.GetClient(), queues, cache, recorder, roleTracker)
 	if ctrlName, err := rfRec.setupWithManager(mgr, cache, cfg); err != nil {
 		return ctrlName, err
 	}
-	topologyUngater := newTopologyUngater(mgr.GetClient(), options.roleTracker)
+	topologyUngater := newTopologyUngater(mgr.GetClient(), roleTracker)
 	if ctrlName, err := topologyUngater.setupWithManager(mgr, cfg); err != nil {
 		return ctrlName, err
 	}
 	if features.Enabled(features.TASFailedNodeReplacement) {
-		nodeFailureReconciler := newNodeFailureReconciler(mgr.GetClient(), recorder, options.roleTracker)
+		nodeFailureReconciler := newNodeFailureReconciler(mgr.GetClient(), recorder, roleTracker)
 		if ctrlName, err := nodeFailureReconciler.SetupWithManager(mgr, cfg); err != nil {
 			return ctrlName, err
 		}

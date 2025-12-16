@@ -1605,6 +1605,7 @@ func TestReconcile(t *testing.T) {
 			controller, err := NewController(
 				k8sclient,
 				recorder,
+				nil,
 			)
 			if err != nil {
 				t.Fatalf("Setting up the provisioning request controller: %v", err)
@@ -1786,7 +1787,7 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 
 			k8sclient := builder.Build()
 			recorder := &utiltesting.EventRecorder{}
-			controller, err := NewController(k8sclient, recorder)
+			controller, err := NewController(k8sclient, recorder, nil)
 			if err != nil {
 				t.Fatalf("Setting up the provisioning request controller: %v", err)
 			}

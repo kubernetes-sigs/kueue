@@ -155,10 +155,8 @@ func (a *Adapter) copyStatusFromRemote(localObj, remoteObj *unstructured.Unstruc
 func (a *Adapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(a.gvk)
-	err := remoteClient.Get(ctx, key, obj)
-	if err != nil {
-		return client.IgnoreNotFound(err)
-	}
+	obj.SetName(key.Name)
+	obj.SetNamespace(key.Namespace)
 	return client.IgnoreNotFound(remoteClient.Delete(ctx, obj, client.PropagationPolicy(metav1.DeletePropagationBackground)))
 }
 

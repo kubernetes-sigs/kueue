@@ -84,7 +84,7 @@ var _ predicate.TypedPredicate[*kueue.ResourceFlavor] = (*rfReconciler)(nil)
 
 func newRfReconciler(c client.Client, queues *qcache.Manager, cache *schdcache.Cache, recorder record.EventRecorder, roleTracker *roletracker.RoleTracker) *rfReconciler {
 	return &rfReconciler{
-		log:         ctrl.Log.WithName(TASResourceFlavorController),
+		log:         roletracker.WithReplicaRole(ctrl.Log.WithName(TASResourceFlavorController), roleTracker),
 		client:      c,
 		queues:      queues,
 		cache:       cache,

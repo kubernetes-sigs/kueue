@@ -47,6 +47,7 @@ var (
 	ErrLocalQueueDoesNotExistOrInactive = errors.New("localQueue doesn't exist or inactive")
 	ErrClusterQueueDoesNotExist         = errors.New("clusterQueue doesn't exist")
 	errClusterQueueAlreadyExists        = errors.New("clusterQueue already exists")
+	errWorkloadIsInadmissible           = errors.New("workload is inadmissible and can't be added to a LocalQueue")
 )
 
 // Option configures the manager.
@@ -290,8 +291,8 @@ func (m *Manager) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 }
 
 func (m *Manager) DefaultLocalQueueExist(namespace string) bool {
-	m.Lock()
-	defer m.Unlock()
+	m.RLock()
+	defer m.RUnlock()
 
 	_, ok := m.localQueues[queue.DefaultQueueKey(namespace)]
 	return ok
@@ -308,7 +309,8 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 	qImpl := newLocalQueue(q)
 	m.localQueues[key] = qImpl
 
-	if cq := m.hm.ClusterQueue(qImpl.ClusterQueue); cq != nil {
+	cq := m.hm.ClusterQueue(qImpl.ClusterQueue)
+	if cq != nil {
 		cq.addLocalQueue(key)
 	}
 
@@ -319,7 +321,7 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		return fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
 	for _, w := range workloads.Items {
-		if !workload.IsActive(&w) || workload.HasQuotaReservation(&w) {
+		if !workload.IsAdmissible(&w) {
 			continue
 		}
 
@@ -335,7 +337,7 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		workload.AdjustResources(ctx, m.client, &w)
 		qImpl.AddOrUpdate(workload.NewInfo(&w, m.workloadInfoOptions...))
 	}
-	cq := m.hm.ClusterQueue(qImpl.ClusterQueue)
+
 	if cq != nil && cq.AddFromLocalQueue(qImpl) {
 		m.Broadcast()
 	}
@@ -443,11 +445,8 @@ func (m *Manager) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload, opts .
 }
 
 func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
-	if !workload.IsActive(w) {
-		return fmt.Errorf("workload %q is inactive and can't be added to a LocalQueue", w.Name)
-	}
-	if workload.HasQuotaReservation(w) {
-		return fmt.Errorf("workload %q already has quota reserved and can't be added to a LocalQueue", w.Name)
+	if !workload.IsAdmissible(w) {
+		return errWorkloadIsInadmissible
 	}
 	qKey := queue.KeyFromWorkload(w)
 	q := m.localQueues[qKey]

@@ -230,14 +230,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	var roleTracker *roletracker.RoleTracker
-	if cfg.LeaderElection != nil && ptr.Deref(cfg.LeaderElection.LeaderElect, false) {
-		roleTracker = roletracker.NewRoleTracker(mgr.Elected())
-		go roleTracker.Start(ctx, setupLog)
-		setupLog.Info("RoleTracker: leader election enabled")
-	} else {
-		setupLog.Info("RoleTracker: running in standalone mode")
-	}
+	roleTracker := setupRoleTracker(ctx, mgr, &cfg)
 
 	certsReady := make(chan struct{})
 
@@ -298,7 +291,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if failedWebhook, err := webhooks.Setup(mgr, webhooks.WithRoleTracker(roleTracker)); err != nil {
+	if failedWebhook, err := webhooks.Setup(mgr, roleTracker); err != nil {
 		setupLog.Error(err, "Unable to create webhook", "webhook", failedWebhook)
 		os.Exit(1)
 	}
@@ -315,7 +308,7 @@ func main() {
 		}()
 	}
 
-	if err := setupScheduler(mgr, cCache, queues, &cfg); err != nil {
+	if err := setupScheduler(mgr, cCache, queues, &cfg, roleTracker); err != nil {
 		setupLog.Error(err, "Could not setup scheduler")
 		os.Exit(1)
 	}
@@ -359,11 +352,11 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 }
 
 func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Manager, cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher, roleTracker *roletracker.RoleTracker) error {
-	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, cfg, core.WithSetupRoleTracker(roleTracker)); err != nil {
+	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, cfg, roleTracker); err != nil {
 		return fmt.Errorf("unable to create controller %s: %w", failedCtrl, err)
 	}
 	if features.Enabled(features.FailureRecoveryPolicy) {
-		if failedCtrlName, err := failurerecovery.SetupControllers(mgr, cfg, failurerecovery.SetupWithRoleTracker(roleTracker)); err != nil {
+		if failedCtrlName, err := failurerecovery.SetupControllers(mgr, cfg, roleTracker); err != nil {
 			return fmt.Errorf("could not setup FailureRecovery controller %s: %w", failedCtrlName, err)
 		}
 	}
@@ -372,7 +365,7 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.C
 	if err := provisioning.ServerSupportsProvisioningRequest(mgr); err != nil {
 		setupLog.Info("Skipping provisioning controller setup: Provisioning Requests not supported (Possible cause: missing or unsupported cluster-autoscaler)")
 	} else {
-		ctrl, err := provisioning.NewController(mgr.GetClient(), mgr.GetEventRecorderFor("kueue-provisioning-request-controller"))
+		ctrl, err := provisioning.NewController(mgr.GetClient(), mgr.GetEventRecorderFor("kueue-provisioning-request-controller"), roleTracker)
 		if err != nil {
 			return fmt.Errorf("could not create the provisioning controller: %w", err)
 		}
@@ -409,17 +402,18 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.C
 			multikueue.WithAdapters(adapters),
 			multikueue.WithDispatcherName(ptr.Deref(cfg.MultiKueue.DispatcherName, configapi.MultiKueueDispatcherModeAllAtOnce)),
 			multikueue.WithClusterProfiles(cfg.MultiKueue.ClusterProfile),
+			multikueue.WithRoleTracker(roleTracker),
 		); err != nil {
 			return fmt.Errorf("could not setup MultiKueue controller: %w", err)
 		}
 
-		if failedDispatcher, err := dispatcher.SetupControllers(mgr, cfg, dispatcher.WithRoleTracker(roleTracker)); err != nil {
+		if failedDispatcher, err := dispatcher.SetupControllers(mgr, cfg, roleTracker); err != nil {
 			return fmt.Errorf("could not setup Dispatcher controller %q for MultiKueue: %w", failedDispatcher, err)
 		}
 	}
 
 	if features.Enabled(features.TopologyAwareScheduling) {
-		if failedCtrl, err := tas.SetupControllers(mgr, queues, cCache, cfg, tas.WithRoleTracker(roleTracker)); err != nil {
+		if failedCtrl, err := tas.SetupControllers(mgr, queues, cCache, cfg, roleTracker); err != nil {
 			return fmt.Errorf("could not setup TAS controller %s: %w", failedCtrl, err)
 		}
 	}
@@ -479,7 +473,7 @@ func setupProbeEndpoints(mgr ctrl.Manager, certsReady <-chan struct{}) error {
 	return nil
 }
 
-func setupScheduler(mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Manager, cfg *configapi.Configuration) error {
+func setupScheduler(mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Manager, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker) error {
 	sched := scheduler.New(
 		queues,
 		cCache,
@@ -488,6 +482,7 @@ func setupScheduler(mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Ma
 		scheduler.WithPodsReadyRequeuingTimestamp(podsReadyRequeuingTimestamp(cfg)),
 		scheduler.WithFairSharing(cfg.FairSharing),
 		scheduler.WithAdmissionFairSharing(cfg.AdmissionFairSharing),
+		scheduler.WithRoleTracker(roleTracker),
 	)
 	if err := mgr.Add(sched); err != nil {
 		return fmt.Errorf("unable to add scheduler to manager: %w", err)
@@ -512,6 +507,17 @@ func setupServerVersionFetcher(mgr ctrl.Manager, kubeConfig *rest.Config) (*kube
 	}
 
 	return serverVersionFetcher, nil
+}
+
+func setupRoleTracker(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configuration) *roletracker.RoleTracker {
+	if cfg.LeaderElection != nil && ptr.Deref(cfg.LeaderElection.LeaderElect, false) {
+		tracker := roletracker.NewRoleTracker(mgr.Elected())
+		go tracker.Start(ctx, setupLog)
+		setupLog.Info("RoleTracker: leader election enabled")
+		return tracker
+	}
+	setupLog.Info("RoleTracker: running in standalone mode")
+	return nil
 }
 
 func blockForPodsReady(cfg *configapi.Configuration) bool {

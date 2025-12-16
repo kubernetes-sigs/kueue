@@ -18,6 +18,7 @@ package rayjob
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
@@ -36,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/podset"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -81,8 +83,18 @@ func (w *RayJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
 	log.V(5).Info("Applying defaults")
 	jobframework.ApplyDefaultLocalQueue(job.Object(), w.queues.DefaultLocalQueueExist)
-	if err := jobframework.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
-		return err
+	if job.Spec.RayClusterSpec == nil || !ptr.Deref(job.Spec.RayClusterSpec.EnableInTreeAutoscaling, false) {
+		if err := jobframework.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
+			return err
+		}
+	} else {
+		if !workloadslicing.Enabled(job.Object()) {
+			return errors.New("RayJob should enable workload slicing if autoscaling is enabled")
+		}
+		if job.Spec.Suspend {
+			return errors.New("RayJob should not set suspend to true if autoscaling is enabled")
+		}
+		log.V(5).Info("Do not apply default for suspend due to EnableInTreeAutoscaling", "jobName", job.Name, "jobNamespace", job.Namespace)
 	}
 	jobframework.ApplyDefaultForManagedBy(job, w.queues, w.cache, log)
 	return nil
@@ -143,8 +155,8 @@ func (w *RayJobWebhook) validateCreate(ctx context.Context, job *rayv1.RayJob) (
 		clusterSpecPath := specPath.Child("rayClusterSpec")
 
 		// Should not use auto scaler. Once the resources are reserved by queue the cluster should do its best to use them.
-		if ptr.Deref(clusterSpec.EnableInTreeAutoscaling, false) {
-			allErrors = append(allErrors, field.Invalid(clusterSpecPath.Child("enableInTreeAutoscaling"), clusterSpec.EnableInTreeAutoscaling, "a kueue managed job should not use autoscaling"))
+		if ptr.Deref(clusterSpec.EnableInTreeAutoscaling, false) && !workloadslicing.Enabled(job) {
+			allErrors = append(allErrors, field.Invalid(clusterSpecPath.Child("enableInTreeAutoscaling"), clusterSpec.EnableInTreeAutoscaling, "a kueue managed job should only use autoscaling when workload slicing is enabled"))
 		}
 
 		// Should limit the worker count to 8 - 1 (max podSets num - cluster head)

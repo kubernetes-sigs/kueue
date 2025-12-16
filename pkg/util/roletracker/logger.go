@@ -28,8 +28,8 @@ func WithReplicaRole(log logr.Logger, tracker *RoleTracker) logr.Logger {
 	return log.WithValues("replica-role", GetRole(tracker))
 }
 
-// WithRequestContext adds namespace and name to the logger.
-func WithRequestContext(log logr.Logger, namespace, name string) logr.Logger {
+// withRequestContext adds namespace and name to the logger.
+func withRequestContext(log logr.Logger, namespace, name string) logr.Logger {
 	if namespace != "" {
 		return log.WithValues("namespace", namespace, "name", name)
 	}
@@ -43,7 +43,7 @@ func NewLogConstructor(tracker *RoleTracker, baseName string) func(*reconcile.Re
 		if req == nil {
 			return log
 		}
-		return WithRequestContext(log, req.Namespace, req.Name)
+		return withRequestContext(log, req.Namespace, req.Name)
 	}
 }
 

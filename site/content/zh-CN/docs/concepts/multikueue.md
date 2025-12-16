@@ -55,7 +55,7 @@ Multikueue 系统的工作方式如下：
 MultiKueue 支持多种工作负载，你可以学习如何：
 - [调度 Kueue 管理的 Deployment](docs/tasks/run/multikueue/deployment)。
 - [调度 Kueue 管理的 batch/Job](docs/tasks/run/multikueue/job)。
-- [调度 Kueue 管理的 JobSet](docs/tasks/run/multikueue/jobset)。
+- [调度 Kueue 管理的 JobSet](docs/tasks/run/multikueue/jobsets)。
 - [调度 Kueue 管理的 Kubeflow Job](docs/tasks/run/multikueue/kubeflow)。
 - [调度 Kueue 管理的 KubeRay 工作负载](docs/tasks/run/multikueue/kuberay)。
 - [调度 Kueue 管理的 MPIJob](docs/tasks/run/multikueue/mpijob)。

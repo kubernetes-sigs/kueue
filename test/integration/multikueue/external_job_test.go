@@ -84,10 +84,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				configuration := &config.Configuration{}
 				mgr.GetScheme().Default(configuration)
 
-				failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
+				failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil)
 				gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
-				failedWebhook, err := webhooks.Setup(mgr)
+				failedWebhook, err := webhooks.Setup(mgr, nil)
 				gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 				// Set up RayJob webhook (but not MultiKueue integration)
@@ -135,7 +135,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-				_, err = dispatcher.SetupControllers(mgr, configuration)
+				_, err = dispatcher.SetupControllers(mgr, configuration, nil)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			})
 		})

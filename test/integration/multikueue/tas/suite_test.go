@@ -118,16 +118,16 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	configuration := &config.Configuration{}
 	mgr.GetScheme().Default(configuration)
 
-	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
+	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
-	failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, configuration)
+	failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, configuration, nil)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "TAS controller", failedCtrl)
 
 	err = tasindexer.SetupIndexes(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	failedWebhook, err := webhooks.Setup(mgr)
+	failedWebhook, err := webhooks.Setup(mgr, nil)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 	err = workloadjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
@@ -150,7 +150,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 
 	reconciler, err := provisioning.NewController(
 		mgr.GetClient(),
-		mgr.GetEventRecorderFor("kueue-provisioning-request-controller"))
+		mgr.GetEventRecorderFor("kueue-provisioning-request-controller"), nil)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = reconciler.SetupWithManager(mgr)

@@ -87,7 +87,7 @@ func NewCohortReconciler(
 
 	return &CohortReconciler{
 		client:             client,
-		log:                ctrl.Log.WithName("cohort-reconciler"),
+		log:                roletracker.WithReplicaRole(ctrl.Log.WithName("cohort-reconciler"), options.roleTracker),
 		cache:              cache,
 		qManager:           qManager,
 		cqUpdateCh:         make(chan event.GenericEvent, updateChBuffer),

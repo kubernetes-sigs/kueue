@@ -31,6 +31,8 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
+	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -118,6 +120,80 @@ var _ = ginkgo.Describe("Kuberay", func() {
 
 		ginkgo.By("Checking workload is admitted", func() {
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createdWorkload)
+		})
+
+		ginkgo.By("Waiting for the RayJob cluster become ready", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdRayJob := &rayv1.RayJob{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayJob), createdRayJob)).To(gomega.Succeed())
+				g.Expect(createdRayJob.Spec.Suspend).To(gomega.BeFalse())
+				g.Expect(createdRayJob.Status.JobDeploymentStatus).To(gomega.Equal(rayv1.JobDeploymentStatusRunning))
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Waiting for the RayJob to finish", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdRayJob := &rayv1.RayJob{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayJob), createdRayJob)).To(gomega.Succeed())
+				g.Expect(createdRayJob.Status.JobDeploymentStatus).To(gomega.Equal(rayv1.JobDeploymentStatusComplete))
+				g.Expect(createdRayJob.Status.JobStatus).To(gomega.Equal(rayv1.JobStatusSucceeded))
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	// TODO enhance to test scale up / down operations
+	// See https://github.com/kubernetes-sigs/kueue/pull/8082#discussion_r2605582024
+	ginkgo.It("Should run a rayjob with InTreeAutoscaling", func() {
+		kuberayTestImage := util.GetKuberayTestImage()
+
+		rayJob := testingrayjob.MakeJob("rayjob-autoscaling", ns.Name).
+			Queue(localQueueName).
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			EnableInTreeAutoscaling().
+			WithSubmissionMode(rayv1.K8sJobMode).
+			Entrypoint("python -c \"import ray; ray.init(); print(ray.cluster_resources())\"").
+			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "300m").
+			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "300m").
+			WithSubmitterPodTemplate(corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "rayjob-submitter",
+							Image: kuberayTestImage,
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU: resource.MustParse("300m"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceCPU: resource.MustParse("300m"),
+								},
+							},
+						},
+					},
+					RestartPolicy: corev1.RestartPolicyOnFailure,
+				},
+			}).
+			Image(rayv1.HeadNode, kuberayTestImage).
+			Image(rayv1.WorkerNode, kuberayTestImage).Obj()
+
+		ginkgo.By("Creating the rayJob", func() {
+			gomega.Expect(k8sClient.Create(ctx, rayJob)).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Checking one workload is created and admitted", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				workloadList := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				g.Expect(workloadList.Items).NotTo(gomega.BeEmpty(), "Expected at least one workload in namespace")
+				hasAdmittedWorkload := false
+				for _, wl := range workloadList.Items {
+					if workload.IsAdmitted(&wl) || workload.IsFinished(&wl) {
+						hasAdmittedWorkload = true
+						break
+					}
+				}
+				g.Expect(hasAdmittedWorkload).To(gomega.BeTrue(), "Expected admitted workload")
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Waiting for the RayJob cluster become ready", func() {

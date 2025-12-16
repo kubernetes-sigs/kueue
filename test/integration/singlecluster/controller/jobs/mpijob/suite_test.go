@@ -89,7 +89,7 @@ func managerSetup(setupJobManager bool, opts ...jobframework.Option) framework.M
 		err = mpijob.SetupMPIJobWebhook(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		jobframework.EnableIntegration(mpijob.FrameworkName)
-		failedWebhook, err := webhooks.Setup(mgr)
+		failedWebhook, err := webhooks.Setup(mgr, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 		if setupJobManager {
@@ -119,11 +119,11 @@ func managerAndSchedulerSetup(setupTASControllers bool, opts ...jobframework.Opt
 		configuration := &config.Configuration{}
 		mgr.GetScheme().Default(configuration)
 
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		if setupTASControllers {
-			failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, configuration)
+			failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, configuration, nil)
 			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "TAS controller", failedCtrl)
 
 			err = tasindexer.SetupIndexes(ctx, mgr.GetFieldIndexer())

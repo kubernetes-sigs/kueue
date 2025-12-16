@@ -37,6 +37,7 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 	jobsetapplyapi "sigs.k8s.io/jobset/client-go/applyconfiguration/jobset/v1alpha2"
 
@@ -47,6 +48,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 )
 
@@ -80,6 +82,8 @@ type trainJobReconciler struct {
 	client   client.Client
 }
 
+const controllerName = "trainjob"
+
 var reconciler trainJobReconciler
 var _ jobframework.JobReconcilerInterface = (*trainJobReconciler)(nil)
 
@@ -102,7 +106,10 @@ func (r *trainJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 func (r *trainJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	b := ctrl.NewControllerManagedBy(mgr).
-		For(&kftrainer.TrainJob{}).Owns(&kueue.Workload{}).Owns(&jobsetapi.JobSet{})
+		For(&kftrainer.TrainJob{}).Owns(&kueue.Workload{}).Owns(&jobsetapi.JobSet{}).
+		WithOptions(controller.Options{
+			LogConstructor: roletracker.NewLogConstructor(r.jr.RoleTracker(), controllerName),
+		})
 	return b.Complete(r)
 }
 
@@ -177,6 +184,15 @@ func getChildJobSet(ctx context.Context, t *TrainJob) (*jobsetapi.JobSet, error)
 	if !ok {
 		return nil, err
 	}
+
+	// Jobset replicaJob parallelism/completions are set outside of the jobset builder
+	for psIdx, ps := range info.TemplateSpec.PodSets {
+		if ps.Count != nil {
+			jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Parallelism = ps.Count
+			jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Completions = ps.Count
+		}
+	}
+
 	jobsetApply := kftrainerjobset.NewBuilder(jobsetapplyapi.JobSet(t.Name, t.Namespace).
 		WithSpec(jobSetSpec)).Initializer(trainJob).Trainer(info, trainJob).PodLabels(info.Scheduler.PodLabels).Build()
 

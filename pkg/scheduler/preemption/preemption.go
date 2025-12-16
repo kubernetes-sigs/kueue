@@ -26,7 +26,6 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
@@ -39,6 +38,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
@@ -113,7 +113,10 @@ func (t *Target) GetObject() client.Object {
 // order to make room for wl.
 func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment flavorassigner.Assignment, snapshot *schdcache.Snapshot) []*Target {
 	cq := snapshot.ClusterQueue(wl.ClusterQueue)
-	tasRequests := assignment.WorkloadsTopologyRequests(&wl, cq)
+	var tasRequests schdcache.WorkloadTASRequests
+	if features.Enabled(features.TopologyAwareScheduling) {
+		tasRequests = assignment.WorkloadsTopologyRequests(&wl, cq)
+	}
 	return p.getTargets(&preemptionCtx{
 		clock:             p.clock,
 		log:               log,
@@ -163,15 +166,19 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 	defer cancel()
 	workqueue.ParallelizeUntil(ctx, parallelPreemptions, len(targets), func(i int) {
 		target := targets[i]
-		if !meta.IsStatusConditionTrue(target.WorkloadInfo.Obj.Status.Conditions, kueue.WorkloadEvicted) {
+		if !workload.IsEvicted(target.WorkloadInfo.Obj) {
 			preemptorPath := buildCQPath(string(preemptor.ClusterQueue), snap)
 			preempteePath := buildCQPath(string(target.WorkloadInfo.ClusterQueue), target.WorkloadCq)
 
 			message := preemptionMessage(preemptor.Obj, target.Reason, preemptorPath, preempteePath)
 			wlCopy := target.WorkloadInfo.Obj.DeepCopy()
-			err := workload.Evict(ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, "", p.clock, workload.WithCustomPrepare(func(wl *kueue.Workload) {
-				workload.SetPreemptedCondition(wl, p.clock.Now(), target.Reason, message)
-			}))
+			err := workload.Evict(
+				ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, "", p.clock,
+				workload.WithCustomPrepare(func(wl *kueue.Workload) {
+					workload.SetPreemptedCondition(wl, p.clock.Now(), target.Reason, message)
+				}),
+				workload.EvictWithLooseOnApply(), workload.EvictWithRetryOnConflictForPatch(),
+			)
 			if err != nil {
 				errCh.SendErrorWithCancel(err, cancel)
 				preemptionErrors.Add(1)

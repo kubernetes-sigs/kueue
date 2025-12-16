@@ -33,6 +33,7 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -45,6 +46,7 @@ import (
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
 const (
@@ -62,7 +64,10 @@ type Reconciler struct {
 	log                          logr.Logger
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
+	roleTracker                  *roletracker.RoleTracker
 }
+
+const controllerName = "statefulset"
 
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
@@ -186,6 +191,9 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&appsv1.StatefulSet{}).
 		WithEventFilter(r).
 		Watches(&corev1.Pod{}, &podHandler{}).
+		WithOptions(controller.Options{
+			LogConstructor: roletracker.NewLogConstructor(r.roleTracker, controllerName),
+		}).
 		Complete(r)
 }
 
@@ -194,9 +202,10 @@ func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexe
 
 	return &Reconciler{
 		client:                       client,
-		log:                          ctrl.Log.WithName("statefulset-reconciler"),
+		log:                          roletracker.WithReplicaRole(ctrl.Log.WithName("statefulset-reconciler"), options.RoleTracker),
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
+		roleTracker:                  options.RoleTracker,
 	}, nil
 }
 

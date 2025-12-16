@@ -69,7 +69,7 @@ func NewAdmissionCheckReconciler(
 	roleTracker *roletracker.RoleTracker,
 ) *AdmissionCheckReconciler {
 	return &AdmissionCheckReconciler{
-		log:         ctrl.Log.WithName("admissioncheck-reconciler"),
+		log:         roletracker.WithReplicaRole(ctrl.Log.WithName("admissioncheck-reconciler"), roleTracker),
 		qManager:    qMgr,
 		client:      client,
 		cache:       cache,

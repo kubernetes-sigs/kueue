@@ -31,7 +31,6 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -206,7 +205,6 @@ var _ = ginkgo.Describe("MultiKueue no GC", ginkgo.Label("area:multikueue", "fea
 	})
 
 	ginkgo.It("Should remove the worker's workload when AC is rejected (from pending)", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueBatchJobWithManagedBy, true)
 		job := testingjob.MakeJob("job", managerNs.Name).
 			Queue(kueue.LocalQueueName(managerLq.Name)).
 			ManagedBy(kueue.MultiKueueControllerName).

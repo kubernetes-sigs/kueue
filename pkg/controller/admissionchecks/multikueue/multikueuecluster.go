@@ -49,6 +49,7 @@ import (
 	"sigs.k8s.io/cluster-inventory-api/pkg/credentials"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -59,6 +60,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
 const (
@@ -353,6 +355,8 @@ type clustersReconciler struct {
 	adapters map[string]jobframework.MultiKueueAdapter
 
 	clusterProfileCreds clusterProfileCreds
+
+	roleTracker *roletracker.RoleTracker
 }
 
 type clusterProfileCreds interface {
@@ -673,7 +677,7 @@ func (c *clustersReconciler) getRemoteClients() []*remoteClient {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueclusters/status,verbs=get;update;patch
 
-func newClustersReconciler(c client.Client, namespace string, gcInterval time.Duration, origin string, fsWatcher *KubeConfigFSWatcher, adapters map[string]jobframework.MultiKueueAdapter, cpCreds clusterProfileCreds) *clustersReconciler {
+func newClustersReconciler(c client.Client, namespace string, gcInterval time.Duration, origin string, fsWatcher *KubeConfigFSWatcher, adapters map[string]jobframework.MultiKueueAdapter, cpCreds clusterProfileCreds, roleTracker *roletracker.RoleTracker) *clustersReconciler {
 	return &clustersReconciler{
 		localClient:         c,
 		configNamespace:     namespace,
@@ -685,6 +689,7 @@ func newClustersReconciler(c client.Client, namespace string, gcInterval time.Du
 		fsWatcher:           fsWatcher,
 		adapters:            adapters,
 		clusterProfileCreds: cpCreds,
+		roleTracker:         roleTracker,
 	}
 }
 
@@ -762,11 +767,15 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
+		Named("multikueue_cluster").
 		For(&kueue.MultiKueueCluster{}).
 		Watches(&corev1.Secret{}, &secretHandler{client: c.localClient}).
 		WatchesRawSource(source.Channel(c.watchEndedCh, syncHndl)).
 		WatchesRawSource(source.Channel(c.fsWatcher.reconcile, fsWatcherHndl)).
 		WithEventFilter(filter).
+		WithOptions(controller.Options{
+			LogConstructor: roletracker.NewLogConstructor(c.roleTracker, "multikueue-cluster"),
+		}).
 		Complete(c)
 }
 

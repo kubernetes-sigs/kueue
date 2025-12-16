@@ -36,5 +36,5 @@ integrations:
   - "statefulset"
   - "leaderworkerset.x-k8s.io/leaderworkerset"
 featureGates:
-  MultiKueueBatchJobWithManagedBy: true
   LocalQueueMetrics: true
+  ElasticJobsViaWorkloadSlices: true
