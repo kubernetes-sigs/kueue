@@ -50,32 +50,26 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Serial, ginkgo.Ordered, ginkgo.Co
 
 		cq1 = utiltestingapi.MakeClusterQueue("cq1-" + ns.Name).
 			Cohort(kueue.CohortReference("cohort-" + ns.Name)).
-			ResourceGroup(
-				*utiltestingapi.MakeFlavorQuotas(rf.Name).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
 				Resource(corev1.ResourceCPU, "1").
 				Resource(corev1.ResourceMemory, "20Gi").
-				Obj(),
-			).
+				Obj()).
 			Obj()
 
 		cq2 = utiltestingapi.MakeClusterQueue("cq2-" + ns.Name).
 			Cohort(kueue.CohortReference("cohort-" + ns.Name)).
-			ResourceGroup(
-				*utiltestingapi.MakeFlavorQuotas(rf.Name).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
 				Resource(corev1.ResourceCPU, "1").
 				Resource(corev1.ResourceMemory, "20Gi").
-				Obj(),
-			).
+				Obj()).
 			Obj()
 
 		cq3 = utiltestingapi.MakeClusterQueue("cq3-" + ns.Name).
 			Cohort(kueue.CohortReference("cohort-" + ns.Name)).
-			ResourceGroup(
-				*utiltestingapi.MakeFlavorQuotas(rf.Name).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
 				Resource(corev1.ResourceCPU, "2").
 				Resource(corev1.ResourceMemory, "20Gi").
-				Obj(),
-			).
+				Obj()).
 			Obj()
 		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq1, cq2, cq3)
 

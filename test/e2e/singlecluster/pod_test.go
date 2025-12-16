@@ -34,7 +34,6 @@ import (
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
-	jobpod "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -271,7 +270,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				})
 				ginkgo.By("Use events to observe the excess pods are getting stopped", func() {
 					util.ExpectEventsForObjectsWithTimeout(eventWatcher, excessPods, func(e *corev1.Event) bool {
-						return e.InvolvedObject.Namespace == ns.Name && e.Reason == jobpod.ReasonExcessPodDeleted
+						return e.InvolvedObject.Namespace == ns.Name && e.Reason == pod.ReasonExcessPodDeleted
 					}, util.LongTimeout)
 				})
 				ginkgo.By("Verify the excess pod is deleted", func() {

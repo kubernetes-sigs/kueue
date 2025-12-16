@@ -38,7 +38,6 @@ import (
 )
 
 var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Serial, func() {
-
 	// We do not check workload's Name, CreationTimestamp, and its OwnerReference's UID as they are generated at the server-side.
 	var pendingWorkloadsCmpOpts = cmp.Options{
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Name"),
