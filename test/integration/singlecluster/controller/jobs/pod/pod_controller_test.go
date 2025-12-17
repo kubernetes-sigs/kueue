@@ -32,6 +32,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/kueue/test/integration/framework"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -1071,7 +1072,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.It("Should finish the group if one Pod has the `retriable-in-group: false` annotation", func() {
+			ginkgo.It("Should finish the group if one Pod has the `retriable-in-group: false` annotation", framework.SlowSpec, func() {
 				ginkgo.By("Creating pods with queue name")
 				pod1 := testingpod.MakePod("test-pod1", ns.Name).
 					Group("test-group").
@@ -1607,7 +1608,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				})
 			})
 
-			ginkgo.It("Should ungate pods with prebuilt workload", func() {
+			ginkgo.It("Should ungate pods with prebuilt workload", framework.SlowSpec, func() {
 				const (
 					workloadName = "test-workload"
 				)
@@ -2030,7 +2031,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 	})
 
 	ginkgo.When("pod group not ready", func() {
-		ginkgo.It("should deactivate and evict workload due exceeding backoffLimitCount", func() {
+		ginkgo.It("should deactivate and evict workload due exceeding backoffLimitCount", framework.SlowSpec, func() {
 			podGroupName := "pod-group"
 			pod := testingpod.MakePod("pod", ns.Name).
 				Group(podGroupName).
@@ -2455,7 +2456,7 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
 		}
 	})
-	ginkgo.It("should immediately replace a failed node when pods are terminating after node failure", func() {
+	ginkgo.It("should immediately replace a failed node when pods are terminating after node failure", framework.SlowSpec, func() {
 		podGroupName := "pod-group"
 		var nodeName string
 		podgroup := testingpod.MakePod(podGroupName, ns.Name).
@@ -2539,7 +2540,7 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 			}, util.Timeout, util.Interval).ShouldNot(gomega.Equal(nodeName))
 		})
 	})
-	ginkgo.It("should immediately replace a failed node when pods are terminating before node failure", func() {
+	ginkgo.It("should immediately replace a failed node when pods are terminating before node failure", framework.SlowSpec, func() {
 		podGroupName := "pod-group"
 		var nodeName string
 		podgroup := testingpod.MakePod(podGroupName, ns.Name).

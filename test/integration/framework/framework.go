@@ -257,7 +257,7 @@ var (
 	//  curl https://storage.googleapis.com/kubernetes-jenkins/pr-logs/pull/kubernetes-sigs_kueue/3054/pull-kueue-test-integration-main/1836045641336229888/artifacts/integration-top.yaml \
 	// | yq '.[] | select(.name != "") | .f.duration = .duration | .f.name = .name | .f.suite=.suite | .f | [] + .' | yq '.[0:30]' -oc
 	//
-	// taking the item which run for more then 5 sec
+	// taking the item which run for more then 6 sec
 	SlowSpec = ginkgo.Label("slow")
 
 	// RedundantSpec label used to decorate test specs that largely cover generic code covered by other specs also. (eg. Kubeflow jobs)

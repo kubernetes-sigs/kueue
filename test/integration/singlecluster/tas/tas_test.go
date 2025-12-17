@@ -33,6 +33,7 @@ import (
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/kueue/test/integration/framework"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
@@ -44,7 +45,6 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -1086,7 +1086,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 			})
 
-			ginkgo.It("should update workload TopologyAssignment after a node becomes available", func() {
+			ginkgo.It("should update workload TopologyAssignment after a node becomes available", framework.SlowSpec, func() {
 				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASFailedNodeReplacementFailFast, false)
 				var wl1, wl2 *kueue.Workload
 				nodeName := nodes[0].Name
@@ -2512,7 +2512,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 			})
 
-			ginkgo.It("should admit workload when nodes are provisioned and account for quota usage correctly", func() {
+			ginkgo.It("should admit workload when nodes are provisioned and account for quota usage correctly", framework.SlowSpec, func() {
 				var (
 					wl1 *kueue.Workload
 				)
@@ -2660,7 +2660,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 			})
 
-			ginkgo.It("should admit workload when nodes are provisioned; manager restart", func() {
+			ginkgo.It("should admit workload when nodes are provisioned; manager restart", framework.SlowSpec, func() {
 				var (
 					wl1 *kueue.Workload
 				)
@@ -3280,7 +3280,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
 				})
 
-				ginkgo.It("Should prevent unschedulable admission by rejecting 8-GPU workload that requires 8-GPUs on single node", func() {
+				ginkgo.It("Should prevent unschedulable admission by rejecting 8-GPU workload that requires 8-GPUs on single node", framework.SlowSpec, func() {
 					// Create a workload that needs 8 GPUs on a single pod
 					// With TAS, this should be rejected because no single node has 8 available GPUs
 					wl := utiltestingapi.MakeWorkload("tas-workload", ns.Name).

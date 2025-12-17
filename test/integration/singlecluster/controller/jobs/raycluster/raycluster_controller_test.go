@@ -33,6 +33,7 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/kueue/test/integration/framework"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -734,7 +735,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 	})
 
-	ginkgo.It("Should support raycluster scale-down and scale-up", func() {
+	ginkgo.It("Should support raycluster scale-down and scale-up", framework.SlowSpec, func() {
 		testRayCluster := testingraycluster.MakeCluster("foo", ns.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			Queue(localQueue.Name).

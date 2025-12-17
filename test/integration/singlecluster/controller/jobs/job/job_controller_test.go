@@ -38,6 +38,7 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/kueue/test/integration/framework"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -52,7 +53,6 @@ import (
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
-	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -2592,7 +2592,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 		})
 	})
 
-	ginkgo.It("Shouldn't admit deactivated Workload after manager restart", func() {
+	ginkgo.It("Shouldn't admit deactivated Workload after manager restart", framework.SlowSpec, func() {
 		job := testingjob.MakeJob("job", ns.Name).
 			Queue(kueue.LocalQueueName(prodLocalQ.Name)).
 			Request(corev1.ResourceCPU, "2").
@@ -3867,7 +3867,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 	})
 
-	ginkgo.It("Should support job scale-down and scale-up", func() {
+	ginkgo.It("Should support job scale-down and scale-up", framework.SlowSpec, func() {
 		testJob := testingjob.MakeJob("job1", ns.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			Queue(kueue.LocalQueueName(localQueue.Name)).
