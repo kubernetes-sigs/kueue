@@ -245,10 +245,6 @@ type MultiKueueAdapter interface {
 	// - a reason indicating why the job is not managed by Kueue
 	// - any API error encountered during the check
 	IsJobManagedByKueue(ctx context.Context, localClient client.Client, key types.NamespacedName) (bool, string, error)
-	// KeepAdmissionCheckPending returns true if the state of the multikueue admission check should be
-	// kept Pending while the job runs in a worker. This might be needed to keep the managers job
-	// suspended and not start the execution locally.
-	KeepAdmissionCheckPending() bool
 	// GVK returns GVK (Group Version Kind) for the job.
 	GVK() schema.GroupVersionKind
 }

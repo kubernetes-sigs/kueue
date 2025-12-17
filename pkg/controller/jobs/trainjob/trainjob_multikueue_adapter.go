@@ -95,10 +95,6 @@ func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient
 	return client.IgnoreNotFound(remoteClient.Delete(ctx, &job))
 }
 
-func (b *multiKueueAdapter) KeepAdmissionCheckPending() bool {
-	return false
-}
-
 func (b *multiKueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
 	trainjob := kftrainerapi.TrainJob{}
 	err := c.Get(ctx, key, &trainjob)
