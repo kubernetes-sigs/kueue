@@ -974,7 +974,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
 			if err := r.cache.UpdateWorkload(log, e.ObjectOld, wlCopy); err != nil {
-				log.Error(err, "Failed to delete workload from cache")
+				log.Error(err, "Updating workload in cache")
 			}
 		})
 
