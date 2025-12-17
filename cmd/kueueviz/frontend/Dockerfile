@@ -21,6 +21,10 @@ FROM node:25-slim AS runtime
 
 WORKDIR /app
 
+# Copy package files and install only production dependencies
+COPY package*.json ./
+RUN npm install --omit=dev
+
 # Copy only the built files from builder
 COPY --from=builder /app/build ./build
 COPY start.sh /app/start.sh
@@ -30,4 +34,3 @@ EXPOSE 8080
 
 # Use the start script
 ENTRYPOINT ["/app/start.sh"]
-
