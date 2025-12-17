@@ -33,6 +33,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
+	"sigs.k8s.io/kueue/test/integration/framework"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -225,7 +226,7 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 			})
 		})
 
-		ginkgo.It("Should finish the preemption when the trainjob becomes inactive", func() {
+		ginkgo.It("Should finish the preemption when the trainjob becomes inactive", framework.SlowSpec, func() {
 			trainJob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
 				APIGroup: ptr.To("trainer.kubeflow.org"),
 				Name:     "test",

@@ -29,6 +29,7 @@ import (
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/kueue/test/integration/framework"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -764,7 +765,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo
 			})
 		})
 
-		ginkgo.It("should not temporarily admit a finished workload on restart manager", func() {
+		ginkgo.It("should not temporarily admit a finished workload on restart manager", framework.SlowSpec, func() {
 			wl = utiltestingapi.MakeWorkload("wl1", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Request(corev1.ResourceCPU, "1").
@@ -863,7 +864,7 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
 		})
 
-		ginkgo.It("should delete the workload after retention period elapses", func() {
+		ginkgo.It("should delete the workload after retention period elapses", framework.SlowSpec, func() {
 			var (
 				wl    *kueue.Workload
 				wlKey client.ObjectKey

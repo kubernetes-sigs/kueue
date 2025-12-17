@@ -470,7 +470,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
-		ginkgo.It("The transformed resources should be used as request values", func() {
+		ginkgo.It("The transformed resources should be used as request values", framework.SlowSpec, func() {
 			var wl2 *kueue.Workload
 			ginkgo.By("Create and wait for workload admission", func() {
 				util.MustCreate(ctx, k8sClient, localQueue)
