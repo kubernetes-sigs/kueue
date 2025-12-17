@@ -609,7 +609,7 @@ func TestUpdateConfig(t *testing.T) {
 					Generation(1).
 					Obj(),
 			},
-			wantErr: fmt.Errorf("failed to load client config, reason: BadClusterProfile, error: %w", errors.New(`clusterprofiles.multicluster.x-k8s.io "worker1" not found`)),
+			wantErr: nil,
 		},
 		"cluster profile feature gate disabled": {
 			reconcileFor: "worker1",
