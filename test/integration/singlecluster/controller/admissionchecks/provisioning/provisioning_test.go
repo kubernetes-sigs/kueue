@@ -31,6 +31,7 @@ import (
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/kueue/test/integration/framework"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -42,7 +43,6 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -179,7 +179,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			})
 		})
 
-		ginkgo.It("Should create provisioning requests after quota is reserved and preserve it when reservation is lost", framework.SlowSpec, func() {
+		ginkgo.It("Should create provisioning requests after quota is reserved and preserve it when reservation is lost", func() {
 			ginkgo.By("Setting the quota reservation to the workload", func() {
 				util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
 			})
@@ -245,7 +245,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			})
 		})
 
-		ginkgo.It("Should set the condition ready when the provision succeed", framework.SlowSpec, func() {
+		ginkgo.It("Should set the condition ready when the provision succeed", func() {
 			ginkgo.By("Setting the quota reservation to the workload", func() {
 				util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
 			})
@@ -859,7 +859,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, prc, true)
 		})
 
-		ginkgo.It("Admission checks for an evicted workload are Pending", func() {
+		ginkgo.It("Admission checks for an evicted workload are Pending", framework.SlowSpec, func() {
 			// Repro for https://github.com/kubernetes-sigs/kueue/issues/5129
 			ginkgo.By("Setting the quota reservation to the workload", func() {
 				util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
@@ -899,7 +899,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			})
 		})
 
-		ginkgo.It("Should retry if a ProvisioningRequest fails, then succeed if the second Provisioning request succeeds", func() {
+		ginkgo.It("Should retry if a ProvisioningRequest fails, then succeed if the second Provisioning request succeeds", framework.SlowSpec, func() {
 			ginkgo.By("Setting the quota reservation to the workload", func() {
 				util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
 			})
@@ -999,7 +999,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			})
 		})
 
-		ginkgo.It("Should retry if a ProvisioningRequest fails, then reject AdmissionCheck if the second ProvisioningRequest fails", func() {
+		ginkgo.It("Should retry if a ProvisioningRequest fails, then reject AdmissionCheck if the second ProvisioningRequest fails", framework.SlowSpec, func() {
 			ginkgo.By("Setting the quota reservation to the workload", func() {
 				util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
 			})
@@ -1122,7 +1122,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			})
 		})
 
-		ginkgo.It("Should retry when a ProvisioningRequest is in BookingExpired stated, then succeed if the second Provisioning request succeeds", func() {
+		ginkgo.It("Should retry when a ProvisioningRequest is in BookingExpired stated, then succeed if the second Provisioning request succeeds", framework.SlowSpec, func() {
 			ginkgo.By("Setting the quota reservation to the workload", func() {
 				util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
 			})
@@ -1291,7 +1291,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, prc, true)
 		})
 
-		ginkgo.It("Should retry twice if a ProvisioningRequest fails twice", func() {
+		ginkgo.It("Should retry twice if a ProvisioningRequest fails twice", framework.SlowSpec, func() {
 			ginkgo.By("Setting the quota reservation to the workload", func() {
 				util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
 			})
@@ -1617,7 +1617,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 	})
 
 	ginkgo.When("A workload is preempted from a flavor which uses an admission check", func() {
-		ginkgo.It("Should be successfully re-admitted on another flavor without an admission check", func() {
+		ginkgo.It("Should be successfully re-admitted on another flavor without an admission check", framework.SlowSpec, func() {
 			ginkgo.By("Set up ClusterQueue and LocalQueue", func() {
 				cq = utiltestingapi.MakeClusterQueue("cluster-queue").
 					Preemption(kueue.ClusterQueuePreemption{

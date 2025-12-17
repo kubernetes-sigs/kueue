@@ -688,7 +688,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 			podsReadyTimeout = util.TinyTimeout
 		})
 
-		ginkgo.It("Should re-admit a timed out workload", func() {
+		ginkgo.It("Should re-admit a timed out workload", framework.SlowSpec, func() {
 			ginkgo.By("create the 'prod' workload")
 			prodWl := utiltestingapi.MakeWorkload("prod", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			util.MustCreate(ctx, k8sClient, prodWl)

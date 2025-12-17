@@ -455,7 +455,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), ginkgo
 			expectCohortWeightedShare(cohortSecondRight.Name, 3.0*1000.0/14.0)
 			expectCohortWeightedShare(cohortBank.Name, 0.0)
 		})
-		ginkgo.It("preempts workloads to enforce fair share", func() {
+		ginkgo.It("preempts workloads to enforce fair share", framework.SlowSpec, func() {
 			// below are Cohorts and their fair
 			// weights. 12 CPUs are provided by the root
 			// Cohort
@@ -957,7 +957,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), ginkgo
 			util.MustCreate(ctx, k8sClient, lqC)
 		})
 
-		ginkgo.It("admits one workload from each LocalQueue when quota is limited", func() {
+		ginkgo.It("admits one workload from each LocalQueue when quota is limited", framework.SlowSpec, func() {
 			ginkgo.By("Saturating the cq with lq-a and lq-b")
 			initialWls := []*kueue.Workload{
 				createWorkload("lq-a", "4"),
@@ -1020,7 +1020,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), ginkgo
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlB)
 		})
 
-		ginkgo.It("admits workload from new LocalQueue when all others have high usage", func() {
+		ginkgo.It("admits workload from new LocalQueue when all others have high usage", framework.SlowSpec, func() {
 			ginkgo.By("Saturating the cq with lq-a and lq-b")
 			initialWls := []*kueue.Workload{
 				createWorkload("lq-a", "4"),
