@@ -176,26 +176,15 @@ func (j *JobSet) Finished(ctx context.Context) (message string, success, finishe
 }
 
 func (j *JobSet) PodsReady(ctx context.Context) bool {
-	// Get status of jobs
-	jobsStatus := map[string]jobsetapi.ReplicatedJobStatus{}
-	for _, replicatedJobStatus := range j.Status.ReplicatedJobsStatus {
-		jobsStatus[replicatedJobStatus.Name] = replicatedJobStatus
-	}
-
 	var replicas int32
-	var ready int32
-
 	for _, replicatedJob := range j.Spec.ReplicatedJobs {
-		status, ok := jobsStatus[replicatedJob.Name]
-		// Register the amount of expected replicas from jobs that already has
-		// some status updated or doesn't have a dependsOn.
-		if replicatedJob.DependsOn == nil || (ok && status.Active+status.Failed+status.Ready+status.Succeeded+status.Suspended > 0) {
-			replicas += replicatedJob.Replicas
-		}
-		ready += status.Ready + status.Succeeded
+		replicas += replicatedJob.Replicas
 	}
-
-	return replicas == ready
+	var readyReplicas int32
+	for _, replicatedJobStatus := range j.Status.ReplicatedJobsStatus {
+		readyReplicas += replicatedJobStatus.Ready + replicatedJobStatus.Succeeded
+	}
+	return replicas == readyReplicas
 }
 
 func (j *JobSet) ReclaimablePods(ctx context.Context) ([]kueue.ReclaimablePod, error) {
