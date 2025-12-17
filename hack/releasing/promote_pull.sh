@@ -333,7 +333,7 @@ function prepare_local_branch() {
 
   while IFS= read -r name; do
     version="$RELEASE_VERSION"
-    if [ "${name}" == "charts/kueue" ]; then
+    if [[ "${name}" == "charts/kueue" || "${name}" == "charts/kueue-populator" ]]; then
       version="${version#v}"
     fi
 
