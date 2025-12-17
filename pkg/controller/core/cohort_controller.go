@@ -178,7 +178,7 @@ func (r *CohortReconciler) updateCohortStatusIfChanged(ctx context.Context, coho
 	}
 
 	if r.fairSharingEnabled {
-		metrics.ReportCohortWeightedShare(cohort.Name, stats.WeightedShare)
+		metrics.ReportCohortWeightedShare(cohort.Name, stats.WeightedShare, r.roleTracker)
 		if cohort.Status.FairSharing == nil {
 			cohort.Status.FairSharing = &kueue.FairSharingStatus{}
 		}

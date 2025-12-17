@@ -30,6 +30,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -266,6 +267,7 @@ func resourceDataPoint(cohort, name, flavor, res string, v float64) testingmetri
 			"cluster_queue": name,
 			"flavor":        flavor,
 			"resource":      res,
+			"replica_role":  roletracker.RoleStandalone,
 		},
 		Value: v,
 	}
@@ -492,14 +494,14 @@ func TestRecordResourceMetrics(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			recordResourceMetrics(tc.queue)
+			recordResourceMetrics(tc.queue, nil)
 			gotMetrics := allMetricsForQueue(tc.queue.Name)
 			if diff := cmp.Diff(tc.wantMetrics, gotMetrics, opts...); len(diff) != 0 {
 				t.Errorf("Unexpected metrics (-want,+got):\n%s", diff)
 			}
 
 			if tc.updatedQueue != nil {
-				updateResourceMetrics(tc.queue, tc.updatedQueue)
+				updateResourceMetrics(tc.queue, tc.updatedQueue, nil)
 				gotMetricsAfterUpdate := allMetricsForQueue(tc.queue.Name)
 				if diff := cmp.Diff(tc.wantUpdatedMetrics, gotMetricsAfterUpdate, opts...); len(diff) != 0 {
 					t.Errorf("Unexpected metrics (-want,+got):\n%s", diff)

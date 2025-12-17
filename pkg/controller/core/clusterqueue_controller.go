@@ -310,7 +310,7 @@ func (r *ClusterQueueReconciler) Create(e event.TypedCreateEvent[*kueue.ClusterQ
 	}
 
 	if r.reportResourceMetrics {
-		recordResourceMetrics(e.Object)
+		recordResourceMetrics(e.Object, r.roleTracker)
 	}
 
 	return true
@@ -347,7 +347,7 @@ func (r *ClusterQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.ClusterQ
 	}
 
 	if r.reportResourceMetrics {
-		updateResourceMetrics(e.ObjectOld, e.ObjectNew)
+		updateResourceMetrics(e.ObjectOld, e.ObjectNew, r.roleTracker)
 	}
 	return true
 }
@@ -357,7 +357,7 @@ func (r *ClusterQueueReconciler) Generic(e event.TypedGenericEvent[*kueue.Cluste
 	return true
 }
 
-func recordResourceMetrics(cq *kueue.ClusterQueue) {
+func recordResourceMetrics(cq *kueue.ClusterQueue, tracker *roletracker.RoleTracker) {
 	for rgi := range cq.Spec.ResourceGroups {
 		rg := &cq.Spec.ResourceGroups[rgi]
 		for fqi := range rg.Flavors {
@@ -367,7 +367,7 @@ func recordResourceMetrics(cq *kueue.ClusterQueue) {
 				nominal := resource.QuantityToFloat(&r.NominalQuota)
 				borrow := resource.QuantityToFloat(r.BorrowingLimit)
 				lend := resource.QuantityToFloat(r.LendingLimit)
-				metrics.ReportClusterQueueQuotas(cq.Spec.CohortName, cq.Name, string(fq.Name), string(r.Name), nominal, borrow, lend)
+				metrics.ReportClusterQueueQuotas(cq.Spec.CohortName, cq.Name, string(fq.Name), string(r.Name), nominal, borrow, lend, tracker)
 			}
 		}
 	}
@@ -376,7 +376,7 @@ func recordResourceMetrics(cq *kueue.ClusterQueue) {
 		fr := &cq.Status.FlavorsReservation[fri]
 		for ri := range fr.Resources {
 			r := &fr.Resources[ri]
-			metrics.ReportClusterQueueResourceReservations(cq.Spec.CohortName, cq.Name, string(fr.Name), string(r.Name), resource.QuantityToFloat(&r.Total))
+			metrics.ReportClusterQueueResourceReservations(cq.Spec.CohortName, cq.Name, string(fr.Name), string(r.Name), resource.QuantityToFloat(&r.Total), tracker)
 		}
 	}
 
@@ -384,12 +384,12 @@ func recordResourceMetrics(cq *kueue.ClusterQueue) {
 		fu := &cq.Status.FlavorsUsage[fui]
 		for ri := range fu.Resources {
 			r := &fu.Resources[ri]
-			metrics.ReportClusterQueueResourceUsage(cq.Spec.CohortName, cq.Name, string(fu.Name), string(r.Name), resource.QuantityToFloat(&r.Total))
+			metrics.ReportClusterQueueResourceUsage(cq.Spec.CohortName, cq.Name, string(fu.Name), string(r.Name), resource.QuantityToFloat(&r.Total), tracker)
 		}
 	}
 }
 
-func updateResourceMetrics(oldCq, newCq *kueue.ClusterQueue) {
+func updateResourceMetrics(oldCq, newCq *kueue.ClusterQueue, tracker *roletracker.RoleTracker) {
 	// if the cohort changed, drop all the old metrics
 	if oldCq.Spec.CohortName != newCq.Spec.CohortName {
 		metrics.ClearClusterQueueResourceMetrics(oldCq.Name)
@@ -397,7 +397,7 @@ func updateResourceMetrics(oldCq, newCq *kueue.ClusterQueue) {
 		// selective remove
 		clearOldResourceQuotas(oldCq, newCq)
 	}
-	recordResourceMetrics(newCq)
+	recordResourceMetrics(newCq, tracker)
 }
 
 func clearOldResourceQuotas(oldCq, newCq *kueue.ClusterQueue) {
@@ -578,7 +578,7 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 			if weightedShare == math.Inf(1) {
 				weightedShare = math.NaN()
 			}
-			metrics.ReportClusterQueueWeightedShare(cq.Name, string(cq.Spec.CohortName), weightedShare)
+			metrics.ReportClusterQueueWeightedShare(cq.Name, string(cq.Spec.CohortName), weightedShare, r.roleTracker)
 		}
 		if cq.Status.FairSharing == nil {
 			cq.Status.FairSharing = &kueue.FairSharingStatus{}
