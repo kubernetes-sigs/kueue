@@ -86,10 +86,6 @@ func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient
 	return nil
 }
 
-func (b *multiKueueAdapter) KeepAdmissionCheckPending() bool {
-	return false
-}
-
 func (b *multiKueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
 	return true, "", nil
 }

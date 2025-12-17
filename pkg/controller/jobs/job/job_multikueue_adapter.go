@@ -170,10 +170,6 @@ func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient
 	return client.IgnoreNotFound(remoteClient.Delete(ctx, &job, client.PropagationPolicy(metav1.DeletePropagationBackground)))
 }
 
-func (b *multiKueueAdapter) KeepAdmissionCheckPending() bool {
-	return false
-}
-
 func (b *multiKueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
 	if !features.Enabled(features.MultiKueueBatchJobWithManagedBy) {
 		return true, "", nil
