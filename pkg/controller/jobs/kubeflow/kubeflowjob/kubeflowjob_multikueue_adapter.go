@@ -26,7 +26,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -100,8 +99,6 @@ func (a adapter[PtrT, T]) SyncJob(
 	remoteClient client.Client,
 	key types.NamespacedName,
 	workloadName, origin string) error {
-	log := ctrl.LoggerFrom(ctx)
-
 	localJob := PtrT(new(T))
 	err := localClient.Get(ctx, key, localJob)
 	if err != nil {
@@ -115,12 +112,6 @@ func (a adapter[PtrT, T]) SyncJob(
 	}
 
 	if err == nil {
-		if a.fromObject(localJob).IsSuspended() {
-			// Ensure the job is unsuspended before updating its status; otherwise, it will fail when patching the spec.
-			log.V(2).Info("Skipping the sync since the local job is still suspended")
-			return nil
-		}
-
 		return clientutil.PatchStatus(ctx, localClient, localJob, func() (client.Object, bool, error) {
 			// if the remote exists, just copy the status
 			a.copyStatus(localJob, remoteJob)
