@@ -215,17 +215,6 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, nil
 	}
 
-	if requeueAt := workload.NeedsRequeueAtUpdate(&wl, r.clock); requeueAt != nil {
-		err := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			if wl.Status.RequeueState == nil {
-				wl.Status.RequeueState = &kueue.RequeueState{}
-			}
-			log.V(2).Info("At least one admission check set a retry time", "requeueAt", requeueAt, "current", wl.Status.RequeueState.RequeueAt)
-			workload.SetRequeueState(wl, *requeueAt, false)
-			return true, nil
-		})
-		return reconcile.Result{}, client.IgnoreNotFound(err)
-	}
 	if features.Enabled(features.DynamicResourceAllocation) && workload.Status(&wl) == workload.StatusPending &&
 		workload.HasDRA(&wl) {
 		workload.AdjustResources(ctx, r.client, &wl)
@@ -619,7 +608,15 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 	}
 	// at this point we know a Workload has at least one Retry AdmissionCheck
 	message := "At least one admission check is false"
-	if err := workload.Evict(ctx, r.client, r.recorder, wl, kueue.WorkloadEvictedByAdmissionCheck, message, "", r.clock); err != nil {
+	// Calculate the retry time from admission checks before eviction resets them.
+	maxRetryTime := workload.GetMaxRetryTime(wl)
+	if err := workload.Evict(ctx, r.client, r.recorder, wl, kueue.WorkloadEvictedByAdmissionCheck, message, "", r.clock, workload.WithCustomPrepare(func(wl *kueue.Workload) {
+		// Set Requeued=false to track eviction, matching jobframework behavior
+		workload.SetRequeuedCondition(wl, kueue.WorkloadEvictedByAdmissionCheck, "Evicted due to admission check retry", false)
+		if !maxRetryTime.IsZero() {
+			workload.SetRequeueState(wl, maxRetryTime, false)
+		}
+	})); err != nil {
 		return false, err
 	}
 	return true, nil
