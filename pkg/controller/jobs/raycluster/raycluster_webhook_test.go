@@ -117,6 +117,7 @@ func TestValidateDefault(t *testing.T) {
 				manageJobsWithoutQueueName: tc.manageAll,
 				queues:                     queueManager,
 				cache:                      cqCache,
+				recorder:                   &utiltesting.EventRecorder{},
 			}
 			result := tc.oldJob.DeepCopy()
 			if err := wh.Default(ctx, result); err != nil {
@@ -533,6 +534,7 @@ func TestValidateCreate(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
 			wh := &RayClusterWebhook{
 				manageJobsWithoutQueueName: tc.manageAll,
+				recorder:                   &utiltesting.EventRecorder{},
 			}
 			ctx, _ := utiltesting.ContextWithLog(t)
 			_, result := wh.ValidateCreate(ctx, tc.job)
@@ -597,6 +599,7 @@ func TestValidateUpdate(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			wh := &RayClusterWebhook{
 				manageJobsWithoutQueueName: tc.manageAll,
+				recorder:                   &utiltesting.EventRecorder{},
 			}
 			ctx, _ := utiltesting.ContextWithLog(t)
 			_, result := wh.ValidateUpdate(ctx, tc.oldJob, tc.newJob)

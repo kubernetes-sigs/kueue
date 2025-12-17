@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -54,6 +55,7 @@ type RayClusterWebhook struct {
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
 	cache                        *schdcache.Cache
+	recorder                     record.EventRecorder
 }
 
 // SetupRayClusterWebhook configures the webhook for rayv1 RayCluster.
@@ -68,6 +70,7 @@ func SetupRayClusterWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		cache:                        options.Cache,
+		recorder:                     mgr.GetEventRecorderFor("raycluster-webhook"),
 	}
 	obj := &rayv1.RayCluster{}
 	return webhook.WebhookManagedBy(mgr).
@@ -87,14 +90,50 @@ func (w *RayClusterWebhook) Default(ctx context.Context, obj runtime.Object) err
 	job := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("raycluster-webhook")
 	log.V(10).Info("Applying defaults")
+
 	jobframework.ApplyDefaultLocalQueue(job.Object(), w.queues.DefaultLocalQueueExist)
 
+	oldSuspendState := job.IsSuspended()
 	if err := jobframework.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
+	newSuspendState := job.IsSuspended()
+
 	jobframework.ApplyDefaultForManagedBy(job, w.queues, w.cache, log)
 
+	// Log if suspend state changed due to defaults
 	rjob := obj.(*rayv1.RayCluster)
+	if oldSuspendState != newSuspendState {
+		if newSuspendState {
+			log.Info("RayCluster suspended by webhook defaults",
+				"name", rjob.Name,
+				"namespace", rjob.Namespace,
+				"suspend", true,
+				"reason", "ApplyDefaultForSuspend")
+			// Generate Kubernetes event for suspension
+			w.recorder.Eventf(rjob, corev1.EventTypeNormal, "Suspended",
+				"RayCluster suspended by Kueue webhook due to queue management requirements")
+		} else {
+			log.Info("RayCluster unsuspended by webhook defaults",
+				"name", rjob.Name,
+				"namespace", rjob.Namespace,
+				"suspend", false,
+				"reason", "ApplyDefaultForSuspend")
+			// Generate Kubernetes event for unsuspension
+			w.recorder.Eventf(rjob, corev1.EventTypeNormal, "Unsuspended",
+				"RayCluster unsuspended by Kueue webhook")
+		}
+	}
+
+	// Log if suspend state changed due to defaults
+	if oldSuspendState != newSuspendState {
+		log.Info("RayCluster suspend state changed by webhook defaults",
+			"name", rjob.Name,
+			"namespace", rjob.Namespace,
+			"oldSuspendState", oldSuspendState,
+			"newSuspendState", newSuspendState)
+	}
+
 	elasticJobEnabled := isAnElasticJob(rjob)
 	log.V(10).Info("checking elastic job status",
 		"name", rjob.Name,
@@ -269,6 +308,40 @@ func (w *RayClusterWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj r
 	oldJob := oldObj.(*rayv1.RayCluster)
 	newJob := newObj.(*rayv1.RayCluster)
 	log := ctrl.LoggerFrom(ctx).WithName("raycluster-webhook")
+
+	// Track suspend state changes in validation
+	oldSuspendState := oldJob.Spec.Suspend != nil && *oldJob.Spec.Suspend
+	newSuspendState := newJob.Spec.Suspend != nil && *newJob.Spec.Suspend
+
+	// Log RayCluster details including suspend state changes
+	log.Info("Processing RayCluster webhook ValidateUpdate",
+		"name", newJob.Name,
+		"namespace", newJob.Namespace,
+		"oldSuspendState", oldSuspendState,
+		"newSuspendState", newSuspendState,
+		"ownerReferences", newJob.GetOwnerReferences())
+
+	// Log if suspend state is changing
+	if oldSuspendState != newSuspendState {
+		if newSuspendState {
+			log.Info("RayCluster is being suspended via update",
+				"name", newJob.Name,
+				"namespace", newJob.Namespace,
+				"suspend", true,
+				"oldSuspendState", oldSuspendState,
+				"newSuspendState", newSuspendState,
+				"operation", "ValidateUpdate")
+		} else {
+			log.Info("RayCluster is being unsuspended via update",
+				"name", newJob.Name,
+				"namespace", newJob.Namespace,
+				"suspend", false,
+				"oldSuspendState", oldSuspendState,
+				"newSuspendState", newSuspendState,
+				"operation", "ValidateUpdate")
+		}
+	}
+
 	if w.manageJobsWithoutQueueName || jobframework.QueueName((*RayCluster)(newJob)) != "" {
 		log.Info("Validating update")
 		allErrors := jobframework.ValidateJobOnUpdate((*RayCluster)(oldJob), (*RayCluster)(newJob), w.queues.DefaultLocalQueueExist)

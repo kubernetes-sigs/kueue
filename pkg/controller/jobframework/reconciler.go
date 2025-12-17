@@ -1164,6 +1164,17 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 		}
 	}
 
+	// Log RayCluster specific unsuspend event
+	if job.GVK().Kind == "RayCluster" {
+		log := ctrl.LoggerFrom(ctx)
+		log.V(3).Info("Unsuspending RayCluster for admission",
+			"name", object.GetName(),
+			"namespace", object.GetNamespace(),
+			"clusterQueue", wl.Status.Admission.ClusterQueue)
+		r.record.Event(object, corev1.EventTypeNormal, "RayClusterUnsuspended",
+			fmt.Sprintf("RayCluster unsuspended: %s", msg))
+	}
+
 	if cj, implements := job.(ComposableJob); implements {
 		if err := cj.Run(ctx, r.client, info, r.record, msg); err != nil {
 			return err
@@ -1186,6 +1197,18 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 	object := job.Object()
 
 	info := GetPodSetsInfoFromWorkload(wl)
+
+	// Log RayCluster specific suspend event
+	if job.GVK().Kind == "RayCluster" && !job.IsSuspended() {
+		log := ctrl.LoggerFrom(ctx)
+		log.V(3).Info("Suspending RayCluster",
+			"name", object.GetName(),
+			"namespace", object.GetNamespace(),
+			"reason", stopReason,
+			"message", eventMsg)
+		r.record.Event(object, corev1.EventTypeNormal, "RayClusterSuspended",
+			fmt.Sprintf("RayCluster suspended: %s", eventMsg))
+	}
 
 	if jws, implements := job.(JobWithCustomStop); implements {
 		stoppedNow, err := jws.Stop(ctx, r.client, info, stopReason, eventMsg)
