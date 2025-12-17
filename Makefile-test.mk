@@ -120,7 +120,7 @@ test-multikueue-integration: compile-crd-manifests gomod-download envtest ginkgo
 CREATE_KIND_CLUSTER ?= true
 
 
-test-e2e: E2E_NPROCS := 4
+test-e2e: E2E_NPROCS := 2
 .PHONY: test-e2e
 test-e2e: setup-e2e-env kueuectl kind-ray-project-mini-image-build run-test-e2e-singlecluster-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
