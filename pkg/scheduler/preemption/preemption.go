@@ -45,6 +45,7 @@ import (
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	"sigs.k8s.io/kueue/pkg/util/logging"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -61,7 +62,8 @@ type Preemptor struct {
 	enableFairSharing bool
 	fsStrategies      []fairsharing.Strategy
 
-	enabledAfs bool
+	enabledAfs  bool
+	roleTracker *roletracker.RoleTracker
 }
 
 type preemptionCtx struct {
@@ -82,6 +84,7 @@ func New(
 	fs *config.FairSharing,
 	enabledAfs bool,
 	clock clock.Clock,
+	tracker *roletracker.RoleTracker,
 ) *Preemptor {
 	p := &Preemptor{
 		clock:             clock,
@@ -91,6 +94,7 @@ func New(
 		enableFairSharing: fairsharing.Enabled(fs),
 		fsStrategies:      parseStrategies(fs),
 		enabledAfs:        enabledAfs,
+		roleTracker:       tracker,
 	}
 	return p
 }
@@ -173,7 +177,7 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 			message := preemptionMessage(preemptor.Obj, target.Reason, preemptorPath, preempteePath)
 			wlCopy := target.WorkloadInfo.Obj.DeepCopy()
 			err := workload.Evict(
-				ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, "", p.clock,
+				ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, "", p.clock, p.roleTracker,
 				workload.WithCustomPrepare(func(wl *kueue.Workload) {
 					workload.SetPreemptedCondition(wl, p.clock.Now(), target.Reason, message)
 				}),
@@ -189,7 +193,7 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 				"preemptorJobUID", preemptor.Obj.Labels[constants.JobUIDLabel], "reason", target.Reason, "message", message, "targetClusterQueue", klog.KRef("", string(target.WorkloadInfo.ClusterQueue)),
 				"preemptorPath", preemptorPath, "preempteePath", preempteePath)
 			p.recorder.Eventf(target.WorkloadInfo.Obj, corev1.EventTypeNormal, "Preempted", message)
-			workload.ReportPreemption(preemptor.ClusterQueue, target.Reason, target.WorkloadInfo.ClusterQueue)
+			workload.ReportPreemption(preemptor.ClusterQueue, target.Reason, target.WorkloadInfo.ClusterQueue, p.roleTracker)
 		} else {
 			log.V(3).Info("Preemption ongoing", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj))
 		}

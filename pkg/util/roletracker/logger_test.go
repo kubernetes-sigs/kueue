@@ -36,17 +36,17 @@ func TestWithReplicaRole(t *testing.T) {
 		},
 		{
 			name:     "leader tracker returns leader",
-			tracker:  newFakeRoleTracker(RoleLeader),
+			tracker:  NewFakeRoleTracker(RoleLeader),
 			expected: RoleLeader,
 		},
 		{
 			name:     "follower tracker returns follower",
-			tracker:  newFakeRoleTracker(RoleFollower),
+			tracker:  NewFakeRoleTracker(RoleFollower),
 			expected: RoleFollower,
 		},
 		{
 			name:     "standalone tracker returns standalone",
-			tracker:  newFakeRoleTracker(RoleStandalone),
+			tracker:  NewFakeRoleTracker(RoleStandalone),
 			expected: RoleStandalone,
 		},
 	}
@@ -83,12 +83,12 @@ func TestNewLogConstructor(t *testing.T) {
 		},
 		{
 			name:     "leader tracker",
-			tracker:  newFakeRoleTracker(RoleLeader),
+			tracker:  NewFakeRoleTracker(RoleLeader),
 			expected: RoleLeader,
 		},
 		{
 			name:     "follower tracker",
-			tracker:  newFakeRoleTracker(RoleFollower),
+			tracker:  NewFakeRoleTracker(RoleFollower),
 			expected: RoleFollower,
 		},
 	}

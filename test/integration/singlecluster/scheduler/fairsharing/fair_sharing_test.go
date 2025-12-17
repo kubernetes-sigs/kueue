@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -398,7 +399,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), ginkgo
 
 			ginkgo.By("checking the weighted share metric")
 			gomega.Eventually(func(g gomega.Gomega) {
-				metric := metrics.ClusterQueueWeightedShare.WithLabelValues(cqA.Name, string(cqA.Spec.CohortName))
+				metric := metrics.ClusterQueueWeightedShare.WithLabelValues(cqA.Name, string(cqA.Spec.CohortName), roletracker.RoleStandalone)
 				v, err := testutil.GetGaugeMetricValue(metric)
 				g.Expect(err).ToNot(gomega.HaveOccurred())
 				g.Expect(math.IsNaN(v)).Should(gomega.BeTrue())
@@ -1191,7 +1192,7 @@ func expectCohortWeightedShare(cohortName string, weightedShare float64) {
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 	// check Metric
-	metric := metrics.CohortWeightedShare.WithLabelValues(cohortName)
+	metric := metrics.CohortWeightedShare.WithLabelValues(cohortName, roletracker.RoleStandalone)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		v, err := testutil.GetGaugeMetricValue(metric)
 		g.ExpectWithOffset(1, err).ToNot(gomega.HaveOccurred())
