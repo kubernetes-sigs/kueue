@@ -177,7 +177,18 @@ type ControllerMetrics struct {
 	// EnableClusterQueueResources, if true the cluster queue resource usage and quotas
 	// metrics will be reported.
 	// +optional
-	EnableClusterQueueResources bool `json:"enableClusterQueueResources,omitempty"`
+	EnableClusterQueueResources bool             `json:"enableClusterQueueResources,omitempty"`
+	CustomMetricTags            CustomMetricTags `json:"customMetricTags,omitempty"`
+}
+
+type CustomMetricTags struct {
+	ClusterQueue []CustomMetricTag `json:"clusterQueue,omitempty"`
+	LocalQueue   []CustomMetricTag `json:"localQueue,omitempty"`
+}
+
+type CustomMetricTag struct {
+	ResourceTag       string  `json:"resourceTag,omitempty"`
+	OverrideMetricTag *string `json:"overrideMetricTag,omitempty"`
 }
 
 // ControllerHealth defines the health configs.

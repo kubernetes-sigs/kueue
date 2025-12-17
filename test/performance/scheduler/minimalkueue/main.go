@@ -132,7 +132,7 @@ func run() int {
 
 	if *metricsPort > 0 {
 		options.Metrics.BindAddress = fmt.Sprintf(":%d", *metricsPort)
-		metrics.Register()
+		metrics.Register(metrics.Configuration{})
 	}
 
 	mgr, err := ctrl.NewManager(kubeConfig, options)
