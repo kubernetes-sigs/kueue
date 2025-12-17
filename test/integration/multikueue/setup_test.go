@@ -26,6 +26,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/clientcmd"
@@ -818,22 +819,47 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			})
 		})
 	})
+})
+
+var _ = ginkgo.Describe("MultiKueue with ClusterProfile", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	ginkgo.BeforeAll(func() {
+		// The flag must be called before multikueue.SetupIndexer so that MultiKueueCluster ClusterProfile indexer is registered.
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueClusterProfile, true)
+		managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
+			managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce)
+		})
+	})
+	ginkgo.AfterAll(func() {
+		managerTestCluster.fwk.StopManager(managerTestCluster.ctx)
+	})
 
 	ginkgo.It("Should report no cluster providers configured", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueClusterProfile, true)
-
-		ginkgo.By("Create ClusterProfile", func() {
-			clusterProfile := utiltestingapi.MakeClusterProfile("test-profile", config.DefaultNamespace).Obj()
-			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, clusterProfile)).To(gomega.Succeed())
-		})
-
 		var workerCluster3 *kueue.MultiKueueCluster
-		ginkgo.By("Create a MultiKueueCluster with ClusterProfile as ClusterSource", func() {
+		ginkgo.By("Create a MultiKueueCluster with ClusterProfile", func() {
 			workerCluster3 = utiltestingapi.MakeMultiKueueCluster("worker3").ClusterProfile("test-profile").Obj()
 			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, workerCluster3)).To(gomega.Succeed())
 		})
 
 		workerCluster3Key := client.ObjectKeyFromObject(workerCluster3)
+		ginkgo.By("Verify status conditions of the MultiKueueCluster", func() {
+			mkc := &kueue.MultiKueueCluster{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, workerCluster3Key, mkc)).To(gomega.Succeed())
+				activeCondition := apimeta.FindStatusCondition(mkc.Status.Conditions, kueue.MultiKueueClusterActive)
+				g.Expect(activeCondition).To(gomega.BeComparableTo(&metav1.Condition{
+					Type:    kueue.MultiKueueClusterActive,
+					Status:  metav1.ConditionFalse,
+					Reason:  "BadClusterProfile",
+					Message: "load client config failed: ClusterProfile.multicluster.x-k8s.io \"test-profile\" not found",
+				}, util.IgnoreConditionTimestampsAndObservedGeneration))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Create ClusterProfile and trigger MultiKueueCluster reconciliation", func() {
+			clusterProfile := utiltestingapi.MakeClusterProfile("test-profile", config.DefaultNamespace).Obj()
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, clusterProfile)).To(gomega.Succeed())
+		})
+
 		ginkgo.By("Verify status of the MultiKueueCluster", func() {
 			mkc := &kueue.MultiKueueCluster{}
 			gomega.Eventually(func(g gomega.Gomega) {
