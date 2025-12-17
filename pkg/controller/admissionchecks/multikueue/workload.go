@@ -105,7 +105,7 @@ func (g *wlGroup) IsElasticWorkload() bool {
 	return workloadslicing.IsElasticWorkload(g.local)
 }
 
-// bestMatchByCondition returns true if there is a workload with a specified condition type,
+// bestMatchByCondition returns condition if there is a workload with a specified condition type,
 // the string identifies the remote cluster.
 func (g *wlGroup) bestMatchByCondition(conditionType string) (*metav1.Condition, string) {
 	var (
