@@ -18,6 +18,11 @@ filters:
     approvers:
       - dependency-approvers
 
+  # Any directory depth: package.json or package-lock.json
+  "package(-lock)?\\.json$":
+    approvers:
+      - dependency-approvers
+
   # Any directory depth: *_test.go
   "*_test.go$":
     approvers:
