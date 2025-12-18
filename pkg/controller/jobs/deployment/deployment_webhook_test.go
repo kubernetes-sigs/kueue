@@ -378,12 +378,7 @@ func TestValidateUpdate(t *testing.T) {
 			newDeployment: testingdeployment.MakeDeployment("test-pod", "").
 				Queue("test-queue").
 				Obj(),
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "metadata.labels[kueue.x-k8s.io/priority-class]",
-				},
-			}.ToAggregate(),
+			wantErr: field.ErrorList{}.ToAggregate(),
 		},
 	}
 

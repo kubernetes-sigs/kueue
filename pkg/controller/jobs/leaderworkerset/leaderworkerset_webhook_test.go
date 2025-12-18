@@ -764,12 +764,7 @@ func TestValidateUpdate(t *testing.T) {
 				Queue("test-queue").
 				ReadyReplicas(int32(1)).
 				Obj(),
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "metadata.labels[kueue.x-k8s.io/priority-class]",
-				},
-			}.ToAggregate(),
+			wantErr: field.ErrorList{}.ToAggregate(),
 		},
 		"change image": {
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").

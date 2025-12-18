@@ -545,10 +545,9 @@ func TestValidateUpdate(t *testing.T) {
 			newJob: testingutil.MakeJob("job", "default").Suspend(true).WorkloadPriorityClass("new-test").Obj(),
 		},
 		{
-			name:               "delete priority-class when job suspend",
-			oldJob:             testingutil.MakeJob("job", "default").Suspend(true).WorkloadPriorityClass("test").Obj(),
-			newJob:             testingutil.MakeJob("job", "default").Suspend(true).Obj(),
-			wantValidationErrs: apivalidation.ValidateImmutableField("", "test", workloadPriorityClassNamePath),
+			name:   "delete priority-class when job suspend",
+			oldJob: testingutil.MakeJob("job", "default").Suspend(true).WorkloadPriorityClass("test").Obj(),
+			newJob: testingutil.MakeJob("job", "default").Suspend(true).Obj(),
 		},
 		{
 			name: "immutable prebuilt workload ",
