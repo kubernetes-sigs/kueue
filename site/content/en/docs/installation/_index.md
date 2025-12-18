@@ -313,7 +313,6 @@ spec:
 | `ElasticJobsViaWorkloadSlices`                | `false` | Alpha | 0.13  |       |
 | `ManagedJobsNamespaceSelectorAlwaysRespected` | `false` | Alpha | 0.13  | 0.15  |
 | `ManagedJobsNamespaceSelectorAlwaysRespected` | `true`  | Beta  | 0.15  |       |
-| `FlavorFungibilityImplicitPreferenceDefault`  | `false` | Alpha | 0.13  | 0.16  |
 | `WorkloadRequestUseMergePatch`                | `false` | Alpha | 0.14  |       |
 | `SanitizePodSets`                             | `true`  | Beta  | 0.13  |       |
 | `MultiKueueAllowInsecureKubeconfigs`          | `false` | Alpha | 0.13  |       |
@@ -332,9 +331,6 @@ The PropagateBatchJobLabelsToWorkload feature is available starting from version
 
 | Feature                               | Default | Stage      | Since | Until |
 | ------------------------------------- | ------- | ---------- | ----- | ----- |
-| `ConfigurableResourceTransformations` | `false` | Alpha      | 0.9   | 0.9   |
-| `ConfigurableResourceTransformations` | `true`  | Beta       | 0.10  | 0.13  |
-| `ConfigurableResourceTransformations` | `true`  | GA         | 0.14  |       |
 | `TASProfileMostFreeCapacity`          | `false` | Deprecated | 0.11  | 0.13  |
 | `TASProfileLeastFreeCapacity`         | `false` | Deprecated | 0.11  |       |
 | `TASProfileMixed`                     | `false` | Deprecated | 0.11  |       |

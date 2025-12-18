@@ -29,10 +29,15 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apiextensionsfake "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	resourcev1 "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/client-go/rest"
+	clienttesting "k8s.io/client-go/testing"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	"k8s.io/utils/ptr"
@@ -45,6 +50,7 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
@@ -1050,6 +1056,119 @@ func TestWaitForPodsReadyIsEnabled(t *testing.T) {
 			got := waitforpodsready.Enabled(tc.cfg.WaitForPodsReady)
 			if tc.want != got {
 				t.Errorf("Unexpected result from waitforpodsready.Enabled()\nwant:\n%v\ngot:%v\n", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestConfigureClusterProfileCacheWithClient(t *testing.T) {
+	multiclusterCRD := &apiextensionsv1.CustomResourceDefinition{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "clusterprofiles.multicluster.x-k8s.io",
+		},
+	}
+
+	testCases := map[string]struct {
+		crdPresent       bool
+		failedGetCRD     bool
+		wantError        bool
+		wantOptionsCache func(string) ctrlcache.Options
+	}{
+		"clusterProfile CRD not present": {
+			wantOptionsCache: defaultControlCacheOptions,
+		},
+		"clusterProfile cache added to ByObject": {
+			crdPresent: true,
+			wantOptionsCache: func(namespace string) ctrlcache.Options {
+				cOpts := defaultControlOptions(namespace)
+				cOpts.Cache.ByObject[objectKeyClusterProfile] = ctrlcache.ByObject{
+					Namespaces: map[string]ctrlcache.Config{
+						namespace: {},
+					},
+				}
+				return cOpts.Cache
+			},
+		},
+		"error failed loading the ClusterProfile CRD": {
+			crdPresent:   true,
+			failedGetCRD: true,
+			wantError:    true,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			opts := &ctrl.Options{
+				Cache: defaultControlCacheOptions(configapi.DefaultNamespace),
+			}
+			cfg := &configapi.Configuration{
+				Namespace: ptr.To(configapi.DefaultNamespace),
+			}
+
+			var objects []runtime.Object
+			if tc.crdPresent {
+				objects = append(objects, multiclusterCRD)
+			}
+
+			fake := apiextensionsfake.NewClientset(objects...)
+			fake.PrependReactor("get", "customresourcedefinitions", func(action clienttesting.Action) (handled bool, ret runtime.Object, err error) {
+				getAction := action.(clienttesting.GetAction)
+				if getAction.GetName() == multiclusterCRD.Name && tc.failedGetCRD {
+					return true, nil, apierrors.NewBadRequest("testing error getting CRD")
+				}
+				return false, nil, nil
+			})
+
+			err := configureClusterProfileCacheWithClient(ctx, log, opts, fake, *cfg)
+			if tc.wantError {
+				if err == nil {
+					t.Error("Expected error but got none")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error:%s", err)
+				}
+				if diff := cmp.Diff(tc.wantOptionsCache(configapi.DefaultNamespace), opts.Cache); diff != "" {
+					t.Errorf("Unexpected options cache (-want +got):\n%s", diff)
+				}
+			}
+		})
+	}
+}
+
+func TestConfigureClusterProfileCache(t *testing.T) {
+	testCases := map[string]struct {
+		kubeConfig *rest.Config
+	}{
+		"error creating CRD client with empty kubeConfig": {
+			kubeConfig: &rest.Config{},
+		},
+		"error creating CRD client with invalid kubeConfig": {
+			kubeConfig: &rest.Config{Host: "http://invalid-host"},
+		},
+		"valid kubeConfig but no clusterProfile CRD": {
+			kubeConfig: &rest.Config{
+				Host:        "https://127.0.0.1:6443",
+				BearerToken: "fake-token",
+				TLSClientConfig: rest.TLSClientConfig{
+					Insecure: true,
+				},
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			opts := &ctrl.Options{
+				Cache: ctrlcache.Options{},
+			}
+			cfg := configapi.Configuration{Namespace: ptr.To(configapi.DefaultNamespace)}
+			err := ConfigureClusterProfileCache(ctx, log, opts, tc.kubeConfig, cfg)
+
+			if err == nil {
+				t.Error("Expected error but got none")
 			}
 		})
 	}

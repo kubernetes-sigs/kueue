@@ -242,7 +242,9 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 				RequeuingStrategy: &configapi.RequeuingStrategy{
 					Timestamp:          ptr.To(configapi.EvictionTimestamp),
 					BackoffBaseSeconds: ptr.To(int32(1)),
-					BackoffLimitCount:  ptr.To(int32(1)),
+					// Allow at least one requeue cycle before deactivation so the test
+					// can verify the requeue behavior.
+					BackoffLimitCount: ptr.To(int32(2)),
 				},
 			}
 		})
@@ -322,18 +324,17 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
 				g.Expect(wl.Status.RequeueState).ShouldNot(gomega.BeNil())
-				g.Expect(*wl.Status.RequeueState.Count).To(gomega.Equal(int32(1)))
+				// With a tiny RecoveryTimeout (10ms), multiple evictions may occur
+				// before pods become Ready, so we check for at least 1 eviction.
+				g.Expect(*wl.Status.RequeueState.Count).To(gomega.BeNumerically(">=", int32(1)))
 				g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadPodsReady, kueue.WorkloadStarted))
 				g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusFalse(kueue.WorkloadEvicted))
 				g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadRequeued))
 
-				g.Expect(wl.Status.SchedulingStats.Evictions).To(
-					gomega.BeComparableTo([]kueue.WorkloadSchedulingStatsEviction{{
-						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
-						UnderlyingCause: kueue.WorkloadWaitForRecovery,
-						Count:           1,
-					}}),
-				)
+				g.Expect(wl.Status.SchedulingStats.Evictions).To(gomega.HaveLen(1))
+				g.Expect(wl.Status.SchedulingStats.Evictions[0].Reason).To(gomega.Equal(kueue.WorkloadEvictedByPodsReadyTimeout))
+				g.Expect(string(wl.Status.SchedulingStats.Evictions[0].UnderlyingCause)).To(gomega.Equal(kueue.WorkloadWaitForRecovery))
+				g.Expect(wl.Status.SchedulingStats.Evictions[0].Count).To(gomega.BeNumerically(">=", int32(1)))
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 

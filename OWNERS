@@ -1,21 +1,29 @@
 # See the OWNERS docs at https://go.k8s.io/owners
 
-approvers:
-- gabesaba
-- mimowo
-- tenzen-y
+filters:
+  # Catch-all (required when using filters)
+  ".*":
+    approvers:
+      - kueue-approvers
+    reviewers:
+      - kueue-reviewers
+    emeritus_approvers:
+      - ahg-g
+      - alculquicondor
+      - denkensk
+      - kerthcet
 
-reviewers:
-- gabesaba
-- mbobrovskyi
-- mimowo
-- pbundyra
-- tenzen-y
-- kannon92
-- pajakd
+  # Any directory depth: go.mod or go.sum
+  "go\\.(mod|sum\\.sum)$":
+    approvers:
+      - dependency-approvers
 
-emeritus_approvers:
-- ahg-g
-- alculquicondor
-- denkensk
-- kerthcet
+  # Any directory depth: package.json or package-lock.json
+  "package(-lock)?\\.json$":
+    approvers:
+      - dependency-approvers
+
+  # Any directory depth: *_test.go
+  "*_test.go$":
+    approvers:
+      - test-approvers

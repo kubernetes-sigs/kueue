@@ -86,7 +86,7 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = raycluster.SetupRayClusterWebhook(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		failedWebhook, err := webhooks.Setup(mgr)
+		failedWebhook, err := webhooks.Setup(mgr, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 		jobframework.EnableIntegration(rayjob.FrameworkName)
 	}
@@ -101,10 +101,10 @@ func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetu
 		queues := qcache.NewManager(mgr.GetClient(), cCache)
 		opts = append(opts, jobframework.WithQueues(queues))
 
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &config.Configuration{})
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &config.Configuration{}, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
-		failedWebhook, err := webhooks.Setup(mgr)
+		failedWebhook, err := webhooks.Setup(mgr, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 		err = raycluster.SetupIndexes(ctx, mgr.GetFieldIndexer())

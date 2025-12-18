@@ -98,7 +98,7 @@ func managerSetup(options ...managerSetupOption) framework.ManagerSetup {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		failedWebhook, err := webhooks.Setup(mgr)
+		failedWebhook, err := webhooks.Setup(mgr, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 		controllersCfg := &config.Configuration{}
@@ -126,7 +126,7 @@ func managerSetup(options ...managerSetupOption) framework.ManagerSetup {
 			jobframework.EnableIntegration(job.FrameworkName)
 		}
 
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg)
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		err = provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer())
@@ -134,7 +134,7 @@ func managerSetup(options ...managerSetupOption) framework.ManagerSetup {
 
 		reconciler, err := provisioning.NewController(
 			mgr.GetClient(),
-			mgr.GetEventRecorderFor("kueue-provisioning-request-controller"))
+			mgr.GetEventRecorderFor("kueue-provisioning-request-controller"), nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		err = reconciler.SetupWithManager(mgr)

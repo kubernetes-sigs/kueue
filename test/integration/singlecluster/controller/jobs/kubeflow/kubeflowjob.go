@@ -217,7 +217,7 @@ func ShouldNotReconcileUnmanagedJob(ctx context.Context, k8sClient client.Client
 		g.Expect(k8sClient.Get(ctx, lookupKey, createdJob.Object())).Should(gomega.Succeed())
 		g.Expect(createdJob.IsSuspended()).Should(gomega.BeFalse())
 		g.Expect(k8sClient.Get(ctx, wlLookupKey, workload)).Should(utiltesting.BeNotFoundError())
-	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 }
 
 func JobControllerWhenWaitForPodsReadyEnabled(ctx context.Context, k8sClient client.Client, job, createdJob kubeflowjob.KubeflowJob, podsReadyTestSpec PodsReadyTestSpec, podSetsResources []PodSetsResource) {

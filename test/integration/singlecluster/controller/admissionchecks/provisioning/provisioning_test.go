@@ -50,7 +50,7 @@ const (
 	customResourceOne = "example.org/res1"
 )
 
-var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", "area:admissionchecks", "feature:provisioning"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		resourceGPU    corev1.ResourceName = "example.com/gpu"
 		flavorOnDemand                     = "on-demand"
@@ -595,7 +595,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 						},
 						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
 					g.Expect(workload.IsAdmitted(&updatedWl)).To(gomega.BeTrue())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 		})
 
@@ -1535,7 +1535,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 	})
 })
 
-var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller:provisioning", "area:admissionchecks", "feature:provisioning"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns             *corev1.Namespace
 		wl1Key         types.NamespacedName

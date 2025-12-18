@@ -51,6 +51,7 @@ import (
 	utilptr "sigs.k8s.io/kueue/pkg/util/ptr"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/resource"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/util/wait"
@@ -71,6 +72,7 @@ var (
 		kueue.WorkloadPreempted,
 		kueue.WorkloadRequeued,
 		kueue.WorkloadDeactivationTarget,
+		kueue.WorkloadFinished,
 	}
 )
 
@@ -82,7 +84,7 @@ func NewReference(namespace, name string) Reference {
 }
 
 func Status(w *kueue.Workload) string {
-	if apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished) {
+	if IsFinished(w) {
 		return StatusFinished
 	}
 	if IsAdmitted(w) {
@@ -418,6 +420,14 @@ func applyResourceTransformations(input corev1.ResourceList, transforms map[core
 	output := make(corev1.ResourceList)
 	for inputName, inputQuantity := range input {
 		if mapping, ok := transforms[inputName]; ok {
+			// If MultiplyBy is specified, multiply the input quantity by
+			// the value of the resource specified in MultiplyBy.
+			if mapping.MultiplyBy != "" {
+				if q, ok := input[mapping.MultiplyBy]; ok {
+					inputQuantity.Mul(q.Value())
+				}
+			}
+
 			for outputName, baseFactor := range mapping.Outputs {
 				outputQuantity := baseFactor.DeepCopy()
 				outputQuantity.Mul(inputQuantity.Value())
@@ -496,9 +506,7 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 		}
 		specRequests := resourcehelpers.PodRequests(&corev1.Pod{Spec: ps.Template.Spec}, resourcehelpers.PodResourcesOptions{})
 		effectiveRequests := dropExcludedResources(specRequests, info.excludedResourcePrefixes)
-		if features.Enabled(features.ConfigurableResourceTransformations) {
-			effectiveRequests = applyResourceTransformations(effectiveRequests, info.resourceTransformations)
-		}
+		effectiveRequests = applyResourceTransformations(effectiveRequests, info.resourceTransformations)
 		setRes.Requests = resources.NewRequests(effectiveRequests)
 		if features.Enabled(features.DynamicResourceAllocation) && info.preprocessedDRAResources != nil {
 			if draRes, exists := info.preprocessedDRAResources[ps.Name]; exists {
@@ -561,29 +569,41 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 	return res
 }
 
-// UpdateStatus updates the condition of a workload with ssa,
-// fieldManager being set to managerPrefix + "-" + conditionType
-func UpdateStatus(ctx context.Context,
+// SetConditionAndUpdate sets (or replaces) a single condition in a Workload's status.
+//
+// Behaviour depends on the feature gate WorkloadRequestUseMergePatch:
+//
+//   - Enabled → uses merge-patch via PatchStatus (preserves other conditions,
+//     safe for concurrent controllers).
+//
+//   - Disabled → uses server-side apply with field manager
+//     "<managerPrefix>-<conditionType>" (legacy path; only the written condition
+//     is managed by this controller).
+//
+// The condition gets:
+//   - ObservedGeneration = wl.Generation
+//   - LastTransitionTime = clock.Now()
+//   - Message truncated to the allowed length
+func SetConditionAndUpdate(ctx context.Context,
 	c client.Client,
 	wl *kueue.Workload,
 	conditionType string,
 	conditionStatus metav1.ConditionStatus,
 	reason, message string,
 	managerPrefix string,
-	clock clock.Clock) error {
-	now := metav1.NewTime(clock.Now())
+	clock clock.Clock,
+) error {
 	condition := metav1.Condition{
 		Type:               conditionType,
 		Status:             conditionStatus,
-		LastTransitionTime: now,
+		ObservedGeneration: wl.Generation,
+		LastTransitionTime: metav1.NewTime(clock.Now()),
 		Reason:             reason,
 		Message:            api.TruncateConditionMessage(message),
-		ObservedGeneration: wl.Generation,
 	}
-
-	newWl := BaseSSAWorkload(wl, false)
-	newWl.Status.Conditions = []metav1.Condition{condition}
-	return c.Status().Patch(ctx, newWl, client.Apply, client.FieldOwner(managerPrefix+"-"+condition.Type))
+	return PatchStatus(ctx, c, wl, client.FieldOwner(managerPrefix+"-"+condition.Type), func(wl *kueue.Workload) (bool, error) {
+		return apimeta.SetStatusCondition(&wl.Status.Conditions, condition), nil
+	})
 }
 
 // UnsetQuotaReservationWithCondition sets the QuotaReserved condition to false, clears
@@ -926,14 +946,6 @@ func admissionChecksStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, c clo
 	}
 }
 
-// ApplyAdmissionStatus updated all the admission related status fields of a workload with SSA.
-// If strict is true, resourceVersion will be part of the patch, make this call fail if Workload
-// was changed.
-func ApplyAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, strict bool, clk clock.Clock) error {
-	wlCopy := PrepareWorkloadPatch(w, strict, clk)
-	return ApplyAdmissionStatusPatch(ctx, c, wlCopy)
-}
-
 func PrepareWorkloadPatch(w *kueue.Workload, strict bool, clk clock.Clock) *kueue.Workload {
 	wlCopy := BaseSSAWorkload(w, strict)
 	admissionStatusPatch(w, wlCopy)
@@ -941,17 +953,14 @@ func PrepareWorkloadPatch(w *kueue.Workload, strict bool, clk clock.Clock) *kueu
 	return wlCopy
 }
 
-// ApplyAdmissionStatusPatch applies the patch of admission related status fields of a workload with SSA.
-func ApplyAdmissionStatusPatch(ctx context.Context, c client.Client, patch *kueue.Workload) error {
-	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.AdmissionName), client.ForceOwnership)
-}
+type UpdateFunc func(*kueue.Workload) (bool, error)
 
-// PatchAdmissionStatusOption defines a functional option for customizing PatchAdmissionStatusOptions.
+// PatchStatusOption defines a functional option for customizing PatchStatusOptions.
 // It follows the functional options pattern, allowing callers to configure
-// patch behavior at call sites without directly manipulating PatchAdmissionStatusOptions.
-type PatchAdmissionStatusOption func(*PatchAdmissionStatusOptions)
+// patch behavior at call sites without directly manipulating PatchStatusOptions.
+type PatchStatusOption func(*PatchStatusOptions)
 
-// PatchAdmissionStatusOptions contains configuration parameters that control how patches
+// PatchStatusOptions contains configuration parameters that control how patches
 // are generated and applied.
 //
 // Fields:
@@ -964,48 +973,29 @@ type PatchAdmissionStatusOption func(*PatchAdmissionStatusOptions)
 //     patch. Defaults to true. Setting StrictPatch=false preserves the current
 //     ResourceVersion.
 //
-// Typically, PatchAdmissionStatusOptions are constructed via DefaultPatchAdmissionStatusOptions and
-// modified using PatchAdmissionStatusOption functions (e.g., WithLoose).
-type PatchAdmissionStatusOptions struct {
+// Typically, PatchStatusOptions are constructed via DefaultPatchStatusOptions and
+// modified using PatchStatusOption functions (e.g., WithLoose).
+type PatchStatusOptions struct {
 	StrictPatch             bool
 	StrictApply             bool
 	RetryOnConflictForPatch bool
+	ForceApply              bool
 }
 
-// DefaultPatchAdmissionStatusOptions returns a new PatchAdmissionStatusOptions instance configured with
+// DefaultPatchStatusOptions returns a new PatchStatusOptions instance configured with
 // default settings.
 //
 // By default, StrictPatch and StrictApply is set to true, meaning ResourceVersion is cleared
 // from the original object so it will always be included in the generated
 // patch. This ensures stricter version handling during patch application.
-func DefaultPatchAdmissionStatusOptions() *PatchAdmissionStatusOptions {
-	return &PatchAdmissionStatusOptions{
+func DefaultPatchStatusOptions() *PatchStatusOptions {
+	return &PatchStatusOptions{
 		StrictPatch: true, // default is strict
 		StrictApply: true, // default is strict
 	}
 }
 
-// WithLoose returns a PatchAdmissionStatusOption that resets both the StrictPatch and StrictApply
-// fields on PatchAdmissionStatusOptions.
-//
-// By default, StrictPatch and StrictApply are true. In strict mode, generated patches enforce stricter
-// behavior by clearing the ResourceVersion field from the "original" object.
-// This ensures that the ResourceVersion is always included in the generated patch
-// and taken into account during patch application.
-//
-// Example:
-//
-//	patch := clientutil.Patch(ctx, c, w, clk, func() (bool, error) {
-//	    return updateFn(obj), nil
-//	}, WithLoose()) // disables strict mode
-func WithLoose() PatchAdmissionStatusOption {
-	return func(o *PatchAdmissionStatusOptions) {
-		o.StrictPatch = false
-		o.StrictApply = false
-	}
-}
-
-// WithLooseOnApply returns a PatchAdmissionStatusOption that resets the StrictApply field on PatchAdmissionStatusOptions.
+// WithLooseOnApply returns a PatchStatusOption that resets the StrictApply field on PatchStatusOptions.
 //
 // When using Patch Apply, setting StrictApply to false enforces looser
 // version handling only for Patch Apply.
@@ -1017,51 +1007,90 @@ func WithLoose() PatchAdmissionStatusOption {
 //	    return updateFn(obj), nil
 //	}, WithLooseOnApply()) // disables strict mode for Patch Apply
 
-func WithLooseOnApply() PatchAdmissionStatusOption {
-	return func(o *PatchAdmissionStatusOptions) {
+func WithLooseOnApply() PatchStatusOption {
+	return func(o *PatchStatusOptions) {
 		o.StrictApply = false
 	}
 }
 
-// WithRetryOnConflictForPatch configures PatchAdmissionStatusOptions to enable retry logic on conflicts.
+// WithRetryOnConflictForPatch configures PatchStatusOptions to enable retry logic on conflicts.
 // Note: This only works with merge patches.
-func WithRetryOnConflictForPatch() PatchAdmissionStatusOption {
-	return func(o *PatchAdmissionStatusOptions) {
+func WithRetryOnConflictForPatch() PatchStatusOption {
+	return func(o *PatchStatusOptions) {
 		o.RetryOnConflictForPatch = true
 	}
 }
 
-// PatchAdmissionStatus updates the admission status of a workload.
-// If the WorkloadRequestUseMergePatch feature is enabled, it uses a Merge Patch with update function.
-// Otherwise, it runs the update function and, if updated, applies the SSA Patch status.
-func PatchAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, clk clock.Clock, update func(*kueue.Workload) (bool, error), options ...PatchAdmissionStatusOption) error {
-	opts := DefaultPatchAdmissionStatusOptions()
+// WithForceApply is a PatchStatusOption that forces the use of the apply patch.
+func WithForceApply() PatchStatusOption {
+	return func(o *PatchStatusOptions) {
+		o.ForceApply = true
+	}
+}
+
+func patchStatusOptions(options []PatchStatusOption) *PatchStatusOptions {
+	opts := DefaultPatchStatusOptions()
 	for _, opt := range options {
 		opt(opts)
 	}
-	var err error
-	wlCopy := w.DeepCopy()
-	if features.Enabled(features.WorkloadRequestUseMergePatch) {
-		var patchOptions []clientutil.PatchOption
+	return opts
+}
+
+// patchStatus updates the status of a workload.
+// If the WorkloadRequestUseMergePatch feature is enabled, it uses a Merge Patch with update function.
+// Otherwise, it runs the update function and, if updated, applies the SSA Patch status.
+func patchStatus(ctx context.Context, c client.Client, wl *kueue.Workload, owner client.FieldOwner, update UpdateFunc, opts *PatchStatusOptions) error {
+	wlCopy := wl.DeepCopy()
+	if !opts.ForceApply && features.Enabled(features.WorkloadRequestUseMergePatch) {
+		patchOptions := make([]clientutil.PatchOption, 0, 2)
 		if !opts.StrictPatch {
 			patchOptions = append(patchOptions, clientutil.WithLoose())
 		}
 		if opts.RetryOnConflictForPatch {
 			patchOptions = append(patchOptions, clientutil.WithRetryOnConflict())
 		}
-		err = clientutil.PatchStatus(ctx, c, wlCopy, func() (bool, error) {
+		err := clientutil.PatchStatus(ctx, c, wlCopy, func() (bool, error) {
 			return update(wlCopy)
 		}, patchOptions...)
+		if err != nil {
+			return err
+		}
 	} else {
 		if updated, err := update(wlCopy); err != nil || !updated {
 			return err
 		}
-		err = ApplyAdmissionStatus(ctx, c, wlCopy, opts.StrictApply, clk)
+		err := c.Status().Patch(ctx, wlCopy, client.Apply, owner, client.ForceOwnership)
+		if err != nil {
+			return err
+		}
 	}
-	if err == nil {
-		wlCopy.DeepCopyInto(w)
-	}
-	return err
+	wlCopy.DeepCopyInto(wl)
+	return nil
+}
+
+func PatchStatus(ctx context.Context, c client.Client, wl *kueue.Workload, owner client.FieldOwner, update UpdateFunc, options ...PatchStatusOption) error {
+	opts := patchStatusOptions(options)
+	return patchStatus(ctx, c, wl, owner, func(wl *kueue.Workload) (bool, error) {
+		if !features.Enabled(features.WorkloadRequestUseMergePatch) {
+			wlPatch := BaseSSAWorkload(wl, opts.StrictApply)
+			wlPatch.DeepCopyInto(wl)
+		}
+		return update(wl)
+	}, opts)
+}
+
+func PatchAdmissionStatus(ctx context.Context, c client.Client, wl *kueue.Workload, clk clock.Clock, update UpdateFunc, options ...PatchStatusOption) error {
+	opts := patchStatusOptions(options)
+	return patchStatus(ctx, c, wl, constants.AdmissionName, func(wl *kueue.Workload) (bool, error) {
+		if updated, err := update(wl); err != nil || !updated {
+			return updated, err
+		}
+		if !features.Enabled(features.WorkloadRequestUseMergePatch) {
+			wlPatch := PrepareWorkloadPatch(wl, opts.StrictApply, clk)
+			wlPatch.DeepCopyInto(wl)
+		}
+		return true, nil
+	}, opts)
 }
 
 type Ordering struct {
@@ -1097,10 +1126,11 @@ func HasQuotaReservation(w *kueue.Workload) bool {
 }
 
 // UpdateReclaimablePods updates the ReclaimablePods list for the workload with SSA.
-func UpdateReclaimablePods(ctx context.Context, c client.Client, w *kueue.Workload, reclaimablePods []kueue.ReclaimablePod) error {
-	patch := BaseSSAWorkload(w, false)
-	patch.Status.ReclaimablePods = reclaimablePods
-	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.ReclaimablePodsMgr))
+func UpdateReclaimablePods(ctx context.Context, c client.Client, wl *kueue.Workload, reclaimablePods []kueue.ReclaimablePod) error {
+	return PatchStatus(ctx, c, wl, constants.ReclaimablePodsMgr, func(wl *kueue.Workload) (bool, error) {
+		wl.Status.ReclaimablePods = reclaimablePods
+		return true, nil
+	})
 }
 
 // ReclaimablePodsAreEqual checks if two Reclaimable pods are semantically equal
@@ -1127,6 +1157,11 @@ func IsFinished(w *kueue.Workload) bool {
 // IsActive returns true if the workload is active.
 func IsActive(w *kueue.Workload) bool {
 	return ptr.Deref(w.Spec.Active, true)
+}
+
+// IsAdmissible returns true if the workload can be added to the queue.
+func IsAdmissible(w *kueue.Workload) bool {
+	return !IsFinished(w) && IsActive(w) && !HasQuotaReservation(w)
 }
 
 // HasDRA returns true if the workload has DRA resources (ResourceClaims or ResourceClaimTemplates).
@@ -1188,7 +1223,7 @@ func IsEvictedByAdmissionCheck(w *kueue.Workload) (*metav1.Condition, bool) {
 }
 
 func IsEvicted(w *kueue.Workload) bool {
-	return apimeta.IsStatusConditionPresentAndEqual(w.Status.Conditions, kueue.WorkloadEvicted, metav1.ConditionTrue)
+	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadEvicted)
 }
 
 // HasConditionWithTypeAndReason checks if there is a condition in Workload's status
@@ -1243,7 +1278,7 @@ func CreatePodsReadyCondition(status metav1.ConditionStatus, reason, message str
 		Reason:             reason,
 		Message:            message,
 		LastTransitionTime: metav1.NewTime(clock.Now()),
-		// ObservedGeneration is added via workload.UpdateStatus
+		// ObservedGeneration is added via workload.SetConditionAndUpdate
 	}
 }
 
@@ -1299,12 +1334,15 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 type EvictOption func(*EvictOptions)
 
 type EvictOptions struct {
-	CustomPrepare func(wl *kueue.Workload)
+	CustomPrepare           func(wl *kueue.Workload)
+	StrictApply             bool
+	RetryOnConflictForPatch bool
 }
 
 func DefaultEvictOptions() *EvictOptions {
 	return &EvictOptions{
 		CustomPrepare: nil,
+		StrictApply:   true,
 	}
 }
 
@@ -1316,7 +1354,19 @@ func WithCustomPrepare(customPrepare func(wl *kueue.Workload)) EvictOption {
 	}
 }
 
-func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, wl *kueue.Workload, reason, msg string, underlyingCause kueue.EvictionUnderlyingCause, clock clock.Clock, options ...EvictOption) error {
+func EvictWithLooseOnApply() EvictOption {
+	return func(o *EvictOptions) {
+		o.StrictApply = false
+	}
+}
+
+func EvictWithRetryOnConflictForPatch() EvictOption {
+	return func(o *EvictOptions) {
+		o.RetryOnConflictForPatch = true
+	}
+}
+
+func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, wl *kueue.Workload, reason, msg string, underlyingCause kueue.EvictionUnderlyingCause, clock clock.Clock, tracker *roletracker.RoleTracker, options ...EvictOption) error {
 	opts := DefaultEvictOptions()
 	for _, opt := range options {
 		opt(opts)
@@ -1326,6 +1376,16 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 		hadAdmission              = wl.Status.Admission != nil
 		reportWorkloadEvictedOnce bool
 	)
+
+	var patchOpts []PatchStatusOption
+
+	if !opts.StrictApply {
+		patchOpts = append(patchOpts, WithLooseOnApply())
+	}
+
+	if opts.RetryOnConflictForPatch {
+		patchOpts = append(patchOpts, WithRetryOnConflictForPatch())
+	}
 
 	if err := PatchAdmissionStatus(ctx, c, wl, clock, func(wl *kueue.Workload) (bool, error) {
 		if opts.CustomPrepare != nil {
@@ -1339,7 +1399,7 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 		prepareForEviction(wl, clock.Now(), evictionReason, msg)
 		reportWorkloadEvictedOnce = workloadEvictionStateInc(wl, reason, underlyingCause)
 		return true, nil
-	}); err != nil {
+	}, patchOpts...); err != nil {
 		return err
 	}
 	if !hadAdmission {
@@ -1350,9 +1410,9 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 		log.V(3).Info("WARNING: unexpected eviction of workload without status.Admission", "workload", klog.KObj(wl))
 		return nil
 	}
-	reportEvictedWorkload(recorder, wl, wl.Status.Admission.ClusterQueue, reason, msg, underlyingCause)
+	reportEvictedWorkload(recorder, wl, wl.Status.Admission.ClusterQueue, reason, msg, underlyingCause, tracker)
 	if reportWorkloadEvictedOnce {
-		metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, reason, string(underlyingCause), PriorityClassName(wl))
+		metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, reason, string(underlyingCause), PriorityClassName(wl), tracker)
 	}
 	return nil
 }
@@ -1363,14 +1423,9 @@ func setFinish(wl *kueue.Workload, reason, msg string, now time.Time) bool {
 }
 
 func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, msg string, clock clock.Clock) error {
-	if features.Enabled(features.WorkloadRequestUseMergePatch) {
-		return clientutil.PatchStatus(ctx, c, wl, func() (bool, error) {
-			return setFinish(wl, reason, msg, clock.Now()), nil
-		})
-	}
-	wlPatch := PrepareWorkloadPatch(wl, true, clock)
-	setFinish(wlPatch, reason, msg, clock.Now())
-	return c.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(constants.AdmissionName), client.ForceOwnership)
+	return PatchAdmissionStatus(ctx, c, wl, clock, func(wl *kueue.Workload) (bool, error) {
+		return setFinish(wl, reason, msg, clock.Now()), nil
+	})
 }
 
 func PriorityClassName(wl *kueue.Workload) string {
@@ -1402,11 +1457,11 @@ func resetUnhealthyNodes(w *kueue.Workload) {
 	w.Status.UnhealthyNodes = nil
 }
 
-func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, message string, underlyingCause kueue.EvictionUnderlyingCause) {
+func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, message string, underlyingCause kueue.EvictionUnderlyingCause, tracker *roletracker.RoleTracker) {
 	priorityClassName := PriorityClassName(wl)
-	metrics.ReportEvictedWorkloads(cqName, reason, string(underlyingCause), priorityClassName)
+	metrics.ReportEvictedWorkloads(cqName, reason, string(underlyingCause), priorityClassName, tracker)
 	if podsReadyToEvictionTime := workloadsWithPodsReadyToEvictedTime(wl); podsReadyToEvictionTime != nil {
-		metrics.PodsReadyToEvictedTimeSeconds.WithLabelValues(string(cqName), reason, string(underlyingCause)).Observe(podsReadyToEvictionTime.Seconds())
+		metrics.PodsReadyToEvictedTimeSeconds.WithLabelValues(string(cqName), reason, string(underlyingCause), roletracker.GetRole(tracker)).Observe(podsReadyToEvictionTime.Seconds())
 	}
 	if features.Enabled(features.LocalQueueMetrics) {
 		metrics.ReportLocalQueueEvictedWorkloads(
@@ -1414,6 +1469,7 @@ func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cq
 			reason,
 			string(underlyingCause),
 			priorityClassName,
+			tracker,
 		)
 	}
 	eventReason := ReasonWithCause(kueue.WorkloadEvicted, reason)
@@ -1423,8 +1479,8 @@ func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cq
 	recorder.Event(wl, corev1.EventTypeNormal, eventReason, message)
 }
 
-func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference) {
-	metrics.ReportPreemption(preemptingCqName, preemptingReason, targetCqName)
+func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference, tracker *roletracker.RoleTracker) {
+	metrics.ReportPreemption(preemptingCqName, preemptingReason, targetCqName, tracker)
 }
 
 func References(wls []*Info) []klog.ObjectRef {
@@ -1488,25 +1544,4 @@ func ReasonWithCause(reason, underlyingCause string) string {
 // it returns an empty string.
 func ClusterName(wl *kueue.Workload) string {
 	return ptr.Deref(wl.Status.ClusterName, "")
-}
-
-// ResetRequeue resets the requeue state of the workload as well as all admission checks
-// It returns true if the workload was modified.
-func ResetRequeue(wl *kueue.Workload) bool {
-	var updated bool
-
-	if wl.Status.RequeueState != nil {
-		wl.Status.RequeueState = nil
-		updated = true
-	}
-	for i := range wl.Status.AdmissionChecks {
-		if wl.Status.AdmissionChecks[i].RequeueAfterSeconds == nil || wl.Status.AdmissionChecks[i].RetryCount == nil {
-			continue
-		}
-		wl.Status.AdmissionChecks[i].RequeueAfterSeconds = nil
-		wl.Status.AdmissionChecks[i].RetryCount = nil
-		updated = true
-	}
-
-	return updated
 }

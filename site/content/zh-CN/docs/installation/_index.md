@@ -293,7 +293,6 @@ spec:
 | `TASReplaceNodeOnPodTermination`              | `true`  | Beta  | 0.14 |      |
 | `ElasticJobsViaWorkloadSlices`                | `false` | Alpha | 0.13 |      |
 | `ManagedJobsNamespaceSelectorAlwaysRespected` | `false` | Alpha | 0.13 |      |
-| `FlavorFungibilityImplicitPreferenceDefault`  | `false` | Alpha | 0.13 | 0.16 |
 | `WorkloadRequestUseMergePatch`                | `false` | Alpha | 0.14 |      |
 | `SanitizePodSets`                             | `true`  | Beta  | 0.13 |      |
 | `MultiKueueAllowInsecureKubeconfigs`          | `false` | Alpha | 0.13 |      |
@@ -304,9 +303,6 @@ spec:
 |---------------------------------------|---------|------------|------|------|
 | `ManagedJobsNamespaceSelector`        | `true`  | Beta       | 0.10 | 0.13 |
 | `ManagedJobsNamespaceSelector`        | `true`  | GA         | 0.13 |      |
-| `ConfigurableResourceTransformations` | `false` | Alpha      | 0.9  | 0.9  |
-| `ConfigurableResourceTransformations` | `true`  | Beta       | 0.10 | 0.13 |
-| `ConfigurableResourceTransformations` | `true`  | GA         | 0.14 |      |
 | `TASProfileMostFreeCapacity`          | `false` | Deprecated | 0.11 | 0.13 |
 | `TASProfileLeastFreeCapacity`         | `false` | Deprecated | 0.11 |      |
 | `TASProfileMixed`                     | `false` | Deprecated | 0.11 |      |

@@ -37,6 +37,7 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -49,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -69,6 +71,7 @@ type wlReconciler struct {
 	recorder          record.EventRecorder
 	clock             clock.Clock
 	dispatcherName    string
+	roleTracker       *roletracker.RoleTracker
 }
 
 var _ reconcile.Reconciler = (*wlReconciler)(nil)
@@ -92,7 +95,7 @@ func WithClock(_ testing.TB, c clock.Clock) Option {
 
 // IsFinished returns true if the local workload is finished.
 func (g *wlGroup) IsFinished() bool {
-	return apimeta.IsStatusConditionTrue(g.local.Status.Conditions, kueue.WorkloadFinished)
+	return workload.IsFinished(g.local)
 }
 
 // IsElasticWorkload returns true if the workload is considered elastic,
@@ -102,39 +105,23 @@ func (g *wlGroup) IsElasticWorkload() bool {
 	return workloadslicing.IsElasticWorkload(g.local)
 }
 
-// FirstReserving returns true if there is a workload reserving quota,
+// bestMatchByCondition returns condition if there is a workload with a specified condition type,
 // the string identifies the remote cluster.
-func (g *wlGroup) FirstReserving() (bool, string) {
-	found := false
-	bestMatch := ""
-	var bestTime time.Time
+func (g *wlGroup) bestMatchByCondition(conditionType string) (*metav1.Condition, string) {
+	var (
+		bestMatchCond   *metav1.Condition
+		bestMatchRemote string
+	)
 	for remote, wl := range g.remotes {
-		if wl == nil {
-			continue
-		}
-		c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-		if c != nil && c.Status == metav1.ConditionTrue && (!found || bestTime.IsZero() || c.LastTransitionTime.Time.Before(bestTime)) {
-			found = true
-			bestMatch = remote
-			bestTime = c.LastTransitionTime.Time
+		if wl != nil {
+			cond := apimeta.FindStatusCondition(wl.Status.Conditions, conditionType)
+			if cond != nil && cond.Status == metav1.ConditionTrue && (bestMatchCond == nil || cond.LastTransitionTime.Before(&bestMatchCond.LastTransitionTime)) {
+				bestMatchCond = cond
+				bestMatchRemote = remote
+			}
 		}
 	}
-	return found, bestMatch
-}
-
-func (g *wlGroup) RemoteFinishedCondition() (*metav1.Condition, string) {
-	var bestMatch *metav1.Condition
-	bestMatchRemote := ""
-	for remote, wl := range g.remotes {
-		if wl == nil {
-			continue
-		}
-		if c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished); c != nil && c.Status == metav1.ConditionTrue && (bestMatch == nil || c.LastTransitionTime.Before(&bestMatch.LastTransitionTime)) {
-			bestMatch = c
-			bestMatchRemote = remote
-		}
-	}
-	return bestMatch, bestMatchRemote
+	return bestMatchCond, bestMatchRemote
 }
 
 func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error {
@@ -246,12 +233,12 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 }
 
 func (w *wlReconciler) updateACS(ctx context.Context, wl *kueue.Workload, acs *kueue.AdmissionCheckState, status kueue.CheckState, message string) error {
-	acs.State = status
-	acs.Message = message
-	acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
-	wlPatch := workload.BaseSSAWorkload(wl, true)
-	workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs, w.clock)
-	return w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName), client.ForceOwnership)
+	return workload.PatchStatus(ctx, w.client, wl, kueue.MultiKueueControllerName, func(wl *kueue.Workload) (bool, error) {
+		acs.State = status
+		acs.Message = message
+		acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
+		return workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *acs, w.clock), nil
+	})
 }
 
 func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName kueue.AdmissionCheckReference) (map[string]*remoteClient, error) {
@@ -343,7 +330,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		return reconcile.Result{}, errors.Join(errs...)
 	}
 
-	if remoteFinishedCond, remote := group.RemoteFinishedCondition(); remoteFinishedCond != nil {
+	if remoteFinishedCond, remote := group.bestMatchByCondition(kueue.WorkloadFinished); remoteFinishedCond != nil {
 		// NOTE: we can have a race condition setting the wl status here and it being updated by the job controller
 		// it should not be problematic but the "From remote xxxx:" could be lost ....
 
@@ -383,8 +370,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	}
 
 	// 3. get the first reserving
-	hasReserving, reservingRemote := group.FirstReserving()
-	if hasReserving {
+	if remoteQuotaReservedCond, reservingRemote := group.bestMatchByCondition(kueue.WorkloadQuotaReserved); remoteQuotaReservedCond != nil {
 		// remove the non-reserving worker workloads
 		for rem, remWl := range group.remotes {
 			if remWl != nil && rem != reservingRemote {
@@ -396,7 +382,6 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			}
 		}
 
-		acs := admissioncheck.FindAdmissionCheck(group.local.Status.AdmissionChecks, group.acName)
 		if err := group.jobAdapter.SyncJob(ctx, w.client, group.remoteClients[reservingRemote].client, group.controllerKey, group.local.Name, w.origin); err != nil {
 			log.V(2).Error(err, "creating remote controller object", "remote", reservingRemote)
 			// We'll retry this in the next reconcile.
@@ -415,12 +400,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			log.V(3).Info("Reserving remote lost, retry", "retryAfter", remainingWaitTime)
 			return reconcile.Result{RequeueAfter: remainingWaitTime}, nil
 		} else {
-			acs.State = kueue.CheckStateRetry
-			acs.Message = "Reserving remote lost"
-			acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
-			wlPatch := workload.BaseSSAWorkload(group.local, true)
-			workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs, w.clock)
-			return reconcile.Result{}, w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName), client.ForceOwnership)
+			return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Reserving remote lost")
 		}
 	}
 
@@ -500,7 +480,7 @@ func (w *wlReconciler) Generic(_ event.GenericEvent) bool {
 
 func newWlReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelper, cRec *clustersReconciler, origin string,
 	recorder record.EventRecorder, workerLostTimeout, eventsBatchPeriod time.Duration,
-	adapters map[string]jobframework.MultiKueueAdapter, dispatcherName string,
+	adapters map[string]jobframework.MultiKueueAdapter, dispatcherName string, roleTracker *roletracker.RoleTracker,
 	options ...Option,
 ) *wlReconciler {
 	r := &wlReconciler{
@@ -515,6 +495,7 @@ func newWlReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelp
 		recorder:          recorder,
 		clock:             realClock,
 		dispatcherName:    dispatcherName,
+		roleTracker:       roleTracker,
 	}
 	for _, option := range options {
 		option(r)
@@ -597,6 +578,9 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 		WatchesRawSource(source.Channel(w.clusters.wlUpdateCh, syncHndl)).
 		Watches(&kueue.MultiKueueConfig{}, &configHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod}).
 		WithEventFilter(w).
+		WithOptions(controller.Options{
+			LogConstructor: roletracker.NewLogConstructor(w.roleTracker, "multikueue-workload"),
+		}).
 		Complete(w)
 }
 
@@ -652,11 +636,7 @@ func (w *wlReconciler) syncReservingRemoteState(ctx context.Context, group *wlGr
 		}
 
 		if needsACUpdate {
-			if group.jobAdapter.KeepAdmissionCheckPending() {
-				acs.State = kueue.CheckStatePending
-			} else {
-				acs.State = kueue.CheckStateReady
-			}
+			acs.State = kueue.CheckStateReady
 			// update the message
 			acs.Message = fmt.Sprintf("The workload got reservation on %q", reservingRemote)
 			// update the transition time since is used to detect the lost worker state.

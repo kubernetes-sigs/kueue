@@ -404,16 +404,6 @@ func isPreferred(a, b granularMode, fungibilityConfig kueue.FlavorFungibility) b
 		}
 	}
 
-	// BorrowingOverPreemption preference
-	if !features.Enabled(features.FlavorFungibilityImplicitPreferenceDefault) {
-		return borrowingOverPreemption()
-	}
-
-	// PreemptionOverBorrowing preference
-	if fungibilityConfig.WhenCanBorrow == kueue.TryNextFlavor {
-		return preemptionOverBorrowing()
-	}
-	// BorrowingOverPreemption preference
 	return borrowingOverPreemption()
 }
 
@@ -427,6 +417,21 @@ func fromPreemptionPossibility(preemptionPossibility preemptioncommon.Preemption
 		return reclaim
 	}
 	panic(fmt.Sprintf("illegal PreemptionPossibility: %d", preemptionPossibility))
+}
+
+func (mode preemptionMode) preemptionPossibility() *preemptioncommon.PreemptionPossibility {
+	switch mode {
+	case noPreemptionCandidates:
+		return ptr.To(preemptioncommon.NoCandidates)
+	case preempt:
+		return ptr.To(preemptioncommon.Preempt)
+	case reclaim:
+		return ptr.To(preemptioncommon.Reclaim)
+	case fit, noFit:
+		return nil
+	default:
+		panic(fmt.Sprintf("illegal preemptionMode: %d", mode))
+	}
 }
 
 func (mode preemptionMode) flavorAssignmentMode() FlavorAssignmentMode {
@@ -795,7 +800,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 			}
 		}
 
-		consideredFlavors.AddRepresentativeModeFlavorAttempt(fName, representativeMode.preemptionMode.flavorAssignmentMode(), maxBorrow, flavorQuotaReasons)
+		consideredFlavors.AddRepresentativeModeFlavorAttempt(fName, representativeMode.preemptionMode, maxBorrow, flavorQuotaReasons)
 
 		if features.Enabled(features.FlavorFungibility) {
 			if !shouldTryNextFlavor(representativeMode, a.cq.FlavorFungibility) {

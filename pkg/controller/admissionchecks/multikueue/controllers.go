@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
 const (
@@ -43,6 +44,7 @@ type SetupOptions struct {
 	adapters             map[string]jobframework.MultiKueueAdapter
 	dispatcherName       string
 	clusterProfileConfig *configapi.ClusterProfile
+	roleTracker          *roletracker.RoleTracker
 }
 
 type SetupOption func(o *SetupOptions)
@@ -99,6 +101,13 @@ func WithClusterProfiles(clusterProfiles *configapi.ClusterProfile) SetupOption 
 	}
 }
 
+// WithRoleTracker sets the role tracker for HA logging.
+func WithRoleTracker(tracker *roletracker.RoleTracker) SetupOption {
+	return func(o *SetupOptions) {
+		o.roleTracker = tracker
+	}
+}
+
 func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) error {
 	options := &SetupOptions{
 		gcInterval:        defaultGCInterval,
@@ -124,7 +133,7 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		return err
 	}
 
-	var cpCreds *credentials.CredentialsProvider
+	var cpCreds clusterProfileCreds
 	if features.Enabled(features.MultiKueueClusterProfile) && options.clusterProfileConfig != nil {
 		p := make([]credentials.Provider, 0, len(options.clusterProfileConfig.CredentialsProviders))
 		for _, provider := range options.clusterProfileConfig.CredentialsProviders {
@@ -135,20 +144,23 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		}
 		cpCreds = credentials.New(p)
 	}
+	if cpCreds == nil {
+		cpCreds = &NoOpClusterProfileCreds{}
+	}
 
-	cRec := newClustersReconciler(mgr.GetClient(), namespace, options.gcInterval, options.origin, fsWatcher, options.adapters, cpCreds)
+	cRec := newClustersReconciler(mgr.GetClient(), namespace, options.gcInterval, options.origin, fsWatcher, options.adapters, cpCreds, options.roleTracker)
 	err = cRec.setupWithManager(mgr)
 	if err != nil {
 		return err
 	}
 
-	acRec := newACReconciler(mgr.GetClient(), helper)
+	acRec := newACReconciler(mgr.GetClient(), helper, options.roleTracker)
 	err = acRec.setupWithManager(mgr)
 	if err != nil {
 		return err
 	}
 
 	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec, options.origin, mgr.GetEventRecorderFor(constants.WorkloadControllerName),
-		options.workerLostTimeout, options.eventsBatchPeriod, options.adapters, options.dispatcherName)
+		options.workerLostTimeout, options.eventsBatchPeriod, options.adapters, options.dispatcherName, options.roleTracker)
 	return wlRec.setupWithManager(mgr)
 }

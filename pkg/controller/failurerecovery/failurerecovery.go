@@ -21,12 +21,14 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
-func SetupControllers(mgr manager.Manager, cfg *configapi.Configuration) (string, error) {
+func SetupControllers(mgr manager.Manager, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker) (string, error) {
 	tpRec := NewTerminatingPodReconciler(
 		mgr.GetClient(),
 		mgr.GetEventRecorderFor(constants.PodTerminationControllerName),
+		WithRoleTracker(roleTracker),
 	)
 	return tpRec.SetupWithManager(mgr, cfg)
 }

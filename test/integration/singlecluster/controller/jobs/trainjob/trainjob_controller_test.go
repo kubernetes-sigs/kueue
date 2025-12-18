@@ -92,6 +92,13 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 				testingjobset.ReplicatedJobRequirements{
 					Name:     "node",
 					Replicas: 1,
+					Labels: map[string]string{
+						"trainer.kubeflow.org/trainjob-ancestor-step": "trainer",
+					},
+				},
+				testingjobset.ReplicatedJobRequirements{
+					Name:     "foo",
+					Replicas: 1,
 				}).
 				Obj()
 			testCtr = testingtrainjob.MakeClusterTrainingRuntime("test", testJobSet.Spec)
@@ -126,6 +133,7 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 					Name:     "test",
 					Kind:     ptr.To("ClusterTrainingRuntime"),
 				}).
+					TrainerNumNodes(2).
 					Suspend(false).
 					Queue("local-queue").
 					Obj()
@@ -136,11 +144,14 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("checking the workload is created", func() {
+			ginkgo.By("checking the workload is created with the correct values", func() {
 				wlLookupKey = types.NamespacedName{Name: workloadtrainjob.GetWorkloadNameForTrainJob(createdTrainJob.Name, createdTrainJob.UID), Namespace: ns.Name}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 					g.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(kueue.LocalQueueName("local-queue")))
+					g.Expect(createdWorkload.Spec.PodSets).Should(gomega.HaveLen(2))
+					g.Expect(createdWorkload.Spec.PodSets[0].Count).Should(gomega.Equal(int32(2)))
+					g.Expect(createdWorkload.Spec.PodSets[1].Count).Should(gomega.Equal(int32(1)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -156,6 +167,12 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 				admission := utiltestingapi.MakeAdmission(clusterQueue.Name).PodSets(
 					kueue.PodSetAssignment{
 						Name: createdWorkload.Spec.PodSets[0].Name,
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: kueue.ResourceFlavorReference(onDemandFlavor.Name),
+						},
+					},
+					kueue.PodSetAssignment{
+						Name: createdWorkload.Spec.PodSets[1].Name,
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: kueue.ResourceFlavorReference(onDemandFlavor.Name),
 						},
@@ -234,6 +251,12 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 							corev1.ResourceCPU: kueue.ResourceFlavorReference(onDemandFlavor.Name),
 						},
 					},
+					kueue.PodSetAssignment{
+						Name: createdWorkload.Spec.PodSets[1].Name,
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: kueue.ResourceFlavorReference(onDemandFlavor.Name),
+						},
+					},
 				).Obj()
 				util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
@@ -259,7 +282,7 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 			ginkgo.By("preempt the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-					g.Expect(workload.UpdateStatus(ctx, k8sClient, createdWorkload, kueue.WorkloadEvicted, metav1.ConditionTrue, kueue.WorkloadEvictedByPreemption, "By test", "evict", util.RealClock)).To(gomega.Succeed())
+					g.Expect(workload.SetConditionAndUpdate(ctx, k8sClient, createdWorkload, kueue.WorkloadEvicted, metav1.ConditionTrue, kueue.WorkloadEvictedByPreemption, "By test", "evict", util.RealClock)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 

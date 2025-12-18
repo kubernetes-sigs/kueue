@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -40,6 +41,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -52,10 +54,12 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -90,6 +94,12 @@ type JobReconciler struct {
 	labelKeysToCopy              []string
 	clock                        clock.Clock
 	workloadRetentionPolicy      WorkloadRetentionPolicy
+	roleTracker                  *roletracker.RoleTracker
+}
+
+// RoleTracker returns the role tracker for HA logging.
+func (r *JobReconciler) RoleTracker() *roletracker.RoleTracker {
+	return r.roleTracker
 }
 
 type Options struct {
@@ -106,6 +116,7 @@ type Options struct {
 	Cache                        *schdcache.Cache
 	Clock                        clock.Clock
 	WorkloadRetentionPolicy      WorkloadRetentionPolicy
+	RoleTracker                  *roletracker.RoleTracker
 }
 
 // Option configures the reconciler.
@@ -224,6 +235,13 @@ func WithObjectRetentionPolicies(value *configapi.ObjectRetentionPolicies) Optio
 	}
 }
 
+// WithRoleTracker sets the roleTracker for HA logging.
+func WithRoleTracker(tracker *roletracker.RoleTracker) Option {
+	return func(o *Options) {
+		o.RoleTracker = tracker
+	}
+}
+
 var defaultOptions = Options{
 	Clock: clock.RealClock{},
 }
@@ -243,6 +261,7 @@ func NewReconciler(
 		labelKeysToCopy:              options.LabelKeysToCopy,
 		clock:                        options.Clock,
 		workloadRetentionPolicy:      options.WorkloadRetentionPolicy,
+		roleTracker:                  options.RoleTracker,
 	}
 }
 
@@ -407,10 +426,15 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// Update workload conditions if implemented JobWithCustomWorkloadConditions interface.
 	if jobCond, ok := job.(JobWithCustomWorkloadConditions); wl != nil && ok {
 		if conditions, updated := jobCond.CustomWorkloadConditions(wl); updated {
-			wlPatch := workload.BaseSSAWorkload(wl, false)
-			wlPatch.Status.Conditions = conditions
-			return reconcile.Result{}, r.client.Status().Patch(ctx, wlPatch, client.Apply,
-				client.FieldOwner(fmt.Sprintf("%s-%s-controller", constants.KueueName, strings.ToLower(job.GVK().Kind))))
+			return reconcile.Result{}, workload.PatchStatus(
+				ctx, r.client, wl,
+				client.FieldOwner(fmt.Sprintf("%s-%s-controller", constants.KueueName, strings.ToLower(job.GVK().Kind))),
+				func(wl *kueue.Workload) (bool, error) {
+					for _, cond := range conditions {
+						apimeta.SetStatusCondition(&wl.Status.Conditions, cond)
+					}
+					return true, nil
+				})
 		}
 	}
 
@@ -424,7 +448,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	if wl != nil && apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
+	if wl != nil && workload.IsFinished(wl) {
 		if err := r.finalizeJob(ctx, job); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -516,8 +540,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		condition := generatePodsReadyCondition(ctx, job, wl, r.clock)
 		if !workload.HasConditionWithTypeAndReason(wl, &condition) {
 			log.V(3).Info("Updating the PodsReady condition", "reason", condition.Reason, "status", condition.Status)
-			apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
-			err := workload.UpdateStatus(ctx, r.client, wl, condition.Type, condition.Status, condition.Reason, condition.Message, constants.JobControllerName, r.clock)
+			err := workload.SetConditionAndUpdate(ctx, r.client, wl, condition.Type, condition.Status, condition.Reason, condition.Message, constants.JobControllerName, r.clock)
 			if err != nil {
 				log.Error(err, "Updating workload status")
 				return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -527,13 +550,13 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				cqName := wl.Status.Admission.ClusterQueue
 				priorityClassName := workload.PriorityClassName(wl)
 				queuedUntilReadyWaitTime := workload.QueuedWaitTime(wl, r.clock)
-				metrics.ReadyWaitTime(cqName, priorityClassName, queuedUntilReadyWaitTime)
+				metrics.ReadyWaitTime(cqName, priorityClassName, queuedUntilReadyWaitTime, r.roleTracker)
 				admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
 				admittedUntilReadyWaitTime := condition.LastTransitionTime.Sub(admittedCond.LastTransitionTime.Time)
-				metrics.ReportAdmittedUntilReadyWaitTime(cqName, priorityClassName, admittedUntilReadyWaitTime)
+				metrics.ReportAdmittedUntilReadyWaitTime(cqName, priorityClassName, admittedUntilReadyWaitTime, r.roleTracker)
 				if features.Enabled(features.LocalQueueMetrics) {
-					metrics.LocalQueueReadyWaitTime(metrics.LQRefFromWorkload(wl), priorityClassName, queuedUntilReadyWaitTime)
-					metrics.ReportLocalQueueAdmittedUntilReadyWaitTime(metrics.LQRefFromWorkload(wl), priorityClassName, admittedUntilReadyWaitTime)
+					metrics.LocalQueueReadyWaitTime(metrics.LQRefFromWorkload(wl), priorityClassName, queuedUntilReadyWaitTime, r.roleTracker)
+					metrics.ReportLocalQueueAdmittedUntilReadyWaitTime(metrics.LQRefFromWorkload(wl), priorityClassName, admittedUntilReadyWaitTime, r.roleTracker)
 				}
 			}
 			return ctrl.Result{}, nil
@@ -615,7 +638,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		// The job must be suspended if the workload is not yet admitted,
 		// unless this job is workload-slicing enabled. In workload-slicing we rely
 		// on pod-scheduling gate(s) to pause workload slice pods during the workload admission process.
-		if workloadSliceEnabled(job) {
+		if WorkloadSliceEnabled(job) {
 			return ctrl.Result{}, nil
 		}
 		log.V(2).Info("Running job is not admitted by a cluster queue, suspending")
@@ -626,7 +649,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
-	if workloadSliceEnabled(job) {
+	if WorkloadSliceEnabled(job) {
 		// Start workload-slice schedule-gated pods (if any).
 		log.V(3).Info("Job running with admitted workload slice, start pods.")
 		return ctrl.Result{}, workloadslicing.StartWorkloadSlicePods(ctx, r.client, object)
@@ -765,7 +788,7 @@ func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj 
 			)
 			return topLevelJob, nil
 		}
-		parentObj := getEmptyOwnerObject(owner)
+		parentObj := GetEmptyOwnerObject(owner)
 		managed := parentObj != nil
 		if parentObj == nil {
 			parentObj = &metav1.PartialObjectMetadata{
@@ -834,7 +857,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 	}
 
 	// If workload slicing is enabled for this job, use the slice-based processing path.
-	if workloadSliceEnabled(job) {
+	if WorkloadSliceEnabled(job) {
 		podSets, err := JobPodSets(ctx, job)
 		if err != nil {
 			return nil, fmt.Errorf("failed to retrieve pod sets from job: %w", err)
@@ -1118,6 +1141,25 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 	}
 	msg := fmt.Sprintf("Admitted by clusterQueue %v", wl.Status.Admission.ClusterQueue)
 
+	log := ctrl.LoggerFrom(ctx)
+	if features.Enabled(features.MultiKueue) {
+		_, isComposable := job.(ComposableJob)
+		isBatchJobWithoutManagedBy := job.GVK() == batchv1.SchemeGroupVersion.WithKind("Job") &&
+			!features.Enabled(features.MultiKueueBatchJobWithManagedBy)
+
+		if isComposable || isBatchJobWithoutManagedBy {
+			skip, err := admissioncheck.ShouldSkipLocalExecution(ctx, r.client, wl)
+			if err != nil {
+				log.V(3).Info("Failed to check for MultiKueue admission check", "workload", klog.KObj(wl), "error", err)
+				return err
+			}
+			if skip {
+				log.V(3).Info("Workload has MultiKueue admission check, skipping local execution", "workload", klog.KObj(wl))
+				return nil
+			}
+		}
+	}
+
 	if cj, implements := job.(ComposableJob); implements {
 		if err := cj.Run(ctx, r.client, info, r.record, msg); err != nil {
 			return err
@@ -1208,7 +1250,7 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob) (
 // in the generated workload name.
 func newWorkloadName(job GenericJob) string {
 	object := job.Object()
-	if workloadSliceEnabled(job) {
+	if WorkloadSliceEnabled(job) {
 		return GetWorkloadNameForOwnerWithGVKAndGeneration(object.GetName(), object.GetUID(), job.GVK(), object.GetGeneration())
 	}
 	return GetWorkloadNameForOwnerWithGVK(object.GetName(), object.GetUID(), job.GVK())
@@ -1307,7 +1349,7 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 
 	wl.Spec.PodSets = clearMinCountsIfFeatureDisabled(wl.Spec.PodSets)
 
-	if workloadSliceEnabled(job) {
+	if WorkloadSliceEnabled(job) {
 		return prepareWorkloadSlice(ctx, r.client, job, wl)
 	}
 	return nil
@@ -1381,7 +1423,7 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	// Wait until there are no active pods, unless this is a workload-slice job.
 	// For workload-slice enabled jobs, we allow the job to remain "Active" to accommodate
 	// the scale-up case, where the new workload slice replaces the old workload slice.
-	if job.IsActive() && !workloadSliceEnabled(job) {
+	if job.IsActive() && !WorkloadSliceEnabled(job) {
 		log.V(2).Info("Job is suspended but still has active pods, waiting")
 		return nil
 	}
@@ -1511,8 +1553,12 @@ func (r *genericReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 }
 
 func (r *genericReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	controllerName := strings.ToLower(r.newJob().GVK().Kind)
 	b := ctrl.NewControllerManagedBy(mgr).
-		For(r.newJob().Object()).Owns(&kueue.Workload{})
+		For(r.newJob().Object()).Owns(&kueue.Workload{}).
+		WithOptions(controller.Options{
+			LogConstructor: roletracker.NewLogConstructor(r.jr.RoleTracker(), controllerName),
+		})
 	c := mgr.GetClient()
 	for _, f := range r.setup {
 		b = f(b, c)
@@ -1531,12 +1577,12 @@ func clearMinCountsIfFeatureDisabled(in []kueue.PodSet) []kueue.PodSet {
 	return in
 }
 
-// workloadSliceEnabled returns true if all the following conditions are met:
+// WorkloadSliceEnabled returns true if all the following conditions are met:
 //   - The ElasticJobsViaWorkloadSlices feature is enabled.
 //   - The provided job is not nil.
 //   - The job's underlying object is not nil.
 //   - The job's object has opted in for WorkloadSlice processing.
-func workloadSliceEnabled(job GenericJob) bool {
+func WorkloadSliceEnabled(job GenericJob) bool {
 	if job == nil {
 		return false
 	}

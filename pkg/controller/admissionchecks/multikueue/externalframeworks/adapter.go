@@ -155,18 +155,9 @@ func (a *Adapter) copyStatusFromRemote(localObj, remoteObj *unstructured.Unstruc
 func (a *Adapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(a.gvk)
-	err := remoteClient.Get(ctx, key, obj)
-	if err != nil {
-		return client.IgnoreNotFound(err)
-	}
+	obj.SetName(key.Name)
+	obj.SetNamespace(key.Namespace)
 	return client.IgnoreNotFound(remoteClient.Delete(ctx, obj, client.PropagationPolicy(metav1.DeletePropagationBackground)))
-}
-
-// KeepAdmissionCheckPending returns false,
-// indicating that admission checks should not be kept pending by default.
-// This can be overridden by specific adapters if needed.
-func (a *Adapter) KeepAdmissionCheckPending() bool {
-	return false
 }
 
 // IsJobManagedByKueue checks if the job object identified by the given key is managed by Kueue.

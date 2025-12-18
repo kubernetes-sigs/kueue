@@ -110,6 +110,7 @@ func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) c
 			util.AppWrapperCrds,
 			util.KfTrainerCrds,
 			util.AutoscalerCrds,
+			util.ClusterProfileCrds,
 		},
 		APIServerFeatureGates: apiFeatureGates,
 	}
@@ -136,10 +137,10 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	configuration := &config.Configuration{}
 	mgr.GetScheme().Default(configuration)
 
-	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
+	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
-	failedWebhook, err := webhooks.Setup(mgr)
+	failedWebhook, err := webhooks.Setup(mgr, nil)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 	err = workloadjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
@@ -339,7 +340,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 
 	provReconciler, err := provisioning.NewController(
 		mgr.GetClient(),
-		mgr.GetEventRecorderFor("kueue-provisioning-request-controller"))
+		mgr.GetEventRecorderFor("kueue-provisioning-request-controller"), nil)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = provReconciler.SetupWithManager(mgr)
@@ -376,7 +377,7 @@ func managerAndMultiKueueSetup(
 		},
 	}
 	mgr.GetScheme().Default(configuration)
-	_, err = dispatcher.SetupControllers(mgr, configuration)
+	_, err = dispatcher.SetupControllers(mgr, configuration, nil)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 

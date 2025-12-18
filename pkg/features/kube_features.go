@@ -77,13 +77,6 @@ const (
 	// to put them on closely located nodes (e.g. within the same rack or block).
 	TopologyAwareScheduling featuregate.Feature = "TopologyAwareScheduling"
 
-	// owner: @dgrove-oss
-	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2937-resource-transformer
-	//
-	// Enable applying configurable resource transformations when computing
-	// the resource requests of a Workload
-	ConfigurableResourceTransformations featuregate.Feature = "ConfigurableResourceTransformations"
-
 	// owner: @kpostoffice
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/1833-metrics-for-local-queue
 	//
@@ -156,14 +149,6 @@ const (
 	// Enforces that even Jobs with a queue-name label are only reconciled if their namespace
 	// matches managedJobsNamespaceSelector.
 	ManagedJobsNamespaceSelectorAlwaysRespected featuregate.Feature = "ManagedJobsNamespaceSelectorAlwaysRespected"
-
-	// owner: @pajakd
-	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/582-preempt-based-on-flavor-order
-	//
-	// In flavor fungibility, the preference whether to preempt or borrow is inferred from flavor fungibility policy.
-	//
-	// Deprecated: planned to be removed in v0.16.
-	FlavorFungibilityImplicitPreferenceDefault featuregate.Feature = "FlavorFungibilityImplicitPreferenceDefault"
 
 	// owner: @pajakd
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
@@ -272,11 +257,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.9"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.Beta},
 	},
-	ConfigurableResourceTransformations: {
-		{Version: version.MustParse("0.9"), Default: false, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("0.10"), Default: true, PreRelease: featuregate.Beta},
-		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.16
-	},
 	LocalQueueMetrics: {
 		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
 	},
@@ -321,10 +301,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	ManagedJobsNamespaceSelectorAlwaysRespected: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
-	},
-	FlavorFungibilityImplicitPreferenceDefault: {
-		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Deprecated}, // remove in 0.16
 	},
 	TASBalancedPlacement: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},

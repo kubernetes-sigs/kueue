@@ -2269,7 +2269,7 @@ func TestReconcile(t *testing.T) {
 					t.Fatalf("Could not create workload: %v", err)
 				}
 			}
-			topologyUngater := newTopologyUngater(kClient)
+			topologyUngater := newTopologyUngater(kClient, nil)
 			key := client.ObjectKeyFromObject(&tc.workloads[0])
 			request := reconcile.Request{NamespacedName: key}
 			if len(tc.expectUIDs) > 0 {

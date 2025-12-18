@@ -24,6 +24,7 @@ GOTESTSUM_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}
 KIND_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/kind)
 YQ_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/mikefarah/yq/v4)
 HELM_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' helm.sh/helm/v3)
+HELM_UNITTEST_PLUGIN_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/helm-unittest/helm-unittest)
 GENREF_VERSION = $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/kubernetes-sigs/reference-docs/genref)
 HUGO_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/gohugoio/hugo)
 MDTOC_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/mdtoc)
@@ -39,6 +40,7 @@ KUBERAY_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/ray-pro
 APPWRAPPER_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/project-codeflare/appwrapper)
 LEADERWORKERSET_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/lws)
 CERTMANAGER_VERSION=$(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/cert-manager/cert-manager)
+CLUSTERPROFILE_VERSION=$(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/cluster-inventory-api)
 
 GOLANGCI_LINT = $(BIN_DIR)/golangci-lint
 GOLANGCI_LINT_KAL = $(BIN_DIR)/golangci-lint-kube-api-linter
@@ -56,6 +58,7 @@ MDTOC = $(BIN_DIR)/mdtoc
 HELM_DOCS = $(BIN_DIR)/helm-docs
 MOCKGEN = $(BIN_DIR)/mockgen
 
+HELM_UNITTEST_PLUGIN_ROOT = $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/helm-unittest/helm-unittest)
 MPI_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/kubeflow/mpi-operator)
 KF_TRAINING_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/kubeflow/training-operator)
 KF_TRAINER_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/kubeflow/trainer/v2)
@@ -105,10 +108,13 @@ yq: ## Download yq locally if necessary.
 	@GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install github.com/mikefarah/yq/v4@$(YQ_VERSION)
 
 .PHONY: helm
-helm: ## Download helm and helm-unittest locally if necessary.
+helm: ## Download helm locally if necessary.
 	@GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install helm.sh/helm/v3/cmd/helm@$(HELM_VERSION)
-	@if ! $(HELM) plugin list | grep -q unittest; then \
-		$(HELM) plugin install https://github.com/helm-unittest/helm-unittest.git; \
+
+.PHONY: helm-unittest-plugin
+helm-unittest-plugin: ## Download helm-unittest locally if necessary.
+	@if ! HELM_PLUGINS=$(BIN_DIR)/helm-plugins $(HELM) plugin list | grep -q unittest; then \
+		HELM_PLUGINS=$(BIN_DIR)/helm-plugins $(HELM) plugin install https://github.com/helm-unittest/helm-unittest.git --version $(HELM_UNITTEST_PLUGIN_VERSION); \
 	fi
 
 .PHONY: genref

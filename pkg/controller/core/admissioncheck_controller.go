@@ -40,6 +40,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 )
 
@@ -49,12 +50,13 @@ type AdmissionCheckUpdateWatcher interface {
 
 // AdmissionCheckReconciler reconciles a AdmissionCheck object
 type AdmissionCheckReconciler struct {
-	log        logr.Logger
-	qManager   *qcache.Manager
-	client     client.Client
-	cache      *schdcache.Cache
-	cqUpdateCh chan event.GenericEvent
-	watchers   []AdmissionCheckUpdateWatcher
+	log         logr.Logger
+	qManager    *qcache.Manager
+	client      client.Client
+	cache       *schdcache.Cache
+	cqUpdateCh  chan event.GenericEvent
+	watchers    []AdmissionCheckUpdateWatcher
+	roleTracker *roletracker.RoleTracker
 }
 
 var _ reconcile.Reconciler = (*AdmissionCheckReconciler)(nil)
@@ -64,13 +66,15 @@ func NewAdmissionCheckReconciler(
 	client client.Client,
 	qMgr *qcache.Manager,
 	cache *schdcache.Cache,
+	roleTracker *roletracker.RoleTracker,
 ) *AdmissionCheckReconciler {
 	return &AdmissionCheckReconciler{
-		log:        ctrl.Log.WithName("admissioncheck-reconciler"),
-		qManager:   qMgr,
-		client:     client,
-		cache:      cache,
-		cqUpdateCh: make(chan event.GenericEvent, updateChBuffer),
+		log:         roletracker.WithReplicaRole(ctrl.Log.WithName("admissioncheck-reconciler"), roleTracker),
+		qManager:    qMgr,
+		client:      client,
+		cache:       cache,
+		cqUpdateCh:  make(chan event.GenericEvent, updateChBuffer),
+		roleTracker: roleTracker,
 	}
 }
 
@@ -239,6 +243,7 @@ func (r *AdmissionCheckReconciler) SetupWithManager(mgr ctrl.Manager, cfg *confi
 		WithOptions(controller.Options{
 			NeedLeaderElection:      ptr.To(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("AdmissionCheck").GroupKind().String()],
+			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "admissioncheck-reconciler"),
 		}).
 		WatchesRawSource(source.Channel(r.cqUpdateCh, &h)).
 		Complete(WithLeadingManager(mgr, r, &kueue.AdmissionCheck{}, cfg))

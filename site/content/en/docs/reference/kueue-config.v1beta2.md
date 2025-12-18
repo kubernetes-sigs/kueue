@@ -1,5 +1,5 @@
 ---
-title: Kueue Configuration API
+title: Kueue Configuration v1beta2 API
 content_type: tool-reference
 package: config.kueue.x-k8s.io/v1beta2
 auto_generated: true
@@ -492,9 +492,9 @@ Possible options:</p>
 <li>&quot;trainer.kubeflow.org/trainjob&quot;</li>
 <li>&quot;workload.codeflare.dev/appwrapper&quot;</li>
 <li>&quot;pod&quot;</li>
-<li>&quot;deployment&quot; (requires enabling pod integration)</li>
-<li>&quot;statefulset&quot; (requires enabling pod integration)</li>
-<li>&quot;leaderworkerset.x-k8s.io/leaderworkerset&quot; (requires enabling pod integration)</li>
+<li>&quot;deployment&quot;</li>
+<li>&quot;statefulset&quot;</li>
+<li>&quot;leaderworkerset.x-k8s.io/leaderworkerset&quot;</li>
 </ul>
 </td>
 </tr>
@@ -814,6 +814,16 @@ re-queuing an evicted workload.</p>
 <td>
    <p>Strategy specifies if the input resource should be replaced or retained.
 Defaults to Retain</p>
+</td>
+</tr>
+<tr><td><code>multiplyBy</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>k8s.io/api/core/v1.ResourceName</code></a>
+</td>
+<td>
+   <p>MultiplyBy indicates the resource name requested by a workload, if
+specified.
+The requested amount of the resource is used to multiply the requested
+amount of the resource indicated by the &quot;input&quot; field.</p>
 </td>
 </tr>
 <tr><td><code>outputs</code> <B>[Required]</B><br/>

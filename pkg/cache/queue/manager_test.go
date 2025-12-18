@@ -56,6 +56,8 @@ func TestAddLocalQueueOrphans(t *testing.T) {
 		utiltestingapi.MakeWorkload("c", "earth").Queue("foo").Obj(),
 		utiltestingapi.MakeWorkload("d", "earth").Queue("foo").
 			ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).Obj(),
+		utiltestingapi.MakeWorkload("e", "earth").Queue("foo").Active(false).Obj(),
+		utiltestingapi.MakeWorkload("f", "earth").Queue("foo").Finished().Obj(),
 		utiltestingapi.MakeWorkload("a", "moon").Queue("foo").Obj(),
 	)
 	manager := NewManager(kClient, nil)
@@ -424,6 +426,30 @@ func TestAddWorkload(t *testing.T) {
 		wantAssigned map[workload.Reference]queue.LocalQueueReference
 	}{
 		{
+			workload: utiltestingapi.MakeWorkload("finished", "earth").
+				Queue("foo").
+				Finished().
+				Obj(),
+			wantErr: errWorkloadIsInadmissible,
+		},
+		{
+			workload: utiltestingapi.MakeWorkload("inactive", "earth").
+				Queue("foo").
+				Active(false).
+				Obj(),
+			wantErr: errWorkloadIsInadmissible,
+		},
+		{
+			workload: utiltestingapi.MakeWorkload("quota_already_reserved", "earth").
+				Queue("foo").
+				ReserveQuota(&kueue.Admission{
+					ClusterQueue:      kueue.ClusterQueueReference(cq.Name),
+					PodSetAssignments: nil,
+				}).
+				Obj(),
+			wantErr: errWorkloadIsInadmissible,
+		},
+		{
 			workload: &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: "earth",
@@ -465,6 +491,24 @@ func TestAddWorkload(t *testing.T) {
 			},
 			wantErr:      ErrLocalQueueDoesNotExistOrInactive,
 			wantAssigned: map[workload.Reference]queue.LocalQueueReference{},
+    },
+    {
+			workload: utiltestingapi.MakeWorkload("non_existing_local_queue", "earth").
+				Queue("baz").
+				Obj(),
+			wantErr: ErrLocalQueueDoesNotExistOrInactive,
+		},
+		{
+			workload: utiltestingapi.MakeWorkload("non_existing_cluster_queue", "mars").
+				Queue("bar").
+				Obj(),
+			wantErr: ErrClusterQueueDoesNotExist,
+		},
+		{
+			workload: utiltestingapi.MakeWorkload("wrong_namespace", "mars").
+				Queue("foo").
+				Obj(),
+			wantErr: ErrLocalQueueDoesNotExistOrInactive,
 		},
 	}
 	for _, tc := range cases {

@@ -311,12 +311,6 @@ func (c *ClusterQueue) DeleteFromLocalQueue(log logr.Logger, q *LocalQueue) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	for _, w := range q.items {
-		key := workload.Key(w.Obj)
-		if c.inadmissibleWorkloads.get(key) != nil {
-			c.inadmissibleWorkloads.delete(key)
-		}
-	}
-	for _, w := range q.items {
 		c.delete(log, w.Obj)
 	}
 }

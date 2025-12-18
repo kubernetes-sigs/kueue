@@ -21,36 +21,46 @@ import (
 	"k8s.io/client-go/dynamic"
 )
 
-func InitializeWebSocketRoutes(router *gin.Engine, dynamicClient dynamic.Interface) {
-	// Namespaces
-	router.GET("/ws/namespaces", NamespacesWebSocketHandler(dynamicClient))
-
-	// Workloads
-	router.GET("/ws/workloads", WorkloadsWebSocketHandler(dynamicClient))
-	router.GET("/ws/workloads/dashboard", WorkloadsDashboardWebSocketHandler(dynamicClient))
-
-	router.GET("/ws/workload/:namespace/:workload_name", WorkloadDetailsWebSocketHandler(dynamicClient))
-	router.GET("/ws/workload/:namespace/:workload_name/events", WorkloadEventsWebSocketHandler(dynamicClient))
-
-	// Local Queues
-	router.GET("/ws/local-queues", LocalQueuesWebSocketHandler(dynamicClient))
-	router.GET("/ws/local-queue/:namespace/:queue_name", LocalQueueDetailsWebSocketHandler(dynamicClient))
-	router.GET("/ws/local-queue/:namespace/:queue_name/workloads", LocalQueueWorkloadsWebSocketHandler(dynamicClient))
-
-	// Cluster Queues
-	router.GET("/ws/cluster-queues", ClusterQueuesWebSocketHandler(dynamicClient))
-	router.GET("/ws/cluster-queue/:cluster_queue_name", ClusterQueueDetailsWebSocketHandler(dynamicClient)) // New route
-
-	// Cohorts
-	router.GET("/ws/cohorts", CohortsWebSocketHandler(dynamicClient))
-	router.GET("/ws/cohort/:cohort_name", CohortDetailsWebSocketHandler(dynamicClient))
-
-	// Resource Flavors
-	router.GET("/ws/resource-flavors", ResourceFlavorsWebSocketHandler(dynamicClient))
-	router.GET("/ws/resource-flavor/:flavor_name", ResourceFlavorDetailsWebSocketHandler(dynamicClient))
+type Handlers struct {
+	client Client
 }
 
-func InitializeAPIRoutes(router *gin.Engine, dynamicClient dynamic.Interface) {
+func New(client Client) *Handlers {
+	return &Handlers{
+		client: client,
+	}
+}
+
+func (h *Handlers) InitializeWebSocketRoutes(router *gin.Engine) {
+	// Namespaces
+	router.GET("/ws/namespaces", h.NamespacesWebSocketHandler())
+
+	// Workloads
+	router.GET("/ws/workloads", h.WorkloadsWebSocketHandler())
+	router.GET("/ws/workloads/dashboard", h.WorkloadsDashboardWebSocketHandler())
+
+	router.GET("/ws/workload/:namespace/:workload_name", h.WorkloadDetailsWebSocketHandler())
+	router.GET("/ws/workload/:namespace/:workload_name/events", h.WorkloadEventsWebSocketHandler())
+
+	// Local Queues
+	router.GET("/ws/local-queues", h.LocalQueuesWebSocketHandler())
+	router.GET("/ws/local-queue/:namespace/:queue_name", h.LocalQueueDetailsWebSocketHandler())
+	router.GET("/ws/local-queue/:namespace/:queue_name/workloads", h.LocalQueueWorkloadsWebSocketHandler())
+
+	// Cluster Queues
+	router.GET("/ws/cluster-queues", h.ClusterQueuesWebSocketHandler())
+	router.GET("/ws/cluster-queue/:cluster_queue_name", h.ClusterQueueDetailsWebSocketHandler()) // New route
+
+	// Cohorts
+	router.GET("/ws/cohorts", h.CohortsWebSocketHandler())
+	router.GET("/ws/cohort/:cohort_name", h.CohortDetailsWebSocketHandler())
+
+	// Resource Flavors
+	router.GET("/ws/resource-flavors", h.ResourceFlavorsWebSocketHandler())
+	router.GET("/ws/resource-flavor/:flavor_name", h.ResourceFlavorDetailsWebSocketHandler())
+}
+
+func (h *Handlers) InitializeAPIRoutes(router *gin.Engine, dynamicClient dynamic.Interface) {
 	// Generic API route
 	router.GET("/api/:resourceType/:name", GetResource(dynamicClient))
 }

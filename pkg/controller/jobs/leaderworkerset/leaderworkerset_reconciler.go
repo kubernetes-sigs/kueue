@@ -31,6 +31,7 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -43,6 +44,7 @@ import (
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -59,18 +61,22 @@ type Reconciler struct {
 	labelKeysToCopy              []string
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
+	roleTracker                  *roletracker.RoleTracker
 }
+
+const controllerName = "leaderworkerset"
 
 func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexer, eventRecorder record.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
 	options := jobframework.ProcessOptions(opts...)
 
 	return &Reconciler{
 		client:                       client,
-		log:                          ctrl.Log.WithName("leaderworkerset-reconciler"),
+		log:                          roletracker.WithReplicaRole(ctrl.Log.WithName("leaderworkerset-reconciler"), options.RoleTracker),
 		record:                       eventRecorder,
 		labelKeysToCopy:              options.LabelKeysToCopy,
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
+		roleTracker:                  options.RoleTracker,
 	}, nil
 }
 
@@ -81,8 +87,11 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&leaderworkersetv1.LeaderWorkerSet{}).
-		Named("leaderworkerset").
+		Named(controllerName).
 		WithEventFilter(r).
+		WithOptions(controller.Options{
+			LogConstructor: roletracker.NewLogConstructor(r.roleTracker, controllerName),
+		}).
 		Complete(r)
 }
 

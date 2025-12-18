@@ -129,6 +129,40 @@ The cluster is ready, and now you can run tests from another terminal:
 or from VSCode.
 
 ## Running subset of integration or e2e tests
+
+### Use label filters for integration tests
+Integration tests are labeled by controller, job type, feature, and area to enable targeted test execution. You can use `INTEGRATION_FILTERS` with `--label-filter` to run specific test subsets:
+
+**Label Taxonomy:**
+- Controllers: `controller:workload`, `controller:localqueue`, `controller:clusterqueue`, `controller:admissioncheck`, `controller:resourceflavor`, `controller:provisioning`
+- Job Types: `job:batch`, `job:pod`, `job:jobset`, `job:pytorch`, `job:tensorflow`, `job:mpi`, `job:paddle`, `job:xgboost`, `job:jax`, `job:train`, `job:ray`, `job:appwrapper`
+- Features: `feature:tas`, `feature:multikueue`, `feature:provisioning`, `feature:fairsharing`, `feature:admissionfairsharing`
+- Areas: `area:core`, `area:jobs`, `area:admissionchecks`, `area:multikueue`
+
+**Examples:**
+```shell
+# Run only LocalQueue tests
+INTEGRATION_FILTERS="--label-filter=controller:localqueue" make test-integration
+
+# Run all job tests
+INTEGRATION_FILTERS="--label-filter=area:jobs" make test-integration
+
+# Run PyTorch job tests
+INTEGRATION_FILTERS="--label-filter=job:pytorch" make test-integration
+
+# Run all tests except slow
+INTEGRATION_FILTERS="--label-filter=!slow" make test-integration
+
+# Run core tests except slow
+INTEGRATION_FILTERS="--label-filter=area:core && !slow" make test-integration
+
+# Run TAS-related tests
+INTEGRATION_FILTERS="--label-filter=feature:tas" make test-integration
+
+# Run FairSharing tests
+INTEGRATION_FILTERS="--label-filter=feature:fairsharing" make test-integration
+```
+
 ### Use Ginkgo --focus arg
 ```shell
 GINKGO_ARGS="--focus=Scheduler" make test-integration

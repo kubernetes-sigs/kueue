@@ -66,20 +66,24 @@ func init() {
 }
 
 func main() {
-	os.Exit(mainWithExitCode())
+	initFlags()
+	flag.Parse()
+	os.Exit(run())
 }
 
-func mainWithExitCode() int {
-	opts := zap.Options{
-		TimeEncoder: zapcore.RFC3339NanoTimeEncoder,
-		ZapOpts:     []zaplog.Option{zaplog.AddCaller()},
-		Development: true,
-		Level:       zaplog.NewAtomicLevelAt(zapcore.ErrorLevel),
-	}
-	opts.BindFlags(flag.CommandLine)
-	flag.Parse()
-	log := zap.New(zap.UseFlagOptions(&opts))
+var logOptions = zap.Options{
+	TimeEncoder: zapcore.RFC3339NanoTimeEncoder,
+	ZapOpts:     []zaplog.Option{zaplog.AddCaller()},
+	Development: true,
+	Level:       zaplog.NewAtomicLevelAt(zapcore.ErrorLevel),
+}
 
+func initFlags() {
+	logOptions.BindFlags(flag.CommandLine)
+}
+
+func run() int {
+	log := zap.New(zap.UseFlagOptions(&logOptions))
 	ctrl.SetLogger(log)
 	log.Info("Start")
 
@@ -159,7 +163,7 @@ func mainWithExitCode() int {
 	go queues.CleanUpOnContext(ctx)
 	go cCache.CleanUpOnContext(ctx)
 
-	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &configapi.Configuration{}); err != nil {
+	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &configapi.Configuration{}, nil); err != nil {
 		log.Error(err, "Unable to create controller", "controller", failedCtrl)
 		return 1
 	}

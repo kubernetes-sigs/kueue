@@ -52,6 +52,7 @@ import (
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/resource"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
 const (
@@ -68,6 +69,7 @@ const (
 type LocalQueueReconcilerOptions struct {
 	admissionFSConfig *config.AdmissionFairSharing
 	clock             clock.Clock
+	roleTracker       *roletracker.RoleTracker
 }
 
 // LocalQueueReconcilerOption configures the reconciler.
@@ -85,6 +87,12 @@ func WithClock(c clock.Clock) LocalQueueReconcilerOption {
 	}
 }
 
+func WithRoleTracker(tracker *roletracker.RoleTracker) LocalQueueReconcilerOption {
+	return func(o *LocalQueueReconcilerOptions) {
+		o.roleTracker = tracker
+	}
+}
+
 var defaultLQOptions = LocalQueueReconcilerOptions{
 	clock: realClock,
 }
@@ -98,6 +106,7 @@ type LocalQueueReconciler struct {
 	wlUpdateCh        chan event.GenericEvent
 	admissionFSConfig *config.AdmissionFairSharing
 	clock             clock.Clock
+	roleTracker       *roletracker.RoleTracker
 }
 
 var _ reconcile.Reconciler = (*LocalQueueReconciler)(nil)
@@ -114,13 +123,14 @@ func NewLocalQueueReconciler(
 		opt(&options)
 	}
 	return &LocalQueueReconciler{
-		log:               ctrl.Log.WithName("localqueue-reconciler"),
+		log:               roletracker.WithReplicaRole(ctrl.Log.WithName("localqueue-reconciler"), options.roleTracker),
 		queues:            queues,
 		cache:             cache,
 		client:            client,
 		wlUpdateCh:        make(chan event.GenericEvent, updateChBuffer),
 		admissionFSConfig: options.admissionFSConfig,
 		clock:             options.clock,
+		roleTracker:       options.roleTracker,
 	}
 }
 
@@ -212,7 +222,7 @@ func (r *LocalQueueReconciler) Create(e event.TypedCreateEvent[*kueue.LocalQueue
 	}
 
 	if features.Enabled(features.LocalQueueMetrics) {
-		recordLocalQueueUsageMetrics(e.Object)
+		recordLocalQueueUsageMetrics(e.Object, r.roleTracker)
 	}
 
 	return true
@@ -240,7 +250,7 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 	log.V(2).Info("Queue update event")
 
 	if features.Enabled(features.LocalQueueMetrics) {
-		updateLocalQueueResourceMetrics(e.ObjectNew)
+		updateLocalQueueResourceMetrics(e.ObjectNew, r.roleTracker)
 	}
 
 	oldStopPolicy := ptr.Deref(e.ObjectOld.Spec.StopPolicy, kueue.None)
@@ -356,22 +366,22 @@ func localQueueReferenceFromLocalQueue(lq *kueue.LocalQueue) metrics.LocalQueueR
 	}
 }
 
-func recordLocalQueueUsageMetrics(queue *kueue.LocalQueue) {
+func recordLocalQueueUsageMetrics(queue *kueue.LocalQueue, tracker *roletracker.RoleTracker) {
 	for _, flavor := range queue.Status.FlavorsUsage {
 		for _, r := range flavor.Resources {
-			metrics.ReportLocalQueueResourceUsage(localQueueReferenceFromLocalQueue(queue), string(flavor.Name), string(r.Name), resource.QuantityToFloat(&r.Total))
+			metrics.ReportLocalQueueResourceUsage(localQueueReferenceFromLocalQueue(queue), string(flavor.Name), string(r.Name), resource.QuantityToFloat(&r.Total), tracker)
 		}
 	}
 	for _, flavor := range queue.Status.FlavorsReservation {
 		for _, r := range flavor.Resources {
-			metrics.ReportLocalQueueResourceReservations(localQueueReferenceFromLocalQueue(queue), string(flavor.Name), string(r.Name), resource.QuantityToFloat(&r.Total))
+			metrics.ReportLocalQueueResourceReservations(localQueueReferenceFromLocalQueue(queue), string(flavor.Name), string(r.Name), resource.QuantityToFloat(&r.Total), tracker)
 		}
 	}
 }
 
-func updateLocalQueueResourceMetrics(queue *kueue.LocalQueue) {
+func updateLocalQueueResourceMetrics(queue *kueue.LocalQueue, tracker *roletracker.RoleTracker) {
 	metrics.ClearLocalQueueResourceMetrics(localQueueReferenceFromLocalQueue(queue))
-	recordLocalQueueUsageMetrics(queue)
+	recordLocalQueueUsageMetrics(queue, tracker)
 }
 
 func (r *LocalQueueReconciler) Generic(e event.TypedGenericEvent[*kueue.LocalQueue]) bool {
@@ -481,6 +491,7 @@ func (r *LocalQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Co
 		WithOptions(controller.Options{
 			NeedLeaderElection:      ptr.To(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("LocalQueue").GroupKind().String()],
+			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "localqueue-reconciler"),
 		}).
 		WatchesRawSource(source.Channel(r.wlUpdateCh, &qWorkloadHandler{})).
 		Watches(&kueue.ClusterQueue{}, &queueCQHandler).
@@ -527,7 +538,7 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 			metrics.ReportLocalQueueStatus(metrics.LocalQueueReference{
 				Name:      kueue.LocalQueueName(queue.Name),
 				Namespace: queue.Namespace,
-			}, conditionStatus)
+			}, conditionStatus, r.roleTracker)
 		}
 	}
 	if !equality.Semantic.DeepEqual(oldStatus, queue.Status) {

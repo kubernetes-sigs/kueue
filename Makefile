@@ -89,7 +89,7 @@ LD_FLAGS += -X '$(version_pkg).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.15.0
+RELEASE_VERSION=v0.15.1
 RELEASE_BRANCH=main
 # Application version for Helm and npm (strips leading 'v' from RELEASE_VERSION)
 APP_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)
@@ -229,8 +229,8 @@ i18n-verify: ## Verify all localized docs are in sync with English version. Usag
 
 # test
 .PHONY: helm-unit-test
-helm-unit-test: helm
-	$(HELM) unittest charts/kueue --strict --debug
+helm-unit-test: helm helm-unittest-plugin
+	HELM_PLUGINS=$(BIN_DIR)/helm-plugins $(HELM) unittest charts/kueue --strict --debug
 
 .PHONY: vet
 vet: ## Run go vet against code.
@@ -418,8 +418,7 @@ prepare-release-branch: yq kustomize ## Prepare the release branch with the rele
 	# Update kueue-populator chart version and image tag
 	$(YQ) e '.appVersion = "$(RELEASE_VERSION)" | .version = "$(APP_VERSION)" | .dependencies[0].version = "~$(APP_VERSION)"' -i cmd/experimental/kueue-populator/charts/kueue-populator/Chart.yaml
 	$(YQ) e '.kueuePopulator.image.tag = "$(RELEASE_BRANCH)"' -i cmd/experimental/kueue-populator/charts/kueue-populator/values.yaml
-	$(SED) -r 's|oci://us-central1-docker.pkg.dev/k8s-staging-images/kueue/charts/kueue-populator|oci://registry.k8s.io/kueue/charts/kueue-populator|g' -i cmd/experimental/kueue-populator/README.md -i cmd/experimental/kueue-populator/charts/kueue-populator/README.md
-	$(SED) -r 's/<VERSION>/$(APP_VERSION)/g' -i cmd/experimental/kueue-populator/README.md -i cmd/experimental/kueue-populator/charts/kueue-populator/README.md
+	$(SED) -r 's/[0-9]+\.[0-9]+\.[0-9]+/$(APP_VERSION)/g' -i cmd/experimental/kueue-populator/README.md -i cmd/experimental/kueue-populator/charts/kueue-populator/README.md
 	$(MAKE) generate-helm-docs
 
 .PHONY: update-security-insights

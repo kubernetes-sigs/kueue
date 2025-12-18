@@ -23,24 +23,25 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
-func SetupControllers(mgr ctrl.Manager, queues *qcache.Manager, cache *schdcache.Cache, cfg *configapi.Configuration) (string, error) {
+func SetupControllers(mgr ctrl.Manager, queues *qcache.Manager, cache *schdcache.Cache, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker) (string, error) {
 	recorder := mgr.GetEventRecorderFor(TASResourceFlavorController)
-	topologyRec := newTopologyReconciler(mgr.GetClient(), queues, cache)
+	topologyRec := newTopologyReconciler(mgr.GetClient(), queues, cache, roleTracker)
 	if ctrlName, err := topologyRec.setupWithManager(mgr, cfg); err != nil {
 		return ctrlName, err
 	}
-	rfRec := newRfReconciler(mgr.GetClient(), queues, cache, recorder)
+	rfRec := newRfReconciler(mgr.GetClient(), queues, cache, recorder, roleTracker)
 	if ctrlName, err := rfRec.setupWithManager(mgr, cache, cfg); err != nil {
 		return ctrlName, err
 	}
-	topologyUngater := newTopologyUngater(mgr.GetClient())
+	topologyUngater := newTopologyUngater(mgr.GetClient(), roleTracker)
 	if ctrlName, err := topologyUngater.setupWithManager(mgr, cfg); err != nil {
 		return ctrlName, err
 	}
 	if features.Enabled(features.TASFailedNodeReplacement) {
-		nodeFailureReconciler := newNodeFailureReconciler(mgr.GetClient(), recorder)
+		nodeFailureReconciler := newNodeFailureReconciler(mgr.GetClient(), recorder, roleTracker)
 		if ctrlName, err := nodeFailureReconciler.SetupWithManager(mgr, cfg); err != nil {
 			return ctrlName, err
 		}

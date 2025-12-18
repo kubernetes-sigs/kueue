@@ -43,6 +43,12 @@ The worker cluster acts like a standalone Kueue cluster.
 The **MultiKueue Admission Check Controller**, running in the manager cluster,
 creates and deletes Workloads and Jobs in the worker clusters as needed.
 
+### Using manager to run workloads
+
+MultiKueue supports running regular Jobs regular Jobs on the manager when using 
+a dedicated ClusterQueue. However, we do not support currently role sharing where the manager
+cluster is also one of workers for itself, see [limitations](#limitations)
+
 ## Job Flow
 
 To enable multi-cluster dispatching, you need to assign a Job to a ClusterQueue configured with a MultiKueue `AdmissionCheck`.
@@ -113,7 +119,7 @@ MultiKueue supports a wide variety of workloads. You can learn how to:
 
 - [Dispatch a Kueue managed Deployment](docs/tasks/run/multikueue/deployment).
 - [Dispatch a Kueue managed batch/Job](docs/tasks/run/multikueue/job).
-- [Dispatch a Kueue managed JobSet](docs/tasks/run/multikueue/jobset).
+- [Dispatch a Kueue managed JobSet](docs/tasks/run/multikueue/jobsets).
 - [Dispatch a Kueue managed Kubeflow Jobs](docs/tasks/run/multikueue/kubeflow).
 - [Dispatch a Kueue managed KubeRay workloads](docs/tasks/run/multikueue/kuberay).
 - [Dispatch a Kueue managed MPIJob](docs/tasks/run/multikueue/mpijob).
@@ -132,3 +138,7 @@ Kueue handles delegation to the appropriate worker cluster without requiring any
 
 - [Set up a MultiKueue environment](/docs/tasks/manage/setup_multikueue/)
 - [Run Jobs in a MultiKueue environment](/docs/tasks/run/multikueue)
+
+## Limitation
+
+- we do not support currently running manager cluster as one of workers for itself.

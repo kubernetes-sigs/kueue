@@ -406,9 +406,9 @@ type Integrations struct {
 	//  - "trainer.kubeflow.org/trainjob"
 	//  - "workload.codeflare.dev/appwrapper"
 	//  - "pod"
-	//  - "deployment" (requires enabling pod integration)
-	//  - "statefulset" (requires enabling pod integration)
-	//  - "leaderworkerset.x-k8s.io/leaderworkerset" (requires enabling pod integration)
+	//  - "deployment"
+	//  - "statefulset"
+	//  - "leaderworkerset.x-k8s.io/leaderworkerset"
 	Frameworks []string `json:"frameworks,omitempty"`
 	// List of GroupVersionKinds that are managed for Kueue by external controllers;
 	// the expected format is `Kind.version.group.com`.
@@ -486,6 +486,13 @@ type ResourceTransformation struct {
 	// Strategy specifies if the input resource should be replaced or retained.
 	// Defaults to Retain
 	Strategy *ResourceTransformationStrategy `json:"strategy,omitempty"`
+
+	// MultiplyBy indicates the resource name requested by a workload, if
+	// specified.
+	// The requested amount of the resource is used to multiply the requested
+	// amount of the resource indicated by the "input" field.
+	// +optional
+	MultiplyBy corev1.ResourceName `json:"multiplyBy,omitempty"`
 
 	// Outputs specifies the output resources and quantities per unit of input resource.
 	// An empty Outputs combined with a `Replace` Strategy causes the Input resource to be ignored by Kueue.

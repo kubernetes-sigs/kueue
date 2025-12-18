@@ -470,8 +470,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			})
 
 			ginkgo.By("Reclaim one pod from the first workload", func() {
-				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, firstWl, []kueue.ReclaimablePod{{Name: "third", Count: 1}})).To(gomega.Succeed())
-
+				util.UpdateReclaimablePods(ctx, k8sClient, firstWl, []kueue.ReclaimablePod{{Name: "third", Count: 1}})
 				util.ExpectPendingWorkloadsMetric(preemptionClusterQ, 0, 0)
 				util.ExpectAdmittedWorkloadsTotalMetric(preemptionClusterQ, "", 1)
 			})
@@ -494,8 +493,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			})
 
 			ginkgo.By("Reclaim two pods from the second workload so that the first workload is resumed", func() {
-				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, secondWl, []kueue.ReclaimablePod{{Name: "first", Count: 1}, {Name: "second", Count: 1}})).To(gomega.Succeed())
-
+				reclaimablePods := []kueue.ReclaimablePod{{Name: "first", Count: 1}, {Name: "second", Count: 1}}
+				util.UpdateReclaimablePods(ctx, k8sClient, secondWl, reclaimablePods)
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, firstWl, secondWl)
 				util.ExpectPendingWorkloadsMetric(preemptionClusterQ, 0, 0)
 				util.ExpectReservingActiveWorkloadsMetric(preemptionClusterQ, 2)
@@ -531,7 +530,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			})
 
 			ginkgo.By("Reclaim one pod from the first workload and admitting the second one", func() {
-				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, firstWl, []kueue.ReclaimablePod{{Name: "third", Count: 1}})).To(gomega.Succeed())
+				util.UpdateReclaimablePods(ctx, k8sClient, firstWl, []kueue.ReclaimablePod{{Name: "third", Count: 1}})
 				util.ExpectPendingWorkloadsMetric(preemptionClusterQ, 0, 0)
 				util.ExpectAdmittedWorkloadsTotalMetric(preemptionClusterQ, "", 2)
 			})
@@ -567,7 +566,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			})
 
 			ginkgo.By("Reclaim one pod from the first workload and admitting the second one", func() {
-				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, firstWl, []kueue.ReclaimablePod{{Name: "third", Count: 1}})).To(gomega.Succeed())
+				util.UpdateReclaimablePods(ctx, k8sClient, firstWl, []kueue.ReclaimablePod{{Name: "third", Count: 1}})
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, firstWl)
 				util.ExpectPendingWorkloadsMetric(preemptionClusterQ, 0, 1)
 				util.ExpectAdmittedWorkloadsTotalMetric(preemptionClusterQ, "", 1)
@@ -734,8 +733,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 0)
 			})
 			ginkgo.By("Mark one pod as reclaimable", func() {
-				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 1}})).To(gomega.Succeed())
-
+				util.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 1}})
 				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wl)
 				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
 				util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 1)
@@ -2688,110 +2686,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 					admission := utiltestingapi.MakeAdmission("cq1").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "f2", "1").Obj()).Obj()
 					util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq1HighPriority, admission)
-				}
-			})
-		})
-		ginkgo.When("FlavorFungibilityImplicitPreferenceDefault is enabled", func() {
-			ginkgo.BeforeEach(func() {
-				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FlavorFungibilityImplicitPreferenceDefault, true)
-			})
-			ginkgo.It("chooses a correct flavor when preemption is preferred", func() {
-				fungibility := kueue.FlavorFungibility{
-					WhenCanBorrow:  kueue.TryNextFlavor,
-					WhenCanPreempt: kueue.MayStopSearch}
-				preemption := kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority, ReclaimWithinCohort: kueue.PreemptionPolicyAny, BorrowWithinCohort: &kueue.BorrowWithinCohort{Policy: kueue.BorrowWithinCohortPolicyLowerPriority}}
-
-				cq1 = createQueue(utiltestingapi.MakeClusterQueue("cq1").
-					FlavorFungibility(fungibility).Cohort("cohort").
-					Preemption(preemption).
-					ResourceGroup(
-						*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "0").Obj(),
-						*utiltestingapi.MakeFlavorQuotas("f2").Resource(corev1.ResourceCPU, "1").Obj(),
-					).Obj())
-
-				cq2 = createQueue(utiltestingapi.MakeClusterQueue("cq2").Cohort("cohort").
-					FlavorFungibility(fungibility).
-					Preemption(preemption).
-					ResourceGroup(
-						*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "1").Obj(),
-						*utiltestingapi.MakeFlavorQuotas("f2").Resource(corev1.ResourceCPU, "0").Obj()).Obj())
-
-				cq1LowPriority := createWorkloadWithPriority("cq1", "1", 0)
-				{
-					admission := utiltestingapi.MakeAdmission("cq1").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "f2", "1").Obj()).Obj()
-					util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq1LowPriority, admission)
-				}
-
-				cq2HighPriority := createWorkloadWithPriority("cq1", "1", 9999)
-				{
-					util.ExpectWorkloadsToBePreempted(ctx, k8sClient, cq1LowPriority)
-					util.FinishEvictionForWorkloads(ctx, k8sClient, cq1LowPriority)
-
-					admission := utiltestingapi.MakeAdmission("cq1").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "f2", "1").Obj()).Obj()
-					util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2HighPriority, admission)
-
-					admission = utiltestingapi.MakeAdmission("cq1").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "f1", "1").Obj()).Obj()
-					util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq1LowPriority, admission)
-				}
-
-				cq2MiddlePriority := createWorkloadWithPriority("cq2", "1", 105)
-				{
-					util.ExpectWorkloadsToBePreempted(ctx, k8sClient, cq1LowPriority)
-					util.FinishEvictionForWorkloads(ctx, k8sClient, cq1LowPriority)
-
-					admission := utiltestingapi.MakeAdmission("cq2").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "f1", "1").Obj()).Obj()
-					util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2MiddlePriority, admission)
-				}
-			})
-			ginkgo.It("chooses a correct flavor when borrowing is preferred", func() {
-				fungibility := kueue.FlavorFungibility{
-					WhenCanBorrow:  kueue.MayStopSearch,
-					WhenCanPreempt: kueue.TryNextFlavor}
-				preemption := kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority, ReclaimWithinCohort: kueue.PreemptionPolicyAny, BorrowWithinCohort: &kueue.BorrowWithinCohort{Policy: kueue.BorrowWithinCohortPolicyLowerPriority}}
-
-				cq1 = createQueue(utiltestingapi.MakeClusterQueue("cq1").
-					FlavorFungibility(fungibility).Cohort("cohort").
-					Preemption(preemption).
-					ResourceGroup(
-						*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "1").Obj(),
-						*utiltestingapi.MakeFlavorQuotas("f2").Resource(corev1.ResourceCPU, "0").Obj(),
-					).Obj())
-
-				cq2 = createQueue(utiltestingapi.MakeClusterQueue("cq2").Cohort("cohort").
-					FlavorFungibility(fungibility).
-					Preemption(preemption).
-					ResourceGroup(
-						*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "0").Obj(),
-						*utiltestingapi.MakeFlavorQuotas("f2").Resource(corev1.ResourceCPU, "1").Obj(),
-					).Obj())
-
-				cq1LowPriority := createWorkloadWithPriority("cq1", "1", 0)
-				{
-					admission := utiltestingapi.MakeAdmission("cq1").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "f1", "1").Obj()).Obj()
-					util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq1LowPriority, admission)
-				}
-
-				cq2HighPriority := createWorkloadWithPriority("cq1", "1", 9999)
-				{
-					admission := utiltestingapi.MakeAdmission("cq1").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "f2", "1").Obj()).Obj()
-					util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2HighPriority, admission)
-				}
-
-				cq2MiddlePriority := createWorkloadWithPriority("cq2", "1", 105)
-				{
-					util.ExpectWorkloadsToBePreempted(ctx, k8sClient, cq2HighPriority)
-					util.FinishEvictionForWorkloads(ctx, k8sClient, cq2HighPriority)
-
-					admission := utiltestingapi.MakeAdmission("cq2").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "f2", "1").Obj()).Obj()
-					util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2MiddlePriority, admission)
-				}
-
-				{
-					util.ExpectWorkloadsToBePreempted(ctx, k8sClient, cq1LowPriority)
-					util.FinishEvictionForWorkloads(ctx, k8sClient, cq1LowPriority)
-
-					admission := utiltestingapi.MakeAdmission("cq1").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "f1", "1").Obj()).Obj()
-					util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2HighPriority, admission)
 				}
 			})
 		})

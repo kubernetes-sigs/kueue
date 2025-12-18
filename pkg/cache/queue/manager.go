@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/queue"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -47,6 +48,7 @@ var (
 	ErrLocalQueueDoesNotExistOrInactive = errors.New("localQueue doesn't exist or inactive")
 	ErrClusterQueueDoesNotExist         = errors.New("clusterQueue doesn't exist")
 	errClusterQueueAlreadyExists        = errors.New("clusterQueue already exists")
+	errWorkloadIsInadmissible           = errors.New("workload is inadmissible and can't be added to a LocalQueue")
 )
 
 // Option configures the manager.
@@ -84,6 +86,13 @@ func WithExcludedResourcePrefixes(excludedPrefixes []string) Option {
 func WithResourceTransformations(transforms []config.ResourceTransformation) Option {
 	return func(m *Manager) {
 		m.workloadInfoOptions = append(m.workloadInfoOptions, workload.WithResourceTransformations(transforms))
+	}
+}
+
+// WithRoleTracker sets the roleTracker for HA metrics.
+func WithRoleTracker(tracker *roletracker.RoleTracker) Option {
+	return func(m *Manager) {
+		m.roleTracker = tracker
 	}
 }
 
@@ -125,6 +134,8 @@ type Manager struct {
 	workloadUpdateWatchers []WorkloadUpdateWatcher
 
 	draReconcileChannel chan<- event.TypedGenericEvent[*kueue.Workload]
+
+	roleTracker *roletracker.RoleTracker
 }
 
 func NewManager(client client.Client, checker StatusChecker, options ...Option) *Manager {
@@ -292,8 +303,8 @@ func (m *Manager) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 }
 
 func (m *Manager) DefaultLocalQueueExist(namespace string) bool {
-	m.Lock()
-	defer m.Unlock()
+	m.RLock()
+	defer m.RUnlock()
 
 	_, ok := m.localQueues[queue.DefaultQueueKey(namespace)]
 	return ok
@@ -310,7 +321,8 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 	qImpl := newLocalQueue(q)
 	m.localQueues[key] = qImpl
 
-	if cq := m.hm.ClusterQueue(qImpl.ClusterQueue); cq != nil {
+	cq := m.hm.ClusterQueue(qImpl.ClusterQueue)
+	if cq != nil {
 		cq.addLocalQueue(key)
 	}
 
@@ -321,7 +333,7 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		return fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
 	for _, w := range workloads.Items {
-		if !workload.IsActive(&w) || workload.HasQuotaReservation(&w) {
+		if !workload.IsAdmissible(&w) {
 			continue
 		}
 
@@ -337,7 +349,7 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		workload.AdjustResources(ctx, m.client, &w)
 		m.assignWorkload(workload.NewInfo(&w, m.workloadInfoOptions...), qImpl)
 	}
-	cq := m.hm.ClusterQueue(qImpl.ClusterQueue)
+
 	if cq != nil && cq.AddFromLocalQueue(qImpl) {
 		m.Broadcast()
 	}
@@ -445,11 +457,8 @@ func (m *Manager) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload, opts .
 }
 
 func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
-	if !workload.IsActive(w) {
-		return fmt.Errorf("workload %q is inactive and can't be added to a LocalQueue", w.Name)
-	}
-	if workload.HasQuotaReservation(w) {
-		return fmt.Errorf("workload %q already has quota reserved and can't be added to a LocalQueue", w.Name)
+	if !workload.IsAdmissible(w) {
+		return errWorkloadIsInadmissible
 	}
 
 	qKey := queue.KeyFromWorkload(w)
@@ -750,7 +759,7 @@ func (m *Manager) reportLQPendingWorkloads(lq *LocalQueue) {
 	metrics.ReportLocalQueuePendingWorkloads(metrics.LocalQueueReference{
 		Name:      lqName,
 		Namespace: namespace,
-	}, active, inadmissible)
+	}, active, inadmissible, m.roleTracker)
 }
 
 func (m *Manager) reportPendingWorkloads(cqName kueue.ClusterQueueReference, cq *ClusterQueue) {
@@ -759,7 +768,7 @@ func (m *Manager) reportPendingWorkloads(cqName kueue.ClusterQueueReference, cq 
 		inadmissible += active
 		active = 0
 	}
-	metrics.ReportPendingWorkloads(cqName, active, inadmissible)
+	metrics.ReportPendingWorkloads(cqName, active, inadmissible, m.roleTracker)
 }
 
 func (m *Manager) GetClusterQueueNames() []kueue.ClusterQueueReference {

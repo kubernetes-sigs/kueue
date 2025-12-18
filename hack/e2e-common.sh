@@ -72,6 +72,10 @@ if [[ -n "${CERTMANAGER_VERSION:-}" ]]; then
     export CERTMANAGER_MANIFEST="https://github.com/cert-manager/cert-manager/releases/download/${CERTMANAGER_VERSION}/cert-manager.yaml"
 fi
 
+if [[ -n "${CLUSTERPROFILE_VERSION:-}" ]]; then
+    export CLUSTERPROFILE_CRD=${ROOT_DIR}/dep-crds/clusterprofile/multicluster.x-k8s.io_clusterprofiles.yaml
+fi
+
 if [[ -n "${KUEUE_UPGRADE_FROM_VERSION:-}" ]]; then
     export KUEUE_OLD_VERSION_MANIFEST="https://github.com/kubernetes-sigs/kueue/releases/download/${KUEUE_UPGRADE_FROM_VERSION}/manifests.yaml"
 fi
@@ -199,6 +203,9 @@ function kind_load {
     if [[ -n ${CERTMANAGER_VERSION:-} ]]; then
         install_cert_manager "$2"
     fi
+    if [[ -n ${CLUSTERPROFILE_VERSION:-} ]]; then
+        install_multicluster "$2"
+    fi
 }
 
 # $1 cluster
@@ -210,10 +217,19 @@ function cluster_kind_load_image {
         return 1
     fi
     # filter out 'control-plane' node, use only worker nodes to load image
-    worker_nodes=$($KIND get nodes --name "$1" | grep -v 'control-plane' | paste -sd "," -)
+    worker_nodes=$($KIND get nodes --name "$1" | grep -v 'control-plane')
     if [[ -n "$worker_nodes" ]]; then
-        echo "kind load docker-image '$2' --name '$1' --nodes '$worker_nodes'"
-        $KIND load docker-image "$2" --name "$1" --nodes "$worker_nodes"
+        # Use docker save + ctr import directly to avoid the --all-platforms
+        # issue with multi-arch images in DinD environments.
+        # See: https://github.com/kubernetes-sigs/kind/issues/3795
+        echo "Loading image '$2' to cluster '$1'"
+        while IFS= read -r node; do
+            echo "  Loading image to node: $node"
+            if ! docker save "$2" | docker exec -i "$node" ctr --namespace=k8s.io images import --digests --snapshotter=overlayfs -; then
+                echo "Failed to load image '$2' to node '$node'"
+                return 1
+            fi
+        done <<< "$worker_nodes"
     fi
 }
 
@@ -365,6 +381,12 @@ function install_lws {
 function install_cert_manager {
     kubectl apply --kubeconfig="$1" --server-side -f "${CERTMANAGER_MANIFEST}"
 }
+
+# $1 kubeconfig option
+function install_multicluster {
+    kubectl apply --kubeconfig="$1" --server-side -f "${CLUSTERPROFILE_CRD}"
+}
+
 
 INITIAL_IMAGE=$($YQ '.images[] | select(.name == "controller") | [.newName, .newTag] | join(":")' config/components/manager/kustomization.yaml)
 export INITIAL_IMAGE
