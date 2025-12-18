@@ -10,7 +10,8 @@
     "build": "vite build",
     "dev": "vite --no-open",
     "preview": "vite preview",
-    "check-unused": "depcheck"
+    "check-unused": "depcheck",
+    "serve": "npm run serve"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
@@ -22,7 +23,8 @@
     "react-ace": "^14.0.1",
     "react-dom": "^19.2.1",
     "react-router-dom": "^7.9.6",
-    "react-toastify": "^11.0.5"
+    "react-toastify": "^11.0.5",
+    "serve": "^14.2.5"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.1.1",
