@@ -236,7 +236,19 @@ func nodeBelongsToFlavor(node *corev1.Node, nodeLabels map[string]string, levels
 	return true
 }
 
+// normalizeNode zeros out fields that should be ignored during comparison.
+func normalizeNode(node *corev1.Node) {
+	// Ignore ResourceVersion (metadata)
+	node.ObjectMeta.ResourceVersion = ""
+
+	// ManagedFields often contain internal timestamps and high-churn metadata
+	node.ObjectMeta.ManagedFields = nil
+}
+
 // checkNodeSchedulingPropertiesChanged checks if the node update affects TAS scheduling.
 func checkNodeSchedulingPropertiesChanged(oldNode, newNode *corev1.Node) bool {
-	return !nodeSemantic.DeepEqual(oldNode, newNode)
+	o, n := oldNode.DeepCopy(), newNode.DeepCopy()
+	normalizeNode(o)
+	normalizeNode(n)
+	return !nodeSemantic.DeepEqual(o, n)
 }
