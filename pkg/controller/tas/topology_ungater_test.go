@@ -2184,8 +2184,8 @@ func TestReconcile(t *testing.T) {
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(kueue.PodGroupPodIndexLabel, "3").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
-					NodeSelector(tasBlockLabel, "b1").
-					NodeSelector(tasRackLabel, "r2").
+					NodeSelector(tasBlockLabel, "b2").
+					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 			},
 			cmpNS: true,
