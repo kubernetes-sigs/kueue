@@ -165,8 +165,16 @@ func validatedUpdateForEnabledWorkloadSlice(oldJob, newJob GenericJob) field.Err
 }
 
 func ValidateUpdateForWorkloadPriorityClassName(isSuspended bool, oldObj, newObj client.Object) field.ErrorList {
-	if !isSuspended && IsWorkloadPriorityClassNameEmpty(oldObj) || IsWorkloadPriorityClassNameEmpty(newObj) {
-		return apivalidation.ValidateImmutableField(WorkloadPriorityClassName(newObj), WorkloadPriorityClassName(oldObj), workloadPriorityClassNamePath)
+	if !isSuspended && IsWorkloadPriorityClassNameEmpty(oldObj) {
+		if !IsWorkloadPriorityClassNameEmpty(newObj) {
+			return field.ErrorList{field.Invalid(workloadPriorityClassNamePath, WorkloadPriorityClassName(newObj), "WorkloadPriorityClass cannot be added to a non-suspended workload")}
+		}
+		return nil
+	}
+	if IsWorkloadPriorityClassNameEmpty(newObj) {
+		if !IsWorkloadPriorityClassNameEmpty(oldObj) {
+			return field.ErrorList{field.Invalid(workloadPriorityClassNamePath, WorkloadPriorityClassName(newObj), "WorkloadPriorityClass cannot be removed from a workload")}
+		}
 	}
 	return nil
 }
