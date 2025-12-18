@@ -1347,7 +1347,7 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 		reportWorkloadEvictedOnce bool
 	)
 
-	var patchOpts []PatchStatusOption
+	var patchOpts []PatchAdmissionStatusOption
 
 	if !opts.StrictApply {
 		patchOpts = append(patchOpts, WithLooseOnApply())
