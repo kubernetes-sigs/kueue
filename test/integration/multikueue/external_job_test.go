@@ -155,26 +155,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			w2Kubeconfig, err := worker2TestCluster.kubeConfigBytes()
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			managerMultiKueueSecret1 = &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "multikueue1",
-					Namespace: managersConfigNamespace.Name,
-				},
-				Data: map[string][]byte{
-					kueue.MultiKueueConfigSecretKey: w1Kubeconfig,
-				},
-			}
+			managerMultiKueueSecret1 = utiltesting.MakeSecret("multikueue1", managersConfigNamespace.Name).Data(kueue.MultiKueueConfigSecretKey, w1Kubeconfig).Obj()
 			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueSecret1)
 
-			managerMultiKueueSecret2 = &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "multikueue2",
-					Namespace: managersConfigNamespace.Name,
-				},
-				Data: map[string][]byte{
-					kueue.MultiKueueConfigSecretKey: w2Kubeconfig,
-				},
-			}
+			managerMultiKueueSecret2 = utiltesting.MakeSecret("multikueue2", managersConfigNamespace.Name).Data(kueue.MultiKueueConfigSecretKey, w2Kubeconfig).Obj()
 			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueSecret2)
 
 			workerCluster1 = utiltestingapi.MakeMultiKueueCluster("worker1").KubeConfig(kueue.SecretLocationType, managerMultiKueueSecret1.Name).Obj()
