@@ -24,8 +24,10 @@ import (
 // FlavorUsageApplyConfiguration represents a declarative configuration of the FlavorUsage type for use
 // with apply.
 type FlavorUsageApplyConfiguration struct {
-	Name      *kueuev1beta1.ResourceFlavorReference `json:"name,omitempty"`
-	Resources []ResourceUsageApplyConfiguration     `json:"resources,omitempty"`
+	// name of the flavor.
+	Name *kueuev1beta1.ResourceFlavorReference `json:"name,omitempty"`
+	// resources lists the quota usage for the resources in this flavor.
+	Resources []ResourceUsageApplyConfiguration `json:"resources,omitempty"`
 }
 
 // FlavorUsageApplyConfiguration constructs a declarative configuration of the FlavorUsage type for use with

@@ -23,14 +23,33 @@ import (
 
 // ClusterQueueStatusApplyConfiguration represents a declarative configuration of the ClusterQueueStatus type for use
 // with apply.
+//
+// ClusterQueueStatus defines the observed state of ClusterQueue
 type ClusterQueueStatusApplyConfiguration struct {
-	Conditions         []v1.ConditionApplyConfiguration     `json:"conditions,omitempty"`
-	FlavorsReservation []FlavorUsageApplyConfiguration      `json:"flavorsReservation,omitempty"`
-	FlavorsUsage       []FlavorUsageApplyConfiguration      `json:"flavorsUsage,omitempty"`
-	PendingWorkloads   *int32                               `json:"pendingWorkloads,omitempty"`
-	ReservingWorkloads *int32                               `json:"reservingWorkloads,omitempty"`
-	AdmittedWorkloads  *int32                               `json:"admittedWorkloads,omitempty"`
-	FairSharing        *FairSharingStatusApplyConfiguration `json:"fairSharing,omitempty"`
+	// conditions hold the latest available observations of the ClusterQueue
+	// current state.
+	// conditions are limited to 16 elements.
+	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
+	// flavorsReservation are the reserved quotas, by flavor, currently in use by the
+	// workloads assigned to this ClusterQueue.
+	// flavorsReservation are limited to 64 elements.
+	FlavorsReservation []FlavorUsageApplyConfiguration `json:"flavorsReservation,omitempty"`
+	// flavorsUsage are the used quotas, by flavor, currently in use by the
+	// workloads admitted in this ClusterQueue.
+	FlavorsUsage []FlavorUsageApplyConfiguration `json:"flavorsUsage,omitempty"`
+	// pendingWorkloads is the number of workloads currently waiting to be
+	// admitted to this clusterQueue.
+	PendingWorkloads *int32 `json:"pendingWorkloads,omitempty"`
+	// reservingWorkloads is the number of workloads currently reserving quota in this
+	// clusterQueue.
+	ReservingWorkloads *int32 `json:"reservingWorkloads,omitempty"`
+	// admittedWorkloads is the number of workloads currently admitted to this
+	// clusterQueue and haven't finished yet.
+	AdmittedWorkloads *int32 `json:"admittedWorkloads,omitempty"`
+	// fairSharing contains the current state for this ClusterQueue
+	// when participating in Fair Sharing.
+	// This is recorded only when Fair Sharing is enabled in the Kueue configuration.
+	FairSharing *FairSharingStatusApplyConfiguration `json:"fairSharing,omitempty"`
 }
 
 // ClusterQueueStatusApplyConfiguration constructs a declarative configuration of the ClusterQueueStatus type for use with

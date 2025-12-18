@@ -20,6 +20,7 @@ package v1beta1
 // UnhealthyNodeApplyConfiguration represents a declarative configuration of the UnhealthyNode type for use
 // with apply.
 type UnhealthyNodeApplyConfiguration struct {
+	// name is the name of the unhealthy node.
 	Name *string `json:"name,omitempty"`
 }
 

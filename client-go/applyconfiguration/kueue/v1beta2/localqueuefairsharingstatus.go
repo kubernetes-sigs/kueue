@@ -19,8 +19,18 @@ package v1beta2
 
 // LocalQueueFairSharingStatusApplyConfiguration represents a declarative configuration of the LocalQueueFairSharingStatus type for use
 // with apply.
+//
+// LocalQueueFairSharingStatus contains the information about the current status of Fair Sharing.
 type LocalQueueFairSharingStatusApplyConfiguration struct {
-	WeightedShare              *int64                                                  `json:"weightedShare,omitempty"`
+	// weightedShare represents the maximum of the ratios of usage
+	// above nominal quota to the lendable resources in the
+	// Cohort, among all the resources provided by the Node, and
+	// divided by the weight.  If zero, it means that the usage of
+	// the Node is below the nominal quota.  If the Node has a
+	// weight of zero and is borrowing, this will return
+	// 9223372036854775807, the maximum possible share value.
+	WeightedShare *int64 `json:"weightedShare,omitempty"`
+	// admissionFairSharingStatus represents information relevant to the Admission Fair Sharing
 	AdmissionFairSharingStatus *LocalQueueAdmissionFairSharingStatusApplyConfiguration `json:"admissionFairSharingStatus,omitempty"`
 }
 

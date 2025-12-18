@@ -20,7 +20,13 @@ package v1beta2
 // TopologyAssignmentSliceLevelValuesApplyConfiguration represents a declarative configuration of the TopologyAssignmentSliceLevelValues type for use
 // with apply.
 type TopologyAssignmentSliceLevelValuesApplyConfiguration struct {
-	Universal  *string                                                         `json:"universal,omitempty"`
+	// universal - if set - specifies a single topology placement value (at a particular topology level)
+	// that applies to all pods in the current TopologyAssignmentSlice.
+	// Exactly one of universal, individual must be set.
+	Universal *string `json:"universal,omitempty"`
+	// individual - if set - specifies multiple topology placement values (at a particular topology level)
+	// that apply to the pods in the current TopologyAssignmentSlice.
+	// Exactly one of universal, individual must be set.
 	Individual *TopologyAssignmentSliceLevelIndividualValuesApplyConfiguration `json:"individual,omitempty"`
 }
 

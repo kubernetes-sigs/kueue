@@ -25,12 +25,140 @@ import (
 // PodSetAssignmentApplyConfiguration represents a declarative configuration of the PodSetAssignment type for use
 // with apply.
 type PodSetAssignmentApplyConfiguration struct {
-	Name                   *kueuev1beta2.PodSetReference                            `json:"name,omitempty"`
-	Flavors                map[v1.ResourceName]kueuev1beta2.ResourceFlavorReference `json:"flavors,omitempty"`
-	ResourceUsage          *v1.ResourceList                                         `json:"resourceUsage,omitempty"`
-	Count                  *int32                                                   `json:"count,omitempty"`
-	TopologyAssignment     *TopologyAssignmentApplyConfiguration                    `json:"topologyAssignment,omitempty"`
-	DelayedTopologyRequest *kueuev1beta2.DelayedTopologyRequestState                `json:"delayedTopologyRequest,omitempty"`
+	// name is the name of the podSet. It should match one of the names in .spec.podSets.
+	Name *kueuev1beta2.PodSetReference `json:"name,omitempty"`
+	// flavors are the flavors assigned to the workload for each resource.
+	Flavors map[v1.ResourceName]kueuev1beta2.ResourceFlavorReference `json:"flavors,omitempty"`
+	// resourceUsage keeps track of the total resources all the pods in the podset need to run.
+	//
+	// Beside what is provided in podSet's specs, this calculation takes into account
+	// the LimitRange defaults and RuntimeClass overheads at the moment of admission.
+	// This field will not change in case of quota reclaim.
+	ResourceUsage *v1.ResourceList `json:"resourceUsage,omitempty"`
+	// count is the number of pods taken into account at admission time.
+	// This field will not change in case of quota reclaim.
+	// Value could be missing for Workloads created before this field was added,
+	// in that case spec.podSets[*].count value will be used.
+	Count *int32 `json:"count,omitempty"`
+	// topologyAssignment indicates the topology assignment divided into
+	// topology domains corresponding to the lowest level of the topology.
+	// The assignment specifies the number of Pods to be scheduled per topology
+	// domain and specifies the node selectors for each topology domain, in the
+	// following way:
+	// * `levels` specifies the node selector keys (same for all domains).
+	// - If the TopologySpec.Levels field contains "kubernetes.io/hostname" label,
+	// topologyAssignment will contain data only for this label,
+	// and omit higher levels in the topology.
+	// * `slices` specifies the node selector values and pod counts for all domains
+	// (which may be partitioned into separate slices).
+	// - The node selector values are arranged first by topology level, only then by domain.
+	// (This allows "optimizing" similar values; see below).
+	// * The format of `slices` supports the following variations
+	// (aimed to optimize the total bytesize for very large number of domains; see examples below):
+	// - When all node selector values (at a given topology level, in a given slice)
+	// share a common prefix and/or suffix, these may be stored
+	// in dedicated `prefix`/`suffix` fields.
+	// If so, the array of `roots` will only store the remaining parts of these strings.
+	// - When all node selector values (at a given topology level, in a given slice)
+	// are identical, this may be represented by `universal` value.
+	// - When all pod counts (in a given slice) are identical,
+	// this may be represented by `universal` pod count.
+	//
+	// Example 1:
+	//
+	// The following represents an assignment in which:
+	// * 4 Pods are to be scheduled on nodes matching the node selector:
+	// - cloud.provider.com/topology-block: block-1
+	// - cloud.provider.com/topology-rack: rack-1
+	// * 2 Pods are to be scheduled on nodes matching the node selector:
+	// - cloud.provider.com/topology-block: block-1
+	// - cloud.provider.com/topology-rack: rack-2
+	//
+	// topologyAssignment:
+	// levels:
+	// - cloud.provider.com/topology-block
+	// - cloud.provider.com/topology-rack
+	// slices:
+	// - domainCount: 2
+	// valuesPerLevel:
+	// - individual:
+	// roots: [block-1, block-1]
+	// - individual:
+	// roots: [rack-1, rack-2]
+	// podCounts:
+	// individual: [4, 2]
+	//
+	// Example 2:
+	//
+	// The following is equivalent to Example 1 - but using extracted prefix and universalValue.
+	//
+	// topologyAssignment:
+	// levels:
+	// - cloud.provider.com/topology-block
+	// - cloud.provider.com/topology-rack
+	// slices:
+	// - domainCount: 2
+	// valuesPerLevel:
+	// - universal: block-1
+	// - individual:
+	// prefix: rack-
+	// roots: [1, 2]
+	// podCounts:
+	// individual: [4, 2]
+	//
+	// Example 3:
+	//
+	// Now suppose that:
+	// - the Topology object defines kubernetes.io/hostname as the lowest level
+	// (and hence, in the topologyAssignment, we omit all other levels
+	// since the hostname label suffices to explicitly identify a proper node),
+	// - we assign 1 Pod per each node,
+	// - the node naming scheme is `block-{blockId}-rack-{rackId}-node-{nodeId}`.
+	// Then, using the "extraction of commons", the assignment from Examples 1-2 would look as follows:
+	//
+	// topologyAssignment:
+	// levels:
+	// - kubernetes.io/hostname
+	// slices:
+	// - domainCount: 6
+	// valuesPerLevel:
+	// - individual:
+	// prefix: block-1-rack-
+	// roots: [1-node-1, 1-node-2, 1-node-3, 1-node-4, 2-node-1, 2-node-2]
+	// podCounts:
+	// universal: 1
+	//
+	// Example 4:
+	//
+	// By using multiple slices, we can afford even longer common prefixes.
+	// The assignment from Example 3 can be alternatively represented as follows:
+	//
+	// topologyAssignment:
+	// levels:
+	// - kubernetes.io/hostname
+	// slices:
+	// - domainCount: 4
+	// valuesPerLevel:
+	// - individual:
+	// prefix: block-1-rack-1-node-
+	// roots: [1, 2, 3, 4]
+	// podCounts:
+	// universal: 1
+	// - domainCount: 2
+	// valuesPerLevel:
+	// - individual:
+	// prefix: block-1-rack-2-node-
+	// roots: [1, 2]
+	// podCounts:
+	// universal: 1
+	TopologyAssignment *TopologyAssignmentApplyConfiguration `json:"topologyAssignment,omitempty"`
+	// delayedTopologyRequest indicates the topology assignment is delayed.
+	// Topology assignment might be delayed in case there is ProvisioningRequest
+	// AdmissionCheck used.
+	// Kueue schedules the second pass of scheduling for each workload with at
+	// least one PodSet which has delayedTopologyRequest=true and without
+	// topologyAssignment.
+	DelayedTopologyRequest *kueuev1beta2.DelayedTopologyRequestState `json:"delayedTopologyRequest,omitempty"`
 }
 
 // PodSetAssignmentApplyConfiguration constructs a declarative configuration of the PodSetAssignment type for use with

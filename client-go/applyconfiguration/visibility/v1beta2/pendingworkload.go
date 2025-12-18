@@ -26,12 +26,19 @@ import (
 
 // PendingWorkloadApplyConfiguration represents a declarative configuration of the PendingWorkload type for use
 // with apply.
+//
+// PendingWorkload is a user-facing representation of a pending workload that summarizes the relevant information for
+// position in the cluster queue.
 type PendingWorkloadApplyConfiguration struct {
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Priority                         *int32                       `json:"priority,omitempty"`
-	LocalQueueName                   *kueuev1beta2.LocalQueueName `json:"localQueueName,omitempty"`
-	PositionInClusterQueue           *int32                       `json:"positionInClusterQueue,omitempty"`
-	PositionInLocalQueue             *int32                       `json:"positionInLocalQueue,omitempty"`
+	// Priority indicates the workload's priority
+	Priority *int32 `json:"priority,omitempty"`
+	// LocalQueueName indicates the name of the LocalQueue the workload is submitted to
+	LocalQueueName *kueuev1beta2.LocalQueueName `json:"localQueueName,omitempty"`
+	// PositionInClusterQueue indicates the workload's position in the ClusterQueue, starting from 0
+	PositionInClusterQueue *int32 `json:"positionInClusterQueue,omitempty"`
+	// PositionInLocalQueue indicates the workload's position in the LocalQueue, starting from 0
+	PositionInLocalQueue *int32 `json:"positionInLocalQueue,omitempty"`
 }
 
 // PendingWorkloadApplyConfiguration constructs a declarative configuration of the PendingWorkload type for use with

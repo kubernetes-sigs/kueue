@@ -25,11 +25,16 @@ import (
 
 // WorkloadApplyConfiguration represents a declarative configuration of the Workload type for use
 // with apply.
+//
+// Workload is the Schema for the workloads API
 type WorkloadApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration    `json:",inline"`
+	v1.TypeMetaApplyConfiguration `json:",inline"`
+	// metadata is the metadata of the Workload.
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Spec                             *WorkloadSpecApplyConfiguration   `json:"spec,omitempty"`
-	Status                           *WorkloadStatusApplyConfiguration `json:"status,omitempty"`
+	// spec is the specification of the Workload.
+	Spec *WorkloadSpecApplyConfiguration `json:"spec,omitempty"`
+	// status is the status of the Workload.
+	Status *WorkloadStatusApplyConfiguration `json:"status,omitempty"`
 }
 
 // Workload constructs a declarative configuration of the Workload type for use with
@@ -42,6 +47,7 @@ func Workload(name, namespace string) *WorkloadApplyConfiguration {
 	b.WithAPIVersion("kueue.x-k8s.io/v1beta2")
 	return b
 }
+
 func (b WorkloadApplyConfiguration) IsApplyConfiguration() {}
 
 // WithKind sets the Kind field in the declarative configuration to the given value

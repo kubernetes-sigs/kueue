@@ -24,11 +24,46 @@ import (
 
 // ResourceFlavorSpecApplyConfiguration represents a declarative configuration of the ResourceFlavorSpec type for use
 // with apply.
+//
+// ResourceFlavorSpec defines the desired state of the ResourceFlavor
 type ResourceFlavorSpecApplyConfiguration struct {
-	NodeLabels   map[string]string                 `json:"nodeLabels,omitempty"`
-	NodeTaints   []v1.TaintApplyConfiguration      `json:"nodeTaints,omitempty"`
-	Tolerations  []v1.TolerationApplyConfiguration `json:"tolerations,omitempty"`
-	TopologyName *kueuev1beta1.TopologyReference   `json:"topologyName,omitempty"`
+	// nodeLabels are labels that associate the ResourceFlavor with Nodes that
+	// have the same labels.
+	// When a Workload is admitted, its podsets can only get assigned
+	// ResourceFlavors whose nodeLabels match the nodeSelector and nodeAffinity
+	// fields.
+	// Once a ResourceFlavor is assigned to a podSet, the ResourceFlavor's
+	// nodeLabels should be injected into the pods of the Workload by the
+	// controller that integrates with the Workload object.
+	//
+	// nodeLabels can be up to 8 elements.
+	NodeLabels map[string]string `json:"nodeLabels,omitempty"`
+	// nodeTaints are taints that the nodes associated with this ResourceFlavor
+	// have.
+	// Workloads' podsets must have tolerations for these nodeTaints in order to
+	// get assigned this ResourceFlavor during admission.
+	// When this ResourceFlavor has also set the matching tolerations (in .spec.tolerations),
+	// then the nodeTaints are not considered during admission.
+	// Only the 'NoSchedule' and 'NoExecute' taint effects are evaluated,
+	// while 'PreferNoSchedule' is ignored.
+	//
+	// An example of a nodeTaint is
+	// cloud.provider.com/preemptible="true":NoSchedule
+	//
+	// nodeTaints can be up to 8 elements.
+	NodeTaints []v1.TaintApplyConfiguration `json:"nodeTaints,omitempty"`
+	// tolerations are extra tolerations that will be added to the pods admitted in
+	// the quota associated with this resource flavor.
+	//
+	// An example of a toleration is
+	// cloud.provider.com/preemptible="true":NoSchedule
+	//
+	// tolerations can be up to 8 elements.
+	Tolerations []v1.TolerationApplyConfiguration `json:"tolerations,omitempty"`
+	// topologyName indicates topology for the TAS ResourceFlavor.
+	// When specified, it enables scraping of the topology information from the
+	// nodes matching to the Resource Flavor node labels.
+	TopologyName *kueuev1beta1.TopologyReference `json:"topologyName,omitempty"`
 }
 
 // ResourceFlavorSpecApplyConfiguration constructs a declarative configuration of the ResourceFlavorSpec type for use with
