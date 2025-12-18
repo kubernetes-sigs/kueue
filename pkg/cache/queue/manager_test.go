@@ -491,8 +491,8 @@ func TestAddWorkload(t *testing.T) {
 			},
 			wantErr:      ErrLocalQueueDoesNotExistOrInactive,
 			wantAssigned: map[workload.Reference]queue.LocalQueueReference{},
-    },
-    {
+		},
+		{
 			workload: utiltestingapi.MakeWorkload("non_existing_local_queue", "earth").
 				Queue("baz").
 				Obj(),
