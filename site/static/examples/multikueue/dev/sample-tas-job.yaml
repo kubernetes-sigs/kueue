@@ -8,7 +8,6 @@ metadata:
 spec:
   parallelism: 2
   completions: 2
-  suspend: true
   template:
     metadata:
       annotations:
@@ -38,7 +37,6 @@ metadata:
 spec:
   parallelism: 3
   completions: 3
-  suspend: true
   template:
     spec:
       restartPolicy: Never

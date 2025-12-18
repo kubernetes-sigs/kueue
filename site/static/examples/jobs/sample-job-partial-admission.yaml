@@ -10,7 +10,6 @@ metadata:
 spec:
   parallelism: 20
   completions: 20
-  suspend: true
   template:
     spec:
       containers:

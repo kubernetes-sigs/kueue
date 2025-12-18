@@ -8,7 +8,6 @@ metadata:
 spec:
   parallelism: 3
   completions: 3
-  suspend: true
   template:
     spec:
       containers:

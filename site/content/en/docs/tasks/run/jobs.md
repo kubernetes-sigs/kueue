@@ -47,13 +47,14 @@ Queue.
 ## 1. Define the Job
 
 Running a Job in Kueue is similar to [running a Job in a Kubernetes cluster](https://kubernetes.io/docs/tasks/job/)
-without Kueue. However, you must consider the following differences:
+without Kueue. However, you must set the `kueue.x-k8s.io/queue-name` label selecting the LocalQueue you want to submit the Job to.
+You can also skip setting the "queue name" label if you use [LocalQueue defaulting](/docs/tasks/manage/enforce_job_management/setup_default_local_queue).
 
-- You should create the Job in a [suspended state](https://kubernetes.io/docs/concepts/workloads/controllers/job/#suspending-a-job),
-  as Kueue will decide when it's the best time to start the Job.
-- You have to set the Queue you want to submit the Job to. Use the
- `kueue.x-k8s.io/queue-name` label.
-- You should include the resource requests for each Job Pod.
+You should specify [resource requests or limits](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/) for each Job Pod.
+If you specify only limits, Kueue will treat the limit values as requests. See [how Kueue uses resource requests](/docs/concepts/workload#resource-requests) for details.
+
+Note that you do not need to create the Job in a [suspended state](https://kubernetes.io/docs/concepts/workloads/controllers/job/#suspending-a-job).
+Kueue automatically manages the Job's suspension via webhook and decides when it's the best time to start the Job.
 
 Here is a sample Job with three Pods that just sleep for a few seconds.
 
