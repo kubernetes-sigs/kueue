@@ -628,3 +628,27 @@ func (r *ResourceClaimWrapper) FirstAvailableRequest(requestName, deviceClassNam
 func (r *ResourceClaimWrapper) Obj() *resourcev1.ResourceClaim {
 	return &r.ResourceClaim
 }
+
+type SecretWrapper struct{ corev1.Secret }
+
+func MakeSecret(name, ns string) *SecretWrapper {
+	return &SecretWrapper{
+		corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: ns,
+			},
+		}}
+}
+
+func (s *SecretWrapper) Obj() *corev1.Secret {
+	return &s.Secret
+}
+
+func (s *SecretWrapper) Data(key string, value []byte) *SecretWrapper {
+	if s.Secret.Data == nil {
+		s.Secret.Data = make(map[string][]byte)
+	}
+	s.Secret.Data[key] = value
+	return s
+}
