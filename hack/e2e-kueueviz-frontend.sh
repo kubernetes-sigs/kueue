@@ -38,7 +38,6 @@ npm start & FRONTEND_PID=$!
 
 # Run Cypress tests for kueueviz frontend
 cd "${PROJECT_DIR}/test/e2e/kueueviz"
-npm install cypress --save-dev
 npm install
 npx cypress install
 npm run cypress:run --headless --config-file cypress.config.js
