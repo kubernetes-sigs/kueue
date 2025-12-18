@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util"
@@ -79,15 +80,7 @@ var _ = ginkgo.Describe("MultiKueue with ProvisioningRequest", ginkgo.Label("are
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Setup MultiKueue resources
-		managerMultiKueueSecret1 = &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "multikueue-prov-secret",
-				Namespace: managersConfigNamespace.Name,
-			},
-			Data: map[string][]byte{
-				kueue.MultiKueueConfigSecretKey: w1Kubeconfig,
-			},
-		}
+		managerMultiKueueSecret1 = utiltesting.MakeSecret("multikueue-prov-secret", managersConfigNamespace.Name).Data(kueue.MultiKueueConfigSecretKey, w1Kubeconfig).Obj()
 		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, managerMultiKueueSecret1)).To(gomega.Succeed())
 
 		workerCluster1 = utiltestingapi.MakeMultiKueueCluster("worker1-prov").KubeConfig(kueue.SecretLocationType, managerMultiKueueSecret1.Name).Obj()
