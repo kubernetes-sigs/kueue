@@ -24,8 +24,13 @@ import (
 // FlavorQuotasApplyConfiguration represents a declarative configuration of the FlavorQuotas type for use
 // with apply.
 type FlavorQuotasApplyConfiguration struct {
-	Name      *kueuev1beta2.ResourceFlavorReference `json:"name,omitempty"`
-	Resources []ResourceQuotaApplyConfiguration     `json:"resources,omitempty"`
+	// name of this flavor. The name should match the .metadata.name of a
+	// ResourceFlavor. If a matching ResourceFlavor does not exist, the
+	// ClusterQueue will have an Active condition set to False.
+	Name *kueuev1beta2.ResourceFlavorReference `json:"name,omitempty"`
+	// resources is the list of quotas for this flavor per resource.
+	// There could be up to 64 resources.
+	Resources []ResourceQuotaApplyConfiguration `json:"resources,omitempty"`
 }
 
 // FlavorQuotasApplyConfiguration constructs a declarative configuration of the FlavorQuotas type for use with

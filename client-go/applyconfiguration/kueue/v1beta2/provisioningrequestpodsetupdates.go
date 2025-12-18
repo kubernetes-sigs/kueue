@@ -20,6 +20,7 @@ package v1beta2
 // ProvisioningRequestPodSetUpdatesApplyConfiguration represents a declarative configuration of the ProvisioningRequestPodSetUpdates type for use
 // with apply.
 type ProvisioningRequestPodSetUpdatesApplyConfiguration struct {
+	// nodeSelector specifies the list of updates for the NodeSelector.
 	NodeSelector []ProvisioningRequestPodSetUpdatesNodeSelectorApplyConfiguration `json:"nodeSelector,omitempty"`
 }
 

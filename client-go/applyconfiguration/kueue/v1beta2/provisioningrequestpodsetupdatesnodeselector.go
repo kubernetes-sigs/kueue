@@ -20,7 +20,11 @@ package v1beta2
 // ProvisioningRequestPodSetUpdatesNodeSelectorApplyConfiguration represents a declarative configuration of the ProvisioningRequestPodSetUpdatesNodeSelector type for use
 // with apply.
 type ProvisioningRequestPodSetUpdatesNodeSelectorApplyConfiguration struct {
-	Key                              *string `json:"key,omitempty"`
+	// key specifies the key for the NodeSelector.
+	Key *string `json:"key,omitempty"`
+	// valueFromProvisioningClassDetail specifies the key of the
+	// ProvisioningRequest.status.provisioningClassDetails from which the value
+	// is used for the update.
 	ValueFromProvisioningClassDetail *string `json:"valueFromProvisioningClassDetail,omitempty"`
 }
 

@@ -25,12 +25,73 @@ import (
 // PodSetAssignmentApplyConfiguration represents a declarative configuration of the PodSetAssignment type for use
 // with apply.
 type PodSetAssignmentApplyConfiguration struct {
-	Name                   *kueuev1beta1.PodSetReference                            `json:"name,omitempty"`
-	Flavors                map[v1.ResourceName]kueuev1beta1.ResourceFlavorReference `json:"flavors,omitempty"`
-	ResourceUsage          *v1.ResourceList                                         `json:"resourceUsage,omitempty"`
-	Count                  *int32                                                   `json:"count,omitempty"`
-	TopologyAssignment     *TopologyAssignmentApplyConfiguration                    `json:"topologyAssignment,omitempty"`
-	DelayedTopologyRequest *kueuev1beta1.DelayedTopologyRequestState                `json:"delayedTopologyRequest,omitempty"`
+	// name is the name of the podSet. It should match one of the names in .spec.podSets.
+	Name *kueuev1beta1.PodSetReference `json:"name,omitempty"`
+	// flavors are the flavors assigned to the workload for each resource.
+	Flavors map[v1.ResourceName]kueuev1beta1.ResourceFlavorReference `json:"flavors,omitempty"`
+	// resourceUsage keeps track of the total resources all the pods in the podset need to run.
+	//
+	// Beside what is provided in podSet's specs, this calculation takes into account
+	// the LimitRange defaults and RuntimeClass overheads at the moment of admission.
+	// This field will not change in case of quota reclaim.
+	ResourceUsage *v1.ResourceList `json:"resourceUsage,omitempty"`
+	// count is the number of pods taken into account at admission time.
+	// This field will not change in case of quota reclaim.
+	// Value could be missing for Workloads created before this field was added,
+	// in that case spec.podSets[*].count value will be used.
+	Count *int32 `json:"count,omitempty"`
+	// topologyAssignment indicates the topology assignment divided into
+	// topology domains corresponding to the lowest level of the topology.
+	// The assignment specifies the number of Pods to be scheduled per topology
+	// domain and specifies the node selectors for each topology domain, in the
+	// following way: the node selector keys are specified by the levels field
+	// (same for all domains), and the corresponding node selector value is
+	// specified by the domains.values subfield. If the TopologySpec.Levels field contains
+	// "kubernetes.io/hostname" label, topologyAssignment will contain data only for
+	// this label, and omit higher levels in the topology
+	//
+	// Example:
+	//
+	// topologyAssignment:
+	// levels:
+	// - cloud.provider.com/topology-block
+	// - cloud.provider.com/topology-rack
+	// domains:
+	// - values: [block-1, rack-1]
+	// count: 4
+	// - values: [block-1, rack-2]
+	// count: 2
+	//
+	// Here:
+	// - 4 Pods are to be scheduled on nodes matching the node selector:
+	// cloud.provider.com/topology-block: block-1
+	// cloud.provider.com/topology-rack: rack-1
+	// - 2 Pods are to be scheduled on nodes matching the node selector:
+	// cloud.provider.com/topology-block: block-1
+	// cloud.provider.com/topology-rack: rack-2
+	//
+	// Example:
+	// Below there is an equivalent of the above example assuming, Topology
+	// object defines kubernetes.io/hostname as the lowest level in topology.
+	// Hence we omit higher level of topologies, since the hostname label
+	// is sufficient to explicitly identify a proper node.
+	//
+	// topologyAssignment:
+	// levels:
+	// - kubernetes.io/hostname
+	// domains:
+	// - values: [hostname-1]
+	// count: 4
+	// - values: [hostname-2]
+	// count: 2
+	TopologyAssignment *TopologyAssignmentApplyConfiguration `json:"topologyAssignment,omitempty"`
+	// delayedTopologyRequest indicates the topology assignment is delayed.
+	// Topology assignment might be delayed in case there is ProvisioningRequest
+	// AdmissionCheck used.
+	// Kueue schedules the second pass of scheduling for each workload with at
+	// least one PodSet which has delayedTopologyRequest=true and without
+	// topologyAssignment.
+	DelayedTopologyRequest *kueuev1beta1.DelayedTopologyRequestState `json:"delayedTopologyRequest,omitempty"`
 }
 
 // PodSetAssignmentApplyConfiguration constructs a declarative configuration of the PodSetAssignment type for use with

@@ -25,13 +25,31 @@ import (
 // AdmissionCheckStateApplyConfiguration represents a declarative configuration of the AdmissionCheckState type for use
 // with apply.
 type AdmissionCheckStateApplyConfiguration struct {
-	Name                *kueuev1beta1.AdmissionCheckReference `json:"name,omitempty"`
-	State               *kueuev1beta1.CheckState              `json:"state,omitempty"`
-	LastTransitionTime  *v1.Time                              `json:"lastTransitionTime,omitempty"`
-	Message             *string                               `json:"message,omitempty"`
-	RequeueAfterSeconds *int32                                `json:"requeueAfterSeconds,omitempty"`
-	RetryCount          *int32                                `json:"retryCount,omitempty"`
-	PodSetUpdates       []PodSetUpdateApplyConfiguration      `json:"podSetUpdates,omitempty"`
+	// name identifies the admission check.
+	Name *kueuev1beta1.AdmissionCheckReference `json:"name,omitempty"`
+	// state of the admissionCheck, one of Pending, Ready, Retry, Rejected
+	State *kueuev1beta1.CheckState `json:"state,omitempty"`
+	// lastTransitionTime is the last time the condition transitioned from one status to another.
+	// This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+	LastTransitionTime *v1.Time `json:"lastTransitionTime,omitempty"`
+	// message is a human readable message indicating details about the transition.
+	// This may be an empty string.
+	Message *string `json:"message,omitempty"`
+	// requeueAfterSeconds indicates how long to wait at least before
+	// retrying to admit the workload.
+	// The admission check controllers can set this field when State=Retry
+	// to implement delays between retry attempts.
+	//
+	// If nil when State=Retry, Kueue will retry immediately.
+	// If set, Kueue will add the workload back to the queue after
+	// lastTransitionTime + RequeueAfterSeconds is over.
+	RequeueAfterSeconds *int32 `json:"requeueAfterSeconds,omitempty"`
+	// retryCount tracks retry attempts for this admission check.
+	// Kueue automatically increments the counter whenever the
+	// state transitions to Retry.
+	RetryCount *int32 `json:"retryCount,omitempty"`
+	// podSetUpdates contains a list of pod set modifications suggested by AdmissionChecks.
+	PodSetUpdates []PodSetUpdateApplyConfiguration `json:"podSetUpdates,omitempty"`
 }
 
 // AdmissionCheckStateApplyConfiguration constructs a declarative configuration of the AdmissionCheckState type for use with

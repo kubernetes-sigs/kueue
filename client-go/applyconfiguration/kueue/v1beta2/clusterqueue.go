@@ -25,11 +25,16 @@ import (
 
 // ClusterQueueApplyConfiguration represents a declarative configuration of the ClusterQueue type for use
 // with apply.
+//
+// ClusterQueue is the Schema for the clusterQueue API.
 type ClusterQueueApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration    `json:",inline"`
+	v1.TypeMetaApplyConfiguration `json:",inline"`
+	// metadata is the metadata of the ClusterQueue.
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Spec                             *ClusterQueueSpecApplyConfiguration   `json:"spec,omitempty"`
-	Status                           *ClusterQueueStatusApplyConfiguration `json:"status,omitempty"`
+	// spec is the specification of the ClusterQueue.
+	Spec *ClusterQueueSpecApplyConfiguration `json:"spec,omitempty"`
+	// status is the status of the ClusterQueue.
+	Status *ClusterQueueStatusApplyConfiguration `json:"status,omitempty"`
 }
 
 // ClusterQueue constructs a declarative configuration of the ClusterQueue type for use with
@@ -41,6 +46,7 @@ func ClusterQueue(name string) *ClusterQueueApplyConfiguration {
 	b.WithAPIVersion("kueue.x-k8s.io/v1beta2")
 	return b
 }
+
 func (b ClusterQueueApplyConfiguration) IsApplyConfiguration() {}
 
 // WithKind sets the Kind field in the declarative configuration to the given value

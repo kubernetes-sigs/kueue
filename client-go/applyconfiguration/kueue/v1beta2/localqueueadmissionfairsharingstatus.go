@@ -25,8 +25,12 @@ import (
 // LocalQueueAdmissionFairSharingStatusApplyConfiguration represents a declarative configuration of the LocalQueueAdmissionFairSharingStatus type for use
 // with apply.
 type LocalQueueAdmissionFairSharingStatusApplyConfiguration struct {
+	// consumedResources represents the aggregated usage of resources over time,
+	// with decaying function applied.
+	// The value is populated if usage consumption functionality is enabled in Kueue config.
 	ConsumedResources *v1.ResourceList `json:"consumedResources,omitempty"`
-	LastUpdate        *metav1.Time     `json:"lastUpdate,omitempty"`
+	// lastUpdate is the time when share and consumed resources were updated.
+	LastUpdate *metav1.Time `json:"lastUpdate,omitempty"`
 }
 
 // LocalQueueAdmissionFairSharingStatusApplyConfiguration constructs a declarative configuration of the LocalQueueAdmissionFairSharingStatus type for use with

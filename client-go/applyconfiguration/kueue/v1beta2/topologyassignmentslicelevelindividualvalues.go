@@ -20,9 +20,15 @@ package v1beta2
 // TopologyAssignmentSliceLevelIndividualValuesApplyConfiguration represents a declarative configuration of the TopologyAssignmentSliceLevelIndividualValues type for use
 // with apply.
 type TopologyAssignmentSliceLevelIndividualValuesApplyConfiguration struct {
-	Prefix *string  `json:"prefix,omitempty"`
-	Suffix *string  `json:"suffix,omitempty"`
-	Roots  []string `json:"roots,omitempty"`
+	// prefix specifies a common prefix for all values in this slice assignment.
+	// It must be either nil pointer or a non-empty string.
+	Prefix *string `json:"prefix,omitempty"`
+	// suffix specifies a common suffix for all values in this slice assignment.
+	// It must be either nil pointer or a non-empty string.
+	Suffix *string `json:"suffix,omitempty"`
+	// roots specifies the values in this assignment (excluding prefix and suffix, if non-empty).
+	// Its length must be equal to the "domainCount" field of the TopologyAssignmentSlice.
+	Roots []string `json:"roots,omitempty"`
 }
 
 // TopologyAssignmentSliceLevelIndividualValuesApplyConfiguration constructs a declarative configuration of the TopologyAssignmentSliceLevelIndividualValues type for use with

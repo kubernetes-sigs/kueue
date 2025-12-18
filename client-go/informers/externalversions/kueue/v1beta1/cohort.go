@@ -55,7 +55,7 @@ func NewCohortInformer(client versioned.Interface, resyncPeriod time.Duration, i
 // one. This reduces memory footprint and number of connections to the server.
 func NewFilteredCohortInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
-		&cache.ListWatch{
+		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
 			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
@@ -80,7 +80,7 @@ func NewFilteredCohortInformer(client versioned.Interface, resyncPeriod time.Dur
 				}
 				return client.KueueV1beta1().Cohorts().Watch(ctx, options)
 			},
-		},
+		}, client),
 		&apiskueuev1beta1.Cohort{},
 		resyncPeriod,
 		indexers,

@@ -23,9 +23,25 @@ import (
 
 // BorrowWithinCohortApplyConfiguration represents a declarative configuration of the BorrowWithinCohort type for use
 // with apply.
+//
+// BorrowWithinCohort contains configuration which allows to preempt workloads
+// within cohort while borrowing. It only works with Classical Preemption,
+// __not__ with Fair Sharing.
 type BorrowWithinCohortApplyConfiguration struct {
-	Policy               *kueuev1beta2.BorrowWithinCohortPolicy `json:"policy,omitempty"`
-	MaxPriorityThreshold *int32                                 `json:"maxPriorityThreshold,omitempty"`
+	// policy determines the policy for preemption to reclaim quota within cohort while borrowing.
+	// Possible values are:
+	// - `Never` (default): do not allow for preemption, in other
+	// ClusterQueues within the cohort, for a borrowing workload.
+	// - `LowerPriority`: allow preemption, in other ClusterQueues
+	// within the cohort, for a borrowing workload, but only if
+	// the preempted workloads are of lower priority.
+	Policy *kueuev1beta2.BorrowWithinCohortPolicy `json:"policy,omitempty"`
+	// maxPriorityThreshold allows to restrict the set of workloads which
+	// might be preempted by a borrowing workload, to only workloads with
+	// priority less than or equal to the specified threshold priority.
+	// When the threshold is not specified, then any workload satisfying the
+	// policy can be preempted by the borrowing workload.
+	MaxPriorityThreshold *int32 `json:"maxPriorityThreshold,omitempty"`
 }
 
 // BorrowWithinCohortApplyConfiguration constructs a declarative configuration of the BorrowWithinCohort type for use with
