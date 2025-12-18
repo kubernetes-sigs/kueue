@@ -74,7 +74,7 @@ func (w *TrainJobWebhook) Default(ctx context.Context, obj runtime.Object) error
 
 	jobframework.ApplyDefaultLocalQueue(trainJob.Object(), w.queues.DefaultLocalQueueExist)
 	jobframework.ApplyDefaultForManagedBy(trainJob, w.queues, w.cache, log)
-	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, trainJob.Object(), w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector)
+	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, trainJob.Object(), w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector, true)
 	if err != nil {
 		return err
 	}
