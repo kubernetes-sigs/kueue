@@ -46,6 +46,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -220,25 +221,12 @@ func cleanKubeconfigForMultiKueueSA(ctx context.Context, c client.Client, ns str
 }
 
 func makeMultiKueueSecret(ctx context.Context, c client.Client, namespace string, name string, kubeconfig []byte) error {
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: namespace,
-			Name:      name,
-		},
-		Data: map[string][]byte{
-			"kubeconfig": kubeconfig,
-		},
-	}
+	secret := utiltesting.MakeSecret(name, namespace).Data("kubeconfig", kubeconfig).Obj()
 	return c.Create(ctx, secret)
 }
 
 func cleanMultiKueueSecret(ctx context.Context, c client.Client, namespace string, name string) error {
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: namespace,
-			Name:      name,
-		},
-	}
+	secret := utiltesting.MakeSecret(name, namespace).Obj()
 	return client.IgnoreNotFound(c.Delete(ctx, secret))
 }
 

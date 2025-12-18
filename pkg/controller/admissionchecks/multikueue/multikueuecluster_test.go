@@ -95,15 +95,7 @@ func setReconnectState(rc *remoteClient, a uint) *remoteClient {
 }
 
 func makeTestSecret(name string, kubeconfig string) corev1.Secret {
-	return corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: TestNamespace,
-		},
-		Data: map[string][]byte{
-			kueue.MultiKueueConfigSecretKey: []byte(kubeconfig),
-		},
-	}
+	return *utiltesting.MakeSecret(name, TestNamespace).Data(kueue.MultiKueueConfigSecretKey, []byte(kubeconfig)).Obj()
 }
 
 func kubeconfigBase(user string) *utiltesting.TestKubeconfigWrapper {
