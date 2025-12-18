@@ -43,7 +43,7 @@ fields:
     waitForPodsReady:
       timeout: 10m
       recoveryTimeout: 3m
-      blockAdmission: true
+      blockAdmission: false
       requeuingStrategy:
         timestamp: Eviction | Creation
         backoffLimitCount: 5
@@ -122,6 +122,12 @@ In this example we demonstrate the impact of enabling `waitForPodsReady` in Kueu
 We create two jobs which both require all their pods to be running at the same
 time to complete. The cluster has enough resources to support running one of the
 jobs at the same time, but not both.
+
+{{% alert title="Note" color="primary" %}}
+This example uses `blockAdmission: true` to enable sequential admission and
+prevent deadlock situations. Note that [Topology-Aware Scheduling](/docs/concepts/topology_aware_scheduling)
+is an alternative solution to the problems mentioned in this guide.
+{{% /alert %}}
 
 {{% alert title="Note" color="primary" %}}
 In this example we use a cluster with autoscaling disabled in order to simulate
