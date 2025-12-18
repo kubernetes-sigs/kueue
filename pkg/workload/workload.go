@@ -1262,11 +1262,13 @@ type EvictOption func(*EvictOptions)
 
 type EvictOptions struct {
 	CustomPrepare func() (*kueue.Workload, error)
+	StrictApply   bool
 }
 
 func DefaultEvictOptions() *EvictOptions {
 	return &EvictOptions{
 		CustomPrepare: nil,
+		StrictApply:   true,
 	}
 }
 
@@ -1275,6 +1277,12 @@ func WithCustomPrepare(customPrepare func() (*kueue.Workload, error)) EvictOptio
 		if customPrepare != nil {
 			o.CustomPrepare = customPrepare
 		}
+	}
+}
+
+func EvictWithLooseOnApply() EvictOption {
+	return func(o *EvictOptions) {
+		o.StrictApply = false
 	}
 }
 
@@ -1300,9 +1308,16 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 	}
 	prepareForEviction(wl, clock.Now(), evictionReason, msg)
 	reportWorkloadEvictedOnce := workloadEvictionStateInc(wl, reason, underlyingCause)
+
+	var patchOpts []PatchAdmissionStatusOption
+
+	if !opts.StrictApply {
+		patchOpts = append(patchOpts, WithLooseOnApply())
+	}
+
 	if err := PatchAdmissionStatus(ctx, c, wlOrig, clock, func() (*kueue.Workload, bool, error) {
 		return wl, true, nil
-	}); err != nil {
+	}, patchOpts...); err != nil {
 		return err
 	}
 	if wlOrig.Status.Admission == nil {
