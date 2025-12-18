@@ -2838,26 +2838,30 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
-				gomega.Consistently(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, wl1)).To(gomega.Succeed())
-					g.Expect(wl1.Status.Admission).ShouldNot(gomega.BeNil())
-					g.Expect(wl1.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
-					g.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeNil())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				ginkgo.By("ensure no assignment during three backoff intervals (≈1s, 2s, 4s - total 7s)", func() {
+					gomega.Consistently(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlKey, wl1)).To(gomega.Succeed())
+						g.Expect(wl1.Status.Admission).ShouldNot(gomega.BeNil())
+						g.Expect(wl1.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
+						g.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeNil())
+					}, 7*time.Second, util.ShortInterval).Should(gomega.Succeed())
+				})
 
-				ginkgo.By("observe at least three SecondPassFailed events while the node is NotReady (≈1s, 2s, 4s backoffs)", func() {
+				ginkgo.By("observe three SecondPassFailed events while the node is NotReady (≈1s, 2s, 4s backoffs)", func() {
 					var evList corev1.EventList
-					gomega.Expect(k8sClient.List(ctx, &evList, &client.ListOptions{Namespace: ns.Name})).To(gomega.Succeed())
-					var count int32
-					for i := range evList.Items {
-						ev := evList.Items[i]
-						if ev.Reason == "SecondPassFailed" && ev.InvolvedObject.Name == wl1.Name {
-							if ev.Count > count {
-								count = ev.Count
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.List(ctx, &evList, &client.ListOptions{Namespace: ns.Name})).To(gomega.Succeed())
+						var count int32
+						for i := range evList.Items {
+							ev := evList.Items[i]
+							if ev.Reason == "SecondPassFailed" && ev.InvolvedObject.Name == wl1.Name {
+								if ev.Count > count {
+									count = ev.Count
+								}
 							}
 						}
-					}
-					gomega.Expect(count).To(gomega.And(gomega.BeNumerically(">=", 3), gomega.BeNumerically("<=", 5)))
+						g.Expect(count).Should(gomega.Equal(int32(3)))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
 				ginkgo.By("make the node Ready", func() {
