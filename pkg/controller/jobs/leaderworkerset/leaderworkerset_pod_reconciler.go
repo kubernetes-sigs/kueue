@@ -83,7 +83,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile LeaderWorkerSet Pod")
 
-	if utilpod.IsTerminated(pod) || pod.DeletionTimestamp != nil {
+	if utilpod.IsTerminated(pod) {
 		err = client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
 			removed := controllerutil.RemoveFinalizer(pod, podconstants.PodFinalizer)
 			if removed {

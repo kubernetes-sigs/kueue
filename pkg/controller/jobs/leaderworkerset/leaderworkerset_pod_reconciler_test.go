@@ -18,12 +18,10 @@ package leaderworkerset
 
 import (
 	"testing"
-	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -37,7 +35,6 @@ import (
 )
 
 func TestPodReconciler(t *testing.T) {
-	now := time.Now()
 	cases := map[string]struct {
 		lws     *leaderworkersetv1.LeaderWorkerSet
 		pod     *corev1.Pod
@@ -67,15 +64,6 @@ func TestPodReconciler(t *testing.T) {
 				Label(leaderworkersetv1.SetNameLabelKey, "lws").
 				StatusPhase(corev1.PodFailed).
 				Obj(),
-		},
-		"should finalize deleted pod": {
-			lws: leaderworkerset.MakeLeaderWorkerSet("lws", "ns").Obj(),
-			pod: testingjobspod.MakePod("pod", "ns").
-				Label(leaderworkersetv1.SetNameLabelKey, "lws").
-				DeletionTimestamp(now).
-				KueueFinalizer().
-				Obj(),
-			wantPod: nil,
 		},
 		"shouldn't set default values without group index label": {
 			lws: leaderworkerset.MakeLeaderWorkerSet("lws", "ns").Obj(),
@@ -151,10 +139,7 @@ func TestPodReconciler(t *testing.T) {
 
 			gotPod := &corev1.Pod{}
 			if err := kClient.Get(ctx, podKey, gotPod); err != nil {
-				if !apierrors.IsNotFound(err) || tc.wantPod != nil {
-					t.Fatalf("Could not get Pod after reconcile: %v", err)
-				}
-				gotPod = nil
+				t.Fatalf("Could not get Pod after reconcile: %v", err)
 			}
 
 			if diff := cmp.Diff(tc.wantPod, gotPod, baseCmpOpts...); diff != "" {
