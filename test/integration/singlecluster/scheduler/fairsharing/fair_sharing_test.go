@@ -39,7 +39,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		defaultFlavor *kueue.ResourceFlavor
 		flavor1       *kueue.ResourceFlavor
@@ -212,7 +212,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("Shouldn't reserve quota because not enough resources", func() {
+		ginkgo.It("Shouldn't reserve quota because not enough resources", framework.SlowSpec, func() {
 			wl := createWorkload("a", "10")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).Should(gomega.Succeed())
@@ -526,7 +526,6 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 	ginkgo.When("using hierarchical cohorts with several flavors", func() {
 		var (
 			cqp1 *kueue.ClusterQueue
-			cqp5 *kueue.ClusterQueue
 		)
 		ginkgo.BeforeEach(func() {
 			createCohort(utiltestingapi.MakeCohort("root-cohort").Obj())
@@ -599,20 +598,6 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 				FlavorFungibility(fungibility).
 				Preemption(preemption).
 				Obj())
-
-			cqp5 = createQueue(utiltestingapi.MakeClusterQueue("cq-p5").
-				Cohort("cohort-b").
-				FairWeight(resource.MustParse("1")).
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("flavor1").Resource(corev1.ResourceCPU, "0", "10").Obj(),
-					*utiltestingapi.MakeFlavorQuotas("flavor2").Resource(corev1.ResourceCPU, "0", "10").Obj(),
-				).
-				FlavorFungibility(fungibility).
-				Preemption(preemption).
-				Obj())
-		})
-		ginkgo.AfterEach(func() {
-			_ = features.SetEnable(features.FlavorFungibilityImplicitPreferenceDefault, false)
 		})
 
 		// Since CohortA has 18CPU quota, we expect that
@@ -623,8 +608,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 		//
 		// WeightedShare(CohortA) = 0/20 * 1000 = 0
 		// WeightedShare(cq-p1)  = 12/20 * 1000 = 600
-		ginkgo.It("Prefers flavor with remaining guarantees at Cohort level (FlavorFungibilityImplicitPreferenceDefault=false)", func() {
-			_ = features.SetEnable(features.FlavorFungibilityImplicitPreferenceDefault, false)
+		ginkgo.It("Prefers flavor with remaining guarantees at Cohort level", framework.SlowSpec, func() {
 			ginkgo.By("Creating workloads")
 			for range 18 {
 				createWorkload("cq-p1", "1")
@@ -636,52 +620,6 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			ginkgo.By("Expected Weighted Shares")
 			util.ExpectClusterQueueWeightedShareMetric(cqp1, 600.0)
 			expectCohortWeightedShare("cohort-a", 0.0)
-		})
-		ginkgo.It("Prefers flavor with remaining guarantees at Cohort level (FlavorFungibilityImplicitPreferenceDefault=true)", func() {
-			_ = features.SetEnable(features.FlavorFungibilityImplicitPreferenceDefault, true)
-			for range 18 {
-				createWorkload("cq-p1", "1")
-			}
-			ginkgo.By("Workloads active")
-			util.ExpectAdmittedWorkloadsTotalMetric(cqp1, "", 18)
-			util.ExpectReservingActiveWorkloadsMetric(cqp1, 18)
-
-			ginkgo.By("Expected Weighted Shares")
-			util.ExpectClusterQueueWeightedShareMetric(cqp1, 600.0)
-			expectCohortWeightedShare("cohort-a", 0.0)
-		})
-
-		// scenario from Kueue#7015
-		// WeightedShare(CohortA) = 0/20 * 1000 = 0
-		// WeightedShare(cq-p1)  = 12/20 * 1000 = 600
-		// WeightedShare(CohortB) = 0/20 * 1000 = 0
-		// WeightedShare(cq-p5)   = 2/20 * 1000 = 100
-		ginkgo.It("CohortB preempts and schedules in flavor which has guarantees", func() {
-			_ = features.SetEnable(features.FlavorFungibilityImplicitPreferenceDefault, true)
-			ginkgo.By("Create workload which saturate all cohort resources")
-			for range 20 {
-				createWorkload("cq-p1", "1")
-			}
-			util.ExpectAdmittedWorkloadsTotalMetric(cqp1, "", 20)
-			util.ExpectReservingActiveWorkloadsMetric(cqp1, 20)
-			expectCohortWeightedShare("cohort-a", 100.0)
-
-			ginkgo.By("Create workloads in CohortB which will preempt CohortA")
-			createWorkload("cq-p5", "1")
-			createWorkload("cq-p5", "1")
-
-			ginkgo.By("Finish Preemption of Workloads")
-			util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqp1, 2)
-
-			ginkgo.By("Check expected workloads active")
-			util.ExpectReservingActiveWorkloadsMetric(cqp1, 18)
-			util.ExpectReservingActiveWorkloadsMetric(cqp5, 2)
-
-			ginkgo.By("Expected Weighted Shares")
-			util.ExpectClusterQueueWeightedShareMetric(cqp1, 600.0)
-			util.ExpectClusterQueueWeightedShareMetric(cqp5, 100.0)
-			expectCohortWeightedShare("cohort-a", 0.0)
-			expectCohortWeightedShare("cohort-b", 0.0)
 		})
 	})
 
@@ -728,10 +666,6 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 				FlavorFungibility(fungibility).
 				Preemption(preemption).
 				Obj())
-			_ = features.SetEnable(features.FlavorFungibilityImplicitPreferenceDefault, true)
-		})
-		ginkgo.AfterEach(func() {
-			_ = features.SetEnable(features.FlavorFungibilityImplicitPreferenceDefault, false)
 		})
 
 		// The first workload preempted satisfies
@@ -988,7 +922,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 		})
 	})
 
-	ginkgo.When("Using AdmissionFairSharing at ClusterQueue level", func() {
+	ginkgo.When("Using AdmissionFairSharing at ClusterQueue level", ginkgo.Label("feature:admissionfairsharing"), func() {
 		var (
 			cq1 *kueue.ClusterQueue
 			lqA *kueue.LocalQueue
@@ -1057,7 +991,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			util.ExpectWorkloadsToBeAdmittedCount(ctx, k8sClient, 1, lqBWls...)
 		})
 
-		ginkgo.It("prioritizes workloads from less active LocalQueues to maintain fairness", func() {
+		ginkgo.It("prioritizes workloads from less active LocalQueues to maintain fairness", framework.SlowSpec, func() {
 			ginkgo.By("Saturating the cq with lq-a")
 			initialWls := []*kueue.Workload{
 				createWorkload("lq-a", "4"),
@@ -1118,7 +1052,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlC)
 		})
 
-		ginkgo.It("admits workloads from less active LocalQueues after quota is released", func() {
+		ginkgo.It("admits workloads from less active LocalQueues after quota is released", framework.SlowSpec, func() {
 			ginkgo.By("Saturating the cq with lq-a")
 			initialWls := []*kueue.Workload{
 				createWorkload("lq-a", "4"),
@@ -1224,7 +1158,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionFairSharing, false)
 		})
 
-		ginkgo.It("Guaranteed workloads cause preemption of a single best effort workload", func() {
+		ginkgo.It("Guaranteed workloads cause preemption of a single best effort workload", framework.SlowSpec, func() {
 			ginkgo.By("Creating two best effort workloads in each best effort CQ")
 			wlBestEffortA := createWorkloadWithPriority("best-effort-a", "4", 2)
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlBestEffortA)
@@ -1265,7 +1199,7 @@ func expectCohortWeightedShare(cohortName string, weightedShare float64) {
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 }
 
-var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "feature:admissionfairsharing"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		defaultFlavor *kueue.ResourceFlavor
 		ns            *corev1.Namespace
@@ -1383,7 +1317,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			util.MustCreate(ctx, k8sClient, lqC)
 		})
 
-		ginkgo.It("should promote a workload from LQ with lower recent usage", func() {
+		ginkgo.It("should promote a workload from LQ with lower recent usage", framework.SlowSpec, func() {
 			ginkgo.By("Creating a workload")
 			wl := createWorkload("lq-a", "32")
 
@@ -1426,7 +1360,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 	})
 })
 
-var _ = ginkgo.Describe("Scheduler with AdmissionFairSharing = nil", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Scheduler with AdmissionFairSharing = nil", ginkgo.Label("feature:fairsharing"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		defaultFlavor *kueue.ResourceFlavor
 		ns            *corev1.Namespace
@@ -1509,7 +1443,7 @@ var _ = ginkgo.Describe("Scheduler with AdmissionFairSharing = nil", ginkgo.Orde
 			util.MustCreate(ctx, k8sClient, lqA)
 		})
 
-		ginkgo.It("should ignore FairSharing", func() {
+		ginkgo.It("should ignore FairSharing", framework.SlowSpec, func() {
 			ginkgo.By("Creating a workload")
 			wl := createWorkload(kueue.LocalQueueName(lqA.Name), "32")
 

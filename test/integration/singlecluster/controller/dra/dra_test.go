@@ -33,6 +33,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/integration/framework"
 )
 
 var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -101,7 +102,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 		})
 
-		ginkgo.It("Should reject workload with DRA resource claims with inadmissible condition", func() {
+		ginkgo.It("Should reject workload with DRA resource claims with inadmissible condition", framework.SlowSpec, func() {
 			ginkgo.By("Creating a ResourceClaim")
 			rc := utiltesting.MakeResourceClaim("test-rc", ns.Name).
 				DeviceRequest("device-request", "foo.example.com", 2).
@@ -371,7 +372,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("Should handle unmapped device classes with proper error", func() {
+		ginkgo.It("Should handle unmapped device classes with proper error", framework.SlowSpec, func() {
 			ginkgo.By("Creating a ResourceClaimTemplate with unmapped device class")
 			rct := utiltesting.MakeResourceClaimTemplate("unmapped-template", ns.Name).
 				DeviceRequest("device-request", "unmapped.example.com", 2).
