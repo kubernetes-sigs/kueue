@@ -55,14 +55,15 @@ import (
 )
 
 const (
-	parallelism       = 4
-	jobName           = "test-job"
-	instanceKey       = "cloud.provider.com/instance"
-	priorityClassName = "test-priority-class"
-	priorityValue     = 10
-	highPriorityValue = 20
-	parentJobName     = jobName + "-parent"
-	childJobName      = jobName + "-child"
+	parallelism           = 4
+	jobName               = "test-job"
+	instanceKey           = "cloud.provider.com/instance"
+	priorityClassName     = "test-priority-class"
+	priorityValue         = 10
+	highPriorityClassName = "high-priority-class"
+	highPriorityValue     = 20
+	parentJobName         = jobName + "-parent"
+	childJobName          = jobName + "-child"
 )
 
 var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -644,7 +645,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		})
 	})
 
-	ginkgo.It("Should finish the preemption when the job becomes inactive", func() {
+	ginkgo.It("Should finish the preemption when the job becomes inactive", framework.SlowSpec, func() {
 		job := testingjob.MakeJob(jobName, ns.Name).Queue("q").Obj()
 		wl := &kueue.Workload{}
 		var wlLookupKey types.NamespacedName
@@ -897,7 +898,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			})
 		})
 
-		ginkgo.It("should not admit workload if there is a conflict in labels", func() {
+		ginkgo.It("should not admit workload if there is a conflict in labels", framework.SlowSpec, func() {
 			createdJob := &batchv1.Job{}
 			createdWorkload := &kueue.Workload{}
 			job := testingjob.MakeJob(jobName, ns.Name).
@@ -1657,7 +1658,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 		})
 	})
 
-	ginkgo.It("Should allow reclaim of resources that are no longer needed", func() {
+	ginkgo.It("Should allow reclaim of resources that are no longer needed", framework.SlowSpec, func() {
 		job1 := testingjob.MakeJob("job1", ns.Name).Queue(kueue.LocalQueueName(prodLocalQ.Name)).
 			Request(corev1.ResourceCPU, "2").
 			Completions(5).
@@ -1807,7 +1808,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 		})
 	})
 
-	ginkgo.It("Should schedule jobs with partial admission", func() {
+	ginkgo.It("Should schedule jobs with partial admission", framework.SlowSpec, func() {
 		job1 := testingjob.MakeJob("job1", ns.Name).
 			Queue(kueue.LocalQueueName(prodLocalQ.Name)).
 			Parallelism(5).
@@ -3077,7 +3078,7 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 				afterDeactivatedByKueue = &metav1.Duration{Duration: util.TinyTimeout}
 			})
 
-			ginkgo.It("shouldn't delete job when it is deactivated manually", func() {
+			ginkgo.It("shouldn't delete job when it is deactivated manually", framework.SlowSpec, func() {
 				job := testingjob.MakeJob("job", ns.Name).
 					Queue(kueue.LocalQueueName(lq.Name)).
 					Request(corev1.ResourceCPU, "2").
@@ -3134,7 +3135,7 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 				afterDeactivatedByKueue = &metav1.Duration{Duration: util.TinyTimeout}
 			})
 
-			ginkgo.It("should delete job", func() {
+			ginkgo.It("should delete job", framework.SlowSpec, func() {
 				job := testingjob.MakeJob("job", ns.Name).
 					Queue(kueue.LocalQueueName(lq.Name)).
 					Request(corev1.ResourceCPU, "2").
@@ -3232,7 +3233,7 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 				afterDeactivatedByKueue = &metav1.Duration{Duration: util.LongTimeout}
 			})
 
-			ginkgo.It("shouldn't delete job", func() {
+			ginkgo.It("shouldn't delete job", framework.SlowSpec, func() {
 				job := testingjob.MakeJob("job", ns.Name).
 					Queue(kueue.LocalQueueName(lq.Name)).
 					Request(corev1.ResourceCPU, "2").

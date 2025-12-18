@@ -40,6 +40,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/integration/framework"
 )
 
 const (
@@ -540,7 +541,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, spotUntaintedFlavor, true)
 	})
 
-	ginkgo.It("Should schedule jobs as they fit in their ClusterQueue", func() {
+	ginkgo.It("Should schedule jobs as they fit in their ClusterQueue", framework.SlowSpec, func() {
 		ginkgo.By("creating localQueue")
 		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 		util.MustCreate(ctx, k8sClient, localQueue)
@@ -613,7 +614,7 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, priorityClass, true)
 	})
 
-	ginkgo.It("Should preempt lower priority rayJobs when resource insufficient", func() {
+	ginkgo.It("Should preempt lower priority rayJobs when resource insufficient", framework.SlowSpec, func() {
 		ginkgo.By("Create a low priority rayJob")
 		lowPriorityJob := testingrayjob.MakeJob("rayjob-with-low-priority", ns.Name).Queue(localQueue.Name).
 			RequestHead(corev1.ResourceCPU, "1").
