@@ -7,7 +7,6 @@ metadata:
     kueue.x-k8s.io/queue-name: lq-a
 spec:
   parallelism: 1
-  suspend: true
   template:
     spec:
       containers:
