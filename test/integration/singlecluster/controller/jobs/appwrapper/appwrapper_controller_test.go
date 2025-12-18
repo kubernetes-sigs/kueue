@@ -66,8 +66,14 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
 		unmanagedNamespace := testing.MakeNamespace("unmanaged-ns")
 		util.MustCreate(ctx, k8sClient, unmanagedNamespace)
+
+		priorityClass := testing.MakePriorityClass(priorityClassName).
+			PriorityValue(priorityValue).Obj()
+		util.MustCreate(ctx, k8sClient, priorityClass)
 	})
 	ginkgo.AfterAll(func() {
+		priorityClass := &schedulingv1.PriorityClass{ObjectMeta: metav1.ObjectMeta{Name: priorityClassName}}
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, priorityClass, true)
 		fwk.StopManager(ctx)
 	})
 
@@ -119,9 +125,6 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 
 		ginkgo.It("Should reconcile AppWrappers", func() {
 			ginkgo.By("checking the AppWrapper gets suspended when created unsuspended")
-			priorityClass := testing.MakePriorityClass(priorityClassName).
-				PriorityValue(priorityValue).Obj()
-			util.MustCreate(ctx, k8sClient, priorityClass)
 
 			aw := testingaw.MakeAppWrapper(awName, ns.Name).
 				Component(testingaw.Component{
