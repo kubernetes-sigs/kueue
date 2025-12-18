@@ -165,7 +165,7 @@ func validatedUpdateForEnabledWorkloadSlice(oldJob, newJob GenericJob) field.Err
 }
 
 func ValidateUpdateForWorkloadPriorityClassName(isSuspended bool, oldObj, newObj client.Object) field.ErrorList {
-	if !isSuspended && IsWorkloadPriorityClassNameEmpty(oldObj) || IsWorkloadPriorityClassNameEmpty(newObj) {
+	if !isSuspended && (IsWorkloadPriorityClassNameEmpty(oldObj) || IsWorkloadPriorityClassNameEmpty(newObj)) {
 		return apivalidation.ValidateImmutableField(WorkloadPriorityClassName(newObj), WorkloadPriorityClassName(oldObj), workloadPriorityClassNamePath)
 	}
 	return nil
