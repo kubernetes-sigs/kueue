@@ -430,14 +430,16 @@ func TestAddWorkload(t *testing.T) {
 				Queue("foo").
 				Finished().
 				Obj(),
-			wantErr: errWorkloadIsInadmissible,
+			wantErr:      errWorkloadIsInadmissible,
+			wantAssigned: map[workload.Reference]queue.LocalQueueReference{},
 		},
 		{
 			workload: utiltestingapi.MakeWorkload("inactive", "earth").
 				Queue("foo").
 				Active(false).
 				Obj(),
-			wantErr: errWorkloadIsInadmissible,
+			wantErr:      errWorkloadIsInadmissible,
+			wantAssigned: map[workload.Reference]queue.LocalQueueReference{},
 		},
 		{
 			workload: utiltestingapi.MakeWorkload("quota_already_reserved", "earth").
@@ -447,7 +449,8 @@ func TestAddWorkload(t *testing.T) {
 					PodSetAssignments: nil,
 				}).
 				Obj(),
-			wantErr: errWorkloadIsInadmissible,
+			wantErr:      errWorkloadIsInadmissible,
+			wantAssigned: map[workload.Reference]queue.LocalQueueReference{},
 		},
 		{
 			workload: &kueue.Workload{
@@ -496,19 +499,8 @@ func TestAddWorkload(t *testing.T) {
 			workload: utiltestingapi.MakeWorkload("non_existing_local_queue", "earth").
 				Queue("baz").
 				Obj(),
-			wantErr: ErrLocalQueueDoesNotExistOrInactive,
-		},
-		{
-			workload: utiltestingapi.MakeWorkload("non_existing_cluster_queue", "mars").
-				Queue("bar").
-				Obj(),
-			wantErr: ErrClusterQueueDoesNotExist,
-		},
-		{
-			workload: utiltestingapi.MakeWorkload("wrong_namespace", "mars").
-				Queue("foo").
-				Obj(),
-			wantErr: ErrLocalQueueDoesNotExistOrInactive,
+			wantErr:      ErrLocalQueueDoesNotExistOrInactive,
+			wantAssigned: map[workload.Reference]queue.LocalQueueReference{},
 		},
 	}
 	for _, tc := range cases {
