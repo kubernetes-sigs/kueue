@@ -588,7 +588,7 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "EvictedDueToNodeFailures", corev1.EventTypeNormal).
-					Message("Workload was evicted as there was no replacement for a failed node: x0").
+					Message("Workload was evicted as there was no replacement for unhealthy node(s): x0").
 					Obj(),
 			},
 		},
@@ -2499,7 +2499,7 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "EvictedDueToNodeFailures", corev1.EventTypeNormal).
-					Message("Workload was evicted as there was no replacement for a failed node: x0").Obj(),
+					Message("Workload was evicted as there was no replacement for unhealthy node(s): x0").Obj(),
 			},
 		},
 		"does not admit workload when node does not match required affinity": {
@@ -5825,7 +5825,7 @@ func TestScheduleForTASWhenWorkloadModifiedConcurrently(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             "NodeFailures",
-						Message:            "Workload was evicted as there was no replacement for a failed node: x0",
+						Message:            "Workload was evicted as there was no replacement for unhealthy node(s): x0",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{
@@ -5836,7 +5836,7 @@ func TestScheduleForTASWhenWorkloadModifiedConcurrently(t *testing.T) {
 			},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "wl", "EvictedDueToNodeFailures", corev1.EventTypeNormal).
-					Message("Workload was evicted as there was no replacement for a failed node: x0").
+					Message("Workload was evicted as there was no replacement for unhealthy node(s): x0").
 					Obj(),
 			},
 		},
