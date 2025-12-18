@@ -38,6 +38,7 @@ import (
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/integration/framework"
 )
 
 var _ = ginkgo.Describe("RayCluster Webhook", func() {
@@ -117,7 +118,7 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 			fwk.StopManager(ctx)
 		})
 
-		ginkgo.It("Should not suspend a cluster if the parent's workload exist and is admitted", func() {
+		ginkgo.It("Should not suspend a cluster if the parent's workload exist and is admitted", framework.SlowSpec, func() {
 			ginkgo.By("Creating the parent job which has a queue name")
 			parentJob := testingrayjob.MakeJob("parent-job", ns.Name).
 				Queue("test").

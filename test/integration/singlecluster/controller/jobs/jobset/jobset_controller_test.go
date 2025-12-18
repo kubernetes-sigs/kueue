@@ -45,6 +45,7 @@ import (
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/integration/framework"
 )
 
 const (
@@ -300,7 +301,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jo
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("Should finish the preemption when the jobset becomes inactive", func() {
+		ginkgo.It("Should finish the preemption when the jobset becomes inactive", framework.SlowSpec, func() {
 			jobSet := testingjobset.MakeJobSet(jobSetName, ns.Name).ReplicatedJobs(
 				testingjobset.ReplicatedJobRequirements{
 					Name:        "replicated-job-1",
@@ -700,7 +701,7 @@ var _ = ginkgo.Describe("JobSet controller for workloads when only jobs with que
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
-	ginkgo.It("Should reconcile jobs only when queue is set", func() {
+	ginkgo.It("Should reconcile jobs only when queue is set", framework.SlowSpec, func() {
 		ginkgo.By("checking the workload is not created when queue name is not set")
 		jobSet := testingjobset.MakeJobSet(jobSetName, ns.Name).ReplicatedJobs(
 			testingjobset.ReplicatedJobRequirements{
@@ -1203,7 +1204,7 @@ var _ = ginkgo.Describe("JobSet controller with TopologyAwareScheduling", ginkgo
 		}
 	})
 
-	ginkgo.It("should admit workload which fits in a required topology domain", func() {
+	ginkgo.It("should admit workload which fits in a required topology domain", framework.SlowSpec, func() {
 		jobSet := testingjobset.MakeJobSet(jobSetName, ns.Name).
 			Queue(localQueue.Name).
 			ReplicatedJobs(

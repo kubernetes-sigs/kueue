@@ -121,7 +121,7 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		})
 
-		ginkgo.It("Should reconcile Trainjobs", func() {
+		ginkgo.It("Should reconcile Trainjobs", framework.SlowSpec, func() {
 			var (
 				createdTrainJob kftrainerapi.TrainJob
 				trainJob        *kftrainerapi.TrainJob
@@ -203,7 +203,7 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 			})
 		})
 
-		ginkgo.It("A trainjob created in an unmanaged namespace is not suspended and a workload is not created", func() {
+		ginkgo.It("A trainjob created in an unmanaged namespace is not suspended and a workload is not created", framework.SlowSpec, func() {
 			ginkgo.By("Creating an unsuspended trainjob without a queue-name in unmanaged-ns", func() {
 				trainJob := testingtrainjob.MakeTrainJob("trainjob-test", "unmanaged-ns").RuntimeRef(kftrainerapi.RuntimeRef{
 					APIGroup: ptr.To("trainer.kubeflow.org"),
@@ -334,7 +334,7 @@ var _ = ginkgo.Describe("TrainJob controller for workloads when only jobs with q
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
-	ginkgo.It("Should reconcile jobs only when queue is set", func() {
+	ginkgo.It("Should reconcile jobs only when queue is set", framework.SlowSpec, func() {
 		ginkgo.By("checking the workload is not created when queue name is not set")
 		testJobSet := testingjobset.MakeJobSet("", "").ReplicatedJobs(
 			testingjobset.ReplicatedJobRequirements{
@@ -653,7 +653,7 @@ var _ = ginkgo.Describe("TrainJob controller with TopologyAwareScheduling", gink
 		}
 	})
 
-	ginkgo.It("should admit workload which fits in a required topology domain", func() {
+	ginkgo.It("should admit workload which fits in a required topology domain", framework.SlowSpec, func() {
 		testJobSet := testingjobset.MakeJobSet("", "").ReplicatedJobs(
 			testingjobset.ReplicatedJobRequirements{
 				Name:        "node-1",

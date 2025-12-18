@@ -179,7 +179,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			})
 		})
 
-		ginkgo.It("Should create provisioning requests after quota is reserved and preserve it when reservation is lost", func() {
+		ginkgo.It("Should create provisioning requests after quota is reserved and preserve it when reservation is lost", framework.SlowSpec, func() {
 			ginkgo.By("Setting the quota reservation to the workload", func() {
 				util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
 			})
@@ -599,7 +599,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			})
 		})
 
-		ginkgo.It("Should keep the provisioning config in sync", func() {
+		ginkgo.It("Should keep the provisioning config in sync", framework.SlowSpec, func() {
 			ginkgo.By("Setting the quota reservation to the workload", func() {
 				util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
 			})
@@ -1753,7 +1753,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 			})
 		})
 
-		ginkgo.It("Should be successfully re-admitted on another flavor with another admission check", func() {
+		ginkgo.It("Should be successfully re-admitted on another flavor with another admission check", framework.SlowSpec, func() {
 			ginkgo.By("Set up ClusterQueue and LocalQueue", func() {
 				cq = utiltestingapi.MakeClusterQueue("cluster-queue").
 					Preemption(kueue.ClusterQueuePreemption{
@@ -1914,7 +1914,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 			})
 		})
 
-		ginkgo.It("Should be successfully re-admitted on another flavor with a decimal memory request", func() {
+		ginkgo.It("Should be successfully re-admitted on another flavor with a decimal memory request", framework.SlowSpec, func() {
 			ginkgo.By("Set up ClusterQueue and LocalQueue", func() {
 				cq = utiltestingapi.MakeClusterQueue("cluster-queue").
 					Preemption(kueue.ClusterQueuePreemption{
