@@ -108,6 +108,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			managersRayJobs: []rayv1.RayJob{
 				*rayJobBuilder.Clone().
 					Suspend(true).
+					JobDeploymentStatus(rayv1.JobDeploymentStatusSuspended).
 					Obj(),
 			},
 			workerRayJobs: []rayv1.RayJob{
@@ -124,6 +125,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			wantManagersRayJobs: []rayv1.RayJob{
 				*rayJobBuilder.Clone().
 					Suspend(true).
+					JobDeploymentStatus(rayv1.JobDeploymentStatusSuspended).
 					Obj(),
 			},
 			wantWorkerRayJobs: []rayv1.RayJob{
