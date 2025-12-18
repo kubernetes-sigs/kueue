@@ -31,6 +31,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/yaml"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
@@ -167,6 +168,38 @@ var _ = ginkgo.Describe("Kuberay", func() {
 					for _, pod := range podList.Items {
 						fmt.Printf("  - %s (Phase: %s, Ready: %v)\n", pod.Name, pod.Status.Phase, isPodReady(&pod))
 					}
+				}
+
+				// Get RayJob and print full YAML
+				createdRayJob := &rayv1.RayJob{}
+				if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(rayJob), createdRayJob); err != nil {
+					fmt.Printf("\nError getting RayJob: %v\n", err)
+				} else {
+					fmt.Printf("\nRayJob (Full YAML):\n")
+					fullYAML, err := yaml.Marshal(createdRayJob)
+					if err != nil {
+						fmt.Printf("Error marshaling RayJob to YAML: %v\n", err)
+					} else {
+						fmt.Printf("%s\n", string(fullYAML))
+					}
+				}
+
+				// Get RayCluster and print full YAML
+				rayClusterList := &rayv1.RayClusterList{}
+				if err := k8sClient.List(ctx, rayClusterList, client.InNamespace(ns.Name)); err != nil {
+					fmt.Printf("Error listing RayClusters: %v\n", err)
+				} else if len(rayClusterList.Items) > 0 {
+					for idx, cluster := range rayClusterList.Items {
+						fmt.Printf("\nRayCluster #%d (%s) (Full YAML):\n", idx+1, cluster.Name)
+						fullYAML, err := yaml.Marshal(&cluster)
+						if err != nil {
+							fmt.Printf("Error marshaling RayCluster to YAML: %v\n", err)
+						} else {
+							fmt.Printf("%s\n", string(fullYAML))
+						}
+					}
+				} else {
+					fmt.Printf("\nNo RayClusters found\n")
 				}
 
 				if time.Since(startTime) >= duration {
