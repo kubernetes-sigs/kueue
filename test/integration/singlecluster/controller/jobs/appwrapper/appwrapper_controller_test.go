@@ -26,7 +26,6 @@ import (
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	schedulingv1 "k8s.io/api/scheduling/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -101,15 +100,9 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 			util.MustCreate(ctx, k8sClient, onDemandFlavor)
 			spotFlavor = utiltestingapi.MakeResourceFlavor("spot").NodeLabel(instanceKey, "spot").Obj()
 			util.MustCreate(ctx, k8sClient, spotFlavor)
-
-			priorityClass := utiltesting.MakePriorityClass(priorityClassName).
-				PriorityValue(priorityValue).Obj()
-			util.MustCreate(ctx, k8sClient, priorityClass)
 		})
 
 		ginkgo.AfterEach(func() {
-			priorityClass := &schedulingv1.PriorityClass{ObjectMeta: metav1.ObjectMeta{Name: priorityClassName}}
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, priorityClass, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, spotFlavor, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
@@ -117,6 +110,12 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 
 		ginkgo.It("Should reconcile AppWrappers", func() {
 			ginkgo.By("checking the AppWrapper gets suspended when created unsuspended")
+			priorityClass := utiltesting.MakePriorityClass(priorityClassName).
+				PriorityValue(priorityValue).Obj()
+			util.MustCreate(ctx, k8sClient, priorityClass)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, priorityClass, true)
+			})
 
 			aw := testingaw.MakeAppWrapper(awName, ns.Name).
 				Component(testingaw.Component{
@@ -214,6 +213,13 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 
 		ginkgo.It("An appwrapper created in an unmanaged namespace is not suspended and a workload is not created", func() {
 			ginkgo.By("Creating an unsuspended job without a queue-name in unmanaged-ns")
+			priorityClass := utiltesting.MakePriorityClass(priorityClassName).
+				PriorityValue(priorityValue).Obj()
+			util.MustCreate(ctx, k8sClient, priorityClass)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, priorityClass, true)
+			})
+
 			aw := testingaw.MakeAppWrapper(awName, "unmanaged-ns").
 				Component(testingaw.Component{
 					Template: utiltestingjob.MakeJob("job-0", ns.Name).SetTypeMeta().PriorityClass(priorityClassName).Obj(),
@@ -237,6 +243,13 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 		})
 
 		ginkgo.It("Should finish the preemption when the appwrapper no longer has resources deployed", framework.SlowSpec, func() {
+			priorityClass := utiltesting.MakePriorityClass(priorityClassName).
+				PriorityValue(priorityValue).Obj()
+			util.MustCreate(ctx, k8sClient, priorityClass)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, priorityClass, true)
+			})
+
 			aw := testingaw.MakeAppWrapper(awName, ns.Name).
 				Component(testingaw.Component{
 					Template: utiltestingjob.MakeJob("job-0", ns.Name).SetTypeMeta().PriorityClass(priorityClassName).Obj(),
