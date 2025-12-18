@@ -351,3 +351,79 @@ func TestValidateJobOnUpdate(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateUpdateForWorkloadPriorityClassName(t *testing.T) {
+	workloadPriorityClassNamePath := field.NewPath("metadata", "labels").Key(constants.WorkloadPriorityClassLabel)
+	testcases := map[string]struct {
+		oldJob      *batchv1.Job
+		newJob      *batchv1.Job
+		isSuspended bool
+		wantErr     field.ErrorList
+	}{
+		"should not return error if the job is suspended and priority is added": {
+			oldJob:      utiltestingjob.MakeJob("test-job", "ns1").Obj(),
+			newJob:      utiltestingjob.MakeJob("test-job", "ns1").WorkloadPriorityClass("high").Obj(),
+			isSuspended: true,
+		},
+		"should not return error if the job is suspended and priority is changed": {
+			oldJob:      utiltestingjob.MakeJob("test-job", "ns1").WorkloadPriorityClass("low").Obj(),
+			newJob:      utiltestingjob.MakeJob("test-job", "ns1").WorkloadPriorityClass("high").Obj(),
+			isSuspended: true,
+		},
+		"should not return error if the job is suspended and priority is removed": {
+			oldJob:      utiltestingjob.MakeJob("test-job", "ns1").WorkloadPriorityClass("high").Obj(),
+			newJob:      utiltestingjob.MakeJob("test-job", "ns1").Obj(),
+			isSuspended: true,
+		},
+		"should return error if the job is not suspended and priority is added": {
+			oldJob:      utiltestingjob.MakeJob("test-job", "ns1").Obj(),
+			newJob:      utiltestingjob.MakeJob("test-job", "ns1").WorkloadPriorityClass("high").Obj(),
+			isSuspended: false,
+			wantErr: field.ErrorList{
+				field.Invalid(workloadPriorityClassNamePath, "high", "field is immutable"),
+			},
+		},
+		"should return error if the job is not suspended and priority is removed": {
+			oldJob:      utiltestingjob.MakeJob("test-job", "ns1").WorkloadPriorityClass("high").Obj(),
+			newJob:      utiltestingjob.MakeJob("test-job", "ns1").Obj(),
+			isSuspended: false,
+			wantErr: field.ErrorList{
+				field.Invalid(workloadPriorityClassNamePath, "", "field is immutable"),
+			},
+		},
+		"should not return error if the job is not suspended and priority is changed": {
+			oldJob:      utiltestingjob.MakeJob("test-job", "ns1").WorkloadPriorityClass("low").Obj(),
+			newJob:      utiltestingjob.MakeJob("test-job", "ns1").WorkloadPriorityClass("high").Obj(),
+			isSuspended: false,
+		},
+		"should not return error if the job is not suspended and priority is not changed (both set)": {
+			oldJob:      utiltestingjob.MakeJob("test-job", "ns1").WorkloadPriorityClass("high").Obj(),
+			newJob:      utiltestingjob.MakeJob("test-job", "ns1").WorkloadPriorityClass("high").Obj(),
+			isSuspended: false,
+		},
+		"should not return error if the job is not suspended and priority is not changed (both unset)": {
+			oldJob:      utiltestingjob.MakeJob("test-job", "ns1").Obj(),
+			newJob:      utiltestingjob.MakeJob("test-job", "ns1").Obj(),
+			isSuspended: false,
+		},
+		"should not return error if the job is not suspended and priority is changed from empty to empty string": {
+			oldJob:      utiltestingjob.MakeJob("test-job", "ns1").Obj(),
+			newJob:      utiltestingjob.MakeJob("test-job", "ns1").WorkloadPriorityClass("").Obj(),
+			isSuspended: false,
+		},
+		"should not return error if the job is not suspended and priority is changed from empty string to empty": {
+			oldJob:      utiltestingjob.MakeJob("test-job", "ns1").WorkloadPriorityClass("").Obj(),
+			newJob:      utiltestingjob.MakeJob("test-job", "ns1").Obj(),
+			isSuspended: false,
+		},
+	}
+
+	for name, tc := range testcases {
+		t.Run(name, func(t *testing.T) {
+			gotErrs := jobframework.ValidateUpdateForWorkloadPriorityClassName(tc.isSuspended, tc.oldJob, tc.newJob)
+			if diff := cmp.Diff(tc.wantErr, gotErrs, cmpopts.EquateEmpty(), cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
+				t.Errorf("ValidateUpdateForWorkloadPriorityClassName() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
