@@ -169,7 +169,6 @@ func ValidateUpdateForWorkloadPriorityClassName(isSuspended bool, oldObj, newObj
 		if !IsWorkloadPriorityClassNameEmpty(newObj) {
 			return field.ErrorList{field.Invalid(workloadPriorityClassNamePath, WorkloadPriorityClassName(newObj), "WorkloadPriorityClass cannot be added to a non-suspended workload")}
 		}
-		return nil
 	}
 	if IsWorkloadPriorityClassNameEmpty(newObj) {
 		if !IsWorkloadPriorityClassNameEmpty(oldObj) {
