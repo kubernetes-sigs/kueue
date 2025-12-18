@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	kftesting "sigs.k8s.io/kueue/test/integration/singlecluster/controller/jobs/kubeflow"
 	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/integration/framework"
 )
 
 const (
@@ -650,7 +651,7 @@ var _ = ginkgo.Describe("PyTorchJob controller with TopologyAwareScheduling", gi
 		}
 	})
 
-	ginkgo.It("should admit workload which fits in a required topology domain", func() {
+	ginkgo.It("should admit workload which fits in a required topology domain", framework.SlowSpec, func() {
 		pytorchJob := testingpytorchjob.MakePyTorchJob("pytorchjob", ns.Name).
 			PyTorchReplicaSpecs(
 				testingpytorchjob.PyTorchReplicaSpecRequirement{

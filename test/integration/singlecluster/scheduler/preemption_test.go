@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/integration/framework"
 )
 
 const (
@@ -190,7 +191,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, lowWl)
 		})
 
-		ginkgo.It("Should preempt newer Workloads with the same priority when there is not enough quota", func() {
+		ginkgo.It("Should preempt newer Workloads with the same priority when there is not enough quota", framework.SlowSpec, func() {
 			ginkgo.By("Creating initial Workloads")
 			wl1 := utiltestingapi.MakeWorkload("wl-1", ns.Name).
 				Queue(kueue.LocalQueueName(q.Name)).
