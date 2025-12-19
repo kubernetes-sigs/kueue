@@ -18,6 +18,7 @@ package rayjob
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
@@ -80,10 +81,16 @@ var _ admission.CustomDefaulter = &RayJobWebhook{}
 func (w *RayJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	job := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
+	log.V(5).Info("Applying defaults")
+	jobframework.ApplyDefaultLocalQueue(job.Object(), w.queues.DefaultLocalQueueExist)
+	if job.Spec.RayClusterSpec != nil && ptr.Deref(job.Spec.RayClusterSpec.EnableInTreeAutoscaling, false) && !workloadslicing.Enabled(job.Object()) {
+		return errors.New("RayJob should enable workload slicing if autoscaling is enabled")
+	}
 	if job.Spec.Suspend {
-		log.V(5).Info("Change RayJob Suspend to false", "jobName", job.Name, "jobNamespace", job.Namespace)
+		log.V(5).Info("Update RayJob Suspend to false", "jobName", job.Name, "jobNamespace", job.Namespace)
 		job.Spec.Suspend = false
 	}
+	jobframework.ApplyDefaultForManagedBy(job, w.queues, w.cache, log)
 	return nil
 }
 
