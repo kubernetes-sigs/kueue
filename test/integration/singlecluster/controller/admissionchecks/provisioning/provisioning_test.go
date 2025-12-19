@@ -243,7 +243,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			})
 		})
 
-		ginkgo.It("Should set the condition ready when the provision succeed", func() {
+		ginkgo.It("Should set the condition ready when the provision succeed", framework.SlowSpec, func() {
 			ginkgo.By("Setting the quota reservation to the workload", func() {
 				util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
 			})
