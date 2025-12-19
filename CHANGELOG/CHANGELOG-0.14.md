@@ -1,3 +1,29 @@
+## v0.14.7
+
+Changes since `v0.14.6`:
+
+## Changes by Kind
+
+### Feature
+
+- Ray: Support RayJob InTreeAutoscaling by using the ElasticJobsViaWorkloadSlices feature. (#8282, @hiboyang)
+
+### Bug or Regression
+
+- MultiKueue: Fixed status sync for CRD-based jobs (JobSet, Kubeflow, Ray, etc.) that was blocked while the local job was suspended. (#8346, @IrvingMg)
+- MultiKueue: fix the bug that for Pod integration the AdmissionCheck status would be kept Pending indefinitely,
+  even when the Pods are already running.
+
+  The analogous fix is also done for the batch/Job when the MultiKueueBatchJobWithManagedBy feature gate  is disabled. (#8293, @IrvingMg)
+- Scheduling: fix a bug that evictions submitted by scheduler (preemptions and eviction due to TAS NodeHotSwap failing)
+  could result in conflict in case of concurrent workload modification by another controller.
+  This could lead to indefinite failing requests sent by scheduler in some scenarios when eviction is initiated by
+  TAS NodeHotSwap. (#8314, @mbobrovskyi)
+- TAS NodeHotSwap: fixed the bug that allows workload to requeue by scheduler even if already deleted on TAS NodeHotSwap eviction. (#8306, @mbobrovskyi)
+- TAS: fix a performance bug that continues reconciles of TAS ResourceFlavor (and related ClusterQueues)
+  were triggered by updates to Nodes' heartbeat times. (#8356, @PBundyra)
+- TAS: fixed performance issue due to unncessary (empty) request by TopologyUngater (#8337, @mbobrovskyi)
+
 ## v0.14.6
 
 Changes since `v0.14.5`:
