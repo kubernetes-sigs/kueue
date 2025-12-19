@@ -1,9 +1,9 @@
 header:
   schema-version: 1.0.0
   expiration-date: '2024-09-28T01:00:00.000Z'
-  last-updated: ''
-  last-reviewed: ''
-  commit-hash: ""
+  last-updated: '2025-12-19'
+  last-reviewed: '2025-12-19'
+  commit-hash: "3790e86359efacde36b9fc2722e84f496a06d8fc"
   project-url: 'https://github.com/kubernetes-sigs/kueue'
   project-release: "0.15.2"
   changelog: 'https://github.com/kubernetes-sigs/kueue/tree/main/CHANGELOG'
