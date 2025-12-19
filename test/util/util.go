@@ -367,32 +367,35 @@ func ExpectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wl
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
+func admittedWorkloadKeys(ctx context.Context, k8sClient client.Client, wlKeys sets.Set[client.ObjectKey]) (sets.Set[client.ObjectKey], error) {
+	admitted := sets.New[client.ObjectKey]()
+	var updatedWorkload kueue.Workload
+	for _, wl := range wlKeys.UnsortedList() {
+		if err := k8sClient.Get(ctx, wl, &updatedWorkload); err != nil {
+			return nil, err
+		}
+		if workload.IsAdmitted(&updatedWorkload) {
+			admitted.Insert(wl)
+		}
+	}
+	return admitted, nil
+}
+
 func ExpectWorkloadsToBeAdmitted(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
 	wlKeys := workloadKeys(wls...)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		admitted := sets.New[client.ObjectKey]()
-		var updatedWorkload kueue.Workload
-		for _, wl := range wls {
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
-			if apimeta.IsStatusConditionTrue(updatedWorkload.Status.Conditions, kueue.WorkloadAdmitted) {
-				admitted.Insert(client.ObjectKeyFromObject(wl))
-			}
-		}
+		admitted, err := admittedWorkloadKeys(ctx, k8sClient, wlKeys)
+		g.Expect(err).NotTo(gomega.HaveOccurred())
 		g.Expect(admitted).Should(gomega.Equal(wlKeys), "Unexpected workloads are admitted")
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 func ExpectWorkloadsToBeAdmittedCount(ctx context.Context, k8sClient client.Client, count int, wls ...*kueue.Workload) {
+	wlKeys := workloadKeys(wls...)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		admitted := 0
-		var updatedWorkload kueue.Workload
-		for _, wl := range wls {
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
-			if apimeta.IsStatusConditionTrue(updatedWorkload.Status.Conditions, kueue.WorkloadAdmitted) {
-				admitted++
-			}
-		}
-		g.Expect(admitted).Should(gomega.Equal(count), "Not enough workloads are admitted")
+		admitted, err := admittedWorkloadKeys(ctx, k8sClient, wlKeys)
+		g.Expect(err).NotTo(gomega.HaveOccurred())
+		g.Expect(admitted).Should(gomega.HaveLen(count), "Not enough workloads are admitted from the list: %v", wlKeys.UnsortedList())
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
