@@ -23,7 +23,17 @@ filters:
     approvers:
       - dependency-approvers
 
+  # Any directory depth: Makefile-deps.mk
+  "Makefile-deps\\.mk$":
+    approvers:
+      - dependency-approvers
+
   # Any directory depth: *_test.go
   "*_test.go$":
+    approvers:
+      - test-approvers
+
+  # Any directory depth: Makefile-test.mk
+  "Makefile-test\\.mk$":
     approvers:
       - test-approvers
