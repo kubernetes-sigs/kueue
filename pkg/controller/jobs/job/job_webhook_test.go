@@ -521,7 +521,7 @@ func TestValidateUpdate(t *testing.T) {
 			name:               "set priority-class when job not suspend",
 			oldJob:             testingutil.MakeJob("job", "default").Suspend(false).Obj(),
 			newJob:             testingutil.MakeJob("job", "default").Suspend(false).WorkloadPriorityClass("test").Obj(),
-			wantValidationErrs: apivalidation.ValidateImmutableField("test", "", workloadPriorityClassNamePath),
+			wantValidationErrs: field.ErrorList{field.Invalid(workloadPriorityClassNamePath, "test", "WorkloadPriorityClass cannot be added to a non-suspended workload")},
 		},
 		{
 			name:   "update priority-class when job not suspend",
@@ -532,7 +532,7 @@ func TestValidateUpdate(t *testing.T) {
 			name:               "delete priority-class when job not suspend",
 			oldJob:             testingutil.MakeJob("job", "default").Suspend(false).WorkloadPriorityClass("test").Obj(),
 			newJob:             testingutil.MakeJob("job", "default").Suspend(false).Obj(),
-			wantValidationErrs: apivalidation.ValidateImmutableField("", "test", workloadPriorityClassNamePath),
+			wantValidationErrs: field.ErrorList{field.Invalid(workloadPriorityClassNamePath, "", "WorkloadPriorityClass cannot be removed from a workload")},
 		},
 		{
 			name:   "set priority-class when job suspend",
@@ -548,7 +548,7 @@ func TestValidateUpdate(t *testing.T) {
 			name:               "delete priority-class when job suspend",
 			oldJob:             testingutil.MakeJob("job", "default").Suspend(true).WorkloadPriorityClass("test").Obj(),
 			newJob:             testingutil.MakeJob("job", "default").Suspend(true).Obj(),
-			wantValidationErrs: apivalidation.ValidateImmutableField("", "test", workloadPriorityClassNamePath),
+			wantValidationErrs: field.ErrorList{field.Invalid(workloadPriorityClassNamePath, "", "WorkloadPriorityClass cannot be removed from a workload")},
 		},
 		{
 			name: "immutable prebuilt workload ",
