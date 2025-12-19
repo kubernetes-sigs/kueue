@@ -50,6 +50,16 @@ func TestNodeHandler_Update(t *testing.T) {
 		newNode     *corev1.Node
 		wantChanged bool
 	}{
+		"ResourceVersion changed": {
+			oldNode:     baseNode.Clone().ResourceVersion("1").Obj(),
+			newNode:     baseNode.Clone().ResourceVersion("2").Obj(),
+			wantChanged: false,
+		},
+		"ManagedFields changed": {
+			oldNode:     baseNode.Clone().ManagedFields([]metav1.ManagedFieldsEntry{{Manager: "manager1"}}).Obj(),
+			newNode:     baseNode.Clone().ManagedFields([]metav1.ManagedFieldsEntry{{Manager: "manager2"}}).Obj(),
+			wantChanged: false,
+		},
 		"LastHeartbeatTime changed": {
 			oldNode: baseNode.Clone().
 				StatusConditions(
