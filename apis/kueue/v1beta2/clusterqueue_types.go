@@ -180,6 +180,12 @@ const (
 	// however older workloads that can't be admitted will not block
 	// admitting newer workloads that fit existing quota.
 	BestEffortFIFO QueueingStrategy = "BestEffortFIFO"
+
+	// StrictFIFOPerFlavor means that workloads of the same priority are ordered strictly by creation time.
+	// Older workloads that can't be admitted will block admitting newer workloads
+	// only if they compete for the same resource flavor(s).
+	// Workloads that can be satisfied using different flavors may be admitted out of order.
+	StrictFIFOPerFlavor QueueingStrategy = "StrictFIFOPerFlavor"
 )
 
 // +kubebuilder:validation:XValidation:rule="self.flavors.all(x, size(x.resources) == size(self.coveredResources))", message="flavors must have the same number of resources as the coveredResources"

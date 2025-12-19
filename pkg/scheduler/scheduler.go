@@ -808,6 +808,14 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 		return
 	}
 
+	// Populate AttemptedFlavors for StrictFIFOPerFlavor strategy
+	if e.assignment.Usage.Quota != nil && len(e.assignment.Usage.Quota) > 0 {
+		e.Info.AttemptedFlavors = make(map[kueue.ResourceFlavorReference]struct{})
+		for flavorResource := range e.assignment.Usage.Quota {
+			e.Info.AttemptedFlavors[flavorResource.Flavor] = struct{}{}
+		}
+	}
+
 	added := s.queues.RequeueWorkload(ctx, &e.Info, e.requeueReason)
 	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "added", added, "status", e.status)
 	if e.status == notNominated || e.status == skipped {
