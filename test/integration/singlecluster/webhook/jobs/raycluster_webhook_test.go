@@ -37,8 +37,8 @@ import (
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/webhooks"
-	"sigs.k8s.io/kueue/test/util"
 	"sigs.k8s.io/kueue/test/integration/framework"
+	"sigs.k8s.io/kueue/test/util"
 )
 
 var _ = ginkgo.Describe("RayCluster Webhook", func() {

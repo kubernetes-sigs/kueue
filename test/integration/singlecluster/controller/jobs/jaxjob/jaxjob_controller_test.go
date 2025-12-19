@@ -40,9 +40,9 @@ import (
 	testingjaxjob "sigs.k8s.io/kueue/pkg/util/testingjobs/jaxjob"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/test/integration/framework"
 	kftesting "sigs.k8s.io/kueue/test/integration/singlecluster/controller/jobs/kubeflow"
 	"sigs.k8s.io/kueue/test/util"
-	"sigs.k8s.io/kueue/test/integration/framework"
 )
 
 const (
