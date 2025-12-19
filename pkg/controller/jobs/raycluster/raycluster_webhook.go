@@ -88,7 +88,7 @@ func (w *RayClusterWebhook) Default(ctx context.Context, obj runtime.Object) err
 	log := ctrl.LoggerFrom(ctx).WithName("raycluster-webhook")
 	log.V(10).Info("Applying defaults")
 	jobframework.ApplyDefaultLocalQueue(job.Object(), w.queues.DefaultLocalQueueExist)
-	if err := jobframework.ApplyDefaultForSuspendWithCheckAncestor(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector, false); err != nil {
+	if err := jobframework.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector, jobframework.DefaultOption{IgnoreAncestor: true}); err != nil {
 		return err
 	}
 	jobframework.ApplyDefaultForManagedBy(job, w.queues, w.cache, log)
