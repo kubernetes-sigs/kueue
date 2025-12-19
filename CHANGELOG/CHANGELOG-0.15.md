@@ -1,3 +1,37 @@
+## v0.15.2
+
+Changes since `v0.15.1`:
+
+## Changes by Kind
+
+### Feature
+
+- Ray: Support RayJob InTreeAutoscaling by using the ElasticJobsViaWorkloadSlices feature. (#8284, @hiboyang)
+
+### Bug or Regression
+
+- Kubeflow TrainJob v2: fix the bug to prevent duplicate pod template overrides when starting the Job is retried. (#8271, @j-skiba)
+- MultiKueue: Fixed status sync for CRD-based jobs (JobSet, Kubeflow, Ray, etc.) that was blocked while the local job was suspended. (#8344, @IrvingMg)
+- MultiKueue: fix the bug that for Pod integration the AdmissionCheck status would be kept Pending indefinitely,
+  even when the Pods are already running.
+  
+  The analogous fix is also done for the batch/Job when the MultiKueueBatchJobWithManagedBy feature gate  is disabled. (#8288, @IrvingMg)
+- Scheduling: fix a bug that evictions submitted by scheduler (preemptions and eviction due to TAS NodeHotSwap failing)
+  could result in conflict in case of concurrent workload modification by another controller.
+  This could lead to indefinite failing requests sent by scheduler in some scenarios when eviction is initiated by
+  TAS NodeHotSwap. (#8313, @mbobrovskyi)
+- TAS NodeHotSwap: fixed the bug that allows workload to requeue by scheduler even if already deleted on TAS NodeHotSwap eviction. (#8310, @mbobrovskyi)
+- TAS: fix a performance bug that continues reconciles of TAS ResourceFlavor (and related ClusterQueues) 
+  were triggered by updates to Nodes' heartbeat times. (#8355, @PBundyra)
+- TAS: fixed performance issue due to unncessary (empty) request by TopologyUngater (#8333, @mbobrovskyi)
+
+### Other (Cleanup or Flake)
+
+- Improve error messages for validation errors regarding WorkloadPriorityClass changes in workloads. (#8352, @olekzabl)
+- MultiKueue: improve the MultiKueueCluster reconciler to skip attempting to reconcile and throw errors
+  when the corresponding Secret or ClusterProfile objects don't exist. The reconcile will be triggered on 
+  creation of the objects. (#8290, @mszadkow)
+
 ## v0.15.1
 
 Changes since `v0.15.0`:
