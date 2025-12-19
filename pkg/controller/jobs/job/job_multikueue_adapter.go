@@ -22,7 +22,6 @@ import (
 	"fmt"
 
 	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -74,14 +73,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 				return &localJob, true, nil
 			})
 		}
-		remoteFinished := false
-		for _, c := range remoteJob.Status.Conditions {
-			if (c.Type == batchv1.JobComplete || c.Type == batchv1.JobFailed) && c.Status == corev1.ConditionTrue {
-				remoteFinished = true
-				break
-			}
-		}
-		if remoteFinished {
+		if _, _, updated := fromObject(&remoteJob).Finished(); updated {
 			return clientutil.PatchStatus(ctx, localClient, &localJob, func() (client.Object, bool, error) {
 				localJob.Status = remoteJob.Status
 				return &localJob, true, nil
