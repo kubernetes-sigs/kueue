@@ -133,3 +133,9 @@ func (n *NodeWrapper) ResourceVersion(version string) *NodeWrapper {
 	n.ObjectMeta.ResourceVersion = version
 	return n
 }
+
+// ManagedFields sets the ManagedFields of the Node.
+func (n *NodeWrapper) ManagedFields(fields []metav1.ManagedFieldsEntry) *NodeWrapper {
+	n.ObjectMeta.ManagedFields = fields
+	return n
+}
