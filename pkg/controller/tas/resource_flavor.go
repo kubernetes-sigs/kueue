@@ -50,6 +50,7 @@ import (
 
 var nodeSemantic = conversion.EqualitiesOrDie(
 	nodeConditionEqual,
+	nodeMetadataEqual,
 	// Handle metav1.Time comparison to avoid panic on unexported fields
 	func(a, b metav1.Time) bool {
 		return a.Equal(&b)
@@ -59,6 +60,19 @@ var nodeSemantic = conversion.EqualitiesOrDie(
 		return a.Equal(b)
 	},
 )
+
+func nodeMetadataEqual(a, b metav1.ObjectMeta) bool {
+	aCopy, bCopy := a.DeepCopy(), b.DeepCopy()
+	normalizeNodeMeta(aCopy)
+	normalizeNodeMeta(bCopy)
+	return equality.Semantic.DeepEqual(aCopy, bCopy)
+}
+
+func normalizeNodeMeta(objectMeta *metav1.ObjectMeta) {
+	objectMeta.ResourceVersion = ""
+	// ManagedFields often contain internal timestamps and high-churn metadata
+	objectMeta.ManagedFields = nil
+}
 
 func nodeConditionEqual(a, b corev1.NodeCondition) bool {
 	aCopy, bCopy := a.DeepCopy(), b.DeepCopy()
@@ -236,19 +250,7 @@ func nodeBelongsToFlavor(node *corev1.Node, nodeLabels map[string]string, levels
 	return true
 }
 
-// normalizeNode zeros out fields that should be ignored during comparison.
-func normalizeNode(node *corev1.Node) {
-	// Ignore ResourceVersion (metadata)
-	node.ObjectMeta.ResourceVersion = ""
-
-	// ManagedFields often contain internal timestamps and high-churn metadata
-	node.ObjectMeta.ManagedFields = nil
-}
-
 // checkNodeSchedulingPropertiesChanged checks if the node update affects TAS scheduling.
 func checkNodeSchedulingPropertiesChanged(oldNode, newNode *corev1.Node) bool {
-	o, n := oldNode.DeepCopy(), newNode.DeepCopy()
-	normalizeNode(o)
-	normalizeNode(n)
-	return !nodeSemantic.DeepEqual(o, n)
+	return !nodeSemantic.DeepEqual(oldNode, newNode)
 }
