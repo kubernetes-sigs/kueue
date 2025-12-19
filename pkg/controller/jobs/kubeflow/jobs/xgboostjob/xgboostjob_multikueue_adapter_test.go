@@ -108,7 +108,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
-		"skip to sync status from remote suspended XgBoostJob": {
+		"sync status from remote while local XgBoostJob is suspended": {
 			managersXGBoostJobs: []kftraining.XGBoostJob{
 				*xgboostJobBuilder.Clone().
 					Suspend(true).
@@ -129,6 +129,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			wantManagersXGBoostJobs: []kftraining.XGBoostJob{
 				*xgboostJobBuilder.Clone().
 					Suspend(true).
+					StatusConditions(kftraining.JobCondition{Type: kftraining.JobSucceeded, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
 			wantWorkerXGBoostJobs: []kftraining.XGBoostJob{

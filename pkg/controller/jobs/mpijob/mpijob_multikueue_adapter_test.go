@@ -105,7 +105,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
-		"skip to sync status from remote suspended mpijob": {
+		"sync status from remote while local mpijob is suspended": {
 			managersMpiJobs: []kfmpi.MPIJob{
 				*mpiJobBuilder.Clone().
 					Suspend(true).
@@ -125,6 +125,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			wantManagersMpiJobs: []kfmpi.MPIJob{
 				*mpiJobBuilder.Clone().
 					Suspend(true).
+					StatusConditions(kfmpi.JobCondition{Type: kfmpi.JobSucceeded, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
 			wantWorkerMpiJobs: []kfmpi.MPIJob{
