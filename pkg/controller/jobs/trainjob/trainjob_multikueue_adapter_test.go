@@ -133,7 +133,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
-		"skip to sync status from remote suspended trainjob": {
+		"sync status from remote while local trainjob is suspended": {
 			managersTrainJobs: []kftrainerapi.TrainJob{
 				*baseTrainJobManagedByKueueBuilder.Clone().
 					Suspend(true).
@@ -163,6 +163,16 @@ func TestMultiKueueAdapter(t *testing.T) {
 			wantManagersTrainJobs: []kftrainerapi.TrainJob{
 				*baseTrainJobManagedByKueueBuilder.Clone().
 					Suspend(true).
+					JobsStatus(
+						testingtrainjob.MakeJobStatusWrapper("replicated-job-1").
+							Ready(1).
+							Succeeded(1).
+							Obj(),
+						testingtrainjob.MakeJobStatusWrapper("replicated-job-2").
+							Ready(3).
+							Succeeded(0).
+							Obj(),
+					).
 					Obj(),
 			},
 			wantWorkerTrainJobs: []kftrainerapi.TrainJob{

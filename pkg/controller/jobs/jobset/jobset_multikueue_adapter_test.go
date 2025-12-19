@@ -139,7 +139,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
-		"skip to sync status from remote suspended jobset": {
+		"sync status from remote while local jobset is suspended": {
 			managersJobSets: []jobsetapi.JobSet{
 				*baseJobSetManagedByKueueBuilder.Clone().
 					Suspend(true).
@@ -171,6 +171,18 @@ func TestMultiKueueAdapter(t *testing.T) {
 			wantManagersJobSets: []jobsetapi.JobSet{
 				*baseJobSetManagedByKueueBuilder.Clone().
 					Suspend(true).
+					JobsStatus(
+						jobsetapi.ReplicatedJobStatus{
+							Name:      "replicated-job-1",
+							Ready:     1,
+							Succeeded: 1,
+						},
+						jobsetapi.ReplicatedJobStatus{
+							Name:      "replicated-job-2",
+							Ready:     3,
+							Succeeded: 0,
+						},
+					).
 					Obj(),
 			},
 			wantWorkerJobSets: []jobsetapi.JobSet{

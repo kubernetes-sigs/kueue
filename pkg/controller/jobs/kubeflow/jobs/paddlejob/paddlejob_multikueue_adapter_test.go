@@ -109,7 +109,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
-		"skip to sync status from remote suspended PaddleJob": {
+		"sync status from remote while local PaddleJob is suspended": {
 			managersPaddleJobs: []kftraining.PaddleJob{
 				*paddleJobBuilder.Clone().
 					Suspend(true).
@@ -129,6 +129,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			wantManagersPaddleJobs: []kftraining.PaddleJob{
 				*paddleJobBuilder.Clone().
 					Suspend(true).
+					StatusConditions(kftraining.JobCondition{Type: kftraining.JobSucceeded, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
 			wantWorkerPaddleJobs: []kftraining.PaddleJob{
