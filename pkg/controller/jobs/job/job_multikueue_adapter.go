@@ -74,7 +74,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 			})
 		}
 
-		if _, _, updated := fromObject(&remoteJob).Finished(ctx); updated {
+		if _, _, remoteFinished := fromObject(&remoteJob).Finished(ctx); remoteFinished {
 			return clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
 				localJob.Status = remoteJob.Status
 				return true, nil
