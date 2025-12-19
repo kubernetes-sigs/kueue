@@ -112,7 +112,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
-		"status is not synced if local appwrapper is still suspended": {
+		"sync status from remote while local appwrapper is suspended": {
 			managersAppWrappers: []awv1beta2.AppWrapper{
 				*baseAppWrapperManagedByKueueBuilder.DeepCopy().Suspend(true).Obj(),
 			},
@@ -130,7 +130,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			wantManagersAppWrappers: []awv1beta2.AppWrapper{
 				*baseAppWrapperManagedByKueueBuilder.DeepCopy().
 					Suspend(true).
-					SetPhase(awv1beta2.AppWrapperEmpty).
+					SetPhase(awv1beta2.AppWrapperSuspended).
 					Obj(),
 			},
 			wantWorkerAppWrappers: []awv1beta2.AppWrapper{

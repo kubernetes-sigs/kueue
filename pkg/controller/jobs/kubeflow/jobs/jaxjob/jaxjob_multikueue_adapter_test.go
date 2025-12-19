@@ -108,7 +108,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
-		"skip to sync status from remote suspended jaxjob": {
+		"sync status from remote while local jaxjob is suspended": {
 			managersJAXJobs: []kftraining.JAXJob{
 				*jaxJobBuilder.Clone().
 					Suspend(true).
@@ -128,6 +128,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			wantManagersJAXJobs: []kftraining.JAXJob{
 				*jaxJobBuilder.Clone().
 					Suspend(true).
+					StatusConditions(kftraining.JobCondition{Type: kftraining.JobSucceeded, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
 			wantWorkerJAXJobs: []kftraining.JAXJob{

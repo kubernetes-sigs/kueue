@@ -105,7 +105,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
-		"skip to sync status from remote suspended raycluster": {
+		"sync status from remote while local raycluster is suspended": {
 			managersRayClusters: []rayv1.RayCluster{
 				*rayClusterBuilder.Clone().
 					Suspend(true).
@@ -125,6 +125,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			wantManagersRayClusters: []rayv1.RayCluster{
 				*rayClusterBuilder.Clone().
 					Suspend(true).
+					StatusConditions(metav1.Condition{Type: string(rayv1.HeadPodReady), Status: metav1.ConditionStatus(corev1.ConditionTrue)}).
 					Obj(),
 			},
 			wantWorkerRayClusters: []rayv1.RayCluster{

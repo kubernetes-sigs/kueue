@@ -104,7 +104,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
-		"skip to sync status from remote suspended rayjob": {
+		"sync status from remote while local rayjob is suspended": {
 			managersRayJobs: []rayv1.RayJob{
 				*rayJobBuilder.Clone().
 					Suspend(true).
@@ -124,6 +124,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			wantManagersRayJobs: []rayv1.RayJob{
 				*rayJobBuilder.Clone().
 					Suspend(true).
+					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
 					Obj(),
 			},
 			wantWorkerRayJobs: []rayv1.RayJob{
