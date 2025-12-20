@@ -25,12 +25,12 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
 )
 
 const completionLimit = 100
 
-func NamespaceNameFunc(clientGetter util.ClientGetter) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+func NamespaceNameFunc(clientGetter clientgetter.ClientGetter) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		clientSet, err := clientGetter.K8sClientSet()
 		if err != nil {
@@ -51,7 +51,7 @@ func NamespaceNameFunc(clientGetter util.ClientGetter) func(*cobra.Command, []st
 	}
 }
 
-func ContextsFunc(clientGetter util.ClientGetter) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+func ContextsFunc(clientGetter clientgetter.ClientGetter) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		config, err := clientGetter.ToRawKubeConfigLoader().RawConfig()
 		if err != nil {
@@ -67,7 +67,7 @@ func ContextsFunc(clientGetter util.ClientGetter) func(*cobra.Command, []string,
 	}
 }
 
-func ClustersFunc(clientGetter util.ClientGetter) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+func ClustersFunc(clientGetter clientgetter.ClientGetter) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		config, err := clientGetter.ToRawKubeConfigLoader().RawConfig()
 		if err != nil {
@@ -83,7 +83,7 @@ func ClustersFunc(clientGetter util.ClientGetter) func(*cobra.Command, []string,
 	}
 }
 
-func UsersFunc(clientGetter util.ClientGetter) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+func UsersFunc(clientGetter clientgetter.ClientGetter) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		config, err := clientGetter.ToRawKubeConfigLoader().RawConfig()
 		if err != nil {
@@ -99,7 +99,7 @@ func UsersFunc(clientGetter util.ClientGetter) func(*cobra.Command, []string, st
 	}
 }
 
-func WorkloadNameFunc(clientGetter util.ClientGetter, activeStatus *bool) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+func WorkloadNameFunc(clientGetter clientgetter.ClientGetter, activeStatus *bool) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		clientSet, err := clientGetter.KueueClientSet()
 		if err != nil {
@@ -137,7 +137,7 @@ func WorkloadNameFunc(clientGetter util.ClientGetter, activeStatus *bool) func(*
 	}
 }
 
-func ClusterQueueNameFunc(clientGetter util.ClientGetter, activeStatus *bool) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+func ClusterQueueNameFunc(clientGetter clientgetter.ClientGetter, activeStatus *bool) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) > 0 {
 			return nil, cobra.ShellCompDirectiveNoFileComp
@@ -175,7 +175,7 @@ func ClusterQueueNameFunc(clientGetter util.ClientGetter, activeStatus *bool) fu
 	}
 }
 
-func LocalQueueNameFunc(clientGetter util.ClientGetter, activeStatus *bool) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+func LocalQueueNameFunc(clientGetter clientgetter.ClientGetter, activeStatus *bool) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) > 0 {
 			return nil, cobra.ShellCompDirectiveNoFileComp

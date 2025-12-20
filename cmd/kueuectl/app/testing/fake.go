@@ -30,11 +30,11 @@ import (
 
 	"sigs.k8s.io/kueue/client-go/clientset/versioned"
 	kueuefake "sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
-	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
 )
 
 type TestClientGetter struct {
-	util.ClientGetter
+	clientgetter.ClientGetter
 
 	kueueClientset versioned.Interface
 	k8sClientset   k8s.Interface
@@ -44,7 +44,7 @@ type TestClientGetter struct {
 	configFlags *genericclioptions.TestConfigFlags
 }
 
-var _ util.ClientGetter = (*TestClientGetter)(nil)
+var _ clientgetter.ClientGetter = (*TestClientGetter)(nil)
 
 func NewTestClientGetter() *TestClientGetter {
 	clientConfig := &clientcmd.DeferredLoadingClientConfig{}
@@ -52,7 +52,7 @@ func NewTestClientGetter() *TestClientGetter {
 		WithClientConfig(clientConfig).
 		WithNamespace(metav1.NamespaceDefault)
 	return &TestClientGetter{
-		ClientGetter:   util.NewClientGetter(configFlags),
+		ClientGetter:   clientgetter.New(configFlags),
 		kueueClientset: kueuefake.NewSimpleClientset(),
 		k8sClientset:   k8sfake.NewSimpleClientset(),
 		configFlags:    configFlags,

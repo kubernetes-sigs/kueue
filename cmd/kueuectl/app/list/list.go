@@ -21,8 +21,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/kubectl/pkg/util/templates"
 	"k8s.io/utils/clock"
-
-	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
 )
 
 var (
@@ -32,7 +31,7 @@ var (
 	`)
 )
 
-func NewListCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams, clock clock.Clock) *cobra.Command {
+func NewListCmd(clientGetter clientgetter.ClientGetter, streams genericiooptions.IOStreams, clock clock.Clock) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:        "list",
 		Short:      "Display resources",
