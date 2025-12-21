@@ -8826,6 +8826,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 }
 
 func TestResourcesToReserve(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
 	resourceFlavors := []*kueue.ResourceFlavor{
 		utiltestingapi.MakeResourceFlavor("on-demand").Obj(),
 		utiltestingapi.MakeResourceFlavor("spot").Obj(),
@@ -9009,7 +9010,7 @@ func TestResourcesToReserve(t *testing.T) {
 						Assignment(fr.Resource, fr.Flavor, quantity.String()).
 						Obj()).
 					Obj()
-				wl := utiltestingapi.MakeWorkload(fmt.Sprintf("workload-%d", i), "default-namespace").ReserveQuota(admission).Obj()
+				wl := utiltestingapi.MakeWorkload(fmt.Sprintf("workload-%d", i), "default-namespace").ReserveQuotaAt(admission, now).Obj()
 				cqCache.AddOrUpdateWorkload(log, wl)
 				i++
 			}
