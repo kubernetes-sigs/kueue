@@ -18,6 +18,7 @@ package pod
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -35,6 +36,7 @@ import (
 )
 
 func TestImportNamespace(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
 	basePodWrapper := testingpod.MakePod("pod", testingNamespace).
 		UID("pod").
 		Label(testingQueueLabel, "q1").
@@ -51,11 +53,11 @@ func TestImportNamespace(t *testing.T) {
 			Request(corev1.ResourceCPU, "1").
 			PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 			Obj()).
-		ReserveQuota(utiltestingapi.MakeAdmission("cq1").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq1").
 			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 				Assignment(corev1.ResourceCPU, "f1", "1").
 				Obj()).
-			Obj()).
+			Obj(), now).
 		Condition(metav1.Condition{
 			Type:    kueue.WorkloadQuotaReserved,
 			Status:  metav1.ConditionTrue,
