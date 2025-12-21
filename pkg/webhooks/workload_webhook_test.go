@@ -547,9 +547,9 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(
 					*utiltestingapi.MakePodSet("ps1", 3).Obj(),
 					*utiltestingapi.MakePodSet("ps2", 4).Obj()).
-				ReserveQuota(utiltestingapi.MakeAdmission("cluster-queue").PodSets(
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").PodSets(
 					kueue.PodSetAssignment{Name: "ps1"},
-					kueue.PodSetAssignment{Name: "ps2"}).Obj()).
+					kueue.PodSetAssignment{Name: "ps2"}).Obj(), now).
 				ClusterName("worker1").
 				Annotation(workloadslicing.WorkloadSliceReplacementFor, string(workload.NewReference(testWorkloadNamespace, testWorkloadName))).
 				Obj(),
