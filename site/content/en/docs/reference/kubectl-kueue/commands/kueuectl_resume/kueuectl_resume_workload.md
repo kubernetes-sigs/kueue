@@ -24,7 +24,7 @@ kueuectl resume workload NAME [--namespace NAMESPACE] [--dry-run STRATEGY]
 
 ```
   # Resume the workload
-  kueuectl resume workload my-workload
+  kueuectl resume kueueworkload my-workload
 ```
 
 
