@@ -50,12 +50,13 @@ var cmpDump = cmp.Options{
 // TestAddLocalQueueOrphans verifies that pods added before adding the queue are
 // present when the queue is added.
 func TestAddLocalQueueOrphans(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
 	kClient := utiltesting.NewFakeClient(
 		utiltestingapi.MakeWorkload("a", "earth").Queue("foo").Obj(),
 		utiltestingapi.MakeWorkload("b", "earth").Queue("bar").Obj(),
 		utiltestingapi.MakeWorkload("c", "earth").Queue("foo").Obj(),
 		utiltestingapi.MakeWorkload("d", "earth").Queue("foo").
-			ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).Obj(),
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).Obj(),
 		utiltestingapi.MakeWorkload("e", "earth").Queue("foo").Active(false).Obj(),
 		utiltestingapi.MakeWorkload("f", "earth").Queue("foo").Finished().Obj(),
 		utiltestingapi.MakeWorkload("a", "moon").Queue("foo").Obj(),
@@ -86,7 +87,7 @@ func TestAddClusterQueueOrphans(t *testing.T) {
 		utiltestingapi.MakeWorkload("a", "").Queue("foo").Creation(now.Add(time.Second)).Obj(),
 		utiltestingapi.MakeWorkload("b", "").Queue("bar").Creation(now).Obj(),
 		utiltestingapi.MakeWorkload("c", "").Queue("foo").
-			ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).Obj(),
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).Obj(),
 		utiltestingapi.MakeWorkload("d", "").Queue("baz").Obj(),
 		queues[0],
 		queues[1],
@@ -394,6 +395,7 @@ func TestDeleteLocalQueue(t *testing.T) {
 }
 
 func TestAddWorkload(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
 	ctx, log := utiltesting.ContextWithLog(t)
 	manager := NewManager(utiltesting.NewFakeClient(), nil)
 	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
@@ -430,10 +432,10 @@ func TestAddWorkload(t *testing.T) {
 		{
 			workload: utiltestingapi.MakeWorkload("quota_already_reserved", "earth").
 				Queue("foo").
-				ReserveQuota(&kueue.Admission{
+				ReserveQuotaAt(&kueue.Admission{
 					ClusterQueue:      kueue.ClusterQueueReference(cq.Name),
 					PodSetAssignments: nil,
-				}).
+				}, now).
 				Obj(),
 			wantErr: errWorkloadIsInadmissible,
 		},
@@ -1293,7 +1295,7 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			Request(corev1.ResourceCPU, "1").
 			Obj())
 	baseWorkloadNeedingSecondPass := baseWorkloadBuilder.Clone().
-		ReserveQuota(
+		ReserveQuotaAt(
 			utiltestingapi.MakeAdmission("tas-main").
 				PodSets(
 					utiltestingapi.MakePodSetAssignment("one").
@@ -1301,7 +1303,7 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 						DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
 						Obj(),
 				).
-				Obj(),
+				Obj(), now,
 		).
 		AdmissionCheck(kueue.AdmissionCheckState{
 			Name:  "prov-check",
