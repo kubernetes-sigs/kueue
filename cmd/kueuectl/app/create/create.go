@@ -25,10 +25,12 @@ import (
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/flags"
 )
 
-var createExample = templates.Examples(`
+var (
+	createExample = templates.Examples(`
 		# Create local queue 
   		kueuectl create localqueue my-local-queue -c my-cluster-queue
 	`)
+)
 
 func NewCreateCmd(clientGetter clientgetter.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
 	cmd := &cobra.Command{
