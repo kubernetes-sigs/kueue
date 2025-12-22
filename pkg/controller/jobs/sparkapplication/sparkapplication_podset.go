@@ -95,6 +95,9 @@ func (j *SparkApplication) buildExecutorPodTemplateSpec() (*corev1.PodTemplateSp
 	}, nil
 }
 
+// NOTE: Most of the below code is adapted from kubeflow/spark-operator internal code
+// ref: https://github.com/kubeflow/spark-operator/blob/v2.4.0/internal/webhook/sparkpod_defaulter.go
+
 func hasContainer(pod *corev1.Pod, container *corev1.Container) bool {
 	return slices.ContainsFunc(pod.Spec.Containers, func(c corev1.Container) bool {
 		return container.Name == c.Name && container.Image == c.Image
@@ -124,8 +127,6 @@ func findContainer(pod *corev1.Pod) int {
 	}
 }
 
-// NOTE: Most of the below code is adapted from kubeflow/spark-operator internal code
-// ref: https://github.com/kubeflow/spark-operator/blob/v2.3.0/internal/webhook/sparkpod_defaulter.go
 func mutateSparkPod(app *sparkv1beta2.SparkApplication, pod *corev1.Pod) error {
 	// this focuses on resource related fields only
 	options := []mutateSparkPodOption{
