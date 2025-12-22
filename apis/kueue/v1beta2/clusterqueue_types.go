@@ -89,10 +89,14 @@ type ClusterQueueSpec struct {
 	// - BestEffortFIFO: workloads are ordered by creation time,
 	// however older workloads that can't be admitted will not block
 	// admitting newer workloads that fit existing quota.
+	// - StrictFIFOPerFlavor: workloads are ordered strictly by creation time.
+	// Older workloads that can't be admitted will block admitting newer workloads
+	// only if they compete for the same resource flavor(s). Workloads that can be
+	// satisfied using different flavors may be admitted out of order.
 	//
 	// +optional
 	// +kubebuilder:default=BestEffortFIFO
-	// +kubebuilder:validation:Enum=StrictFIFO;BestEffortFIFO
+	// +kubebuilder:validation:Enum=StrictFIFO;BestEffortFIFO;StrictFIFOPerFlavor
 	QueueingStrategy QueueingStrategy `json:"queueingStrategy,omitempty"`
 
 	// namespaceSelector defines which namespaces are allowed to submit workloads to
