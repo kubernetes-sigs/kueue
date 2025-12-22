@@ -76,7 +76,7 @@ func (j *SparkApplication) Object() client.Object {
 }
 
 func (j *SparkApplication) IsSuspended() bool {
-	return j.Spec.Suspend != nil && *j.Spec.Suspend
+	return ptr.Deref(j.Spec.Suspend, false)
 }
 
 func (j *SparkApplication) IsActive() bool {

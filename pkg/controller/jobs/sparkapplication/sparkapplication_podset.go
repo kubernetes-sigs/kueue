@@ -29,6 +29,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 )
 
 var (
@@ -49,11 +50,7 @@ var (
 )
 
 func (j *SparkApplication) numInitialExecutors() int32 {
-	numInitialExecutors := int32(0)
-	if j.Spec.Executor.Instances != nil {
-		numInitialExecutors = *j.Spec.Executor.Instances
-	}
-	return numInitialExecutors
+	return ptr.Deref(j.Spec.Executor.Instances, 0)
 }
 
 func (j *SparkApplication) buildDriverPodTemplateSpec() (*corev1.PodTemplateSpec, error) {
