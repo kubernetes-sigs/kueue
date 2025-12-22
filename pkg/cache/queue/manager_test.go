@@ -71,7 +71,7 @@ func TestAddLocalQueueOrphans(t *testing.T) {
 	if diff := cmp.Diff(sets.New[workload.Reference]("earth/a", "earth/c"), workloadNames); diff != "" {
 		t.Errorf("Unexpected items in queue foo (-want,+got):\n%s", diff)
 	}
-	assignedWorkloads := manager.assignedWorkloads
+	assignedWorkloads := manager.managedWorkloads
 	if diff := cmp.Diff(map[workload.Reference]queue.LocalQueueReference{"earth/a": "earth/foo", "earth/c": "earth/foo"}, assignedWorkloads); diff != "" {
 		t.Errorf("Unexpected assigned workloads (-want,+got):\n%s", diff)
 	}
@@ -245,7 +245,7 @@ func TestRequeueWorkloadsCohortCycle(t *testing.T) {
 	if err := cl.Create(ctx, wl); err != nil {
 		t.Fatalf("Failed adding workload to client: %v", err)
 	}
-	if diff := cmp.Diff(map[workload.Reference]queue.LocalQueueReference{}, manager.assignedWorkloads); diff != "" {
+	if diff := cmp.Diff(map[workload.Reference]queue.LocalQueueReference{}, manager.managedWorkloads); diff != "" {
 		t.Errorf("Expected no workloads to be assigned (-want,+got):\n%s", diff)
 	}
 	// This test will pass with the removal of this line.
@@ -257,7 +257,7 @@ func TestRequeueWorkloadsCohortCycle(t *testing.T) {
 	if manager.requeueWorkloadsCohort(ctx, manager.hm.Cohort("cohort-a")) {
 		t.Fatal("Expected moveWorkloadsCohort to return false")
 	}
-	if diff := cmp.Diff(expectedAssigned, manager.assignedWorkloads); diff != "" {
+	if diff := cmp.Diff(expectedAssigned, manager.managedWorkloads); diff != "" {
 		t.Errorf("Unexpected assigned workloads (-want,+got):\n%s", diff)
 	}
 }
@@ -506,7 +506,7 @@ func TestAddWorkload(t *testing.T) {
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Errorf("Unexpected AddWorkload returned error (-want,+got):\n%s", diff)
 			}
-			if diff := cmp.Diff(tc.wantAssigned, manager.assignedWorkloads); diff != "" {
+			if diff := cmp.Diff(tc.wantAssigned, manager.managedWorkloads); diff != "" {
 				t.Errorf("Unexpected assigned workloads (-want,+got):\n%s", diff)
 			}
 		})
@@ -863,7 +863,7 @@ func TestUpdateWorkload(t *testing.T) {
 			for _, w := range tc.workloads {
 				_ = manager.AddOrUpdateWorkload(log, w)
 			}
-			if diff := cmp.Diff(tc.assigned, manager.assignedWorkloads); diff != "" {
+			if diff := cmp.Diff(tc.assigned, manager.managedWorkloads); diff != "" {
 				t.Errorf("Unexpected initial state of assigned workloads (-want,+got):\n%s", diff)
 			}
 			wl := tc.workloads[0].DeepCopy()
@@ -905,7 +905,7 @@ func TestUpdateWorkload(t *testing.T) {
 			if diff := cmp.Diff(tc.wantQueueMembers, queueMembers); diff != "" {
 				t.Errorf("Elements present in wrong queues (-want,+got):\n%s", diff)
 			}
-			if diff := cmp.Diff(tc.wantAssigned, manager.assignedWorkloads); diff != "" {
+			if diff := cmp.Diff(tc.wantAssigned, manager.managedWorkloads); diff != "" {
 				t.Errorf("Unexpected assigned workloads (-want,+got):\n%s", diff)
 			}
 		})
@@ -926,18 +926,16 @@ func TestHeads(t *testing.T) {
 		utiltestingapi.MakeLocalQueue("baz", "").ClusterQueue("pending-bazCq").Obj(),
 	}
 	tests := []struct {
-		name                    string
-		workloads               []*kueue.Workload
-		wantAssignedBeforeHeads map[workload.Reference]queue.LocalQueueReference
-		wantWorkloads           sets.Set[string]
-		wantAssignedAfterHeads  map[workload.Reference]queue.LocalQueueReference
+		name          string
+		workloads     []*kueue.Workload
+		wantAssigned  map[workload.Reference]queue.LocalQueueReference
+		wantWorkloads sets.Set[string]
 	}{
 		{
-			name:                    "empty clusterQueues",
-			workloads:               []*kueue.Workload{},
-			wantAssignedBeforeHeads: map[workload.Reference]queue.LocalQueueReference{},
-			wantWorkloads:           sets.Set[string]{},
-			wantAssignedAfterHeads:  map[workload.Reference]queue.LocalQueueReference{},
+			name:          "empty clusterQueues",
+			workloads:     []*kueue.Workload{},
+			wantAssigned:  map[workload.Reference]queue.LocalQueueReference{},
+			wantWorkloads: sets.Set[string]{},
 		},
 		{
 			name: "active clusterQueues",
@@ -945,12 +943,11 @@ func TestHeads(t *testing.T) {
 				utiltestingapi.MakeWorkload("a", "").Creation(now).Queue("foo").Obj(),
 				utiltestingapi.MakeWorkload("b", "").Creation(now).Queue("bar").Obj(),
 			},
-			wantAssignedBeforeHeads: map[workload.Reference]queue.LocalQueueReference{
+			wantAssigned: map[workload.Reference]queue.LocalQueueReference{
 				"/a": "/foo",
 				"/b": "/bar",
 			},
-			wantWorkloads:          sets.New("a", "b"),
-			wantAssignedAfterHeads: map[workload.Reference]queue.LocalQueueReference{},
+			wantWorkloads: sets.New("a", "b"),
 		},
 		{
 			name: "active clusterQueues with multiple workloads",
@@ -959,14 +956,12 @@ func TestHeads(t *testing.T) {
 				utiltestingapi.MakeWorkload("a2", "").Creation(now.Add(time.Hour)).Queue("foo").Obj(),
 				utiltestingapi.MakeWorkload("b", "").Creation(now).Queue("bar").Obj(),
 			},
-			wantAssignedBeforeHeads: map[workload.Reference]queue.LocalQueueReference{
+			wantAssigned: map[workload.Reference]queue.LocalQueueReference{
 				"/a1": "/foo",
 				"/a2": "/foo",
 				"/b":  "/bar",
 			},
 			wantWorkloads: sets.New("a1", "b"),
-			wantAssignedAfterHeads: map[workload.Reference]queue.LocalQueueReference{
-				"/a2": "/foo"},
 		},
 		{
 			name: "inactive clusterQueues",
@@ -975,15 +970,12 @@ func TestHeads(t *testing.T) {
 				utiltestingapi.MakeWorkload("b", "").Creation(now).Queue("bar").Obj(),
 				utiltestingapi.MakeWorkload("c", "").Creation(now.Add(time.Hour)).Queue("baz").Obj(),
 			},
-			wantAssignedBeforeHeads: map[workload.Reference]queue.LocalQueueReference{
+			wantAssigned: map[workload.Reference]queue.LocalQueueReference{
 				"/a": "/foo",
 				"/b": "/bar",
 				"/c": "/baz",
 			},
 			wantWorkloads: sets.New("a", "b"),
-			wantAssignedAfterHeads: map[workload.Reference]queue.LocalQueueReference{
-				"/c": "/baz",
-			},
 		},
 	}
 	for _, tc := range tests {
@@ -1011,7 +1003,7 @@ func TestHeads(t *testing.T) {
 				}
 			}
 
-			if diff := cmp.Diff(tc.wantAssignedBeforeHeads, manager.assignedWorkloads); diff != "" {
+			if diff := cmp.Diff(tc.wantAssigned, manager.managedWorkloads); diff != "" {
 				t.Errorf("Unexpected assigned workloads before heads retrieved (-want,+got):\n%s", diff)
 			}
 
@@ -1024,7 +1016,7 @@ func TestHeads(t *testing.T) {
 				t.Errorf("GetHeads returned wrong heads (-want,+got):\n%s", diff)
 			}
 
-			if diff := cmp.Diff(tc.wantAssignedAfterHeads, manager.assignedWorkloads); diff != "" {
+			if diff := cmp.Diff(tc.wantAssigned, manager.managedWorkloads); diff != "" {
 				t.Errorf("Unexpected assigned workloads after heads retrieved (-want,+got):\n%s", diff)
 			}
 		})

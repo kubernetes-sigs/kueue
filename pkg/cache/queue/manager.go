@@ -112,11 +112,12 @@ type Manager struct {
 	sync.RWMutex
 	cond sync.Cond
 
-	clock             clock.WithDelayedExecution
-	client            client.Client
-	statusChecker     StatusChecker
-	localQueues       map[queue.LocalQueueReference]*LocalQueue
-	assignedWorkloads map[workload.Reference]queue.LocalQueueReference
+	clock         clock.WithDelayedExecution
+	client        client.Client
+	statusChecker StatusChecker
+	localQueues   map[queue.LocalQueueReference]*LocalQueue
+	// Tracks all workload managed by kueue (including admitted and running).
+	managedWorkloads map[workload.Reference]queue.LocalQueueReference
 
 	workloadOrdering workload.Ordering
 
@@ -140,11 +141,11 @@ type Manager struct {
 
 func NewManager(client client.Client, checker StatusChecker, options ...Option) *Manager {
 	m := &Manager{
-		clock:             realClock,
-		client:            client,
-		statusChecker:     checker,
-		localQueues:       make(map[queue.LocalQueueReference]*LocalQueue),
-		assignedWorkloads: make(map[workload.Reference]queue.LocalQueueReference),
+		clock:            realClock,
+		client:           client,
+		statusChecker:    checker,
+		localQueues:      make(map[queue.LocalQueueReference]*LocalQueue),
+		managedWorkloads: make(map[workload.Reference]queue.LocalQueueReference),
 		workloadOrdering: workload.Ordering{
 			PodsReadyRequeuingTimestamp: config.EvictionTimestamp,
 		},
@@ -527,32 +528,32 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 }
 
 func (m *Manager) assignWorkload(wlInfo *workload.Info, q *LocalQueue) {
-	m.assignedWorkloads[workload.Key(wlInfo.Obj)] = q.Key
+	m.managedWorkloads[workload.Key(wlInfo.Obj)] = q.Key
 	q.AddOrUpdate(wlInfo)
 }
 
 func (m *Manager) DeleteWorkload(log logr.Logger, wl *kueue.Workload) {
 	m.Lock()
 	defer m.Unlock()
-	m.deleteWorkloadFromAssignedQueues(log, wl)
+	m.deleteWorkload(log, wl)
 	m.DeleteSecondPassWithoutLock(wl)
 }
 
 func (m *Manager) deleteWorkloadFromQueuesIfReassigned(log logr.Logger, wl *kueue.Workload, actualQueue queue.LocalQueueReference) {
-	assignedQueue, assigned := m.assignedWorkloads[workload.Key(wl)]
+	assignedQueue, assigned := m.managedWorkloads[workload.Key(wl)]
 	if assigned && assignedQueue != actualQueue {
-		m.deleteWorkloadFromAssignedQueues(log, wl)
+		m.deleteWorkload(log, wl)
 	}
 }
 
-func (m *Manager) deleteWorkloadFromAssignedQueues(log logr.Logger, wl *kueue.Workload) {
+func (m *Manager) deleteWorkload(log logr.Logger, wl *kueue.Workload) {
 	wlKey := workload.Key(wl)
-	qKey, ok := m.assignedWorkloads[wlKey]
+	qKey, ok := m.managedWorkloads[wlKey]
 	if !ok {
 		return
 	}
 
-	defer delete(m.assignedWorkloads, wlKey)
+	defer delete(m.managedWorkloads, wlKey)
 
 	q := m.localQueues[qKey]
 	if q == nil {
@@ -730,10 +731,9 @@ func (m *Manager) heads() []workload.Info {
 		wlCopy.ClusterQueue = cqName
 		workloads = append(workloads, wlCopy)
 
-		qKey := m.assignedWorkloads[wlKey]
+		qKey := m.managedWorkloads[wlKey]
 		q := m.localQueues[qKey]
 		delete(q.items, wlKey)
-		delete(m.assignedWorkloads, wlKey)
 
 		if features.Enabled(features.LocalQueueMetrics) {
 			m.reportLQPendingWorkloads(q)
