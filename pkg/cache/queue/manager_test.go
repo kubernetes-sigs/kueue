@@ -72,7 +72,14 @@ func TestAddLocalQueueOrphans(t *testing.T) {
 		t.Errorf("Unexpected items in queue foo (-want,+got):\n%s", diff)
 	}
 	assignedWorkloads := manager.managedWorkloads
-	if diff := cmp.Diff(map[workload.Reference]queue.LocalQueueReference{"earth/a": "earth/foo", "earth/c": "earth/foo"}, assignedWorkloads); diff != "" {
+	expectedWorkloads := map[workload.Reference]queue.LocalQueueReference{
+		"earth/a": "earth/foo",
+		"earth/c": "earth/foo",
+		"earth/d": "earth/foo",
+		"earth/e": "earth/foo",
+		"earth/f": "earth/foo",
+	}
+	if diff := cmp.Diff(expectedWorkloads, assignedWorkloads); diff != "" {
 		t.Errorf("Unexpected assigned workloads (-want,+got):\n%s", diff)
 	}
 }
