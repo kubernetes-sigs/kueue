@@ -14,7 +14,7 @@ filters:
       - kerthcet
 
   # Any directory depth: go.mod or go.sum
-  "go\\.(mod|sum\\.sum)$":
+  "go\\.(mod|sum)$":
     approvers:
       - dependency-approvers
 
