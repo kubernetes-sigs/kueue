@@ -920,7 +920,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(e.ObjectNew) {
 			log.V(2).Info("Skipping queue update for DRA workload - handled in Reconcile")
 		} else {
-			err := r.queues.UpdateWorkload(log, e.ObjectOld, wlCopy)
+			err := r.queues.UpdateWorkload(log, wlCopy)
 			if err != nil {
 				log.V(2).Info("ignored an error for now", "error", err)
 			}
