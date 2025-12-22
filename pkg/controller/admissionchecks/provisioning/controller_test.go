@@ -98,7 +98,7 @@ func requestWithCondition(r *autoscaling.ProvisioningRequest, conditionType stri
 }
 
 func TestReconcile(t *testing.T) {
-	now := time.Now()
+	now := time.Now().Truncate(time.Second)
 	fakeClock := testingclock.NewFakeClock(now)
 
 	baseWorkload := utiltestingapi.MakeWorkload("wl", TestNamespace).
@@ -110,7 +110,7 @@ func TestReconcile(t *testing.T) {
 				Request(corev1.ResourceMemory, "1M").
 				Obj(),
 		).
-		ReserveQuota(utiltestingapi.MakeAdmission("q1").PodSets(
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(
 			kueue.PodSetAssignment{
 				Name: "ps1",
 				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -132,7 +132,7 @@ func TestReconcile(t *testing.T) {
 				Count: ptr.To[int32](3),
 			},
 		).
-			Obj()).
+			Obj(), now).
 		AdmissionChecks(kueue.AdmissionCheckState{
 			Name:  "check1",
 			State: kueue.CheckStatePending,
@@ -322,13 +322,13 @@ func TestReconcile(t *testing.T) {
 		},
 		"unrelated workload with reservation": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 				Obj(),
 		},
 		"unrelated admitted workload": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
-				Admitted(true).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				AdmittedAt(true, now).
 				Obj(),
 		},
 		"missing config": {
@@ -384,7 +384,7 @@ func TestReconcile(t *testing.T) {
 				AdmissionChecks(kueue.AdmissionCheckState{
 					Name:  "check1",
 					State: kueue.CheckStatePending}).
-				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 				Obj(),
 			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			configs: []kueue.ProvisioningRequestConfig{*utiltestingapi.MakeProvisioningRequestConfig("config1").Obj()},
@@ -809,7 +809,7 @@ func TestReconcile(t *testing.T) {
 		},
 		"workload sets AdmissionCheck status to Rejected when it is not finished and receives the provisioning request's CapacityRevoked condition": {
 			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
-				Admitted(true).
+				AdmittedAt(true, now).
 				Obj(),
 			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
@@ -844,13 +844,13 @@ func TestReconcile(t *testing.T) {
 						Name:  "not-provisioning",
 						State: kueue.CheckStatePending,
 					}).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 		},
 		"workload sets AdmissionCheck status to Rejected when it is not admitted and receives the provisioning request's CapacityRevoked condition": {
 			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
-				Admitted(false).
+				AdmittedAt(false, now).
 				Obj(),
 			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
@@ -885,7 +885,7 @@ func TestReconcile(t *testing.T) {
 						Name:  "not-provisioning",
 						State: kueue.CheckStatePending,
 					}).
-					Admitted(false).
+					AdmittedAt(false, now).
 					Obj(),
 			},
 		},
@@ -937,7 +937,7 @@ func TestReconcile(t *testing.T) {
 		},
 		"workload does nothing when admitted and receives the provisioning request's BookingExpired condition": {
 			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
-				Admitted(true).
+				AdmittedAt(true, now).
 				Obj(),
 			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
@@ -965,13 +965,13 @@ func TestReconcile(t *testing.T) {
 			},
 			wantWorkloads: map[string]*kueue.Workload{
 				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 		},
 		"workload retries the admission check when is not admitted and receives the provisioning request's BookingExpired condition": {
 			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
-				Admitted(false).
+				AdmittedAt(false, now).
 				Obj(),
 			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
@@ -1008,13 +1008,13 @@ func TestReconcile(t *testing.T) {
 						Name:  "not-provisioning",
 						State: kueue.CheckStatePending,
 					}).
-					Admitted(false).
+					AdmittedAt(false, now).
 					Obj(),
 			},
 		},
 		"workload rejects the admission check when is not admitted and receives the provisioning request's BookingExpired condition": {
 			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
-				Admitted(false).
+				AdmittedAt(false, now).
 				Obj(),
 			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
@@ -1049,7 +1049,7 @@ func TestReconcile(t *testing.T) {
 						Name:  "not-provisioning",
 						State: kueue.CheckStatePending,
 					}).
-					Admitted(false).
+					AdmittedAt(false, now).
 					Obj(),
 			},
 		},
@@ -1068,7 +1068,7 @@ func TestReconcile(t *testing.T) {
 				AdmissionChecks(kueue.AdmissionCheckState{
 					Name:  "check1",
 					State: kueue.CheckStatePending}).
-				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 				Obj(),
 			checks:             []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			configs:            []kueue.ProvisioningRequestConfig{*utiltestingapi.MakeProvisioningRequestConfig("config1").Obj()},
@@ -1085,7 +1085,7 @@ func TestReconcile(t *testing.T) {
 						State:   kueue.CheckStatePending,
 						Message: "Error creating PodTemplate \"ppt-wl-check1-1-main\": invalid PodTemplate error",
 					}).
-					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -1276,7 +1276,7 @@ func TestReconcile(t *testing.T) {
 						PriorityClass("pc-200").
 						Obj(),
 				).
-				ReserveQuota(utiltestingapi.MakeAdmission("q1").PodSets(podSetMergePolicyAssignemnt...).Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(podSetMergePolicyAssignemnt...).Obj(), now).
 				AdmissionChecks(kueue.AdmissionCheckState{
 					Name:  "check1",
 					State: kueue.CheckStatePending,
@@ -1425,7 +1425,7 @@ func TestReconcile(t *testing.T) {
 						}).
 						Obj(),
 				).
-				ReserveQuota(utiltestingapi.MakeAdmission("q1").PodSets(podSetMergePolicyAssignemnt...).Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(podSetMergePolicyAssignemnt...).Obj(), now).
 				AdmissionChecks(kueue.AdmissionCheckState{
 					Name:  "check1",
 					State: kueue.CheckStatePending,
@@ -1561,7 +1561,7 @@ func TestReconcile(t *testing.T) {
 						PriorityClass("pc-200").
 						Obj(),
 				).
-				ReserveQuota(utiltestingapi.MakeAdmission("q1").PodSets(podSetMergePolicyAssignemnt...).Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(podSetMergePolicyAssignemnt...).Obj(), now).
 				AdmissionChecks(kueue.AdmissionCheckState{
 					Name:  "check1",
 					State: kueue.CheckStatePending,
@@ -1676,13 +1676,14 @@ func TestReconcile(t *testing.T) {
 }
 
 func TestActiveOrLastPRForChecks(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
 	baseWorkload := utiltestingapi.MakeWorkload("wl", TestNamespace).
 		PodSets(
 			*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).
 				Request(corev1.ResourceCPU, "1").
 				Obj(),
 		).
-		ReserveQuota(utiltestingapi.MakeAdmission("q1").PodSets(
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(
 			kueue.PodSetAssignment{
 				Name: kueue.DefaultPodSetName,
 				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -1694,7 +1695,7 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 				Count: ptr.To[int32](4),
 			},
 		).
-			Obj()).
+			Obj(), now).
 		AdmissionChecks(kueue.AdmissionCheckState{
 			Name:  "check",
 			State: kueue.CheckStatePending,
