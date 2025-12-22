@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -46,6 +47,7 @@ var snapCmpOpts = cmp.Options{
 }
 
 func TestSnapshot(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
 	testCases := map[string]struct {
 		cqs                 []*kueue.ClusterQueue
 		cohorts             []*kueue.Cohort
@@ -62,9 +64,9 @@ func TestSnapshot(t *testing.T) {
 			},
 			wls: []*kueue.Workload{
 				utiltestingapi.MakeWorkload("alpha", "").
-					ReserveQuota(&kueue.Admission{ClusterQueue: "a"}).Obj(),
+					ReserveQuotaAt(&kueue.Admission{ClusterQueue: "a"}, now).Obj(),
 				utiltestingapi.MakeWorkload("beta", "").
-					ReserveQuota(&kueue.Admission{ClusterQueue: "b"}).Obj(),
+					ReserveQuotaAt(&kueue.Admission{ClusterQueue: "b"}, now).Obj(),
 			},
 			wantSnapshot: Snapshot{
 				Manager: hierarchy.NewManagerForTest(
@@ -79,7 +81,7 @@ func TestSnapshot(t *testing.T) {
 							Workloads: map[workload.Reference]*workload.Info{
 								"/alpha": workload.NewInfo(
 									utiltestingapi.MakeWorkload("alpha", "").
-										ReserveQuota(&kueue.Admission{ClusterQueue: "a"}).Obj()),
+										ReserveQuotaAt(&kueue.Admission{ClusterQueue: "a"}, now).Obj()),
 							},
 							Preemption: defaultPreemption,
 							FairWeight: defaultWeight,
@@ -93,7 +95,7 @@ func TestSnapshot(t *testing.T) {
 							Workloads: map[workload.Reference]*workload.Info{
 								"/beta": workload.NewInfo(
 									utiltestingapi.MakeWorkload("beta", "").
-										ReserveQuota(&kueue.Admission{ClusterQueue: "b"}).Obj()),
+										ReserveQuotaAt(&kueue.Admission{ClusterQueue: "b"}, now).Obj()),
 							},
 							Preemption: defaultPreemption,
 							FairWeight: defaultWeight,
@@ -176,7 +178,7 @@ func TestSnapshot(t *testing.T) {
 				utiltestingapi.MakeWorkload("alpha", "").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 						Request(corev1.ResourceCPU, "2").Obj()).
-					ReserveQuota(utiltestingapi.MakeAdmission("a").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "demand", "10000m").Count(5).Obj()).Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("a").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "demand", "10000m").Count(5).Obj()).Obj(), now).
 					Obj(),
 				utiltestingapi.MakeWorkload("beta", "").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
@@ -184,13 +186,13 @@ func TestSnapshot(t *testing.T) {
 						Request("example.com/gpu", "2").
 						Obj(),
 					).
-					ReserveQuota(utiltestingapi.MakeAdmission("b").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("b").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "spot", "5000m").
 							Assignment("example.com/gpu", "default", "10").
 							Count(5).
 							Obj()).
-						Obj()).
+						Obj(), now).
 					Obj(),
 				utiltestingapi.MakeWorkload("gamma", "").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
@@ -198,13 +200,13 @@ func TestSnapshot(t *testing.T) {
 						Request("example.com/gpu", "1").
 						Obj(),
 					).
-					ReserveQuota(utiltestingapi.MakeAdmission("b").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("b").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "spot", "5000m").
 							Assignment("example.com/gpu", "default", "5").
 							Count(5).
 							Obj()).
-						Obj()).
+						Obj(), now).
 					Obj(),
 				utiltestingapi.MakeWorkload("sigma", "").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
@@ -263,12 +265,12 @@ func TestSnapshot(t *testing.T) {
 									"/alpha": workload.NewInfo(utiltestingapi.MakeWorkload("alpha", "").
 										PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 											Request(corev1.ResourceCPU, "2").Obj()).
-										ReserveQuota(utiltestingapi.MakeAdmission("a").
+										ReserveQuotaAt(utiltestingapi.MakeAdmission("a").
 											PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 												Assignment(corev1.ResourceCPU, "demand", "10000m").
 												Count(5).
 												Obj()).
-											Obj()).
+											Obj(), now).
 										Obj()),
 								},
 								Preemption:        defaultPreemption,
@@ -311,13 +313,13 @@ func TestSnapshot(t *testing.T) {
 											Request(corev1.ResourceCPU, "1").
 											Request("example.com/gpu", "2").
 											Obj()).
-										ReserveQuota(utiltestingapi.MakeAdmission("b").
+										ReserveQuotaAt(utiltestingapi.MakeAdmission("b").
 											PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 												Assignment(corev1.ResourceCPU, "spot", "5000m").
 												Assignment("example.com/gpu", "default", "10").
 												Count(5).
 												Obj()).
-											Obj()).
+											Obj(), now).
 										Obj()),
 									"/gamma": workload.NewInfo(utiltestingapi.MakeWorkload("gamma", "").
 										PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
@@ -325,13 +327,13 @@ func TestSnapshot(t *testing.T) {
 											Request("example.com/gpu", "1").
 											Obj(),
 										).
-										ReserveQuota(utiltestingapi.MakeAdmission("b").
+										ReserveQuotaAt(utiltestingapi.MakeAdmission("b").
 											PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 												Assignment(corev1.ResourceCPU, "spot", "5000m").
 												Assignment("example.com/gpu", "default", "5").
 												Count(5).
 												Obj()).
-											Obj()).
+											Obj(), now).
 										Obj()),
 								},
 								Preemption:        defaultPreemption,
@@ -450,32 +452,32 @@ func TestSnapshot(t *testing.T) {
 				utiltestingapi.MakeWorkload("alpha", "").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 						Request(corev1.ResourceCPU, "2").Obj()).
-					ReserveQuota(utiltestingapi.MakeAdmission("a").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("a").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "arm", "10000m").
 							Count(5).
 							Obj()).
-						Obj()).
+						Obj(), now).
 					Obj(),
 				utiltestingapi.MakeWorkload("beta", "").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 						Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltestingapi.MakeAdmission("a").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("a").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "arm", "5000m").
 							Count(5).
 							Obj()).
-						Obj()).
+						Obj(), now).
 					Obj(),
 				utiltestingapi.MakeWorkload("gamma", "").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 						Request(corev1.ResourceCPU, "2").Obj()).
-					ReserveQuota(utiltestingapi.MakeAdmission("a").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("a").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "x86", "10000m").
 							Count(5).
 							Obj()).
-						Obj()).
+						Obj(), now).
 					Obj(),
 			},
 			wantSnapshot: func() Snapshot {
@@ -527,32 +529,32 @@ func TestSnapshot(t *testing.T) {
 									"/alpha": workload.NewInfo(utiltestingapi.MakeWorkload("alpha", "").
 										PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 											Request(corev1.ResourceCPU, "2").Obj()).
-										ReserveQuota(utiltestingapi.MakeAdmission("a").
+										ReserveQuotaAt(utiltestingapi.MakeAdmission("a").
 											PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 												Assignment(corev1.ResourceCPU, "arm", "10000m").
 												Count(5).
 												Obj()).
-											Obj()).
+											Obj(), now).
 										Obj()),
 									"/beta": workload.NewInfo(utiltestingapi.MakeWorkload("beta", "").
 										PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 											Request(corev1.ResourceCPU, "1").Obj()).
-										ReserveQuota(utiltestingapi.MakeAdmission("a").
+										ReserveQuotaAt(utiltestingapi.MakeAdmission("a").
 											PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 												Assignment(corev1.ResourceCPU, "arm", "5000m").
 												Count(5).
 												Obj()).
-											Obj()).
+											Obj(), now).
 										Obj()),
 									"/gamma": workload.NewInfo(utiltestingapi.MakeWorkload("gamma", "").
 										PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 											Request(corev1.ResourceCPU, "2").Obj()).
-										ReserveQuota(utiltestingapi.MakeAdmission("a").
+										ReserveQuotaAt(utiltestingapi.MakeAdmission("a").
 											PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 												Assignment(corev1.ResourceCPU, "x86", "10000m").
 												Count(5).
 												Obj()).
-											Obj()).
+											Obj(), now).
 										Obj()),
 								},
 								Preemption:        defaultPreemption,
@@ -622,32 +624,32 @@ func TestSnapshot(t *testing.T) {
 				utiltestingapi.MakeWorkload("alpha", "").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 						Request(corev1.ResourceCPU, "2").Obj()).
-					ReserveQuota(utiltestingapi.MakeAdmission("a").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("a").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "arm", "10000m").
 							Count(5).
 							Obj()).
-						Obj()).
+						Obj(), now).
 					Obj(),
 				utiltestingapi.MakeWorkload("beta", "").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 						Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltestingapi.MakeAdmission("a").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("a").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "arm", "5000m").
 							Count(5).
 							Obj()).
-						Obj()).
+						Obj(), now).
 					Obj(),
 				utiltestingapi.MakeWorkload("gamma", "").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 						Request(corev1.ResourceCPU, "2").Obj()).
-					ReserveQuota(utiltestingapi.MakeAdmission("a").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("a").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "x86", "10000m").
 							Count(5).
 							Obj()).
-						Obj()).
+						Obj(), now).
 					Obj(),
 			},
 			wantSnapshot: func() Snapshot {
@@ -700,32 +702,32 @@ func TestSnapshot(t *testing.T) {
 									"/alpha": workload.NewInfo(utiltestingapi.MakeWorkload("alpha", "").
 										PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 											Request(corev1.ResourceCPU, "2").Obj()).
-										ReserveQuota(utiltestingapi.MakeAdmission("a").
+										ReserveQuotaAt(utiltestingapi.MakeAdmission("a").
 											PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 												Assignment(corev1.ResourceCPU, "arm", "10000m").
 												Count(5).
 												Obj()).
-											Obj()).
+											Obj(), now).
 										Obj()),
 									"/beta": workload.NewInfo(utiltestingapi.MakeWorkload("beta", "").
 										PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 											Request(corev1.ResourceCPU, "1").Obj()).
-										ReserveQuota(utiltestingapi.MakeAdmission("a").
+										ReserveQuotaAt(utiltestingapi.MakeAdmission("a").
 											PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 												Assignment(corev1.ResourceCPU, "arm", "5000m").
 												Count(5).
 												Obj()).
-											Obj()).
+											Obj(), now).
 										Obj()),
 									"/gamma": workload.NewInfo(utiltestingapi.MakeWorkload("gamma", "").
 										PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 											Request(corev1.ResourceCPU, "2").Obj()).
-										ReserveQuota(utiltestingapi.MakeAdmission("a").
+										ReserveQuotaAt(utiltestingapi.MakeAdmission("a").
 											PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 												Assignment(corev1.ResourceCPU, "x86", "10000m").
 												Count(5).
 												Obj()).
-											Obj()).
+											Obj(), now).
 										Obj()),
 								},
 								Preemption:        defaultPreemption,
@@ -987,6 +989,7 @@ func TestSnapshot(t *testing.T) {
 }
 
 func TestSnapshotAddRemoveWorkload(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
 	flavors := []*kueue.ResourceFlavor{
 		utiltestingapi.MakeResourceFlavor("default").Obj(),
 		utiltestingapi.MakeResourceFlavor("alpha").Obj(),
@@ -1013,43 +1016,43 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 	workloads := []kueue.Workload{
 		*utiltestingapi.MakeWorkload("c1-cpu", "").
 			Request(corev1.ResourceCPU, "1").
-			ReserveQuota(utiltestingapi.MakeAdmission("c1").
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("c1").
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(corev1.ResourceCPU, "default", "1000m").
 					Obj()).
-				Obj()).
+				Obj(), now).
 			Obj(),
 		*utiltestingapi.MakeWorkload("c1-memory-alpha", "").
 			Request(corev1.ResourceMemory, "1Gi").
-			ReserveQuota(utiltestingapi.MakeAdmission("c1").
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("c1").
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(corev1.ResourceMemory, "alpha", "1Gi").
 					Obj()).
-				Obj()).
+				Obj(), now).
 			Obj(),
 		*utiltestingapi.MakeWorkload("c1-memory-beta", "").
 			Request(corev1.ResourceMemory, "1Gi").
-			ReserveQuota(utiltestingapi.MakeAdmission("c1").
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("c1").
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(corev1.ResourceMemory, "beta", "1Gi").
 					Obj()).
-				Obj()).
+				Obj(), now).
 			Obj(),
 		*utiltestingapi.MakeWorkload("c2-cpu-1", "").
 			Request(corev1.ResourceCPU, "1").
-			ReserveQuota(utiltestingapi.MakeAdmission("c2").
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("c2").
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(corev1.ResourceCPU, "default", "1000m").
 					Obj()).
-				Obj()).
+				Obj(), now).
 			Obj(),
 		*utiltestingapi.MakeWorkload("c2-cpu-2", "").
 			Request(corev1.ResourceCPU, "1").
-			ReserveQuota(utiltestingapi.MakeAdmission("c2").
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("c2").
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(corev1.ResourceCPU, "default", "1000m").
 					Obj()).
-				Obj()).
+				Obj(), now).
 			Obj(),
 	}
 
@@ -1303,6 +1306,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 }
 
 func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
 	flavors := []*kueue.ResourceFlavor{
 		utiltestingapi.MakeResourceFlavor("default").Obj(),
 	}
@@ -1331,35 +1335,35 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 	workloads := []kueue.Workload{
 		*utiltestingapi.MakeWorkload("lend-a-1", "").
 			Request(corev1.ResourceCPU, "1").
-			ReserveQuota(utiltestingapi.MakeAdmission("lend-a").
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("lend-a").
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(corev1.ResourceCPU, "default", "1").
 					Obj()).
-				Obj()).
+				Obj(), now).
 			Obj(),
 		*utiltestingapi.MakeWorkload("lend-a-2", "").
 			Request(corev1.ResourceCPU, "9").
-			ReserveQuota(utiltestingapi.MakeAdmission("lend-a").
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("lend-a").
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(corev1.ResourceCPU, "default", "9").
 					Obj()).
-				Obj()).
+				Obj(), now).
 			Obj(),
 		*utiltestingapi.MakeWorkload("lend-a-3", "").
 			Request(corev1.ResourceCPU, "6").
-			ReserveQuota(utiltestingapi.MakeAdmission("lend-a").
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("lend-a").
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(corev1.ResourceCPU, "default", "6").
 					Obj()).
-				Obj()).
+				Obj(), now).
 			Obj(),
 		*utiltestingapi.MakeWorkload("lend-b-1", "").
 			Request(corev1.ResourceCPU, "4").
-			ReserveQuota(utiltestingapi.MakeAdmission("lend-b").
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("lend-b").
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(corev1.ResourceCPU, "default", "4").
 					Obj()).
-				Obj()).
+				Obj(), now).
 			Obj(),
 	}
 
