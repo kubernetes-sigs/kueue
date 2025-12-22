@@ -112,7 +112,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
 	})
 
-	ginkgo.It("Should update conditions when clusterQueues that its localQueue references are updated", func() {
+	ginkgo.It("Should update conditions when clusterQueues that its localQueue references are updated", framework.SlowSpec, func() {
 		gomega.Eventually(func(g gomega.Gomega) {
 			var updatedQueue kueue.LocalQueue
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())

@@ -123,7 +123,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			podsReadyTimeout = util.LongTimeout
 		})
 
-		ginkgo.It("Should unblock admission of new workloads in other ClusterQueues once the admitted workload exceeds timeout", func() {
+		ginkgo.It("Should unblock admission of new workloads in other ClusterQueues once the admitted workload exceeds timeout", framework.SlowSpec, func() {
 			ginkgo.By("checking the first prod workload gets admitted while the second is waiting")
 			prodWl := utiltestingapi.MakeWorkload("prod-wl", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			util.MustCreate(ctx, k8sClient, prodWl)
@@ -145,7 +145,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, devClusterQ.Name, devWl)
 		})
 
-		ginkgo.It("Should unblock admission of new workloads in other ClusterQueues once the admitted workload exceeds timeout", func() {
+		ginkgo.It("Should unblock admission of new workloads in other ClusterQueues once the admitted workload exceeds timeout", framework.SlowSpec, func() {
 			ginkgo.By("checking the first prod workload gets admitted while the second is waiting")
 			prodWl := utiltestingapi.MakeWorkload("prod-wl", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			util.MustCreate(ctx, k8sClient, prodWl)
@@ -167,7 +167,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, devClusterQ.Name, devWl)
 		})
 
-		ginkgo.It("Should emit the PodsReadyToEvictedTimeSeconds metric", func() {
+		ginkgo.It("Should emit the PodsReadyToEvictedTimeSeconds metric", framework.SlowSpec, func() {
 			ginkgo.By("create a workload and await its admission")
 			prodWl := utiltestingapi.MakeWorkload("prod-wl", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			util.MustCreate(ctx, k8sClient, prodWl)
@@ -199,7 +199,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			util.ExpectPodsReadyToEvictedTimeSeconds(prodClusterQ.Name, kueue.WorkloadDeactivated, "", 1)
 		})
 
-		ginkgo.It("Should unblock admission of new workloads once the admitted workload is deleted", func() {
+		ginkgo.It("Should unblock admission of new workloads once the admitted workload is deleted", framework.SlowSpec, func() {
 			ginkgo.By("checking the first prod workload gets admitted while the second is waiting")
 			prodWl := utiltestingapi.MakeWorkload("prod-wl", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			util.MustCreate(ctx, k8sClient, prodWl)
@@ -688,7 +688,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 			podsReadyTimeout = util.TinyTimeout
 		})
 
-		ginkgo.It("Should re-admit a timed out workload", func() {
+		ginkgo.It("Should re-admit a timed out workload", framework.SlowSpec, func() {
 			ginkgo.By("create the 'prod' workload")
 			prodWl := utiltestingapi.MakeWorkload("prod", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			util.MustCreate(ctx, k8sClient, prodWl)

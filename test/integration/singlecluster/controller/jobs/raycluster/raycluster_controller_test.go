@@ -46,6 +46,7 @@ import (
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
+	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob" // to enable the framework
@@ -77,7 +78,7 @@ var _ = ginkgo.Describe("RayCluster controller", ginkgo.Label("job:ray", "area:j
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
-	ginkgo.It("Should reconcile RayClusters", func() {
+	ginkgo.It("Should reconcile RayClusters", framework.SlowSpec, func() {
 		ginkgo.By("checking the job gets suspended when created unsuspended")
 		priorityClass := utiltesting.MakePriorityClass(priorityClassName).
 			PriorityValue(priorityValue).Obj()
@@ -624,7 +625,7 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, priorityClass, true)
 	})
 
-	ginkgo.It("Should preempt lower priority RayClusters when resource insufficient", func() {
+	ginkgo.It("Should preempt lower priority RayClusters when resource insufficient", framework.SlowSpec, func() {
 		ginkgo.By("Create a low priority RayCluster")
 		lowPriorityJob := testingraycluster.MakeCluster("raycluster-with-low-priority", ns.Name).Queue(localQueue.Name).
 			RequestHead(corev1.ResourceCPU, "1").
@@ -734,7 +735,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 	})
 
-	ginkgo.It("Should support raycluster scale-down and scale-up", func() {
+	ginkgo.It("Should support raycluster scale-down and scale-up", framework.SlowSpec, func() {
 		testRayCluster := testingraycluster.MakeCluster("foo", ns.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			Queue(localQueue.Name).
@@ -865,7 +866,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
-	ginkgo.It("Should support scheduling pending workload after freeing capacity on scale-down", func() {
+	ginkgo.It("Should support scheduling pending workload after freeing capacity on scale-down", framework.SlowSpec, func() {
 		var (
 			testRayClusterAWorkload *kueue.Workload
 			testRayClusterBWorkload *kueue.Workload

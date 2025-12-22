@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	utiltestingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -66,7 +67,7 @@ var _ = ginkgo.Describe("Importer", func() {
 	})
 
 	ginkgo.When("Kueue is started after import", func() {
-		ginkgo.It("Should keep the imported pods admitted", func() {
+		ginkgo.It("Should keep the imported pods admitted", framework.SlowSpec, func() {
 			pod1 := utiltestingpod.MakePod("pod1", ns.Name).
 				Label("src.lbl", "src-val").
 				Request(corev1.ResourceCPU, "2").
