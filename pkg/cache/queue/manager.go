@@ -542,8 +542,8 @@ func (m *Manager) DeleteWorkload(log logr.Logger, wl *kueue.Workload) {
 }
 
 func (m *Manager) deleteWorkloadFromQueuesIfReassigned(log logr.Logger, wl *kueue.Workload, actualQueue queue.LocalQueueReference) {
-	recordedQueue, ok := m.assignedWorkloads[workload.Key(wl)]
-	if ok && recordedQueue != actualQueue {
+	assignedQueue, ok := m.assignedWorkloads[workload.Key(wl)]
+	if ok && assignedQueue != actualQueue {
 		m.deleteWorkload(log, wl)
 	}
 }
