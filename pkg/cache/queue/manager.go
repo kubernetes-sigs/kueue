@@ -587,7 +587,12 @@ func (m *Manager) QueueAssociatedInadmissibleWorkloadsAfter(ctx context.Context,
 		action()
 	}
 
-	q := m.localQueues[queue.KeyFromWorkload(w)]
+	wlKey := workload.Key(w)
+	qKey, ok := m.managedWorkloads[wlKey]
+	if !ok {
+		return
+	}
+	q := m.localQueues[qKey]
 	if q == nil {
 		return
 	}
