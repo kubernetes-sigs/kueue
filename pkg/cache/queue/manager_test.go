@@ -453,45 +453,28 @@ func TestAddWorkload(t *testing.T) {
 			wantAssigned: map[workload.Reference]queue.LocalQueueReference{},
 		},
 		{
-			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Namespace: "earth",
-					Name:      "existing_queue",
-				},
-				Spec: kueue.WorkloadSpec{QueueName: "foo"},
-			},
+			workload: utiltestingapi.MakeWorkload("existing_queue", "earth").
+				Queue("foo").Obj(),
 			wantAssigned: map[workload.Reference]queue.LocalQueueReference{"earth/existing_queue": "earth/foo"},
 		},
 		{
-			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Namespace: "earth",
-					Name:      "non_existing_queue",
-				},
-				Spec: kueue.WorkloadSpec{QueueName: "baz"},
-			},
+			workload: utiltestingapi.MakeWorkload("non_existing_queue", "earth").
+				Queue("baz").
+				Obj(),
 			wantErr:      ErrLocalQueueDoesNotExistOrInactive,
 			wantAssigned: map[workload.Reference]queue.LocalQueueReference{},
 		},
 		{
-			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Namespace: "mars",
-					Name:      "non_existing_cluster_queue",
-				},
-				Spec: kueue.WorkloadSpec{QueueName: "bar"},
-			},
+			workload: utiltestingapi.MakeWorkload("non_existing_cluster_queue", "mars").
+				Queue("bar").
+				Obj(),
 			wantErr:      ErrClusterQueueDoesNotExist,
 			wantAssigned: map[workload.Reference]queue.LocalQueueReference{"mars/non_existing_cluster_queue": "mars/bar"},
 		},
 		{
-			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Namespace: "mars",
-					Name:      "wrong_namespace",
-				},
-				Spec: kueue.WorkloadSpec{QueueName: "foo"},
-			},
+			workload: utiltestingapi.MakeWorkload("wrong_namespace", "mars").
+				Queue("foo").
+				Obj(),
 			wantErr:      ErrLocalQueueDoesNotExistOrInactive,
 			wantAssigned: map[workload.Reference]queue.LocalQueueReference{},
 		},
@@ -640,51 +623,39 @@ func TestRequeueWorkloadStrictFIFO(t *testing.T) {
 		wantRequeued bool
 	}{
 		{
-			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "existing_queue_and_obj"},
-				Spec:       kueue.WorkloadSpec{QueueName: "foo"},
-			},
+			workload: utiltestingapi.MakeWorkload("existing_queue_and_obj", "").
+				Queue("foo").
+				Obj(),
 			inClient:     true,
 			wantRequeued: true,
 		},
 		{
-			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "non_existing_queue"},
-				Spec:       kueue.WorkloadSpec{QueueName: "baz"},
-			},
+			workload: utiltestingapi.MakeWorkload("non_existing_queue", "").Queue("baz").Obj(),
 			inClient: true,
 		},
 		{
-			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "non_existing_cluster_queue"},
-				Spec:       kueue.WorkloadSpec{QueueName: "bar"},
-			},
+			workload: utiltestingapi.MakeWorkload("non_existing_cluster_queue", "").
+				Queue("bar").
+				Obj(),
 			inClient: true,
 		},
 		{
-			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "not_in_client"},
-				Spec:       kueue.WorkloadSpec{QueueName: "foo"},
-			},
+			workload: utiltestingapi.MakeWorkload("not_in_client", "").
+				Queue("foo").
+				Obj(),
 		},
 		{
-			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "already_in_queue"},
-				Spec:       kueue.WorkloadSpec{QueueName: "foo"},
-			},
+			workload: utiltestingapi.MakeWorkload("already_in_queue", "").
+				Queue("foo").
+				Obj(),
 			inClient: true,
 			inQueue:  true,
 		},
 		{
-			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "already_admitted"},
-				Spec: kueue.WorkloadSpec{
-					QueueName: "foo",
-				},
-				Status: kueue.WorkloadStatus{
-					Admission: &kueue.Admission{},
-				},
-			},
+			workload: utiltestingapi.MakeWorkload("already_admitted", "").
+				Queue("foo").
+				Admission(&kueue.Admission{}).
+				Obj(),
 			inClient: true,
 			inQueue:  true,
 		},
