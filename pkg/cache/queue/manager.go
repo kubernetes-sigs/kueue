@@ -334,6 +334,8 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		return fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
 	for _, w := range workloads.Items {
+		m.managedWorkloads[workload.Key(&w)] = qImpl.Key
+
 		if !workload.IsAdmissible(&w) {
 			continue
 		}
@@ -348,7 +350,7 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		}
 
 		workload.AdjustResources(ctx, m.client, &w)
-		m.assignWorkload(workload.NewInfo(&w, m.workloadInfoOptions...), qImpl)
+		qImpl.AddOrUpdate(workload.NewInfo(&w, m.workloadInfoOptions...))
 	}
 
 	if cq != nil && cq.AddFromLocalQueue(qImpl) {
@@ -471,7 +473,7 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 	}
 	allOptions := append(m.workloadInfoOptions, opts...)
 	wInfo := workload.NewInfo(w, allOptions...)
-	m.assignWorkload(wInfo, q)
+	m.addWorkload(wInfo, q)
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq == nil {
@@ -509,7 +511,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 		return false
 	}
 	info.Update(&w)
-	m.assignWorkload(info, q)
+	m.addWorkload(info, q)
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq == nil {
@@ -527,7 +529,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	return added
 }
 
-func (m *Manager) assignWorkload(wlInfo *workload.Info, q *LocalQueue) {
+func (m *Manager) addWorkload(wlInfo *workload.Info, q *LocalQueue) {
 	m.managedWorkloads[workload.Key(wlInfo.Obj)] = q.Key
 	q.AddOrUpdate(wlInfo)
 }
