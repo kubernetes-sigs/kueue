@@ -2239,7 +2239,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		})
 
-		ginkgo.It("Should report pending workloads properly when blocked", func() {
+		ginkgo.It("Should report pending workloads properly when blocked", framework.SlowSpec, func() {
 			var wl1, wl2, wl3 *kueue.Workload
 			ginkgo.By("Create two workloads", func() {
 				wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
@@ -2293,7 +2293,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			})
 		})
 
-		ginkgo.It("Should allow mutating the requeueingStrategy", func() {
+		ginkgo.It("Should allow mutating the requeueingStrategy", framework.SlowSpec, func() {
 			var wl1, wl2, wl3 *kueue.Workload
 			ginkgo.By("Create initial set of workloads, verify counters", func() {
 				wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).

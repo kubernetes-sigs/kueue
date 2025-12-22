@@ -468,7 +468,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
-		ginkgo.It("The transformed resources should be used as request values", func() {
+		ginkgo.It("The transformed resources should be used as request values", framework.SlowSpec, func() {
 			var wl2 *kueue.Workload
 			ginkgo.By("Create and wait for workload admission", func() {
 				util.MustCreate(ctx, k8sClient, localQueue)
@@ -590,7 +590,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
-		ginkgo.It("Should sync the resource requests with the new overhead", func() {
+		ginkgo.It("Should sync the resource requests with the new overhead", framework.SlowSpec, func() {
 			ginkgo.By("Create and wait for the first workload admission", func() {
 				wl = utiltestingapi.MakeWorkload("one", ns.Name).
 					Queue(kueue.LocalQueueName(localQueue.Name)).
@@ -679,7 +679,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
-		ginkgo.It("Should sync the resource requests with the limit", func() {
+		ginkgo.It("Should sync the resource requests with the limit", framework.SlowSpec, func() {
 			ginkgo.By("Create and wait for the first workload admission", func() {
 				wl = utiltestingapi.MakeWorkload("one", ns.Name).
 					Queue(kueue.LocalQueueName(localQueue.Name)).

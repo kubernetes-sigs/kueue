@@ -635,7 +635,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, check2, true)
 		})
 
-		ginkgo.It("Should update status conditions when flavors are created", func() {
+		ginkgo.It("Should update status conditions when flavors are created", framework.SlowSpec, func() {
 			check1 = utiltestingapi.MakeAdmissionCheck("check1").ControllerName("ac-controller").Obj()
 			util.MustCreate(ctx, k8sClient, check1)
 			util.SetAdmissionCheckActive(ctx, k8sClient, check1, metav1.ConditionTrue)
@@ -692,7 +692,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("Should update status conditions when admission checks are created", func() {
+		ginkgo.It("Should update status conditions when admission checks are created", framework.SlowSpec, func() {
 			cpuArchAFlavor = utiltestingapi.MakeResourceFlavor(flavorCPUArchA).Obj()
 			util.MustCreate(ctx, k8sClient, cpuArchAFlavor)
 
@@ -1021,7 +1021,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			util.ExpectLQByStatusMetric(lq, metav1.ConditionFalse)
 		})
 
-		ginkgo.It("Should delete the cluster without waiting for reserving only workloads to finish", func() {
+		ginkgo.It("Should delete the cluster without waiting for reserving only workloads to finish", framework.SlowSpec, func() {
 			util.SetAdmissionCheckActive(ctx, k8sClient, check, metav1.ConditionTrue)
 			util.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusActive)
 			util.ExpectLQByStatusMetric(lq, metav1.ConditionTrue)
