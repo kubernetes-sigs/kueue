@@ -241,12 +241,12 @@ func TestValidateOnCreate(t *testing.T) {
 					Namespace: "default",
 					Labels: map[string]string{
 						constants.QueueLabel:                 "queue",
-						constants.WorkloadPriorityClassLabel: "priorityclass",
+						constants.WorkloadPriorityClassLabel: "test-wpc",
 					},
 				},
 			},
 			objects: []client.Object{
-				utiltesting.MakeWorkloadPriorityClass("priorityclass").Obj(),
+				utiltestingapi.MakeWorkloadPriorityClass("test-wpc").Obj(),
 			},
 		},
 		{

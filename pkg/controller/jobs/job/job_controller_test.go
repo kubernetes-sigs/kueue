@@ -3977,7 +3977,7 @@ func TestReconciler(t *testing.T) {
 				Parallelism(10).
 				Request(corev1.ResourceCPU, "1").
 				Image("", nil).
-				WorkloadPriorityClass("test-wpc-high").
+				WorkloadPriorityClass(highWPCWrapper.Name).
 				Obj(),
 			wantJob: *utiltestingjob.MakeJob("job", "labelled-ns").
 				Queue("test-queue").
@@ -3986,22 +3986,21 @@ func TestReconciler(t *testing.T) {
 				Parallelism(10).
 				Request(corev1.ResourceCPU, "1").
 				Image("", nil).
-				WorkloadPriorityClass("test-wpc-high").
+				WorkloadPriorityClass(highWPCWrapper.Name).
 				Obj(),
 			priorityClasses: []client.Object{
 				highWPCWrapper.Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("job", "labelled-ns").
+				*utiltestingapi.MakeWorkload("job", "labelled-ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Queue("test-queue").
-					Priority(200).
-					PriorityClass("test-wpc-high").
-					PriorityClassSource(constants.WorkloadPriorityClassSource).
+					WorkloadPriorityClassRef(highWPCWrapper.Name).
+					Priority(highWPCWrapper.Value).
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					Obj(),
