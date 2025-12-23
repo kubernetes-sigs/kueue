@@ -19,6 +19,8 @@ package queue
 import (
 	"testing"
 
+	"k8s.io/apimachinery/pkg/labels"
+
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -29,7 +31,8 @@ import (
 // TestStrictFIFOPerFlavorBlocking tests the core blocking logic
 func TestStrictFIFOPerFlavorBlocking(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
-	cq, _ := newClusterQueue(ctx, nil,
+	cl := utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace))
+	cq, _ := newClusterQueue(ctx, cl,
 		&kueue.ClusterQueue{
 			Spec: kueue.ClusterQueueSpec{
 				QueueingStrategy: kueue.StrictFIFOPerFlavor,
@@ -37,6 +40,7 @@ func TestStrictFIFOPerFlavorBlocking(t *testing.T) {
 		},
 		workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
 		nil, nil, nil)
+	cq.namespaceSelector = labels.Everything()
 
 	flavorA := kueue.ResourceFlavorReference("flavor-a")
 	flavorB := kueue.ResourceFlavorReference("flavor-b")
@@ -50,47 +54,52 @@ func TestStrictFIFOPerFlavorBlocking(t *testing.T) {
 	cq.inadmissibleBlockedFlavors[workload.Key(wl1)] = info1.AttemptedFlavors
 	cq.rwm.Unlock()
 
-	// Test 1: wl2 with same flavor should be blocked
+	// Test 1: wl2 with same flavor should be blocked and stay in inadmissible
 	wl2 := utiltestingapi.MakeWorkload("wl2", defaultNamespace).Obj()
 	info2 := workload.NewInfo(wl2)
 	info2.AttemptedFlavors = map[kueue.ResourceFlavorReference]struct{}{flavorA: {}}
 	cq.RequeueIfNotPresent(ctx, info2, RequeueReasonFailedAfterNomination)
 
-	// wl2 should be in inadmissible (blocked by wl1)
+	// wl2 should be in inadmissible (all workloads go to inadmissible initially)
 	if _, found := cq.inadmissibleWorkloads[workload.Key(wl2)]; !found {
-		t.Error("wl2 with same flavor should be blocked and in inadmissible")
+		t.Error("wl2 should be in inadmissible")
 	}
 
-	// Test 2: wl3 with different flavor should not be blocked
+	// Test 2: wl3 with different flavor goes to inadmissible but should move to heap on QueueInadmissible
 	wl3 := utiltestingapi.MakeWorkload("wl3", defaultNamespace).Obj()
 	info3 := workload.NewInfo(wl3)
 	info3.AttemptedFlavors = map[kueue.ResourceFlavorReference]struct{}{flavorB: {}}
 	cq.RequeueIfNotPresent(ctx, info3, RequeueReasonFailedAfterNomination)
 
-	// wl3 should be in heap (not blocked)
-	if cq.heap.GetByKey(workload.Key(wl3)) == nil {
-		t.Error("wl3 with different flavor should not be blocked and should be in heap")
+	// wl3 should be in inadmissible initially
+	if _, found := cq.inadmissibleWorkloads[workload.Key(wl3)]; !found {
+		t.Error("wl3 should be in inadmissible initially")
 	}
 
-	// Test 3: Delete wl1 and wl2, then wl4 with flavor-a should not be blocked
+	// Trigger QueueInadmissibleWorkloads - wl3 should move to heap (not blocked), wl2 stays (blocked)
+	cq.QueueInadmissibleWorkloads(ctx, cl)
+
+	if cq.heap.GetByKey(workload.Key(wl3)) == nil {
+		t.Error("wl3 with different flavor should move to heap after QueueInadmissible")
+	}
+	if _, found := cq.inadmissibleWorkloads[workload.Key(wl2)]; !found {
+		t.Error("wl2 should stay inadmissible (blocked by wl1)")
+	}
+
+	// Test 3: Delete wl1, then wl2 should move to heap on next QueueInadmissible
 	cq.Delete(log, wl1)
-	cq.Delete(log, wl2)
+	cq.QueueInadmissibleWorkloads(ctx, cl)
 
-	wl4 := utiltestingapi.MakeWorkload("wl4", defaultNamespace).Obj()
-	info4 := workload.NewInfo(wl4)
-	info4.AttemptedFlavors = map[kueue.ResourceFlavorReference]struct{}{flavorA: {}}
-	cq.RequeueIfNotPresent(ctx, info4, RequeueReasonFailedAfterNomination)
-
-	// wl4 should be in heap (wl1 and wl2 were deleted, no blocker)
-	if cq.heap.GetByKey(workload.Key(wl4)) == nil {
-		t.Error("wl4 should not be blocked after blockers were deleted")
+	if cq.heap.GetByKey(workload.Key(wl2)) == nil {
+		t.Error("wl2 should move to heap after wl1 deleted")
 	}
 }
 
 // TestStrictFIFOPerFlavorOverlappingFlavors tests blocking with multiple flavors
 func TestStrictFIFOPerFlavorOverlappingFlavors(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
-	cq, _ := newClusterQueue(ctx, nil,
+	cl := utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace))
+	cq, _ := newClusterQueue(ctx, cl,
 		&kueue.ClusterQueue{
 			Spec: kueue.ClusterQueueSpec{
 				QueueingStrategy: kueue.StrictFIFOPerFlavor,
@@ -98,6 +107,7 @@ func TestStrictFIFOPerFlavorOverlappingFlavors(t *testing.T) {
 		},
 		workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
 		nil, nil, nil)
+	cq.namespaceSelector = labels.Everything()
 
 	flavorA := kueue.ResourceFlavorReference("flavor-a")
 	flavorB := kueue.ResourceFlavorReference("flavor-b")
@@ -122,17 +132,23 @@ func TestStrictFIFOPerFlavorOverlappingFlavors(t *testing.T) {
 	cq.RequeueIfNotPresent(ctx, info2, RequeueReasonFailedAfterNomination)
 
 	if _, found := cq.inadmissibleWorkloads[workload.Key(wl2)]; !found {
-		t.Error("wl2 should be blocked by wl1 (overlaps on flavor-b)")
+		t.Error("wl2 should be in inadmissible")
 	}
 
-	// wl3 with flavor C should not be blocked
+	// wl3 with flavor C should not be blocked but goes to inadmissible initially
 	wl3 := utiltestingapi.MakeWorkload("wl3", defaultNamespace).Obj()
 	info3 := workload.NewInfo(wl3)
 	info3.AttemptedFlavors = map[kueue.ResourceFlavorReference]struct{}{flavorC: {}}
 	cq.RequeueIfNotPresent(ctx, info3, RequeueReasonFailedAfterNomination)
 
+	// Trigger QueueInadmissibleWorkloads - wl3 should move to heap, wl2 should stay
+	cq.QueueInadmissibleWorkloads(ctx, cl)
+
 	if cq.heap.GetByKey(workload.Key(wl3)) == nil {
-		t.Error("wl3 should not be blocked (no flavor overlap)")
+		t.Error("wl3 should move to heap (no flavor overlap with wl1)")
+	}
+	if _, found := cq.inadmissibleWorkloads[workload.Key(wl2)]; !found {
+		t.Error("wl2 should stay inadmissible (blocked by wl1 on flavor-b)")
 	}
 }
 

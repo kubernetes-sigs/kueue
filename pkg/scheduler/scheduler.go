@@ -814,6 +814,9 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 		for flavorResource := range e.assignment.Usage.Quota {
 			e.Info.AttemptedFlavors[flavorResource.Flavor] = struct{}{}
 		}
+		if logV := log.V(3); logV.Enabled() {
+			logV.Info("Populated AttemptedFlavors for workload", "attemptedFlavors", e.Info.AttemptedFlavors)
+		}
 	}
 
 	added := s.queues.RequeueWorkload(ctx, &e.Info, e.requeueReason)

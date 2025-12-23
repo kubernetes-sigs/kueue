@@ -383,7 +383,21 @@ func (c *ClusterQueue) QueueInadmissibleWorkloads(ctx context.Context, client cl
 	c.inadmissibleWorkloads.forEach(func(key workload.Reference, wInfo *workload.Info) bool {
 		ns := corev1.Namespace{}
 		err := client.Get(ctx, types.NamespacedName{Name: wInfo.Obj.Namespace}, &ns)
-		if err != nil || !c.namespaceSelector.Matches(labels.Set(ns.Labels)) || !c.backoffWaitingTimeExpired(wInfo) {
+		shouldStayInadmissible := err != nil || !c.namespaceSelector.Matches(labels.Set(ns.Labels)) || !c.backoffWaitingTimeExpired(wInfo)
+
+		// For StrictFIFOPerFlavor, also check if blocked by other inadmissible workloads
+		if !shouldStayInadmissible && c.queueingStrategy == kueue.StrictFIFOPerFlavor {
+			if c.isBlockedByInadmissibleWorkloads(wInfo) {
+				shouldStayInadmissible = true
+				if logV := ctrl.LoggerFrom(ctx).V(3); logV.Enabled() {
+					logV.Info("Workload stays inadmissible due to flavor blocking",
+						"workload", key,
+						"attemptedFlavors", wInfo.AttemptedFlavors)
+				}
+			}
+		}
+
+		if shouldStayInadmissible {
 			inadmissibleWorkloads[key] = wInfo
 		} else {
 			moved = c.heap.PushIfNotPresent(wInfo) || moved
@@ -606,8 +620,15 @@ func (c *ClusterQueue) isBlockedByInadmissibleWorkloads(wInfo *workload.Info) bo
 		return false
 	}
 
+	currentKey := workload.Key(wInfo.Obj)
+
 	// Check all inadmissible workloads (which are older due to FIFO ordering)
+	// IMPORTANT: Skip checking against self to avoid self-blocking
 	for inadmissibleKey := range c.inadmissibleWorkloads {
+		if inadmissibleKey == currentKey {
+			continue // Don't check against self
+		}
+
 		if blockedFlavors, found := c.inadmissibleBlockedFlavors[inadmissibleKey]; found {
 			if hasFlavorConflict(wFlavors, blockedFlavors) {
 				return true
@@ -643,15 +664,36 @@ func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.
 	}
 
 	if c.queueingStrategy == kueue.StrictFIFOPerFlavor {
-		// For StrictFIFOPerFlavor, check if this workload conflicts with older inadmissible workloads
-		shouldRequeueToHeap := reason != RequeueReasonNamespaceMismatch && !c.isBlockedByInadmissibleWorkloads(wInfo)
+		log := ctrl.LoggerFrom(ctx)
+		// For StrictFIFOPerFlavor, workloads go to inadmissible list (like StrictFIFO)
+		// to potentially block future workloads with the same flavor.
+		// They only go to heap immediately if namespace mismatch.
+		shouldRequeueToHeap := reason == RequeueReasonNamespaceMismatch
+
+		// Check if this workload would be blocked by older inadmissible workloads
+		isBlocked := !shouldRequeueToHeap && c.isBlockedByInadmissibleWorkloads(wInfo)
+
+		if logV := log.V(3); logV.Enabled() {
+			flavors := extractAttemptedFlavors(wInfo)
+			logV.Info("StrictFIFOPerFlavor requeue decision",
+				"workload", workload.Key(wInfo.Obj),
+				"reason", reason,
+				"isBlocked", isBlocked,
+				"shouldRequeueToHeap", shouldRequeueToHeap,
+				"attemptedFlavors", flavors,
+				"inadmissibleCount", len(c.inadmissibleWorkloads))
+		}
+
 		inserted := c.requeueIfNotPresent(wInfo, shouldRequeueToHeap)
 
-		// If workload was added to inadmissible list, track its flavor usage
+		// Track flavor usage for workloads in inadmissible list
 		if inserted && !shouldRequeueToHeap {
 			wKey := workload.Key(wInfo.Obj)
 			if flavors := extractAttemptedFlavors(wInfo); len(flavors) > 0 {
 				c.inadmissibleBlockedFlavors[wKey] = flavors
+				if logV := log.V(3); logV.Enabled() {
+					logV.Info("Tracking blocked flavors in inadmissible", "workload", wKey, "flavors", flavors, "isBlocked", isBlocked)
+				}
 			}
 		}
 		return inserted
