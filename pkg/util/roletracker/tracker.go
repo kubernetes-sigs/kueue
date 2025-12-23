@@ -20,7 +20,7 @@ import (
 	"context"
 	"sync/atomic"
 
-	"sigs.k8s.io/controller-runtime/pkg/log"
+	"github.com/go-logr/logr"
 )
 
 const (
@@ -52,8 +52,7 @@ func NewFakeRoleTracker(role string) *RoleTracker {
 }
 
 // Start blocks until leadership is acquired or context is cancelled.
-func (rt *RoleTracker) Start(ctx context.Context) {
-	log := log.FromContext(ctx)
+func (rt *RoleTracker) Start(ctx context.Context, log logr.Logger) {
 	select {
 	case <-rt.electedChan:
 		rt.role.Store(RoleLeader)

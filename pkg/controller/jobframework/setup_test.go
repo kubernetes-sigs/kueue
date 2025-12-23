@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
@@ -55,6 +56,7 @@ func TestSetupControllers(t *testing.T) {
 			SetupIndexes:          testSetupIndexes,
 			AddToScheme:           testAddToScheme,
 			CanSupportIntegration: testCanSupportIntegration,
+			GVK:                   batchv1.SchemeGroupVersion.WithKind("Job"),
 		},
 		"kubeflow.org/mpijob": {
 			NewReconciler:         testNewReconciler,
@@ -63,6 +65,7 @@ func TestSetupControllers(t *testing.T) {
 			SetupIndexes:          testSetupIndexes,
 			AddToScheme:           testAddToScheme,
 			CanSupportIntegration: testCanSupportIntegration,
+			GVK:                   kfmpi.SchemeGroupVersionKind,
 		},
 		"pod": {
 			NewReconciler:         testNewReconciler,
@@ -71,6 +74,7 @@ func TestSetupControllers(t *testing.T) {
 			SetupIndexes:          testSetupIndexes,
 			AddToScheme:           testAddToScheme,
 			CanSupportIntegration: testCanSupportIntegration,
+			GVK:                   corev1.SchemeGroupVersion.WithKind("Pod"),
 		},
 		"ray.io/raycluster": {
 			NewReconciler:         testNewReconciler,
@@ -79,6 +83,7 @@ func TestSetupControllers(t *testing.T) {
 			SetupIndexes:          testSetupIndexes,
 			AddToScheme:           testAddToScheme,
 			CanSupportIntegration: testCanSupportIntegration,
+			GVK:                   schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayCluster"},
 		},
 	}
 
@@ -167,7 +172,7 @@ func TestSetupControllers(t *testing.T) {
 				t.Fatalf("Failed to setup manager: %v", err)
 			}
 
-			gotError := manager.setupControllers(ctx, mgr, tc.opts...)
+			gotError := manager.setupControllers(ctx, mgr, logr.Discard(), tc.opts...)
 			if diff := cmp.Diff(tc.wantError, gotError, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Errorf("Unexpected error from SetupControllers (-want,+got):\n%s", diff)
 			}
@@ -408,7 +413,7 @@ func TestNotifyCRDAvailable(t *testing.T) {
 			crdNotifyCh := make(chan struct{}, 1)
 			manager.crdNotifiers[tt.wantGVK] = crdNotifyCh
 
-			manager.notifyCRDAvailable(ctx, tt.crd)
+			manager.notifyCRDAvailable(ctx, logr.Discard(), tt.crd)
 
 			select {
 			case <-crdNotifyCh:
@@ -424,7 +429,7 @@ func TestNotifyCRDAvailable(t *testing.T) {
 			wrongCh := make(chan struct{}, 1)
 			manager.crdNotifiers[wrongGVK] = wrongCh
 
-			manager.notifyCRDAvailable(ctx, tt.crd)
+			manager.notifyCRDAvailable(ctx, logr.Discard(), tt.crd)
 
 			select {
 			case <-wrongCh:
