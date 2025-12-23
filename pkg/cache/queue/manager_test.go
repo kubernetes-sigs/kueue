@@ -520,6 +520,106 @@ func TestAddWorkload(t *testing.T) {
 	}
 }
 
+func TestDeleteWorkload(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	manager := NewManager(utiltesting.NewFakeClient(), nil)
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
+	}
+	queues := []*kueue.LocalQueue{
+		utiltestingapi.MakeLocalQueue("foo", "earth").ClusterQueue("cq").Obj(),
+		utiltestingapi.MakeLocalQueue("bar", "mars").Obj(),
+	}
+	for _, q := range queues {
+		if err := manager.AddLocalQueue(ctx, q); err != nil {
+			t.Fatalf("Failed adding queue %s: %v", q.Name, err)
+		}
+	}
+	t.Run("workload deleted but not forgotten", func(t *testing.T) {
+		wl1 := utiltestingapi.MakeWorkload("wl1", "earth").
+			Queue("foo").Obj()
+		wl2 := utiltestingapi.MakeWorkload("wl2", "earth").
+			Queue("foo").Obj()
+
+		for _, wl := range []*kueue.Workload{wl1, wl2} {
+			if err := manager.AddOrUpdateWorkload(log, wl); err != nil {
+				t.Fatalf("Failed adding workload %s: %v", wl.Name, err)
+			}
+		}
+
+		manager.DeleteWorkload(log, wl1)
+
+		q := manager.localQueues[queue.Key(queues[0])]
+		if diff := cmp.Diff(map[workload.Reference]*workload.Info{
+			workload.Key(wl2): workload.NewInfo(wl2),
+		}, q.items); diff != "" {
+			t.Errorf("Unexpected workloads found in local queue (-want,+got):\n%s", diff)
+		}
+
+		cq := manager.hm.ClusterQueue(q.ClusterQueue)
+		if diff := cmp.Diff(1, cq.PendingTotal()); diff != "" {
+			t.Errorf("Unexpected number of pending workloads in cluster queue (-want,+got):\n%s", diff)
+		}
+
+		if diff := cmp.Diff(map[workload.Reference]queue.LocalQueueReference{
+			"earth/wl1": "earth/foo",
+			"earth/wl2": "earth/foo",
+		}, manager.assignedWorkloads); diff != "" {
+			t.Errorf("Unexpected assigned workloads (-want,+got):\n%s", diff)
+		}
+	})
+}
+func TestForgetWorkload(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	manager := NewManager(utiltesting.NewFakeClient(), nil)
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
+	}
+	queues := []*kueue.LocalQueue{
+		utiltestingapi.MakeLocalQueue("foo", "earth").ClusterQueue("cq").Obj(),
+		utiltestingapi.MakeLocalQueue("bar", "mars").Obj(),
+	}
+	for _, q := range queues {
+		if err := manager.AddLocalQueue(ctx, q); err != nil {
+			t.Fatalf("Failed adding queue %s: %v", q.Name, err)
+		}
+	}
+	t.Run("workload fully deleted and forgotten", func(t *testing.T) {
+		wl1 := utiltestingapi.MakeWorkload("wl1", "earth").
+			Queue("foo").Obj()
+		wl2 := utiltestingapi.MakeWorkload("wl2", "earth").
+			Queue("foo").Obj()
+
+		for _, wl := range []*kueue.Workload{wl1, wl2} {
+			if err := manager.AddOrUpdateWorkload(log, wl); err != nil {
+				t.Fatalf("Failed adding workload %s: %v", wl.Name, err)
+			}
+		}
+
+		manager.ForgetWorkload(log, wl1)
+
+		q := manager.localQueues[queue.Key(queues[0])]
+		if diff := cmp.Diff(map[workload.Reference]*workload.Info{
+			workload.Key(wl2): workload.NewInfo(wl2),
+		}, q.items); diff != "" {
+			t.Errorf("Unexpected workloads found in local queue (-want,+got):\n%s", diff)
+		}
+
+		cq := manager.hm.ClusterQueue(q.ClusterQueue)
+		if diff := cmp.Diff(1, cq.PendingTotal()); diff != "" {
+			t.Errorf("Unexpected number of pending workloads in cluster queue (-want,+got):\n%s", diff)
+		}
+
+		if diff := cmp.Diff(map[workload.Reference]queue.LocalQueueReference{
+			"earth/wl2": "earth/foo",
+		}, manager.assignedWorkloads); diff != "" {
+			t.Errorf("Unexpected assigned workloads (-want,+got):\n%s", diff)
+		}
+	})
+}
+
 func TestStatus(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	now := time.Now().Truncate(time.Second)

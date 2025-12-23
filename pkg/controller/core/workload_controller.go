@@ -864,7 +864,7 @@ func (r *WorkloadReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) b
 
 	// Even if the state is unknown, the last cached state tells us whether the
 	// workload was in the queues and should be cleared from them.
-	r.queues.DeleteWorkload(log, e.Object)
+	r.queues.ForgetWorkload(log, e.Object)
 
 	return true
 }
@@ -902,10 +902,11 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		if !active {
 			log.V(2).Info("Workload will not be queued because the workload is not active")
 		}
+
 		// The workload could have been in the queues if we missed an event.
 		r.queues.DeleteWorkload(log, e.ObjectNew)
 
-		// trigger the move of associated inadmissibleWorkloads, if there are any.
+		// Trigger the move of associated inadmissibleWorkloads, if there are any.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, e.ObjectNew, func() {
 			// Delete the workload from cache while holding the queues lock
 			// to guarantee that requeued workloads are taken into account before

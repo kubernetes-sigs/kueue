@@ -334,7 +334,7 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		return fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
 	for _, w := range workloads.Items {
-		m.assignedWorkloads[workload.Key(&w)] = qImpl.Key
+		m.assignWorkload(workload.Key(&w), qImpl.Key)
 
 		if !workload.IsAdmissible(&w) {
 			continue
@@ -529,11 +529,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	return added
 }
 
-func (m *Manager) addWorkload(wlInfo *workload.Info, q *LocalQueue) {
-	m.assignedWorkloads[workload.Key(wlInfo.Obj)] = q.Key
-	q.AddOrUpdate(wlInfo)
-}
-
+// Delete the workload from queue or cluster queue. Does not remove assignment caching.
 func (m *Manager) DeleteWorkload(log logr.Logger, wl *kueue.Workload) {
 	m.Lock()
 	defer m.Unlock()
@@ -541,10 +537,29 @@ func (m *Manager) DeleteWorkload(log logr.Logger, wl *kueue.Workload) {
 	m.DeleteSecondPassWithoutLock(wl)
 }
 
+// Completely forget workload. Deletes form queue and cluster queue. Removes assignment caching.
+func (m *Manager) ForgetWorkload(log logr.Logger, wl *kueue.Workload) {
+	m.Lock()
+	defer m.Unlock()
+	m.deleteWorkload(log, wl)
+	delete(m.assignedWorkloads, workload.Key(wl))
+	m.DeleteSecondPassWithoutLock(wl)
+}
+
+func (m *Manager) addWorkload(wlInfo *workload.Info, q *LocalQueue) {
+	m.assignWorkload(workload.Key(wlInfo.Obj), q.Key)
+	q.AddOrUpdate(wlInfo)
+}
+
+func (m *Manager) assignWorkload(wlKey workload.Reference, qKey queue.LocalQueueReference) {
+	m.assignedWorkloads[wlKey] = qKey
+}
+
 func (m *Manager) deleteWorkloadFromQueuesIfReassigned(log logr.Logger, wl *kueue.Workload, actualQueue queue.LocalQueueReference) {
-	assignedQueue, ok := m.assignedWorkloads[workload.Key(wl)]
+	wlKey := workload.Key(wl)
+	assignedQueue, ok := m.assignedWorkloads[wlKey]
 	if ok && assignedQueue != actualQueue {
-		m.deleteWorkload(log, wl)
+		m.ForgetWorkload(log, wl)
 	}
 }
 
@@ -554,8 +569,6 @@ func (m *Manager) deleteWorkload(log logr.Logger, wl *kueue.Workload) {
 	if !ok {
 		return
 	}
-
-	defer delete(m.assignedWorkloads, wlKey)
 
 	q := m.localQueues[qKey]
 	if q == nil {
