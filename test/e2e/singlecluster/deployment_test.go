@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Deployment", func() {
+var _ = ginkgo.Describe("Deployment", ginkgo.Label("area:singlecluster", "feature:deployment"), func() {
 	const (
 		resourceFlavorName = "deployment-rf"
 		clusterQueueName   = "deployment-cq"
