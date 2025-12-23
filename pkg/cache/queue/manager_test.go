@@ -570,6 +570,7 @@ func TestDeleteWorkload(t *testing.T) {
 		}
 	})
 }
+
 func TestForgetWorkload(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	manager := NewManager(utiltesting.NewFakeClient(), nil)

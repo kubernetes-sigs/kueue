@@ -465,7 +465,11 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 	}
 
 	qKey := queue.KeyFromWorkload(w)
-	m.deleteWorkloadFromQueuesIfReassigned(log, w, qKey)
+
+	assignedQueue, ok := m.assignedWorkloads[workload.Key(w)]
+	if ok && assignedQueue != qKey {
+		m.forgetWorkload(log, w)
+	}
 
 	q := m.localQueues[qKey]
 	if q == nil {
@@ -541,6 +545,11 @@ func (m *Manager) DeleteWorkload(log logr.Logger, wl *kueue.Workload) {
 func (m *Manager) ForgetWorkload(log logr.Logger, wl *kueue.Workload) {
 	m.Lock()
 	defer m.Unlock()
+	m.forgetWorkload(log, wl)
+}
+
+// Completely forget workload. Deletes form queue and cluster queue. Removes assignment caching.
+func (m *Manager) forgetWorkload(log logr.Logger, wl *kueue.Workload) {
 	m.deleteWorkload(log, wl)
 	delete(m.assignedWorkloads, workload.Key(wl))
 	m.DeleteSecondPassWithoutLock(wl)
@@ -553,13 +562,6 @@ func (m *Manager) addWorkload(wlInfo *workload.Info, q *LocalQueue) {
 
 func (m *Manager) assignWorkload(wlKey workload.Reference, qKey queue.LocalQueueReference) {
 	m.assignedWorkloads[wlKey] = qKey
-}
-
-func (m *Manager) deleteWorkloadFromQueuesIfReassigned(log logr.Logger, wl *kueue.Workload, actualQueue queue.LocalQueueReference) {
-	assignedQueue, ok := m.assignedWorkloads[workload.Key(wl)]
-	if ok && assignedQueue != actualQueue {
-		m.ForgetWorkload(log, wl)
-	}
 }
 
 func (m *Manager) deleteWorkload(log logr.Logger, wl *kueue.Workload) {
