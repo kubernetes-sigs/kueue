@@ -122,6 +122,9 @@ func (m *integrationManager) register(name string, cb IntegrationCallbacks) erro
 	if m.integrations == nil {
 		m.integrations = make(map[string]IntegrationCallbacks)
 	}
+	if m.crdNotifiers == nil {
+		m.crdNotifiers = make(map[schema.GroupVersionKind]chan struct{})
+	}
 	if _, exists := m.integrations[name]; exists {
 		return fmt.Errorf("%w %q", errDuplicateFrameworkName, name)
 	}
@@ -140,11 +143,18 @@ func (m *integrationManager) register(name string, cb IntegrationCallbacks) erro
 
 	m.integrations[name] = cb
 	m.names = append(m.names, name)
+	gvk := cb.getGVK()
+	m.crdNotifiersMu.Lock()
+	defer m.crdNotifiersMu.Unlock()
+
+	if _, exists := m.crdNotifiers[gvk]; !exists {
+		m.crdNotifiers[gvk] = make(chan struct{})
+	}
 
 	if m.gvkToName == nil {
 		m.gvkToName = make(map[schema.GroupVersionKind]string)
 	}
-	m.gvkToName[cb.getGVK()] = name
+	m.gvkToName[gvk] = name
 
 	return nil
 }

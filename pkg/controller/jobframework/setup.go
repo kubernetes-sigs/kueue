@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/go-logr/logr"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/apiextensions-apiserver/pkg/client/informers/externalversions"
@@ -31,11 +30,10 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-var (
-	errFailedMappingResource = errors.New("restMapper failed mapping resource")
-)
+var errFailedMappingResource = errors.New("restMapper failed mapping resource")
 
 // SetupControllers setups all controllers and webhooks for integrations.
 // When the platform developers implement a separate kueue-manager to manage the in-house custom jobs,
@@ -46,17 +44,13 @@ var (
 // this function needs to be called after the certs get ready because the controllers won't work
 // until the webhooks are operating, and the webhook won't work until the
 // certs are all in place.
-func SetupControllers(ctx context.Context, mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
-	manager.createCrdNotifiersMap()
-	if err := manager.prepareChannelsForEnabledIntegrations(mgr, opts...); err != nil {
-		return err
-	}
-	go manager.startCRDInformer(ctx, mgr, log)
-
-	return manager.setupControllers(ctx, mgr, log, opts...)
+func SetupControllers(ctx context.Context, mgr ctrl.Manager, opts ...Option) error {
+	go manager.startCRDInformer(ctx, mgr)
+	return manager.setupControllers(ctx, mgr, opts...)
 }
 
-func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
+func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Manager, opts ...Option) error {
+	log := log.FromContext(ctx)
 	options := ProcessOptions(opts...)
 
 	implicitlyEnabledIntegrations := m.collectImplicitlyEnabledIntegrations(options.EnabledFrameworks)
@@ -86,6 +80,7 @@ func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Mana
 			if err != nil {
 				return fmt.Errorf("%s: %w: %w", fwkNamePrefix, errFailedMappingResource, err)
 			}
+			m.ensureCRDNotifierCh(gvk)
 			if err := restMappingExists(mgr, gvk); err != nil {
 				if !meta.IsNoMatchError(err) {
 					return fmt.Errorf("%s: %w", fwkNamePrefix, err)
@@ -97,7 +92,7 @@ func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Mana
 					return fmt.Errorf("%s: unable to create webhook: %w", fwkNamePrefix, err)
 				}
 				logger.Info("No matching API in the server for job framework, deferring setting up controller")
-				go m.waitForAPI(ctx, mgr, log, gvk, func() {
+				go m.waitForAPI(ctx, mgr, gvk, func() {
 					log.Info("API now available, starting controller", "gvk", gvk)
 					if err := m.setupControllerAndWebhook(ctx, mgr, name, fwkNamePrefix, cb, options, opts...); err != nil {
 						log.Error(err, "Failed to setup controller for job framework")
@@ -149,8 +144,13 @@ func (m *integrationManager) setupControllerAndWebhook(ctx context.Context, mgr 
 	return nil
 }
 
-func (m *integrationManager) waitForAPI(ctx context.Context, mgr ctrl.Manager, log logr.Logger, gvk schema.GroupVersionKind, action func()) {
+func (m *integrationManager) waitForAPI(ctx context.Context, mgr ctrl.Manager, gvk schema.GroupVersionKind, action func()) {
+	log := log.FromContext(ctx)
 	crdNotifyCh := m.getCRDNotifierCh(gvk)
+	if crdNotifyCh == nil {
+		log.V(2).Info("Channel not found for gvk", "gvk", gvk)
+		return
+	}
 	for {
 		err := restMappingExists(mgr, gvk)
 		if err == nil {
@@ -197,7 +197,8 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer, opts ...Opti
 }
 
 // startCRDInformer watches for CRD additions/updates and notifies waitForAPI immediately
-func (m *integrationManager) startCRDInformer(ctx context.Context, mgr ctrl.Manager, log logr.Logger) {
+func (m *integrationManager) startCRDInformer(ctx context.Context, mgr ctrl.Manager) {
+	log := log.FromContext(ctx)
 	crdClient, err := clientset.NewForConfig(mgr.GetConfig())
 	if err != nil {
 		log.V(2).Info("Failed to create CRD client for informer, falling back to polling", "error", err)
@@ -207,17 +208,21 @@ func (m *integrationManager) startCRDInformer(ctx context.Context, mgr ctrl.Mana
 	factory := externalversions.NewSharedInformerFactory(crdClient, 0)
 	crdInformer := factory.Apiextensions().V1().CustomResourceDefinitions().Informer()
 
+	informerCtx, informerCancel := context.WithCancel(ctx)
+
 	handler := tools.ResourceEventHandlerFuncs{
 		AddFunc: func(obj any) {
 			crd := obj.(*apiextensionsv1.CustomResourceDefinition)
 			if isCRDEstablished(crd) {
-				m.notifyCRDAvailable(crd, log)
+				m.notifyCRDAvailable(ctx, crd)
+				m.cancelInformerIfAllCRDsRegistered(informerCancel)
 			}
 		},
 		UpdateFunc: func(oldObj, newObj any) {
 			crd := newObj.(*apiextensionsv1.CustomResourceDefinition)
 			if isCRDEstablished(crd) {
-				m.notifyCRDAvailable(crd, log)
+				m.notifyCRDAvailable(ctx, crd)
+				m.cancelInformerIfAllCRDsRegistered(informerCancel)
 			}
 		},
 	}
@@ -234,22 +239,30 @@ func (m *integrationManager) startCRDInformer(ctx context.Context, mgr ctrl.Mana
 	}
 
 	log.V(2).Info("CRD informer started successfully")
-	<-ctx.Done()
+
+	defer informerCancel()
+
+	select {
+	case <-ctx.Done():
+		log.V(2).Info("CRD informer context done, stopping informer")
+	case <-informerCtx.Done():
+		factory.Shutdown()
+		log.V(2).Info("All CRDs registered, stopping informer")
+	}
+}
+
+func (m *integrationManager) cancelInformerIfAllCRDsRegistered(cancel context.CancelFunc) {
+	defer m.crdNotifiersMu.Unlock()
+	m.crdNotifiersMu.Lock()
+	if len(m.crdNotifiers) == 0 {
+		cancel()
+	}
 }
 
 // notifyCRDAvailable notifies all waiters for this CRD's GVK
-func (m *integrationManager) notifyCRDAvailable(crd *apiextensionsv1.CustomResourceDefinition, log logr.Logger) {
-	var version string
-	for _, v := range crd.Spec.Versions {
-		if v.Storage {
-			version = v.Name
-			break
-		}
-	}
-	if version == "" && len(crd.Spec.Versions) > 0 {
-		version = crd.Spec.Versions[0].Name
-	}
-
+func (m *integrationManager) notifyCRDAvailable(ctx context.Context, crd *apiextensionsv1.CustomResourceDefinition) {
+	log := log.FromContext(ctx)
+	version := getCrdVersion(crd.Spec.Versions)
 	gvk := schema.GroupVersionKind{
 		Group:   crd.Spec.Group,
 		Version: version,
@@ -266,41 +279,30 @@ func (m *integrationManager) notifyCRDAvailable(crd *apiextensionsv1.CustomResou
 	}
 }
 
+// getCrdVersion returns the current CRD version
+func getCrdVersion(versions []apiextensionsv1.CustomResourceDefinitionVersion) string {
+	var version string
+	for _, v := range versions {
+		if v.Storage {
+			version = v.Name
+			break
+		}
+	}
+	return version
+}
+
 // getCRDNotifierCh returns the pre-created channel for the given GVK so waitForAPI can watch
 func (m *integrationManager) getCRDNotifierCh(gvk schema.GroupVersionKind) chan struct{} {
-	m.crdNotifiersMu.RLock()
-	defer m.crdNotifiersMu.RUnlock()
-
 	return m.crdNotifiers[gvk]
 }
 
-// prepareChannelsForEnabledIntegrations pre-creates channels for all enabled integrations
-// it ensures that channels exist before the CRD informer starts.
-func (m *integrationManager) prepareChannelsForEnabledIntegrations(mgr ctrl.Manager, opts ...Option) error {
-	options := ProcessOptions(opts...)
-
-	implicitlyEnabledIntegrations := m.collectImplicitlyEnabledIntegrations(options.EnabledFrameworks)
-	allEnabledIntegrations := options.EnabledFrameworks.Union(implicitlyEnabledIntegrations)
-
-	return m.forEach(func(name string, cb IntegrationCallbacks) error {
-		if allEnabledIntegrations.Has(name) {
-			gvk, err := apiutil.GVKForObject(cb.JobType, mgr.GetScheme())
-			if err != nil {
-				return err
-			}
-
-			m.crdNotifiersMu.Lock()
-			if _, exists := m.crdNotifiers[gvk]; !exists {
-				m.crdNotifiers[gvk] = make(chan struct{})
-			}
-			m.crdNotifiersMu.Unlock()
-		}
-		return nil
-	})
-}
-
-func (m *integrationManager) createCrdNotifiersMap() {
-	m.crdNotifiers = make(map[schema.GroupVersionKind]chan struct{})
+// ensureCRDNotifierCh creates a CRD notifier channel for the given GVK if it doesn't exist
+func (m *integrationManager) ensureCRDNotifierCh(gvk schema.GroupVersionKind) {
+	m.crdNotifiersMu.Lock()
+	defer m.crdNotifiersMu.Unlock()
+	if _, exists := m.crdNotifiers[gvk]; !exists {
+		m.crdNotifiers[gvk] = make(chan struct{})
+	}
 }
 
 // isCRDEstablished checks if a CRD has the Established condition

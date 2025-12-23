@@ -137,7 +137,9 @@ func TestSetupControllers(t *testing.T) {
 				}
 			}
 
-			ctx, logger := utiltesting.ContextWithLog(t)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, cancel := context.WithCancel(ctx)
+			defer cancel()
 			k8sClient := utiltesting.NewClientBuilder(jobset.AddToScheme, kfmpi.AddToScheme, kftraining.AddToScheme, rayv1.AddToScheme).Build()
 
 			mgrOpts := ctrlmgr.Options{
@@ -165,12 +167,7 @@ func TestSetupControllers(t *testing.T) {
 				t.Fatalf("Failed to setup manager: %v", err)
 			}
 
-			manager.createCrdNotifiersMap()
-			if err := manager.prepareChannelsForEnabledIntegrations(mgr, tc.opts...); err != nil {
-				t.Fatalf("Failed to prepare CRD channels: %v", err)
-			}
-
-			gotError := manager.setupControllers(ctx, mgr, logger, tc.opts...)
+			gotError := manager.setupControllers(ctx, mgr, tc.opts...)
 			if diff := cmp.Diff(tc.wantError, gotError, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Errorf("Unexpected error from SetupControllers (-want,+got):\n%s", diff)
 			}
@@ -209,7 +206,6 @@ func simulateDelayedIntegration(mgr ctrlmgr.Manager, manager *integrationManager
 		mapper.Add(*gvk, apimeta.RESTScopeNamespace)
 	}
 	mapper.lock.Unlock()
-
 	manager.crdNotifiersMu.Lock()
 	defer manager.crdNotifiersMu.Unlock()
 	for _, gvk := range delayedGVKs {
@@ -406,13 +402,13 @@ func TestNotifyCRDAvailable(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			manager := integrationManager{}
-			manager.createCrdNotifiersMap()
+			manager.crdNotifiers = make(map[schema.GroupVersionKind]chan struct{})
 
-			_, logger := utiltesting.ContextWithLog(t)
+			ctx, _ := utiltesting.ContextWithLog(t)
 			crdNotifyCh := make(chan struct{}, 1)
 			manager.crdNotifiers[tt.wantGVK] = crdNotifyCh
 
-			manager.notifyCRDAvailable(tt.crd, logger)
+			manager.notifyCRDAvailable(ctx, tt.crd)
 
 			select {
 			case <-crdNotifyCh:
@@ -428,7 +424,7 @@ func TestNotifyCRDAvailable(t *testing.T) {
 			wrongCh := make(chan struct{}, 1)
 			manager.crdNotifiers[wrongGVK] = wrongCh
 
-			manager.notifyCRDAvailable(tt.crd, logger)
+			manager.notifyCRDAvailable(ctx, tt.crd)
 
 			select {
 			case <-wrongCh:

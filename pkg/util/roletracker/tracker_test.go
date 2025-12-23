@@ -19,8 +19,6 @@ package roletracker
 import (
 	"context"
 	"testing"
-
-	"github.com/go-logr/logr"
 )
 
 func TestNewRoleTracker(t *testing.T) {
@@ -69,7 +67,7 @@ func TestRoleTracker_StartLeaderElection(t *testing.T) {
 
 			done := make(chan struct{})
 			go func() {
-				rt.Start(ctx, logr.Discard())
+				rt.Start(ctx)
 				close(done)
 			}()
 

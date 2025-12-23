@@ -51,7 +51,7 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 		gomega.Expect(jobframework.SetupIndexes(ctx, mgr.GetFieldIndexer(), opts...)).NotTo(gomega.HaveOccurred())
 		// The integration manager is a shared state and that after enabled a framework
 		// will remain enabled until the end of the test suite.
-		gomega.Expect(jobframework.SetupControllers(ctx, mgr, ginkgo.GinkgoLogr, opts...)).NotTo(gomega.HaveOccurred())
+		gomega.Expect(jobframework.SetupControllers(ctx, mgr, opts...)).NotTo(gomega.HaveOccurred())
 
 		failedWebhook, err := webhooks.Setup(mgr, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
