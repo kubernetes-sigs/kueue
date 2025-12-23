@@ -79,6 +79,7 @@ var (
 	ErrExtraWorkloads                 = errors.New("extra workloads")
 	ErrPrebuiltWorkloadNotFound       = errors.New("prebuilt workload not found")
 	ErrPriorityClassNotFound          = errors.New("priority class not found")
+	ErrWorkloadPriorityClassNotFound  = errors.New("workload priority class not found")
 )
 
 type WorkloadRetentionPolicy struct {
@@ -1364,6 +1365,7 @@ func ExtractPriority(ctx context.Context, c client.Client, r record.EventRecorde
 		priorityClassRef, priority, err := utilpriority.GetPriorityFromWorkloadPriorityClass(ctx, c, workloadPriorityClass)
 		if apierrors.IsNotFound(err) {
 			r.Eventf(obj, corev1.EventTypeWarning, ReasonWorkloadPriorityClassNotFound, "WorkloadPriorityClass %v not found", workloadPriorityClass)
+			return priorityClassRef, priority, fmt.Errorf("%w: workloadPriorityClass %v", ErrWorkloadPriorityClassNotFound, workloadPriorityClass)
 		}
 		return priorityClassRef, priority, err
 	}
@@ -1375,6 +1377,7 @@ func ExtractPriority(ctx context.Context, c client.Client, r record.EventRecorde
 	priorityClassRef, priority, err := utilpriority.GetPriorityFromPriorityClass(ctx, c, priorityClassName)
 	if apierrors.IsNotFound(err) {
 		r.Eventf(obj, corev1.EventTypeWarning, ReasonPriorityClassNotFound, "PriorityClass %v not found", priorityClassName)
+		return priorityClassRef, priority, fmt.Errorf("%w: priorityClass %v", ErrPriorityClassNotFound, priorityClassName)
 	}
 	return priorityClassRef, priority, err
 }

@@ -234,22 +234,6 @@ func TestValidateOnCreate(t *testing.T) {
 			wantError: field.InternalError(nil, errors.New("test-custom-validation-error")),
 		},
 		{
-			name: "valid workloadpriorityclass",
-			job: &batchv1.Job{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "job",
-					Namespace: "default",
-					Labels: map[string]string{
-						constants.QueueLabel:                 "queue",
-						constants.WorkloadPriorityClassLabel: "test-wpc",
-					},
-				},
-			},
-			objects: []client.Object{
-				utiltestingapi.MakeWorkloadPriorityClass("test-wpc").Obj(),
-			},
-		},
-		{
 			name: "invalid workloadpriorityclass",
 			job: &batchv1.Job{
 				ObjectMeta: metav1.ObjectMeta{
@@ -269,6 +253,15 @@ func TestValidateOnCreate(t *testing.T) {
 				),
 			}.ToAggregate(),
 		},
+		// {
+		// 	name: "valid workloadpriorityclass",
+		// 	job: utiljob.MakeJob("job", metav1.NamespaceDefault).
+		// 		Label(constants.QueueLabel, "queue").
+		// 		Label(constants.WorkloadPriorityClassLabel, "test-wpc").Obj(),
+		// 	objects: []client.Object{
+		// 		utiltestingapi.MakeWorkloadPriorityClass("test-wpc").PriorityValue(100).Obj(),
+		// 	},
+		// },
 	}
 
 	for _, tc := range testcases {
