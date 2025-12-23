@@ -4029,7 +4029,7 @@ func TestReconciler(t *testing.T) {
 				Parallelism(10).
 				Request(corev1.ResourceCPU, "1").
 				Image("", nil).
-				WorkloadPriorityClass("test-wpc-high").
+				WorkloadPriorityClass("test-wpc-not-found").
 				Obj(),
 			wantJob: *utiltestingjob.MakeJob("job", "labelled-ns").
 				Queue("test-queue").
@@ -4038,15 +4038,15 @@ func TestReconciler(t *testing.T) {
 				Parallelism(10).
 				Request(corev1.ResourceCPU, "1").
 				Image("", nil).
-				WorkloadPriorityClass("test-wpc-high").
+				WorkloadPriorityClass("test-wpc-not-found").
 				Obj(),
-			wantErr: jobframework.ErrPriorityClassNotFound,
+			wantErr: jobframework.ErrWorkloadPriorityClassNotFound,
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Name: "job", Namespace: "labelled-ns"},
 					EventType: "Warning",
 					Reason:    "WorkloadPriorityClassNotFound",
-					Message:   "WorkloadPriorityClass test-wpc-high not found",
+					Message:   "WorkloadPriorityClass test-wpc-not-found not found",
 				},
 			},
 		},
