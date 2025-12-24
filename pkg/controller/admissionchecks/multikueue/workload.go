@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -366,7 +365,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 	// 4. Handle workload evicted on manager cluster
 	remoteEvictCond, evictedRemote := group.bestMatchByCondition(kueue.WorkloadEvicted)
-	if remoteEvictCond != nil && strings.Contains(remoteEvictCond.Reason, kueue.WorkloadEvictedOnManagerCluster) {
+	if remoteEvictCond != nil && remoteEvictCond.Reason == workload.ReasonWithCause(kueue.WorkloadDeactivated, kueue.WorkloadEvictedOnManagerCluster) {
 		remoteCl := group.remoteClients[evictedRemote].client
 		remoteWl := group.remotes[evictedRemote]
 
