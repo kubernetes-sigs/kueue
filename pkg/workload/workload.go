@@ -1071,7 +1071,7 @@ func patchStatus(ctx context.Context, c client.Client, wl *kueue.Workload, owner
 func PatchStatus(ctx context.Context, c client.Client, wl *kueue.Workload, owner client.FieldOwner, update UpdateFunc, options ...PatchStatusOption) error {
 	opts := patchStatusOptions(options)
 	return patchStatus(ctx, c, wl, owner, func(wl *kueue.Workload) (bool, error) {
-		if !features.Enabled(features.WorkloadRequestUseMergePatch) {
+		if opts.ForceApply || !features.Enabled(features.WorkloadRequestUseMergePatch) {
 			wlPatch := BaseSSAWorkload(wl, opts.StrictApply)
 			wlPatch.DeepCopyInto(wl)
 		}
@@ -1085,7 +1085,7 @@ func PatchAdmissionStatus(ctx context.Context, c client.Client, wl *kueue.Worklo
 		if updated, err := update(wl); err != nil || !updated {
 			return updated, err
 		}
-		if !features.Enabled(features.WorkloadRequestUseMergePatch) {
+		if opts.ForceApply || !features.Enabled(features.WorkloadRequestUseMergePatch) {
 			wlPatch := PrepareWorkloadPatch(wl, opts.StrictApply, clk)
 			wlPatch.DeepCopyInto(wl)
 		}
