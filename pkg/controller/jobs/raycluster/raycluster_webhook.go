@@ -89,12 +89,15 @@ func (w *RayClusterWebhook) Default(ctx context.Context, obj *rayv1.RayCluster) 
 	log := ctrl.LoggerFrom(ctx).WithName("raycluster-webhook")
 	log.V(10).Info("Applying defaults")
 	jobframework.ApplyDefaultLocalQueue(job.Object(), w.queues.DefaultLocalQueueExist)
+
 	if err := jobframework.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
 	jobframework.ApplyDefaultForManagedBy(job, w.queues, w.cache, log)
 
-	if isAnElasticJob(obj) {
+	elasticJobEnabled := isAnElasticJob(obj)
+
+	if elasticJobEnabled {
 		// Ensure that the PodSchedulingGate is present in the RayCluster's pod Templates for its Head and all its Workers
 		utilpod.GateTemplate(&job.Spec.HeadGroupSpec.Template, kueue.ElasticJobSchedulingGate)
 
@@ -103,6 +106,11 @@ func (w *RayClusterWebhook) Default(ctx context.Context, obj *rayv1.RayCluster) 
 
 			utilpod.GateTemplate(&wgs.Template, kueue.ElasticJobSchedulingGate)
 		}
+	} else {
+		log.V(3).Info("skipping elastic scheduling gates",
+			"name", obj.Name,
+			"namespace", obj.Namespace,
+			"reason", "RayCluster is not an elastic job")
 	}
 
 	return nil
