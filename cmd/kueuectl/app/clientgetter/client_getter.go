@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package util
+package clientgetter
 
 import (
 	"k8s.io/apimachinery/pkg/runtime"
@@ -43,7 +43,7 @@ type clientGetterImpl struct {
 
 var _ ClientGetter = (*clientGetterImpl)(nil)
 
-func NewClientGetter(clientGetter genericclioptions.RESTClientGetter) ClientGetter {
+func New(clientGetter genericclioptions.RESTClientGetter) ClientGetter {
 	return &clientGetterImpl{
 		RESTClientGetter: clientGetter,
 	}

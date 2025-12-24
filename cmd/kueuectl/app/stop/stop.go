@@ -21,24 +21,23 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/kubectl/pkg/util/templates"
 
-	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/flags"
 )
 
-var (
-	stopExample = templates.Examples(`
+var stopExample = templates.Examples(`
 		# Stop the workload
 		kueuectl stop workload my-workload
 	`)
-)
 
-func NewStopCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
+func NewStopCmd(clientGetter clientgetter.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "stop",
 		Short:   "Stop the resource",
 		Example: stopExample,
 	}
 
-	util.AddDryRunFlag(cmd)
+	flags.AddDryRunFlag(cmd)
 
 	cmd.AddCommand(NewWorkloadCmd(clientGetter, streams))
 	cmd.AddCommand(NewLocalQueueCmd(clientGetter, streams))
