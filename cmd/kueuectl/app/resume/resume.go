@@ -21,24 +21,23 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/kubectl/pkg/util/templates"
 
-	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/flags"
 )
 
-var (
-	resumeExample = templates.Examples(`
+var resumeExample = templates.Examples(`
 		# Resume the workload 
 		kueuectl resume workload my-workload
 	`)
-)
 
-func NewResumeCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
+func NewResumeCmd(clientGetter clientgetter.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "resume",
 		Short:   "Resume the resource",
 		Example: resumeExample,
 	}
 
-	util.AddDryRunFlag(cmd)
+	flags.AddDryRunFlag(cmd)
 
 	cmd.AddCommand(NewWorkloadCmd(clientGetter, streams))
 	cmd.AddCommand(NewLocalQueueCmd(clientGetter, streams))

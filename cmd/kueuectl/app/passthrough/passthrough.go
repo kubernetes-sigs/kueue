@@ -25,8 +25,8 @@ import (
 	"github.com/spf13/cobra"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/delete"
-	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
 type passThroughCommand struct {
@@ -56,7 +56,7 @@ var (
 	}
 )
 
-func NewCommands(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) []*cobra.Command {
+func NewCommands(clientGetter clientgetter.ClientGetter, streams genericiooptions.IOStreams) []*cobra.Command {
 	commands := make([]*cobra.Command, len(passThroughCommands))
 	for i, ptCmd := range passThroughCommands {
 		commands[i] = newCommand(clientGetter, streams, ptCmd, passThroughTypes)
@@ -65,7 +65,7 @@ func NewCommands(clientGetter util.ClientGetter, streams genericiooptions.IOStre
 }
 
 func newCommand(
-	clientGetter util.ClientGetter,
+	clientGetter clientgetter.ClientGetter,
 	streams genericiooptions.IOStreams,
 	command passThroughCommand,
 	ptTypes []passThroughType,

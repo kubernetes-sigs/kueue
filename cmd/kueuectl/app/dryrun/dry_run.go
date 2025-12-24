@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package util
+package dryrun
 
 import (
 	"fmt"
@@ -23,17 +23,17 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 )
 
-type DryRunStrategy int
+type Strategy int
 
 const (
-	// DryRunNone indicates the client will make all mutating calls
-	DryRunNone DryRunStrategy = iota
+	// None indicates the client will make all mutating calls
+	None Strategy = iota
 
-	// DryRunClient or client-side dry-run, indicates the client will prevent
+	// Client or client-side dry-run, indicates the client will prevent
 	// making mutating calls such as CREATE, PATCH, and DELETE
-	DryRunClient
+	Client
 
-	// DryRunServer or server-side dry-run, indicates the client will send
+	// Server or server-side dry-run, indicates the client will send
 	// mutating calls to the APIServer with the dry-run parameter to prevent
 	// persisting changes.
 	//
@@ -43,43 +43,34 @@ const (
 	//
 	// If a client sends a server-side dry-run call to an APIServer that doesn't
 	// support server-side dry-run, then the APIServer will persist changes inadvertently.
-	DryRunServer
+	Server
 )
 
-// AddDryRunFlag adds dry-run flag to a command.
-func AddDryRunFlag(cmd *cobra.Command) {
-	cmd.PersistentFlags().String(
-		"dry-run",
-		"none",
-		`Must be "none", "server", or "client". If client strategy, only print the object that would be sent, without sending it. If server strategy, submit server-side request without persisting the resource.`,
-	)
-}
-
-func GetDryRunStrategy(cmd *cobra.Command) (DryRunStrategy, error) {
+func GetStrategy(cmd *cobra.Command) (Strategy, error) {
 	dryRunFlag, err := cmd.Flags().GetString("dry-run")
 	if err != nil {
-		return DryRunNone, err
+		return None, err
 	}
 	switch dryRunFlag {
 	case "client":
-		return DryRunClient, nil
+		return Client, nil
 	case "server":
-		return DryRunServer, nil
+		return Server, nil
 	case "none":
-		return DryRunNone, nil
+		return None, nil
 	default:
-		return DryRunNone, fmt.Errorf(`invalid dry-run value (%v). Must be "none", "server", or "client"`, dryRunFlag)
+		return None, fmt.Errorf(`invalid dry-run value (%v). Must be "none", "server", or "client"`, dryRunFlag)
 	}
 }
 
-// PrintFlagsWithDryRunStrategy sets a success message at print time for the dry run strategy
-func PrintFlagsWithDryRunStrategy(printFlags *genericclioptions.PrintFlags, dryRunStrategy DryRunStrategy) error {
-	switch dryRunStrategy {
-	case DryRunClient:
+// PrintFlagsWithStrategy sets a success message at print time for the dry run strategy
+func PrintFlagsWithStrategy(printFlags *genericclioptions.PrintFlags, strategy Strategy) error {
+	switch strategy {
+	case Client:
 		if err := printFlags.Complete("%s (client dry run)"); err != nil {
 			return err
 		}
-	case DryRunServer:
+	case Server:
 		if err := printFlags.Complete("%s (server dry run)"); err != nil {
 			return err
 		}

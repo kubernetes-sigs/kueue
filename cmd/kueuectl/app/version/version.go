@@ -27,7 +27,7 @@ import (
 	"k8s.io/kubectl/pkg/util/templates"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
 	"sigs.k8s.io/kueue/pkg/version"
 )
 
@@ -59,7 +59,7 @@ func NewOptions(streams genericiooptions.IOStreams) *VersionOptions {
 }
 
 // NewVersionCmd returns a new cobra.Command for fetching version
-func NewVersionCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
+func NewVersionCmd(clientGetter clientgetter.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
 	o := NewOptions(streams)
 
 	cmd := &cobra.Command{
@@ -81,7 +81,7 @@ func NewVersionCmd(clientGetter util.ClientGetter, streams genericiooptions.IOSt
 	return cmd
 }
 
-func (o *VersionOptions) Complete(clientGetter util.ClientGetter) error {
+func (o *VersionOptions) Complete(clientGetter clientgetter.ClientGetter) error {
 	var err error
 
 	o.K8sClientset, err = clientGetter.K8sClientSet()

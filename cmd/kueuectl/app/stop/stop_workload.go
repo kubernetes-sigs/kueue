@@ -22,9 +22,9 @@ import (
 	"k8s.io/kubectl/pkg/util/templates"
 	"k8s.io/utils/ptr"
 
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/options"
-	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
 var (
@@ -39,7 +39,7 @@ was preempted (using .spec.active field).
 	`)
 )
 
-func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
+func NewWorkloadCmd(clientGetter clientgetter.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
 	o := options.NewUpdateWorkloadActivationOptions(streams, "stopped", false)
 
 	cmd := &cobra.Command{

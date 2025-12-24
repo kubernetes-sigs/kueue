@@ -36,7 +36,8 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	kueuev1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta2"
-	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/dryrun"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
@@ -88,7 +89,7 @@ var (
 type ClusterQueueOptions struct {
 	PrintFlags *genericclioptions.PrintFlags
 
-	DryRunStrategy               util.DryRunStrategy
+	DryRunStrategy               dryrun.Strategy
 	Name                         string
 	Cohort                       string
 	QueueingStrategy             kueue.QueueingStrategy
@@ -122,7 +123,7 @@ func NewClusterQueueOptions(streams genericiooptions.IOStreams) *ClusterQueueOpt
 	}
 }
 
-func NewClusterQueueCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
+func NewClusterQueueCmd(clientGetter clientgetter.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
 	o := NewClusterQueueOptions(streams)
 
 	cmd := &cobra.Command{
@@ -180,7 +181,7 @@ func NewClusterQueueCmd(clientGetter util.ClientGetter, streams genericiooptions
 }
 
 // Complete completes all the required options
-func (o *ClusterQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Command, args []string) error {
+func (o *ClusterQueueOptions) Complete(clientGetter clientgetter.ClientGetter, cmd *cobra.Command, args []string) error {
 	o.Name = args[0]
 
 	if cmd.Flags().Changed(queuingStrategy) {
@@ -216,12 +217,12 @@ func (o *ClusterQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobr
 
 	o.Client = clientset.KueueV1beta2()
 
-	o.DryRunStrategy, err = util.GetDryRunStrategy(cmd)
+	o.DryRunStrategy, err = dryrun.GetStrategy(cmd)
 	if err != nil {
 		return err
 	}
 
-	err = util.PrintFlagsWithDryRunStrategy(o.PrintFlags, o.DryRunStrategy)
+	err = dryrun.PrintFlagsWithStrategy(o.PrintFlags, o.DryRunStrategy)
 	if err != nil {
 		return err
 	}
@@ -248,12 +249,12 @@ func (o *ClusterQueueOptions) validate() error {
 // Run create clusterqueue
 func (o *ClusterQueueOptions) Run(ctx context.Context) error {
 	cq := o.createClusterQueue()
-	if o.DryRunStrategy != util.DryRunClient {
+	if o.DryRunStrategy != dryrun.Client {
 		var (
 			createOptions metav1.CreateOptions
 			err           error
 		)
-		if o.DryRunStrategy == util.DryRunServer {
+		if o.DryRunStrategy == dryrun.Server {
 			createOptions.DryRun = []string{metav1.DryRunAll}
 		}
 		cq, err = o.Client.ClusterQueues().Create(ctx, cq, createOptions)

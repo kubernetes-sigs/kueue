@@ -30,14 +30,15 @@ import (
 
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	kueuev1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta2"
-	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/dryrun"
 )
 
 type UpdateWorkloadActivationOptions struct {
 	PrintFlags *genericclioptions.PrintFlags
 
 	Active           bool
-	DryRunStrategy   util.DryRunStrategy
+	DryRunStrategy   dryrun.Strategy
 	Name             string
 	Namespace        string
 	EnforceNamespace bool
@@ -58,7 +59,7 @@ func NewUpdateWorkloadActivationOptions(streams genericiooptions.IOStreams, oper
 }
 
 // Complete completes all the required options
-func (o *UpdateWorkloadActivationOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Command, args []string) error {
+func (o *UpdateWorkloadActivationOptions) Complete(clientGetter clientgetter.ClientGetter, cmd *cobra.Command, args []string) error {
 	o.Name = args[0]
 
 	var err error
@@ -74,12 +75,12 @@ func (o *UpdateWorkloadActivationOptions) Complete(clientGetter util.ClientGette
 
 	o.Client = clientset.KueueV1beta2()
 
-	o.DryRunStrategy, err = util.GetDryRunStrategy(cmd)
+	o.DryRunStrategy, err = dryrun.GetStrategy(cmd)
 	if err != nil {
 		return err
 	}
 
-	err = util.PrintFlagsWithDryRunStrategy(o.PrintFlags, o.DryRunStrategy)
+	err = dryrun.PrintFlagsWithStrategy(o.PrintFlags, o.DryRunStrategy)
 	if err != nil {
 		return err
 	}
@@ -104,9 +105,9 @@ func (o *UpdateWorkloadActivationOptions) Run(ctx context.Context) error {
 	wlOriginal := wl.DeepCopy()
 	wl.Spec.Active = ptr.To(o.Active)
 
-	if o.DryRunStrategy != util.DryRunClient {
+	if o.DryRunStrategy != dryrun.Client {
 		opts := metav1.PatchOptions{}
-		if o.DryRunStrategy == util.DryRunServer {
+		if o.DryRunStrategy == dryrun.Server {
 			opts.DryRun = []string{metav1.DryRunAll}
 		}
 		patch := client.MergeFrom(wlOriginal)

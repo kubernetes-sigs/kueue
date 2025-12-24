@@ -31,8 +31,9 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	kueuev1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta2"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
-	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/flags"
 )
 
 var (
@@ -71,7 +72,7 @@ func NewLocalQueueOptions(streams genericiooptions.IOStreams, clock clock.Clock)
 	}
 }
 
-func NewLocalQueueCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams, clock clock.Clock) *cobra.Command {
+func NewLocalQueueCmd(clientGetter clientgetter.ClientGetter, streams genericiooptions.IOStreams, clock clock.Clock) *cobra.Command {
 	o := NewLocalQueueOptions(streams, clock)
 
 	cmd := &cobra.Command{
@@ -94,7 +95,7 @@ func NewLocalQueueCmd(clientGetter util.ClientGetter, streams genericiooptions.I
 
 	o.PrintFlags.AddFlags(cmd)
 
-	util.AddAllNamespacesFlagVar(cmd, &o.AllNamespaces)
+	flags.AddAllNamespacesFlagVar(cmd, &o.AllNamespaces)
 	addFieldSelectorFlagVar(cmd, &o.FieldSelector)
 	addLabelSelectorFlagVar(cmd, &o.LabelSelector)
 	addClusterQueueFilterFlagVar(cmd, &o.ClusterQueueFilter)
@@ -105,7 +106,7 @@ func NewLocalQueueCmd(clientGetter util.ClientGetter, streams genericiooptions.I
 }
 
 // Complete completes all the required options
-func (o *LocalQueueOptions) Complete(clientGetter util.ClientGetter) error {
+func (o *LocalQueueOptions) Complete(clientGetter clientgetter.ClientGetter) error {
 	var err error
 
 	o.Limit, err = listRequestLimit()

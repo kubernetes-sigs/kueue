@@ -32,8 +32,8 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	kueuev1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta2"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
-	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
 var (
@@ -60,7 +60,7 @@ func NewClusterQueueOptions(streams genericiooptions.IOStreams) *ClusterQueueOpt
 	}
 }
 
-func NewClusterQueueCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
+func NewClusterQueueCmd(clientGetter clientgetter.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
 	o := NewClusterQueueOptions(streams)
 
 	cmd := &cobra.Command{
@@ -90,7 +90,7 @@ func NewClusterQueueCmd(clientGetter util.ClientGetter, streams genericiooptions
 }
 
 // Complete completes all the required options
-func (o *ClusterQueueOptions) Complete(clientGetter util.ClientGetter, args []string) error {
+func (o *ClusterQueueOptions) Complete(clientGetter clientgetter.ClientGetter, args []string) error {
 	o.ClusterQueueName = args[0]
 
 	clientset, err := clientGetter.KueueClientSet()
