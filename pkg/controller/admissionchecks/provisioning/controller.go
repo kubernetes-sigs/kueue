@@ -497,6 +497,16 @@ func (c *Controller) syncCheckStates(
 	recorderMessages := make([]string, 0, len(checkConfig))
 	updated := false
 	err := workload.PatchStatus(ctx, c.client, wl, kueue.ProvisioningRequestControllerName, func(wlPatch *kueue.Workload) (bool, error) {
+		// Inside PatchStatus (Apply), we use BaseSSAWorkload() to create the patch.
+		// This patch does not include wl.Status.AdmissionChecks, which leads to errors
+		// in subsequent steps due to the missing field.
+		// We should deep-copy the admission checks into wlPatch.
+		// NOTE: Once WorkloadRequestUseMergePatch reaches GA, this deep copy can be removed.
+		wlPatch.Status.AdmissionChecks = make([]kueue.AdmissionCheckState, len(wl.Status.AdmissionChecks))
+		for index := range wl.Status.AdmissionChecks {
+			wlPatch.Status.AdmissionChecks[index] = *wl.Status.AdmissionChecks[index].DeepCopy()
+		}
+
 		for check, prc := range checkConfig {
 			checkState := *checksMap[check]
 			//nolint:gocritic // ignore ifElseChain
@@ -592,7 +602,7 @@ func (c *Controller) syncCheckStates(
 			if existingCondition != nil && existingCondition.State != checkState.State {
 				message := fmt.Sprintf("Admission check %s updated state from %s to %s", checkState.Name, existingCondition.State, checkState.State)
 				if checkState.Message != "" {
-					message += fmt.Sprintf(" with message %s", checkState.Message)
+					message += fmt.Sprintf(" with message: %s", checkState.Message)
 				}
 				recorderMessages = append(recorderMessages, message)
 			}
