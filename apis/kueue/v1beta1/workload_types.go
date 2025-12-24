@@ -692,6 +692,10 @@ const (
 	// due to non-recoverable node failures.
 	WorkloadEvictedDueToNodeFailures = "NodeFailures"
 
+	// WorkloadEvictedOnManagerCluster indicates the workload was evicted on the
+	// manager cluster.
+	WorkloadEvictedOnManagerCluster = "EvictedOnManagerCluster"
+
 	// WorkloadSliceReplaced indicates that the workload instance was
 	// replaced with a new workload slice.
 	WorkloadSliceReplaced = "WorkloadSliceReplaced"
