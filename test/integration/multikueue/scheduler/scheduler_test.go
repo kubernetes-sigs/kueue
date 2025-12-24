@@ -31,12 +31,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta2"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
@@ -133,7 +133,11 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 			ControllerName(kueue.MultiKueueControllerName).
 			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", managerMultiKueueConfig.Name).
 			Obj()
-		util.CreateAdmissionChecksAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC)
+		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC)
+
+		ginkgo.By("wait for check active", func() {
+			util.ExpectAdmissionChecksToBeActive(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC)
+		})
 
 		managerHighWPC = utiltestingapi.MakeWorkloadPriorityClass("high-workload").PriorityValue(300).Obj()
 		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerHighWPC)
@@ -214,7 +218,9 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueSecret2, true)
 	})
 
-	ginkgo.It("should preempt a running low-priority workload when a high-priority workload is admitted (same worker)", func() {
+	ginkgo.It("should preempt a running low-priority workload when a high-priority workload is admitted (same worker, MultiKueueBatchJobWithManagedBy enabled)", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueBatchJobWithManagedBy, true)
+
 		lowJob := testingjob.MakeJob("low-job", managerNs.Name).
 			WorkloadPriorityClass(managerLowWPC.Name).
 			Queue(kueue.LocalQueueName(managerLq.Name)).
@@ -440,7 +446,9 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 		})
 	})
 
-	ginkgo.It("should preempt a running low-priority workload when a high-priority workload is admitted (other workers)", func() {
+	ginkgo.It("should preempt a running low-priority workload when a high-priority workload is admitted (other workers, MultiKueueBatchJobWithManagedBy enabled)", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueBatchJobWithManagedBy, true)
+
 		lowJob := testingjob.MakeJob("low-job", managerNs.Name).
 			WorkloadPriorityClass(managerLowWPC.Name).
 			Queue(kueue.LocalQueueName(managerLq.Name)).

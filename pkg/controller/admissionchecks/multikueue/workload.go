@@ -429,8 +429,8 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 		evictedCond := apimeta.FindStatusCondition(group.local.Status.Conditions, kueue.WorkloadEvicted)
 		if workload.HasQuotaReservation(group.local) && evictedCond != nil && evictedCond.Status == metav1.ConditionTrue {
-			err := workload.PatchAdmissionStatus(ctx, remoteCl, remoteWl, w.clock, func(remoteWl *kueue.Workload) (bool, error) {
-				return workload.SetDeactivationTarget(
+			err := workload.PatchAdmissionStatus(ctx, remoteCl, remoteWl, w.clock, func() (*kueue.Workload, bool, error) {
+				return remoteWl, workload.SetDeactivationTarget(
 					remoteWl,
 					WorkloadEvictedOnManagerCluster,
 					api.TruncateConditionMessage(fmt.Sprintf("Evicted on manager: %s", evictedCond.Message)),
