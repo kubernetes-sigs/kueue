@@ -41,6 +41,8 @@ APPWRAPPER_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/proj
 LEADERWORKERSET_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/lws)
 CERTMANAGER_VERSION=$(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/cert-manager/cert-manager)
 CLUSTERPROFILE_VERSION=$(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/cluster-inventory-api)
+# The main branch has the necessary v1 API support.
+DRA_EXAMPLE_DRIVER_VERSION ?= main
 
 GOLANGCI_LINT = $(BIN_DIR)/golangci-lint
 GOLANGCI_LINT_KAL = $(BIN_DIR)/golangci-lint-kube-api-linter
