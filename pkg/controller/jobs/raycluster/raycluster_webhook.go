@@ -88,22 +88,51 @@ func (w *RayClusterWebhook) Default(ctx context.Context, obj runtime.Object) err
 	log := ctrl.LoggerFrom(ctx).WithName("raycluster-webhook")
 	log.V(10).Info("Applying defaults")
 	jobframework.ApplyDefaultLocalQueue(job.Object(), w.queues.DefaultLocalQueueExist)
+
 	if err := jobframework.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
 	jobframework.ApplyDefaultForManagedBy(job, w.queues, w.cache, log)
 
 	rjob := obj.(*rayv1.RayCluster)
+	elasticJobEnabled := isAnElasticJob(rjob)
+	log.V(10).Info("checking elastic job status",
+		"name", rjob.Name,
+		"namespace", rjob.Namespace,
+		"elasticJobEnabled", elasticJobEnabled,
+		"ElasticJobsViaWorkloadSlices", features.Enabled(features.ElasticJobsViaWorkloadSlices),
+		"workloadSlicingEnabled", workloadslicing.Enabled(rjob.GetObjectMeta()))
 
-	if isAnElasticJob(rjob) {
+	if elasticJobEnabled {
 		// Ensure that the PodSchedulingGate is present in the RayCluster's pod Templates for its Head and all its Workers
 		utilpod.GateTemplate(&job.Spec.HeadGroupSpec.Template, kueue.ElasticJobSchedulingGate)
+
+		// Log final gates after applying
+		finalHeadGates := []string{}
+		for _, gate := range job.Spec.HeadGroupSpec.Template.Spec.SchedulingGates {
+			finalHeadGates = append(finalHeadGates, gate.Name)
+		}
+		log.V(10).Info("head group final gates after applying",
+			"name", rjob.Name,
+			"namespace", rjob.Namespace,
+			"finalHeadGates", finalHeadGates)
 
 		for index := range job.Spec.WorkerGroupSpecs {
 			wgs := &job.Spec.WorkerGroupSpecs[index]
 
 			utilpod.GateTemplate(&wgs.Template, kueue.ElasticJobSchedulingGate)
 		}
+
+		log.V(10).Info("completed adding elastic scheduling gates to all pod templates",
+			"name", rjob.Name,
+			"namespace", rjob.Namespace,
+			"headGatesCount", len(job.Spec.HeadGroupSpec.Template.Spec.SchedulingGates),
+			"workerGroupsCount", len(job.Spec.WorkerGroupSpecs))
+	} else {
+		log.V(3).Info("skipping elastic scheduling gates",
+			"name", rjob.Name,
+			"namespace", rjob.Namespace,
+			"reason", "RayCluster is not an elastic job")
 	}
 
 	return nil
