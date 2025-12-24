@@ -76,8 +76,8 @@ ${YQ}  e  ".kueueViz.frontend.image.repository = \"${IMAGE_REGISTRY}/kueueviz-fr
 ${YQ}  e  ".kueuePopulator.image.repository = \"${IMAGE_REGISTRY}/kueue-populator\" | .kueuePopulator.image.tag = \"${GIT_TAG}\" | .kueuePopulator.image.pullPolicy = \"IfNotPresent\"" -i cmd/experimental/kueue-populator/charts/kueue-populator/values.yaml
 
 # TODO: consider signing it
-rm -R cmd/experimental/kueue-populator/charts/kueue-populator/charts
-rm cmd/experimental/kueue-populator/charts/kueue-populator/Chart.lock
+rm -Rf cmd/experimental/kueue-populator/charts/kueue-populator/charts
+rm -f cmd/experimental/kueue-populator/charts/kueue-populator/Chart.lock
 ${HELM} package --version "${chart_version}" --app-version "${GIT_TAG}" charts/kueue -d "${DEST_CHART_DIR}"
 ${HELM} dependency build cmd/experimental/kueue-populator/charts/kueue-populator
 ${HELM} package --version "${chart_version}" --app-version "${GIT_TAG}" cmd/experimental/kueue-populator/charts/kueue-populator -d "${DEST_CHART_DIR}"
