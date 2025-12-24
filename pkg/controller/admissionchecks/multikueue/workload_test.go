@@ -501,6 +501,156 @@ func TestWlReconcile(t *testing.T) {
 				},
 			},
 		},
+		"remote wl evicted": {
+			features:     map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: true},
+			reconcileFor: "wl1",
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload got reservation on "worker1"`,
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
+					ClusterName("worker1").
+					Evicted().
+					Obj(),
+			},
+			managersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.Clone().Obj(),
+			},
+			worker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			worker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			useSecondWorker: true,
+			worker2Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.DeepCopy(),
+			},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload got reservation on "worker1"`,
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
+					ClusterName("worker1").
+					Evicted().
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.DeepCopy(),
+			},
+			wantWorker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadDeactivationTarget,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedOnManagerCluster,
+						Message: "Evicted on manager: Evicted by test",
+					}).
+					Obj(),
+			},
+			wantWorker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+		},
+		"handle workload evicted on manager cluster": {
+			features:     map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: true},
+			reconcileFor: "wl1",
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload got reservation on "worker1"`,
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
+					ClusterName("worker1").
+					Evicted().
+					Obj(),
+			},
+			managersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.Clone().Active(1).Obj(),
+			},
+			worker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Active(0).
+					Obj(),
+			},
+			worker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "DeactivatedDueToEvictedOnManagerCluster",
+						Message: "Evicted on manager: Evicted by test",
+					}).
+					Obj(),
+			},
+			useSecondWorker: true,
+			worker2Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.DeepCopy(),
+			},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload got reservation on "worker1"`,
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
+					ClusterName("worker1").
+					Evicted().
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.Clone().Active(0).Obj(),
+			},
+			wantWorker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "DeactivatedDueToEvictedOnManagerCluster",
+						Message: "Evicted on manager: Evicted by test",
+					}).
+					Obj(),
+			},
+			wantWorker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantWorker2Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.DeepCopy(),
+			},
+		},
 		"remote wl with reservation (withoutJobManagedBy)": {
 			features:     map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: false},
 			reconcileFor: "wl1",
@@ -1480,9 +1630,11 @@ func TestWlReconcile(t *testing.T) {
 				adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
 				cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, adapters, nil)
 
-				worker1Builder := getClientBuilder(ctx)
-				worker1Builder = worker1Builder.WithLists(&kueue.WorkloadList{Items: tc.worker1Workloads}, &batchv1.JobList{Items: tc.worker1Jobs})
-				worker1Client := worker1Builder.Build()
+				worker1Client := getClientBuilder(ctx).
+					WithLists(&kueue.WorkloadList{Items: tc.worker1Workloads}, &batchv1.JobList{Items: tc.worker1Jobs}).
+					WithStatusSubresource(&kueue.Workload{}).
+					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+					Build()
 
 				w1remoteClient := newRemoteClient(managerClient, nil, nil, defaultOrigin, "", adapters)
 				w1remoteClient.client = worker1Client
