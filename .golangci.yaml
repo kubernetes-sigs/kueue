@@ -90,6 +90,9 @@ linters:
     rules:
       - linters:
           - staticcheck
+        text: 'SA1019: .*\.NewSimpleClientset is deprecated: NewClientset replaces this with support for field management, which significantly improves server side apply testing.'
+      - linters:
+          - staticcheck
         text: 'SA1019: j.Status.State is deprecated: the State field is replaced by the Conditions field.'
       - linters:
           - staticcheck

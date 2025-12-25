@@ -20,6 +20,7 @@ package v1beta2
 // MultiKueueClusterSpecApplyConfiguration represents a declarative configuration of the MultiKueueClusterSpec type for use
 // with apply.
 type MultiKueueClusterSpecApplyConfiguration struct {
+	// clusterSource is the source to connect to the cluster.
 	ClusterSource *ClusterSourceApplyConfiguration `json:"clusterSource,omitempty"`
 }
 

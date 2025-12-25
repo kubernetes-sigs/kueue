@@ -70,7 +70,7 @@ kueuectl list resourceflavor [--selector KEY=VALUE] [--field-selector FIELD_NAME
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Output format. One of: (json, yaml, name, go-template, go-template-file, template, templatefile, jsonpath, jsonpath-as-json, jsonpath-file).</p>
+            <p>Output format. One of: (json, yaml, kyaml, name, go-template, go-template-file, template, templatefile, jsonpath, jsonpath-as-json, jsonpath-file).</p>
         </td>
     </tr>
     <tr>
@@ -137,6 +137,15 @@ kueuectl list resourceflavor [--selector KEY=VALUE] [--field-selector FIELD_NAME
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
             <p>UID to impersonate for the operation.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--as-user-extra strings</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>User extras to impersonate for the operation, this flag can be repeated to specify multiple values for the same key.</p>
         </td>
     </tr>
     <tr>

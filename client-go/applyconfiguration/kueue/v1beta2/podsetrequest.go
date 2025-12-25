@@ -25,8 +25,14 @@ import (
 // PodSetRequestApplyConfiguration represents a declarative configuration of the PodSetRequest type for use
 // with apply.
 type PodSetRequestApplyConfiguration struct {
-	Name      *kueuev1beta2.PodSetReference `json:"name,omitempty"`
-	Resources *v1.ResourceList              `json:"resources,omitempty"`
+	// name is the name of the podSet. It should match one of the names in .spec.podSets.
+	Name *kueuev1beta2.PodSetReference `json:"name,omitempty"`
+	// resources is the total resources all the pods in the podset need to run.
+	//
+	// Beside what is provided in podSet's specs, this value also takes into account
+	// the LimitRange defaults and RuntimeClass overheads at the moment of consideration
+	// and the application of resource.excludeResourcePrefixes and resource.transformations.
+	Resources *v1.ResourceList `json:"resources,omitempty"`
 }
 
 // PodSetRequestApplyConfiguration constructs a declarative configuration of the PodSetRequest type for use with

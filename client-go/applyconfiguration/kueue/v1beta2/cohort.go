@@ -25,11 +25,20 @@ import (
 
 // CohortApplyConfiguration represents a declarative configuration of the Cohort type for use
 // with apply.
+//
+// Cohort defines the Cohorts API.
+//
+// Hierarchical Cohorts (any Cohort which has a parent) are compatible
+// with Fair Sharing as of v0.11. Using these features together in
+// V0.9 and V0.10 is unsupported, and results in undefined behavior.
 type CohortApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration    `json:",inline"`
+	v1.TypeMetaApplyConfiguration `json:",inline"`
+	// metadata is the metadata of the Cohort.
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Spec                             *CohortSpecApplyConfiguration   `json:"spec,omitempty"`
-	Status                           *CohortStatusApplyConfiguration `json:"status,omitempty"`
+	// spec is the specification of the Cohort.
+	Spec *CohortSpecApplyConfiguration `json:"spec,omitempty"`
+	// status is the status of the Cohort.
+	Status *CohortStatusApplyConfiguration `json:"status,omitempty"`
 }
 
 // Cohort constructs a declarative configuration of the Cohort type for use with
@@ -41,6 +50,7 @@ func Cohort(name string) *CohortApplyConfiguration {
 	b.WithAPIVersion("kueue.x-k8s.io/v1beta2")
 	return b
 }
+
 func (b CohortApplyConfiguration) IsApplyConfiguration() {}
 
 // WithKind sets the Kind field in the declarative configuration to the given value

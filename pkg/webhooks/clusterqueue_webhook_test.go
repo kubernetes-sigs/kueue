@@ -186,7 +186,7 @@ func TestValidateClusterQueue(t *testing.T) {
 			}).Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(specPath.Child("namespaceSelector", "matchLabels"), "nospecialchars^=@", "").
-					WithOrigin("labelKey"),
+					WithOrigin("format=k8s-label-key"),
 			},
 		},
 		{

@@ -20,6 +20,7 @@ package v1beta1
 // ClusterProfileReferenceApplyConfiguration represents a declarative configuration of the ClusterProfileReference type for use
 // with apply.
 type ClusterProfileReferenceApplyConfiguration struct {
+	// name of the ClusterProfile.
 	Name *string `json:"name,omitempty"`
 }
 

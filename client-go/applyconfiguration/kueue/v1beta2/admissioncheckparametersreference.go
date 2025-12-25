@@ -20,9 +20,12 @@ package v1beta2
 // AdmissionCheckParametersReferenceApplyConfiguration represents a declarative configuration of the AdmissionCheckParametersReference type for use
 // with apply.
 type AdmissionCheckParametersReferenceApplyConfiguration struct {
+	// apiGroup is the group for the resource being referenced.
 	APIGroup *string `json:"apiGroup,omitempty"`
-	Kind     *string `json:"kind,omitempty"`
-	Name     *string `json:"name,omitempty"`
+	// kind is the type of the resource being referenced.
+	Kind *string `json:"kind,omitempty"`
+	// name is the name of the resource being referenced.
+	Name *string `json:"name,omitempty"`
 }
 
 // AdmissionCheckParametersReferenceApplyConfiguration constructs a declarative configuration of the AdmissionCheckParametersReference type for use with

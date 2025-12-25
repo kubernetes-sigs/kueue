@@ -25,10 +25,35 @@ import (
 // PodSetApplyConfiguration represents a declarative configuration of the PodSet type for use
 // with apply.
 type PodSetApplyConfiguration struct {
-	Name            *kueuev1beta2.PodSetReference            `json:"name,omitempty"`
-	Template        *v1.PodTemplateSpecApplyConfiguration    `json:"template,omitempty"`
-	Count           *int32                                   `json:"count,omitempty"`
-	MinCount        *int32                                   `json:"minCount,omitempty"`
+	// name is the PodSet name.
+	Name *kueuev1beta2.PodSetReference `json:"name,omitempty"`
+	// template is the Pod template.
+	//
+	// The only allowed fields in template.metadata are labels and annotations.
+	//
+	// If requests are omitted for a container or initContainer,
+	// they default to the limits if they are explicitly specified for the
+	// container or initContainer.
+	//
+	// During admission, the rules in nodeSelector and
+	// nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution that match
+	// the keys in the nodeLabels from the ResourceFlavors considered for this
+	// Workload are used to filter the ResourceFlavors that can be assigned to
+	// this podSet.
+	Template *v1.PodTemplateSpecApplyConfiguration `json:"template,omitempty"`
+	// count is the number of pods for the spec.
+	Count *int32 `json:"count,omitempty"`
+	// minCount is the minimum number of pods for the spec acceptable
+	// if the workload supports partial admission.
+	//
+	// If not provided, partial admission for the current PodSet is not
+	// enabled.
+	//
+	// Only one podSet within the workload can use this.
+	//
+	// This is an alpha field and requires enabling PartialAdmission feature gate.
+	MinCount *int32 `json:"minCount,omitempty"`
+	// topologyRequest defines the topology request for the PodSet.
 	TopologyRequest *PodSetTopologyRequestApplyConfiguration `json:"topologyRequest,omitempty"`
 }
 

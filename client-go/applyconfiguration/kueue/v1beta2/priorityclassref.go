@@ -23,10 +23,23 @@ import (
 
 // PriorityClassRefApplyConfiguration represents a declarative configuration of the PriorityClassRef type for use
 // with apply.
+//
+// PriorityClassRef references a PriorityClass in a specific API group.
 type PriorityClassRefApplyConfiguration struct {
+	// group is the API group of the PriorityClass object.
+	// Use "kueue.x-k8s.io" for WorkloadPriorityClass.
+	// Use "scheduling.k8s.io" for Pod PriorityClass.
 	Group *kueuev1beta2.PriorityClassGroup `json:"group,omitempty"`
-	Kind  *kueuev1beta2.PriorityClassKind  `json:"kind,omitempty"`
-	Name  *string                          `json:"name,omitempty"`
+	// kind is the kind of the PriorityClass object.
+	Kind *kueuev1beta2.PriorityClassKind `json:"kind,omitempty"`
+	// name is the name of the PriorityClass the Workload is associated with.
+	// If specified, indicates the workload's priority.
+	// "system-node-critical" and "system-cluster-critical" are two special
+	// keywords which indicate the highest priorities with the former being
+	// the highest priority. Any other name must be defined by creating a
+	// PriorityClass object with that name. If not specified, the workload
+	// priority will be default or zero if there is no default.
+	Name *string `json:"name,omitempty"`
 }
 
 // PriorityClassRefApplyConfiguration constructs a declarative configuration of the PriorityClassRef type for use with

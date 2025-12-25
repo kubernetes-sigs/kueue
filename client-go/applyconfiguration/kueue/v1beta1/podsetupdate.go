@@ -24,12 +24,22 @@ import (
 
 // PodSetUpdateApplyConfiguration represents a declarative configuration of the PodSetUpdate type for use
 // with apply.
+//
+// PodSetUpdate contains a list of pod set modifications suggested by AdmissionChecks.
+// The modifications should be additive only - modifications of already existing keys
+// or having the same key provided by multiple AdmissionChecks is not allowed and will
+// result in failure during workload admission.
 type PodSetUpdateApplyConfiguration struct {
-	Name         *kueuev1beta1.PodSetReference     `json:"name,omitempty"`
-	Labels       map[string]string                 `json:"labels,omitempty"`
-	Annotations  map[string]string                 `json:"annotations,omitempty"`
-	NodeSelector map[string]string                 `json:"nodeSelector,omitempty"`
-	Tolerations  []v1.TolerationApplyConfiguration `json:"tolerations,omitempty"`
+	// name of the PodSet to modify. Should match to one of the Workload's PodSets.
+	Name *kueuev1beta1.PodSetReference `json:"name,omitempty"`
+	// labels of the PodSet to modify.
+	Labels map[string]string `json:"labels,omitempty"`
+	// annotations of the PodSet to modify.
+	Annotations map[string]string `json:"annotations,omitempty"`
+	// nodeSelector of the PodSet to modify.
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+	// tolerations of the PodSet to modify.
+	Tolerations []v1.TolerationApplyConfiguration `json:"tolerations,omitempty"`
 }
 
 // PodSetUpdateApplyConfiguration constructs a declarative configuration of the PodSetUpdate type for use with
