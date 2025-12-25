@@ -40,7 +40,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Kuberay", func() {
+var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:kuberay"), func() {
 	const (
 		resourceFlavorName = "kuberay-rf"
 		clusterQueueName   = "kuberay-cq"

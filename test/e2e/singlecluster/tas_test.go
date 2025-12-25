@@ -45,7 +45,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
+var _ = ginkgo.Describe("TopologyAwareScheduling", ginkgo.Label("area:singlecluster", "feature:tas"), func() {
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {

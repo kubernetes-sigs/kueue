@@ -36,7 +36,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("StatefulSet integration", func() {
+var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singlecluster", "feature:statefulset"), func() {
 	const (
 		resourceFlavorName = "sts-rf"
 		clusterQueueName   = "sts-cq"

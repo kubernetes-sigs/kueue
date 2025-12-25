@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Kueue v1beta2", func() {
+var _ = ginkgo.Describe("Kueue v1beta2", ginkgo.Label("area:singlecluster", "feature:e2e_v1beta1"), func() {
 	var ns *corev1.Namespace
 	var sampleJob *batchv1.Job
 	var jobKey types.NamespacedName
