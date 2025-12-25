@@ -112,10 +112,11 @@ type Manager struct {
 	sync.RWMutex
 	cond sync.Cond
 
-	clock             clock.WithDelayedExecution
-	client            client.Client
-	statusChecker     StatusChecker
-	localQueues       map[queue.LocalQueueReference]*LocalQueue
+	clock         clock.WithDelayedExecution
+	client        client.Client
+	statusChecker StatusChecker
+	localQueues   map[queue.LocalQueueReference]*LocalQueue
+	// Tracks assigned (local) queues of all workloads managed by kueue (including admitted and running).
 	assignedWorkloads map[workload.Reference]queue.LocalQueueReference
 
 	workloadOrdering workload.Ordering
@@ -333,6 +334,8 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		return fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
 	for _, w := range workloads.Items {
+		m.assignWorkload(workload.Key(&w), qImpl.Key)
+
 		if !workload.IsAdmissible(&w) {
 			continue
 		}
@@ -347,7 +350,7 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		}
 
 		workload.AdjustResources(ctx, m.client, &w)
-		m.assignWorkload(workload.NewInfo(&w, m.workloadInfoOptions...), qImpl)
+		qImpl.AddOrUpdate(workload.NewInfo(&w, m.workloadInfoOptions...))
 	}
 
 	if cq != nil && cq.AddFromLocalQueue(qImpl) {
@@ -462,7 +465,11 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 	}
 
 	qKey := queue.KeyFromWorkload(w)
-	m.deleteWorkloadFromQueuesIfReassigned(log, w, qKey)
+
+	assignedQueue, ok := m.assignedWorkloads[workload.Key(w)]
+	if ok && assignedQueue != qKey {
+		m.forgetWorkload(log, w)
+	}
 
 	q := m.localQueues[qKey]
 	if q == nil {
@@ -470,7 +477,7 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 	}
 	allOptions := append(m.workloadInfoOptions, opts...)
 	wInfo := workload.NewInfo(w, allOptions...)
-	m.assignWorkload(wInfo, q)
+	m.addWorkload(wInfo, q)
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq == nil {
@@ -508,7 +515,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 		return false
 	}
 	info.Update(&w)
-	m.assignWorkload(info, q)
+	m.addWorkload(info, q)
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq == nil {
@@ -526,33 +533,43 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	return added
 }
 
-func (m *Manager) assignWorkload(wlInfo *workload.Info, q *LocalQueue) {
-	m.assignedWorkloads[workload.Key(wlInfo.Obj)] = q.Key
-	q.AddOrUpdate(wlInfo)
-}
-
+// Delete the workload from queue or cluster queue. Does not remove assignment caching.
 func (m *Manager) DeleteWorkload(log logr.Logger, wl *kueue.Workload) {
 	m.Lock()
 	defer m.Unlock()
-	m.deleteWorkloadFromAssignedQueues(log, wl)
+	m.deleteWorkload(log, wl)
 	m.DeleteSecondPassWithoutLock(wl)
 }
 
-func (m *Manager) deleteWorkloadFromQueuesIfReassigned(log logr.Logger, wl *kueue.Workload, actualQueue queue.LocalQueueReference) {
-	assignedQueue, assigned := m.assignedWorkloads[workload.Key(wl)]
-	if assigned && assignedQueue != actualQueue {
-		m.deleteWorkloadFromAssignedQueues(log, wl)
-	}
+// Completely forget workload. Deletes form queue and cluster queue. Removes assignment caching.
+func (m *Manager) ForgetWorkload(log logr.Logger, wl *kueue.Workload) {
+	m.Lock()
+	defer m.Unlock()
+	m.forgetWorkload(log, wl)
 }
 
-func (m *Manager) deleteWorkloadFromAssignedQueues(log logr.Logger, wl *kueue.Workload) {
+// Completely forget workload. Deletes form queue and cluster queue. Removes assignment caching.
+func (m *Manager) forgetWorkload(log logr.Logger, wl *kueue.Workload) {
+	m.deleteWorkload(log, wl)
+	delete(m.assignedWorkloads, workload.Key(wl))
+	m.DeleteSecondPassWithoutLock(wl)
+}
+
+func (m *Manager) addWorkload(wlInfo *workload.Info, q *LocalQueue) {
+	m.assignWorkload(workload.Key(wlInfo.Obj), q.Key)
+	q.AddOrUpdate(wlInfo)
+}
+
+func (m *Manager) assignWorkload(wlKey workload.Reference, qKey queue.LocalQueueReference) {
+	m.assignedWorkloads[wlKey] = qKey
+}
+
+func (m *Manager) deleteWorkload(log logr.Logger, wl *kueue.Workload) {
 	wlKey := workload.Key(wl)
 	qKey, ok := m.assignedWorkloads[wlKey]
 	if !ok {
 		return
 	}
-
-	defer delete(m.assignedWorkloads, wlKey)
 
 	q := m.localQueues[qKey]
 	if q == nil {
@@ -584,7 +601,12 @@ func (m *Manager) QueueAssociatedInadmissibleWorkloadsAfter(ctx context.Context,
 		action()
 	}
 
-	q := m.localQueues[queue.KeyFromWorkload(w)]
+	wlKey := workload.Key(w)
+	qKey, ok := m.assignedWorkloads[wlKey]
+	if !ok {
+		return
+	}
+	q := m.localQueues[qKey]
 	if q == nil {
 		return
 	}
@@ -733,7 +755,6 @@ func (m *Manager) heads() []workload.Info {
 		qKey := m.assignedWorkloads[wlKey]
 		q := m.localQueues[qKey]
 		delete(q.items, wlKey)
-		delete(m.assignedWorkloads, wlKey)
 
 		if features.Enabled(features.LocalQueueMetrics) {
 			m.reportLQPendingWorkloads(q)
