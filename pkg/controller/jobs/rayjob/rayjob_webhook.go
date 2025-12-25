@@ -83,18 +83,12 @@ func (w *RayJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
 	log.V(5).Info("Applying defaults")
 	jobframework.ApplyDefaultLocalQueue(job.Object(), w.queues.DefaultLocalQueueExist)
-	if job.Spec.RayClusterSpec == nil || !ptr.Deref(job.Spec.RayClusterSpec.EnableInTreeAutoscaling, false) {
-		if err := jobframework.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
-			return err
-		}
-	} else {
-		if !workloadslicing.Enabled(job.Object()) {
-			return errors.New("RayJob should enable workload slicing if autoscaling is enabled")
-		}
-		if job.Spec.Suspend {
-			return errors.New("RayJob should not set suspend to true if autoscaling is enabled")
-		}
-		log.V(5).Info("Do not apply default for suspend due to EnableInTreeAutoscaling", "jobName", job.Name, "jobNamespace", job.Namespace)
+	if job.Spec.RayClusterSpec != nil && ptr.Deref(job.Spec.RayClusterSpec.EnableInTreeAutoscaling, false) && !workloadslicing.Enabled(job.Object()) {
+		return errors.New("RayJob should enable workload slicing if autoscaling is enabled")
+	}
+	if job.Spec.Suspend {
+		log.V(5).Info("Update RayJob Suspend to false", "jobName", job.Name, "jobNamespace", job.Namespace)
+		job.Spec.Suspend = false
 	}
 	jobframework.ApplyDefaultForManagedBy(job, w.queues, w.cache, log)
 	return nil
