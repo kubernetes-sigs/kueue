@@ -403,6 +403,7 @@ func TestReconcile(t *testing.T) {
 	cases := map[string]struct {
 		enableObjectRetentionPolicies bool
 		enableDRAFeature              bool
+		enableWallTimeLimits          bool
 
 		workload                  *kueue.Workload
 		cq                        *kueue.ClusterQueue
@@ -2565,13 +2566,54 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			wantResult: reconcile.Result{},
 		},
+		"WallTimeLimits feature gate off; admitted workload should not track wall time": {
+			enableWallTimeLimits: false,
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
+				AdmittedAt(true, testStartTime.Add(-30*time.Second)).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
+				AdmittedAt(true, testStartTime.Add(-30*time.Second)).
+				Obj(),
+			wantResult: reconcile.Result{},
+		},
+		"WallTimeLimits feature gate on; admitted workload should track wall time and requeue after 1 second": {
+			enableWallTimeLimits: true,
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
+				AdmittedAt(true, testStartTime.Add(-30*time.Second)).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
+				AdmittedAt(true, testStartTime.Add(-30*time.Second)).
+				WallTimeSeconds(30).
+				Obj(),
+			wantResult: reconcile.Result{RequeueAfter: 1 * time.Second},
+		},
+		"WallTimeLimits feature gate on; admitted workload with existing wall time should update": {
+			enableWallTimeLimits: true,
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
+				AdmittedAt(true, testStartTime.Add(-60*time.Second)).
+				WallTimeSeconds(50).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
+				AdmittedAt(true, testStartTime.Add(-60*time.Second)).
+				WallTimeSeconds(60).
+				Obj(),
+			wantResult: reconcile.Result{RequeueAfter: 1 * time.Second},
+		},
 	}
+
 	for name, tc := range cases {
 		for _, enabled := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.ObjectRetentionPolicies, tc.enableObjectRetentionPolicies)
 				features.SetFeatureGateDuringTest(t, features.DynamicResourceAllocation, tc.enableDRAFeature)
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
+				features.SetFeatureGateDuringTest(t, features.WallTimeLimits, tc.enableWallTimeLimits)
 
 				testWl := tc.workload.DeepCopy()
 				objs := []client.Object{testWl}

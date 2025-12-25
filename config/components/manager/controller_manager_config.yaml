@@ -10,6 +10,8 @@ webhook:
 leaderElection:
   leaderElect: true
   resourceName: c1f6bfd2.kueue.x-k8s.io
+featureGates:
+  WallTimeLimits: true
 controller:
   groupKindConcurrency:
     Job.batch: 5

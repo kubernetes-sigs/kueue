@@ -24,7 +24,7 @@ spec:
         - /manager
         args:
         - "--zap-log-level=2"
-        imagePullPolicy: Always
+        imagePullPolicy: IfNotPresent
         image: controller:latest
         name: manager
         securityContext:

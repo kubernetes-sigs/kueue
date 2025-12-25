@@ -141,6 +141,10 @@ type ClusterQueueSpec struct {
 	// admissionScope indicates whether ClusterQueue uses the Admission Fair Sharing
 	// +optional
 	AdmissionScope *AdmissionScope `json:"admissionScope,omitempty"`
+
+	// wallTimePolicy defines the wallTimePolicy for the ClusterQueue.
+	// +optional
+	WallTimePolicy *WallTimePolicy `json:"wallTimePolicy,omitempty"`
 }
 
 // AdmissionChecksStrategy defines a strategy for a AdmissionCheck.
@@ -319,6 +323,14 @@ type ClusterQueueStatus struct {
 	// This is recorded only when Fair Sharing is enabled in the Kueue configuration.
 	// +optional
 	FairSharing *FairSharingStatus `json:"fairSharing,omitempty"`
+
+	// wallTimeFlavorUsage contains the current wall time usage for this ClusterQueue.
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=16
+	// +optional
+	WallTimeFlavorUsage []WallTimeFlavorUsage `json:"wallTimeFlavorUsage,omitempty"`
 }
 
 type ClusterQueuePendingWorkloadsStatus struct {
@@ -363,6 +375,18 @@ type ResourceUsage struct {
 	// borrowed is quantity of quota that is borrowed from the cohort. In other
 	// words, it's the used quota that is over the nominalQuota.
 	Borrowed resource.Quantity `json:"borrowed,omitempty"`
+}
+
+type WallTimeFlavorUsage struct {
+	// name of the flavor.
+	Name ResourceFlavorReference `json:"name"`
+
+	// wallTimeAllocated is the total number of hours allocated for this ClusterQueue.
+	// +kubebuilder:validation:Minimum=1
+	WallTimeAllocated int32 `json:"wallTimeAllocated,omitempty"`
+	// wallTimeUsed is the number of hours used.
+	// +kubebuilder:validation:Minimum=0
+	WallTimeUsed int32 `json:"wallTimeUsed"`
 }
 
 const (
@@ -534,6 +558,39 @@ type BorrowWithinCohort struct {
 	//
 	// +optional
 	MaxPriorityThreshold *int32 `json:"maxPriorityThreshold,omitempty"`
+}
+
+type WallTimePolicy struct {
+	// WallTimeFlavors describes a group of resources that this wall time limits applies to.
+	// flavors is the list of flavors that provide the resources of this group.
+	// Typically, different flavors represent different hardware models
+	// (e.g., gpu models, cpu architectures) or pricing models (on-demand vs spot
+	// cpus).
+	// Each flavor MUST list all the resources listed for this group in the same
+	// order as the .resources field.
+	// The list cannot be empty and it can contain up to 16 flavors.
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=16
+	WallTimeFlavors []WallTimeFlavor `json:"wallTimeFlavors"`
+}
+
+type WallTimeFlavor struct {
+	// name of this flavor. The name should match the .metadata.name of a
+	// ResourceFlavor. If a matching ResourceFlavor does not exist, the
+	// ClusterQueue will have an Active condition set to False.
+	Name ResourceFlavorReference `json:"name"`
+
+	// wallTimeAllocatedHours is the number of hours that this wall time quota applies to.
+	// +kubebuilder:validation:Minimum=1
+	WallTimeAllocatedHours int32 `json:"wallTimeAllocatedHours"`
+
+	// actionWhenWallTimeExhausted defines the action to take when the budget is exhausted.
+	// The possible values are:
+	// +kubebuilder:validation:Enum=Hold;HoldAndDrain
+	// +kubebuilder:default="Hold"
+	ActionWhenWallTimeExhausted StopPolicy `json:"actionWhenWallTimeExhausted,omitempty"`
 }
 
 // +genclient
