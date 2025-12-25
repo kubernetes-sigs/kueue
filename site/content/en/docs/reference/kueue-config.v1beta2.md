@@ -53,6 +53,20 @@ Defaults to 1.</p>
 </tbody>
 </table>
 
+## `CipherSuite`     {#config-kueue-x-k8s-io-v1beta2-CipherSuite}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [TLSOptions](#config-kueue-x-k8s-io-v1beta2-TLSOptions)
+
+
+<p>CipherSuite represents a TLS cipher suite name</p>
+
+
+
+
 ## `ClientConnection`     {#config-kueue-x-k8s-io-v1beta2-ClientConnection}
     
 
@@ -288,6 +302,14 @@ before exposing it to public.</p>
 <td>
    <p>Controller contains global configuration options for controllers
 registered within this manager.</p>
+</td>
+</tr>
+<tr><td><code>tls</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-TLSOptions"><code>TLSOptions</code></a>
+</td>
+<td>
+   <p>TLS contains TLS security settings for all Kueue API servers
+(webhooks, metrics, and visibility).</p>
 </td>
 </tr>
 </tbody>
@@ -887,6 +909,57 @@ for Dynamic Resource Allocation support.</p>
 </tr>
 </tbody>
 </table>
+
+## `TLSOptions`     {#config-kueue-x-k8s-io-v1beta2-TLSOptions}
+    
+
+**Appears in:**
+
+- [ControllerManager](#config-kueue-x-k8s-io-v1beta2-ControllerManager)
+
+
+<p>TLSOptions defines TLS security settings for Kueue servers</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>minTLSVersion</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-TLSVersion"><code>TLSVersion</code></a>
+</td>
+<td>
+   <p>MinTLSVersion specifies the minimum TLS version that is acceptable.
+If not specified, defaults to &quot;1.2&quot; for backward compatibility.</p>
+</td>
+</tr>
+<tr><td><code>cipherSuites</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-CipherSuite"><code>[]CipherSuite</code></a>
+</td>
+<td>
+   <p>CipherSuites specifies the list of enabled TLS cipher suites.
+If not specified, a secure default list will be used.
+The available cipher suites are defined in Go's crypto/tls package.
+See https://golang.org/pkg/crypto/tls/#pkg-constants for valid values.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `TLSVersion`     {#config-kueue-x-k8s-io-v1beta2-TLSVersion}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [TLSOptions](#config-kueue-x-k8s-io-v1beta2-TLSOptions)
+
+
+<p>TLSVersion represents a TLS version string</p>
+
+
+
 
 ## `WaitForPodsReady`     {#config-kueue-x-k8s-io-v1beta2-WaitForPodsReady}
     
