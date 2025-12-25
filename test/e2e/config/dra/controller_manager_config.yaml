@@ -1,0 +1,28 @@
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+metrics:
+  enableClusterQueueResources: true
+leaderElection:
+  leaderElect: true
+controller:
+  groupKindConcurrency:
+    Job.batch: 5
+    Pod: 5
+    Workload.kueue.x-k8s.io: 5
+    LocalQueue.kueue.x-k8s.io: 1
+    ClusterQueue.kueue.x-k8s.io: 1
+    ResourceFlavor.kueue.x-k8s.io: 1
+clientConnection:
+  qps: 50
+  burst: 100
+integrations:
+  frameworks:
+  - "batch/job"
+  - "pod"
+featureGates:
+  DynamicResourceAllocation: true
+resources:
+  deviceClassMappings:
+  - name: gpu
+    deviceClassNames:
+    - gpu.example.com

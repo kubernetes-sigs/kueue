@@ -152,6 +152,9 @@ test-e2e-upgrade: setup-e2e-env run-test-e2e-upgrade-$(E2E_KIND_VERSION:kindest/
 .PHONY: test-e2e-certmanager-upgrade
 test-e2e-certmanager-upgrade: setup-e2e-env run-test-e2e-certmanager-upgrade-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
+.PHONY: test-e2e-dra
+test-e2e-dra: setup-e2e-env run-test-e2e-dra-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
 run-test-e2e-singlecluster-%: K8S_VERSION = $(@:run-test-e2e-singlecluster-%=%)
 run-test-e2e-singlecluster-%:
 	@echo Running e2e for k8s ${K8S_VERSION}
@@ -245,6 +248,17 @@ run-test-e2e-certmanager-upgrade-%:
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="upgrade" \
 		KUEUE_UPGRADE_FROM_VERSION=$(KUEUE_UPGRADE_FROM_VERSION) \
 		CERTMANAGER_VERSION=$(CERTMANAGER_VERSION) \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
+		./hack/e2e-test.sh
+
+run-test-e2e-dra-%: K8S_VERSION = $(@:run-test-e2e-dra-%=%)
+run-test-e2e-dra-%:
+	@echo Running DRA e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="dra" \
+		DRA_EXAMPLE_DRIVER_VERSION=$(DRA_EXAMPLE_DRIVER_VERSION) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		./hack/e2e-test.sh
