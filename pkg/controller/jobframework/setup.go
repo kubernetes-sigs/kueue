@@ -20,25 +20,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
-	"github.com/go-logr/logr"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	"k8s.io/apiextensions-apiserver/pkg/client/informers/externalversions"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/util/workqueue"
+	tools "k8s.io/client-go/tools/cache"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-const (
-	baseBackoffWaitForIntegration = 1 * time.Second
-	maxBackoffWaitForIntegration  = 2 * time.Minute
-)
-
-var (
-	errFailedMappingResource = errors.New("restMapper failed mapping resource")
-)
+var errFailedMappingResource = errors.New("restMapper failed mapping resource")
 
 // SetupControllers setups all controllers and webhooks for integrations.
 // When the platform developers implement a separate kueue-manager to manage the in-house custom jobs,
@@ -49,11 +44,13 @@ var (
 // this function needs to be called after the certs get ready because the controllers won't work
 // until the webhooks are operating, and the webhook won't work until the
 // certs are all in place.
-func SetupControllers(ctx context.Context, mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
-	return manager.setupControllers(ctx, mgr, log, opts...)
+func SetupControllers(ctx context.Context, mgr ctrl.Manager, opts ...Option) error {
+	go manager.startCRDInformer(ctx, mgr)
+	return manager.setupControllers(ctx, mgr, opts...)
 }
 
-func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
+func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Manager, opts ...Option) error {
+	log := log.FromContext(ctx)
 	options := ProcessOptions(opts...)
 
 	implicitlyEnabledIntegrations := m.collectImplicitlyEnabledIntegrations(options.EnabledFrameworks)
@@ -83,6 +80,7 @@ func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Mana
 			if err != nil {
 				return fmt.Errorf("%s: %w: %w", fwkNamePrefix, errFailedMappingResource, err)
 			}
+			m.ensureCRDNotifierCh(gvk)
 			if err := restMappingExists(mgr, gvk); err != nil {
 				if !meta.IsNoMatchError(err) {
 					return fmt.Errorf("%s: %w", fwkNamePrefix, err)
@@ -94,7 +92,7 @@ func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Mana
 					return fmt.Errorf("%s: unable to create webhook: %w", fwkNamePrefix, err)
 				}
 				logger.Info("No matching API in the server for job framework, deferring setting up controller")
-				go waitForAPI(ctx, mgr, log, gvk, func() {
+				go m.waitForAPI(ctx, mgr, gvk, func() {
 					log.Info("API now available, starting controller", "gvk", gvk)
 					if err := m.setupControllerAndWebhook(ctx, mgr, name, fwkNamePrefix, cb, options, opts...); err != nil {
 						log.Error(err, "Failed to setup controller for job framework")
@@ -146,13 +144,16 @@ func (m *integrationManager) setupControllerAndWebhook(ctx context.Context, mgr 
 	return nil
 }
 
-func waitForAPI(ctx context.Context, mgr ctrl.Manager, log logr.Logger, gvk schema.GroupVersionKind, action func()) {
-	rateLimiter := workqueue.NewTypedItemExponentialFailureRateLimiter[string](baseBackoffWaitForIntegration, maxBackoffWaitForIntegration)
-	item := gvk.String()
+func (m *integrationManager) waitForAPI(ctx context.Context, mgr ctrl.Manager, gvk schema.GroupVersionKind, action func()) {
+	log := log.FromContext(ctx)
+	crdNotifyCh := m.getCRDNotifierCh(gvk)
+	if crdNotifyCh == nil {
+		log.V(2).Info("Channel not found for gvk", "gvk", gvk)
+		return
+	}
 	for {
 		err := restMappingExists(mgr, gvk)
 		if err == nil {
-			rateLimiter.Forget(item)
 			action()
 			return
 		} else if !meta.IsNoMatchError(err) {
@@ -161,7 +162,8 @@ func waitForAPI(ctx context.Context, mgr ctrl.Manager, log logr.Logger, gvk sche
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(rateLimiter.When(item)):
+		case <-crdNotifyCh:
+			log.V(2).Info("Received CRD notification, checking API availability", "gvk", gvk)
 			continue
 		}
 	}
@@ -192,4 +194,123 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer, opts ...Opti
 		}
 		return nil
 	})
+}
+
+// startCRDInformer watches for CRD additions/updates and notifies waitForAPI immediately
+func (m *integrationManager) startCRDInformer(ctx context.Context, mgr ctrl.Manager) {
+	log := log.FromContext(ctx)
+	crdClient, err := clientset.NewForConfig(mgr.GetConfig())
+	if err != nil {
+		log.V(2).Info("Failed to create CRD client for informer, falling back to polling", "error", err)
+		return
+	}
+
+	factory := externalversions.NewSharedInformerFactory(crdClient, 0)
+	crdInformer := factory.Apiextensions().V1().CustomResourceDefinitions().Informer()
+
+	informerCtx, informerCancel := context.WithCancel(ctx)
+
+	handler := tools.ResourceEventHandlerFuncs{
+		AddFunc: func(obj any) {
+			crd := obj.(*apiextensionsv1.CustomResourceDefinition)
+			if isCRDEstablished(crd) {
+				m.notifyCRDAvailable(ctx, crd)
+				m.cancelInformerIfAllCRDsRegistered(informerCancel)
+			}
+		},
+		UpdateFunc: func(oldObj, newObj any) {
+			crd := newObj.(*apiextensionsv1.CustomResourceDefinition)
+			if isCRDEstablished(crd) {
+				m.notifyCRDAvailable(ctx, crd)
+				m.cancelInformerIfAllCRDsRegistered(informerCancel)
+			}
+		},
+	}
+
+	if _, err := crdInformer.AddEventHandler(handler); err != nil {
+		log.V(2).Info("Failed to add CRD informer handler, falling back to polling", "error", err)
+		return
+	}
+
+	factory.Start(ctx.Done())
+	if !tools.WaitForCacheSync(ctx.Done(), crdInformer.HasSynced) {
+		log.V(2).Info("CRD informer cache failed to sync, falling back to polling")
+		return
+	}
+
+	log.V(2).Info("CRD informer started successfully")
+
+	defer informerCancel()
+
+	select {
+	case <-ctx.Done():
+		log.V(2).Info("CRD informer context done, stopping informer")
+	case <-informerCtx.Done():
+		factory.Shutdown()
+		log.V(2).Info("All CRDs registered, stopping informer")
+	}
+}
+
+func (m *integrationManager) cancelInformerIfAllCRDsRegistered(cancel context.CancelFunc) {
+	defer m.crdNotifiersMu.Unlock()
+	m.crdNotifiersMu.Lock()
+	if len(m.crdNotifiers) == 0 {
+		cancel()
+	}
+}
+
+// notifyCRDAvailable notifies all waiters for this CRD's GVK
+func (m *integrationManager) notifyCRDAvailable(ctx context.Context, crd *apiextensionsv1.CustomResourceDefinition) {
+	log := log.FromContext(ctx)
+	version := getCrdVersion(crd.Spec.Versions)
+	gvk := schema.GroupVersionKind{
+		Group:   crd.Spec.Group,
+		Version: version,
+		Kind:    crd.Spec.Names.Kind,
+	}
+
+	m.crdNotifiersMu.Lock()
+	defer m.crdNotifiersMu.Unlock()
+
+	if notifier, exists := m.crdNotifiers[gvk]; exists {
+		log.V(2).Info("CRD established, notifying waiters", "gvk", gvk)
+		close(notifier)
+		delete(m.crdNotifiers, gvk)
+	}
+}
+
+// getCrdVersion returns the current CRD version
+func getCrdVersion(versions []apiextensionsv1.CustomResourceDefinitionVersion) string {
+	var version string
+	for _, v := range versions {
+		if v.Storage {
+			version = v.Name
+			break
+		}
+	}
+	return version
+}
+
+// getCRDNotifierCh returns the pre-created channel for the given GVK so waitForAPI can watch
+func (m *integrationManager) getCRDNotifierCh(gvk schema.GroupVersionKind) chan struct{} {
+	return m.crdNotifiers[gvk]
+}
+
+// ensureCRDNotifierCh creates a CRD notifier channel for the given GVK if it doesn't exist
+func (m *integrationManager) ensureCRDNotifierCh(gvk schema.GroupVersionKind) {
+	m.crdNotifiersMu.Lock()
+	defer m.crdNotifiersMu.Unlock()
+	if _, exists := m.crdNotifiers[gvk]; !exists {
+		m.crdNotifiers[gvk] = make(chan struct{})
+	}
+}
+
+// isCRDEstablished checks if a CRD has the Established condition
+func isCRDEstablished(crd *apiextensionsv1.CustomResourceDefinition) bool {
+	for _, condition := range crd.Status.Conditions {
+		if condition.Type == apiextensionsv1.Established && condition.Status == apiextensionsv1.ConditionTrue {
+			return true
+		}
+	}
+	return false
 }
