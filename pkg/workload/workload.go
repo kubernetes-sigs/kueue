@@ -197,6 +197,12 @@ type Info struct {
 
 	// SecondPassIteration indicates the current iteration of the second pass scheduling.
 	SecondPassIteration int
+
+	// AttemptedFlavors tracks the set of resource flavors that were attempted during
+	// the most recent nomination attempt. This is used by StrictFIFOPerFlavor queueing strategy
+	// to determine which workloads should block each other.
+	// This field is transient and populated only during requeueing after failed admission.
+	AttemptedFlavors map[kueue.ResourceFlavorReference]struct{}
 }
 
 type PodSetResources struct {
