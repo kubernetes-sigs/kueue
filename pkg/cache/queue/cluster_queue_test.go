@@ -221,13 +221,13 @@ func Test_Delete(t *testing.T) {
 	if cq.PendingTotal() != 2 {
 		t.Error("ClusterQueue should have two workload")
 	}
-	cq.Delete(log, wl1)
+	cq.Delete(log, workload.Key(wl1))
 	if cq.PendingTotal() != 1 {
 		t.Error("ClusterQueue should have only one workload")
 	}
 	// Change workload item, ClusterQueue.Delete should only care about the namespace and name.
 	wl2.Spec = kueue.WorkloadSpec{QueueName: "default"}
-	cq.Delete(log, wl2)
+	cq.Delete(log, workload.Key(wl2))
 	if cq.PendingTotal() != 0 {
 		t.Error("ClusterQueue should have be empty")
 	}
@@ -259,7 +259,7 @@ func Test_AddFromLocalQueue(t *testing.T) {
 	if added := cq.AddFromLocalQueue(queue); added {
 		t.Error("expected workload not to be added")
 	}
-	cq.Delete(log, wl)
+	cq.Delete(log, workload.Key(wl))
 	if added := cq.AddFromLocalQueue(queue); !added {
 		t.Error("workload should be added to the ClusterQueue")
 	}
@@ -454,7 +454,7 @@ func TestClusterQueueImpl(t *testing.T) {
 			}
 
 			for _, w := range test.workloadsToDelete {
-				cq.Delete(log, w)
+				cq.Delete(log, workload.Key(w))
 			}
 
 			if test.queueInadmissibleWorkloads {
@@ -706,9 +706,7 @@ func TestFIFOClusterQueue(t *testing.T) {
 		t.Errorf("Popped workload %q want %q", got.Obj.Name, "after")
 	}
 
-	q.Delete(log, &kueue.Workload{
-		ObjectMeta: metav1.ObjectMeta{Name: "now"},
-	})
+	q.Delete(log, workload.NewReference("", "now"))
 	got = q.Pop()
 	if got != nil {
 		t.Errorf("Queue is not empty, popped workload %q", got.Obj.Name)

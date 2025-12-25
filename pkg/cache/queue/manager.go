@@ -462,7 +462,7 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 	}
 
 	qKey := queue.KeyFromWorkload(w)
-	m.deleteWorkloadFromQueuesIfReassigned(log, w, qKey)
+	m.deleteWorkloadFromQueuesIfReassigned(log, workload.Key(w), qKey)
 
 	q := m.localQueues[qKey]
 	if q == nil {
@@ -531,22 +531,21 @@ func (m *Manager) assignWorkload(wlInfo *workload.Info, q *LocalQueue) {
 	q.AddOrUpdate(wlInfo)
 }
 
-func (m *Manager) DeleteWorkload(log logr.Logger, wl *kueue.Workload) {
+func (m *Manager) DeleteWorkload(log logr.Logger, wlKey workload.Reference) {
 	m.Lock()
 	defer m.Unlock()
-	m.deleteWorkloadFromAssignedQueues(log, wl)
-	m.DeleteSecondPassWithoutLock(wl)
+	m.deleteWorkloadFromAssignedQueues(log, wlKey)
+	m.DeleteSecondPassWithoutLock(wlKey)
 }
 
-func (m *Manager) deleteWorkloadFromQueuesIfReassigned(log logr.Logger, wl *kueue.Workload, actualQueue queue.LocalQueueReference) {
-	assignedQueue, assigned := m.assignedWorkloads[workload.Key(wl)]
+func (m *Manager) deleteWorkloadFromQueuesIfReassigned(log logr.Logger, wlKey workload.Reference, actualQueue queue.LocalQueueReference) {
+	assignedQueue, assigned := m.assignedWorkloads[wlKey]
 	if assigned && assignedQueue != actualQueue {
-		m.deleteWorkloadFromAssignedQueues(log, wl)
+		m.deleteWorkloadFromAssignedQueues(log, wlKey)
 	}
 }
 
-func (m *Manager) deleteWorkloadFromAssignedQueues(log logr.Logger, wl *kueue.Workload) {
-	wlKey := workload.Key(wl)
+func (m *Manager) deleteWorkloadFromAssignedQueues(log logr.Logger, wlKey workload.Reference) {
 	qKey, ok := m.assignedWorkloads[wlKey]
 	if !ok {
 		return
@@ -562,7 +561,7 @@ func (m *Manager) deleteWorkloadFromAssignedQueues(log logr.Logger, wl *kueue.Wo
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq != nil {
-		cq.Delete(log, wl)
+		cq.Delete(log, wlKey)
 		m.reportPendingWorkloads(q.ClusterQueue, cq)
 	}
 
@@ -808,8 +807,8 @@ func (m *Manager) ClusterQueueFromLocalQueue(localQueueKey queue.LocalQueueRefer
 
 // DeleteSecondPassWithoutLock deletes the pending workload from the second
 // pass queue.
-func (m *Manager) DeleteSecondPassWithoutLock(wl *kueue.Workload) {
-	m.secondPassQueue.deleteByKey(workload.Key(wl))
+func (m *Manager) DeleteSecondPassWithoutLock(wlKey workload.Reference) {
+	m.secondPassQueue.deleteByKey(wlKey)
 }
 
 // QueueSecondPassIfNeeded queues for the second pass of scheduling with exponential

@@ -285,15 +285,14 @@ func (c *ClusterQueue) backoffWaitingTimeExpired(wInfo *workload.Info) bool {
 }
 
 // Delete removes the workload from ClusterQueue.
-func (c *ClusterQueue) Delete(log logr.Logger, w *kueue.Workload) {
+func (c *ClusterQueue) Delete(log logr.Logger, key workload.Reference) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
-	c.delete(log, w)
+	c.delete(log, key)
 }
 
 // delete removes the workload from ClusterQueue without lock.
-func (c *ClusterQueue) delete(log logr.Logger, w *kueue.Workload) {
-	key := workload.Key(w)
+func (c *ClusterQueue) delete(log logr.Logger, key workload.Reference) {
 	c.inadmissibleWorkloads.delete(key)
 	c.heap.Delete(key)
 	c.forgetInflightByKey(key)
@@ -311,7 +310,7 @@ func (c *ClusterQueue) DeleteFromLocalQueue(log logr.Logger, q *LocalQueue) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	for _, w := range q.items {
-		c.delete(log, w.Obj)
+		c.delete(log, workload.Key(w.Obj))
 	}
 }
 
