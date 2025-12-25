@@ -610,6 +610,23 @@ func SetConditionAndUpdate(ctx context.Context,
 // the admission and set the WorkloadRequeued status.
 // Returns whether any change was done.
 func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message string, now time.Time) bool {
+	// Check if the existing condition already has the same reason and status.
+	// If so, skip the update to avoid unnecessary API writes.
+	// We intentionally ignore the message comparison because the message often contains
+	// dynamic information (e.g., "X more needed") which fluctuates between cycles.
+	// Skipping updates when only the message changes significantly reduces API server load
+	// during high-contention scheduling cycles. The user can still see the latest
+	// message in the workload Events.
+	existingCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+	if existingCond != nil &&
+		existingCond.Status == metav1.ConditionFalse &&
+		existingCond.Reason == reason &&
+		existingCond.ObservedGeneration == wl.Generation &&
+		wl.Status.Admission == nil {
+		// Nothing has changed, skip the update.
+		return false
+	}
+
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadQuotaReserved,
 		Status:             metav1.ConditionFalse,
