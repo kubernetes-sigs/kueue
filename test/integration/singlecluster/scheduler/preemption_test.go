@@ -146,6 +146,44 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, lowWl1, lowWl2)
 		})
 
+		ginkgo.It("Should preempt when workload requests zero of a resource not defined in ClusterQueue", func() {
+			ginkgo.By("Creating a low priority Workload that uses all CPU quota")
+			lowWl := utiltestingapi.MakeWorkload("low-wl", ns.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
+				Priority(lowPriority).
+				Request(corev1.ResourceCPU, "4").
+				Obj()
+			util.MustCreate(ctx, k8sClient, lowWl)
+
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl)
+
+			ginkgo.By("Creating a high priority Workload requesting CPU and zero GPU (GPU not in ClusterQueue)")
+			highWl := utiltestingapi.MakeWorkload("high-wl", ns.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
+				Priority(highPriority).
+				Request(corev1.ResourceCPU, "2").
+				Request("example.com/gpu", "0").
+				Obj()
+			util.MustCreate(ctx, k8sClient, highWl)
+
+			util.FinishEvictionForWorkloads(ctx, k8sClient, lowWl)
+
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, highWl)
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, lowWl)
+
+			ginkgo.By("Verifying admission only contains resources with assigned flavors")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(highWl), highWl)).To(gomega.Succeed())
+				g.Expect(highWl.Status.Admission).NotTo(gomega.BeNil())
+				g.Expect(highWl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+				psa := highWl.Status.Admission.PodSetAssignments[0]
+				g.Expect(psa.Flavors).To(gomega.HaveKey(corev1.ResourceCPU))
+				g.Expect(psa.Flavors).NotTo(gomega.HaveKey(corev1.ResourceName("example.com/gpu")))
+				g.Expect(psa.ResourceUsage).To(gomega.HaveKey(corev1.ResourceCPU))
+				g.Expect(psa.ResourceUsage).NotTo(gomega.HaveKey(corev1.ResourceName("example.com/gpu")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
 		ginkgo.It("Should retry on failed preemptions", func() {
 			attempt := 0
 			fakeSubResourcePatchSpec = func(obj client.Object) (fakeClientUsage, error) {
