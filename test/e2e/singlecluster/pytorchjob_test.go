@@ -33,21 +33,21 @@ import (
 )
 
 var _ = ginkgo.Describe("PyTorch integration", func() {
-	const (
-		resourceFlavorName = "pytorch-rf"
-		clusterQueueName   = "pytorch-cq"
-		localQueueName     = "pytorch-lq"
-	)
-
 	var (
-		ns *corev1.Namespace
-		rf *kueue.ResourceFlavor
-		cq *kueue.ClusterQueue
-		lq *kueue.LocalQueue
+		ns                 *corev1.Namespace
+		rf                 *kueue.ResourceFlavor
+		cq                 *kueue.ClusterQueue
+		lq                 *kueue.LocalQueue
+		resourceFlavorName string
+		clusterQueueName   string
+		localQueueName     string
 	)
 
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pytorch-e2e-")
+		resourceFlavorName = "pytorch-rf-" + ns.Name
+		clusterQueueName = "pytorch-cq-" + ns.Name
+		localQueueName = "pytorch-lq-" + ns.Name
 
 		rf = utiltestingapi.MakeResourceFlavor(resourceFlavorName).Obj()
 		util.MustCreate(ctx, k8sClient, rf)
