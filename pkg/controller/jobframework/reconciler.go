@@ -1081,7 +1081,7 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 	if err != nil {
 		return nil, fmt.Errorf("can't construct workload for update: %w", err)
 	}
-	err = r.prepareWorkload(ctx, job, newWl)
+	err = r.prepareWorkload(ctx, job, newWl, wl.Spec.Active)
 	if err != nil {
 		return nil, fmt.Errorf("can't construct workload for update: %w", err)
 	}
@@ -1285,7 +1285,9 @@ func prepareWorkloadSlice(ctx context.Context, clnt client.Client, job GenericJo
 }
 
 // prepareWorkload adds the priority information for the constructed workload
-func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl *kueue.Workload) error {
+// active is used to set the active field of the workload. If active is nil, the workload will be set to active by default.
+// for the existing workload, the original active status should be retained.
+func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl *kueue.Workload, active *bool) error {
 	priorityClassName, source, p, err := r.extractPriority(ctx, wl.Spec.PodSets, job)
 	if err != nil {
 		return err
@@ -1299,6 +1301,7 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 	if WorkloadSliceEnabled(job) {
 		return prepareWorkloadSlice(ctx, r.client, job, wl)
 	}
+	wl.Spec.Active = active
 	return nil
 }
 
@@ -1392,7 +1395,7 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	if err != nil {
 		return err
 	}
-	err = r.prepareWorkload(ctx, job, wl)
+	err = r.prepareWorkload(ctx, job, wl, wl.Spec.Active)
 	if err != nil {
 		return err
 	}
