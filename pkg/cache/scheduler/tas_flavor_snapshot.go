@@ -348,6 +348,9 @@ type TASPodSetRequests struct {
 	Flavor            kueue.ResourceFlavorReference
 	Implied           bool
 	PodSetGroupName   *string
+	// PreviousAssignment holds the topology assignment from a workload slice
+	// that this workload is replacing.
+	PreviousAssignment *kueue.TopologyAssignment
 }
 
 func (t *TASPodSetRequests) TotalRequests() resources.Requests {
@@ -512,7 +515,21 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests F
 		} else {
 			leader, workers := findLeaderAndWorkers(trs)
 
-			assignments, reason := s.findTopologyAssignment(workers, leader, assumedUsage, opts.simulateEmpty, "")
+			// For elastic workload slices with a previous assignment, try to place
+			// new pods in the same topology domain as existing pods
+			var requiredDomain utiltas.TopologyDomainID
+			var freedUsage map[utiltas.TopologyDomainID]resources.Requests
+			if features.Enabled(features.ElasticJobsViaWorkloadSlices) && workers.PreviousAssignment != nil {
+				prevAssignment := utiltas.InternalFrom(workers.PreviousAssignment)
+				if isStale, _ := s.IsTopologyAssignmentStale(prevAssignment); !isStale {
+					requiredDomain = s.requiredReplacementDomain(&workers, prevAssignment)
+					// Calculate the usage that will be freed when the replaced workload
+					// is evicted, so the replacement can reuse that capacity.
+					freedUsage = computeFreedUsage(prevAssignment, workers.SinglePodRequests)
+				}
+			}
+
+			assignments, reason := s.findTopologyAssignment(workers, leader, assumedUsage, freedUsage, opts.simulateEmpty, requiredDomain)
 			for _, tr := range trs {
 				podSetName := tr.PodSet.Name
 				result[podSetName] = tasPodSetAssignmentResult{TopologyAssignment: assignments[podSetName], FailureReason: reason}
@@ -559,7 +576,7 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(tr *TASPodSetRequests, exi
 		trCopy.PodSet = tr.PodSet.DeepCopy()
 		trCopy.PodSet.TopologyRequest.PodSetSliceSize = ptr.To(int32(1))
 	}
-	replacementAssignment, reason := s.findTopologyAssignment(trCopy, nil, assumedUsage, false, requiredReplacementDomain)
+	replacementAssignment, reason := s.findTopologyAssignment(trCopy, nil, assumedUsage, nil, false, requiredReplacementDomain)
 	if reason != "" {
 		return nil, nil, reason
 	}
@@ -578,6 +595,24 @@ func addAssumedUsage(assumedUsage map[utiltas.TopologyDomainID]resources.Request
 		}
 		assumedUsage[domainID].Add(tr.SinglePodRequests.ScaledUp(int64(domain.Count)))
 	}
+}
+
+// computeFreedUsage calculates the resource usage that will be freed when a
+// workload slice is replaced. This allows the replacement workload to reuse
+// the capacity that was previously allocated to the replaced workload.
+func computeFreedUsage(prevAssignment *utiltas.TopologyAssignment, singlePodRequests resources.Requests) map[utiltas.TopologyDomainID]resources.Requests {
+	freedUsage := make(map[utiltas.TopologyDomainID]resources.Requests)
+	if prevAssignment == nil {
+		return freedUsage
+	}
+	for _, domain := range prevAssignment.Domains {
+		domainID := utiltas.DomainID(domain.Values)
+		usage := singlePodRequests.ScaledUp(int64(domain.Count))
+		// Add pod count to the freed usage
+		usage.Add(resources.Requests{corev1.ResourcePods: int64(domain.Count)})
+		freedUsage[domainID] = usage
+	}
+	return freedUsage
 }
 
 func findPSA(wl *kueue.Workload, psName kueue.PodSetReference) *kueue.PodSetAssignment {
@@ -617,9 +652,15 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 	}
 
 	nodeLevel := len(s.levelKeys) - 1
-	// We know at this point that values contains only hostname
-	nodeDomain := ta.Domains[0].Values[0]
-	domain := s.domainsPerLevel[nodeLevel][utiltas.TopologyDomainID(nodeDomain)]
+	domainValues := ta.Domains[0].Values
+	if len(domainValues) == 0 {
+		return ""
+	}
+	// Look up domain using full DomainID path (e.g., "b2,r1,b2-r1")
+	domain, found := s.domainsPerLevel[nodeLevel][utiltas.DomainID(domainValues)]
+	if !found {
+		return ""
+	}
 	// Find a domain that complies with the required policy
 	for i := nodeLevel; i > levelIdx; i-- {
 		domain = domain.parent
@@ -705,6 +746,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	workersTasPodSetRequests TASPodSetRequests,
 	leaderTasPodSetRequests *TASPodSetRequests,
 	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
+	freedUsage map[utiltas.TopologyDomainID]resources.Requests,
 	simulateEmpty bool, requiredReplacementDomain utiltas.TopologyDomainID) (map[kueue.PodSetReference]*utiltas.TopologyAssignment, string) {
 	requests := workersTasPodSetRequests.SinglePodRequests.Clone()
 	requests.Add(resources.Requests{corev1.ResourcePods: 1})
@@ -784,6 +826,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		requests,
 		leaderRequests,
 		assumedUsage,
+		freedUsage,
 		sliceSize,
 		sliceLevelIdx,
 		simulateEmpty,
@@ -1360,6 +1403,7 @@ func (s *TASFlavorSnapshot) fillInCounts(
 	requests resources.Requests,
 	leaderRequests *resources.Requests,
 	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
+	freedUsage map[utiltas.TopologyDomainID]resources.Requests,
 	sliceSize int32,
 	sliceLevelIdx int,
 	simulateEmpty bool,
@@ -1427,6 +1471,11 @@ func (s *TASFlavorSnapshot) fillInCounts(
 		}
 		if leafAssumedUsage, found := assumedUsage[leaf.id]; found {
 			remainingCapacity.Sub(leafAssumedUsage)
+		}
+		// For replacement workload slices, add back the capacity that will be
+		// freed when the replaced workload is evicted
+		if leafFreedUsage, found := freedUsage[leaf.id]; found {
+			remainingCapacity.Add(leafFreedUsage)
 		}
 		var limitingRes corev1.ResourceName
 		leaf.state, limitingRes = requests.CountInWithLimitingResource(remainingCapacity)

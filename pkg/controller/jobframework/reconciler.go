@@ -1308,15 +1308,18 @@ func prepareWorkloadSlice(ctx context.Context, clnt client.Client, job GenericJo
 
 	switch len(workloadSlices) {
 	case 0:
-		// No active workloads found for this job - noop.
+		// First workload - set origin name to itself.
+		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, kueue.WorkloadSliceNameAnnotation, wl.Name)
 		return nil
 	case 1:
-		// One active workload found for this job - typically, we are in a scale-up event, where previous
-		// workload is the "old" slice.
+		// Scale-up event - link to old slice and carry origin name.
 		oldSlice := workloadSlices[0]
-		// Annotate new workload slice with the preemptible (old) workload slice.
 		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(&oldSlice)))
-
+		originName := oldSlice.Annotations[kueue.WorkloadSliceNameAnnotation]
+		if originName == "" {
+			originName = oldSlice.Name
+		}
+		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, kueue.WorkloadSliceNameAnnotation, originName)
 		return nil
 	default:
 		// Any other slices length is invalid. I.E, we expect to have at most 1 "current/old" workload slice.
@@ -1397,6 +1400,9 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
 			info.Annotations[kueue.WorkloadAnnotation] = w.Name
+			if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+				info.Annotations[kueue.WorkloadSliceNameAnnotation] = workloadslicing.GetOriginName(ctx, c, w)
+			}
 		}
 
 		info.Labels[constants.PodSetLabel] = string(psAssignment.Name)

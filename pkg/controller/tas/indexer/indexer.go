@@ -25,16 +25,27 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
 const (
 	TASKey                        = "metadata.tas"
 	WorkloadNameKey               = "metadata.workload"
+	WorkloadSliceNameKey          = "metadata.workloadslicename"
 	ReadyNode                     = "metadata.ready"
 	SchedulableNode               = "spec.schedulable"
 	ResourceFlavorTopologyNameKey = "spec.topologyName"
 )
+
+// PodIndexKeyValue returns the index key and value for looking up pods by workload.
+// If workloadSliceName differs from wlName, it uses the slice name index.
+func PodIndexKeyValue(wlName, workloadSliceName string) (key, value string) {
+	if workloadSliceName != "" && workloadSliceName != wlName {
+		return WorkloadSliceNameKey, workloadSliceName
+	}
+	return WorkloadNameKey, wlName
+}
 
 func indexPodTAS(o client.Object) []string {
 	pod, ok := o.(*corev1.Pod)
@@ -50,6 +61,19 @@ func indexPodWorkload(o client.Object) []string {
 		return nil
 	}
 	value, found := pod.Annotations[kueue.WorkloadAnnotation]
+	if !found {
+		return nil
+	}
+	return []string{value}
+}
+
+// indexPodWorkloadSliceName indexes pods by their workload slice name annotation.
+func indexPodWorkloadSliceName(o client.Object) []string {
+	pod, ok := o.(*corev1.Pod)
+	if !ok {
+		return nil
+	}
+	value, found := pod.Annotations[kueue.WorkloadSliceNameAnnotation]
 	if !found {
 		return nil
 	}
@@ -92,6 +116,12 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 
 	if err := indexer.IndexField(ctx, &corev1.Pod{}, WorkloadNameKey, indexPodWorkload); err != nil {
 		return fmt.Errorf("setting index pod workload: %w", err)
+	}
+
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		if err := indexer.IndexField(ctx, &corev1.Pod{}, WorkloadSliceNameKey, indexPodWorkloadSliceName); err != nil {
+			return fmt.Errorf("setting index pod workload slice name: %w", err)
+		}
 	}
 
 	if err := indexer.IndexField(ctx, &corev1.Node{}, ReadyNode, indexReadyNode); err != nil {
