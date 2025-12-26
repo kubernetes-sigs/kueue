@@ -67,3 +67,4 @@ managerConfig:
     featureGates:
       LocalQueueMetrics: true
       ElasticJobsViaWorkloadSlices: true
+      ElasticJobsViaWorkloadSlicesWithTAS: true
