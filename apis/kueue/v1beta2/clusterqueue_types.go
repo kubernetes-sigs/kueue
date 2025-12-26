@@ -32,6 +32,8 @@ const (
 	ClusterQueueActiveReasonMultipleMultiKueueAdmissionChecks        = "MultipleMultiKueueAdmissionChecks"
 	ClusterQueueActiveReasonMultiKueueAdmissionCheckAppliedPerFlavor = "MultiKueueAdmissionCheckAppliedPerFlavor"
 	ClusterQueueActiveReasonTopologyNotFound                         = "TopologyNotFound"
+	ClusterQueueActiveReasonNoResourceGroups                         = "NoResourceGroups"
+	ClusterQueueActiveReasonEmptyResourceGroup                       = "EmptyResourceGroup"
 	ClusterQueueActiveReasonUnknown                                  = "Unknown"
 	ClusterQueueActiveReasonReady                                    = "Ready"
 )
@@ -206,7 +208,7 @@ type ResourceGroup struct {
 	// +listType=map
 	// +required
 	// +listMapKey=name
-	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MinItems=0
 	// +kubebuilder:validation:MaxItems=64
 	Flavors []FlavorQuotas `json:"flavors,omitempty"`
 }
@@ -222,7 +224,7 @@ type FlavorQuotas struct {
 	// There could be up to 64 resources.
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MinItems=0
 	// +kubebuilder:validation:MaxItems=64
 	// +required
 	Resources []ResourceQuota `json:"resources,omitempty"`

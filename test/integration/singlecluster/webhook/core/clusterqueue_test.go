@@ -403,6 +403,31 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", ginkgo.Ordered, func() {
 					).
 					Obj(),
 				gomega.Succeed()),
+			ginkgo.Entry("Should allow to create clusterQueue with a resource group with empty flavors",
+				&kueue.ClusterQueue{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "cluster-queue",
+					},
+					Spec: kueue.ClusterQueueSpec{
+						ResourceGroups: []kueue.ResourceGroup{
+							{
+								CoveredResources: []corev1.ResourceName{corev1.ResourceCPU},
+								Flavors:          []kueue.FlavorQuotas{},
+							},
+						},
+					},
+				},
+				gomega.Succeed()),
+			ginkgo.Entry("Should allow to create clusterQueue with no resource groups",
+				&kueue.ClusterQueue{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "cluster-queue",
+					},
+					Spec: kueue.ClusterQueueSpec{
+						ResourceGroups: nil,
+					},
+				},
+				gomega.Succeed()),
 			ginkgo.Entry("Should forbid to create clusterQueue with resources in a flavor in different order",
 				&kueue.ClusterQueue{
 					ObjectMeta: metav1.ObjectMeta{
