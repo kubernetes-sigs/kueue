@@ -2744,7 +2744,6 @@ func TestScheduleForTAS(t *testing.T) {
 				cl := clientBuilder.Build()
 				recorder := &utiltesting.EventRecorder{}
 				cqCache := schdcache.New(cl)
-				now := time.Now()
 				fakeClock := testingclock.NewFakeClock(now)
 				qManager := qcache.NewManager(cl, cqCache, qcache.WithClock(fakeClock))
 				topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueue.Topology) {
