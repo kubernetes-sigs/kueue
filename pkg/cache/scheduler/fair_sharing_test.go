@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"math"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
@@ -34,6 +35,7 @@ import (
 )
 
 func TestDominantResourceShare(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
 	type nodeType bool
 	var (
 		nodeTypeCq     nodeType = false
@@ -718,7 +720,7 @@ func TestDominantResourceShare(t *testing.T) {
 					Assignment(fr.Resource, fr.Flavor, quantity.String()).
 					Obj())
 
-				wl := utiltestingapi.MakeWorkload(fmt.Sprintf("workload-%d", i), "default-namespace").ReserveQuota(admission.Obj()).Obj()
+				wl := utiltestingapi.MakeWorkload(fmt.Sprintf("workload-%d", i), "default-namespace").ReserveQuotaAt(admission.Obj(), now).Obj()
 
 				cache.AddOrUpdateWorkload(log, wl)
 				snapshot.AddWorkload(workload.NewInfo(wl))
