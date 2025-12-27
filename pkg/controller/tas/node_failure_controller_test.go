@@ -65,7 +65,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 					Obj()).
 				Obj(), testStartTime,
 		).
-		Admitted(true).
+		AdmittedAt(true, testStartTime).
 		Obj()
 
 	workloadWithUnhealthyNode := baseWorkload.DeepCopy()
@@ -87,7 +87,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 					Obj()).
 				Obj(), testStartTime,
 		).
-		Admitted(true).
+		AdmittedAt(true, testStartTime).
 		Obj()
 
 	now := metav1.NewTime(fakeClock.Now())
