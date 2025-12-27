@@ -299,8 +299,8 @@ func TestPodSets(t *testing.T) {
 func TestReconciler(t *testing.T) {
 	// the clock is primarily used with second rounded times
 	// use the current time trimmed.
-	testStartTime := time.Now().Truncate(time.Second)
-	fakeClock := testingclock.NewFakeClock(testStartTime)
+	now := time.Now().Truncate(time.Second)
+	fakeClock := testingclock.NewFakeClock(now)
 
 	baseJobWrapper := testingrayutil.MakeCluster("job", "ns").
 		Suspend(true).
@@ -360,7 +360,7 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Request(corev1.ResourceCPU, "10").
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(
 								utiltestingapi.MakePodSetAssignment("head").
@@ -369,9 +369,9 @@ func TestReconciler(t *testing.T) {
 								utiltestingapi.MakePodSetAssignment("workers-group-0").
 									Obj(),
 							).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check",
 						State: kueue.CheckStateReady,
@@ -413,7 +413,7 @@ func TestReconciler(t *testing.T) {
 							Labels(map[string]string{constants.PodSetLabel: "workers-group-0"}).
 							Obj(),
 					).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(
 								utiltestingapi.MakePodSetAssignment("head").
@@ -422,9 +422,9 @@ func TestReconciler(t *testing.T) {
 								utiltestingapi.MakePodSetAssignment("workers-group-0").
 									Obj(),
 							).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check",
 						State: kueue.CheckStateReady,
@@ -478,7 +478,7 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Request(corev1.ResourceCPU, "10").
-					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment("head").Obj(), utiltestingapi.MakePodSetAssignment("workers-group-0").Obj()).Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment("head").Obj(), utiltestingapi.MakePodSetAssignment("workers-group-0").Obj()).Obj(), now).
 					Generation(1).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
@@ -487,7 +487,7 @@ func TestReconciler(t *testing.T) {
 						Message:            "The workload was deactivated",
 						ObservedGeneration: 1,
 					}).
-					AdmittedAt(true, testStartTime.Add(-time.Second)).
+					AdmittedAt(true, now.Add(-time.Second)).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -514,7 +514,7 @@ func TestReconciler(t *testing.T) {
 							}).
 							Obj(),
 					).
-					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment("head").Obj(), utiltestingapi.MakePodSetAssignment("workers-group-0").Obj()).Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment("head").Obj(), utiltestingapi.MakePodSetAssignment("workers-group-0").Obj()).Obj(), now).
 					Generation(1).
 					PastAdmittedTime(1).
 					Condition(metav1.Condition{
@@ -531,7 +531,7 @@ func TestReconciler(t *testing.T) {
 						Message:            "The workload was deactivated",
 						ObservedGeneration: 1,
 					}).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadAdmitted,
 						Status:             metav1.ConditionFalse,
@@ -592,7 +592,7 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Request(corev1.ResourceCPU, "10").
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(
 								utiltestingapi.MakePodSetAssignment("head").
@@ -603,9 +603,9 @@ func TestReconciler(t *testing.T) {
 									Count(2).
 									Obj(),
 							).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check",
 						State: kueue.CheckStateReady,
@@ -645,7 +645,7 @@ func TestReconciler(t *testing.T) {
 							}).
 							Obj(),
 					).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(
 								utiltestingapi.MakePodSetAssignment("head").
@@ -656,9 +656,9 @@ func TestReconciler(t *testing.T) {
 									Count(2).
 									Obj(),
 							).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check",
 						State: kueue.CheckStateReady,
