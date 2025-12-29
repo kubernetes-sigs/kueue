@@ -432,7 +432,7 @@ func (c *clusterQueue) updateWithAdmissionChecks(log logr.Logger, checks map[kue
 func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, w *kueue.Workload) {
 	k := workload.Key(w)
 	if _, exist := c.Workloads[k]; exist {
-		c.deleteWorkload(log, w)
+		c.deleteWorkload(log, k)
 	}
 	wi := workload.NewInfo(w, c.workloadInfoOptions...)
 	c.Workloads[k] = wi
@@ -443,19 +443,13 @@ func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, w *kueue.Workload) {
 	c.reportActiveWorkloads()
 }
 
-func (c *clusterQueue) forgetWorkload(log logr.Logger, w *kueue.Workload) {
-	c.deleteWorkload(log, w)
-	delete(c.workloadsNotAccountedForTAS, workload.Key(w))
-}
-
-func (c *clusterQueue) deleteWorkload(log logr.Logger, w *kueue.Workload) {
-	k := workload.Key(w)
+func (c *clusterQueue) deleteWorkload(log logr.Logger, k workload.Reference) {
 	wi, exist := c.Workloads[k]
 	if !exist {
 		return
 	}
 	c.updateWorkloadUsage(log, wi, subtract)
-	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {
+	if c.podsReadyTracking {
 		c.WorkloadsNotReady.Delete(k)
 	}
 	// we only increase the AllocatableResourceGeneration cause the add of workload won't make more
