@@ -18,6 +18,7 @@ package xgboostjob
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -510,6 +511,7 @@ var (
 )
 
 func TestReconciler(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
 	testNamespace := utiltesting.MakeNamespaceWrapper("ns").Label(corev1.LabelMetadataName, "ns").Obj()
 	cases := map[string]struct {
 		reconcilerOptions []jobframework.Option
@@ -567,7 +569,7 @@ func TestReconciler(t *testing.T) {
 						*utiltestingapi.MakePodSet("master", 1).Request(corev1.ResourceCPU, "1").Obj(),
 						*utiltestingapi.MakePodSet("worker", 10).Request(corev1.ResourceCPU, "5").Obj(),
 					).
-					ReserveQuota(utiltestingapi.MakeAdmission("cq").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
 						PodSets(
 							kueue.PodSetAssignment{
 								Name: "master",
@@ -584,8 +586,8 @@ func TestReconciler(t *testing.T) {
 								Count: ptr.To[int32](10),
 							},
 						).
-						Obj()).
-					Admitted(true).
+						Obj(), now).
+					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadEvicted,
 						Status: metav1.ConditionTrue,
@@ -610,7 +612,7 @@ func TestReconciler(t *testing.T) {
 						*utiltestingapi.MakePodSet("master", 1).Request(corev1.ResourceCPU, "1").Obj(),
 						*utiltestingapi.MakePodSet("worker", 10).Request(corev1.ResourceCPU, "5").Obj(),
 					).
-					ReserveQuota(utiltestingapi.MakeAdmission("cq").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
 						PodSets(
 							kueue.PodSetAssignment{
 								Name: "master",
@@ -627,8 +629,8 @@ func TestReconciler(t *testing.T) {
 								Count: ptr.To[int32](10),
 							},
 						).
-						Obj()).
-					Admitted(true).
+						Obj(), now).
+					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadEvicted,
 						Status: metav1.ConditionTrue,
