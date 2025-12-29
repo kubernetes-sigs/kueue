@@ -29,7 +29,7 @@ filters:
       - dependency-approvers
 
   # Any directory depth: *_test.go
-  "*_test.go$":
+  "_test\\.go$":
     approvers:
       - test-approvers
 

@@ -20,6 +20,7 @@ import (
 	"maps"
 	"slices"
 	"testing"
+	"time"
 
 	gocmp "github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -76,6 +77,7 @@ func TestReconcile(t *testing.T) {
 		NodeSelector map[string]string
 		Count        int32
 	}
+	now := time.Now().Truncate(time.Second)
 
 	mapToJSON := func(t *testing.T, m map[string]string) string {
 		json := jsoniter.Config{
@@ -122,7 +124,7 @@ func TestReconcile(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
@@ -130,9 +132,9 @@ func TestReconcile(t *testing.T) {
 									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			pods: []corev1.Pod{
@@ -162,7 +164,7 @@ func TestReconcile(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
@@ -171,9 +173,9 @@ func TestReconcile(t *testing.T) {
 									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 3).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			pods: []corev1.Pod{
@@ -212,7 +214,7 @@ func TestReconcile(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
@@ -224,9 +226,9 @@ func TestReconcile(t *testing.T) {
 									).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			pods: []corev1.Pod{
@@ -293,15 +295,15 @@ func TestReconcile(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
 								Count(2).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			pods: []corev1.Pod{
@@ -323,7 +325,7 @@ func TestReconcile(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
@@ -332,9 +334,9 @@ func TestReconcile(t *testing.T) {
 									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(false).
+					AdmittedAt(false, now).
 					Obj(),
 			},
 			pods: []corev1.Pod{
@@ -356,7 +358,7 @@ func TestReconcile(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
@@ -364,9 +366,9 @@ func TestReconcile(t *testing.T) {
 									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			pods: []corev1.Pod{
@@ -386,7 +388,7 @@ func TestReconcile(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
@@ -394,9 +396,9 @@ func TestReconcile(t *testing.T) {
 									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			pods: []corev1.Pod{
@@ -416,7 +418,7 @@ func TestReconcile(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
@@ -424,9 +426,9 @@ func TestReconcile(t *testing.T) {
 									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			pods: []corev1.Pod{
@@ -461,7 +463,7 @@ func TestReconcile(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
@@ -469,9 +471,9 @@ func TestReconcile(t *testing.T) {
 									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			pods: []corev1.Pod{
@@ -505,7 +507,7 @@ func TestReconcile(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
@@ -513,9 +515,9 @@ func TestReconcile(t *testing.T) {
 									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			pods: []corev1.Pod{
@@ -560,7 +562,7 @@ func TestReconcile(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
@@ -568,9 +570,9 @@ func TestReconcile(t *testing.T) {
 									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			pods: []corev1.Pod{
@@ -616,7 +618,7 @@ func TestReconcile(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
@@ -625,9 +627,9 @@ func TestReconcile(t *testing.T) {
 									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 2).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			pods: []corev1.Pod{
@@ -671,7 +673,7 @@ func TestReconcile(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
@@ -679,9 +681,9 @@ func TestReconcile(t *testing.T) {
 									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			pods: []corev1.Pod{
@@ -726,7 +728,7 @@ func TestReconcile(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
@@ -735,9 +737,9 @@ func TestReconcile(t *testing.T) {
 									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 2).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			pods: []corev1.Pod{
@@ -784,7 +786,7 @@ func TestReconcile(t *testing.T) {
 						Request(corev1.ResourceCPU, "1").
 						PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
 						Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "5").
@@ -797,9 +799,9 @@ func TestReconcile(t *testing.T) {
 									).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			pods: []corev1.Pod{
@@ -913,7 +915,7 @@ func TestReconcile(t *testing.T) {
 							PodSetGroup("lws-group").
 							Obj(),
 					).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(
 								utiltestingapi.MakePodSetAssignment("workers").
@@ -934,9 +936,9 @@ func TestReconcile(t *testing.T) {
 										Obj()).
 									Obj(),
 							).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			pods: []corev1.Pod{
@@ -1040,7 +1042,7 @@ func TestReconcile(t *testing.T) {
 						Request(corev1.ResourceCPU, "1").
 						PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
 						Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "5").
@@ -1053,9 +1055,9 @@ func TestReconcile(t *testing.T) {
 									).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			pods: []corev1.Pod{
@@ -1170,7 +1172,7 @@ func TestReconcile(t *testing.T) {
 							PodSetGroup("lws-group").
 							Obj(),
 					).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(
 								utiltestingapi.MakePodSetAssignment("workers").
@@ -1191,9 +1193,9 @@ func TestReconcile(t *testing.T) {
 										Obj()).
 									Obj(),
 							).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			pods: []corev1.Pod{
@@ -1298,7 +1300,7 @@ func TestReconcile(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "4").
@@ -1311,9 +1313,9 @@ func TestReconcile(t *testing.T) {
 									).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			pods: []corev1.Pod{
@@ -1395,7 +1397,7 @@ func TestReconcile(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
@@ -1403,9 +1405,9 @@ func TestReconcile(t *testing.T) {
 									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			pods: []corev1.Pod{
@@ -1461,7 +1463,7 @@ func TestReconcile(t *testing.T) {
 						SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
 						SubGroupCount(ptr.To[int32](2)).
 						Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "4").
@@ -1474,9 +1476,9 @@ func TestReconcile(t *testing.T) {
 									).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			pods: []corev1.Pod{
@@ -1585,7 +1587,7 @@ func TestReconcile(t *testing.T) {
 						SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
 						SubGroupCount(ptr.To[int32](2)).
 						Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "4").
@@ -1598,9 +1600,9 @@ func TestReconcile(t *testing.T) {
 									).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			pods: []corev1.Pod{
@@ -1711,7 +1713,7 @@ func TestReconcile(t *testing.T) {
 						SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
 						SubGroupCount(ptr.To[int32](2)).
 						Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "4").
@@ -1743,9 +1745,9 @@ func TestReconcile(t *testing.T) {
 									},
 								})).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			pods: []corev1.Pod{
@@ -1811,7 +1813,7 @@ func TestReconcile(t *testing.T) {
 						Request(corev1.ResourceCPU, "1").
 						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 						Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "4").
@@ -1824,9 +1826,9 @@ func TestReconcile(t *testing.T) {
 									).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			pods: []corev1.Pod{
@@ -1923,7 +1925,7 @@ func TestReconcile(t *testing.T) {
 						Request(corev1.ResourceCPU, "1").
 						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 						Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "4").
@@ -1936,9 +1938,9 @@ func TestReconcile(t *testing.T) {
 									).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			pods: []corev1.Pod{
@@ -2037,7 +2039,7 @@ func TestReconcile(t *testing.T) {
 						Request(corev1.ResourceCPU, "1").
 						PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 						Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "4").
@@ -2050,9 +2052,9 @@ func TestReconcile(t *testing.T) {
 									).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			pods: []corev1.Pod{
@@ -2143,7 +2145,7 @@ func TestReconcile(t *testing.T) {
 						Request(corev1.ResourceCPU, "1").
 						PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 						Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "4").
@@ -2156,9 +2158,9 @@ func TestReconcile(t *testing.T) {
 									).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			pods: []corev1.Pod{

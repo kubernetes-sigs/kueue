@@ -35,7 +35,8 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	kueuev1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta2"
-	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/dryrun"
 )
 
 var (
@@ -64,7 +65,7 @@ var (
 type ResourceFlavorOptions struct {
 	PrintFlags *genericclioptions.PrintFlags
 
-	DryRunStrategy util.DryRunStrategy
+	DryRunStrategy dryrun.Strategy
 	Name           string
 	NodeLabels     map[string]string
 	NodeTaints     []corev1.Taint
@@ -87,7 +88,7 @@ func NewResourceFlavorOptions(streams genericiooptions.IOStreams) *ResourceFlavo
 	}
 }
 
-func NewResourceFlavorCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
+func NewResourceFlavorCmd(clientGetter clientgetter.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
 	o := NewResourceFlavorOptions(streams)
 
 	cmd := &cobra.Command{
@@ -125,7 +126,7 @@ func NewResourceFlavorCmd(clientGetter util.ClientGetter, streams genericiooptio
 }
 
 // Complete completes all the required options
-func (o *ResourceFlavorOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Command, args []string) error {
+func (o *ResourceFlavorOptions) Complete(clientGetter clientgetter.ClientGetter, cmd *cobra.Command, args []string) error {
 	o.Name = args[0]
 
 	var err error
@@ -147,12 +148,12 @@ func (o *ResourceFlavorOptions) Complete(clientGetter util.ClientGetter, cmd *co
 
 	o.Client = clientset.KueueV1beta2()
 
-	o.DryRunStrategy, err = util.GetDryRunStrategy(cmd)
+	o.DryRunStrategy, err = dryrun.GetStrategy(cmd)
 	if err != nil {
 		return err
 	}
 
-	err = util.PrintFlagsWithDryRunStrategy(o.PrintFlags, o.DryRunStrategy)
+	err = dryrun.PrintFlagsWithStrategy(o.PrintFlags, o.DryRunStrategy)
 	if err != nil {
 		return err
 	}
@@ -170,12 +171,12 @@ func (o *ResourceFlavorOptions) Complete(clientGetter util.ClientGetter, cmd *co
 // Run create a resource
 func (o *ResourceFlavorOptions) Run(ctx context.Context) error {
 	rf := o.createResourceFlavor()
-	if o.DryRunStrategy != util.DryRunClient {
+	if o.DryRunStrategy != dryrun.Client {
 		var (
 			createOptions metav1.CreateOptions
 			err           error
 		)
-		if o.DryRunStrategy == util.DryRunServer {
+		if o.DryRunStrategy == dryrun.Server {
 			createOptions.DryRun = []string{metav1.DryRunAll}
 		}
 		rf, err = o.Client.ResourceFlavors().Create(ctx, rf, createOptions)

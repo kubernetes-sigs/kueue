@@ -19,6 +19,7 @@ package provisioning
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -32,7 +33,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
-	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -91,14 +91,15 @@ func requestWithConditions(r *autoscaling.ProvisioningRequest, conditions []meta
 func requestWithCondition(r *autoscaling.ProvisioningRequest, conditionType string, status metav1.ConditionStatus) *autoscaling.ProvisioningRequest {
 	r = r.DeepCopy()
 	apimeta.SetStatusCondition(&r.Status.Conditions, metav1.Condition{
-		Type:   conditionType,
-		Status: status,
+		Type:    conditionType,
+		Status:  status,
+		Message: "By test",
 	})
 	return r
 }
 
 func TestReconcile(t *testing.T) {
-	now := time.Now()
+	now := time.Now().Truncate(time.Second)
 	fakeClock := testingclock.NewFakeClock(now)
 
 	baseWorkload := utiltestingapi.MakeWorkload("wl", TestNamespace).
@@ -110,7 +111,7 @@ func TestReconcile(t *testing.T) {
 				Request(corev1.ResourceMemory, "1M").
 				Obj(),
 		).
-		ReserveQuota(utiltestingapi.MakeAdmission("q1").PodSets(
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(
 			kueue.PodSetAssignment{
 				Name: "ps1",
 				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -132,7 +133,7 @@ func TestReconcile(t *testing.T) {
 				Count: ptr.To[int32](3),
 			},
 		).
-			Obj()).
+			Obj(), now).
 		AdmissionChecks(kueue.AdmissionCheckState{
 			Name:  "check1",
 			State: kueue.CheckStatePending,
@@ -307,7 +308,6 @@ func TestReconcile(t *testing.T) {
 		templates            []corev1.PodTemplate
 		checks               []kueue.AdmissionCheck
 		configs              []kueue.ProvisioningRequestConfig
-		enableGates          []featuregate.Feature
 		flavors              []kueue.ResourceFlavor
 		workload             *kueue.Workload
 		wantReconcileError   error
@@ -322,13 +322,13 @@ func TestReconcile(t *testing.T) {
 		},
 		"unrelated workload with reservation": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 				Obj(),
 		},
 		"unrelated admitted workload": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
-				Admitted(true).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				AdmittedAt(true, now).
 				Obj(),
 		},
 		"missing config": {
@@ -384,7 +384,7 @@ func TestReconcile(t *testing.T) {
 				AdmissionChecks(kueue.AdmissionCheckState{
 					Name:  "check1",
 					State: kueue.CheckStatePending}).
-				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 				Obj(),
 			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			configs: []kueue.ProvisioningRequestConfig{*utiltestingapi.MakeProvisioningRequestConfig("config1").Obj()},
@@ -570,13 +570,21 @@ func TestReconcile(t *testing.T) {
 					AdmissionChecks(kueue.AdmissionCheckState{
 						Name:                "check1",
 						State:               kueue.CheckStateRetry,
-						Message:             "Retrying after failure: ",
+						Message:             "Retrying after failure: By test",
 						RequeueAfterSeconds: ptr.To(backoffBaseSeconds),
 					}, kueue.AdmissionCheckState{
 						Name:  "not-provisioning",
 						State: kueue.CheckStatePending,
 					}).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "AdmissionCheckUpdated",
+					Message:   `Admission check check1 updated state from Pending to Retry with message: Retrying after failure: By test`,
+				},
 			},
 		},
 		"when request fails, and there is no retry": {
@@ -591,13 +599,22 @@ func TestReconcile(t *testing.T) {
 			wantWorkloads: map[string]*kueue.Workload{
 				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 					AdmissionChecks(kueue.AdmissionCheckState{
-						Name:  "check1",
-						State: kueue.CheckStateRejected,
+						Name:    "check1",
+						State:   kueue.CheckStateRejected,
+						Message: "By test",
 					}, kueue.AdmissionCheckState{
 						Name:  "not-provisioning",
 						State: kueue.CheckStatePending,
 					}).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "AdmissionCheckUpdated",
+					Message:   `Admission check check1 updated state from Pending to Rejected with message: By test`,
+				},
 			},
 		},
 		"when request is provisioned": {
@@ -612,8 +629,9 @@ func TestReconcile(t *testing.T) {
 			wantWorkloads: map[string]*kueue.Workload{
 				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 					AdmissionChecks(kueue.AdmissionCheckState{
-						Name:  "check1",
-						State: kueue.CheckStateReady,
+						Name:    "check1",
+						Message: "By test",
+						State:   kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
 								Name: "ps1",
@@ -636,6 +654,14 @@ func TestReconcile(t *testing.T) {
 					}).
 					Obj(),
 			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "AdmissionCheckUpdated",
+					Message:   `Admission check check1 updated state from Pending to Ready with message: By test`,
+				},
+			},
 		},
 		"when no request is needed": {
 			workload: baseWorkload.DeepCopy(),
@@ -653,6 +679,14 @@ func TestReconcile(t *testing.T) {
 						State: kueue.CheckStatePending,
 					}).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "AdmissionCheckUpdated",
+					Message:   `Admission check check1 updated state from Pending to Ready with message: the provisioning request is not needed`,
+				},
 			},
 		},
 		"when request is needed for one PodSet (resource request)": {
@@ -809,7 +843,7 @@ func TestReconcile(t *testing.T) {
 		},
 		"workload sets AdmissionCheck status to Rejected when it is not finished and receives the provisioning request's CapacityRevoked condition": {
 			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
-				Admitted(true).
+				AdmittedAt(true, now).
 				Obj(),
 			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
@@ -844,13 +878,21 @@ func TestReconcile(t *testing.T) {
 						Name:  "not-provisioning",
 						State: kueue.CheckStatePending,
 					}).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "AdmissionCheckUpdated",
+					Message:   `Admission check check1 updated state from Pending to Rejected`,
+				},
 			},
 		},
 		"workload sets AdmissionCheck status to Rejected when it is not admitted and receives the provisioning request's CapacityRevoked condition": {
 			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
-				Admitted(false).
+				AdmittedAt(false, now).
 				Obj(),
 			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
@@ -885,8 +927,16 @@ func TestReconcile(t *testing.T) {
 						Name:  "not-provisioning",
 						State: kueue.CheckStatePending,
 					}).
-					Admitted(false).
+					AdmittedAt(false, now).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "AdmissionCheckUpdated",
+					Message:   `Admission check check1 updated state from Pending to Rejected`,
+				},
 			},
 		},
 		"workloads doesnt set AdmissionCheck status to Rejected when it is finished and receives the provisioning request's CapacityRevoked condition": {
@@ -937,7 +987,7 @@ func TestReconcile(t *testing.T) {
 		},
 		"workload does nothing when admitted and receives the provisioning request's BookingExpired condition": {
 			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
-				Admitted(true).
+				AdmittedAt(true, now).
 				Obj(),
 			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
@@ -965,13 +1015,13 @@ func TestReconcile(t *testing.T) {
 			},
 			wantWorkloads: map[string]*kueue.Workload{
 				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 		},
 		"workload retries the admission check when is not admitted and receives the provisioning request's BookingExpired condition": {
 			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
-				Admitted(false).
+				AdmittedAt(false, now).
 				Obj(),
 			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
@@ -992,8 +1042,9 @@ func TestReconcile(t *testing.T) {
 							Status: metav1.ConditionTrue,
 						},
 						{
-							Type:   autoscaling.BookingExpired,
-							Status: metav1.ConditionTrue,
+							Type:    autoscaling.BookingExpired,
+							Status:  metav1.ConditionTrue,
+							Message: "Expired By test",
 						},
 					}),
 			},
@@ -1002,19 +1053,27 @@ func TestReconcile(t *testing.T) {
 					AdmissionChecks(kueue.AdmissionCheckState{
 						Name:                "check1",
 						State:               kueue.CheckStateRetry,
-						Message:             "Retrying after booking expired: ",
+						Message:             "Retrying after booking expired: Expired By test",
 						RequeueAfterSeconds: ptr.To(backoffBaseSeconds),
 					}, kueue.AdmissionCheckState{
 						Name:  "not-provisioning",
 						State: kueue.CheckStatePending,
 					}).
-					Admitted(false).
+					AdmittedAt(false, now).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "AdmissionCheckUpdated",
+					Message:   `Admission check check1 updated state from Pending to Retry with message: Retrying after booking expired: Expired By test`,
+				},
 			},
 		},
 		"workload rejects the admission check when is not admitted and receives the provisioning request's BookingExpired condition": {
 			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
-				Admitted(false).
+				AdmittedAt(false, now).
 				Obj(),
 			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
@@ -1049,8 +1108,16 @@ func TestReconcile(t *testing.T) {
 						Name:  "not-provisioning",
 						State: kueue.CheckStatePending,
 					}).
-					Admitted(false).
+					AdmittedAt(false, now).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "AdmissionCheckUpdated",
+					Message:   `Admission check check1 updated state from Pending to Rejected`,
+				},
 			},
 		},
 		"when pod template creation error": {
@@ -1068,7 +1135,7 @@ func TestReconcile(t *testing.T) {
 				AdmissionChecks(kueue.AdmissionCheckState{
 					Name:  "check1",
 					State: kueue.CheckStatePending}).
-				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 				Obj(),
 			checks:             []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			configs:            []kueue.ProvisioningRequestConfig{*utiltestingapi.MakeProvisioningRequestConfig("config1").Obj()},
@@ -1085,7 +1152,7 @@ func TestReconcile(t *testing.T) {
 						State:   kueue.CheckStatePending,
 						Message: "Error creating PodTemplate \"ppt-wl-check1-1-main\": invalid PodTemplate error",
 					}).
-					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -1173,8 +1240,9 @@ func TestReconcile(t *testing.T) {
 			wantWorkloads: map[string]*kueue.Workload{
 				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 					AdmissionChecks(kueue.AdmissionCheckState{
-						Name:  "check1",
-						State: kueue.CheckStateReady,
+						Name:    "check1",
+						Message: "By test",
+						State:   kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
 								Name: "ps1",
@@ -1202,6 +1270,14 @@ func TestReconcile(t *testing.T) {
 						State: kueue.CheckStatePending,
 					}).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "AdmissionCheckUpdated",
+					Message:   `Admission check check1 updated state from Pending to Ready with message: By test`,
+				},
 			},
 		},
 		"when request is provisioned and has NodeSelector missing in the ProvisioningClassDetail": {
@@ -1222,8 +1298,9 @@ func TestReconcile(t *testing.T) {
 			wantWorkloads: map[string]*kueue.Workload{
 				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 					AdmissionChecks(kueue.AdmissionCheckState{
-						Name:  "check1",
-						State: kueue.CheckStateReady,
+						Name:    "check1",
+						State:   kueue.CheckStateReady,
+						Message: "By test",
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
 								Name: "ps1",
@@ -1245,6 +1322,14 @@ func TestReconcile(t *testing.T) {
 						State: kueue.CheckStatePending,
 					}).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "AdmissionCheckUpdated",
+					Message:   `Admission check check1 updated state from Pending to Ready with message: By test`,
+				},
 			},
 		},
 		"with podSetMergePolicy IdenticalPodTemplates": {
@@ -1276,7 +1361,7 @@ func TestReconcile(t *testing.T) {
 						PriorityClass("pc-200").
 						Obj(),
 				).
-				ReserveQuota(utiltestingapi.MakeAdmission("q1").PodSets(podSetMergePolicyAssignemnt...).Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(podSetMergePolicyAssignemnt...).Obj(), now).
 				AdmissionChecks(kueue.AdmissionCheckState{
 					Name:  "check1",
 					State: kueue.CheckStatePending,
@@ -1425,7 +1510,7 @@ func TestReconcile(t *testing.T) {
 						}).
 						Obj(),
 				).
-				ReserveQuota(utiltestingapi.MakeAdmission("q1").PodSets(podSetMergePolicyAssignemnt...).Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(podSetMergePolicyAssignemnt...).Obj(), now).
 				AdmissionChecks(kueue.AdmissionCheckState{
 					Name:  "check1",
 					State: kueue.CheckStatePending,
@@ -1561,7 +1646,7 @@ func TestReconcile(t *testing.T) {
 						PriorityClass("pc-200").
 						Obj(),
 				).
-				ReserveQuota(utiltestingapi.MakeAdmission("q1").PodSets(podSetMergePolicyAssignemnt...).Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(podSetMergePolicyAssignemnt...).Obj(), now).
 				AdmissionChecks(kueue.AdmissionCheckState{
 					Name:  "check1",
 					State: kueue.CheckStatePending,
@@ -1577,112 +1662,113 @@ func TestReconcile(t *testing.T) {
 	}
 
 	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			for _, gate := range tc.enableGates {
-				features.SetFeatureGateDuringTest(t, gate, true)
-			}
+		for _, useMergePatch := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, useMergePatch), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, true)
 
-			interceptorFuncs := interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}
-			if tc.interceptorFuncsCreate != nil {
-				interceptorFuncs.Create = tc.interceptorFuncsCreate
-			}
-
-			ctx, _ := utiltesting.ContextWithLog(t)
-			builder, ctx := getClientBuilder(ctx)
-			builder = builder.WithInterceptorFuncs(interceptorFuncs)
-			builder = builder.WithObjects(tc.workload)
-			builder = builder.WithStatusSubresource(tc.workload)
-			builder = builder.WithLists(
-				&autoscaling.ProvisioningRequestList{Items: tc.requests},
-				&corev1.PodTemplateList{Items: tc.templates},
-				&kueue.ProvisioningRequestConfigList{Items: tc.configs},
-				&kueue.AdmissionCheckList{Items: tc.checks},
-				&kueue.ResourceFlavorList{Items: tc.flavors},
-			)
-
-			k8sclient := builder.Build()
-			recorder := &utiltesting.EventRecorder{}
-			controller, err := NewController(
-				k8sclient,
-				recorder,
-				nil,
-			)
-			if err != nil {
-				t.Fatalf("Setting up the provisioning request controller: %v", err)
-			}
-
-			req := reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Namespace: TestNamespace,
-					Name:      tc.workload.Name,
-				},
-			}
-			_, gotReconcileError := controller.Reconcile(ctx, req)
-			if diff := cmp.Diff(tc.wantReconcileError, gotReconcileError, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("unexpected reconcile error (-want/+got):\n%s", diff)
-			}
-
-			for name, wantWl := range tc.wantWorkloads {
-				gotWl := &kueue.Workload{}
-				if err := k8sclient.Get(ctx, types.NamespacedName{Namespace: TestNamespace, Name: name}, gotWl); err != nil {
-					t.Errorf("unexpected error getting workload %q", name)
+				interceptorFuncs := interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}
+				if tc.interceptorFuncsCreate != nil {
+					interceptorFuncs.Create = tc.interceptorFuncsCreate
 				}
 
-				if diff := cmp.Diff(wantWl, gotWl, wlCmpOptions...); diff != "" {
-					t.Errorf("unexpected workload %q (-want/+got):\n%s", name, diff)
-				}
-			}
+				ctx, _ := utiltesting.ContextWithLog(t)
+				builder, ctx := getClientBuilder(ctx)
+				builder = builder.WithInterceptorFuncs(interceptorFuncs)
+				builder = builder.WithObjects(tc.workload)
+				builder = builder.WithStatusSubresource(tc.workload)
+				builder = builder.WithLists(
+					&autoscaling.ProvisioningRequestList{Items: tc.requests},
+					&corev1.PodTemplateList{Items: tc.templates},
+					&kueue.ProvisioningRequestConfigList{Items: tc.configs},
+					&kueue.AdmissionCheckList{Items: tc.checks},
+					&kueue.ResourceFlavorList{Items: tc.flavors},
+				)
 
-			for name, wantRequest := range tc.wantRequests {
-				gotRequest := &autoscaling.ProvisioningRequest{}
-				if err := k8sclient.Get(ctx, types.NamespacedName{Namespace: TestNamespace, Name: name}, gotRequest); client.IgnoreNotFound(err) != nil {
-					t.Errorf("unexpected error getting request %q: %s", name, err)
+				k8sclient := builder.Build()
+				recorder := &utiltesting.EventRecorder{}
+				controller, err := NewController(
+					k8sclient,
+					recorder,
+					nil,
+				)
+				if err != nil {
+					t.Fatalf("Setting up the provisioning request controller: %v", err)
 				}
 
-				if diff := cmp.Diff(wantRequest, gotRequest, reqCmpOptions...); diff != "" {
-					t.Errorf("unexpected request %q (-want/+got):\n%s", name, diff)
+				req := reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Namespace: TestNamespace,
+						Name:      tc.workload.Name,
+					},
 				}
-				if diff := cmp.Diff(wantRequest.GetLabels(), gotRequest.GetLabels()); diff != "" {
-					t.Errorf("unexpected request labels %q (-want/+got):\n%s", name, diff)
-				}
-			}
-
-			for name, wantTemplate := range tc.wantTemplates {
-				gotTemplate := &corev1.PodTemplate{}
-				if err := k8sclient.Get(ctx, types.NamespacedName{Namespace: TestNamespace, Name: name}, gotTemplate); err != nil {
-					t.Errorf("unexpected error getting template %q", name)
+				_, gotReconcileError := controller.Reconcile(ctx, req)
+				if diff := cmp.Diff(tc.wantReconcileError, gotReconcileError, cmpopts.EquateErrors()); diff != "" {
+					t.Errorf("unexpected reconcile error (-want/+got):\n%s", diff)
 				}
 
-				if diff := cmp.Diff(wantTemplate, gotTemplate, tmplCmpOptions...); diff != "" {
-					t.Errorf("unexpected template %q (-want/+got):\n%s", name, diff)
-				}
-				if diff := cmp.Diff(wantTemplate.GetLabels(), gotTemplate.GetLabels()); diff != "" {
-					t.Errorf("unexpected template labels %q (-want/+got):\n%s", name, diff)
-				}
-			}
+				for name, wantWl := range tc.wantWorkloads {
+					gotWl := &kueue.Workload{}
+					if err := k8sclient.Get(ctx, types.NamespacedName{Namespace: TestNamespace, Name: name}, gotWl); err != nil {
+						t.Errorf("unexpected error getting workload %q", name)
+					}
 
-			for _, name := range tc.wantRequestsNotFound {
-				gotRequest := &autoscaling.ProvisioningRequest{}
-				if err := k8sclient.Get(ctx, types.NamespacedName{Namespace: TestNamespace, Name: name}, gotRequest); !apierrors.IsNotFound(err) {
-					t.Errorf("request %q should no longer be found", name)
+					if diff := cmp.Diff(wantWl, gotWl, wlCmpOptions...); diff != "" {
+						t.Errorf("unexpected workload %q (-want/+got):\n%s", name, diff)
+					}
 				}
-			}
 
-			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
-				t.Errorf("unexpected events (-want/+got):\n%s", diff)
-			}
-		})
+				for name, wantRequest := range tc.wantRequests {
+					gotRequest := &autoscaling.ProvisioningRequest{}
+					if err := k8sclient.Get(ctx, types.NamespacedName{Namespace: TestNamespace, Name: name}, gotRequest); client.IgnoreNotFound(err) != nil {
+						t.Errorf("unexpected error getting request %q: %s", name, err)
+					}
+
+					if diff := cmp.Diff(wantRequest, gotRequest, reqCmpOptions...); diff != "" {
+						t.Errorf("unexpected request %q (-want/+got):\n%s", name, diff)
+					}
+					if diff := cmp.Diff(wantRequest.GetLabels(), gotRequest.GetLabels()); diff != "" {
+						t.Errorf("unexpected request labels %q (-want/+got):\n%s", name, diff)
+					}
+				}
+
+				for name, wantTemplate := range tc.wantTemplates {
+					gotTemplate := &corev1.PodTemplate{}
+					if err := k8sclient.Get(ctx, types.NamespacedName{Namespace: TestNamespace, Name: name}, gotTemplate); err != nil {
+						t.Errorf("unexpected error getting template %q", name)
+					}
+
+					if diff := cmp.Diff(wantTemplate, gotTemplate, tmplCmpOptions...); diff != "" {
+						t.Errorf("unexpected template %q (-want/+got):\n%s", name, diff)
+					}
+					if diff := cmp.Diff(wantTemplate.GetLabels(), gotTemplate.GetLabels()); diff != "" {
+						t.Errorf("unexpected template labels %q (-want/+got):\n%s", name, diff)
+					}
+				}
+
+				for _, name := range tc.wantRequestsNotFound {
+					gotRequest := &autoscaling.ProvisioningRequest{}
+					if err := k8sclient.Get(ctx, types.NamespacedName{Namespace: TestNamespace, Name: name}, gotRequest); !apierrors.IsNotFound(err) {
+						t.Errorf("request %q should no longer be found", name)
+					}
+				}
+
+				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
+					t.Errorf("unexpected events (-want/+got):\n%s", diff)
+				}
+			})
+		}
 	}
 }
 
 func TestActiveOrLastPRForChecks(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
 	baseWorkload := utiltestingapi.MakeWorkload("wl", TestNamespace).
 		PodSets(
 			*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).
 				Request(corev1.ResourceCPU, "1").
 				Obj(),
 		).
-		ReserveQuota(utiltestingapi.MakeAdmission("q1").PodSets(
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(
 			kueue.PodSetAssignment{
 				Name: kueue.DefaultPodSetName,
 				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -1694,7 +1780,7 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 				Count: ptr.To[int32](4),
 			},
 		).
-			Obj()).
+			Obj(), now).
 		AdmissionChecks(kueue.AdmissionCheckState{
 			Name:  "check",
 			State: kueue.CheckStatePending,

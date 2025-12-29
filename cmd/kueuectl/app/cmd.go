@@ -24,13 +24,13 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/utils/clock"
 
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/create"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/list"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/passthrough"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/resume"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/stop"
-	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/version"
 )
 
@@ -68,7 +68,7 @@ func NewKueuectlCmd(o KueuectlOptions) *cobra.Command {
 	}
 	configFlags.AddFlags(flags)
 
-	clientGetter := util.NewClientGetter(configFlags)
+	clientGetter := clientgetter.New(configFlags)
 
 	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("namespace", completion.NamespaceNameFunc(clientGetter)))
 	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("context", completion.ContextsFunc(clientGetter)))
