@@ -163,11 +163,6 @@ func (w *WorkloadWrapper) SimpleReserveQuota(cq, flavor string, now time.Time) *
 	return w.ReserveQuotaAt(admission.Obj(), now)
 }
 
-// ReserveQuota sets workload admission and adds a "QuotaReserved" status condition
-func (w *WorkloadWrapper) ReserveQuota(a *kueue.Admission) *WorkloadWrapper {
-	return w.ReserveQuotaAt(a, time.Now())
-}
-
 // ReserveQuotaAt sets workload admission and adds a "QuotaReserved" status condition
 func (w *WorkloadWrapper) ReserveQuotaAt(a *kueue.Admission, now time.Time) *WorkloadWrapper {
 	w.Status.Admission = a
@@ -186,10 +181,6 @@ func (w *WorkloadWrapper) QuotaReservedTime(t time.Time) *WorkloadWrapper {
 	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadQuotaReserved)
 	cond.LastTransitionTime = metav1.NewTime(t)
 	return w
-}
-
-func (w *WorkloadWrapper) Admitted(a bool) *WorkloadWrapper {
-	return w.AdmittedAt(a, time.Now())
 }
 
 func (w *WorkloadWrapper) AdmittedAt(a bool, t time.Time) *WorkloadWrapper {

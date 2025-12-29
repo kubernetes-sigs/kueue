@@ -122,6 +122,7 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 	ginkgo.AfterAll(func() {
 		fwk.StopManager(ctx)
 	})
+	now := time.Now().Truncate(time.Second)
 
 	ginkgo.Context("When creating a Workload", func() {
 		ginkgo.DescribeTable("Should have valid PodSet when creating", func(podSetsCapacity int, podSetCount int, isInvalid bool) {
@@ -636,7 +637,7 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			ginkgo.Entry("queueName can be updated when admission is reset",
 				func() *kueue.Workload {
 					return utiltestingapi.MakeWorkload(workloadName, ns.Name).Queue("q1").
-						ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).Obj()
+						ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).Obj()
 				},
 				false,
 				func(newWL *kueue.Workload) {
@@ -666,8 +667,8 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			),
 			ginkgo.Entry("admission can be unset",
 				func() *kueue.Workload {
-					return utiltestingapi.MakeWorkload(workloadName, ns.Name).ReserveQuota(
-						utiltestingapi.MakeAdmission("cluster-queue").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment("on-demand", "5", "1").Obj()).Obj(),
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cluster-queue").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment("on-demand", "5", "1").Obj()).Obj(), now,
 					).Obj()
 				},
 				false,
@@ -748,10 +749,10 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 							*utiltestingapi.MakePodSet("ps1", 3).Obj(),
 							*utiltestingapi.MakePodSet("ps2", 3).Obj(),
 						).
-						ReserveQuota(
+						ReserveQuotaAt(
 							utiltestingapi.MakeAdmission("cluster-queue").
 								PodSets(kueue.PodSetAssignment{Name: "ps1"}, kueue.PodSetAssignment{Name: "ps2"}).
-								Obj(),
+								Obj(), now,
 						).
 						ReclaimablePods(
 							kueue.ReclaimablePod{Name: "ps1", Count: 2},
