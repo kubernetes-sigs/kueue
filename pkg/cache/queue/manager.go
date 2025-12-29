@@ -116,7 +116,7 @@ type Manager struct {
 	client        client.Client
 	statusChecker StatusChecker
 	localQueues   map[queue.LocalQueueReference]*LocalQueue
-	// Tracks assigned (local) queues of all workloads managed by kueue (including admitted and running).
+	// Tracks Workload's LocalQueue assignment throughout its whole lifetime (including running and finished).
 	assignedWorkloads map[workload.Reference]queue.LocalQueueReference
 
 	workloadOrdering workload.Ordering
