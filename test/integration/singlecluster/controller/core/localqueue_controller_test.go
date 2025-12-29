@@ -201,8 +201,8 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 
 		util.ExpectLocalQueueResourceMetric(queue, flavorModelC, resourceGPU.String(), 0)
 		util.ExpectLocalQueueResourceMetric(queue, flavorModelD, resourceGPU.String(), 0)
-		util.ExpectLocalQueueResourceReservationsMetric(queue, flavorModelC, resourceGPU.String(), 0)
-		util.ExpectLocalQueueResourceReservationsMetric(queue, flavorModelD, resourceGPU.String(), 0)
+		util.ExpectLocalQueueResourceReservationsMetric(queue, flavorModelC, resourceGPU.String(), "", 0)
+		util.ExpectLocalQueueResourceReservationsMetric(queue, flavorModelD, resourceGPU.String(), "", 0)
 
 		ginkgo.By("Creating a clusterQueue")
 		util.MustCreate(ctx, k8sClient, clusterQueue)
@@ -263,8 +263,8 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 
 		util.ExpectLocalQueueResourceMetric(queue, flavorModelC, resourceGPU.String(), 0)
 		util.ExpectLocalQueueResourceMetric(queue, flavorModelD, resourceGPU.String(), 0)
-		util.ExpectLocalQueueResourceReservationsMetric(queue, flavorModelC, resourceGPU.String(), 0)
-		util.ExpectLocalQueueResourceReservationsMetric(queue, flavorModelD, resourceGPU.String(), 0)
+		util.ExpectLocalQueueResourceReservationsMetric(queue, flavorModelC, resourceGPU.String(), "", 0)
+		util.ExpectLocalQueueResourceReservationsMetric(queue, flavorModelD, resourceGPU.String(), "", 0)
 
 		util.ExpectLQPendingWorkloadsMetric(queue, 3, 0)
 
@@ -316,8 +316,8 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 
 		util.ExpectLocalQueueResourceMetric(queue, flavorModelC, resourceGPU.String(), 0)
 		util.ExpectLocalQueueResourceMetric(queue, flavorModelD, resourceGPU.String(), 0)
-		util.ExpectLocalQueueResourceReservationsMetric(queue, flavorModelC, resourceGPU.String(), 5)
-		util.ExpectLocalQueueResourceReservationsMetric(queue, flavorModelD, resourceGPU.String(), 1)
+		util.ExpectLocalQueueResourceReservationsMetric(queue, flavorModelC, resourceGPU.String(), "", 5)
+		util.ExpectLocalQueueResourceReservationsMetric(queue, flavorModelD, resourceGPU.String(), "", 1)
 
 		util.ExpectLQReservingActiveWorkloadsMetric(queue, 3)
 
@@ -348,8 +348,8 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 
 		util.ExpectLocalQueueResourceMetric(queue, flavorModelC, resourceGPU.String(), 5)
 		util.ExpectLocalQueueResourceMetric(queue, flavorModelD, resourceGPU.String(), 1)
-		util.ExpectLocalQueueResourceReservationsMetric(queue, flavorModelC, resourceGPU.String(), 5)
-		util.ExpectLocalQueueResourceReservationsMetric(queue, flavorModelD, resourceGPU.String(), 1)
+		util.ExpectLocalQueueResourceReservationsMetric(queue, flavorModelC, resourceGPU.String(), "", 5)
+		util.ExpectLocalQueueResourceReservationsMetric(queue, flavorModelD, resourceGPU.String(), "", 1)
 
 		util.ExpectLQAdmittedWorkloadsTotalMetric(queue, "", 3)
 		util.ExpectLQAdmissionWaitTimeMetric(queue, "", 3)
@@ -377,8 +377,8 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 
 		util.ExpectLocalQueueResourceMetric(queue, flavorModelC, resourceGPU.String(), 0)
 		util.ExpectLocalQueueResourceMetric(queue, flavorModelD, resourceGPU.String(), 0)
-		util.ExpectLocalQueueResourceReservationsMetric(queue, flavorModelC, resourceGPU.String(), 0)
-		util.ExpectLocalQueueResourceReservationsMetric(queue, flavorModelD, resourceGPU.String(), 0)
+		util.ExpectLocalQueueResourceReservationsMetric(queue, flavorModelC, resourceGPU.String(), "", 0)
+		util.ExpectLocalQueueResourceReservationsMetric(queue, flavorModelD, resourceGPU.String(), "", 0)
 	})
 
 	ginkgo.It("Should update status when ClusterQueue are forcefully deleted", framework.SlowSpec, func() {

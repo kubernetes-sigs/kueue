@@ -261,3 +261,25 @@ func TestMetricsWithDifferentRoles(t *testing.T) {
 	ClearClusterQueueMetrics("cq_leader")
 	ClearClusterQueueMetrics("cq_follower")
 }
+
+func TestReportAndCleanupLocalQueueResourceReservations(t *testing.T) {
+	lq := LocalQueueReference{Name: kueue.LocalQueueName("lq1"), Namespace: "ns1"}
+
+	// Report reservations with different priority classes
+	ReportLocalQueueResourceReservations(lq, "flavor1", "cpu", 10.0, "high-priority", nil)
+	ReportLocalQueueResourceReservations(lq, "flavor1", "memory", 20.0, "high-priority", nil)
+	ReportLocalQueueResourceReservations(lq, "flavor1", "cpu", 5.0, "low-priority", nil)
+	ReportLocalQueueResourceReservations(lq, "flavor2", "cpu", 3.0, "", nil) // empty priority class
+
+	// Verify metrics were created with correct labels
+	expectFilteredMetricsCount(t, LocalQueueResourceReservations, 4, "name", "lq1", "namespace", "ns1")
+	expectFilteredMetricsCount(t, LocalQueueResourceReservations, 2, "name", "lq1", "namespace", "ns1", "priority_class", "high-priority")
+	expectFilteredMetricsCount(t, LocalQueueResourceReservations, 1, "name", "lq1", "namespace", "ns1", "priority_class", "low-priority")
+	expectFilteredMetricsCount(t, LocalQueueResourceReservations, 1, "name", "lq1", "namespace", "ns1", "priority_class", "")
+	expectFilteredMetricsCount(t, LocalQueueResourceReservations, 3, "name", "lq1", "namespace", "ns1", "flavor", "flavor1")
+	expectFilteredMetricsCount(t, LocalQueueResourceReservations, 1, "name", "lq1", "namespace", "ns1", "flavor", "flavor2")
+
+	// Clean up and verify
+	ClearLocalQueueResourceMetrics(lq)
+	expectFilteredMetricsCount(t, LocalQueueResourceReservations, 0, "name", "lq1", "namespace", "ns1")
+}
