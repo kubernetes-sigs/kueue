@@ -1327,10 +1327,10 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "update cluster queue for a workload",
 			operation: func(log logr.Logger, cache *Cache) error {
-				latest := utiltestingapi.MakeWorkload("a", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
+				latest := utiltestingapi.MakeWorkload("a", "").PodSets(podSets...).ReserveQuotaAt(&kueue.Admission{
 					ClusterQueue:      "two",
 					PodSetAssignments: psAssignments,
-				}).Obj()
+				}, now).Obj()
 				return cache.UpdateWorkload(log, latest)
 			},
 			wantResults: map[kueue.ClusterQueueReference]result{
@@ -1358,9 +1358,9 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "update error new clusterQueue doesn't exist",
 			operation: func(log logr.Logger, cache *Cache) error {
-				latest := utiltestingapi.MakeWorkload("d", "").ReserveQuota(&kueue.Admission{
+				latest := utiltestingapi.MakeWorkload("d", "").ReserveQuotaAt(&kueue.Admission{
 					ClusterQueue: "three",
-				}).Obj()
+				}, now).Obj()
 				return cache.UpdateWorkload(log, latest)
 			},
 			wantError: "assigned ClusterQueue doesn't exist",
@@ -1385,9 +1385,9 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "update workload which doesn't exist.",
 			operation: func(log logr.Logger, cache *Cache) error {
-				latest := utiltestingapi.MakeWorkload("d", "").ReserveQuota(&kueue.Admission{
+				latest := utiltestingapi.MakeWorkload("d", "").ReserveQuotaAt(&kueue.Admission{
 					ClusterQueue: "two",
-				}).Obj()
+				}, now).Obj()
 				return cache.UpdateWorkload(log, latest)
 			},
 			wantResults: map[kueue.ClusterQueueReference]result{
@@ -1485,7 +1485,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "delete when clusterQueue doesn't exist",
 			operation: func(log logr.Logger, cache *Cache) error {
-				w := utiltestingapi.MakeWorkload("b", "").ReserveQuota(&kueue.Admission{
+				w := utiltestingapi.MakeWorkload("b", "").ReserveQuotaAt(&kueue.Admission{
 					ClusterQueue: "three",
 				}, now).Obj()
 				return cache.DeleteWorkload(log, w)
@@ -1654,7 +1654,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "forget error workload is not assumed",
 			operation: func(log logr.Logger, cache *Cache) error {
-				w := utiltestingapi.MakeWorkload("d", "").ReserveQuota(&kueue.Admission{
+				w := utiltestingapi.MakeWorkload("d", "").ReserveQuotaAt(&kueue.Admission{
 					ClusterQueue: "one",
 				}, now).Obj()
 				if err := cache.ForgetWorkload(log, w); err != nil {
