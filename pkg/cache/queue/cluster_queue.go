@@ -320,9 +320,10 @@ func (c *ClusterQueue) DeleteFromLocalQueue(log logr.Logger, q *LocalQueue) {
 // or if there was a call to QueueInadmissibleWorkloads after a call to Pop,
 // the workload will be pushed back to heap directly. Otherwise, the workload
 // will be put into the inadmissibleWorkloads.
-func (c *ClusterQueue) requeueIfNotPresent(wInfo *workload.Info, immediate bool) bool {
+func (c *ClusterQueue) requeueIfNotPresent(ctx context.Context, wInfo *workload.Info, immediate bool) bool {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
+	log := ctrl.LoggerFrom(ctx)
 	key := workload.Key(wInfo.Obj)
 	c.forgetInflightByKey(key)
 
@@ -347,6 +348,7 @@ func (c *ClusterQueue) requeueIfNotPresent(wInfo *workload.Info, immediate bool)
 	}
 
 	c.inadmissibleWorkloads.insert(key, wInfo)
+	log.V(2).Info("Workload added to inadmissibleWorkloads", "clusterQueue", c.name, "workload", key)
 
 	return true
 }
@@ -584,10 +586,9 @@ func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.
 	}
 
 	if c.queueingStrategy == kueue.StrictFIFO {
-		return c.requeueIfNotPresent(wInfo, reason != RequeueReasonNamespaceMismatch)
+		return c.requeueIfNotPresent(ctx, wInfo, reason != RequeueReasonNamespaceMismatch)
 	}
-	return c.requeueIfNotPresent(
-		wInfo,
+	return c.requeueIfNotPresent(ctx, wInfo,
 		reason == RequeueReasonFailedAfterNomination ||
 			reason == RequeueReasonPendingPreemption ||
 			reason == RequeueReasonPreemptionFailed)
