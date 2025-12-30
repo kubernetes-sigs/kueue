@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
@@ -48,6 +49,7 @@ import (
 )
 
 func TestCacheClusterQueueOperations(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
 	ctx, _ := utiltesting.ContextWithLog(t)
 	initialClusterQueues := []kueue.ClusterQueue{
 		*utiltestingapi.MakeClusterQueue("a").
@@ -424,10 +426,10 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 
 				wl := utiltestingapi.MakeWorkload("one", "").
 					Request(corev1.ResourceCPU, "5").
-					ReserveQuota(utiltestingapi.MakeAdmission("a").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("a").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "5000m").
-							Obj()).Obj()).
+							Obj()).Obj(), now).
 					Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
 					Obj()
 
@@ -466,10 +468,10 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						"/one": {
 							Obj: utiltestingapi.MakeWorkload("one", "").
 								Request(corev1.ResourceCPU, "5").
-								ReserveQuota(utiltestingapi.MakeAdmission("a").
+								ReserveQuotaAt(utiltestingapi.MakeAdmission("a").
 									PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 										Assignment(corev1.ResourceCPU, "default", "5000m").
-										Obj()).Obj()).
+										Obj()).Obj(), now).
 								Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
 								Obj(),
 							TotalRequests: []workload.PodSetResources{
@@ -855,27 +857,27 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			clientObjects: []client.Object{
 				utiltestingapi.MakeLocalQueue("lq1", "ns").ClusterQueue("cq1").Obj(),
 				utiltestingapi.MakeWorkload("pending", "ns").Obj(),
-				utiltestingapi.MakeWorkload("reserving", "ns").ReserveQuota(
+				utiltestingapi.MakeWorkload("reserving", "ns").ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cq1").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "f1", "1").
 							Obj()).
-						Obj(),
+						Obj(), now,
 				).Obj(),
-				utiltestingapi.MakeWorkload("admitted", "ns").ReserveQuota(
+				utiltestingapi.MakeWorkload("admitted", "ns").ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cq1").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "f1", "1").
 							Obj()).
-						Obj(),
-				).Admitted(true).Obj(),
-				utiltestingapi.MakeWorkload("finished", "ns").ReserveQuota(
+						Obj(), now,
+				).AdmittedAt(true, now).Obj(),
+				utiltestingapi.MakeWorkload("finished", "ns").ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cq1").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "f1", "1").
 							Obj()).
-						Obj(),
-				).Admitted(true).Finished().Obj(),
+						Obj(), now,
+				).AdmittedAt(true, now).Finished().Obj(),
 			},
 			operation: func(log logr.Logger, cache *Cache) error {
 				cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("f1").Obj())
@@ -1155,6 +1157,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 }
 
 func TestCacheWorkloadOperations(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
 	clusterQueues := []kueue.ClusterQueue{
 		*utiltestingapi.MakeClusterQueue("one").
 			ResourceGroup(
@@ -1201,16 +1204,16 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		},
 	}
 	cl := utiltesting.NewFakeClient(
-		utiltestingapi.MakeWorkload("a", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
+		utiltestingapi.MakeWorkload("a", "").PodSets(podSets...).ReserveQuotaAt(&kueue.Admission{
 			ClusterQueue:      "one",
 			PodSetAssignments: psAssignments,
-		}).Obj(),
-		utiltestingapi.MakeWorkload("b", "").ReserveQuota(&kueue.Admission{
+		}, now).Obj(),
+		utiltestingapi.MakeWorkload("b", "").ReserveQuotaAt(&kueue.Admission{
 			ClusterQueue: "one",
-		}).Obj(),
-		utiltestingapi.MakeWorkload("c", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
+		}, now).Obj(),
+		utiltestingapi.MakeWorkload("c", "").PodSets(podSets...).ReserveQuotaAt(&kueue.Admission{
 			ClusterQueue: "two",
-		}).Obj())
+		}, now).Obj())
 
 	type result struct {
 		Workloads     sets.Set[workload.Reference]
@@ -1229,13 +1232,13 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			name: "add",
 			operation: func(log logr.Logger, cache *Cache) error {
 				workloads := []*kueue.Workload{
-					utiltestingapi.MakeWorkload("a", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
+					utiltestingapi.MakeWorkload("a", "").PodSets(podSets...).ReserveQuotaAt(&kueue.Admission{
 						ClusterQueue:      "one",
 						PodSetAssignments: psAssignments,
-					}).Obj(),
-					utiltestingapi.MakeWorkload("d", "").ReserveQuota(&kueue.Admission{
+					}, now).Obj(),
+					utiltestingapi.MakeWorkload("d", "").ReserveQuotaAt(&kueue.Admission{
 						ClusterQueue: "two",
-					}).Obj(),
+					}, now).Obj(),
 					utiltestingapi.MakeWorkload("pending", "").Obj(),
 				}
 				for i := range workloads {
@@ -1265,9 +1268,9 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "add error clusterQueue doesn't exist",
 			operation: func(log logr.Logger, cache *Cache) error {
-				w := utiltestingapi.MakeWorkload("d", "").ReserveQuota(&kueue.Admission{
+				w := utiltestingapi.MakeWorkload("d", "").ReserveQuotaAt(&kueue.Admission{
 					ClusterQueue: "three",
-				}).Obj()
+				}, now).Obj()
 				if !cache.AddOrUpdateWorkload(log, w) {
 					return errors.New("failed to add workload")
 				}
@@ -1295,9 +1298,9 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "add already exists",
 			operation: func(log logr.Logger, cache *Cache) error {
-				w := utiltestingapi.MakeWorkload("b", "").ReserveQuota(&kueue.Admission{
+				w := utiltestingapi.MakeWorkload("b", "").ReserveQuotaAt(&kueue.Admission{
 					ClusterQueue: "one",
-				}).Obj()
+				}, now).Obj()
 				if !cache.AddOrUpdateWorkload(log, w) {
 					return errors.New("failed to add workload")
 				}
@@ -1409,9 +1412,9 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "delete",
 			operation: func(log logr.Logger, cache *Cache) error {
-				w := utiltestingapi.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
+				w := utiltestingapi.MakeWorkload("a", "").ReserveQuotaAt(&kueue.Admission{
 					ClusterQueue: "one",
-				}).Obj()
+				}, now).Obj()
 				return cache.DeleteWorkload(log, w)
 			},
 			wantResults: map[kueue.ClusterQueueReference]result{
@@ -1484,7 +1487,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			operation: func(log logr.Logger, cache *Cache) error {
 				w := utiltestingapi.MakeWorkload("b", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "three",
-				}).Obj()
+				}, now).Obj()
 				return cache.DeleteWorkload(log, w)
 			},
 			wantResults: map[kueue.ClusterQueueReference]result{
@@ -1507,9 +1510,9 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "delete workload which doesn't exist",
 			operation: func(log logr.Logger, cache *Cache) error {
-				w := utiltestingapi.MakeWorkload("d", "").ReserveQuota(&kueue.Admission{
+				w := utiltestingapi.MakeWorkload("d", "").ReserveQuotaAt(&kueue.Admission{
 					ClusterQueue: "one",
-				}).Obj()
+				}, now).Obj()
 				return cache.DeleteWorkload(log, w)
 			},
 			wantResults: map[kueue.ClusterQueueReference]result{
@@ -1534,14 +1537,14 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			name: "assume",
 			operation: func(log logr.Logger, cache *Cache) error {
 				workloads := []*kueue.Workload{
-					utiltestingapi.MakeWorkload("d", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
+					utiltestingapi.MakeWorkload("d", "").PodSets(podSets...).ReserveQuotaAt(&kueue.Admission{
 						ClusterQueue:      "one",
 						PodSetAssignments: psAssignments,
-					}).Obj(),
-					utiltestingapi.MakeWorkload("e", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
+					}, now).Obj(),
+					utiltestingapi.MakeWorkload("e", "").PodSets(podSets...).ReserveQuotaAt(&kueue.Admission{
 						ClusterQueue:      "two",
 						PodSetAssignments: psAssignments,
-					}).Obj(),
+					}, now).Obj(),
 				}
 				for i := range workloads {
 					if err := cache.AssumeWorkload(log, workloads[i]); err != nil {
@@ -1577,9 +1580,9 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "assume error clusterQueue doesn't exist",
 			operation: func(log logr.Logger, cache *Cache) error {
-				w := utiltestingapi.MakeWorkload("d", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
+				w := utiltestingapi.MakeWorkload("d", "").PodSets(podSets...).ReserveQuotaAt(&kueue.Admission{
 					ClusterQueue: "three",
-				}).Obj()
+				}, now).Obj()
 				if err := cache.AssumeWorkload(log, w); err != nil {
 					return err
 				}
@@ -1607,14 +1610,14 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			name: "forget",
 			operation: func(log logr.Logger, cache *Cache) error {
 				workloads := []*kueue.Workload{
-					utiltestingapi.MakeWorkload("d", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
+					utiltestingapi.MakeWorkload("d", "").PodSets(podSets...).ReserveQuotaAt(&kueue.Admission{
 						ClusterQueue:      "one",
 						PodSetAssignments: psAssignments,
-					}).Obj(),
-					utiltestingapi.MakeWorkload("e", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
+					}, now).Obj(),
+					utiltestingapi.MakeWorkload("e", "").PodSets(podSets...).ReserveQuotaAt(&kueue.Admission{
 						ClusterQueue:      "two",
 						PodSetAssignments: psAssignments,
-					}).Obj(),
+					}, now).Obj(),
 				}
 				for i := range workloads {
 					if err := cache.AssumeWorkload(log, workloads[i]); err != nil {
@@ -1653,7 +1656,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			operation: func(log logr.Logger, cache *Cache) error {
 				w := utiltestingapi.MakeWorkload("d", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "one",
-				}).Obj()
+				}, now).Obj()
 				if err := cache.ForgetWorkload(log, w); err != nil {
 					return err
 				}
@@ -1682,14 +1685,14 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			name: "add assumed workload",
 			operation: func(log logr.Logger, cache *Cache) error {
 				workloads := []*kueue.Workload{
-					utiltestingapi.MakeWorkload("d", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
+					utiltestingapi.MakeWorkload("d", "").PodSets(podSets...).ReserveQuotaAt(&kueue.Admission{
 						ClusterQueue:      "one",
 						PodSetAssignments: psAssignments,
-					}).Obj(),
-					utiltestingapi.MakeWorkload("e", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
+					}, now).Obj(),
+					utiltestingapi.MakeWorkload("e", "").PodSets(podSets...).ReserveQuotaAt(&kueue.Admission{
 						ClusterQueue:      "two",
 						PodSetAssignments: psAssignments,
-					}).Obj(),
+					}, now).Obj(),
 				}
 				for i := range workloads {
 					if err := cache.AssumeWorkload(log, workloads[i]); err != nil {
@@ -1764,6 +1767,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 }
 
 func TestClusterQueueUsage(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
 	cq := utiltestingapi.MakeClusterQueue("foo").
 		ResourceGroup(
 			*utiltestingapi.MakeFlavorQuotas("default").
@@ -1792,23 +1796,23 @@ func TestClusterQueueUsage(t *testing.T) {
 		*utiltestingapi.MakeWorkload("one", "").
 			Request(corev1.ResourceCPU, "8").
 			Request("example.com/gpu", "5").
-			ReserveQuota(utiltestingapi.MakeAdmission("foo").
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("foo").
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(corev1.ResourceCPU, "default", "8000m").
 					Assignment("example.com/gpu", "model_a", "5").
 					Obj()).
-				Obj()).
+				Obj(), now).
 			Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
 			Obj(),
 		*utiltestingapi.MakeWorkload("two", "").
 			Request(corev1.ResourceCPU, "5").
 			Request("example.com/gpu", "6").
-			ReserveQuota(utiltestingapi.MakeAdmission("foo").
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("foo").
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(corev1.ResourceCPU, "default", "5000m").
 					Assignment("example.com/gpu", "model_b", "6").
 					Obj()).
-				Obj()).
+				Obj(), now).
 			Obj(),
 	}
 	cases := map[string]struct {
@@ -2028,12 +2032,12 @@ func TestClusterQueueUsage(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("partial-one", "").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "2").Obj()).
-					ReserveQuota(utiltestingapi.MakeAdmission("foo").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "4000m").Count(2).Obj()).Obj()).
-					Admitted(true).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("foo").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "4000m").Count(2).Obj()).Obj(), now).
+					AdmittedAt(true, now).
 					Obj(),
 				*utiltestingapi.MakeWorkload("partial-two", "").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "2").Obj()).
-					ReserveQuota(utiltestingapi.MakeAdmission("foo").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "4000m").Count(2).Obj()).Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("foo").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "4000m").Count(2).Obj()).Obj(), now).
 					Obj(),
 			},
 			wantReservedResources: []kueue.FlavorUsage{
@@ -2135,6 +2139,7 @@ func TestClusterQueueUsage(t *testing.T) {
 }
 
 func TestLocalQueueUsage(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
 	cq := *utiltestingapi.MakeClusterQueue("foo").
 		ResourceGroup(
 			*utiltestingapi.MakeFlavorQuotas("default").
@@ -2217,22 +2222,22 @@ func TestLocalQueueUsage(t *testing.T) {
 					Queue("test").
 					Request(corev1.ResourceCPU, "5").
 					Request("example.com/gpu", "5").
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("foo").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "default", "5000m").
-								Assignment("example.com/gpu", "model-a", "5").Obj()).Obj(),
+								Assignment("example.com/gpu", "model-a", "5").Obj()).Obj(), now,
 					).
 					Obj(),
 				*utiltestingapi.MakeWorkload("two", "ns1").
 					Queue("test").
 					Request(corev1.ResourceCPU, "3").
 					Request("example.com/gpu", "3").
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("foo").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "default", "3000m").
-								Assignment("example.com/gpu", "model-b", "3").Obj()).Obj(),
+								Assignment("example.com/gpu", "model-b", "3").Obj()).Obj(), now,
 					).
 					Obj(),
 			},
@@ -2281,11 +2286,11 @@ func TestLocalQueueUsage(t *testing.T) {
 					Queue("test").
 					Request(corev1.ResourceCPU, "5").
 					Request("example.com/gpu", "5").
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("foo").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "default", "5000m").
-								Assignment("example.com/gpu", "model-a", "5").Obj()).Obj(),
+								Assignment("example.com/gpu", "model-a", "5").Obj()).Obj(), now,
 					).Obj(),
 				*utiltestingapi.MakeWorkload("two", "ns1").
 					Queue("test").
@@ -2419,6 +2424,7 @@ func TestGetCacheLQ(t *testing.T) {
 }
 
 func TestCacheQueueOperations(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
 	cqs := []*kueue.ClusterQueue{
 		utiltestingapi.MakeClusterQueue("foo").
 			ResourceGroup(
@@ -2449,21 +2455,21 @@ func TestCacheQueueOperations(t *testing.T) {
 			Queue("alpha").
 			Request("cpu", "2").
 			Request("memory", "8Gi").
-			ReserveQuota(
+			ReserveQuotaAt(
 				utiltestingapi.MakeAdmission("foo").
 					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment("cpu", "spot", "2").
-						Assignment("memory", "spot", "8Gi").Obj()).Obj(),
+						Assignment("memory", "spot", "8Gi").Obj()).Obj(), now,
 			).
 			Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
 			Obj(),
 		utiltestingapi.MakeWorkload("job2", "ns2").
 			Queue("beta").
 			Request("example.com/gpu", "2").
-			ReserveQuota(
+			ReserveQuotaAt(
 				utiltestingapi.MakeAdmission("foo").
 					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-						Assignment("example.com/gpu", "model-a", "2").Obj()).Obj(),
+						Assignment("example.com/gpu", "model-a", "2").Obj()).Obj(), now,
 			).
 			Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
 			Obj(),
@@ -2471,19 +2477,19 @@ func TestCacheQueueOperations(t *testing.T) {
 			Queue("gamma").
 			Request("cpu", "5").
 			Request("memory", "16Gi").
-			ReserveQuota(
+			ReserveQuotaAt(
 				utiltestingapi.MakeAdmission("bar").
 					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment("cpu", "ondemand", "5").
-						Assignment("memory", "ondemand", "16Gi").Obj()).Obj(),
+						Assignment("memory", "ondemand", "16Gi").Obj()).Obj(), now,
 			).Obj(),
 		utiltestingapi.MakeWorkload("job4", "ns2").
 			Queue("beta").
 			Request("example.com/gpu", "5").
-			ReserveQuota(
+			ReserveQuotaAt(
 				utiltestingapi.MakeAdmission("foo").
 					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-						Assignment("example.com/gpu", "model-a", "5").Obj()).Obj(),
+						Assignment("example.com/gpu", "model-a", "5").Obj()).Obj(), now,
 			).Obj(),
 	}
 	insertAllClusterQueues := func(ctx context.Context, cl client.Client, cache *Cache) error {
@@ -2986,6 +2992,7 @@ func TestMatchingClusterQueues(t *testing.T) {
 
 // TestWaitForPodsReadyCancelled ensures that the WaitForPodsReady call does not block when the context is closed.
 func TestWaitForPodsReadyCancelled(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
 	ctx, _ := utiltesting.ContextWithLog(t)
 	cache := New(utiltesting.NewFakeClient(), WithPodsReadyTracking(true))
 	ctx, cancel := context.WithCancel(ctx)
@@ -3001,9 +3008,9 @@ func TestWaitForPodsReadyCancelled(t *testing.T) {
 		t.Fatalf("Failed adding clusterQueue: %v", err)
 	}
 
-	wl := utiltestingapi.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
+	wl := utiltestingapi.MakeWorkload("a", "").ReserveQuotaAt(&kueue.Admission{
 		ClusterQueue: "one",
-	}).Obj()
+	}, now).Obj()
 	if err := cache.AssumeWorkload(log, wl); err != nil {
 		t.Fatalf("Failed assuming the workload to block the further admission: %v", err)
 	}
@@ -3020,6 +3027,7 @@ func TestWaitForPodsReadyCancelled(t *testing.T) {
 
 // TestCachePodsReadyForAllAdmittedWorkloads verifies the condition used to determine whether to wait
 func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
 	clusterQueues := []kueue.ClusterQueue{
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "one"},
@@ -3045,9 +3053,9 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 		{
 			name: "add Workload without PodsReady condition",
 			operation: func(log logr.Logger, cache *Cache) error {
-				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
+				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuotaAt(&kueue.Admission{
 					ClusterQueue: "one",
-				}).Obj()
+				}, now).Obj()
 				cache.AddOrUpdateWorkload(log, wl)
 				return nil
 			},
@@ -3056,9 +3064,9 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 		{
 			name: "add Workload with PodsReady=False",
 			operation: func(log logr.Logger, cache *Cache) error {
-				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
+				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuotaAt(&kueue.Admission{
 					ClusterQueue: "one",
-				}).Condition(metav1.Condition{
+				}, now).Condition(metav1.Condition{
 					Type:   kueue.WorkloadPodsReady,
 					Status: metav1.ConditionFalse,
 				}).Obj()
@@ -3070,9 +3078,9 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 		{
 			name: "add Workload with PodsReady=True",
 			operation: func(log logr.Logger, cache *Cache) error {
-				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
+				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuotaAt(&kueue.Admission{
 					ClusterQueue: "one",
-				}).Condition(metav1.Condition{
+				}, now).Condition(metav1.Condition{
 					Type:   kueue.WorkloadPodsReady,
 					Status: metav1.ConditionTrue,
 				}).Obj()
@@ -3084,9 +3092,9 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 		{
 			name: "assume Workload without PodsReady condition",
 			operation: func(log logr.Logger, cache *Cache) error {
-				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
+				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuotaAt(&kueue.Admission{
 					ClusterQueue: "one",
-				}).Obj()
+				}, now).Obj()
 				return cache.AssumeWorkload(log, wl)
 			},
 			wantReady: false,
@@ -3094,9 +3102,9 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 		{
 			name: "assume Workload with PodsReady=False",
 			operation: func(log logr.Logger, cache *Cache) error {
-				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
+				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuotaAt(&kueue.Admission{
 					ClusterQueue: "one",
-				}).Condition(metav1.Condition{
+				}, now).Condition(metav1.Condition{
 					Type:   kueue.WorkloadPodsReady,
 					Status: metav1.ConditionFalse,
 				}).Obj()
@@ -3107,9 +3115,9 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 		{
 			name: "assume Workload with PodsReady=True",
 			operation: func(log logr.Logger, cache *Cache) error {
-				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
+				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuotaAt(&kueue.Admission{
 					ClusterQueue: "one",
-				}).Condition(metav1.Condition{
+				}, now).Condition(metav1.Condition{
 					Type:   kueue.WorkloadPodsReady,
 					Status: metav1.ConditionTrue,
 				}).Obj()
@@ -3120,9 +3128,9 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 		{
 			name: "update workload to have PodsReady=True",
 			setup: func(log logr.Logger, cache *Cache) error {
-				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
+				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuotaAt(&kueue.Admission{
 					ClusterQueue: "one",
-				}).Obj()
+				}, now).Obj()
 				cache.AddOrUpdateWorkload(log, wl)
 				return nil
 			},
@@ -3140,9 +3148,9 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 		{
 			name: "update workload to have PodsReady=False",
 			setup: func(log logr.Logger, cache *Cache) error {
-				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
+				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuotaAt(&kueue.Admission{
 					ClusterQueue: "one",
-				}).Condition(metav1.Condition{
+				}, now).Condition(metav1.Condition{
 					Type:   kueue.WorkloadPodsReady,
 					Status: metav1.ConditionTrue,
 				}).Obj()
@@ -3163,9 +3171,9 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 		{
 			name: "assume second workload without PodsReady",
 			setup: func(log logr.Logger, cache *Cache) error {
-				wl1 := utiltestingapi.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
+				wl1 := utiltestingapi.MakeWorkload("a", "").ReserveQuotaAt(&kueue.Admission{
 					ClusterQueue: "one",
-				}).Condition(metav1.Condition{
+				}, now).Condition(metav1.Condition{
 					Type:   kueue.WorkloadPodsReady,
 					Status: metav1.ConditionTrue,
 				}).Obj()
@@ -3173,9 +3181,9 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 				return nil
 			},
 			operation: func(log logr.Logger, cache *Cache) error {
-				wl2 := utiltestingapi.MakeWorkload("b", "").ReserveQuota(&kueue.Admission{
+				wl2 := utiltestingapi.MakeWorkload("b", "").ReserveQuotaAt(&kueue.Admission{
 					ClusterQueue: "two",
-				}).Obj()
+				}, now).Obj()
 				return cache.AssumeWorkload(log, wl2)
 			},
 			wantReady: false,
@@ -3183,16 +3191,16 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 		{
 			name: "update second workload to have PodsReady=True",
 			setup: func(log logr.Logger, cache *Cache) error {
-				wl1 := utiltestingapi.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
+				wl1 := utiltestingapi.MakeWorkload("a", "").ReserveQuotaAt(&kueue.Admission{
 					ClusterQueue: "one",
-				}).Condition(metav1.Condition{
+				}, now).Condition(metav1.Condition{
 					Type:   kueue.WorkloadPodsReady,
 					Status: metav1.ConditionTrue,
 				}).Obj()
 				cache.AddOrUpdateWorkload(log, wl1)
-				wl2 := utiltestingapi.MakeWorkload("b", "").ReserveQuota(&kueue.Admission{
+				wl2 := utiltestingapi.MakeWorkload("b", "").ReserveQuotaAt(&kueue.Admission{
 					ClusterQueue: "two",
-				}).Obj()
+				}, now).Obj()
 				cache.AddOrUpdateWorkload(log, wl2)
 				return nil
 			},
@@ -3210,9 +3218,9 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 		{
 			name: "delete workload with PodsReady=False",
 			setup: func(log logr.Logger, cache *Cache) error {
-				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
+				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuotaAt(&kueue.Admission{
 					ClusterQueue: "one",
-				}).Condition(metav1.Condition{
+				}, now).Condition(metav1.Condition{
 					Type:   kueue.WorkloadPodsReady,
 					Status: metav1.ConditionFalse,
 				}).Obj()
@@ -3228,9 +3236,9 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 		{
 			name: "forget workload with PodsReady=False",
 			setup: func(log logr.Logger, cache *Cache) error {
-				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
+				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuotaAt(&kueue.Admission{
 					ClusterQueue: "one",
-				}).Condition(metav1.Condition{
+				}, now).Condition(metav1.Condition{
 					Type:   kueue.WorkloadPodsReady,
 					Status: metav1.ConditionFalse,
 				}).Obj()

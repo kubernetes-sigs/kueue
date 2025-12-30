@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -54,10 +53,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
-)
-
-const (
-	WorkloadEvictedOnManagerCluster = "EvictedOnManagerCluster"
 )
 
 var (
@@ -356,7 +351,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 	// 4. Handle workload evicted on manager cluster
 	remoteEvictCond, evictedRemote := group.bestMatchByCondition(kueue.WorkloadEvicted)
-	if remoteEvictCond != nil && strings.Contains(remoteEvictCond.Reason, WorkloadEvictedOnManagerCluster) {
+	if remoteEvictCond != nil && remoteEvictCond.Reason == workload.ReasonWithCause(kueue.WorkloadDeactivated, kueue.WorkloadEvictedOnManagerCluster) {
 		remoteCl := group.remoteClients[evictedRemote].client
 		remoteWl := group.remotes[evictedRemote]
 
@@ -418,7 +413,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			err := workload.PatchAdmissionStatus(ctx, remoteCl, remoteWl, w.clock, func(remoteWl *kueue.Workload) (bool, error) {
 				return workload.SetDeactivationTarget(
 					remoteWl,
-					WorkloadEvictedOnManagerCluster,
+					kueue.WorkloadEvictedOnManagerCluster,
 					api.TruncateConditionMessage(fmt.Sprintf("Evicted on manager: %s", evictedCond.Message)),
 				), nil
 			})
