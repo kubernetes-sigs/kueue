@@ -468,7 +468,7 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 
 	assignedQueue, ok := m.workloadAssignedQueues[workload.Key(w)]
 	if ok && assignedQueue != qKey {
-		m.deleteAndForgetWorkload(log, w)
+		m.deleteAndForgetWorkloadWithoutLock(log, w)
 	}
 
 	q := m.localQueues[qKey]
@@ -542,19 +542,16 @@ func (m *Manager) DeleteWorkload(log logr.Logger, wl *kueue.Workload) {
 	m.DeleteSecondPassWithoutLock(wl)
 }
 
-// Completely forget workload.
-// Delete the workload from queue or cluster queue.
-// Purge queue assignment caching.
+// Deletes the workload from assigned queue and purges the assigment caching.
+// Uses a lock to ensure operation safety.
 func (m *Manager) DeleteAndForgetWorkload(log logr.Logger, wl *kueue.Workload) {
 	m.Lock()
 	defer m.Unlock()
-	m.deleteAndForgetWorkload(log, wl)
+	m.deleteAndForgetWorkloadWithoutLock(log, wl)
 }
 
-// Completely forget workload.
-// Delete the workload from queue or cluster queue.
-// Purge queue assignment caching.
-func (m *Manager) deleteAndForgetWorkload(log logr.Logger, wl *kueue.Workload) {
+// Deletes the workload from local/cluster queue and purges queue assignment caching.
+func (m *Manager) deleteAndForgetWorkloadWithoutLock(log logr.Logger, wl *kueue.Workload) {
 	m.deleteWorkload(log, wl)
 	delete(m.workloadAssignedQueues, workload.Key(wl))
 	m.DeleteSecondPassWithoutLock(wl)
@@ -571,11 +568,8 @@ func (m *Manager) assignWorkload(wlKey workload.Reference, qKey queue.LocalQueue
 
 func (m *Manager) deleteWorkload(log logr.Logger, wl *kueue.Workload) {
 	wlKey := workload.Key(wl)
-	qKey, ok := m.workloadAssignedQueues[wlKey]
-	if !ok {
-		return
-	}
 
+	qKey := m.workloadAssignedQueues[wlKey]
 	q := m.localQueues[qKey]
 	if q == nil {
 		return

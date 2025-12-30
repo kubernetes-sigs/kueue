@@ -573,7 +573,7 @@ func TestDeleteWorkload(t *testing.T) {
 	})
 }
 
-func TestForgetWorkload(t *testing.T) {
+func TestDeleteAndForgetWorkload(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	manager := NewManager(utiltesting.NewFakeClient(), nil)
 	cq := utiltestingapi.MakeClusterQueue("cq").Obj()

@@ -902,11 +902,10 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		if !active {
 			log.V(2).Info("Workload will not be queued because the workload is not active")
 		}
-
 		// The workload could have been in the queues if we missed an event.
 		r.queues.DeleteWorkload(log, e.ObjectNew)
 
-		// Trigger the move of associated inadmissibleWorkloads, if there are any.
+		// trigger the move of associated inadmissibleWorkloads, if there are any.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, e.ObjectNew, func() {
 			// Delete the workload from cache while holding the queues lock
 			// to guarantee that requeued workloads are taken into account before
