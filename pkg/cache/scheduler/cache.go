@@ -673,9 +673,7 @@ func (c *Cache) AssumeWorkload(log logr.Logger, w *kueue.Workload) error {
 	wlKey := workload.Key(w)
 	assumedCq, assumed := c.assumedWorkloads[wlKey]
 	if assumed && assumedCq != w.Status.Admission.ClusterQueue {
-
 		return fmt.Errorf("the workload is already assumed to ClusterQueue %q", assumedCq)
-
 	}
 
 	cq := c.hm.ClusterQueue(w.Status.Admission.ClusterQueue)
