@@ -253,15 +253,15 @@ func TestValidateOnCreate(t *testing.T) {
 				),
 			}.ToAggregate(),
 		},
-		// {
-		// 	name: "valid workloadpriorityclass",
-		// 	job: utiljob.MakeJob("job", metav1.NamespaceDefault).
-		// 		Label(constants.QueueLabel, "queue").
-		// 		Label(constants.WorkloadPriorityClassLabel, "test-wpc").Obj(),
-		// 	objects: []client.Object{
-		// 		utiltestingapi.MakeWorkloadPriorityClass("test-wpc").PriorityValue(100).Obj(),
-		// 	},
-		// },
+		{
+			name: "valid workloadpriorityclass",
+			job: utiljob.MakeJob("job", metav1.NamespaceDefault).
+				Label(constants.QueueLabel, "queue").
+				Label(constants.WorkloadPriorityClassLabel, "test-wpc").Obj(),
+			objects: []client.Object{
+				utiltestingapi.MakeWorkloadPriorityClass("test-wpc").PriorityValue(100).Obj(),
+			},
+		},
 	}
 
 	for _, tc := range testcases {
