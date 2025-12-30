@@ -342,7 +342,7 @@ func Test_DeleteFromLocalQueue(t *testing.T) {
 
 	for _, w := range inadmissibleWorkloads {
 		wInfo := workload.NewInfo(w)
-		cq.requeueIfNotPresent(wInfo, false)
+		cq.requeueIfNotPresent(ctx, wInfo, false)
 		qImpl.AddOrUpdate(wInfo)
 	}
 
@@ -500,10 +500,10 @@ func TestClusterQueueImpl(t *testing.T) {
 			}
 
 			for _, w := range test.inadmissibleWorkloadsToRequeue {
-				cq.requeueIfNotPresent(w, false)
+				cq.requeueIfNotPresent(ctx, w, false)
 			}
 			for _, w := range test.admissibleWorkloadsToRequeue {
-				cq.requeueIfNotPresent(w, true)
+				cq.requeueIfNotPresent(ctx, w, true)
 			}
 
 			for _, w := range test.workloadsToUpdate {
@@ -550,7 +550,7 @@ func TestQueueInadmissibleWorkloadsDuringScheduling(t *testing.T) {
 	// Simulate requeuing during scheduling attempt.
 	head := cq.Pop()
 	cq.QueueInadmissibleWorkloads(ctx, cl)
-	cq.requeueIfNotPresent(head, false)
+	cq.requeueIfNotPresent(ctx, head, false)
 
 	activeWorkloads, _ = cq.Dump()
 	wantActiveWorkloads = []workload.Reference{workload.Key(wl)}
@@ -560,7 +560,7 @@ func TestQueueInadmissibleWorkloadsDuringScheduling(t *testing.T) {
 
 	// Simulating scheduling again without requeuing.
 	head = cq.Pop()
-	cq.requeueIfNotPresent(head, false)
+	cq.requeueIfNotPresent(ctx, head, false)
 	activeWorkloads, _ = cq.Dump()
 	wantActiveWorkloads = nil
 	if diff := cmp.Diff(wantActiveWorkloads, activeWorkloads, cmpDump...); diff != "" {
