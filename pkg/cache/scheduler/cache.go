@@ -651,9 +651,6 @@ func (c *Cache) IsAdmittedWorkload(w workload.Info) bool {
 	defer c.RUnlock()
 
 	k := workload.Key(w.Obj)
-	// if _, assumed := c.assumedWorkloads[k]; assumed {
-	// 	return true
-	// }
 	if cq := c.hm.ClusterQueue(w.ClusterQueue); cq != nil {
 		if _, admitted := cq.Workloads[k]; admitted {
 			return true
