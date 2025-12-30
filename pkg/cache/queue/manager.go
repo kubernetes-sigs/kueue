@@ -117,7 +117,7 @@ type Manager struct {
 	statusChecker StatusChecker
 	localQueues   map[queue.LocalQueueReference]*LocalQueue
 	// Tracks Workload's LocalQueue assignment throughout its whole lifetime (including running and finished).
-	assignedWorkloads map[workload.Reference]queue.LocalQueueReference
+	workloadAssignedQueues map[workload.Reference]queue.LocalQueueReference
 
 	workloadOrdering workload.Ordering
 
@@ -141,11 +141,11 @@ type Manager struct {
 
 func NewManager(client client.Client, checker StatusChecker, options ...Option) *Manager {
 	m := &Manager{
-		clock:             realClock,
-		client:            client,
-		statusChecker:     checker,
-		localQueues:       make(map[queue.LocalQueueReference]*LocalQueue),
-		assignedWorkloads: make(map[workload.Reference]queue.LocalQueueReference),
+		clock:                  realClock,
+		client:                 client,
+		statusChecker:          checker,
+		localQueues:            make(map[queue.LocalQueueReference]*LocalQueue),
+		workloadAssignedQueues: make(map[workload.Reference]queue.LocalQueueReference),
 		workloadOrdering: workload.Ordering{
 			PodsReadyRequeuingTimestamp: config.EvictionTimestamp,
 		},
@@ -466,9 +466,9 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 
 	qKey := queue.KeyFromWorkload(w)
 
-	assignedQueue, ok := m.assignedWorkloads[workload.Key(w)]
+	assignedQueue, ok := m.workloadAssignedQueues[workload.Key(w)]
 	if ok && assignedQueue != qKey {
-		m.forgetWorkload(log, w)
+		m.deleteAndForgetWorkload(log, w)
 	}
 
 	q := m.localQueues[qKey]
@@ -533,7 +533,8 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	return added
 }
 
-// Delete the workload from queue or cluster queue. Does not remove assignment caching.
+// Delete the workload from queue or cluster queue.
+// Does not remove the queue assignment caching.
 func (m *Manager) DeleteWorkload(log logr.Logger, wl *kueue.Workload) {
 	m.Lock()
 	defer m.Unlock()
@@ -541,17 +542,21 @@ func (m *Manager) DeleteWorkload(log logr.Logger, wl *kueue.Workload) {
 	m.DeleteSecondPassWithoutLock(wl)
 }
 
-// Completely forget workload. Deletes form queue and cluster queue. Removes assignment caching.
-func (m *Manager) ForgetWorkload(log logr.Logger, wl *kueue.Workload) {
+// Completely forget workload.
+// Delete the workload from queue or cluster queue.
+// Purge queue assignment caching.
+func (m *Manager) DeleteAndForgetWorkload(log logr.Logger, wl *kueue.Workload) {
 	m.Lock()
 	defer m.Unlock()
-	m.forgetWorkload(log, wl)
+	m.deleteAndForgetWorkload(log, wl)
 }
 
-// Completely forget workload. Deletes form queue and cluster queue. Removes assignment caching.
-func (m *Manager) forgetWorkload(log logr.Logger, wl *kueue.Workload) {
+// Completely forget workload.
+// Delete the workload from queue or cluster queue.
+// Purge queue assignment caching.
+func (m *Manager) deleteAndForgetWorkload(log logr.Logger, wl *kueue.Workload) {
 	m.deleteWorkload(log, wl)
-	delete(m.assignedWorkloads, workload.Key(wl))
+	delete(m.workloadAssignedQueues, workload.Key(wl))
 	m.DeleteSecondPassWithoutLock(wl)
 }
 
@@ -561,12 +566,12 @@ func (m *Manager) addWorkload(wlInfo *workload.Info, q *LocalQueue) {
 }
 
 func (m *Manager) assignWorkload(wlKey workload.Reference, qKey queue.LocalQueueReference) {
-	m.assignedWorkloads[wlKey] = qKey
+	m.workloadAssignedQueues[wlKey] = qKey
 }
 
 func (m *Manager) deleteWorkload(log logr.Logger, wl *kueue.Workload) {
 	wlKey := workload.Key(wl)
-	qKey, ok := m.assignedWorkloads[wlKey]
+	qKey, ok := m.workloadAssignedQueues[wlKey]
 	if !ok {
 		return
 	}
@@ -602,7 +607,7 @@ func (m *Manager) QueueAssociatedInadmissibleWorkloadsAfter(ctx context.Context,
 	}
 
 	wlKey := workload.Key(w)
-	qKey, ok := m.assignedWorkloads[wlKey]
+	qKey, ok := m.workloadAssignedQueues[wlKey]
 	if !ok {
 		return
 	}
@@ -752,7 +757,7 @@ func (m *Manager) heads() []workload.Info {
 		wlCopy.ClusterQueue = cqName
 		workloads = append(workloads, wlCopy)
 
-		qKey := m.assignedWorkloads[wlKey]
+		qKey := m.workloadAssignedQueues[wlKey]
 		q := m.localQueues[qKey]
 		delete(q.items, wlKey)
 
