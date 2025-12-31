@@ -364,11 +364,12 @@ func (c *ClusterQueue) forgetInflightByKey(key workload.Reference) {
 func (c *ClusterQueue) QueueInadmissibleWorkloads(ctx context.Context, client client.Client) bool {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
+	log := ctrl.LoggerFrom(ctx)
 	c.queueInadmissibleCycle = c.popCycle
 	if c.inadmissibleWorkloads.empty() {
 		return false
 	}
-
+	log.V(2).Info("Attempting to move workloads from inadmissibleWorkloads back to heap", "CQ", c.name)
 	inadmissibleWorkloads := make(map[workload.Reference]*workload.Info)
 	moved := false
 	c.inadmissibleWorkloads.forEach(func(key workload.Reference, wInfo *workload.Info) bool {
@@ -383,6 +384,7 @@ func (c *ClusterQueue) QueueInadmissibleWorkloads(ctx context.Context, client cl
 	})
 
 	c.inadmissibleWorkloads.replaceAll(inadmissibleWorkloads)
+	log.V(2).Info("Moved all workloads from inadmissibleWorkloads back to heap", "CQ", c.name)
 	return moved
 }
 
