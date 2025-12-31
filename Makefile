@@ -50,6 +50,9 @@ IMAGE_TAG_KUEUE_POPULATOR := $(IMAGE_REPO_KUEUE_POPULATOR):$(GIT_TAG)
 RAY_VERSION := 2.41.0
 RAYMINI_VERSION ?= 0.0.1
 
+CLUSTERPROFILE_VERSION ?= $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/cluster-inventory-api)
+CLUSTERPROFILE_SHA := $(shell echo $(CLUSTERPROFILE_VERSION) | awk -F'-' '{print $$NF}')
+
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 BIN_DIR ?= $(PROJECT_DIR)/bin
 ARTIFACTS ?= $(BIN_DIR)
@@ -568,3 +571,19 @@ ray-project-mini-image-build:
 kind-ray-project-mini-image-build: PLATFORMS=$(HOST_IMAGE_PLATFORM)
 kind-ray-project-mini-image-build: PUSH=--load
 kind-ray-project-mini-image-build: ray-project-mini-image-build
+
+# Build the secretreader-plugin image
+.PHONY: secretreader-plugin-image-build
+secretreader-plugin-image-build:
+	$(IMAGE_BUILD_CMD) \
+		-t $(IMAGE_REGISTRY)/secretreader-plugin \
+		--platform=$(PLATFORMS) \
+		--build-arg CLUSTERPROFILE_SHA=$(CLUSTERPROFILE_SHA) \
+		$(PUSH) \
+		-f hack/multikueue/secretreader/Dockerfile ./ \
+
+# The step is required for local e2e test run
+.PHONY: kind-secretreader-plugin-image-build
+kind-secretreader-plugin-image-build: PLATFORMS=$(HOST_IMAGE_PLATFORM)
+kind-secretreader-plugin-image-build: PUSH=--load
+kind-secretreader-plugin-image-build: secretreader-plugin-image-build
