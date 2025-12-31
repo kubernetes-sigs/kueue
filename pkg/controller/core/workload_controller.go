@@ -864,7 +864,7 @@ func (r *WorkloadReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) b
 
 	// Even if the state is unknown, the last cached state tells us whether the
 	// workload was in the queues and should be cleared from them.
-	r.queues.DeleteWorkload(log, e.Object)
+	r.queues.DeleteAndForgetWorkload(log, e.Object)
 
 	return true
 }
