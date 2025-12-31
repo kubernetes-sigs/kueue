@@ -67,7 +67,6 @@ spec:
 
 - A Kueue managed RayJob cannot use an existing RayCluster.
 - The RayCluster should be deleted at the end of the job execution, `spec.ShutdownAfterJobFinishes` should be `true`.
-- Because Kueue will reserve resources for the RayCluster, `spec.rayClusterSpec.enableInTreeAutoscaling` should be `false`.
 - Because a Kueue workload can have a maximum of 8 PodSets, the maximum number of `spec.rayClusterSpec.workerGroupSpecs` is 7.
 
 ## Example RayJob
@@ -94,3 +93,36 @@ kubectl create -f ray-job-sample.yaml
 The example above comes from [here](https://raw.githubusercontent.com/ray-project/kuberay/v1.4.2/ray-operator/config/samples/ray-job.sample.yaml) 
 and only has the `queue-name` label added and requests updated.
 {{% /alert %}}
+
+## Autoscaling (a.k.a InTreeAutoscaling)
+
+[RayJob Autoscaling](https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/configuring-autoscaling.html) can automatically add or remove Ray worker pods based on resource demand.
+
+This feature is supported since [v0.15.2](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.15.2) and [v0.14.7](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.14.7).
+
+### How to enable autoscaling in RayJob
+
+1. Enable feature gate for [Elastic Workloads (Workload Slices)](/docs/concepts/elastic_workload)
+
+```yaml
+ElasticJobsViaWorkloadSlices: true
+```
+
+2. Add workload slicing annotation on RayJob
+
+```yaml
+  annotations:
+    kueue.x-k8s.io/elastic-job: "true"
+```
+
+3. Enable `enableInTreeAutoscaling` on RayJob
+
+```yaml
+spec:
+  rayClusterSpec:
+    enableInTreeAutoscaling: true
+```
+
+### Example RayJob with Autoscaling
+
+{{< include "examples/jobs/ray-job-autoscaling-sample.yaml" "yaml" >}}
