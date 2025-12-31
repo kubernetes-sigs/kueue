@@ -320,7 +320,7 @@ func (c *ClusterQueue) DeleteFromLocalQueue(log logr.Logger, q *LocalQueue) {
 // or if there was a call to QueueInadmissibleWorkloads after a call to Pop,
 // the workload will be pushed back to heap directly. Otherwise, the workload
 // will be put into the inadmissibleWorkloads.
-func (c *ClusterQueue) requeueIfNotPresent(wInfo *workload.Info, immediate bool) bool {
+func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info, immediate bool) bool {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	key := workload.Key(wInfo.Obj)
@@ -347,6 +347,11 @@ func (c *ClusterQueue) requeueIfNotPresent(wInfo *workload.Info, immediate bool)
 	}
 
 	c.inadmissibleWorkloads.insert(key, wInfo)
+	logMsg := "Workload couldn't be admitted."
+	if c.queueingStrategy == kueue.BestEffortFIFO {
+		logMsg += "Moving the head of this ClusterQueue to the consecutive Workload."
+	}
+	log.V(2).Info(logMsg, "clusterQueue", c.name, "workload", key)
 
 	return true
 }
@@ -362,11 +367,12 @@ func (c *ClusterQueue) forgetInflightByKey(key workload.Reference) {
 func (c *ClusterQueue) QueueInadmissibleWorkloads(ctx context.Context, client client.Client) bool {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
+	log := ctrl.LoggerFrom(ctx)
 	c.queueInadmissibleCycle = c.popCycle
 	if c.inadmissibleWorkloads.empty() {
 		return false
 	}
-
+	log.V(2).Info("Resetting the head of the ClusterQueue", "clusterQueue", c.name)
 	inadmissibleWorkloads := make(map[workload.Reference]*workload.Info)
 	moved := false
 	c.inadmissibleWorkloads.forEach(func(key workload.Reference, wInfo *workload.Info) bool {
@@ -381,6 +387,7 @@ func (c *ClusterQueue) QueueInadmissibleWorkloads(ctx context.Context, client cl
 	})
 
 	c.inadmissibleWorkloads.replaceAll(inadmissibleWorkloads)
+	log.V(5).Info("Moved all workloads from inadmissibleWorkloads back to heap", "clusterQueue", c.name)
 	return moved
 }
 
@@ -575,8 +582,8 @@ func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.
 	// when preemptions are in-progress, we keep attempting to
 	// schedule the same workload for BestEffortFIFO queues. See
 	// documentation of stickyWorkload for more details
+	log := ctrl.LoggerFrom(ctx)
 	if reason == RequeueReasonPendingPreemption && c.queueingStrategy == kueue.BestEffortFIFO {
-		log := ctrl.LoggerFrom(ctx)
 		if logV := log.V(5); logV.Enabled() {
 			logV.Info("Setting sticky workload", "clusterQueue", wInfo.ClusterQueue, "workload", workload.Key(wInfo.Obj))
 		}
@@ -584,10 +591,9 @@ func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.
 	}
 
 	if c.queueingStrategy == kueue.StrictFIFO {
-		return c.requeueIfNotPresent(wInfo, reason != RequeueReasonNamespaceMismatch)
+		return c.requeueIfNotPresent(log, wInfo, reason != RequeueReasonNamespaceMismatch)
 	}
-	return c.requeueIfNotPresent(
-		wInfo,
+	return c.requeueIfNotPresent(log, wInfo,
 		reason == RequeueReasonFailedAfterNomination ||
 			reason == RequeueReasonPendingPreemption ||
 			reason == RequeueReasonPreemptionFailed)
