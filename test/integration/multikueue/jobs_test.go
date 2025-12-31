@@ -102,16 +102,19 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 		worker2Cq *kueue.ClusterQueue
 		worker2Lq *kueue.LocalQueue
+
+		managerTestCtx = context.Background()
 	)
 
 	ginkgo.BeforeAll(func() {
-		managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
+
+		managerTestCluster.fwk.StartManager(managerTestCtx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
 			managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce)
 		})
 	})
 
 	ginkgo.AfterAll(func() {
-		managerTestCluster.fwk.StopManager(managerTestCluster.ctx)
+		managerTestCluster.fwk.StopManager(managerTestCtx)
 	})
 
 	ginkgo.BeforeEach(func() {
