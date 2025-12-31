@@ -23,10 +23,48 @@ import (
 
 // CohortSpecApplyConfiguration represents a declarative configuration of the CohortSpec type for use
 // with apply.
+//
+// CohortSpec defines the desired state of Cohort
 type CohortSpecApplyConfiguration struct {
-	ParentName     *kueuev1beta2.CohortReference     `json:"parentName,omitempty"`
+	// parentName references the name of the Cohort's parent, if
+	// any. It satisfies one of three cases:
+	// 1) Unset. This Cohort is the root of its Cohort tree.
+	// 2) References a non-existent Cohort. We use default Cohort (no borrowing/lending limits).
+	// 3) References an existent Cohort.
+	//
+	// If a cycle is created, we disable all members of the
+	// Cohort, including ClusterQueues, until the cycle is
+	// removed.  We prevent further admission while the cycle
+	// exists.
+	ParentName *kueuev1beta2.CohortReference `json:"parentName,omitempty"`
+	// resourceGroups describes groupings of Resources and
+	// Flavors.  Each ResourceGroup defines a list of Resources
+	// and a list of Flavors which provide quotas for these
+	// Resources. Each Resource and each Flavor may only form part
+	// of one ResourceGroup.  There may be up to 16 ResourceGroups
+	// within a Cohort.
+	//
+	// Please note that nominalQuota defined at the Cohort level
+	// represents additional resources on top of those defined by
+	// ClusterQueues within the Cohort. The Cohort's nominalQuota
+	// may be thought of as a shared pool for the ClusterQueues
+	// within it. Additionally, this quota may also be lent out to
+	// parent Cohort(s), subject to LendingLimit.
+	//
+	// BorrowingLimit limits how much members of this Cohort
+	// subtree can borrow from the parent subtree.
+	//
+	// LendingLimit limits how much members of this Cohort subtree
+	// can lend to the parent subtree.
+	//
+	// Borrowing and Lending limits must only be set when the
+	// Cohort has a parent.  Otherwise, the Cohort create/update
+	// will be rejected by the webhook.
 	ResourceGroups []ResourceGroupApplyConfiguration `json:"resourceGroups,omitempty"`
-	FairSharing    *FairSharingApplyConfiguration    `json:"fairSharing,omitempty"`
+	// fairSharing defines the properties of the Cohort when
+	// participating in FairSharing. The values are only relevant
+	// if FairSharing is enabled in the Kueue configuration.
+	FairSharing *FairSharingApplyConfiguration `json:"fairSharing,omitempty"`
 }
 
 // CohortSpecApplyConfiguration constructs a declarative configuration of the CohortSpec type for use with

@@ -25,10 +25,14 @@ import (
 
 // ResourceFlavorApplyConfiguration represents a declarative configuration of the ResourceFlavor type for use
 // with apply.
+//
+// ResourceFlavor is the Schema for the resourceflavors API.
 type ResourceFlavorApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration    `json:",inline"`
+	v1.TypeMetaApplyConfiguration `json:",inline"`
+	// metadata is the metadata of the ResourceFlavor.
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Spec                             *ResourceFlavorSpecApplyConfiguration `json:"spec,omitempty"`
+	// spec is the specification of the ResourceFlavor.
+	Spec *ResourceFlavorSpecApplyConfiguration `json:"spec,omitempty"`
 }
 
 // ResourceFlavor constructs a declarative configuration of the ResourceFlavor type for use with
@@ -40,6 +44,7 @@ func ResourceFlavor(name string) *ResourceFlavorApplyConfiguration {
 	b.WithAPIVersion("kueue.x-k8s.io/v1beta1")
 	return b
 }
+
 func (b ResourceFlavorApplyConfiguration) IsApplyConfiguration() {}
 
 // WithKind sets the Kind field in the declarative configuration to the given value

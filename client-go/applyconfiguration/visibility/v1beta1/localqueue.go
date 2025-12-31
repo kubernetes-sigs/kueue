@@ -41,6 +41,7 @@ func LocalQueue(name, namespace string) *LocalQueueApplyConfiguration {
 	b.WithAPIVersion("visibility.kueue.x-k8s.io/v1beta1")
 	return b
 }
+
 func (b LocalQueueApplyConfiguration) IsApplyConfiguration() {}
 
 // WithKind sets the Kind field in the declarative configuration to the given value

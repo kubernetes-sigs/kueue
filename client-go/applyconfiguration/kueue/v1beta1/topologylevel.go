@@ -19,7 +19,15 @@ package v1beta1
 
 // TopologyLevelApplyConfiguration represents a declarative configuration of the TopologyLevel type for use
 // with apply.
+//
+// TopologyLevel defines the desired state of TopologyLevel
 type TopologyLevelApplyConfiguration struct {
+	// nodeLabel indicates the name of the node label for a specific topology
+	// level.
+	//
+	// Examples:
+	// - cloud.provider.com/topology-block
+	// - cloud.provider.com/topology-rack
 	NodeLabel *string `json:"nodeLabel,omitempty"`
 }
 

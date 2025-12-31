@@ -24,7 +24,9 @@ import (
 // LocalQueueFlavorUsageApplyConfiguration represents a declarative configuration of the LocalQueueFlavorUsage type for use
 // with apply.
 type LocalQueueFlavorUsageApplyConfiguration struct {
-	Name      *kueuev1beta1.ResourceFlavorReference       `json:"name,omitempty"`
+	// name of the flavor.
+	Name *kueuev1beta1.ResourceFlavorReference `json:"name,omitempty"`
+	// resources lists the quota usage for the resources in this flavor.
 	Resources []LocalQueueResourceUsageApplyConfiguration `json:"resources,omitempty"`
 }
 

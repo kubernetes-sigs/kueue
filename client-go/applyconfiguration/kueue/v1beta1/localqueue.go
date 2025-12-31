@@ -25,11 +25,16 @@ import (
 
 // LocalQueueApplyConfiguration represents a declarative configuration of the LocalQueue type for use
 // with apply.
+//
+// LocalQueue is the Schema for the localQueues API
 type LocalQueueApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration    `json:",inline"`
+	v1.TypeMetaApplyConfiguration `json:",inline"`
+	// metadata is the metadata of the LocalQueue.
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Spec                             *LocalQueueSpecApplyConfiguration   `json:"spec,omitempty"`
-	Status                           *LocalQueueStatusApplyConfiguration `json:"status,omitempty"`
+	// spec is the specification of the LocalQueue.
+	Spec *LocalQueueSpecApplyConfiguration `json:"spec,omitempty"`
+	// status is the status of the LocalQueue.
+	Status *LocalQueueStatusApplyConfiguration `json:"status,omitempty"`
 }
 
 // LocalQueue constructs a declarative configuration of the LocalQueue type for use with
@@ -42,6 +47,7 @@ func LocalQueue(name, namespace string) *LocalQueueApplyConfiguration {
 	b.WithAPIVersion("kueue.x-k8s.io/v1beta1")
 	return b
 }
+
 func (b LocalQueueApplyConfiguration) IsApplyConfiguration() {}
 
 // WithKind sets the Kind field in the declarative configuration to the given value

@@ -23,10 +23,59 @@ import (
 
 // ClusterQueuePreemptionApplyConfiguration represents a declarative configuration of the ClusterQueuePreemption type for use
 // with apply.
+//
+// ClusterQueuePreemption contains policies to preempt Workloads from this
+// ClusterQueue or the ClusterQueue's cohort.
+//
+// Preemption may be configured to work in the following scenarios:
+//
+// - When a Workload fits within the nominal quota of the ClusterQueue, but
+// the quota is currently borrowed by other ClusterQueues in the cohort.
+// We preempt workloads in other ClusterQueues to allow this ClusterQueue to
+// reclaim its nominal quota. Configured using reclaimWithinCohort.
+// - When a Workload doesn't fit within the nominal quota of the ClusterQueue
+// and there are admitted Workloads in the ClusterQueue with lower priority.
+// Configured using withinClusterQueue.
+// - When a Workload may fit while both borrowing and preempting
+// low priority workloads in the Cohort. Configured using borrowWithinCohort.
+// - When FairSharing is enabled, to maintain fair distribution of
+// unused resources. See FairSharing documentation.
+//
+// The preemption algorithm tries to find a minimal set of Workloads to
+// preempt to accomomdate the pending Workload, preempting Workloads with
+// lower priority first.
 type ClusterQueuePreemptionApplyConfiguration struct {
-	ReclaimWithinCohort *kueuev1beta1.PreemptionPolicy        `json:"reclaimWithinCohort,omitempty"`
-	BorrowWithinCohort  *BorrowWithinCohortApplyConfiguration `json:"borrowWithinCohort,omitempty"`
-	WithinClusterQueue  *kueuev1beta1.PreemptionPolicy        `json:"withinClusterQueue,omitempty"`
+	// reclaimWithinCohort determines whether a pending Workload can preempt
+	// Workloads from other ClusterQueues in the cohort that are using more than
+	// their nominal quota. The possible values are:
+	//
+	// - `Never` (default): do not preempt Workloads in the cohort.
+	// - `LowerPriority`: **Classic Preemption** if the pending Workload
+	// fits within the nominal quota of its ClusterQueue, only preempt
+	// Workloads in the cohort that have lower priority than the pending
+	// Workload. **Fair Sharing** only preempt Workloads in the cohort that
+	// have lower priority than the pending Workload and that satisfy the
+	// Fair Sharing preemptionStategies.
+	// - `Any`: **Classic Preemption** if the pending Workload fits within
+	// the nominal quota of its ClusterQueue, preempt any Workload in the
+	// cohort, irrespective of priority. **Fair Sharing** preempt Workloads
+	// in the cohort that satisfy the Fair Sharing preemptionStrategies.
+	ReclaimWithinCohort *kueuev1beta1.PreemptionPolicy `json:"reclaimWithinCohort,omitempty"`
+	// borrowWithinCohort determines whether a pending Workload can preempt
+	// Workloads from other ClusterQueues in the cohort if the workload requires borrowing.
+	// May only be configured with Classical Preemption, and __not__ with Fair Sharing.
+	BorrowWithinCohort *BorrowWithinCohortApplyConfiguration `json:"borrowWithinCohort,omitempty"`
+	// withinClusterQueue determines whether a pending Workload that doesn't fit
+	// within the nominal quota for its ClusterQueue, can preempt active Workloads in
+	// the ClusterQueue. The possible values are:
+	//
+	// - `Never` (default): do not preempt Workloads in the ClusterQueue.
+	// - `LowerPriority`: only preempt Workloads in the ClusterQueue that have
+	// lower priority than the pending Workload.
+	// - `LowerOrNewerEqualPriority`: only preempt Workloads in the ClusterQueue that
+	// either have a lower priority than the pending workload or equal priority
+	// and are newer than the pending workload.
+	WithinClusterQueue *kueuev1beta1.PreemptionPolicy `json:"withinClusterQueue,omitempty"`
 }
 
 // ClusterQueuePreemptionApplyConfiguration constructs a declarative configuration of the ClusterQueuePreemption type for use with

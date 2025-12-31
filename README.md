@@ -41,6 +41,7 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) and watch the Kueu
     [1.32](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-main-1-32),
     [1.33](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-main-1-33),
     [1.34](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-main-1-34),
+    [1.35](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-main-1-35),
     on Kind.
   - ✔️ E2E TAS Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-tas-main)
   - ✔️ E2E Custom Configs Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-customconfigs-main)

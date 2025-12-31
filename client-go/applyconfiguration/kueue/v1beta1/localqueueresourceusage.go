@@ -25,7 +25,9 @@ import (
 // LocalQueueResourceUsageApplyConfiguration represents a declarative configuration of the LocalQueueResourceUsage type for use
 // with apply.
 type LocalQueueResourceUsageApplyConfiguration struct {
-	Name  *v1.ResourceName   `json:"name,omitempty"`
+	// name of the resource.
+	Name *v1.ResourceName `json:"name,omitempty"`
+	// total is the total quantity of used quota.
 	Total *resource.Quantity `json:"total,omitempty"`
 }
 

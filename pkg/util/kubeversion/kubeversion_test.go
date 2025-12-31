@@ -32,7 +32,7 @@ import (
 
 // FetchServerVersion gets API server version
 func TestFetchServerVersion(t *testing.T) {
-	fakeClient := fakeclientset.NewSimpleClientset()
+	fakeClient := fakeclientset.NewClientset()
 	fakeDiscovery, ok := fakeClient.Discovery().(*fakediscovery.FakeDiscovery)
 	if !ok {
 		t.Fatalf("couldn't convert Discovery() to *FakeDiscovery")
@@ -52,7 +52,7 @@ func TestFetchServerVersion(t *testing.T) {
 func TestFetchServerVersionWithError(t *testing.T) {
 	expectedError := errors.New("an error occurred")
 
-	fakeClient := fakeclientset.NewSimpleClientset()
+	fakeClient := fakeclientset.NewClientset()
 	fakeDiscovery, ok := fakeClient.Discovery().(*fakediscovery.FakeDiscovery)
 	if !ok {
 		t.Fatalf("couldn't convert Discovery() to *FakeDiscovery")

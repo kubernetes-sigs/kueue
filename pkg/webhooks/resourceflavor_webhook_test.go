@@ -54,14 +54,15 @@ func TestValidateResourceFlavor(t *testing.T) {
 			rf:   utiltestingapi.MakeResourceFlavor("resource-flavor").NodeLabel("@abc", "foo").Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("spec", "nodeLabels"), "@abc", "").
-					WithOrigin("labelKey"),
+					WithOrigin("format=k8s-label-key"),
 			},
 		},
 		{
 			name: "invalid label value",
 			rf:   utiltestingapi.MakeResourceFlavor("resource-flavor").NodeLabel("foo", "@abc").Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec", "nodeLabels"), "@abc", ""),
+				field.Invalid(field.NewPath("spec", "nodeLabels"), "@abc", "").
+					WithOrigin("format=k8s-label-value"),
 			},
 		},
 	}

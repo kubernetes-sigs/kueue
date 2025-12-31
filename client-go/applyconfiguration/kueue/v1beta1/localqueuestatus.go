@@ -23,15 +23,32 @@ import (
 
 // LocalQueueStatusApplyConfiguration represents a declarative configuration of the LocalQueueStatus type for use
 // with apply.
+//
+// LocalQueueStatus defines the observed state of LocalQueue
 type LocalQueueStatusApplyConfiguration struct {
-	Conditions         []v1.ConditionApplyConfiguration           `json:"conditions,omitempty"`
-	PendingWorkloads   *int32                                     `json:"pendingWorkloads,omitempty"`
-	ReservingWorkloads *int32                                     `json:"reservingWorkloads,omitempty"`
-	AdmittedWorkloads  *int32                                     `json:"admittedWorkloads,omitempty"`
-	FlavorsReservation []LocalQueueFlavorUsageApplyConfiguration  `json:"flavorsReservation,omitempty"`
-	FlavorUsage        []LocalQueueFlavorUsageApplyConfiguration  `json:"flavorUsage,omitempty"`
-	Flavors            []LocalQueueFlavorStatusApplyConfiguration `json:"flavors,omitempty"`
-	FairSharing        *FairSharingStatusApplyConfiguration       `json:"fairSharing,omitempty"`
+	// conditions hold the latest available observations of the LocalQueue
+	// current state.
+	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
+	// pendingWorkloads is the number of Workloads in the LocalQueue not yet admitted to a ClusterQueue
+	PendingWorkloads *int32 `json:"pendingWorkloads,omitempty"`
+	// reservingWorkloads is the number of workloads in this LocalQueue
+	// reserving quota in a ClusterQueue and that haven't finished yet.
+	ReservingWorkloads *int32 `json:"reservingWorkloads,omitempty"`
+	// admittedWorkloads is the number of workloads in this LocalQueue
+	// admitted to a ClusterQueue and that haven't finished yet.
+	AdmittedWorkloads *int32 `json:"admittedWorkloads,omitempty"`
+	// flavorsReservation are the reserved quotas, by flavor currently in use by the
+	// workloads assigned to this LocalQueue.
+	FlavorsReservation []LocalQueueFlavorUsageApplyConfiguration `json:"flavorsReservation,omitempty"`
+	// flavorUsage are the used quotas, by flavor currently in use by the
+	// workloads assigned to this LocalQueue.
+	FlavorUsage []LocalQueueFlavorUsageApplyConfiguration `json:"flavorUsage,omitempty"`
+	// flavors lists all currently available ResourceFlavors in specified ClusterQueue.
+	//
+	// Deprecated: Flavors is deprecated and marked for removal in v1beta2.
+	Flavors []LocalQueueFlavorStatusApplyConfiguration `json:"flavors,omitempty"`
+	// fairSharing contains the information about the current status of fair sharing.
+	FairSharing *FairSharingStatusApplyConfiguration `json:"fairSharing,omitempty"`
 }
 
 // LocalQueueStatusApplyConfiguration constructs a declarative configuration of the LocalQueueStatus type for use with

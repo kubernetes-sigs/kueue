@@ -23,8 +23,13 @@ import (
 
 // AdmissionCheckStrategyRuleApplyConfiguration represents a declarative configuration of the AdmissionCheckStrategyRule type for use
 // with apply.
+//
+// AdmissionCheckStrategyRule defines rules for a single AdmissionCheck
 type AdmissionCheckStrategyRuleApplyConfiguration struct {
-	Name      *kueuev1beta2.AdmissionCheckReference  `json:"name,omitempty"`
+	// name is an AdmissionCheck's name.
+	Name *kueuev1beta2.AdmissionCheckReference `json:"name,omitempty"`
+	// onFlavors is a list of ResourceFlavors' names that this AdmissionCheck should run for.
+	// If empty, the AdmissionCheck will run for all workloads submitted to the ClusterQueue.
 	OnFlavors []kueuev1beta2.ResourceFlavorReference `json:"onFlavors,omitempty"`
 }
 

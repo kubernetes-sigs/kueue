@@ -24,8 +24,10 @@ import (
 // ReclaimablePodApplyConfiguration represents a declarative configuration of the ReclaimablePod type for use
 // with apply.
 type ReclaimablePodApplyConfiguration struct {
-	Name  *kueuev1beta1.PodSetReference `json:"name,omitempty"`
-	Count *int32                        `json:"count,omitempty"`
+	// name is the PodSet name.
+	Name *kueuev1beta1.PodSetReference `json:"name,omitempty"`
+	// count is the number of pods for which the requested resources are no longer needed.
+	Count *int32 `json:"count,omitempty"`
 }
 
 // ReclaimablePodApplyConfiguration constructs a declarative configuration of the ReclaimablePod type for use with
