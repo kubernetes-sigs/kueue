@@ -21,7 +21,7 @@ tool (
 )
 
 require (
-	github.com/gohugoio/hugo v0.153.1
+	github.com/gohugoio/hugo v0.154.0
 	github.com/golangci/golangci-lint/v2 v2.7.2
 	github.com/google/go-cmp v0.7.0
 	github.com/helm-unittest/helm-unittest v1.0.3
@@ -139,7 +139,7 @@ require (
 	github.com/bep/golibsass v1.2.0 // indirect
 	github.com/bep/goportabletext v0.1.0 // indirect
 	github.com/bep/helpers v0.6.0 // indirect
-	github.com/bep/imagemeta v0.12.0 // indirect
+	github.com/bep/imagemeta v0.12.1 // indirect
 	github.com/bep/lazycache v0.8.0 // indirect
 	github.com/bep/logg v0.4.0 // indirect
 	github.com/bep/mclib v1.20400.20402 // indirect
@@ -437,7 +437,7 @@ require (
 	github.com/tdewolff/parse/v2 v2.8.5 // indirect
 	github.com/tetafro/godot v1.5.4 // indirect
 	github.com/tetratelabs/wabin v0.0.0-20230304001439-f6f874872834 // indirect
-	github.com/tetratelabs/wazero v1.10.1 // indirect
+	github.com/tetratelabs/wazero v1.11.0 // indirect
 	github.com/timakin/bodyclose v0.0.0-20241222091800-1db5c5ca4d67 // indirect
 	github.com/timonwong/loggercheck v0.11.0 // indirect
 	github.com/tomarrell/wrapcheck/v2 v2.12.0 // indirect
