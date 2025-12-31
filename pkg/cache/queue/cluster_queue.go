@@ -357,7 +357,11 @@ func (c *ClusterQueue) requeueIfNotPresent(ctx context.Context, wInfo *workload.
 	}
 
 	c.inadmissibleWorkloads.insert(key, wInfo)
-	log.V(2).Info("Workload added to inadmissibleWorkloads", "clusterQueue", c.name, "workload", key)
+	logMsg := "Workload couldn't be admitted."
+	if c.queueingStrategy == kueue.BestEffortFIFO {
+		logMsg += "Moving the head of this ClusterQueue to the consecutive Workload."
+	}
+	log.V(2).Info(logMsg, "clusterQueue", c.name, "workload", key)
 
 	return true
 }
@@ -378,7 +382,7 @@ func (c *ClusterQueue) QueueInadmissibleWorkloads(ctx context.Context, client cl
 	if c.inadmissibleWorkloads.empty() {
 		return false
 	}
-	log.V(2).Info("Attempting to move workloads from inadmissibleWorkloads back to heap", "clusterQueue", c.name)
+	log.V(2).Info("Resetting the head of the ClusterQueue", "clusterQueue", c.name)
 	inadmissibleWorkloads := make(map[workload.Reference]*workload.Info)
 	moved := false
 	c.inadmissibleWorkloads.forEach(func(key workload.Reference, wInfo *workload.Info) bool {
@@ -393,7 +397,7 @@ func (c *ClusterQueue) QueueInadmissibleWorkloads(ctx context.Context, client cl
 	})
 
 	c.inadmissibleWorkloads.replaceAll(inadmissibleWorkloads)
-	log.V(2).Info("Moved all workloads from inadmissibleWorkloads back to heap", "clusterQueue", c.name)
+	log.V(5).Info("Moved all workloads from inadmissibleWorkloads back to heap", "clusterQueue", c.name)
 	return moved
 }
 
