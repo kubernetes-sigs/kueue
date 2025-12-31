@@ -37,7 +37,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Kueue visibility server", func() {
+var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singlecluster", "feature:visibility"), func() {
 	const defaultFlavor = "default-flavor"
 
 	// We do not check workload's Name, CreationTimestamp, and its OwnerReference's UID as they are generated at the server-side.

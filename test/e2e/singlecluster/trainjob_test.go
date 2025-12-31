@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("TrainJob", func() {
+var _ = ginkgo.Describe("TrainJob", ginkgo.Label("area:singlecluster", "feature:trainjob"), func() {
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
