@@ -630,7 +630,7 @@ func TestWlReconcile(t *testing.T) {
 				},
 			},
 		},
-		"remote wl evicted": {
+		"remote wl evicted due to eviction on manager cluster": {
 			features: map[featuregate.Feature]bool{
 				features.MultiKueueBatchJobWithManagedBy:   true,
 				features.MultiKueueWaitForWorkloadAdmitted: false,
@@ -781,6 +781,75 @@ func TestWlReconcile(t *testing.T) {
 			},
 			wantWorker2Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.DeepCopy(),
+			},
+		},
+		"handle workload evicted on worker cluster": {
+			features:     map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: true},
+			reconcileFor: "wl1",
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload got reservation on "worker1"`,
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					ClusterName("worker1").
+					Obj(),
+			},
+			managersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.Clone().Active(1).Obj(),
+			},
+			worker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Active(1).
+					Obj(),
+			},
+			worker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "DeactivatedDueToEvictedOnWorkerCluster",
+						Message: "Evicted on worker: Evicted by test",
+					}).
+					Evicted().
+					Obj(),
+			},
+			useSecondWorker: true,
+			worker2Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.DeepCopy(),
+			},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStatePending,
+						Message: `Workload evicted on worker cluster: "worker1", resetting for re-admission`,
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					ClusterName("worker1").
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.Clone().Active(1).Obj(),
+			},
+			wantWorker1Workloads: []kueue.Workload{},
+			wantWorker1Jobs:      []batchv1.Job{},
+			wantWorker2Workloads: []kueue.Workload{},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkloadBuilder.Clone().Obj()),
+					EventType: "Normal",
+					Reason:    "MultiKueue",
+					Message:   `Workload evicted on worker cluster: "worker1", resetting for re-admission`,
+				},
 			},
 		},
 		"remote wl with reservation (withoutJobManagedBy)": {
@@ -1847,7 +1916,7 @@ func TestWlReconcile(t *testing.T) {
 				// However, other important Status fields (e.g. Conditions) still reflect the change,
 				// so we deliberately ignore the Admission field here.
 				if features.Enabled(features.WorkloadRequestUseMergePatch) {
-					objCheckOpts = append(objCheckOpts, cmpopts.IgnoreFields(kueue.WorkloadStatus{}, "Admission"))
+					objCheckOpts = append(objCheckOpts, cmpopts.IgnoreFields(kueue.WorkloadStatus{}, "Admission", "ClusterName"))
 				}
 
 				gotManagersWorkloads := &kueue.WorkloadList{}

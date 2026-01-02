@@ -34,6 +34,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -622,6 +623,75 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker1Client.Get(ctx, lowWlKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
 					g.Expect(k8sWorker2Client.Get(ctx, lowWlKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("Should re-do admission process when workload gets evicted in the worker", func() {
+			job := testingjob.MakeJob("job", managerNs.Name).
+				WorkloadPriorityClass(managerLowWPC.Name).
+				Queue(kueue.LocalQueueName(managerLq.Name)).
+				RequestAndLimit(corev1.ResourceCPU, "1.5").
+				RequestAndLimit(corev1.ResourceMemory, "0.5G").
+				Obj()
+			util.MustCreate(ctx, k8sManagerClient, job)
+
+			wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
+			managerWl := &kueue.Workload{}
+			workerWorkload := &kueue.Workload{}
+
+			ginkgo.By("Checking that the workload is created and admitted in the manager cluster", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sManagerClient.Get(ctx, wlKey, managerWl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(managerWl)).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the workload is created on worker1", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sWorker1Client.Get(ctx, wlKey, workerWorkload)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(workerWorkload)).To(gomega.BeTrue())
+					g.Expect(workerWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
+
+					g.Expect(k8sWorker2Client.Get(ctx, wlKey, workerWorkload)).To(utiltesting.BeNotFoundError())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Switching worker cluster queues' resources to enforce re-admission on the worker2", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(worker1Cq), worker1Cq)).To(gomega.Succeed())
+					worker1Cq.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("1")
+					g.Expect(k8sWorker1Client.Update(ctx, worker1Cq)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sWorker2Client.Get(ctx, client.ObjectKeyFromObject(worker2Cq), worker2Cq)).To(gomega.Succeed())
+					worker2Cq.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("2")
+					g.Expect(k8sWorker2Client.Update(ctx, worker2Cq)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Triggering eviction in worker1", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sWorker1Client.Get(ctx, wlKey, workerWorkload)).To(gomega.Succeed())
+					g.Expect(workload.SetConditionAndUpdate(ctx, k8sWorker1Client, workerWorkload, kueue.WorkloadEvicted, metav1.ConditionTrue, kueue.WorkloadEvictedByPreemption, "By test", "evict", util.RealClock)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the workload is re-admitted in worker2", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sManagerClient.Get(ctx, wlKey, managerWl)).To(gomega.Succeed())
+					g.Expect(managerWl.Status.ClusterName).To(gomega.HaveValue(gomega.Equal("worker2")))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the workload is created in worker2", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sWorker2Client.Get(ctx, wlKey, workerWorkload)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(workerWorkload)).To(gomega.BeTrue())
+					g.Expect(workerWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
+
+					g.Expect(k8sWorker1Client.Get(ctx, wlKey, workerWorkload)).To(utiltesting.BeNotFoundError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
