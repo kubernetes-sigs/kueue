@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -201,6 +202,7 @@ func TestValidateOnCreate(t *testing.T) {
 		customValidationFailure field.ErrorList
 		customValidationError   error
 
+		objects     []client.Object
 		wantError   error
 		wantWarning admission.Warnings // Note: ValidateCreate always returns nil for admission.Warning.
 	}{
@@ -231,6 +233,35 @@ func TestValidateOnCreate(t *testing.T) {
 			// different error types. This simplifies the assertion logic.
 			wantError: field.InternalError(nil, errors.New("test-custom-validation-error")),
 		},
+		{
+			name: "invalid workloadpriorityclass",
+			job: &batchv1.Job{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "job",
+					Namespace: "default",
+					Labels: map[string]string{
+						constants.QueueLabel:                 "queue",
+						constants.WorkloadPriorityClassLabel: "nonexist",
+					},
+				},
+			},
+			wantError: field.ErrorList{
+				field.Invalid(
+					field.NewPath("metadata.labels[kueue.x-k8s.io/priority-class]"),
+					"nonexist",
+					`no WorkloadPriorityClass with name nonexist was found`,
+				),
+			}.ToAggregate(),
+		},
+		{
+			name: "valid workloadpriorityclass",
+			job: utiljob.MakeJob("job", metav1.NamespaceDefault).
+				Label(constants.QueueLabel, "queue").
+				Label(constants.WorkloadPriorityClassLabel, "test-wpc").Obj(),
+			objects: []client.Object{
+				utiltestingapi.MakeWorkloadPriorityClass("test-wpc").PriorityValue(100).Obj(),
+			},
+		},
 	}
 
 	for _, tc := range testcases {
@@ -252,6 +283,7 @@ func TestValidateOnCreate(t *testing.T) {
 			job.MockJobWithCustomValidation.EXPECT().ValidateOnCreate(gomock.Any()).Return(tc.customValidationFailure, tc.customValidationError).AnyTimes()
 
 			w := &jobframework.BaseWebhook{
+				Client: utiltesting.NewClientBuilder().WithObjects(tc.objects...).Build(),
 				FromObject: func(object runtime.Object) jobframework.GenericJob {
 					return object.(*mockJob)
 				},
