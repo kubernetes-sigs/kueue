@@ -20,11 +20,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 
 	"github.com/go-logr/logr"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/apiextensions-apiserver/pkg/client/informers/externalversions"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -34,7 +33,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 )
 
-var errFailedMappingResource = errors.New("restMapper failed mapping resource")
+var (
+	errFailedMappingResource = errors.New("restMapper failed mapping resource")
+)
 
 // SetupControllers setups all controllers and webhooks for integrations.
 // When the platform developers implement a separate kueue-manager to manage the in-house custom jobs,
@@ -45,13 +46,16 @@ var errFailedMappingResource = errors.New("restMapper failed mapping resource")
 // this function needs to be called after the certs get ready because the controllers won't work
 // until the webhooks are operating, and the webhook won't work until the
 // certs are all in place.
-func SetupControllers(ctx context.Context, mgr ctrl.Manager, logs logr.Logger, opts ...Option) error {
-	go manager.startCRDInformer(ctx, mgr, logs)
-	return manager.setupControllers(ctx, mgr, logs, opts...)
+func SetupControllers(ctx context.Context, mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
+	err := manager.startCRDInformer(ctx, mgr, log)
+	if err != nil {
+		return fmt.Errorf("failed to start CRD informer: %w", err)
+	}
+
+	return manager.setupControllers(ctx, mgr, log, opts...)
 }
 
-func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Manager, logs logr.Logger, opts ...Option) error {
-	log := logs
+func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
 	options := ProcessOptions(opts...)
 
 	implicitlyEnabledIntegrations := m.collectImplicitlyEnabledIntegrations(options.EnabledFrameworks)
@@ -147,7 +151,7 @@ func (m *integrationManager) setupControllerAndWebhook(ctx context.Context, mgr 
 func (m *integrationManager) waitForAPI(ctx context.Context, mgr ctrl.Manager, log logr.Logger, gvk schema.GroupVersionKind, action func()) {
 	crdNotifyCh, ok := m.crdNotifiers[gvk]
 	if !ok {
-		log.V(1).Info("Channel not found for gvk", "gvk", gvk)
+		log.V(2).Info("Channel not found for gvk", "gvk", gvk)
 		return
 	}
 	for {
@@ -196,56 +200,56 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer, opts ...Opti
 }
 
 // startCRDInformer watches for CRD additions/updates and notifies waitForAPI immediately
-func (m *integrationManager) startCRDInformer(ctx context.Context, mgr ctrl.Manager, log logr.Logger) {
-	crdClient, err := clientset.NewForConfig(mgr.GetConfig())
+func (m *integrationManager) startCRDInformer(ctx context.Context, mgr ctrl.Manager, log logr.Logger) error {
+	clientSet, err := apiextensionsclientset.NewForConfig(mgr.GetConfig())
 	if err != nil {
-		log.Error(err, "Failed to create CRD client for informer")
-		os.Exit(1)
-		return
+		return fmt.Errorf("failed to create apiextensions clientset: %w", err)
 	}
-
-	factory := externalversions.NewSharedInformerFactory(crdClient, 0)
+	factory := externalversions.NewSharedInformerFactory(clientSet, 0)
 	crdInformer := factory.Apiextensions().V1().CustomResourceDefinitions().Informer()
 
 	informerCtx, informerCancel := context.WithCancel(ctx)
-	defer informerCancel()
 	handler := tools.ResourceEventHandlerFuncs{
 		AddFunc: func(obj any) {
 			crd := obj.(*apiextensionsv1.CustomResourceDefinition)
 			if isCRDEstablished(crd) {
-				m.notifyCRDAvailable(ctx, log, crd)
+				m.notifyCRDAvailable(log, crd)
 				m.cancelInformerIfAllCRDsRegistered(log, informerCancel)
 			}
 		},
 		UpdateFunc: func(oldObj, newObj any) {
 			crd := newObj.(*apiextensionsv1.CustomResourceDefinition)
 			if isCRDEstablished(crd) {
-				m.notifyCRDAvailable(ctx, log, crd)
+				m.notifyCRDAvailable(log, crd)
 				m.cancelInformerIfAllCRDsRegistered(log, informerCancel)
 			}
 		},
 	}
 
 	if _, err := crdInformer.AddEventHandler(handler); err != nil {
-		log.Error(err, "Failed to add CRD informer handler")
-		return
+		informerCancel()
+		return fmt.Errorf("failed to add event handler to CRD informer: %w", err)
 	}
 
 	factory.Start(ctx.Done())
 	if !tools.WaitForCacheSync(ctx.Done(), crdInformer.HasSynced) {
-		log.Error(nil, "CRD informer cache failed to sync")
-		return
+		informerCancel()
+		return errors.New("CRD informer cache failed to sync")
 	}
 
 	log.V(2).Info("CRD informer started successfully")
-	<-informerCtx.Done()
-	factory.Shutdown()
-	log.V(2).Info("CRD informer stopped")
+	go func() {
+		defer informerCancel()
+		<-informerCtx.Done()
+		factory.Shutdown()
+		log.V(2).Info("CRD informer done")
+	}()
+	return nil
 }
 
 func (m *integrationManager) cancelInformerIfAllCRDsRegistered(log logr.Logger, cancel context.CancelFunc) {
-	defer m.crdNotifiersMu.Unlock()
-	m.crdNotifiersMu.Lock()
+	m.crdNotifiersMu.RLock()
+	defer m.crdNotifiersMu.RUnlock()
 	if len(m.crdNotifiers) == 0 {
 		log.V(2).Info("All CRDs registered, stopping CRD informer")
 		cancel()
@@ -253,7 +257,7 @@ func (m *integrationManager) cancelInformerIfAllCRDsRegistered(log logr.Logger, 
 }
 
 // notifyCRDAvailable notifies all waiters for this CRD's GVK
-func (m *integrationManager) notifyCRDAvailable(ctx context.Context, log logr.Logger, crd *apiextensionsv1.CustomResourceDefinition) {
+func (m *integrationManager) notifyCRDAvailable(log logr.Logger, crd *apiextensionsv1.CustomResourceDefinition) {
 	version := getCrdVersion(crd.Spec.Versions)
 	gvk := schema.GroupVersionKind{
 		Group:   crd.Spec.Group,

@@ -24,11 +24,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
+	"github.com/onsi/ginkgo/v2"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -172,7 +172,7 @@ func TestSetupControllers(t *testing.T) {
 				t.Fatalf("Failed to setup manager: %v", err)
 			}
 
-			gotError := manager.setupControllers(ctx, mgr, logr.Discard(), tc.opts...)
+			gotError := manager.setupControllers(ctx, mgr, ginkgo.GinkgoLogr, tc.opts...)
 			if diff := cmp.Diff(tc.wantError, gotError, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Errorf("Unexpected error from SetupControllers (-want,+got):\n%s", diff)
 			}
@@ -408,12 +408,10 @@ func TestNotifyCRDAvailable(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			manager := integrationManager{}
 			manager.crdNotifiers = make(map[schema.GroupVersionKind]chan struct{})
-
-			ctx, _ := utiltesting.ContextWithLog(t)
 			crdNotifyCh := make(chan struct{}, 1)
 			manager.crdNotifiers[tt.wantGVK] = crdNotifyCh
 
-			manager.notifyCRDAvailable(ctx, logr.Discard(), tt.crd)
+			manager.notifyCRDAvailable(ginkgo.GinkgoLogr, tt.crd)
 
 			select {
 			case <-crdNotifyCh:
@@ -429,7 +427,7 @@ func TestNotifyCRDAvailable(t *testing.T) {
 			wrongCh := make(chan struct{}, 1)
 			manager.crdNotifiers[wrongGVK] = wrongCh
 
-			manager.notifyCRDAvailable(ctx, logr.Discard(), tt.crd)
+			manager.notifyCRDAvailable(ginkgo.GinkgoLogr, tt.crd)
 
 			select {
 			case <-wrongCh:
