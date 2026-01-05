@@ -819,14 +819,16 @@ func (p *Pod) validatePodGroupMetadata(r record.EventRecorder, activePods []core
 	return nil
 }
 
-// runnableOrSucceededPods returns a slice of active pods in the group
-func (p *Pod) runnableOrSucceededPods() []corev1.Pod {
-	return utilslices.Pick(p.list.Items, isPodRunnableOrSucceeded)
-}
-
-// notRunnableNorSucceededPods returns a slice of inactive pods in the group
-func (p *Pod) notRunnableNorSucceededPods() []corev1.Pod {
-	return utilslices.Pick(p.list.Items, func(p *corev1.Pod) bool { return !isPodRunnableOrSucceeded(p) })
+// partitionPods splits pods in the group into active and inactive pods
+func (p *Pod) partitionPods() (active, inactive []corev1.Pod) {
+	for i := range p.list.Items {
+		if isPodRunnableOrSucceeded(&p.list.Items[i]) {
+			active = append(active, p.list.Items[i])
+		} else {
+			inactive = append(inactive, p.list.Items[i])
+		}
+	}
+	return active, inactive
 }
 
 // isPodRunnableOrSucceeded returns whether the Pod can eventually run, is Running or Succeeded.
@@ -1042,11 +1044,11 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		return jobframework.ConstructWorkload(ctx, c, p, labelKeysToCopy)
 	}
 
-	if err := p.finalizePods(ctx, c, p.notRunnableNorSucceededPods()); err != nil {
+	activePods, inactivePods := p.partitionPods()
+
+	if err := p.finalizePods(ctx, c, inactivePods); err != nil {
 		return nil, err
 	}
-
-	activePods := p.runnableOrSucceededPods()
 
 	err := p.validatePodGroupMetadata(r, activePods)
 	if err != nil {
@@ -1160,8 +1162,7 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r reco
 	}
 
 	// Cleanup excess pods for each workload pod set (role)
-	activePods := p.runnableOrSucceededPods()
-	inactivePods := p.notRunnableNorSucceededPods()
+	activePods, inactivePods := p.partitionPods()
 
 	var absentPods int
 	var keptPods []corev1.Pod
