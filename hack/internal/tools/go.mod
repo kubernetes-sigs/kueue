@@ -21,7 +21,7 @@ tool (
 )
 
 require (
-	github.com/gohugoio/hugo v0.154.0
+	github.com/gohugoio/hugo v0.154.2
 	github.com/golangci/golangci-lint/v2 v2.7.2
 	github.com/google/go-cmp v0.7.0
 	github.com/helm-unittest/helm-unittest v1.0.3
