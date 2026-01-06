@@ -472,7 +472,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 		})
 	})
 
-	ginkgo.When("changing the priority value of PriorityClass doesn't affect the priority of the workload", func() {
+	ginkgo.When("changing the priority value of PriorityClass changes the priority of the workload", func() {
 		ginkgo.BeforeEach(func() {
 			workloadPriorityClass = utiltestingapi.MakeWorkloadPriorityClass("workload-priority-class").PriorityValue(200).Obj()
 			util.MustCreate(ctx, k8sClient, workloadPriorityClass)
@@ -504,8 +504,10 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workloadPriorityClass), updatedWorkloadPriorityClass)).To(gomega.Succeed())
 				g.Expect(updatedWorkloadPriorityClass.Value).Should(gomega.Equal(updatedPriority))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&updatedQueueWorkload), &finalQueueWorkload)).To(gomega.Succeed())
-			gomega.Expect(finalQueueWorkload.Spec.Priority).To(gomega.Equal(&initialPriority))
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&updatedQueueWorkload), &finalQueueWorkload)).To(gomega.Succeed())
+				g.Expect(finalQueueWorkload.Spec.Priority).To(gomega.Equal(&updatedPriority))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 
