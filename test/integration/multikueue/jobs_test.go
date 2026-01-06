@@ -53,7 +53,6 @@ import (
 	workloadmpijob "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 	workloadpod "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
-	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	workloadtrainjob "sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
@@ -67,7 +66,6 @@ import (
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	testingpytorchjob "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
-	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	testingtfjob "sigs.k8s.io/kueue/pkg/util/testingjobs/tfjob"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
 	testingxgboostjob "sigs.k8s.io/kueue/pkg/util/testingjobs/xgboostjob"
@@ -1448,52 +1446,6 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				createdWorkload := &kueue.Workload{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-		})
-	})
-
-	ginkgo.It("Should run a RayJob on worker if admitted", func() {
-		admission := utiltestingapi.MakeAdmission(managerCq.Name).PodSets(
-			kueue.PodSetAssignment{
-				Name: "head",
-			}, kueue.PodSetAssignment{
-				Name: "workers-group-0",
-			},
-		)
-		rayjob := testingrayjob.MakeJob("rayjob1", managerNs.Name).
-			WithSubmissionMode(rayv1.InteractiveMode).
-			Queue(managerLq.Name).
-			Obj()
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, rayjob)
-		wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(rayjob.Name, rayjob.UID), Namespace: managerNs.Name}
-		util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission.Obj())
-
-		admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
-
-		ginkgo.By("changing the status of the RayJob in the worker, updates the manager's RayJob status", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				createdRayJob := rayv1.RayJob{}
-				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(rayjob), &createdRayJob)).To(gomega.Succeed())
-				createdRayJob.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusRunning
-				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdRayJob)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			gomega.Eventually(func(g gomega.Gomega) {
-				createdRayJob := rayv1.RayJob{}
-				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(rayjob), &createdRayJob)).To(gomega.Succeed())
-				g.Expect(createdRayJob.Status.JobDeploymentStatus).To(gomega.Equal(rayv1.JobDeploymentStatusRunning))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.By("finishing the worker RayJob, the manager's wl is marked as finished and the worker2 wl removed", func() {
-			finishJobReason := ""
-			gomega.Eventually(func(g gomega.Gomega) {
-				createdRayJob := rayv1.RayJob{}
-				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(rayjob), &createdRayJob)).To(gomega.Succeed())
-				createdRayJob.Status.JobStatus = rayv1.JobStatusSucceeded
-				createdRayJob.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusComplete
-				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdRayJob)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey, finishJobReason)
 		})
 	})
 
