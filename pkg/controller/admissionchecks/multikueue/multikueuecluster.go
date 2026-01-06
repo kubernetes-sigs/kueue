@@ -306,7 +306,7 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 			if adapter, found := rc.adapters[adapterKey]; !found {
 				wlLog.V(2).Info("No adapter found", "adapterKey", adapterKey, "ownerKey", ownerKey)
 			} else {
-				wlLog.V(5).Info("MultiKueueGC deleting workload owner", "ownerKey", ownerKey, "ownnerKind", controller)
+				wlLog.V(5).Info("MultiKueueGC deleting workload owner", "ownerKey", ownerKey, "ownerKind", controller)
 				err := adapter.DeleteRemoteObject(ctx, rc.client, types.NamespacedName{Name: controller.Name, Namespace: remoteWl.Namespace})
 				if client.IgnoreNotFound(err) != nil {
 					wlLog.Error(err, "Deleting remote workload's owner", "ownerKey", ownerKey)
