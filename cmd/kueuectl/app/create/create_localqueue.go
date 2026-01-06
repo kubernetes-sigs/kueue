@@ -30,8 +30,9 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	kueuev1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta2"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
-	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/dryrun"
 )
 
 var (
@@ -48,7 +49,7 @@ var (
 type LocalQueueOptions struct {
 	PrintFlags *genericclioptions.PrintFlags
 
-	DryRunStrategy   util.DryRunStrategy
+	DryRunStrategy   dryrun.Strategy
 	Name             string
 	Namespace        string
 	EnforceNamespace bool
@@ -71,7 +72,7 @@ func NewLocalQueueOptions(streams genericiooptions.IOStreams) *LocalQueueOptions
 	}
 }
 
-func NewLocalQueueCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
+func NewLocalQueueCmd(clientGetter clientgetter.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
 	o := NewLocalQueueOptions(streams)
 
 	cmd := &cobra.Command{
@@ -113,7 +114,7 @@ func NewLocalQueueCmd(clientGetter util.ClientGetter, streams genericiooptions.I
 }
 
 // Complete completes all the required options
-func (o *LocalQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Command, args []string) error {
+func (o *LocalQueueOptions) Complete(clientGetter clientgetter.ClientGetter, cmd *cobra.Command, args []string) error {
 	o.Name = args[0]
 
 	var err error
@@ -131,12 +132,12 @@ func (o *LocalQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.
 
 	o.Client = clientset.KueueV1beta2()
 
-	o.DryRunStrategy, err = util.GetDryRunStrategy(cmd)
+	o.DryRunStrategy, err = dryrun.GetStrategy(cmd)
 	if err != nil {
 		return err
 	}
 
-	err = util.PrintFlagsWithDryRunStrategy(o.PrintFlags, o.DryRunStrategy)
+	err = dryrun.PrintFlagsWithStrategy(o.PrintFlags, o.DryRunStrategy)
 	if err != nil {
 		return err
 	}
@@ -174,12 +175,12 @@ func (o *LocalQueueOptions) Validate(ctx context.Context) error {
 // Run create localqueue
 func (o *LocalQueueOptions) Run(ctx context.Context) error {
 	lq := o.createLocalQueue()
-	if o.DryRunStrategy != util.DryRunClient {
+	if o.DryRunStrategy != dryrun.Client {
 		var (
 			createOptions metav1.CreateOptions
 			err           error
 		)
-		if o.DryRunStrategy == util.DryRunServer {
+		if o.DryRunStrategy == dryrun.Server {
 			createOptions.DryRun = []string{metav1.DryRunAll}
 		}
 		lq, err = o.Client.LocalQueues(o.Namespace).Create(ctx, lq, createOptions)

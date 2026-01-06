@@ -245,6 +245,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			log = log.WithValues("parentCohort", klog.KRef("", string(cq.Parent().GetName())), "rootCohort", klog.KRef("", string(cq.Parent().Root().GetName())))
 		}
 		ctx := ctrl.LoggerInto(ctx, log)
+		log.V(2).Info("Attempting to schedule workload")
 
 		mode := e.assignment.RepresentativeMode()
 
@@ -262,7 +263,6 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			log.V(3).Info("Skipping workload as FlavorAssigner assigned NoFit mode")
 			continue
 		}
-		log.V(2).Info("Attempting to schedule workload")
 
 		if mode == flavorassigner.Preempt && len(e.preemptionTargets) == 0 {
 			log.V(2).Info("Workload requires preemption, but there are no candidate workloads allowed for preemption", "preemption", cq.Preemption)

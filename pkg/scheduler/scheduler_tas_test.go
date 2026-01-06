@@ -53,6 +53,7 @@ import (
 )
 
 func TestScheduleForTAS(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
 	const (
 		tasBlockLabel = "cloud.com/topology-block"
 		tasRackLabel  = "cloud.provider.com/rack"
@@ -330,7 +331,7 @@ func TestScheduleForTAS(t *testing.T) {
 						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("tas-main").
 							PodSets(
 								utiltestingapi.MakePodSetAssignment("one").
@@ -338,7 +339,7 @@ func TestScheduleForTAS(t *testing.T) {
 									DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
 									Obj(),
 							).
-							Obj(),
+							Obj(), now,
 					).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "prov-check",
@@ -441,7 +442,7 @@ func TestScheduleForTAS(t *testing.T) {
 						PreferredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("tas-main").
 							PodSets(utiltestingapi.MakePodSetAssignment("one").
 								Assignment(corev1.ResourceCPU, "tas-default", "1000m").
@@ -449,9 +450,9 @@ func TestScheduleForTAS(t *testing.T) {
 									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
@@ -479,7 +480,7 @@ func TestScheduleForTAS(t *testing.T) {
 						PreferredTopologyRequest(tasRackLabel).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("tas-main").
 							PodSets(utiltestingapi.MakePodSetAssignment("one").
 								Assignment(corev1.ResourceCPU, "tas-default", "1000m").
@@ -489,9 +490,9 @@ func TestScheduleForTAS(t *testing.T) {
 									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
@@ -521,7 +522,7 @@ func TestScheduleForTAS(t *testing.T) {
 						PreferredTopologyRequest(tasRackLabel).
 						Request(corev1.ResourceCPU, "3").
 						Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("tas-main").
 							PodSets(utiltestingapi.MakePodSetAssignment("one").
 								Assignment(corev1.ResourceCPU, "tas-default", "3000m").
@@ -529,9 +530,9 @@ func TestScheduleForTAS(t *testing.T) {
 									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
@@ -564,7 +565,7 @@ func TestScheduleForTAS(t *testing.T) {
 						PreferredTopologyRequest(tasRackLabel).
 						Request(corev1.ResourceCPU, "3").
 						Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("tas-main").
 							PodSets(utiltestingapi.MakePodSetAssignment("one").
 								Assignment(corev1.ResourceCPU, "tas-default", "3000m").
@@ -572,9 +573,9 @@ func TestScheduleForTAS(t *testing.T) {
 									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
@@ -607,7 +608,7 @@ func TestScheduleForTAS(t *testing.T) {
 						PreferredTopologyRequest(tasRackLabel).
 						Request(corev1.ResourceCPU, "3").
 						Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("tas-main").
 							PodSets(utiltestingapi.MakePodSetAssignment("one").
 								Assignment(corev1.ResourceCPU, "tas-default", "3000m").
@@ -615,9 +616,9 @@ func TestScheduleForTAS(t *testing.T) {
 									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			patchStatusErr: apierrors.NewNotFound(schema.GroupResource{}, "test"),
@@ -646,7 +647,7 @@ func TestScheduleForTAS(t *testing.T) {
 						PreferredTopologyRequest(tasRackLabel).
 						Request(corev1.ResourceCPU, "3").
 						Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("tas-main").
 							PodSets(utiltestingapi.MakePodSetAssignment("one").
 								Assignment(corev1.ResourceCPU, "tas-default", "3000m").
@@ -654,9 +655,9 @@ func TestScheduleForTAS(t *testing.T) {
 									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			patchStatusErr: errors.New("test error"),
@@ -690,7 +691,7 @@ func TestScheduleForTAS(t *testing.T) {
 						RequiredTopologyRequest(tasRackLabel).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("tas-main").
 							PodSets(utiltestingapi.MakePodSetAssignment("one").
 								Assignment(corev1.ResourceCPU, "tas-default", "1000m").
@@ -699,9 +700,9 @@ func TestScheduleForTAS(t *testing.T) {
 									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
@@ -730,7 +731,7 @@ func TestScheduleForTAS(t *testing.T) {
 						RequiredTopologyRequest(tasRackLabel).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("tas-main").
 							PodSets(utiltestingapi.MakePodSetAssignment("one").
 								Assignment(corev1.ResourceCPU, "tas-default", "1000m").
@@ -738,9 +739,9 @@ func TestScheduleForTAS(t *testing.T) {
 									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
@@ -769,7 +770,7 @@ func TestScheduleForTAS(t *testing.T) {
 						RequiredTopologyRequest(tasRackLabel).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("tas-main").
 							PodSets(utiltestingapi.MakePodSetAssignment("one").
 								Assignment(corev1.ResourceCPU, "tas-default", "1000m").
@@ -778,9 +779,9 @@ func TestScheduleForTAS(t *testing.T) {
 									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
@@ -819,7 +820,7 @@ func TestScheduleForTAS(t *testing.T) {
 							PreferredTopologyRequest(corev1.LabelHostname).
 							Request(corev1.ResourceCPU, "1").
 							Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("tas-main").
 							PodSets(
 								utiltestingapi.MakePodSetAssignment("one").
@@ -835,9 +836,9 @@ func TestScheduleForTAS(t *testing.T) {
 										Obj()).
 									Obj(),
 							).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
@@ -875,7 +876,7 @@ func TestScheduleForTAS(t *testing.T) {
 						SliceRequiredTopologyRequest(tasRackLabel).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("tas-main").
 							PodSets(utiltestingapi.MakePodSetAssignment("one").Count(2).
 								Assignment(corev1.ResourceCPU, "tas-default", "2000m").
@@ -884,9 +885,9 @@ func TestScheduleForTAS(t *testing.T) {
 									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x3"}, 1).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
@@ -917,7 +918,7 @@ func TestScheduleForTAS(t *testing.T) {
 						SliceRequiredTopologyRequest(tasRackLabel).
 						Request(corev1.ResourceCPU, "250").
 						Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("tas-main").
 							PodSets(utiltestingapi.MakePodSetAssignment("one").Count(8).
 								Assignment(corev1.ResourceCPU, "tas-default", "2000m").
@@ -926,9 +927,9 @@ func TestScheduleForTAS(t *testing.T) {
 									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x3"}, 4).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
@@ -959,7 +960,7 @@ func TestScheduleForTAS(t *testing.T) {
 						SliceRequiredTopologyRequest(tasRackLabel).
 						Request(corev1.ResourceCPU, "250m").
 						Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("tas-main").
 							PodSets(utiltestingapi.MakePodSetAssignment("one").Count(12).
 								Assignment(corev1.ResourceCPU, "tas-default", "3000m").
@@ -969,9 +970,9 @@ func TestScheduleForTAS(t *testing.T) {
 									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x4"}, 4).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
@@ -1003,7 +1004,7 @@ func TestScheduleForTAS(t *testing.T) {
 						SliceRequiredTopologyRequest(tasRackLabel).
 						Request(corev1.ResourceCPU, "200m").
 						Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("tas-main").
 							PodSets(utiltestingapi.MakePodSetAssignment("one").Count(8).
 								Assignment(corev1.ResourceCPU, "tas-default", "1600m").
@@ -1012,9 +1013,9 @@ func TestScheduleForTAS(t *testing.T) {
 									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 5).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
@@ -1045,7 +1046,7 @@ func TestScheduleForTAS(t *testing.T) {
 						SliceRequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "250").
 						Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("tas-main").
 							PodSets(utiltestingapi.MakePodSetAssignment("one").Count(4).
 								Assignment(corev1.ResourceCPU, "tas-default", "1000m").
@@ -1053,9 +1054,9 @@ func TestScheduleForTAS(t *testing.T) {
 									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 4).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
@@ -1085,7 +1086,7 @@ func TestScheduleForTAS(t *testing.T) {
 						SliceRequiredTopologyRequest(tasBlockLabel).
 						Request(corev1.ResourceCPU, "500m").
 						Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("tas-main").
 							PodSets(utiltestingapi.MakePodSetAssignment("one").Count(8).
 								Assignment(corev1.ResourceCPU, "tas-default", "4000m").
@@ -1096,9 +1097,9 @@ func TestScheduleForTAS(t *testing.T) {
 									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x7"}, 2).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
@@ -1142,7 +1143,7 @@ func TestScheduleForTAS(t *testing.T) {
 						PreferredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("tas-main").
 							PodSets(
 								utiltestingapi.MakePodSetAssignment("one").
@@ -1151,7 +1152,7 @@ func TestScheduleForTAS(t *testing.T) {
 									Count(26).
 									Obj(),
 							).
-							Obj(),
+							Obj(), now,
 					).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "prov-check",
@@ -1223,7 +1224,7 @@ func TestScheduleForTAS(t *testing.T) {
 						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("tas-main").
 							PodSets(
 								utiltestingapi.MakePodSetAssignment("one").
@@ -1231,7 +1232,7 @@ func TestScheduleForTAS(t *testing.T) {
 									DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
 									Obj(),
 							).
-							Obj(),
+							Obj(), now,
 					).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "prov-check",
@@ -1312,7 +1313,7 @@ func TestScheduleForTAS(t *testing.T) {
 							RequiredTopologyRequest(corev1.LabelHostname).
 							Request(corev1.ResourceCPU, "1").
 							Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("tas-main").
 							PodSets(
 								utiltestingapi.MakePodSetAssignment("one").
@@ -1325,7 +1326,7 @@ func TestScheduleForTAS(t *testing.T) {
 									Assignment(corev1.ResourceCPU, "tas-second", "1").
 									DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
 									Obj(),
-							).Obj(),
+							).Obj(), now,
 					).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "prov-check",
@@ -1433,7 +1434,7 @@ func TestScheduleForTAS(t *testing.T) {
 					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("tas-main").
 							PodSets(
 								utiltestingapi.MakePodSetAssignment("one").
@@ -1441,7 +1442,7 @@ func TestScheduleForTAS(t *testing.T) {
 									DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
 									Obj(),
 							).
-							Obj(),
+							Obj(), now,
 					).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "prov-check",
@@ -1841,7 +1842,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 				*utiltestingapi.MakeWorkload("bar-admitted", "default").
 					Queue("tas-main").
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("tas-main").
 							PodSets(utiltestingapi.MakePodSetAssignment("one").
 								Assignment(corev1.ResourceCPU, "tas-default", "1000m").
@@ -1849,9 +1850,9 @@ func TestScheduleForTAS(t *testing.T) {
 									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
@@ -1919,7 +1920,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 				*utiltestingapi.MakeWorkload("bar-admitted", "default").
 					Queue("tas-main").
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("tas-main").
 							PodSets(utiltestingapi.MakePodSetAssignment("one").
 								Assignment(corev1.ResourceCPU, "tas-default", "400m").
@@ -1927,9 +1928,9 @@ func TestScheduleForTAS(t *testing.T) {
 									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "400m").
@@ -1968,7 +1969,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 				*utiltestingapi.MakeWorkload("bar-admitted", "default").
 					Queue("tas-main").
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("tas-main").
 							PodSets(utiltestingapi.MakePodSetAssignment("one").
 								Assignment(corev1.ResourceCPU, "tas-default", "500m").
@@ -1977,9 +1978,9 @@ func TestScheduleForTAS(t *testing.T) {
 									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "500m").
@@ -2239,7 +2240,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 				*utiltestingapi.MakeWorkload("bar-admitted", "default").
 					Queue("tas-main").
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("tas-main").
 							PodSets(utiltestingapi.MakePodSetAssignment("one").
 								Assignment(corev1.ResourceCPU, "tas-default", "1000m").
@@ -2247,9 +2248,9 @@ func TestScheduleForTAS(t *testing.T) {
 									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
@@ -2397,7 +2398,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 				*utiltestingapi.MakeWorkload("bar-admitted", "default").
 					Queue("tas-main").
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("tas-main").
 							PodSets(utiltestingapi.MakePodSetAssignment("one").
 								Assignment(corev1.ResourceCPU, "tas-default", "150m").
@@ -2406,9 +2407,9 @@ func TestScheduleForTAS(t *testing.T) {
 									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 2).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					PodSets(*utiltestingapi.MakePodSet("one", 2).
 						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "150m").
@@ -2471,7 +2472,7 @@ func TestScheduleForTAS(t *testing.T) {
 						SliceRequiredTopologyRequest(tasRackLabel).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					ReserveQuota(
+					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("tas-main").
 							PodSets(utiltestingapi.MakePodSetAssignment("one").Count(2).
 								Assignment(corev1.ResourceCPU, "tas-default", "2000m").
@@ -2480,9 +2481,9 @@ func TestScheduleForTAS(t *testing.T) {
 									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 									Obj()).
 								Obj()).
-							Obj(),
+							Obj(), now,
 					).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
@@ -2743,7 +2744,6 @@ func TestScheduleForTAS(t *testing.T) {
 				cl := clientBuilder.Build()
 				recorder := &utiltesting.EventRecorder{}
 				cqCache := schdcache.New(cl)
-				now := time.Now()
 				fakeClock := testingclock.NewFakeClock(now)
 				qManager := qcache.NewManager(cl, cqCache, qcache.WithClock(fakeClock))
 				topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueue.Topology) {
@@ -2888,6 +2888,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 	queues := []kueue.LocalQueue{
 		*utiltestingapi.MakeLocalQueue("tas-main", "default").ClusterQueue("tas-main").Obj(),
 	}
+	eventIgnoreMessage := cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")
 	cases := map[string]struct {
 		nodes           []corev1.Node
 		pods            []corev1.Pod
@@ -2907,6 +2908,8 @@ func TestScheduleForTASPreemption(t *testing.T) {
 		wantEvents []utiltesting.EventRecord
 		// eventCmpOpts are the comparison options for the events
 		eventCmpOpts cmp.Options
+
+		featureGates map[featuregate.Feature]bool
 	}{
 		"workload preempted due to quota is using deleted Node": {
 			// In this scenario the preemption target, based on quota, is a
@@ -3682,11 +3685,147 @@ func TestScheduleForTASPreemption(t *testing.T) {
 					Obj(),
 			},
 		},
+		"TAS disabled, preemption succeeds even with ResourceFlavor topologyName": {
+			// This test verifies that when TopologyAwareScheduling feature gate is disabled,
+			// preemption works correctly even if ResourceFlavor has topologyName configured.
+			// The fix ensures that WorkloadsTopologyRequests is not called when TAS is disabled,
+			// preventing "workload requires Topology, but there is no TAS cache information" errors.
+			nodes:           defaultSingleNode,
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("tas-main").
+					Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority}).
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").
+						Resource(corev1.ResourceCPU, "3").
+						Resource(corev1.ResourceMemory, "3Gi").Obj()).
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("high-priority", "default").
+					UID("wl-high-priority").
+					JobUID("job-high-priority").
+					Queue("tas-main").
+					Priority(2).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						Request(corev1.ResourceCPU, "3").
+						Obj()).
+					Obj(),
+				*utiltestingapi.MakeWorkload("low-priority", "default").
+					Queue("tas-main").
+					Priority(1).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("tas-main").
+							PodSets(utiltestingapi.MakePodSetAssignment("main").
+								Assignment(corev1.ResourceCPU, "tas-default", "3").
+								Obj()).
+							Obj(),
+						now,
+					).
+					AdmittedAt(true, now).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						Request(corev1.ResourceCPU, "3").
+						Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("high-priority", "default").
+					UID("wl-high-priority").
+					JobUID("job-high-priority").
+					Queue("tas-main").
+					Priority(2).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						Request(corev1.ResourceCPU, "3").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             "Pending",
+						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor tas-default, 3 more needed. Pending the preemption of 1 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("3"),
+						},
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("low-priority", "default").
+					Queue("tas-main").
+					Priority(1).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("tas-main").
+							PodSets(utiltestingapi.MakePodSetAssignment("main").
+								Assignment(corev1.ResourceCPU, "tas-default", "3").
+								Obj()).
+							Obj(),
+						now,
+					).
+					AdmittedAt(true, now).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						Request(corev1.ResourceCPU, "3").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "ByTest",
+						Message:            "Admitted by ClusterQueue tas-main",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "AdmittedByTest",
+						Message:            "Admitted by ClusterQueue tas-main",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-high-priority, JobUID: job-high-priority) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-high-priority, JobUID: job-high-priority) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"tas-main": {"default/high-priority"},
+			},
+			wantInadmissibleLeft: nil,
+			eventCmpOpts:         cmp.Options{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "low-priority", "EvictedDueToPreempted", "Normal").
+					Message("Preempted to accommodate a workload (UID: wl-high-priority, JobUID: job-high-priority) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main").
+					Obj(),
+				utiltesting.MakeEventRecord("default", "low-priority", "Preempted", "Normal").
+					Message("Preempted to accommodate a workload (UID: wl-high-priority, JobUID: job-high-priority) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main").
+					Obj(),
+				utiltesting.MakeEventRecord("default", "high-priority", "Pending", "Warning").
+					Message("couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor tas-default, 3 more needed. Pending the preemption of 1 workload(s)").
+					Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: false,
+			},
+		},
 	}
 	for name, tc := range cases {
 		for _, enabled := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
+				for feature, value := range tc.featureGates {
+					features.SetFeatureGateDuringTest(t, feature, value)
+				}
 				ctx, log := utiltesting.ContextWithLog(t)
 				testWls := make([]kueue.Workload, 0, len(tc.workloads))
 				for _, wl := range tc.workloads {

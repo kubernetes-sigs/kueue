@@ -108,7 +108,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
-		"skip to sync status from remote suspended tfjob": {
+		"sync status from remote while local tfjob is suspended": {
 			managersTFJobs: []kftraining.TFJob{
 				*tfJobBuilder.Clone().
 					Suspend(true).
@@ -128,6 +128,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			wantManagersTFJobs: []kftraining.TFJob{
 				*tfJobBuilder.Clone().
 					Suspend(true).
+					StatusConditions(kftraining.JobCondition{Type: kftraining.JobSucceeded, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
 			wantWorkerTFJobs: []kftraining.TFJob{

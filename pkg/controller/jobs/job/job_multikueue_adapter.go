@@ -22,7 +22,6 @@ import (
 	"fmt"
 
 	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -64,7 +63,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	// the remote job exists
 	if err == nil {
 		if features.Enabled(features.MultiKueueBatchJobWithManagedBy) {
-			if fromObject(&localJob).IsSuspended() {
+			if fromObject(&localJob).IsSuspended() && !fromObject(&localJob).IsActive() {
 				// Ensure the job is unsuspended before updating its status; otherwise, it will fail when patching the spec.
 				log.V(2).Info("Skipping the sync since the local job is still suspended")
 				return nil
@@ -74,14 +73,8 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 				return true, nil
 			})
 		}
-		remoteFinished := false
-		for _, c := range remoteJob.Status.Conditions {
-			if (c.Type == batchv1.JobComplete || c.Type == batchv1.JobFailed) && c.Status == corev1.ConditionTrue {
-				remoteFinished = true
-				break
-			}
-		}
-		if remoteFinished {
+
+		if _, _, remoteFinished := fromObject(&remoteJob).Finished(ctx); remoteFinished {
 			return clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
 				localJob.Status = remoteJob.Status
 				return true, nil

@@ -44,6 +44,7 @@ import (
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -959,7 +960,7 @@ var _ = ginkgo.Describe("MPIJob controller with TopologyAwareScheduling", ginkgo
 		}
 	})
 
-	ginkgo.It("should admit workload which fits in a required topology domain", func() {
+	ginkgo.It("should admit workload which fits in a required topology domain", framework.SlowSpec, func() {
 		mpiJob := testingmpijob.MakeMPIJob(jobName, ns.Name).
 			Queue(localQueue.Name).
 			GenericLauncherAndWorker().

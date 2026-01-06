@@ -476,7 +476,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 			})
 
-			ginkgo.It("should respect TAS usage by admitted workloads after reboot; second workload created before reboot", func() {
+			ginkgo.It("should respect TAS usage by admitted workloads after reboot; second workload created before reboot", framework.SlowSpec, func() {
 				var wl1, wl2, wl3 *kueue.Workload
 				ginkgo.By("creating wl1 which consumes the entire TAS capacity", func() {
 					wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
@@ -536,7 +536,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 			})
 
-			ginkgo.It("should not admit the workload after the topology is deleted but should admit it after the topology is created", func() {
+			ginkgo.It("should not admit the workload after the topology is deleted but should admit it after the topology is created", framework.SlowSpec, func() {
 				var updatedTopology kueue.Topology
 
 				ginkgo.By("wait for the finalizer to be added to the topology", func() {
@@ -615,7 +615,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 			})
 
-			ginkgo.It("should not admit the workload after the TAS RF is deleted and admit it after the RF is re-created", func() {
+			ginkgo.It("should not admit the workload after the TAS RF is deleted and admit it after the RF is re-created", framework.SlowSpec, func() {
 				ginkgo.By("remove TAS RF finalizers to allow deletion", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						var updatedFlavor kueue.ResourceFlavor
@@ -865,7 +865,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
 				})
 			})
-			ginkgo.It("should update workload TopologyAssignment when node is removed", func() {
+			ginkgo.It("should update workload TopologyAssignment when node is removed", framework.SlowSpec, func() {
 				var wl1 *kueue.Workload
 				nodeName := nodes[0].Name
 
@@ -914,7 +914,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
-			ginkgo.It("should update workload TopologyAssignment when node fails", func() {
+			ginkgo.It("should update workload TopologyAssignment when node fails", framework.SlowSpec, func() {
 				var wl1 *kueue.Workload
 				nodeName := nodes[0].Name
 
@@ -1086,7 +1086,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 			})
 
-			ginkgo.It("should update workload TopologyAssignment after a node becomes available", func() {
+			ginkgo.It("should update workload TopologyAssignment after a node becomes available", framework.SlowSpec, func() {
 				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASFailedNodeReplacementFailFast, false)
 				var wl1, wl2 *kueue.Workload
 				nodeName := nodes[0].Name
@@ -1384,7 +1384,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				}
 			})
 
-			ginkgo.It("should evict the Workload if no replacement is possible and place it on another rack", func() {
+			ginkgo.It("should evict the Workload if no replacement is possible and place it on another rack", framework.SlowSpec, func() {
 				var wl1 *kueue.Workload
 				nodeName := nodes[0].Name
 
@@ -2262,7 +2262,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				}
 			})
 
-			ginkgo.It("should admit workload when nodes are provisioned; Nodes ready after small delay", func() {
+			ginkgo.It("should admit workload when nodes are provisioned; Nodes ready after small delay", framework.SlowSpec, func() {
 				var (
 					wl1 *kueue.Workload
 				)
@@ -2392,7 +2392,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 			})
 
-			ginkgo.It("should admit workload targeting the dedicated newly provisioned nodes", func() {
+			ginkgo.It("should admit workload targeting the dedicated newly provisioned nodes", framework.SlowSpec, func() {
 				var (
 					wl1 *kueue.Workload
 				)
@@ -2512,7 +2512,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 			})
 
-			ginkgo.It("should admit workload when nodes are provisioned and account for quota usage correctly", func() {
+			ginkgo.It("should admit workload when nodes are provisioned and account for quota usage correctly", framework.SlowSpec, func() {
 				var (
 					wl1 *kueue.Workload
 				)
@@ -2660,7 +2660,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 			})
 
-			ginkgo.It("should admit workload when nodes are provisioned; manager restart", func() {
+			ginkgo.It("should admit workload when nodes are provisioned; manager restart", framework.SlowSpec, func() {
 				var (
 					wl1 *kueue.Workload
 				)
@@ -2838,26 +2838,30 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
-				gomega.Consistently(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, wl1)).To(gomega.Succeed())
-					g.Expect(wl1.Status.Admission).ShouldNot(gomega.BeNil())
-					g.Expect(wl1.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
-					g.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeNil())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				ginkgo.By("ensure no assignment during three backoff intervals (≈1s, 2s, 4s - total 7s)", func() {
+					gomega.Consistently(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlKey, wl1)).To(gomega.Succeed())
+						g.Expect(wl1.Status.Admission).ShouldNot(gomega.BeNil())
+						g.Expect(wl1.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
+						g.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeNil())
+					}, 7*time.Second, util.ShortInterval).Should(gomega.Succeed())
+				})
 
-				ginkgo.By("observe at least three SecondPassFailed events while the node is NotReady (≈1s, 2s, 4s backoffs)", func() {
+				ginkgo.By("observe three SecondPassFailed events while the node is NotReady (≈1s, 2s, 4s backoffs)", func() {
 					var evList corev1.EventList
-					gomega.Expect(k8sClient.List(ctx, &evList, &client.ListOptions{Namespace: ns.Name})).To(gomega.Succeed())
-					var count int32
-					for i := range evList.Items {
-						ev := evList.Items[i]
-						if ev.Reason == "SecondPassFailed" && ev.InvolvedObject.Name == wl1.Name {
-							if ev.Count > count {
-								count = ev.Count
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.List(ctx, &evList, &client.ListOptions{Namespace: ns.Name})).To(gomega.Succeed())
+						var count int32
+						for i := range evList.Items {
+							ev := evList.Items[i]
+							if ev.Reason == "SecondPassFailed" && ev.InvolvedObject.Name == wl1.Name {
+								if ev.Count > count {
+									count = ev.Count
+								}
 							}
 						}
-					}
-					gomega.Expect(count).To(gomega.And(gomega.BeNumerically(">=", 3), gomega.BeNumerically("<=", 5)))
+						g.Expect(count).Should(gomega.Equal(int32(3)))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
 				ginkgo.By("make the node Ready", func() {
@@ -3156,7 +3160,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, nonTasFlavor, true)
 			})
 
-			ginkgo.It("Should demonstrate fragmentation issue", func() {
+			ginkgo.It("Should demonstrate fragmentation issue", framework.SlowSpec, func() {
 				// Create a 1 pod workload that needs 8 GPUs on a single node
 				// This should cause fragmentation because:
 				// - Kueue sees 8 GPUs available total (1 GPU per node across 8 nodes)
@@ -3280,7 +3284,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
 				})
 
-				ginkgo.It("Should prevent unschedulable admission by rejecting 8-GPU workload that requires 8-GPUs on single node", func() {
+				ginkgo.It("Should prevent unschedulable admission by rejecting 8-GPU workload that requires 8-GPUs on single node", framework.SlowSpec, func() {
 					// Create a workload that needs 8 GPUs on a single pod
 					// With TAS, this should be rejected because no single node has 8 available GPUs
 					wl := utiltestingapi.MakeWorkload("tas-workload", ns.Name).
@@ -3311,7 +3315,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					})
 				})
 
-				ginkgo.It("Should allow workload that fits within topology constraints", func() {
+				ginkgo.It("Should allow workload that fits within topology constraints", framework.SlowSpec, func() {
 					// Create a workload that needs only 1 GPU (fits on any single node)
 					wl := utiltestingapi.MakeWorkload("tas-fitting-workload", ns.Name).
 						Queue(kueue.LocalQueueName(localQueue.Name)).
@@ -3492,7 +3496,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					}
 				})
 
-				ginkgo.It("Should reject workload with required topology after preemption causes fragmentation", func() {
+				ginkgo.It("Should reject workload with required topology after preemption causes fragmentation", framework.SlowSpec, func() {
 					// Test scenario:
 					// - 4 nodes with 8 GPUs each
 					// - 24 high-priority 1-GPU workloads (6 per node)
@@ -3701,7 +3705,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 					})
 				})
-				ginkgo.It("Should admit workload with 8-GPU pod and 1-GPU pod requirements", func() {
+				ginkgo.It("Should admit workload with 8-GPU pod and 1-GPU pod requirements", framework.SlowSpec, func() {
 					// Create a workload with two pods: one needing 8 GPUs and another needing 1 GPU
 					// With TAS, this should be admitted because:
 					// - The 8-GPU pod can fit on the one remaining node with 8 GPUs available

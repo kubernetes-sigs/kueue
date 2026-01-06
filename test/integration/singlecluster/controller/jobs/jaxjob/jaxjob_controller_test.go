@@ -40,6 +40,7 @@ import (
 	testingjaxjob "sigs.k8s.io/kueue/pkg/util/testingjobs/jaxjob"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/test/integration/framework"
 	kftesting "sigs.k8s.io/kueue/test/integration/singlecluster/controller/jobs/kubeflow"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -627,7 +628,7 @@ var _ = ginkgo.Describe("JAXJob controller with TopologyAwareScheduling", ginkgo
 		}
 	})
 
-	ginkgo.It("should admit workload which fits in a required topology domain", func() {
+	ginkgo.It("should admit workload which fits in a required topology domain", framework.SlowSpec, func() {
 		pytorchJob := testingjaxjob.MakeJAXJob("jaxjob", ns.Name).
 			JAXReplicaSpecs(
 				testingjaxjob.JAXReplicaSpecRequirement{
