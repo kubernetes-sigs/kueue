@@ -1210,5 +1210,82 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, j04)
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, j03)
 		})
+
+		ginkgo.It("Should respect priority update for sticky Workload", func() {
+			ginkgo.By("Submitting j01 (P100, 2 CPU) to cq2 which borrows from cohort")
+			j01 := utiltestingapi.MakeWorkload("j01", ns.Name).
+				Queue("lq2").
+				Request(corev1.ResourceCPU, "2").
+				Priority(100).
+				Obj()
+			util.MustCreate(ctx, k8sClient, j01)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, j01)
+
+			ginkgo.By("Submitting j03 (P50, 2 CPU) to cq1 to trigger preemption of j01")
+			j03 := utiltestingapi.MakeWorkload("j03", ns.Name).
+				Queue("lq1").
+				Request(corev1.ResourceCPU, "2").
+				Priority(50).
+				Obj()
+			util.MustCreate(ctx, k8sClient, j03)
+
+			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, j01)
+			// j03 is now sticky.
+
+			ginkgo.By("Submitting j05 (P40, 2 CPU) which is lower priority than j03")
+			j05 := utiltestingapi.MakeWorkload("j05", ns.Name).
+				Queue("lq1").
+				Request(corev1.ResourceCPU, "2").
+				Priority(40).
+				Obj()
+			util.MustCreate(ctx, k8sClient, j05)
+
+			ginkgo.By("Demoting j03 priority to P10")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(j03), j03)).To(gomega.Succeed())
+				j03.Spec.Priority = ptr.To[int32](10)
+				g.Expect(k8sClient.Update(ctx, j03)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Ensuring j05 (P40) is admitted instead of j03 (P10)")
+			util.FinishEvictionForWorkloads(ctx, k8sClient, j01)
+
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, j05)
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, j03)
+		})
+
+		ginkgo.It("Should overwrite sticky Workload when higher priority Workload triggers new preemption", func() {
+			ginkgo.By("Submitting j01/j02 (P100, 2 CPU sets) to cq2 which borrows from cohort")
+			j01 := utiltestingapi.MakeWorkload("j01", ns.Name).Queue("lq2").Request(corev1.ResourceCPU, "1").Priority(100).Obj()
+			j02 := utiltestingapi.MakeWorkload("j02", ns.Name).Queue("lq2").Request(corev1.ResourceCPU, "1").Priority(90).Obj()
+			j03 := utiltestingapi.MakeWorkload("j03", ns.Name).Queue("lq2").Request(corev1.ResourceCPU, "1").Priority(100).Obj()
+			
+			// Total 3 CPU used in cq2. Global cohort usage 3.
+			util.MustCreate(ctx, k8sClient, j01)
+			util.MustCreate(ctx, k8sClient, j02)
+			util.MustCreate(ctx, k8sClient, j03)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, j01, j02, j03)
+
+			ginkgo.By("Submitting j_sticky (P50, 1 CPU) to cq1. Preempts j02 (Lowest Priority).")
+			jSticky := utiltestingapi.MakeWorkload("j-sticky", ns.Name).Queue("lq1").Request(corev1.ResourceCPU, "1").Priority(50).Obj()
+			util.MustCreate(ctx, k8sClient, jSticky)
+			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, j02)
+
+			ginkgo.By("Submitting j_high (P200, 3 CPU) to cq1. Needs 3 CPUs, so must preempt j01 AND j02 (and use j03's spot).")
+			jHigh := utiltestingapi.MakeWorkload("j-high", ns.Name).Queue("lq1").Request(corev1.ResourceCPU, "3").Priority(200).Obj()
+			util.MustCreate(ctx, k8sClient, jHigh)
+			
+			// Try to finish eviction for j02 first (since it was preempted by jSticky)
+			util.FinishEvictionForWorkloads(ctx, k8sClient, j02)
+
+			// Now jHigh should definitely preempt j01, j02 AND j03 (since it needs 3 CPUs)
+			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, j01, j02, j03)
+
+			ginkgo.By("Ensuring j_high is admitted")
+			util.FinishEvictionForWorkloads(ctx, k8sClient, j01, j02, j03)
+
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, jHigh)
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, jSticky)
+		})
 	})
 })
