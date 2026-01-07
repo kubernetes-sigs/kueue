@@ -1132,4 +1132,83 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, lowWl)
 		})
 	})
+	
+	ginkgo.Context("Priority Comparison with Sticky Workloads", func() {
+		var (
+			cq1 *kueue.ClusterQueue
+			cq2 *kueue.ClusterQueue
+			lq1 *kueue.LocalQueue
+			lq2 *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			cq1 = utiltestingapi.MakeClusterQueue("cq1").
+				Cohort("all").
+				QueueingStrategy(kueue.BestEffortFIFO).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				}).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").
+					Resource(corev1.ResourceCPU, "3").Obj()).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cq1)
+
+			cq2 = utiltestingapi.MakeClusterQueue("cq2").
+				Cohort("all").
+				QueueingStrategy(kueue.BestEffortFIFO).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").
+					Resource(corev1.ResourceCPU, "0", "3").Obj()).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cq2)
+
+			lq1 = utiltestingapi.MakeLocalQueue("lq1", ns.Name).ClusterQueue("cq1").Obj()
+			util.MustCreate(ctx, k8sClient, lq1)
+			lq2 = utiltestingapi.MakeLocalQueue("lq2", ns.Name).ClusterQueue("cq2").Obj()
+			util.MustCreate(ctx, k8sClient, lq2)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq1, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq2, true)
+		})
+
+		ginkgo.It("Should prioritize higher priority Workload over sticky Workload", func() {
+			ginkgo.By("Submitting j01 (P100, 2 CPU) to cq2 which borrows from cohort")
+			j01 := utiltestingapi.MakeWorkload("j01", ns.Name).
+				Queue("lq2").
+				Request(corev1.ResourceCPU, "2").
+				Priority(100).
+				Obj()
+			util.MustCreate(ctx, k8sClient, j01)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, j01)
+
+			ginkgo.By("Submitting j03 (P50, 2 CPU) to cq1 to trigger preemption of j01")
+			j03 := utiltestingapi.MakeWorkload("j03", ns.Name).
+				Queue("lq1").
+				Request(corev1.ResourceCPU, "2").
+				Priority(50).
+				Obj()
+			util.MustCreate(ctx, k8sClient, j03)
+
+			// Wait for j03 to try to admit and trigger preemption
+			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, j01)
+
+			// At this point j03 should be "Sticky" in the internal state because it triggered preemption.
+
+			ginkgo.By("Submitting j04 (P200, 2 CPU) to cq1, which has higher priority than j03")
+			j04 := utiltestingapi.MakeWorkload("j04", ns.Name).
+				Queue("lq1").
+				Request(corev1.ResourceCPU, "2").
+				Priority(200).
+				Obj()
+			util.MustCreate(ctx, k8sClient, j04)
+
+			ginkgo.By("Ensuring j04 is admitted instead of the sticky j03")
+			util.FinishEvictionForWorkloads(ctx, k8sClient, j01)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, j04)
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, j03)
+		})
+	})
 })
