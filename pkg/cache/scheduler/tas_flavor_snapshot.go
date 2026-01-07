@@ -876,18 +876,6 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	return assignments, ""
 }
 
-func getSliceSizeWithSinglePodAsDefault(podSetTopologyRequest *kueue.PodSetTopologyRequest) (int32, string) {
-	if podSetTopologyRequest == nil || podSetTopologyRequest.PodSetSliceRequiredTopology == nil {
-		return 1, ""
-	}
-
-	if podSetTopologyRequest.PodSetSliceSize == nil {
-		return 0, "slice topology requested, but slice size not provided"
-	}
-
-	return *podSetTopologyRequest.PodSetSliceSize, ""
-}
-
 // Merges two topology assignments keeping the lexicographical order of levelValues
 func (s *TASFlavorSnapshot) mergeTopologyAssignments(a, b *utiltas.TopologyAssignment) *utiltas.TopologyAssignment {
 	nodeLevel := len(s.levelKeys) - 1
@@ -935,16 +923,19 @@ func (s *TASFlavorSnapshot) HasLevel(r *kueue.PodSetTopologyRequest) bool {
 	return mainTopologyFound && sliceTopologyFound
 }
 
+func (s *TASFlavorSnapshot) sliceLevelKeyWithDefault(topologyRequest *kueue.PodSetTopologyRequest, defaultSliceLevelKey string) string {
+	if topologyRequest != nil && topologyRequest.PodSetSliceRequiredTopology != nil {
+		return *topologyRequest.PodSetSliceRequiredTopology
+	}
+	return defaultSliceLevelKey
+}
+
 func (s *TASFlavorSnapshot) resolveLevelIdx(levelKey string) (int, bool) {
 	levelIdx := slices.Index(s.levelKeys, levelKey)
 	if levelIdx == -1 {
 		return levelIdx, false
 	}
 	return levelIdx, true
-}
-
-func isRequired(tr *kueue.PodSetTopologyRequest) bool {
-	return tr != nil && tr.Required != nil
 }
 
 func (s *TASFlavorSnapshot) levelKeyWithImpliedFallback(tasRequests *TASPodSetRequests) *string {
@@ -975,11 +966,8 @@ func (s *TASFlavorSnapshot) levelKey(topologyRequest *kueue.PodSetTopologyReques
 	}
 }
 
-func (s *TASFlavorSnapshot) sliceLevelKeyWithDefault(topologyRequest *kueue.PodSetTopologyRequest, defaultSliceLevelKey string) string {
-	if topologyRequest != nil && topologyRequest.PodSetSliceRequiredTopology != nil {
-		return *topologyRequest.PodSetSliceRequiredTopology
-	}
-	return defaultSliceLevelKey
+func isRequired(tr *kueue.PodSetTopologyRequest) bool {
+	return tr != nil && tr.Required != nil
 }
 
 func isUnconstrained(tr *kueue.PodSetTopologyRequest, tasRequests *TASPodSetRequests) bool {
@@ -988,6 +976,22 @@ func isUnconstrained(tr *kueue.PodSetTopologyRequest, tasRequests *TASPodSetRequ
 
 func isSliceTopologyOnlyRequest(tr *kueue.PodSetTopologyRequest) bool {
 	return tr != nil && tr.Required == nil && tr.Preferred == nil && tr.PodSetSliceRequiredTopology != nil
+}
+
+func slicesRequested(tr *kueue.PodSetTopologyRequest) bool {
+	return tr != nil && tr.PodSetSliceRequiredTopology != nil && tr.PodSetSliceSize != nil
+}
+
+func getSliceSizeWithSinglePodAsDefault(podSetTopologyRequest *kueue.PodSetTopologyRequest) (int32, string) {
+	if podSetTopologyRequest == nil || podSetTopologyRequest.PodSetSliceRequiredTopology == nil {
+		return 1, ""
+	}
+
+	if podSetTopologyRequest.PodSetSliceSize == nil {
+		return 0, "slice topology requested, but slice size not provided"
+	}
+
+	return *podSetTopologyRequest.PodSetSliceSize, ""
 }
 
 // findBestFitDomain finds an index of the first domain with the lowest
@@ -1523,8 +1527,4 @@ func (s *TASFlavorSnapshot) notFitMessage(slicesFitCount, totalRequestsSlicesCou
 	}
 
 	return builder.String()
-}
-
-func slicesRequested(tr *kueue.PodSetTopologyRequest) bool {
-	return tr != nil && tr.PodSetSliceRequiredTopology != nil && tr.PodSetSliceSize != nil
 }
