@@ -623,6 +623,13 @@ func queueOrderingFunc(ctx context.Context, c client.Client, wo workload.Orderin
 			}
 		}
 
+		p1 := utilpriority.Priority(a.Obj)
+		p2 := utilpriority.Priority(b.Obj)
+
+		if p1 != p2 {
+			return p1 > p2
+		}
+
 		if sw.matches(workload.Key(a.Obj)) {
 			if logV := log.V(5); logV.Enabled() {
 				logV.Info("Prioritizing sticky workload", "workload", workload.Key(a.Obj))
@@ -634,13 +641,6 @@ func queueOrderingFunc(ctx context.Context, c client.Client, wo workload.Orderin
 				logV.Info("Prioritizing sticky workload", "workload", workload.Key(b.Obj))
 			}
 			return false
-		}
-
-		p1 := utilpriority.Priority(a.Obj)
-		p2 := utilpriority.Priority(b.Obj)
-
-		if p1 != p2 {
-			return p1 > p2
 		}
 
 		tA := wo.GetQueueOrderTimestamp(a.Obj)
