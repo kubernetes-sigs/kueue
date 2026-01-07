@@ -21,7 +21,6 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -112,7 +111,7 @@ func (h *nodeHandler) Update(ctx context.Context, e event.UpdateEvent, q workque
 		return
 	}
 
-	if checkNodeSchedulingPropertiesChanged(newNode, oldNode) == None {
+	if checkNodeSchedulingPropertiesChanged(newNode, oldNode) == nodeUnchanged {
 		ctrl.LoggerFrom(ctx).V(5).Info("Skipping node update as scheduling properties are unchanged", "node", newNode.Name)
 		return
 	}
@@ -215,17 +214,17 @@ func nodeBelongsToFlavor(node *corev1.Node, nodeLabels map[string]string, levels
 type eventType int64
 
 const (
-	UpdateNodeAllocatable eventType = 1 << iota
-	UpdateNodeLabel
-	UpdateNodeTaint
-	UpdateNodeCondition
-	UpdateNodeAnnotation
-	UpdateNodeSpecUnschedulable
+	nodeAllocatableChanged eventType = 1 << iota
+	nodeLabelsChanged
+	nodeTaintsChanged
+	nodeConditionsChanged
+	nodeAnnotationsChanged
+	nodeSpecUnschedulableChanged
 
-	None eventType = 0
+	nodeUnchanged eventType = 0
 )
 
-type nodeChangeExtractor func(newNode, oldNode *v1.Node) eventType
+type nodeChangeExtractor func(newNode, oldNode *corev1.Node) eventType
 
 var nodeChangeExtractors = []nodeChangeExtractor{
 	extractNodeSpecUnschedulableChange,
@@ -236,7 +235,7 @@ var nodeChangeExtractors = []nodeChangeExtractor{
 	extractNodeAnnotationsChange,
 }
 
-func checkNodeSchedulingPropertiesChanged(newNode, oldNode *v1.Node) eventType {
+func checkNodeSchedulingPropertiesChanged(newNode, oldNode *corev1.Node) eventType {
 	var et eventType
 	for _, fn := range nodeChangeExtractors {
 		et |= fn(newNode, oldNode)
@@ -244,51 +243,51 @@ func checkNodeSchedulingPropertiesChanged(newNode, oldNode *v1.Node) eventType {
 	return et
 }
 
-func extractNodeAllocatableChange(newNode, oldNode *v1.Node) eventType {
+func extractNodeAllocatableChange(newNode, oldNode *corev1.Node) eventType {
 	if equality.Semantic.DeepEqual(oldNode.Status.Allocatable, newNode.Status.Allocatable) {
-		return None
+		return nodeUnchanged
 	}
-	return UpdateNodeAllocatable
+	return nodeAllocatableChanged
 }
 
-func extractNodeLabelsChange(newNode, oldNode *v1.Node) eventType {
+func extractNodeLabelsChange(newNode, oldNode *corev1.Node) eventType {
 	if equality.Semantic.DeepEqual(newNode.GetLabels(), oldNode.GetLabels()) {
-		return None
+		return nodeUnchanged
 	}
-	return UpdateNodeLabel
+	return nodeLabelsChanged
 }
 
-func extractNodeTaintsChange(newNode, oldNode *v1.Node) eventType {
+func extractNodeTaintsChange(newNode, oldNode *corev1.Node) eventType {
 	if equality.Semantic.DeepEqual(newNode.Spec.Taints, oldNode.Spec.Taints) {
-		return None
+		return nodeUnchanged
 	}
-	return UpdateNodeTaint
+	return nodeTaintsChanged
 }
 
-func extractNodeConditionsChange(newNode, oldNode *v1.Node) eventType {
-	strip := func(conditions []v1.NodeCondition) map[v1.NodeConditionType]v1.ConditionStatus {
-		conditionStatuses := make(map[v1.NodeConditionType]v1.ConditionStatus, len(conditions))
+func extractNodeConditionsChange(newNode, oldNode *corev1.Node) eventType {
+	strip := func(conditions []corev1.NodeCondition) map[corev1.NodeConditionType]corev1.ConditionStatus {
+		conditionStatuses := make(map[corev1.NodeConditionType]corev1.ConditionStatus, len(conditions))
 		for i := range conditions {
 			conditionStatuses[conditions[i].Type] = conditions[i].Status
 		}
 		return conditionStatuses
 	}
 	if equality.Semantic.DeepEqual(strip(oldNode.Status.Conditions), strip(newNode.Status.Conditions)) {
-		return None
+		return nodeUnchanged
 	}
-	return UpdateNodeCondition
+	return nodeConditionsChanged
 }
 
-func extractNodeSpecUnschedulableChange(newNode, oldNode *v1.Node) eventType {
+func extractNodeSpecUnschedulableChange(newNode, oldNode *corev1.Node) eventType {
 	if newNode.Spec.Unschedulable == oldNode.Spec.Unschedulable {
-		return None
+		return nodeUnchanged
 	}
-	return UpdateNodeSpecUnschedulable
+	return nodeSpecUnschedulableChanged
 }
 
-func extractNodeAnnotationsChange(newNode, oldNode *v1.Node) eventType {
+func extractNodeAnnotationsChange(newNode, oldNode *corev1.Node) eventType {
 	if equality.Semantic.DeepEqual(oldNode.GetAnnotations(), newNode.GetAnnotations()) {
-		return None
+		return nodeUnchanged
 	}
-	return UpdateNodeAnnotation
+	return nodeAnnotationsChanged
 }
