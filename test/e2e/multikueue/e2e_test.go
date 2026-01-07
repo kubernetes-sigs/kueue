@@ -965,8 +965,19 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					createdRayJob := &rayv1.RayJob{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(rayjob), createdRayJob)).To(gomega.Succeed())
 					g.Expect(createdRayJob.Status.JobDeploymentStatus).To(gomega.Equal(rayv1.JobDeploymentStatusComplete))
+					// Get RayCluster name from RayJob
+					rayClusterName := createdRayJob.Status.RayClusterName
+					g.Expect(rayClusterName).NotTo(gomega.BeEmpty())
+					// Get RayCluster CR
+					rayCluster := &rayv1.RayCluster{}
+					g.Expect(k8sManagerClient.Get(ctx, types.NamespacedName{Name: rayClusterName, Namespace: managerNs.Name}, rayCluster)).To(gomega.Succeed())
+					// Create workload lookup key using RayCluster name and UID
+					rcWlLookupKey := types.NamespacedName{
+						Name:      workloadraycluster.GetWorkloadNameForRayCluster(rayCluster.Name, rayCluster.UID),
+						Namespace: managerNs.Name,
+					}
 					finishReasonMessage := "Job finished successfully."
-					checkFinishStatusCondition(g, wlLookupKey, finishReasonMessage)
+					checkFinishStatusCondition(g, rcWlLookupKey, finishReasonMessage)
 				}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
