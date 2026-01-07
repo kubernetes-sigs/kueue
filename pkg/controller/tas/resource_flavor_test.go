@@ -48,17 +48,17 @@ func TestNodeHandler_Update(t *testing.T) {
 	testCases := map[string]struct {
 		oldNode     *corev1.Node
 		newNode     *corev1.Node
-		wantChanged bool
+		wantChanged eventType
 	}{
 		"ResourceVersion changed": {
 			oldNode:     baseNode.Clone().ResourceVersion("1").Obj(),
 			newNode:     baseNode.Clone().ResourceVersion("2").Obj(),
-			wantChanged: false,
+			wantChanged: None,
 		},
 		"ManagedFields changed": {
 			oldNode:     baseNode.Clone().ManagedFields([]metav1.ManagedFieldsEntry{{Manager: "manager1"}}).Obj(),
 			newNode:     baseNode.Clone().ManagedFields([]metav1.ManagedFieldsEntry{{Manager: "manager2"}}).Obj(),
-			wantChanged: false,
+			wantChanged: None,
 		},
 		"LastHeartbeatTime changed": {
 			oldNode: baseNode.Clone().
@@ -91,17 +91,36 @@ func TestNodeHandler_Update(t *testing.T) {
 						LastTransitionTime: now,
 					},
 				).Obj(),
-			wantChanged: false,
+			wantChanged: None,
+		},
+		"RuntimeHandler order changed": {
+			oldNode: func() *corev1.Node {
+				n := baseNode.Clone().Obj()
+				n.Status.RuntimeHandlers = []corev1.NodeRuntimeHandler{
+					{Name: "test-handler"},
+					{Name: "runc"},
+				}
+				return n
+			}(),
+			newNode: func() *corev1.Node {
+				n := baseNode.Clone().Obj()
+				n.Status.RuntimeHandlers = []corev1.NodeRuntimeHandler{
+					{Name: "runc"},
+					{Name: "test-handler"},
+				}
+				return n
+			}(),
+			wantChanged: None,
 		},
 		"Annotation changed": {
 			oldNode:     baseNode.Clone().Obj(),
 			newNode:     baseNode.Clone().Annotation("new-annotation", "new-value").Obj(),
-			wantChanged: true,
+			wantChanged: UpdateNodeAnnotation,
 		},
 		"Label changed": {
 			oldNode:     baseNode.Clone().Obj(),
 			newNode:     baseNode.Clone().Label("new-label", "new-value").Obj(),
-			wantChanged: true,
+			wantChanged: UpdateNodeLabel,
 		},
 		"Node Ready status changed": {
 			oldNode: baseNode.Clone().
@@ -122,7 +141,7 @@ func TestNodeHandler_Update(t *testing.T) {
 						LastTransitionTime: later,
 					},
 				).Obj(),
-			wantChanged: true,
+			wantChanged: UpdateNodeCondition,
 		},
 		"Allocatable resources changed": {
 			oldNode: baseNode.Clone().Obj(),
@@ -130,7 +149,7 @@ func TestNodeHandler_Update(t *testing.T) {
 				corev1.ResourceCPU:    resource.MustParse("16"),
 				corev1.ResourceMemory: resource.MustParse("32Gi"),
 			}).Obj(),
-			wantChanged: true,
+			wantChanged: UpdateNodeAllocatable,
 		},
 		"Taints changed": {
 			oldNode: baseNode.Clone().Obj(),
@@ -139,7 +158,7 @@ func TestNodeHandler_Update(t *testing.T) {
 				Value:  "new-value",
 				Effect: corev1.TaintEffectNoExecute,
 			}).Obj(),
-			wantChanged: true,
+			wantChanged: UpdateNodeTaint,
 		},
 		"Taints with TimeAdded": {
 			oldNode: baseNode.Clone().Taints(corev1.Taint{
@@ -154,7 +173,7 @@ func TestNodeHandler_Update(t *testing.T) {
 				Effect:    corev1.TaintEffectNoExecute,
 				TimeAdded: &later,
 			}).Obj(),
-			wantChanged: true,
+			wantChanged: UpdateNodeTaint,
 		},
 		"Taints TimeAdded from null to non-null": {
 			oldNode: baseNode.Clone().Taints(corev1.Taint{
@@ -169,12 +188,12 @@ func TestNodeHandler_Update(t *testing.T) {
 				Effect:    corev1.TaintEffectNoExecute,
 				TimeAdded: &later,
 			}).Obj(),
-			wantChanged: true,
+			wantChanged: UpdateNodeTaint,
 		},
 		"Unschedulable changed": {
 			oldNode:     baseNode.Clone().Obj(),
 			newNode:     baseNode.Clone().Unschedulable().Obj(),
-			wantChanged: true,
+			wantChanged: UpdateNodeSpecUnschedulable,
 		},
 		"Update Multiple properties": {
 			oldNode: baseNode.Clone().
@@ -206,11 +225,17 @@ func TestNodeHandler_Update(t *testing.T) {
 						LastHeartbeatTime:  later,
 						LastTransitionTime: now,
 					},
+					corev1.NodeCondition{
+						Type:               corev1.NodeDiskPressure,
+						Status:             corev1.ConditionTrue,
+						LastHeartbeatTime:  now,
+						LastTransitionTime: now,
+					},
 				).
 				Annotation("another-annotation", "another-value").
 				ResourceVersion("12345").
 				Obj(),
-			wantChanged: true,
+			wantChanged: UpdateNodeCondition | UpdateNodeAnnotation,
 		},
 		"New condition type added": {
 			oldNode: baseNode.Clone().Obj(),
@@ -220,7 +245,7 @@ func TestNodeHandler_Update(t *testing.T) {
 				LastHeartbeatTime:  now,
 				LastTransitionTime: now,
 			}).Obj(),
-			wantChanged: true,
+			wantChanged: UpdateNodeCondition,
 		},
 		"Condition removed": {
 			oldNode: baseNode.Clone().
@@ -247,7 +272,7 @@ func TestNodeHandler_Update(t *testing.T) {
 						LastTransitionTime: now,
 					},
 				).Obj(),
-			wantChanged: true,
+			wantChanged: UpdateNodeCondition,
 		},
 	}
 
