@@ -31,7 +31,7 @@ var (
 	wlLong    = templates.LongDesc(`Resumes the Workload, allowing its admission according to regular ClusterQueue rules.`)
 	wlExample = templates.Examples(`
 		# Resume the workload 
-  		kueuectl resume workload my-workload
+  		kueuectl resume kueueworkload my-workload
 	`)
 )
 
@@ -42,7 +42,7 @@ func NewWorkloadCmd(clientGetter clientgetter.ClientGetter, streams genericioopt
 		Use: "workload NAME [--namespace NAMESPACE] [--dry-run STRATEGY]",
 		// To do not add "[flags]" suffix on the end of usage line
 		DisableFlagsInUseLine: true,
-		Aliases:               []string{"wl"},
+		Aliases:               []string{"wl", "kwl", "kueueworkload"},
 		Short:                 "Resume the Workload",
 		Long:                  wlLong,
 		Example:               wlExample,

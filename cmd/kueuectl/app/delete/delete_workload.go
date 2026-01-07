@@ -46,7 +46,7 @@ import (
 var (
 	wlExample = templates.Examples(`  
 		# Delete the Workload
-  		kueuectl delete workload my-workload
+  		kueuectl delete kueueworkload my-workload
 	`)
 	wlLong = templates.LongDesc(`
 		If the Workload has associated Jobs, the command will prompt for deletion approval
@@ -89,7 +89,7 @@ func NewWorkloadCmd(clientGetter clientgetter.ClientGetter, streams genericioopt
 	cmd := &cobra.Command{
 		Use:                   "workload NAME [--yes] [--all] [--dry-run STRATEGY]",
 		DisableFlagsInUseLine: true,
-		Aliases:               []string{"wl"},
+		Aliases:               []string{"wl", "kwl", "kueueworkload"},
 		Short:                 "Delete the given Workload and its corresponding Job",
 		Long:                  wlLong,
 		Example:               wlExample,
