@@ -103,6 +103,11 @@ func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Mana
 					}
 				})
 			} else {
+				// API already exists, clean up the channel since waitForAPI won't be called
+				m.crdNotifiersMu.Lock()
+				delete(m.crdNotifiers, gvk)
+				m.crdNotifiersMu.Unlock()
+
 				if err := m.setupControllerAndWebhook(ctx, mgr, name, fwkNamePrefix, cb, options, opts...); err != nil {
 					return err
 				}
@@ -149,9 +154,9 @@ func (m *integrationManager) setupControllerAndWebhook(ctx context.Context, mgr 
 }
 
 func (m *integrationManager) waitForAPI(ctx context.Context, mgr ctrl.Manager, log logr.Logger, gvk schema.GroupVersionKind, action func()) {
-	m.crdNotifiersMu.Lock()
+	m.crdNotifiersMu.RLock()
 	crdNotifyCh, ok := m.crdNotifiers[gvk]
-	m.crdNotifiersMu.Unlock()
+	m.crdNotifiersMu.RUnlock()
 	if !ok {
 		log.V(2).Info("Channel not found for gvk", "gvk", gvk)
 		return
@@ -169,6 +174,9 @@ func (m *integrationManager) waitForAPI(ctx context.Context, mgr ctrl.Manager, l
 			return
 		case <-crdNotifyCh:
 			log.V(2).Info("Received CRD notification, checking API availability", "gvk", gvk)
+			m.crdNotifiersMu.Lock()
+			delete(m.crdNotifiers, gvk)
+			m.crdNotifiersMu.Unlock()
 			continue
 		}
 	}
@@ -263,13 +271,12 @@ func (m *integrationManager) notifyCRDAvailable(log logr.Logger, crd *apiextensi
 		Kind:    crd.Spec.Names.Kind,
 	}
 
-	m.crdNotifiersMu.Lock()
-	defer m.crdNotifiersMu.Unlock()
+	m.crdNotifiersMu.RLock()
+	defer m.crdNotifiersMu.RUnlock()
 
 	if notifier, exists := m.crdNotifiers[gvk]; exists {
 		log.V(2).Info("CRD established, notifying waiters", "gvk", gvk)
 		close(notifier)
-		delete(m.crdNotifiers, gvk)
 	}
 }
 

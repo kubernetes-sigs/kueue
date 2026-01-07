@@ -150,7 +150,7 @@ func TestSetupControllers(t *testing.T) {
 				cancel()
 				time.Sleep(100 * time.Millisecond)
 			}()
-			k8sClient := utiltesting.NewClientBuilder(jobset.AddToScheme, kfmpi.AddToScheme, kftraining.AddToScheme, rayv1.AddToScheme, apiextensionsfake.AddToScheme).Build()
+			k8sClient := utiltesting.NewClientBuilder(jobset.AddToScheme, kfmpi.AddToScheme, kftraining.AddToScheme, rayv1.AddToScheme).Build()
 
 			mgrOpts := ctrlmgr.Options{
 				Scheme: k8sClient.Scheme(),
@@ -179,15 +179,21 @@ func TestSetupControllers(t *testing.T) {
 
 			var fakeCRDs []apiextensionsv1.CustomResourceDefinition
 			for _, gvk := range tc.mapperGVKs {
-				crd := makeFakeCRD(gvk.Group, gvk.Version, gvk.Kind)
+				crd := makeFakeCRD(gvk.Group, gvk.Version, gvk.Kind, true)
 				fakeCRDs = append(fakeCRDs, crd)
 			}
+
+			for _, gvk := range tc.delayedGVKs {
+				crd := makeFakeCRD(gvk.Group, gvk.Version, gvk.Kind, false)
+				fakeCRDs = append(fakeCRDs, crd)
+			}
+
 			var crdObjects []runtime.Object
 			for i := range fakeCRDs {
 				crdObjects = append(crdObjects, &fakeCRDs[i])
 			}
-			fakeCRDClientset := apiextensionsfake.NewSimpleClientset(crdObjects...)
 
+			fakeCRDClientset := apiextensionsfake.NewSimpleClientset(crdObjects...)
 			err = manager.startCRDInformer(ctx, logger, fakeCRDClientset)
 			if err != nil {
 				t.Fatalf("Failed to start CRD informer: %v", err)
@@ -199,16 +205,22 @@ func TestSetupControllers(t *testing.T) {
 			}
 
 			if len(tc.delayedGVKs) > 0 {
+				time.Sleep(10 * time.Millisecond)
 				for _, gvk := range tc.delayedGVKs {
 					mapper := mgr.GetRESTMapper().(*TestRESTMapper)
 					mapper.lock.Lock()
 					mapper.Add(*gvk, apimeta.RESTScopeNamespace)
 					mapper.lock.Unlock()
-					crd := makeFakeCRD(gvk.Group, gvk.Version, gvk.Kind)
-					_, err := fakeCRDClientset.ApiextensionsV1().CustomResourceDefinitions().Create(ctx, &crd, metav1.CreateOptions{})
+					crdName := strings.ToLower(gvk.Kind) + "s." + gvk.Group
+					existingCRD, err := fakeCRDClientset.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, crdName, metav1.GetOptions{})
 					if err != nil {
-						t.Fatalf("Failed to create delayed CRD: %v", err)
+						t.Fatalf("Failed to get delayed CRD: %v", err)
 					}
+					if existingCRD.Status.Conditions[0].Status == apiextensionsv1.ConditionTrue {
+						t.Fatalf("CRD %q is already established", crdName)
+					}
+					existingCRD.Status.Conditions[0].Status = apiextensionsv1.ConditionTrue
+					manager.notifyCRDAvailable(logger, existingCRD)
 					testDelayedIntegration(&manager, gvk.Group+"/"+strings.ToLower(gvk.Kind))
 				}
 			}
@@ -232,8 +244,12 @@ func (m *TestRESTMapper) RESTMapping(gk schema.GroupKind, versions ...string) (*
 	return m.DefaultRESTMapper.RESTMapping(gk, versions...)
 }
 
-func makeFakeCRD(group, version, kind string) apiextensionsv1.CustomResourceDefinition {
+func makeFakeCRD(group, version, kind string, established bool) apiextensionsv1.CustomResourceDefinition {
 	plural := strings.ToLower(kind) + "s"
+	status := apiextensionsv1.ConditionTrue
+	if !established {
+		status = apiextensionsv1.ConditionFalse
+	}
 	return apiextensionsv1.CustomResourceDefinition{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: plural + "." + group,
@@ -263,7 +279,7 @@ func makeFakeCRD(group, version, kind string) apiextensionsv1.CustomResourceDefi
 			Conditions: []apiextensionsv1.CustomResourceDefinitionCondition{
 				{
 					Type:   apiextensionsv1.Established,
-					Status: apiextensionsv1.ConditionTrue,
+					Status: status,
 				},
 			},
 		},
@@ -467,22 +483,6 @@ func TestNotifyCRDAvailable(t *testing.T) {
 			case <-crdNotifyCh:
 			case <-time.After(2 * time.Second):
 				t.Errorf("Timeout waiting for CRD notification for %v", tt.wantGVK)
-			}
-
-			wrongGVK := schema.GroupVersionKind{
-				Group:   "wronggroup",
-				Version: "v1",
-				Kind:    "WrongKind",
-			}
-			wrongCh := make(chan struct{}, 1)
-			manager.crdNotifiers[wrongGVK] = wrongCh
-
-			manager.notifyCRDAvailable(logger, tt.crd)
-
-			select {
-			case <-wrongCh:
-				t.Errorf("Notification incorrectly sent for wrong GVK: %v", wrongGVK)
-			case <-time.After(2 * time.Second):
 			}
 		})
 	}

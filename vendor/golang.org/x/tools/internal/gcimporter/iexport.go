@@ -829,7 +829,8 @@ func (p *iexporter) doDecl(obj types.Object) {
 			// their name must be qualified before exporting recv.
 			if rparams := sig.RecvTypeParams(); rparams.Len() > 0 {
 				prefix := obj.Name() + "." + m.Name()
-				for rparam := range rparams.TypeParams() {
+				for i := 0; i < rparams.Len(); i++ {
+					rparam := rparams.At(i)
 					name := tparamExportName(prefix, rparam)
 					w.p.tparamNames[rparam.Obj()] = name
 				}
@@ -943,13 +944,6 @@ func (w *exportWriter) posV0(pos token.Pos) {
 }
 
 func (w *exportWriter) pkg(pkg *types.Package) {
-	if pkg == nil {
-		// [exportWriter.typ] accepts a nil pkg only for types
-		// of constants, which cannot contain named objects
-		// such as fields or methods and thus should never
-		// reach this method (#76222).
-		panic("nil package")
-	}
 	// Ensure any referenced packages are declared in the main index.
 	w.p.allPkgs[pkg] = true
 
@@ -965,11 +959,9 @@ func (w *exportWriter) qualifiedType(obj *types.TypeName) {
 	w.pkg(obj.Pkg())
 }
 
-// typ emits the specified type.
-//
-// Objects within the type (struct fields and interface methods) are
-// qualified by pkg. It may be nil if the type cannot contain objects,
-// such as the type of a constant.
+// TODO(rfindley): what does 'pkg' even mean here? It would be better to pass
+// it in explicitly into signatures and structs that may use it for
+// constructing fields.
 func (w *exportWriter) typ(t types.Type, pkg *types.Package) {
 	w.data.uint64(w.p.typOff(t, pkg))
 }
@@ -999,7 +991,6 @@ func (w *exportWriter) startType(k itag) {
 	w.data.uint64(uint64(k))
 }
 
-// doTyp is the implementation of [exportWriter.typ].
 func (w *exportWriter) doTyp(t types.Type, pkg *types.Package) {
 	if trace {
 		w.p.trace("exporting type %s (%T)", t, t)
@@ -1073,7 +1064,7 @@ func (w *exportWriter) doTyp(t types.Type, pkg *types.Package) {
 
 	case *types.Signature:
 		w.startType(signatureType)
-		w.pkg(pkg) // qualifies param/result vars
+		w.pkg(pkg)
 		w.signature(t)
 
 	case *types.Struct:
@@ -1119,19 +1110,19 @@ func (w *exportWriter) doTyp(t types.Type, pkg *types.Package) {
 
 	case *types.Interface:
 		w.startType(interfaceType)
-		w.pkg(pkg) // qualifies unexported method funcs
+		w.pkg(pkg)
 
 		n := t.NumEmbeddeds()
 		w.uint64(uint64(n))
 		for i := 0; i < n; i++ {
 			ft := t.EmbeddedType(i)
+			tPkg := pkg
 			if named, _ := types.Unalias(ft).(*types.Named); named != nil {
 				w.pos(named.Obj().Pos())
 			} else {
-				// e.g. ~int
 				w.pos(token.NoPos)
 			}
-			w.typ(ft, pkg)
+			w.typ(ft, tPkg)
 		}
 
 		// See comment for struct fields. In shallow mode we change the encoding
@@ -1232,19 +1223,20 @@ func (w *exportWriter) signature(sig *types.Signature) {
 
 func (w *exportWriter) typeList(ts *types.TypeList, pkg *types.Package) {
 	w.uint64(uint64(ts.Len()))
-	for t := range ts.Types() {
-		w.typ(t, pkg)
+	for i := 0; i < ts.Len(); i++ {
+		w.typ(ts.At(i), pkg)
 	}
 }
 
 func (w *exportWriter) tparamList(prefix string, list *types.TypeParamList, pkg *types.Package) {
 	ll := uint64(list.Len())
 	w.uint64(ll)
-	for tparam := range list.TypeParams() {
+	for i := 0; i < list.Len(); i++ {
+		tparam := list.At(i)
 		// Set the type parameter exportName before exporting its type.
 		exportName := tparamExportName(prefix, tparam)
 		w.p.tparamNames[tparam.Obj()] = exportName
-		w.typ(tparam, pkg)
+		w.typ(list.At(i), pkg)
 	}
 }
 
