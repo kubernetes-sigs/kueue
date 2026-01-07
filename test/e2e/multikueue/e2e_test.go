@@ -956,7 +956,24 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				util.MustCreate(ctx, k8sManagerClient, rayjob)
 			})
 
-			wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(rayjob.Name, rayjob.UID), Namespace: managerNs.Name}
+			createdRayJob := &rayv1.RayJob{}
+
+			ginkgo.By("Waiting for RayClusterName to be populated", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(rayjob), createdRayJob)).To(gomega.Succeed())
+					g.Expect(createdRayJob.Status.RayClusterName).NotTo(gomega.BeEmpty())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			rayCluster := &rayv1.RayCluster{}
+
+			ginkgo.By("Waiting for RayCluster", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sManagerClient.Get(ctx, types.NamespacedName{Name: createdRayJob.Status.RayClusterName, Namespace: managerNs.Name}, rayCluster)).To(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(rayCluster.Name, rayCluster.UID), Namespace: managerNs.Name}
 			// the execution should be given to the worker1
 			waitForJobAdmitted(wlLookupKey, multiKueueAc.Name, "worker1")
 
@@ -965,19 +982,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					createdRayJob := &rayv1.RayJob{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(rayjob), createdRayJob)).To(gomega.Succeed())
 					g.Expect(createdRayJob.Status.JobDeploymentStatus).To(gomega.Equal(rayv1.JobDeploymentStatusComplete))
-					// Get RayCluster name from RayJob
-					rayClusterName := createdRayJob.Status.RayClusterName
-					g.Expect(rayClusterName).NotTo(gomega.BeEmpty())
-					// Get RayCluster CR
-					rayCluster := &rayv1.RayCluster{}
-					g.Expect(k8sManagerClient.Get(ctx, types.NamespacedName{Name: rayClusterName, Namespace: managerNs.Name}, rayCluster)).To(gomega.Succeed())
-					// Create workload lookup key using RayCluster name and UID
-					rcWlLookupKey := types.NamespacedName{
-						Name:      workloadraycluster.GetWorkloadNameForRayCluster(rayCluster.Name, rayCluster.UID),
-						Namespace: managerNs.Name,
-					}
 					finishReasonMessage := "Job finished successfully."
-					checkFinishStatusCondition(g, rcWlLookupKey, finishReasonMessage)
+					checkFinishStatusCondition(g, wlLookupKey, finishReasonMessage)
 				}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
