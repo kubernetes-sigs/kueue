@@ -24,7 +24,7 @@ kueuectl delete workload NAME [--yes] [--all] [--dry-run STRATEGY]
 
 ```
   # Delete the Workload
-  kueuectl delete workload my-workload
+  kueuectl delete kueueworkload my-workload
 ```
 
 

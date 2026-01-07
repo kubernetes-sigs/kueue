@@ -13,6 +13,8 @@ spec:
     plural: workloads
     shortNames:
     - wl
+    - kwl
+    - kueueworkload
     singular: workload
   scope: Namespaced
   versions:
