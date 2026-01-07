@@ -21,10 +21,8 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
-	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/conversion"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
@@ -46,38 +44,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 )
-
-var nodeSemantic = conversion.EqualitiesOrDie(
-	nodeConditionEqual,
-	nodeMetadataEqual,
-	// Handle metav1.Time comparison to avoid panic on unexported fields
-	func(a, b metav1.Time) bool {
-		return a.Equal(&b)
-	},
-	// Handle resource.Quantity comparison to avoid panic on unexported fields
-	func(a, b resource.Quantity) bool {
-		return a.Equal(b)
-	},
-)
-
-func nodeMetadataEqual(a, b metav1.ObjectMeta) bool {
-	aCopy, bCopy := a.DeepCopy(), b.DeepCopy()
-	normalizeNodeMeta(aCopy)
-	normalizeNodeMeta(bCopy)
-	return equality.Semantic.DeepEqual(aCopy, bCopy)
-}
-
-func normalizeNodeMeta(objectMeta *metav1.ObjectMeta) {
-	objectMeta.ResourceVersion = ""
-	// ManagedFields often contain internal timestamps and high-churn metadata
-	objectMeta.ManagedFields = nil
-}
-
-func nodeConditionEqual(a, b corev1.NodeCondition) bool {
-	aCopy, bCopy := a.DeepCopy(), b.DeepCopy()
-	aCopy.LastHeartbeatTime, bCopy.LastHeartbeatTime = metav1.Time{}, metav1.Time{}
-	return equality.Semantic.DeepEqual(aCopy, bCopy)
-}
 
 type rfReconciler struct {
 	log      logr.Logger
@@ -146,8 +112,8 @@ func (h *nodeHandler) Update(ctx context.Context, e event.UpdateEvent, q workque
 		return
 	}
 
-	if !checkNodeSchedulingPropertiesChanged(oldNode, newNode) {
-		ctrl.LoggerFrom(ctx).V(5).Info("Skipping node update as new Node is semantically same as old Node", "node", newNode.Name)
+	if checkNodeSchedulingPropertiesChanged(newNode, oldNode) == None {
+		ctrl.LoggerFrom(ctx).V(5).Info("Skipping node update as scheduling properties are unchanged", "node", newNode.Name)
 		return
 	}
 
@@ -246,7 +212,83 @@ func nodeBelongsToFlavor(node *corev1.Node, nodeLabels map[string]string, levels
 	return true
 }
 
-// checkNodeSchedulingPropertiesChanged checks if the node update affects TAS scheduling.
-func checkNodeSchedulingPropertiesChanged(oldNode, newNode *corev1.Node) bool {
-	return !nodeSemantic.DeepEqual(oldNode, newNode)
+type eventType int64
+
+const (
+	UpdateNodeAllocatable eventType = 1 << iota
+	UpdateNodeLabel
+	UpdateNodeTaint
+	UpdateNodeCondition
+	UpdateNodeAnnotation
+	UpdateNodeSpecUnschedulable
+
+	None eventType = 0
+)
+
+type nodeChangeExtractor func(newNode, oldNode *v1.Node) eventType
+
+var nodeChangeExtractors = []nodeChangeExtractor{
+	extractNodeSpecUnschedulableChange,
+	extractNodeAllocatableChange,
+	extractNodeLabelsChange,
+	extractNodeTaintsChange,
+	extractNodeConditionsChange,
+	extractNodeAnnotationsChange,
+}
+
+func checkNodeSchedulingPropertiesChanged(newNode, oldNode *v1.Node) eventType {
+	var et eventType
+	for _, fn := range nodeChangeExtractors {
+		et |= fn(newNode, oldNode)
+	}
+	return et
+}
+
+func extractNodeAllocatableChange(newNode, oldNode *v1.Node) eventType {
+	if equality.Semantic.DeepEqual(oldNode.Status.Allocatable, newNode.Status.Allocatable) {
+		return None
+	}
+	return UpdateNodeAllocatable
+}
+
+func extractNodeLabelsChange(newNode, oldNode *v1.Node) eventType {
+	if equality.Semantic.DeepEqual(newNode.GetLabels(), oldNode.GetLabels()) {
+		return None
+	}
+	return UpdateNodeLabel
+}
+
+func extractNodeTaintsChange(newNode, oldNode *v1.Node) eventType {
+	if equality.Semantic.DeepEqual(newNode.Spec.Taints, oldNode.Spec.Taints) {
+		return None
+	}
+	return UpdateNodeTaint
+}
+
+func extractNodeConditionsChange(newNode, oldNode *v1.Node) eventType {
+	strip := func(conditions []v1.NodeCondition) map[v1.NodeConditionType]v1.ConditionStatus {
+		conditionStatuses := make(map[v1.NodeConditionType]v1.ConditionStatus, len(conditions))
+		for i := range conditions {
+			conditionStatuses[conditions[i].Type] = conditions[i].Status
+		}
+		return conditionStatuses
+	}
+	if equality.Semantic.DeepEqual(strip(oldNode.Status.Conditions), strip(newNode.Status.Conditions)) {
+		return None
+	}
+	return UpdateNodeCondition
+}
+
+func extractNodeSpecUnschedulableChange(newNode, oldNode *v1.Node) eventType {
+	if newNode.Spec.Unschedulable == oldNode.Spec.Unschedulable {
+		return None
+	}
+	return UpdateNodeSpecUnschedulable
+}
+
+func extractNodeAnnotationsChange(newNode, oldNode *v1.Node) eventType {
+	if equality.Semantic.DeepEqual(oldNode.GetAnnotations(), newNode.GetAnnotations()) {
+		return None
+	}
+	return UpdateNodeAnnotation
 }
