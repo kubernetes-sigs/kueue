@@ -47,7 +47,7 @@ var (
 // until the webhooks are operating, and the webhook won't work until the
 // certs are all in place.
 func SetupControllers(ctx context.Context, mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
-	err := manager.startCRDInformer(ctx, mgr, log)
+	err := manager.startCRDInformer(ctx, log, apiextensionsclientset.NewForConfigOrDie(mgr.GetConfig()))
 	if err != nil {
 		return fmt.Errorf("failed to start CRD informer: %w", err)
 	}
@@ -149,7 +149,9 @@ func (m *integrationManager) setupControllerAndWebhook(ctx context.Context, mgr 
 }
 
 func (m *integrationManager) waitForAPI(ctx context.Context, mgr ctrl.Manager, log logr.Logger, gvk schema.GroupVersionKind, action func()) {
+	m.crdNotifiersMu.Lock()
 	crdNotifyCh, ok := m.crdNotifiers[gvk]
+	m.crdNotifiersMu.Unlock()
 	if !ok {
 		log.V(2).Info("Channel not found for gvk", "gvk", gvk)
 		return
@@ -200,11 +202,7 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer, opts ...Opti
 }
 
 // startCRDInformer watches for CRD additions/updates and notifies waitForAPI immediately
-func (m *integrationManager) startCRDInformer(ctx context.Context, mgr ctrl.Manager, log logr.Logger) error {
-	clientSet, err := apiextensionsclientset.NewForConfig(mgr.GetConfig())
-	if err != nil {
-		return fmt.Errorf("failed to create apiextensions clientset: %w", err)
-	}
+func (m *integrationManager) startCRDInformer(ctx context.Context, log logr.Logger, clientSet apiextensionsclientset.Interface) error {
 	factory := externalversions.NewSharedInformerFactory(clientSet, 0)
 	crdInformer := factory.Apiextensions().V1().CustomResourceDefinitions().Informer()
 
