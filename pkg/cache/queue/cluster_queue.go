@@ -349,7 +349,7 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 	c.inadmissibleWorkloads.insert(key, wInfo)
 	logMsg := "Workload couldn't be admitted."
 	if c.queueingStrategy == kueue.BestEffortFIFO {
-		logMsg += "Moving the head of this ClusterQueue to the consecutive Workload."
+		logMsg += " Moving the head of this ClusterQueue to the consecutive Workload."
 	}
 	log.V(2).Info(logMsg, "clusterQueue", c.name, "workload", key)
 
