@@ -1437,15 +1437,12 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			wantReady: sets.New(workload.NewReference("default", "second")),
 		},
 		"workload no longer needs second pass after first iteration": {
-    		workloads: []*kueue.Workload{
-        		baseWorkloadNeedingSecondPass.DeepCopy(),
-    		},
-    		passTime: time.Second,
-    		wantReady: sets.New[workload.Reference](),
-    		
+			workloads: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.DeepCopy(),
+			},
+			passTime:  time.Second,
+			wantReady: sets.New[workload.Reference](),
 		},
-
-
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -1460,11 +1457,11 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 				manager.QueueSecondPassIfNeeded(ctx, wl, 0)
 			}
 			if name == "workload no longer needs second pass after first iteration" {
-			manager.QueueSecondPassIfNeeded(
-				ctx,
-				baseWorkloadNotNeedingSecondPass.DeepCopy(),
-				1, 
-			)
+				manager.QueueSecondPassIfNeeded(
+					ctx,
+					baseWorkloadNotNeedingSecondPass.DeepCopy(),
+					1,
+				)
 			}
 			for _, wl := range tc.deleted.UnsortedList() {
 				manager.secondPassQueue.deleteByKey(wl)
