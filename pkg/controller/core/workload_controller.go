@@ -59,7 +59,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
-	"sigs.k8s.io/kueue/pkg/util/priority"
 	qutil "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/resource"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
@@ -940,7 +939,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		})
 	case prevStatus == workload.StatusAdmitted && status == workload.StatusAdmitted && !equality.Semantic.DeepEqual(e.ObjectOld.Status.ReclaimablePods, e.ObjectNew.Status.ReclaimablePods),
 		features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(e.ObjectOld), workload.ExtractPodSetCountsFromWorkload(e.ObjectNew)),
-		workloadPriorityChanged(e.ObjectOld, e.ObjectNew):
+		workload.PriorityChanged(e.ObjectOld, e.ObjectNew):
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, e.ObjectNew, func() {
 			// Update the workload from cache while holding the queues lock
@@ -960,20 +959,6 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	}
 	r.queues.QueueSecondPassIfNeeded(ctx, e.ObjectNew, 0)
 	return true
-}
-
-func workloadPriorityChanged(old, new *kueue.Workload) bool {
-	// Updates to Pod Priority are not supported.
-	if !workload.IsWorkloadPriorityClass(old) || !workload.IsWorkloadPriorityClass(new) {
-		return false
-	}
-	// Check if priority class reference changed.
-	if workload.PriorityClassName(old) != "" && workload.PriorityClassName(new) != "" &&
-		workload.PriorityClassName(old) != workload.PriorityClassName(new) {
-		return true
-	}
-	// Check if priority value changed (for WorkloadPriorityClass value updates).
-	return priority.Priority(old) != priority.Priority(new)
 }
 
 func (r *WorkloadReconciler) Generic(e event.TypedGenericEvent[*kueue.Workload]) bool {
