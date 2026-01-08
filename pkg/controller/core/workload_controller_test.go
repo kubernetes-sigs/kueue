@@ -2734,3 +2734,77 @@ func TestReconcile(t *testing.T) {
 		}
 	}
 }
+
+// TestWorkloadPriorityClassChanged tests the workloadPriorityClassChanged function.
+// (none -> some) should be detected as a change and trigger reconciliation.
+func TestWorkloadPriorityClassChanged(t *testing.T) {
+	testCases := map[string]struct {
+		oldWorkload *kueue.Workload
+		newWorkload *kueue.Workload
+		wantChanged bool
+	}{
+		"no priority class on either workload": {
+			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			wantChanged: false,
+		},
+		"same priority class on both workloads": {
+			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				WorkloadPriorityClassRef("priority-1").
+				Obj(),
+			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				WorkloadPriorityClassRef("priority-1").
+				Obj(),
+			wantChanged: false,
+		},
+		"priority class changed from one to another": {
+			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				WorkloadPriorityClassRef("priority-1").
+				Obj(),
+			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				WorkloadPriorityClassRef("priority-2").
+				Obj(),
+			wantChanged: true,
+		},
+		"priority class added (none -> some) - issue #8320": {
+			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				WorkloadPriorityClassRef("priority-1").
+				Obj(),
+			wantChanged: true,
+		},
+		"priority class removed (some -> none) - blocked by validation": {
+			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				WorkloadPriorityClassRef("priority-1").
+				Obj(),
+			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			// Removal is blocked by validation, so we don't need to detect it
+			wantChanged: false,
+		},
+		"PodPriorityClass (not WorkloadPriorityClass) changed - should not trigger": {
+			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				PodPriorityClassRef("pod-priority-1").
+				Obj(),
+			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				PodPriorityClassRef("pod-priority-2").
+				Obj(),
+			wantChanged: false,
+		},
+		"PodPriorityClass added (none -> some) - should not trigger": {
+			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				PodPriorityClassRef("pod-priority-1").
+				Obj(),
+			wantChanged: false,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			gotChanged := workloadPriorityClassChanged(tc.oldWorkload, tc.newWorkload)
+			if gotChanged != tc.wantChanged {
+				t.Errorf("workloadPriorityClassChanged() = %v, want %v", gotChanged, tc.wantChanged)
+			}
+		})
+	}
+}

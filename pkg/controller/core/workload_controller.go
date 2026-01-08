@@ -990,18 +990,15 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	return true
 }
 
-func workloadPriorityChanged(old, new *kueue.Workload) bool {
-	// Updates to Pod Priority are not supported.
-	if !workload.IsWorkloadPriorityClass(old) || !workload.IsWorkloadPriorityClass(new) {
+func workloadPriorityClassChanged(old, new *kueue.Workload) bool {
+	if !workload.IsWorkloadPriorityClass(new) {
 		return false
 	}
-	// Check if priority class reference changed.
-	if workload.PriorityClassName(old) != "" && workload.PriorityClassName(new) != "" &&
-		workload.PriorityClassName(old) != workload.PriorityClassName(new) {
-		return true
-	}
-	// Check if priority value changed (for WorkloadPriorityClass value updates).
-	return priority.Priority(old) != priority.Priority(new)
+
+	oldName := workload.PriorityClassName(old)
+	newName := workload.PriorityClassName(new)
+
+	return newName != "" && oldName != newName
 }
 
 func (r *WorkloadReconciler) Generic(e event.TypedGenericEvent[*kueue.Workload]) bool {
