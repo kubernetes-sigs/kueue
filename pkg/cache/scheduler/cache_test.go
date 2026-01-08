@@ -1450,8 +1450,12 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					ClusterQueue: "three",
 				}, now).Obj()
 
-				cache.AddClusterQueue(logr.NewContext(t.Context(), log), cq)
-				cache.addOrUpdateWorkload(log, w)
+				if err := cache.AddClusterQueue(logr.NewContext(t.Context(), log), cq); err != nil {
+					return err
+				}
+				if !cache.addOrUpdateWorkload(log, w) {
+					return errors.New("failed to add test workload")
+				}
 				cache.DeleteClusterQueue(cq)
 
 				return cache.DeleteWorkload(log, w)
