@@ -1534,7 +1534,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				t.Errorf("Unexpected clusterQueues (-want,+got):\n%s", diff)
 			}
 			if diff := cmp.Diff(wantQueuesAssigned, cache.workloadAssignedQueues, cmpopts.EquateEmpty()); diff != "" {
-				t.Errorf("Unexpected clusterQueues assignemnts for workloads (-want,+got):\n%s", diff)
+				t.Errorf("Unexpected clusterQueues assignments for workloads (-want,+got):\n%s", diff)
 			}
 		})
 	}
