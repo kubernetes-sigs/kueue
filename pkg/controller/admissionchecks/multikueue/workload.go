@@ -368,15 +368,32 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		return reconcile.Result{}, nil
 	}
 
-	// 5. Delete all workloads that are out of sync (other than scaled-down elastic workloads)
-	// or are not in the chosen worker.
+	// 5. Delete workloads that are out of sync or are not in the chosen worker,
+	// except for two cases (in which we'll update the remote workload accorddingly):
+	// - elastic workloads which have been scaled down
+	// - workloads for which workload priority has changed
 	for rem, remWl := range group.remotes {
 		if remWl != nil && !equality.Semantic.DeepEqual(group.local.Spec, remWl.Spec) {
+			remClient := group.remoteClients[rem]
+
+			updateRemote := false
+
 			// For elastic workloads detect a scale-down event and propagate changes to the remote.
 			if group.IsElasticWorkload() && workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(remWl), workload.ExtractPodSetCountsFromWorkload(group.local)) {
 				remWl.Spec = group.local.Spec
-				if err := group.remoteClients[rem].client.Update(ctx, remWl); err != nil {
-					return reconcile.Result{}, fmt.Errorf("failed to update remote workload slice: %w", err)
+				updateRemote = true
+			}
+
+			// Update the workload priority class and priority if needed.
+			if workload.PriorityChanged(group.local, remWl) {
+				remWl.Spec.PriorityClassRef = group.local.Spec.PriorityClassRef
+				remWl.Spec.Priority = group.local.Spec.Priority
+				updateRemote = true
+			}
+
+			if updateRemote {
+				if err := remClient.client.Update(ctx, remWl); err != nil {
+					return reconcile.Result{}, fmt.Errorf("failed to update remote workload: %w", err)
 				}
 				continue
 			}
