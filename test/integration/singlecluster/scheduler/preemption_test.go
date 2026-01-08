@@ -1132,4 +1132,89 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, lowWl)
 		})
 	})
+
+	// Issue #8320: Adding a priority class to a workload (none -> some) is not reconciled
+	// https://github.com/kubernetes-sigs/kueue/issues/8320
+	//
+	// When a WorkloadPriorityClass is added to a suspended workload, the workload's
+	// spec.priority should be reconciled from the WorkloadPriorityClass value, and
+	// the workload should be re-queued with the new priority for scheduling.
+	ginkgo.Context("When adding a WorkloadPriorityClass to a suspended workload", func() {
+		var (
+			cq            *kueue.ClusterQueue
+			q             *kueue.LocalQueue
+			highPrioClass *kueue.WorkloadPriorityClass
+		)
+
+		ginkgo.BeforeEach(func() {
+			highPrioClass = utiltestingapi.MakeWorkloadPriorityClass("high-priority").
+				PriorityValue(highPriority).
+				Obj()
+			util.MustCreate(ctx, k8sClient, highPrioClass)
+
+			cq = utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource(corev1.ResourceCPU, "2").Obj()).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+				}).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cq)
+
+			q = utiltestingapi.MakeLocalQueue("q", ns.Name).ClusterQueue(cq.Name).Obj()
+			util.MustCreate(ctx, k8sClient, q)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, highPrioClass, true)
+		})
+
+		ginkgo.It("Should reconcile the priority when WorkloadPriorityClass is added to suspended workload", func() {
+			ginkgo.By("Creating a workload with low priority that gets admitted")
+			lowWl := utiltestingapi.MakeWorkload("low-wl", ns.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
+				Priority(lowPriority).
+				Request(corev1.ResourceCPU, "2").
+				Obj()
+			util.MustCreate(ctx, k8sClient, lowWl)
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl)
+
+			ginkgo.By("Creating a workload WITHOUT a priority class (stays pending)")
+			noPrioWl := utiltestingapi.MakeWorkload("no-prio-wl", ns.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
+				Request(corev1.ResourceCPU, "2").
+				Obj()
+			util.MustCreate(ctx, k8sClient, noPrioWl)
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, noPrioWl)
+
+			ginkgo.By("Adding a WorkloadPriorityClass to the pending workload")
+			// Note: Due to CEL validation, we must set both priorityClassRef AND priority together.
+			// In real usage, the job controller sets both when creating/updating the workload.
+			// The bug in #8320 is that the workload controller's change detection
+			// (workloadPriorityClassChanged) fails to detect when priority class is ADDED
+			// (oldPriorityClassName == "" -> newPriorityClassName != "").
+			// However, when adding a priority class, we set the priority to a WRONG value (0)
+			// to simulate that the job controller created the workload but the reconciler
+			// needs to update the priority from the WorkloadPriorityClass.
+			gomega.Eventually(func(g gomega.Gomega) {
+				wl := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(noPrioWl), wl)).To(gomega.Succeed())
+				// Set priorityClassRef to reference the high-priority WorkloadPriorityClass
+				wl.Spec.PriorityClassRef = kueue.NewWorkloadPriorityClassRef("high-priority")
+				// Set priority to 0 (wrong value) - the controller should reconcile this to highPriority
+				wl.Spec.Priority = ptr.To[int32](0)
+				g.Expect(k8sClient.Update(ctx, wl)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying the workload priority is reconciled to the correct value from the WorkloadPriorityClass")
+			util.ExpectWorkloadsWithWorkloadPriority(ctx, k8sClient, "high-priority", highPriority, client.ObjectKeyFromObject(noPrioWl))
+
+			ginkgo.By("Verifying preemption occurs and the high-priority workload gets admitted")
+			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, lowWl)
+			util.FinishEvictionForWorkloads(ctx, k8sClient, lowWl)
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, noPrioWl)
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, lowWl)
+		})
+	})
 })
