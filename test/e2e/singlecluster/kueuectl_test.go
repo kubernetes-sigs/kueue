@@ -38,7 +38,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 
-		cq = utiltestingapi.MakeClusterQueue("e2e-cq").Obj()
+		cq = utiltestingapi.MakeClusterQueue("e2e-cq-" + ns.Name).Obj()
 		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 	})
 

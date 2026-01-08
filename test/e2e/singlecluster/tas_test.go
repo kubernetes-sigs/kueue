@@ -64,15 +64,15 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 			clusterQueue *kueue.ClusterQueue
 		)
 		ginkgo.BeforeEach(func() {
-			topology = utiltestingapi.MakeDefaultOneLevelTopology("hostname")
+			topology = utiltestingapi.MakeDefaultOneLevelTopology("hostname-" + ns.Name)
 			util.MustCreate(ctx, k8sClient, topology)
 
-			onDemandRF = utiltestingapi.MakeResourceFlavor("on-demand").
+			onDemandRF = utiltestingapi.MakeResourceFlavor("on-demand-"+ns.Name).
 				NodeLabel("instance-type", "on-demand").TopologyName(topology.Name).Obj()
 			util.MustCreate(ctx, k8sClient, onDemandRF)
-			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue-" + ns.Name).
 				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("on-demand").
+					*utiltestingapi.MakeFlavorQuotas(onDemandRF.Name).
 						Resource(corev1.ResourceCPU, "1").
 						Resource(corev1.ResourceMemory, "1Gi").
 						Obj(),
@@ -80,7 +80,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				Obj()
 			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
-			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
+			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
@@ -156,18 +156,18 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 			localQueue   *kueue.LocalQueue
 		)
 		ginkgo.BeforeEach(func() {
-			topology = utiltestingapi.MakeDefaultOneLevelTopology("hostname")
+			topology = utiltestingapi.MakeDefaultOneLevelTopology("hostname-" + ns.Name)
 			util.MustCreate(ctx, k8sClient, topology)
 
-			onDemandRF = utiltestingapi.MakeResourceFlavor("on-demand").
+			onDemandRF = utiltestingapi.MakeResourceFlavor("on-demand-"+ns.Name).
 				NodeLabel("instance-type", "on-demand").
 				TopologyName(topology.Name).
 				Obj()
 
 			util.MustCreate(ctx, k8sClient, onDemandRF)
-			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue-" + ns.Name).
 				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("on-demand").
+					*utiltestingapi.MakeFlavorQuotas(onDemandRF.Name).
 						Resource(corev1.ResourceCPU, "1").
 						Resource(corev1.ResourceMemory, "1Gi").
 						Obj(),
@@ -175,7 +175,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				Obj()
 			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
-			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
+			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
@@ -230,7 +230,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, jobSetKey, jobSet)).To(gomega.Succeed())
 					g.Expect(jobSet.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("verify the JobSet has nodeSelector set", func() {
@@ -248,7 +248,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 					g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				gomega.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(2))
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
@@ -289,18 +289,18 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 			localQueue   *kueue.LocalQueue
 		)
 		ginkgo.BeforeEach(func() {
-			topology = utiltestingapi.MakeDefaultOneLevelTopology("hostname")
+			topology = utiltestingapi.MakeDefaultOneLevelTopology("hostname-" + ns.Name)
 			util.MustCreate(ctx, k8sClient, topology)
 
-			onDemandRF = utiltestingapi.MakeResourceFlavor("on-demand").
+			onDemandRF = utiltestingapi.MakeResourceFlavor("on-demand-"+ns.Name).
 				NodeLabel("instance-type", "on-demand").
 				TopologyName(topology.Name).
 				Obj()
 
 			util.MustCreate(ctx, k8sClient, onDemandRF)
-			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue-" + ns.Name).
 				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("on-demand").
+					*utiltestingapi.MakeFlavorQuotas(onDemandRF.Name).
 						Resource(corev1.ResourceCPU, "1").
 						Resource(corev1.ResourceMemory, "1Gi").
 						Obj(),
@@ -308,7 +308,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				Obj()
 			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
-			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
+			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
@@ -346,7 +346,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 						"instance-type":      "on-demand",
 						corev1.LabelHostname: "kind-worker",
 					}))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			wlLookupKey := types.NamespacedName{Name: podcontroller.GetWorkloadNameForPod(p.Name, p.UID), Namespace: ns.Name}
@@ -356,7 +356,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 					g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				gomega.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
@@ -410,7 +410,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 							corev1.LabelHostname: "kind-worker",
 						}))
 					}
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			wlLookupKey := client.ObjectKey{Namespace: ns.Name, Name: "group"}
@@ -452,19 +452,19 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 			localQueue   *kueue.LocalQueue
 		)
 		ginkgo.BeforeEach(func() {
-			topology = utiltestingapi.MakeDefaultOneLevelTopology("hostname")
+			topology = utiltestingapi.MakeDefaultOneLevelTopology("hostname-" + ns.Name)
 			util.MustCreate(ctx, k8sClient, topology)
 
-			onDemandRF = utiltestingapi.MakeResourceFlavor("on-demand").
+			onDemandRF = utiltestingapi.MakeResourceFlavor("on-demand-"+ns.Name).
 				NodeLabel("instance-type", "on-demand").
 				TopologyName(topology.Name).
 				Obj()
 
 			util.MustCreate(ctx, k8sClient, onDemandRF)
 
-			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue-" + ns.Name).
 				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("on-demand").
+					*utiltestingapi.MakeFlavorQuotas(onDemandRF.Name).
 						Resource(corev1.ResourceCPU, "1").
 						Resource(corev1.ResourceMemory, "1Gi").
 						Obj(),
@@ -472,7 +472,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				Obj()
 			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
-			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
+			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
@@ -514,7 +514,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, trainjobKey, trainjob)).To(gomega.Succeed())
 					g.Expect(trainjob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("verify the TrainJob has nodeSelector set", func() {
@@ -533,7 +533,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 					g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				gomega.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
