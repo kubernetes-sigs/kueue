@@ -39,7 +39,7 @@ status:
 
 `Evicted` 条件表示该 Workload 因 `Preempted` 原因被驱逐，而 `Preempted` 条件则给出了更多关于抢占原因的细节。
 
-可以通过运行 `kubectl get workloads --selector=kueue.x-k8s.io/job-uid=<JobUID> --all-namespaces` 查找抢占者 workload。
+可以通过运行 `kubectl get workloads.kueue.x-k8s.io --selector=kueue.x-k8s.io/job-uid=<JobUID> --all-namespaces` 查找抢占者 workload。
 
 ## 抢占算法
 
