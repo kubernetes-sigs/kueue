@@ -538,8 +538,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 func (m *Manager) DeleteWorkload(log logr.Logger, wl *kueue.Workload) {
 	m.Lock()
 	defer m.Unlock()
-	m.deleteWorkload(log, wl)
-	m.DeleteSecondPassWithoutLock(wl)
+	m.deleteWorkloadWithoutLock(log, wl)
 }
 
 // Deletes the workload from assigned queue and purges the assigment caching.
@@ -552,9 +551,8 @@ func (m *Manager) DeleteAndForgetWorkload(log logr.Logger, wl *kueue.Workload) {
 
 // Deletes the workload from local/cluster queue and purges queue assignment caching.
 func (m *Manager) deleteAndForgetWorkloadWithoutLock(log logr.Logger, wl *kueue.Workload) {
-	m.deleteWorkload(log, wl)
+	m.deleteWorkloadWithoutLock(log, wl)
 	delete(m.workloadAssignedQueues, workload.Key(wl))
-	m.DeleteSecondPassWithoutLock(wl)
 }
 
 func (m *Manager) addWorkload(wlInfo *workload.Info, q *LocalQueue) {
@@ -566,7 +564,7 @@ func (m *Manager) assignWorkload(wlKey workload.Reference, qKey queue.LocalQueue
 	m.workloadAssignedQueues[wlKey] = qKey
 }
 
-func (m *Manager) deleteWorkload(log logr.Logger, wl *kueue.Workload) {
+func (m *Manager) deleteWorkloadWithoutLock(log logr.Logger, wl *kueue.Workload) {
 	wlKey := workload.Key(wl)
 
 	qKey := m.workloadAssignedQueues[wlKey]
@@ -585,6 +583,8 @@ func (m *Manager) deleteWorkload(log logr.Logger, wl *kueue.Workload) {
 	if features.Enabled(features.LocalQueueMetrics) {
 		m.reportLQPendingWorkloads(q)
 	}
+
+	m.DeleteSecondPassWithoutLock(wl)
 }
 
 // QueueAssociatedInadmissibleWorkloadsAfter requeues into the heaps all
