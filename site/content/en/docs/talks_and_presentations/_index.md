@@ -11,6 +11,11 @@ description: >
 
 # 2025
 
+* KubeCon NA, November, Atlanta<br>
+  Resource Fairness and Utilization for Heterogeneous Batch/ML Platforms With Kueue<br>
+  Yuki Iwai, CyberAgent, Inc. & Gabe Saba, Google<br>
+  [talk details](https://sched.co/28D9C) | [video](https://youtu.be/dKhF-hZi7CI)<br>
+
 * KubeCon EU, April, London<br>
   Accelerate Your AI/ML Workloads With Topology-Aware Scheduling in Kueue<br>
   Michał Woźniak, Google & Yuki Iwai, CyberAgent, Inc.<br>
