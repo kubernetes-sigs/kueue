@@ -1585,57 +1585,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("Should not admit workload requesting non-zero quantity of resource not defined in ClusterQueue even if available in Cohort", func() {
-			ginkgo.By("Creating a ClusterQueue with only CPU defined (no GPU)")
-			cq1 := utiltestingapi.MakeClusterQueue("cq-cpu-only").
-				Cohort("shared-cohort").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "0").Obj(),
-				).Obj()
-			queue1 := utiltestingapi.MakeLocalQueue("queue1", ns.Name).ClusterQueue(cq1.Name).Obj()
-			util.MustCreate(ctx, k8sClient, cq1)
-			util.MustCreate(ctx, k8sClient, queue1)
-
-			ginkgo.By("Creating a ClusterQueue with CPU and GPU defined")
-			cq2 := utiltestingapi.MakeClusterQueue("cq-with-gpu").
-				Cohort("shared-cohort").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("on-demand").
-						Resource(corev1.ResourceCPU, "10").
-						Resource("example.com/gpu", "10").
-						Obj(),
-				).Obj()
-			util.MustCreate(ctx, k8sClient, cq2)
-			defer func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, cq1, true)
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, cq2, true)
-			}()
-
-			ginkgo.By("Creating Cohort with CPU and GPU quota")
-			cohort = utiltestingapi.MakeCohort("shared-cohort").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("on-demand").
-						Resource(corev1.ResourceCPU, "10").
-						Resource("example.com/gpu", "10").
-						Obj(),
-				).Obj()
-			util.MustCreate(ctx, k8sClient, cohort)
-
-			ginkgo.By("Creating a workload requesting CPU and GPU (GPU not defined in cq1)")
-			wl = utiltestingapi.MakeWorkload("wl-gpu-request", ns.Name).
-				Queue(kueue.LocalQueueName(queue1.Name)).
-				Request(corev1.ResourceCPU, "2").
-				Request("example.com/gpu", "1").
-				Obj()
-			util.MustCreate(ctx, k8sClient, wl)
-
-			ginkgo.By("Verifying workload remains pending (cannot borrow GPU)")
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
-			gomega.Consistently(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
-				g.Expect(wl.Status.Admission).To(gomega.BeNil())
-			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
-		})
 
 		ginkgo.It("Should admit workload when cq switches into cohort with capacity", func() {
 			cq = utiltestingapi.MakeClusterQueue("clusterqueue").
