@@ -112,6 +112,16 @@ func main() {
 			ErrorIfCRDPathMissing: true,
 		}
 
+		// Increase API server request limits to handle high load from performance tests.
+		// The default generator config creates ~15,000 workloads (5 cohorts × 6 queues × 500 workloads).
+		// Under heavy reconciliation, the default kube-apiserver limits (max-requests-inflight=400,
+		// max-mutating-requests-inflight=200) can cause the API server to become overwhelmed,
+		// resulting in "http2: client connection lost" errors when pending requests queue up
+		// and connections time out.
+		testEnv.ControlPlane.GetAPIServer().Configure().
+			Append("max-requests-inflight", "800").
+			Append("max-mutating-requests-inflight", "400")
+
 		var err error
 		cfg, err = testEnv.Start()
 		if err != nil {
