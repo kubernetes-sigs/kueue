@@ -989,10 +989,16 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	return true
 }
 
+// removal is blocked by validation
 func workloadPriorityClassChanged(old, new *kueue.Workload) bool {
-	return workload.IsWorkloadPriorityClass(old) && workload.IsWorkloadPriorityClass(new) &&
-		workload.PriorityClassName(old) != "" && workload.PriorityClassName(new) != "" &&
-		workload.PriorityClassName(old) != workload.PriorityClassName(new)
+	if !workload.IsWorkloadPriorityClass(new) {
+		return false
+	}
+
+	oldName := workload.PriorityClassName(old)
+	newName := workload.PriorityClassName(new)
+
+	return newName != "" && oldName != newName
 }
 
 func (r *WorkloadReconciler) Generic(e event.TypedGenericEvent[*kueue.Workload]) bool {

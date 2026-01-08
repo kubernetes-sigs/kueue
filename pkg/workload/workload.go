@@ -1437,7 +1437,9 @@ func PriorityClassName(wl *kueue.Workload) string {
 
 func IsWorkloadPriorityClass(wl *kueue.Workload) bool {
 	return wl.Spec.PriorityClassRef != nil &&
+		// is wl priority class of kueue type
 		wl.Spec.PriorityClassRef.Kind == kueue.WorkloadPriorityClassKind &&
+		// is wl priority class in kueue group
 		wl.Spec.PriorityClassRef.Group == kueue.WorkloadPriorityClassGroup
 }
 
