@@ -1313,6 +1313,184 @@ func TestWlReconcile(t *testing.T) {
 			},
 			requireAllAdmissionChecksReady: false,
 		},
+		"requireAllAdmissionChecksReady: both workers have quota but neither has all admission checks ready": {
+			features: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: true},
+			// neither worker has all admission checks ready, so none is selected
+			reconcileFor: "wl1",
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "ac1",
+						State: kueue.CheckStatePending,
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			managersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.Clone().Obj(),
+			},
+			worker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					QuotaReservedTime(now.Add(-time.Hour)). // one hour ago
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStateReady}).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac2", State: kueue.CheckStatePending}). // not ready
+					Obj(),
+			},
+			worker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Obj(),
+			},
+			useSecondWorker: true,
+			worker2Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					QuotaReservedTime(now.Add(-time.Minute)).                                               // one minute ago
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}). // not ready
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac2", State: kueue.CheckStateReady}).
+					Obj(),
+			},
+			worker2Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Obj(),
+			},
+			// no worker selected, so manager workload unchanged (no ClusterName set)
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "ac1",
+						State: kueue.CheckStatePending,
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					NominatedClusterNames("worker1", "worker2").
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.Clone().Obj(),
+			},
+			// both workers unchanged since none was selected
+			wantWorker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStateReady}).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac2", State: kueue.CheckStatePending}).
+					Obj(),
+			},
+			wantWorker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Obj(),
+			},
+			wantWorker2Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac2", State: kueue.CheckStateReady}).
+					Obj(),
+			},
+			wantWorker2Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Obj(),
+			},
+			requireAllAdmissionChecksReady: true,
+		},
+		"requireAllAdmissionChecksReady: worker with later reservation but all checks ready is selected": {
+			features: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: true},
+			// worker1 reserved earlier but has pending admission check
+			// worker2 reserved later but has all admission checks ready
+			// worker2 should be selected
+			reconcileFor: "wl1",
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "ac1",
+						State: kueue.CheckStatePending,
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			managersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.Clone().Obj(),
+			},
+			worker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					QuotaReservedTime(now.Add(-time.Hour)). // one hour ago - earlier
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStateReady}).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac2", State: kueue.CheckStatePending}). // not ready
+					Obj(),
+			},
+			worker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Obj(),
+			},
+			useSecondWorker: true,
+			worker2Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					QuotaReservedTime(now.Add(-time.Minute)). // one minute ago - later
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStateReady}).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac2", State: kueue.CheckStateReady}). // all ready
+					Obj(),
+			},
+			worker2Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Obj(),
+			},
+			// worker2 selected despite later reservation because it has all admission checks ready
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload got reservation on "worker2"`,
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					ClusterName("worker2").
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.Clone().Obj(),
+			},
+			// worker2 selected, worker1 objects deleted
+			wantWorker2Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStateReady}).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac2", State: kueue.CheckStateReady}).
+					Obj(),
+			},
+			wantWorker2Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkloadBuilder.Clone().Obj()),
+					EventType: "Normal",
+					Reason:    "MultiKueue",
+					Message:   `The workload got reservation on "worker2"`,
+				},
+			},
+			requireAllAdmissionChecksReady: true,
+		},
 		"elastic job finished local workload via replacement is ignored": {
 			features:     map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			reconcileFor: "wl1",
