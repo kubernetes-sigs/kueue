@@ -184,12 +184,12 @@ func (a *Assignment) TotalRequestsFor(wl *workload.Info) resources.FlavorResourc
 		ps = *ps.ScaledTo(newCount)
 
 		for res, q := range ps.Requests {
-			flvAssignment := a.PodSets[i].Flavors[res]
-			if flvAssignment == nil {
+			flv := a.PodSets[i].Flavors[res]
+			if flv == nil {
 				// Resource has no flavor assigned (e.g., zero-quantity request for resource not in CQ).
 				continue
 			}
-			usage[resources.FlavorResource{Flavor: flvAssignment.Name, Resource: res}] += q
+			usage[resources.FlavorResource{Flavor: flv.Name, Resource: res}] += q
 		}
 	}
 	return usage
@@ -286,6 +286,7 @@ type ResourceAssignment map[corev1.ResourceName]*FlavorAssignment
 
 func (psa *PodSetAssignment) toAPI() kueue.PodSetAssignment {
 	flavors := make(map[corev1.ResourceName]kueue.ResourceFlavorReference, len(psa.Flavors))
+	// Only include resources with assigned flavors (filters out zero-quantity requests for undefined resources).
 	resourceUsage := make(corev1.ResourceList, len(psa.Flavors))
 	for res, flvAssignment := range psa.Flavors {
 		flavors[res] = flvAssignment.Name
