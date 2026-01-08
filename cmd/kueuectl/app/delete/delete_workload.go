@@ -89,7 +89,7 @@ func NewWorkloadCmd(clientGetter clientgetter.ClientGetter, streams genericioopt
 	cmd := &cobra.Command{
 		Use:                   "workload NAME [--yes] [--all] [--dry-run STRATEGY]",
 		DisableFlagsInUseLine: true,
-		Aliases:               []string{"wl", "kwl", "kueueworkload"},
+		Aliases:               []string{"kwl", "kueueworkload"},
 		Short:                 "Delete the given Workload and its corresponding Job",
 		Long:                  wlLong,
 		Example:               wlExample,

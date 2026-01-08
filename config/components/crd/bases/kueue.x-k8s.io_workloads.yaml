@@ -12,7 +12,6 @@ spec:
     listKind: WorkloadList
     plural: workloads
     shortNames:
-    - wl
     - kwl
     - kueueworkload
     singular: workload

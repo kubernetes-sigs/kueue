@@ -49,7 +49,7 @@ var (
 	}
 
 	passThroughTypes = []passThroughType{
-		{name: "workload", aliases: []string{"wl", "kwl", "kueueworkload"}},
+		{name: "workload", aliases: []string{"kwl", "kueueworkload"}},
 		{name: "clusterqueue", aliases: []string{"cq"}},
 		{name: "localqueue", aliases: []string{"lq"}},
 		{name: "resourceflavor", aliases: []string{"rf"}},
