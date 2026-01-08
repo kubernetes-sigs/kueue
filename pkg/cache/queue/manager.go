@@ -825,8 +825,10 @@ func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload
 			m.queueSecondPass(ctx, w, iteration)
 		})
 		return true
-	}
-	if !workload.NeedsSecondPass(w) && iteration > 0 {
+	} else if iteration > 0 {
+		// Remove the workload from the second-pass queue only after at least one
+		// retry iteration, to avoid canceling the initial backoff window.
+		// See #8357.
 		log.V(3).Info("Workload removed from second pass queue", "workload", workload.Key(w))
 		m.secondPassQueue.deleteByKey(workload.Key(w))
 	}
