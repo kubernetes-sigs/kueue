@@ -44,7 +44,6 @@ import (
 )
 
 var (
-	annotationsPath               = field.NewPath("metadata", "annotations")
 	labelsPath                    = field.NewPath("metadata", "labels")
 	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
 	maxExecTimeLabelPath          = labelsPath.Key(constants.MaxExecTimeSecondsLabel)
@@ -92,16 +91,6 @@ func validateCreateForPrebuiltWorkload(job GenericJob) field.ErrorList {
 		gvk := job.GVK().String()
 		if !supportedPrebuiltWlJobGVKs.Has(gvk) {
 			allErrs = append(allErrs, field.Forbidden(labelsPath.Key(constants.PrebuiltWorkloadLabel), fmt.Sprintf("Is not supported for %q", gvk)))
-		}
-	}
-	return allErrs
-}
-
-func ValidateAnnotationAsCRDName(obj client.Object, crdNameAnnotation string) field.ErrorList {
-	var allErrs field.ErrorList
-	if value, exists := obj.GetAnnotations()[crdNameAnnotation]; exists {
-		if errs := validation.IsDNS1123Subdomain(value); len(errs) > 0 {
-			allErrs = append(allErrs, field.Invalid(annotationsPath.Key(crdNameAnnotation), value, strings.Join(errs, ",")))
 		}
 	}
 	return allErrs
