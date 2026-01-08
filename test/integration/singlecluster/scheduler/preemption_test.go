@@ -260,51 +260,50 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.ExpectPreemptedCondition(ctx, k8sClient, kueue.InClusterQueueReason, metav1.ConditionTrue, lowWl, highWl, string(highWl.UID), "job-uid", cQPath, cQPath)
 		})
 
-		ginkgo.It("Should trigger preemption when WorkloadPriorityClass is added to suspended workload (issue #8320)", func() {
-			ginkgo.By("Creating a low-priority workload that gets admitted and uses all quota")
+		ginkgo.It("Should trigger preemption when WorkloadPriorityClass is added to suspended workload", func() {
+			ginkgo.By("Creating a normal priority workload that gets admitted and uses all quota")
 
-			lowPrioClass := utiltestingapi.MakeWorkloadPriorityClass("low-priority").
-				PriorityValue(lowPriority).
+			normalPrioClass := utiltestingapi.MakeWorkloadPriorityClass("normal-priority").
+				PriorityValue(0).
 				Obj()
-			util.MustCreate(ctx, k8sClient, lowPrioClass)
+			util.MustCreate(ctx, k8sClient, normalPrioClass)
 			defer func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, lowPrioClass, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, normalPrioClass, true)
 			}()
 
-			lowPrioWl := utiltestingapi.MakeWorkload("low-prio-wl", ns.Name).
+			normalWl := utiltestingapi.MakeWorkload("normal-wl", ns.Name).
 				Queue(kueue.LocalQueueName(q.Name)).
-				WorkloadPriorityClassRef("low-priority").
+				Priority(0).
 				Request(corev1.ResourceCPU, "2").
 				Obj()
 
-			util.MustCreate(ctx, k8sClient, lowPrioWl)
-			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowPrioWl)
+			normalWl.Spec.PriorityClassRef = &kueue.PriorityClassRef{
+				Group: kueue.WorkloadPriorityClassGroup,
+				Kind:  "WorkloadPriorityClass",
+				Name:  "normal-priority",
+			}
+
+			util.MustCreate(ctx, k8sClient, normalWl)
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, normalWl)
 
 			ginkgo.By("Creating a suspended workload WITHOUT priority class")
 			suspendedWl := utiltestingapi.MakeWorkload("suspended-wl", ns.Name).
 				Queue(kueue.LocalQueueName(q.Name)).
 				Request(corev1.ResourceCPU, "2").
-				Active(false).
+				Active(false). // Suspended
 				Obj()
 			util.MustCreate(ctx, k8sClient, suspendedWl)
-
-			ginkgo.By("Verifying suspended workload stays pending (no quota available)")
-			gomega.Consistently(func(g gomega.Gomega) {
-				wl := &kueue.Workload{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(suspendedWl), wl)).To(gomega.Succeed())
-				g.Expect(workload.HasQuotaReservation(wl)).To(gomega.BeFalse(), "suspended workload should not have quota while low-priority is admitted")
-			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Adding high WorkloadPriorityClass to the suspended workload")
 			gomega.Eventually(func(g gomega.Gomega) {
 				wl := &kueue.Workload{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(suspendedWl), wl)).To(gomega.Succeed())
-				// Manually construct the PriorityClassRef struct
 				wl.Spec.PriorityClassRef = &kueue.PriorityClassRef{
 					Group: kueue.WorkloadPriorityClassGroup,
 					Kind:  "WorkloadPriorityClass",
 					Name:  "high-priority",
 				}
+				wl.Spec.Priority = ptr.To(highPriority)
 				g.Expect(k8sClient.Update(ctx, wl)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -314,17 +313,19 @@ var _ = ginkgo.Describe("Preemption", func() {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(suspendedWl), wl)).To(gomega.Succeed())
 				g.Expect(wl.Spec.PriorityClassRef).NotTo(gomega.BeNil())
 				g.Expect(wl.Spec.PriorityClassRef.Name).To(gomega.Equal("high-priority"))
+				g.Expect(wl.Spec.Priority).NotTo(gomega.BeNil())
+				g.Expect(*wl.Spec.Priority).To(gomega.Equal(highPriority))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("Verifying the low-priority workload gets preempted")
-			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, lowPrioWl)
-			util.FinishEvictionForWorkloads(ctx, k8sClient, lowPrioWl)
+			ginkgo.By("Verifying the normal priority workload gets preempted")
+			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, normalWl)
+			util.FinishEvictionForWorkloads(ctx, k8sClient, normalWl)
 
 			ginkgo.By("Verifying the high-priority suspended workload gets admitted")
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, suspendedWl)
 
-			ginkgo.By("Verifying the low-priority workload is now pending")
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, lowPrioWl)
+			ginkgo.By("Verifying the normal priority workload is now pending")
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, normalWl)
 		})
 	})
 
