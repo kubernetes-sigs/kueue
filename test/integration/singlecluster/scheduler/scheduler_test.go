@@ -1585,7 +1585,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-
 		ginkgo.It("Should admit workload when cq switches into cohort with capacity", func() {
 			cq = utiltestingapi.MakeClusterQueue("clusterqueue").
 				Cohort("impecunious-cohort").
