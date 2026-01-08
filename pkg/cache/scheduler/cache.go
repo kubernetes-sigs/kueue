@@ -108,7 +108,7 @@ type Cache struct {
 	sync.RWMutex
 	podsReadyCond sync.Cond
 
-	client               client.Client
+	client client.Client
 	// assumedWorkloads     map[workload.Reference]kueue.ClusterQueueReference
 	resourceFlavors      map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	podsReadyTracking    bool
@@ -126,12 +126,12 @@ type Cache struct {
 
 func New(client client.Client, options ...Option) *Cache {
 	cache := &Cache{
-		client:           client,
+		client: client,
 		// assumedWorkloads: make(map[workload.Reference]kueue.ClusterQueueReference),
-		resourceFlavors:  make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
-		admissionChecks:  make(map[kueue.AdmissionCheckReference]AdmissionCheck),
-		hm:               hierarchy.NewManager(newCohort),
-		tasCache:         NewTASCache(client),
+		resourceFlavors: make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
+		admissionChecks: make(map[kueue.AdmissionCheckReference]AdmissionCheck),
+		hm:              hierarchy.NewManager(newCohort),
+		tasCache:        NewTASCache(client),
 	}
 	for _, option := range options {
 		option(cache)
