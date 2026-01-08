@@ -1132,7 +1132,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, lowWl)
 		})
 	})
-	
+
 	ginkgo.Context("Priority Comparison with Sticky Workloads", func() {
 		var (
 			cq1 *kueue.ClusterQueue
@@ -1259,7 +1259,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 			j01 := utiltestingapi.MakeWorkload("j01", ns.Name).Queue("lq2").Request(corev1.ResourceCPU, "1").Priority(100).Obj()
 			j02 := utiltestingapi.MakeWorkload("j02", ns.Name).Queue("lq2").Request(corev1.ResourceCPU, "1").Priority(90).Obj()
 			j03 := utiltestingapi.MakeWorkload("j03", ns.Name).Queue("lq2").Request(corev1.ResourceCPU, "1").Priority(100).Obj()
-			
+
 			// Total 3 CPU used in cq2. Global cohort usage 3.
 			util.MustCreate(ctx, k8sClient, j01)
 			util.MustCreate(ctx, k8sClient, j02)
@@ -1274,7 +1274,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 			ginkgo.By("Submitting j_high (P200, 3 CPU) to cq1. Needs 3 CPUs, so must preempt j01 AND j02 (and use j03's spot).")
 			jHigh := utiltestingapi.MakeWorkload("j-high", ns.Name).Queue("lq1").Request(corev1.ResourceCPU, "3").Priority(200).Obj()
 			util.MustCreate(ctx, k8sClient, jHigh)
-			
+
 			// Try to finish eviction for j02 first (since it was preempted by jSticky)
 			util.FinishEvictionForWorkloads(ctx, k8sClient, j02)
 
