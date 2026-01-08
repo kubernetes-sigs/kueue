@@ -60,18 +60,19 @@ var (
 )
 
 type wlReconciler struct {
-	client            client.Client
-	helper            *admissioncheck.MultiKueueStoreHelper
-	clusters          *clustersReconciler
-	origin            string
-	workerLostTimeout time.Duration
-	deletedWlCache    *utilmaps.SyncMap[string, *kueue.Workload]
-	eventsBatchPeriod time.Duration
-	adapters          map[string]jobframework.MultiKueueAdapter
-	recorder          record.EventRecorder
-	clock             clock.Clock
-	dispatcherName    string
-	roleTracker       *roletracker.RoleTracker
+	client                         client.Client
+	helper                         *admissioncheck.MultiKueueStoreHelper
+	clusters                       *clustersReconciler
+	origin                         string
+	workerLostTimeout              time.Duration
+	deletedWlCache                 *utilmaps.SyncMap[string, *kueue.Workload]
+	eventsBatchPeriod              time.Duration
+	adapters                       map[string]jobframework.MultiKueueAdapter
+	recorder                       record.EventRecorder
+	clock                          clock.Clock
+	dispatcherName                 string
+	roleTracker                    *roletracker.RoleTracker
+	requireAllAdmissionChecksReady bool
 }
 
 var _ reconcile.Reconciler = (*wlReconciler)(nil)
@@ -107,12 +108,12 @@ func (g *wlGroup) IsElasticWorkload() bool {
 
 // bestMatchByCondition returns condition if there is a workload with a specified condition type,
 // the string identifies the remote cluster.
-func (g *wlGroup) bestMatchByCondition(conditionType string) (*metav1.Condition, string) {
+func bestMatchByCondition(remotes map[string]*kueue.Workload, conditionType string) (*metav1.Condition, string) {
 	var (
 		bestMatchCond   *metav1.Condition
 		bestMatchRemote string
 	)
-	for remote, wl := range g.remotes {
+	for remote, wl := range remotes {
 		if wl != nil {
 			cond := apimeta.FindStatusCondition(wl.Status.Conditions, conditionType)
 			if cond != nil && cond.Status == metav1.ConditionTrue && (bestMatchCond == nil || cond.LastTransitionTime.Before(&bestMatchCond.LastTransitionTime)) {
@@ -122,6 +123,26 @@ func (g *wlGroup) bestMatchByCondition(conditionType string) (*metav1.Condition,
 		}
 	}
 	return bestMatchCond, bestMatchRemote
+}
+
+// filterByAdmissionChecks returns a map of remote workloads that have all admission checks ready.
+func (g *wlGroup) filterByAdmissionChecks() map[string]*kueue.Workload {
+	eligible := make(map[string]*kueue.Workload)
+	for remote, wl := range g.remotes {
+		if wl != nil {
+			allReady := true
+			for _, ac := range wl.Status.AdmissionChecks {
+				if ac.State != kueue.CheckStateReady {
+					allReady = false
+					break
+				}
+			}
+			if allReady {
+				eligible[remote] = wl
+			}
+		}
+	}
+	return eligible
 }
 
 func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error {
@@ -331,7 +352,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	}
 
 	// 3. Finish the local workload when the remote workload is finished.
-	if remoteFinishedCond, remote := group.bestMatchByCondition(kueue.WorkloadFinished); remoteFinishedCond != nil {
+	if remoteFinishedCond, remote := bestMatchByCondition(group.remotes, kueue.WorkloadFinished); remoteFinishedCond != nil {
 		// NOTE: we can have a race condition setting the wl status here, and it being updated by the job controller,
 		// it should not be problematic, but the "From remote xxxx:" could be lost ....
 
@@ -350,7 +371,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	}
 
 	// 4. Handle workload evicted on manager cluster
-	remoteEvictCond, evictedRemote := group.bestMatchByCondition(kueue.WorkloadEvicted)
+	remoteEvictCond, evictedRemote := bestMatchByCondition(group.remotes, kueue.WorkloadEvicted)
 	if remoteEvictCond != nil && remoteEvictCond.Reason == workload.ReasonWithCause(kueue.WorkloadDeactivated, kueue.WorkloadEvictedOnManagerCluster) {
 		remoteCl := group.remoteClients[evictedRemote].client
 		remoteWl := group.remotes[evictedRemote]
@@ -390,7 +411,11 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	}
 
 	// 6. Get the first reserving
-	if remoteQuotaReservedCond, reservingRemote := group.bestMatchByCondition(kueue.WorkloadQuotaReserved); remoteQuotaReservedCond != nil {
+	eligibleRemotes := group.remotes
+	if w.requireAllAdmissionChecksReady {
+		eligibleRemotes = group.filterByAdmissionChecks()
+	}
+	if remoteQuotaReservedCond, reservingRemote := bestMatchByCondition(eligibleRemotes, kueue.WorkloadQuotaReserved); remoteQuotaReservedCond != nil {
 		// remove the non-reserving worker workloads
 		for rem, remWl := range group.remotes {
 			if remWl != nil && rem != reservingRemote {
@@ -522,21 +547,23 @@ func (w *wlReconciler) Generic(_ event.GenericEvent) bool {
 func newWlReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelper, cRec *clustersReconciler, origin string,
 	recorder record.EventRecorder, workerLostTimeout, eventsBatchPeriod time.Duration,
 	adapters map[string]jobframework.MultiKueueAdapter, dispatcherName string, roleTracker *roletracker.RoleTracker,
+	requireAllAdmissionChecksReady bool,
 	options ...Option,
 ) *wlReconciler {
 	r := &wlReconciler{
-		client:            c,
-		helper:            helper,
-		clusters:          cRec,
-		origin:            origin,
-		workerLostTimeout: workerLostTimeout,
-		deletedWlCache:    utilmaps.NewSyncMap[string, *kueue.Workload](0),
-		eventsBatchPeriod: eventsBatchPeriod,
-		adapters:          adapters,
-		recorder:          recorder,
-		clock:             realClock,
-		dispatcherName:    dispatcherName,
-		roleTracker:       roleTracker,
+		client:                         c,
+		helper:                         helper,
+		clusters:                       cRec,
+		origin:                         origin,
+		workerLostTimeout:              workerLostTimeout,
+		deletedWlCache:                 utilmaps.NewSyncMap[string, *kueue.Workload](0),
+		eventsBatchPeriod:              eventsBatchPeriod,
+		adapters:                       adapters,
+		recorder:                       recorder,
+		clock:                          realClock,
+		dispatcherName:                 dispatcherName,
+		roleTracker:                    roleTracker,
+		requireAllAdmissionChecksReady: requireAllAdmissionChecksReady,
 	}
 	for _, option := range options {
 		option(r)
