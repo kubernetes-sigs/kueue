@@ -4917,13 +4917,14 @@ func TestFindTopologyAssignments(t *testing.T) {
 					requests: resources.Requests{
 						corev1.ResourceCPU: 1000,
 					},
-					count: 1,
+					podSetGroupName: ptr.To("sameGroup"),
+					count:           1,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{tasBlockLabel},
 						Domains: []tas.TopologyDomainAssignment{
 							{
 								Count:  1,
-								Values: []string{"b1"},
+								Values: []string{"b2"},
 							},
 						},
 					},
@@ -4937,7 +4938,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceCPU: 1000,
 						"example.com/gpu":  2,
 					},
-					count: 4,
+					podSetGroupName: ptr.To("sameGroup"),
+					count:           4,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{tasBlockLabel},
 						Domains: []tas.TopologyDomainAssignment{
