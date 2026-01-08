@@ -24,7 +24,7 @@ kueuectl list workload [--clusterqueue CLUSTER_QUEUE_NAME] [--localqueue LOCAL_Q
 
 ```
   # List Workload
-  kueuectl list workload
+  kueuectl list kueueworkload
 ```
 
 
