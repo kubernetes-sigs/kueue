@@ -1446,7 +1446,7 @@ func (s *TASFlavorSnapshot) fillInCounts(
 		leaf.stateWithLeader = requests.CountIn(remainingCapacity)
 	}
 	for _, root := range s.roots {
-		root.state, root.sliceState, root.stateWithLeader, root.sliceStateWithLeader, root.leaderState = s.fillInCountsHelper(root, sliceSize, sliceLevelIdx, 0)
+		s.fillInCountsHelper(root, sliceSize, sliceLevelIdx, 0)
 	}
 }
 
@@ -1459,7 +1459,7 @@ func belongsToRequiredDomain(leaf *leafDomain, requiredReplacementDomain utiltas
 	return strings.HasPrefix(string(utiltas.DomainID(leaf.levelValues)), string(requiredReplacementDomain))
 }
 
-func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, sliceLevelIdx int, level int) (int32, int32, int32, int32, int32) {
+func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, sliceLevelIdx int, level int) {
 	// logic for a leaf
 	if len(domain.children) == 0 {
 		if level == sliceLevelIdx {
@@ -1467,7 +1467,7 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, 
 			domain.sliceState = domain.state / sliceSize
 			domain.sliceStateWithLeader = domain.stateWithLeader / sliceSize
 		}
-		return domain.state, domain.sliceState, domain.stateWithLeader, domain.sliceStateWithLeader, domain.leaderState
+		return
 	}
 	// logic for a parent
 	childrenCapacity := int32(0)
@@ -1478,18 +1478,12 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, 
 	leaderState := int32(0)
 
 	for _, child := range domain.children {
-		addChildrenCapacity, addChildrenSliceCapacity, addChildrenCapacityWithLeader, addChildrenSliceCapacityWithLeader, childLeaderState := s.fillInCountsHelper(child, sliceSize, sliceLevelIdx, level+1)
-		childrenCapacity += addChildrenCapacity
-		sliceCapacity += addChildrenSliceCapacity
-		if addChildrenCapacity-addChildrenCapacityWithLeader < minStateWithLeaderDifference {
-			minStateWithLeaderDifference = addChildrenCapacity - addChildrenCapacityWithLeader
-		}
-		if addChildrenSliceCapacity-addChildrenSliceCapacityWithLeader < minSliceStateWithLeaderDifference {
-			minSliceStateWithLeaderDifference = addChildrenSliceCapacity - addChildrenSliceCapacityWithLeader
-		}
-		if childLeaderState > leaderState {
-			leaderState = childLeaderState
-		}
+		s.fillInCountsHelper(child, sliceSize, sliceLevelIdx, level+1)
+		childrenCapacity += child.state
+		sliceCapacity += child.sliceState
+		minStateWithLeaderDifference = min(child.state-child.stateWithLeader, minStateWithLeaderDifference)
+		minSliceStateWithLeaderDifference = min(child.sliceState-child.sliceStateWithLeader, minSliceStateWithLeaderDifference)
+		leaderState = max(child.leaderState, leaderState)
 	}
 	domain.state = childrenCapacity
 	domain.stateWithLeader = childrenCapacity - minStateWithLeaderDifference
@@ -1503,8 +1497,6 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, 
 	}
 	domain.sliceState = sliceCapacity
 	domain.sliceStateWithLeader = sliceStateWithLeader
-
-	return domain.state, domain.sliceState, domain.stateWithLeader, domain.sliceStateWithLeader, domain.leaderState
 }
 
 func (s *TASFlavorSnapshot) notFitMessage(slicesFitCount, totalRequestsSlicesCount, sliceSize int32, stats *ExclusionStats) string {
