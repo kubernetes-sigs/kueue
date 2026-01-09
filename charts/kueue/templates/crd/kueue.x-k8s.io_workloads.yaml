@@ -46,6 +46,7 @@ spec:
     shortNames:
       - kwl
       - kueueworkload
+      - kueueworkloads
     singular: workload
   scope: Namespaced
   versions:
