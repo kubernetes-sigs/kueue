@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -2774,6 +2775,9 @@ func TestScheduleForTAS(t *testing.T) {
 					if err := qManager.AddLocalQueue(ctx, &q); err != nil {
 						t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
 					}
+				}
+				for _, pod := range tc.pods {
+					cqCache.TASCache().AddOrUpdatePod(pod, logr.FromContextOrDiscard(ctx))
 				}
 				initiallyAdmittedWorkloads := sets.New[workload.Reference]()
 				for _, w := range testWls {

@@ -617,25 +617,34 @@ func (m *Manager) QueueAssociatedInadmissibleWorkloadsAfter(ctx context.Context,
 	}
 }
 
+func (m *Manager) QueueAllInadmissible(ctx context.Context) {
+	m.Lock()
+	defer m.Unlock()
+	m.queueInadmissibleWorkloads(ctx, m.hm.ClusterQueues())
+}
+
 // QueueInadmissibleWorkloads moves all inadmissibleWorkloads in
 // corresponding ClusterQueues to heap. If at least one workload queued,
 // we will broadcast the event.
 func (m *Manager) QueueInadmissibleWorkloads(ctx context.Context, cqNames sets.Set[kueue.ClusterQueueReference]) {
 	m.Lock()
 	defer m.Unlock()
-	if len(cqNames) == 0 {
-		return
-	}
 
+	cqs := make(map[kueue.ClusterQueueReference]*ClusterQueue, len(cqNames))
+	for cqName := range cqNames {
+		if cq := m.hm.ClusterQueue(cqName); cq != nil {
+			cqs[cqName] = cq
+		}
+	}
+	m.queueInadmissibleWorkloads(ctx, cqs)
+}
+
+func (m *Manager) queueInadmissibleWorkloads(ctx context.Context, cqs map[kueue.ClusterQueueReference]*ClusterQueue) {
 	// Track processed cohort roots to avoid requeuing the same hierarchy
 	// multiple times when multiple CQs in cqNames share a root.
 	processedRoots := sets.New[kueue.CohortReference]()
-	var queued bool
-	for name := range cqNames {
-		cq := m.hm.ClusterQueue(name)
-		if cq == nil {
-			continue
-		}
+	queued := false
+	for _, cq := range cqs {
 		if cq.HasParent() && !hierarchy.HasCycle(cq.Parent()) {
 			rootName := cq.Parent().getRootUnsafe().GetName()
 			if processedRoots.Has(rootName) {

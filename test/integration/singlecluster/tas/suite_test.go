@@ -78,6 +78,9 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	failedWebhook, err := webhooks.Setup(mgr, nil)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
+	err = util.SetupPodWebhookForTesting(mgr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 	controllersCfg := &config.Configuration{}
 	mgr.GetScheme().Default(controllersCfg)
 

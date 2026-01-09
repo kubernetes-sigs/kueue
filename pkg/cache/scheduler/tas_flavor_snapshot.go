@@ -238,7 +238,6 @@ func (s *TASFlavorSnapshot) addNonTASUsage(domainID utiltas.TopologyDomainID, us
 	// least one TAS pod, and so the addCapacity function to initialize
 	// freeCapacity is already called.
 	s.leaves[domainID].freeCapacity.Sub(usage)
-	s.leaves[domainID].freeCapacity.Sub(resources.Requests{corev1.ResourcePods: 1})
 }
 
 func (s *TASFlavorSnapshot) updateTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests, op usageOp, count int32) {
