@@ -36,7 +36,7 @@ type FlavorFungibilityApplyConfiguration struct {
 	// - `Borrow` (deprecated): old name for `MayStopSearch`; please use new name.
 	WhenCanBorrow *kueuev1beta1.FlavorFungibilityPolicy `json:"whenCanBorrow,omitempty"`
 	// whenCanPreempt determines whether a workload should try the next flavor
-	// before borrowing in current flavor. The possible values are:
+	// before preempting in current flavor. The possible values are:
 	//
 	// - `MayStopSearch`: stop the search for candidate flavors if workload fits or requires
 	// preemption to fit.
