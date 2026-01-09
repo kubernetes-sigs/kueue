@@ -40,7 +40,7 @@ Job 准入的详细信息，无论它是否被准入。
 
   ```bash
   JOB_UID=$(kubectl get job -n my-namespace my-job -o jsonpath='{.metadata.uid}')
-  kubectl get workloads -n my-namespace -l "kueue.x-k8s.io/job-uid=$JOB_UID"
+  kubectl get workloads.kueue.x-k8s.io -n my-namespace -l "kueue.x-k8s.io/job-uid=$JOB_UID"
   ```
 
   输出如下所示：
@@ -55,7 +55,7 @@ Job 准入的详细信息，无论它是否被准入。
   你可以运行如下命令：
 
   ```bash
-  kubectl get workloads -n my-namespace | grep job-my-job
+  kubectl get workloads.kueue.x-k8s.io -n my-namespace | grep job-my-job
   ```
 
   输出如下所示：
