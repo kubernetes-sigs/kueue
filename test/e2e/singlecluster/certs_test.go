@@ -162,7 +162,7 @@ var _ = ginkgo.Describe("Kueue Certs", ginkgo.Serial, func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, key, deployment)).To(gomega.Succeed())
 				g.Expect(deployment.Status.Replicas).To(gomega.Equal(int32(0)))
-				g.Expect(deployment.Status.TerminatingReplicas).To(gomega.BeNil())
+				g.Expect(ptr.Deref(deployment.Status.TerminatingReplicas, 0)).To(gomega.Equal(int32(0)))
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
