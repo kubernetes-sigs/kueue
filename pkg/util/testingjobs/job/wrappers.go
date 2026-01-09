@@ -288,3 +288,19 @@ func (j *JobWrapper) SetTypeMeta() *JobWrapper {
 	j.Kind = "Job"
 	return j
 }
+
+// ResourceClaimTemplate adds a resource claim using a ResourceClaimTemplate to the pod spec
+// and references it from the first container.
+func (j *JobWrapper) ResourceClaimTemplate(claimName, templateName string) *JobWrapper {
+	j.Spec.Template.Spec.ResourceClaims = append(j.Spec.Template.Spec.ResourceClaims,
+		corev1.PodResourceClaim{
+			Name:                      claimName,
+			ResourceClaimTemplateName: ptr.To(templateName),
+		})
+	if len(j.Spec.Template.Spec.Containers) > 0 {
+		j.Spec.Template.Spec.Containers[0].Resources.Claims = append(
+			j.Spec.Template.Spec.Containers[0].Resources.Claims,
+			corev1.ResourceClaim{Name: claimName})
+	}
+	return j
+}

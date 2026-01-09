@@ -76,6 +76,10 @@ if [[ -n "${CLUSTERPROFILE_VERSION:-}" ]]; then
     export CLUSTERPROFILE_CRD=${ROOT_DIR}/dep-crds/clusterprofile/multicluster.x-k8s.io_clusterprofiles.yaml
 fi
 
+if [[ -n "${DRA_EXAMPLE_DRIVER_VERSION:-}" ]]; then
+    export DRA_EXAMPLE_DRIVER_REPO=https://github.com/kubernetes-sigs/dra-example-driver.git
+fi
+
 if [[ -n "${KUEUE_UPGRADE_FROM_VERSION:-}" ]]; then
     export KUEUE_OLD_VERSION_MANIFEST="https://github.com/kubernetes-sigs/kueue/releases/download/${KUEUE_UPGRADE_FROM_VERSION}/manifests.yaml"
 fi
@@ -98,15 +102,51 @@ function cluster_cleanup {
     $KIND delete cluster --name "$1"
 }
 
+# Patches a kind config file with DRA-specific settings.
+function patch_kind_config_for_dra {
+    local patched_config
+    patched_config=$(mktemp)
+    cp "$1" "$patched_config"
+
+    $YQ -i '.featureGates.DynamicResourceAllocation = true' "$patched_config"
+    $YQ -i '.containerdConfigPatches += ["[plugins.\"io.containerd.grpc.v1.cri\"]\n  enable_cdi = true"]' "$patched_config"
+    $YQ -i '(.nodes[] | select(.role == "control-plane")).kubeadmConfigPatches[0] = "kind: ClusterConfiguration
+apiVersion: kubeadm.k8s.io/v1beta3
+scheduler:
+  extraArgs:
+    v: \"3\"
+controllerManager:
+  extraArgs:
+    v: \"3\"
+apiServer:
+  extraArgs:
+    enable-aggregator-routing: \"true\"
+    runtime-config: \"resource.k8s.io/v1=true\"
+    v: \"3\"
+"' "$patched_config"
+
+    echo "$patched_config"
+}
+
 # $1 cluster name
 # $2 cluster kind config
 # $3 kubeconfig
 function cluster_create {
     prepare_kubeconfig "$1" "$3"
 
-    $KIND create cluster --name "$1" --image "$E2E_KIND_VERSION" --config "$2" --kubeconfig="$3" --wait 1m -v 5  > "$ARTIFACTS/$1-create.log" 2>&1 \
+    local kind_config="$2"
+
+    if [[ -n ${DRA_EXAMPLE_DRIVER_VERSION:-} ]]; then
+        kind_config=$(patch_kind_config_for_dra "$2")
+        # shellcheck disable=SC2064 # Intentionally expand now to capture the temp file path
+        trap "rm -f '$kind_config'" RETURN
+        echo "Using patched kind config for DRA:"
+        cat "$kind_config"
+    fi
+
+    $KIND create cluster --name "$1" --image "$E2E_KIND_VERSION" --config "$kind_config" --kubeconfig="$3" --wait 1m -v 5  > "$ARTIFACTS/$1-create.log" 2>&1 \
     ||  { echo "unable to start the $1 cluster "; cat "$ARTIFACTS/$1-create.log" ; }
- 
+
     kubectl config --kubeconfig="$3" use-context "kind-$1"
     kubectl get nodes --kubeconfig="$3" > "$ARTIFACTS/$1-nodes.log" || true
     kubectl describe pods --kubeconfig="$3" -n kube-system > "$ARTIFACTS/$1-system-pods.log" || true
@@ -206,6 +246,9 @@ function kind_load {
     if [[ -n ${CLUSTERPROFILE_VERSION:-} ]]; then
         install_multicluster "$2"
     fi
+    if [[ -n ${DRA_EXAMPLE_DRIVER_VERSION:-} ]]; then
+        install_dra_example_driver "$1" "$2"
+    fi
 }
 
 # $1 cluster
@@ -284,6 +327,8 @@ function cluster_kueue_deploy {
         else
             deploy_with_certmanager "$1"
         fi
+    elif [[ -n ${DRA_EXAMPLE_DRIVER_VERSION:-} ]]; then
+        build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra"
     elif [ "$E2E_USE_HELM" == 'true' ]; then
         helm_install "$1" "${ROOT_DIR}/test/e2e/config/default/values.yaml"
     else
@@ -385,6 +430,45 @@ function install_cert_manager {
 # $1 kubeconfig option
 function install_multicluster {
     kubectl apply --kubeconfig="$1" --server-side -f "${CLUSTERPROFILE_CRD}"
+}
+
+# $1 cluster name
+# $2 kubeconfig option
+function install_dra_example_driver {
+    local dra_driver_temp_dir
+    dra_driver_temp_dir=$(mktemp -d)
+    # shellcheck disable=SC2064 # Intentionally expand now to capture the temp dir path
+    trap "rm -rf '$dra_driver_temp_dir'" RETURN
+    git clone --depth 1 --branch "${DRA_EXAMPLE_DRIVER_VERSION}" "${DRA_EXAMPLE_DRIVER_REPO}" "$dra_driver_temp_dir"
+
+    local dra_image_repo="dra-example-driver"
+    local dra_image_tag="local"
+
+    local go_version
+    go_version=$(grep '^go ' "$dra_driver_temp_dir/go.mod" | awk '{print $2}' | cut -d. -f1,2)
+
+    echo "Building dra-example-driver image from source (Go ${go_version})..."
+    # Patch Makefile to ensure static build with CGO_ENABLED=0
+    sed 's/CGO_LDFLAGS_ALLOW/CGO_ENABLED=0 CGO_LDFLAGS_ALLOW/' "$dra_driver_temp_dir/Makefile" > "$dra_driver_temp_dir/Makefile.tmp" \
+        && mv "$dra_driver_temp_dir/Makefile.tmp" "$dra_driver_temp_dir/Makefile"
+    docker build -t "${dra_image_repo}:${dra_image_tag}" \
+        --build-arg GOLANG_VERSION="${go_version}" \
+        --build-arg BASE_IMAGE=gcr.io/distroless/static:latest \
+        -f "$dra_driver_temp_dir/deployments/container/Dockerfile" \
+        "$dra_driver_temp_dir"
+
+    cluster_kind_load_image "${1}" "${dra_image_repo}:${dra_image_tag}"
+
+    $HELM upgrade -i \
+      --create-namespace \
+      --namespace dra-example-driver \
+      --kubeconfig="$2" \
+      --set image.repository="${dra_image_repo}" \
+      --set image.tag="${dra_image_tag}" \
+      --set kubeletPlugin.containers.plugin.securityContext.privileged=true \
+      --wait \
+      dra-example-driver \
+      "$dra_driver_temp_dir/deployments/helm/dra-example-driver"
 }
 
 
