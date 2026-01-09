@@ -46,7 +46,7 @@ func NewWorkloadCmd(clientGetter clientgetter.ClientGetter, streams genericioopt
 		Use: "workload NAME [--namespace NAMESPACE] [--dry-run STRATEGY]",
 		// To do not add "[flags]" suffix on the end of usage line
 		DisableFlagsInUseLine: true,
-		Aliases:               []string{"kueueworkload", "kwl"},
+		Aliases:               []string{"kueueworkload", "kueueworkloads", "kwl"},
 		Short:                 "Stop the Workload",
 		Long:                  wlLong,
 		Example:               wlExample,
