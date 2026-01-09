@@ -215,6 +215,13 @@ func calculateEntropy(blockSizes []int32) float64 {
 
 func sortDomainsByCapacityAndEntropy(domains []*domain) {
 	slices.SortFunc(domains, func(a, b *domain) int {
+		if a.affinityScore != b.affinityScore {
+			if a.affinityScore > b.affinityScore {
+				return -1
+			}
+			return 1
+		}
+
 		if r := b.leaderState - a.leaderState; r != 0 {
 			return int(r)
 		}
@@ -325,7 +332,7 @@ func (s *TASFlavorSnapshot) pruneDomainsBelowThreshold(domains []*domain, thresh
 		}
 	}
 	for _, d := range domains {
-		d.state, d.sliceState, d.stateWithLeader, d.sliceStateWithLeader, d.leaderState = s.fillInCountsHelper(d, sliceSize, sliceLevelIdx, level)
+		d.state, d.sliceState, d.stateWithLeader, d.sliceStateWithLeader, d.leaderState, d.affinityScore = s.fillInCountsHelper(d, sliceSize, sliceLevelIdx, level)
 		if d.sliceStateWithLeader < threshold {
 			clearState(d)
 		}

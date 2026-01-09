@@ -22,6 +22,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -427,5 +429,544 @@ func TestHasLevel(t *testing.T) {
 				t.Errorf("unexpected HasLevel result (-want,+got): %s", diff)
 			}
 		})
+	}
+}
+
+func TestSortedDomainsWithPreferredAffinity(t *testing.T) {
+	levels := []string{"kubernetes.io/hostname"}
+	nodes := []corev1.Node{
+		*node.MakeNode("node-preferred").
+			Label("kubernetes.io/hostname", "node-preferred").
+			Label("region", "us-west").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("1"),
+			}).Obj(),
+		*node.MakeNode("node-other").
+			Label("kubernetes.io/hostname", "node-other").
+			Label("region", "us-east").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("1"),
+			}).Obj(),
+	}
+
+	preferredAffinity := []corev1.PreferredSchedulingTerm{
+		{
+			Weight: 10,
+			Preference: corev1.NodeSelectorTerm{
+				MatchExpressions: []corev1.NodeSelectorRequirement{
+					{
+						Key:      "region",
+						Operator: corev1.NodeSelectorOpIn,
+						Values:   []string{"us-west"},
+					},
+				},
+			},
+		},
+	}
+
+	_, log := utiltesting.ContextWithLog(t)
+	s := newTASFlavorSnapshot(log, "dummy", levels, nil)
+	for _, node := range nodes {
+		s.addNode(node)
+	}
+	s.initialize()
+
+	s.leaves[tas.DomainID([]string{"node-preferred"})].sliceState = 1
+	s.leaves[tas.DomainID([]string{"node-other"})].sliceState = 1
+
+	requests := resources.Requests{corev1.ResourceCPU: 1}
+
+	s.fillInCounts(
+		requests,
+		nil,
+		nil,
+		1,
+		0,
+		false,
+		nil,
+		labels.Everything(),
+		nil,
+		preferredAffinity,
+		"",
+		newExclusionStats(),
+	)
+
+	domains := []*domain{
+		s.domainsPerLevel[0][tas.DomainID([]string{"node-other"})],
+		s.domainsPerLevel[0][tas.DomainID([]string{"node-preferred"})],
+	}
+
+	gotDomains := s.sortedDomains(domains, false)
+	gotValues := make([]string, len(gotDomains))
+	for i, d := range gotDomains {
+		gotValues[i] = d.levelValues[0]
+	}
+
+	want := []string{"node-preferred", "node-other"}
+	if diff := cmp.Diff(want, gotValues); diff != "" {
+		t.Errorf("unexpected sorted domains (-want,+got): %s", diff)
+	}
+}
+
+func TestSortedDomainsWithLeaderWithPreferredAffinity(t *testing.T) {
+	levels := []string{"kubernetes.io/hostname"}
+	nodes := []corev1.Node{
+		*node.MakeNode("node-preferred").
+			Label("kubernetes.io/hostname", "node-preferred").
+			Label("region", "us-west").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("1"),
+			}).Obj(),
+		*node.MakeNode("node-other").
+			Label("kubernetes.io/hostname", "node-other").
+			Label("region", "us-east").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("1"),
+			}).Obj(),
+	}
+
+	preferredAffinity := []corev1.PreferredSchedulingTerm{
+		{
+			Weight: 10,
+			Preference: corev1.NodeSelectorTerm{
+				MatchExpressions: []corev1.NodeSelectorRequirement{
+					{
+						Key:      "region",
+						Operator: corev1.NodeSelectorOpIn,
+						Values:   []string{"us-west"},
+					},
+				},
+			},
+		},
+	}
+
+	_, log := utiltesting.ContextWithLog(t)
+	s := newTASFlavorSnapshot(log, "dummy", levels, nil)
+	for _, node := range nodes {
+		s.addNode(node)
+	}
+	s.initialize()
+
+	s.leaves[tas.DomainID([]string{"node-preferred"})].sliceStateWithLeader = 1
+	s.leaves[tas.DomainID([]string{"node-preferred"})].leaderState = 1
+	s.leaves[tas.DomainID([]string{"node-other"})].sliceStateWithLeader = 1
+	s.leaves[tas.DomainID([]string{"node-other"})].leaderState = 1
+
+	requests := resources.Requests{corev1.ResourceCPU: 1}
+
+	s.fillInCounts(
+		requests,
+		&requests,
+		nil,
+		1,
+		0,
+		false,
+		nil,
+		labels.Everything(),
+		nil,
+		preferredAffinity,
+		"",
+		newExclusionStats(),
+	)
+
+	domains := []*domain{
+		s.domainsPerLevel[0][tas.DomainID([]string{"node-other"})],
+		s.domainsPerLevel[0][tas.DomainID([]string{"node-preferred"})],
+	}
+
+	gotDomains := s.sortedDomainsWithLeader(domains, false)
+	gotValues := make([]string, len(gotDomains))
+	for i, d := range gotDomains {
+		gotValues[i] = d.levelValues[0]
+	}
+
+	want := []string{"node-preferred", "node-other"}
+	if diff := cmp.Diff(want, gotValues); diff != "" {
+		t.Errorf("unexpected sorted domains (-want,+got): %s", diff)
+	}
+}
+
+func TestAffinityScorePropagation(t *testing.T) {
+	levels := []string{"rack", "kubernetes.io/hostname"}
+	nodes := []corev1.Node{
+		*node.MakeNode("node-preferred").
+			Label("rack", "rack-preferred").
+			Label("kubernetes.io/hostname", "node-preferred").
+			Label("region", "us-west").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("1"),
+			}).Obj(),
+		*node.MakeNode("node-other").
+			Label("rack", "rack-other").
+			Label("kubernetes.io/hostname", "node-other").
+			Label("region", "us-east").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("1"),
+			}).Obj(),
+	}
+
+	preferredAffinity := []corev1.PreferredSchedulingTerm{
+		{
+			Weight: 10,
+			Preference: corev1.NodeSelectorTerm{
+				MatchExpressions: []corev1.NodeSelectorRequirement{
+					{
+						Key:      "region",
+						Operator: corev1.NodeSelectorOpIn,
+						Values:   []string{"us-west"},
+					},
+				},
+			},
+		},
+	}
+
+	_, log := utiltesting.ContextWithLog(t)
+	s := newTASFlavorSnapshot(log, "dummy", levels, nil)
+	for _, node := range nodes {
+		s.addNode(node)
+	}
+	s.initialize()
+
+	requests := resources.Requests{corev1.ResourceCPU: 1}
+
+	s.fillInCounts(
+		requests,
+		nil,
+		nil,
+		1,
+		0,
+		false,
+		nil,
+		labels.Everything(),
+		nil,
+		preferredAffinity,
+		"",
+		newExclusionStats(),
+	)
+
+	rackPreferred := s.domainsPerLevel[0][tas.DomainID([]string{"rack-preferred"})]
+	rackOther := s.domainsPerLevel[0][tas.DomainID([]string{"rack-other"})]
+
+	if rackPreferred.affinityScore <= rackOther.affinityScore {
+		t.Errorf("Expected rack-preferred to have higher affinity score than rack-other, got %d vs %d", rackPreferred.affinityScore, rackOther.affinityScore)
+	}
+}
+
+func TestFindTopologyAssignmentsForFlavorWithAffinity(t *testing.T) {
+	levels := []string{"rack", "kubernetes.io/hostname"}
+	nodes := []corev1.Node{
+		*node.MakeNode("node-preferred").
+			Label("rack", "rack-preferred").
+			Label("kubernetes.io/hostname", "node-preferred").
+			Label("region", "us-west").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("1"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).Obj(),
+		*node.MakeNode("node-other").
+			Label("rack", "rack-other").
+			Label("kubernetes.io/hostname", "node-other").
+			Label("region", "us-east").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("1"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).Obj(),
+	}
+
+	preferredAffinity := []corev1.PreferredSchedulingTerm{
+		{
+			Weight: 10,
+			Preference: corev1.NodeSelectorTerm{
+				MatchExpressions: []corev1.NodeSelectorRequirement{
+					{
+						Key:      "region",
+						Operator: corev1.NodeSelectorOpIn,
+						Values:   []string{"us-west"},
+					},
+				},
+			},
+		},
+	}
+
+	_, log := utiltesting.ContextWithLog(t)
+	s := newTASFlavorSnapshot(log, "dummy", levels, nil)
+	for _, node := range nodes {
+		s.addNode(node)
+	}
+	s.initialize()
+
+	requests := resources.Requests{corev1.ResourceCPU: 1}
+
+	s.fillInCounts(
+		requests,
+		nil,
+		nil,
+		1,
+		0,
+		false,
+		nil,
+		labels.Everything(),
+		nil,
+		preferredAffinity,
+		"",
+		newExclusionStats(),
+	)
+
+	podSet := kueue.PodSet{
+		Name: "main",
+		TopologyRequest: &kueue.PodSetTopologyRequest{
+			Preferred: ptr.To("rack"),
+		},
+		Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				Affinity: &corev1.Affinity{
+					NodeAffinity: &corev1.NodeAffinity{
+						PreferredDuringSchedulingIgnoredDuringExecution: preferredAffinity,
+					},
+				},
+			},
+		},
+	}
+	tasRequests := FlavorTASRequests{
+		{
+			PodSet:            &podSet,
+			SinglePodRequests: requests,
+			Count:             1,
+		},
+	}
+
+	result := s.FindTopologyAssignmentsForFlavor(tasRequests)
+	assignment := result["main"].TopologyAssignment
+
+	if assignment == nil {
+		t.Fatalf("Expected assignment, got nil. Failure reason: %s", result["main"].FailureReason)
+	}
+
+	if len(assignment.Domains) != 1 {
+		t.Fatalf("Expected 1 domain, got %d", len(assignment.Domains))
+	}
+
+	if assignment.Domains[0].Values[0] != "node-preferred" {
+		t.Errorf("Expected assignment to node-preferred, got %s", assignment.Domains[0].Values[0])
+	}
+}
+
+func TestFindTopologyAssignmentsForFlavorWithRequiredAndPreferredAffinity(t *testing.T) {
+	levels := []string{"rack", "kubernetes.io/hostname"}
+	nodes := []corev1.Node{
+		*node.MakeNode("node-preferred").
+			Label("rack", "rack-preferred").
+			Label("kubernetes.io/hostname", "node-preferred").
+			Label("region", "us-west").
+			Label("zone", "us").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("1"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).Obj(),
+		*node.MakeNode("node-other").
+			Label("rack", "rack-other").
+			Label("kubernetes.io/hostname", "node-other").
+			Label("region", "us-east").
+			Label("zone", "us").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("1"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).Obj(),
+		*node.MakeNode("node-excluded").
+			Label("rack", "rack-excluded").
+			Label("kubernetes.io/hostname", "node-excluded").
+			Label("region", "us-west").
+			Label("zone", "eu").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("1"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).Obj(),
+	}
+
+	preferredAffinity := []corev1.PreferredSchedulingTerm{
+		{
+			Weight: 10,
+			Preference: corev1.NodeSelectorTerm{
+				MatchExpressions: []corev1.NodeSelectorRequirement{
+					{
+						Key:      "region",
+						Operator: corev1.NodeSelectorOpIn,
+						Values:   []string{"us-west"},
+					},
+				},
+			},
+		},
+	}
+
+	requiredAffinity := &corev1.NodeSelector{
+		NodeSelectorTerms: []corev1.NodeSelectorTerm{
+			{
+				MatchExpressions: []corev1.NodeSelectorRequirement{
+					{
+						Key:      "zone",
+						Operator: corev1.NodeSelectorOpIn,
+						Values:   []string{"us"},
+					},
+				},
+			},
+		},
+	}
+
+	_, log := utiltesting.ContextWithLog(t)
+	s := newTASFlavorSnapshot(log, "dummy", levels, nil)
+	for _, node := range nodes {
+		s.addNode(node)
+	}
+	s.initialize()
+
+	requests := resources.Requests{corev1.ResourceCPU: 1}
+
+	podSet := kueue.PodSet{
+		Name: "main",
+		TopologyRequest: &kueue.PodSetTopologyRequest{
+			Preferred: ptr.To("rack"),
+		},
+		Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				Affinity: &corev1.Affinity{
+					NodeAffinity: &corev1.NodeAffinity{
+						RequiredDuringSchedulingIgnoredDuringExecution:  requiredAffinity,
+						PreferredDuringSchedulingIgnoredDuringExecution: preferredAffinity,
+					},
+				},
+			},
+		},
+	}
+
+	tasRequests := FlavorTASRequests{
+		{
+			PodSet:            &podSet,
+			SinglePodRequests: requests,
+			Count:             1,
+		},
+	}
+
+	result := s.FindTopologyAssignmentsForFlavor(tasRequests)
+	assignment := result["main"].TopologyAssignment
+
+	if assignment == nil {
+		t.Fatalf("Expected assignment, got nil. Failure reason: %s", result["main"].FailureReason)
+	}
+
+	if len(assignment.Domains) != 1 {
+		t.Fatalf("Expected 1 domain, got %d", len(assignment.Domains))
+	}
+
+	if assignment.Domains[0].Values[0] != "node-preferred" {
+		t.Errorf("Expected assignment to node-preferred, got %s", assignment.Domains[0].Values[0])
+	}
+}
+
+func TestFindTopologyAssignmentsForFlavorWithMultiplePreferredAffinities(t *testing.T) {
+	levels := []string{"block", "rack", "kubernetes.io/hostname"}
+	nodes := []corev1.Node{
+		*node.MakeNode("node-a").
+			Label("block", "b1").
+			Label("rack", "r1").
+			Label("kubernetes.io/hostname", "node-a").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("1"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).Obj(),
+		*node.MakeNode("node-b").
+			Label("block", "b1").
+			Label("rack", "r2").
+			Label("kubernetes.io/hostname", "node-b").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("1"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).Obj(),
+		*node.MakeNode("node-c").
+			Label("block", "b2").
+			Label("rack", "r1").
+			Label("kubernetes.io/hostname", "node-c").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("1"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).Obj(),
+	}
+
+	preferredAffinity := []corev1.PreferredSchedulingTerm{
+		{
+			Weight: 10,
+			Preference: corev1.NodeSelectorTerm{
+				MatchExpressions: []corev1.NodeSelectorRequirement{
+					{
+						Key:      "block",
+						Operator: corev1.NodeSelectorOpIn,
+						Values:   []string{"b1"},
+					},
+				},
+			},
+		},
+		{
+			Weight: 100,
+			Preference: corev1.NodeSelectorTerm{
+				MatchExpressions: []corev1.NodeSelectorRequirement{
+					{
+						Key:      "rack",
+						Operator: corev1.NodeSelectorOpIn,
+						Values:   []string{"r1"},
+					},
+				},
+			},
+		},
+	}
+
+	_, log := utiltesting.ContextWithLog(t)
+	s := newTASFlavorSnapshot(log, "dummy", levels, nil)
+	for _, node := range nodes {
+		s.addNode(node)
+	}
+	s.initialize()
+
+	requests := resources.Requests{corev1.ResourceCPU: 1}
+
+	podSet := kueue.PodSet{
+		Name: "main",
+		TopologyRequest: &kueue.PodSetTopologyRequest{
+			Preferred: ptr.To("rack"),
+		},
+		Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				Affinity: &corev1.Affinity{
+					NodeAffinity: &corev1.NodeAffinity{
+						PreferredDuringSchedulingIgnoredDuringExecution: preferredAffinity,
+					},
+				},
+			},
+		},
+	}
+	tasRequests := FlavorTASRequests{
+		{
+			PodSet:            &podSet,
+			SinglePodRequests: requests,
+			Count:             1,
+		},
+	}
+
+	result := s.FindTopologyAssignmentsForFlavor(tasRequests)
+	assignment := result["main"].TopologyAssignment
+
+	if assignment == nil {
+		t.Fatalf("Expected assignment, got nil. Failure reason: %s", result["main"].FailureReason)
+	}
+
+	if len(assignment.Domains) != 1 {
+		t.Fatalf("Expected 1 domain, got %d", len(assignment.Domains))
+	}
+
+	// Node A: b1(10) + r1(100) = 110
+	// Node B: b1(10) + r2(0) = 10
+	// Node C: b2(0) + r1(100) = 100
+	// Expect Node A
+
+	if assignment.Domains[0].Values[0] != "node-a" {
+		t.Errorf("Expected assignment to node-a, got %s", assignment.Domains[0].Values[0])
 	}
 }
