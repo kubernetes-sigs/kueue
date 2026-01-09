@@ -629,11 +629,21 @@ func (m *Manager) QueueInadmissibleWorkloads(ctx context.Context, cqNames sets.S
 		return
 	}
 
+	// Track processed cohort roots to avoid requeuing the same hierarchy
+	// multiple times when multiple CQs in cqNames share a root.
+	processedRoots := sets.New[kueue.CohortReference]()
 	var queued bool
 	for name := range cqNames {
 		cq := m.hm.ClusterQueue(name)
 		if cq == nil {
 			continue
+		}
+		if cq.HasParent() && !hierarchy.HasCycle(cq.Parent()) {
+			rootName := cq.Parent().getRootUnsafe().GetName()
+			if processedRoots.Has(rootName) {
+				continue
+			}
+			processedRoots.Insert(rootName)
 		}
 		if m.requeueWorkloadsCQ(ctx, cq) {
 			queued = true

@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/funcr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -267,6 +268,128 @@ func TestRequeueWorkloadsCohortCycle(t *testing.T) {
 	}
 	if diff := cmp.Diff(expectedAssigned, manager.workloadAssignedQueues); diff != "" {
 		t.Errorf("Unexpected assigned workloads (-want,+got):\n%s", diff)
+	}
+}
+
+func TestQueueInadmissibleWorkloads(t *testing.T) {
+	now := time.Now()
+	cases := map[string]struct {
+		cohorts                   []*kueue.Cohort
+		clusterQueues             []*kueue.ClusterQueue
+		localQueues               []*kueue.LocalQueue
+		workloads                 []*kueue.Workload
+		cqNames                   sets.Set[kueue.ClusterQueueReference]
+		wantInadmissible          map[kueue.ClusterQueueReference][]workload.Reference
+		wantActive                map[kueue.ClusterQueueReference][]workload.Reference
+		wantMoveWorkloadsLogCount int
+	}{
+		"deduplication with shared root": {
+			// Tree structure:
+			//   root
+			//   ├── child1
+			//   │   └── cq1
+			//   └── child2
+			//       └── cq2
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("child1").Parent("root").Obj(),
+				utiltestingapi.MakeCohort("child2").Parent("root").Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq1").Cohort("child1").Obj(),
+				utiltestingapi.MakeClusterQueue("cq2").Cohort("child2").Obj(),
+			},
+			localQueues: []*kueue.LocalQueue{
+				utiltestingapi.MakeLocalQueue("foo", defaultNamespace).ClusterQueue("cq1").Obj(),
+				utiltestingapi.MakeLocalQueue("bar", defaultNamespace).ClusterQueue("cq2").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("a", defaultNamespace).Queue("foo").Creation(now).Obj(),
+				utiltestingapi.MakeWorkload("b", defaultNamespace).Queue("bar").Creation(now.Add(time.Second)).Obj(),
+			},
+			cqNames:          sets.New[kueue.ClusterQueueReference]("cq1", "cq2"),
+			wantInadmissible: nil,
+			wantActive: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq1": {"default/a"},
+				"cq2": {"default/b"},
+			},
+			// Verify deduplication: although cq1 and cq2 share the same root, the
+			// "Attempting to move workloads" log should appear only once.
+			wantMoveWorkloadsLogCount: 1,
+		},
+		"cohort cycle": {
+			// cohort-a -> cohort-b -> cohort-c -> cohort-a
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj(),
+				utiltestingapi.MakeCohort("cohort-b").Parent("cohort-c").Obj(),
+				utiltestingapi.MakeCohort("cohort-c").Parent("cohort-a").Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq1").Cohort("cohort-a").Obj(),
+			},
+			localQueues: []*kueue.LocalQueue{
+				utiltestingapi.MakeLocalQueue("foo", defaultNamespace).ClusterQueue("cq1").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("a", defaultNamespace).Queue("foo").Creation(now).Obj(),
+			},
+			cqNames: sets.New[kueue.ClusterQueueReference]("cq1"),
+			wantInadmissible: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq1": {"default/a"},
+			},
+			wantActive: nil,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			var moveWorkloadsLogCount int
+			logger := funcr.New(func(prefix, args string) {
+				if strings.Contains(args, "Attempting to move workloads") {
+					moveWorkloadsLogCount++
+				}
+			}, funcr.Options{Verbosity: 2})
+			ctx := logr.NewContext(context.Background(), logger)
+
+			cl := utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace))
+			manager := NewManager(cl, nil)
+
+			for _, cohort := range tc.cohorts {
+				manager.AddOrUpdateCohort(ctx, cohort)
+			}
+			for _, cq := range tc.clusterQueues {
+				if err := manager.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
+				}
+				manager.getClusterQueue(kueue.ClusterQueueReference(cq.Name)).popCycle++
+			}
+			for _, lq := range tc.localQueues {
+				if err := manager.AddLocalQueue(ctx, lq); err != nil {
+					t.Fatalf("Failed adding queue %s: %v", lq.Name, err)
+				}
+			}
+			for _, wl := range tc.workloads {
+				if err := cl.Create(ctx, wl); err != nil {
+					t.Fatalf("Failed adding workload to client: %v", err)
+				}
+				manager.RequeueWorkload(ctx, workload.NewInfo(wl), RequeueReasonGeneric)
+			}
+
+			// Reset the counter before testing. Setup operations also trigger the log.
+			moveWorkloadsLogCount = 0
+
+			manager.QueueInadmissibleWorkloads(ctx, tc.cqNames)
+
+			if diff := cmp.Diff(tc.wantInadmissible, manager.DumpInadmissible()); diff != "" {
+				t.Errorf("Unexpected inadmissible workloads (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantActive, manager.Dump(), cmpDump...); diff != "" {
+				t.Errorf("Unexpected active workloads (-want +got):\n%s", diff)
+			}
+			if moveWorkloadsLogCount != tc.wantMoveWorkloadsLogCount {
+				t.Errorf("Expected %d 'Attempting to move workloads' log call(s), got %d", tc.wantMoveWorkloadsLogCount, moveWorkloadsLogCount)
+			}
+		})
 	}
 }
 
