@@ -59,7 +59,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
-	"sigs.k8s.io/kueue/pkg/util/priority"
 	qutil "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -990,7 +989,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	return true
 }
 
-func workloadPriorityClassChanged(old, new *kueue.Workload) bool {
+func workloadPriorityChanged(old, new *kueue.Workload) bool {
 	if !workload.IsWorkloadPriorityClass(new) {
 		return false
 	}
