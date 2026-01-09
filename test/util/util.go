@@ -35,6 +35,7 @@ import (
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"github.com/onsi/gomega/format"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	"github.com/prometheus/client_golang/prometheus"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
@@ -76,6 +77,11 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
+
+func init() {
+	// Use large MaxLength to make sure the diff contains relevant output
+	format.MaxLength = 500000
+}
 
 var SetupLogger = sync.OnceFunc(func() {
 	ctrl.SetLogger(NewTestingLogger(ginkgo.GinkgoWriter))
