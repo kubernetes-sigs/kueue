@@ -111,18 +111,23 @@ function patch_kind_config_for_dra {
     $YQ -i '.featureGates.DynamicResourceAllocation = true' "$patched_config"
     $YQ -i '.containerdConfigPatches += ["[plugins.\"io.containerd.grpc.v1.cri\"]\n  enable_cdi = true"]' "$patched_config"
     $YQ -i '(.nodes[] | select(.role == "control-plane")).kubeadmConfigPatches[0] = "kind: ClusterConfiguration
-apiVersion: kubeadm.k8s.io/v1beta3
+apiVersion: kubeadm.k8s.io/v1beta4
 scheduler:
   extraArgs:
-    v: \"3\"
+    - name: v
+      value: \"3\"
 controllerManager:
   extraArgs:
-    v: \"3\"
+    - name: v
+      value: \"3\"
 apiServer:
   extraArgs:
-    enable-aggregator-routing: \"true\"
-    runtime-config: \"resource.k8s.io/v1=true\"
-    v: \"3\"
+    - name: enable-aggregator-routing
+      value: \"true\"
+    - name: runtime-config
+      value: \"resource.k8s.io/v1=true\"
+    - name: v
+      value: \"3\""
 "' "$patched_config"
 
     echo "$patched_config"
