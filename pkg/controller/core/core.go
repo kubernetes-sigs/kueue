@@ -45,6 +45,10 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 	if err := acRec.SetupWithManager(mgr, cfg); err != nil {
 		return "AdmissionCheck", err
 	}
+	wpcRec := NewWorkloadPriorityClassReconciler(mgr.GetClient())
+	if err := wpcRec.SetupWithManager(mgr, cfg); err != nil {
+		return "WorkloadPriorityClass", err
+	}
 	qRec := NewLocalQueueReconciler(mgr.GetClient(), qManager, cc,
 		WithAdmissionFairSharingConfig(cfg.AdmissionFairSharing))
 	if err := qRec.SetupWithManager(mgr, cfg); err != nil {
