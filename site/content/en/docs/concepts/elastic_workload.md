@@ -39,10 +39,16 @@ While scaling **down** a workload is relatively straightforward and does not req
 
 ## Example
 
+## Kubernetes Job
+
 {{< include "examples/jobs/sample-scalable-job.yaml" "yaml" >}}
 
 The example above will result in an admitted workload and 3 running pods.
 The parallelism can be adjusted (increased or decreased) as long as the job remains in an "Active" state (i.e., not yet completed).
+
+## RayJob
+
+See [Run A RayJob](/docs/tasks/run/rayjobs)
 
 ## Feature Gate
 
@@ -64,6 +70,7 @@ metadata:
 
 * Currently available only for the following workloads: 
    * `batch/v1.Job`
+   * `ray.io/v1.RayJob`
    * `ray.io/v1.RayCluster`
 * Elastic workloads are not supported for jobs with partial admission enabled.
 
