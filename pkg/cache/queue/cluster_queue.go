@@ -329,7 +329,7 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 	inadmissibleWl := c.inadmissibleWorkloads.get(key)
 
 	if c.backoffWaitingTimeExpired(wInfo) &&
-		(immediate || c.queueInadmissibleCycle >= c.popCycle || wInfo.LastAssignment.PendingFlavors()) {
+		(immediate || c.queueInadmissibleCycle >= c.popCycle || (c.queueingStrategy != kueue.BestEffortFIFO && wInfo.LastAssignment.PendingFlavors())) {
 		// If the workload was inadmissible, move it back into the queue.
 		if inadmissibleWl != nil {
 			wInfo = inadmissibleWl
@@ -579,15 +579,22 @@ func (c *ClusterQueue) Active() bool {
 // The workload should not be reinserted if it's already in the ClusterQueue.
 // Returns true if the workload was inserted.
 func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.Info, reason RequeueReason) bool {
-	// when preemptions are in-progress, we keep attempting to
-	// schedule the same workload for BestEffortFIFO queues. See
 	// documentation of stickyWorkload for more details
 	log := ctrl.LoggerFrom(ctx)
-	if reason == RequeueReasonPendingPreemption && c.queueingStrategy == kueue.BestEffortFIFO {
-		if logV := log.V(5); logV.Enabled() {
-			logV.Info("Setting sticky workload", "clusterQueue", wInfo.ClusterQueue, "workload", workload.Key(wInfo.Obj))
+	if c.queueingStrategy == kueue.BestEffortFIFO {
+		if reason == RequeueReasonPendingPreemption {
+			if logV := log.V(5); logV.Enabled() {
+				logV.Info("Setting sticky workload", "clusterQueue", wInfo.ClusterQueue, "workload", workload.Key(wInfo.Obj))
+			}
+			c.sw.set(workload.Key(wInfo.Obj))
+		} else if c.sw.matches(workload.Key(wInfo.Obj)) {
+			// If the sticky workload is requeued for any other reason (e.g. it became inadmissible),
+			// we should clear the stickiness so that it doesn't block other workloads.
+			if logV := log.V(4); logV.Enabled() {
+				logV.Info("Clearing sticky workload", "clusterQueue", c.name, "workload", workload.Key(wInfo.Obj), "reason", reason)
+			}
+			c.sw.clear()
 		}
-		c.sw.set(workload.Key(wInfo.Obj))
 	}
 
 	if c.queueingStrategy == kueue.StrictFIFO {
@@ -595,8 +602,8 @@ func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.
 	}
 	return c.requeueIfNotPresent(log, wInfo,
 		reason == RequeueReasonFailedAfterNomination ||
-			reason == RequeueReasonPendingPreemption ||
-			reason == RequeueReasonPreemptionFailed)
+			reason == RequeueReasonPreemptionFailed ||
+			reason == RequeueReasonPendingPreemption)
 }
 
 // queueOrderingFunc returns a function used by the clusterQueue heap algorithm
