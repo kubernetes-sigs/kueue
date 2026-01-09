@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ray-job-autoscaling-code-sample
+data:
+  sample_code.py: |
+    import ray
+    import os
+
+    ray.init()
+    
+    @ray.remote
+    def my_task(x, s):
+        import time
+        time.sleep(s)
+        return x * x
+
+    # run tasks in sequence to avoid triggering autoscaling in the beginning
+    print([ray.get(my_task.remote(i, 1)) for i in range(10)])
+
+    # run tasks in parallel to trigger autoscaling (scaling up)
+    print(ray.get([my_task.remote(i, 10) for i in range(10)]))
+
+    # run tasks in sequence to trigger scaling down
+    print([ray.get(my_task.remote(i, 1)) for i in range(30)])

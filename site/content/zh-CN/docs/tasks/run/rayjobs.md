@@ -66,7 +66,6 @@ spec:
 
 - 一个 Kueue 管理的 RayJob 不能使用现有的 RayCluster。
 - RayCluster 应在作业执行结束后删除，`spec.ShutdownAfterJobFinishes` 应为 `true`。
-- 因为 Kueue 会为 RayCluster 预留资源，`spec.rayClusterSpec.enableInTreeAutoscaling` 应为 `false`。
 - 因为一个 Kueue 工作负载最多可以有 8 个 PodSet，`spec.rayClusterSpec.workerGroupSpecs` 的最大数量为 7。
 
 ## 示例 {#examples} RayJob
@@ -92,3 +91,32 @@ kubectl create -f ray-job-sample.yaml
 上述示例来自[这里](https://raw.githubusercontent.com/ray-project/kuberay/v1.4.2/ray-operator/config/samples/ray-job.sample.yaml)
 并且只添加了 `queue-name` 标签和更新了请求。
 {{% /alert %}}
+
+## 动态扩容（Autoscaling，a.k.a InTreeAutoscaling）
+
+[RayJob动态扩容](https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/configuring-autoscaling.html) 可以根据资源使用需求自动添加或者移除Ray worker pod 实例。
+
+这个特性在如下及以后版本中支持： [v0.15.2](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.15.2) 和 [v0.14.7](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.14.7).
+
+### 如何在 RayJob 中启用动态扩容
+
+1. 打开特性开关 [弹性工作负载（Elastic Workloads / Workload Slices）](/docs/concepts/elastic_workload)
+
+```yaml
+ElasticJobsViaWorkloadSlices: true
+```
+
+2. 在 RayJob 中添加 elastic-job 注释
+
+```yaml
+  annotations:
+    kueue.x-k8s.io/elastic-job: "true"
+```
+
+3. 在 RayJob 中打开`enableInTreeAutoscaling`设置
+
+```yaml
+spec:
+  rayClusterSpec:
+    enableInTreeAutoscaling: true
+```
