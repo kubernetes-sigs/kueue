@@ -36,21 +36,21 @@ import (
 )
 
 var _ = ginkgo.Describe("AppWrapper", func() {
-	const (
-		resourceFlavorName = "appwrapper-rf"
-		clusterQueueName   = "appwrapper-cq"
-		localQueueName     = "appwrapper-lq"
-	)
-
 	var (
-		ns *corev1.Namespace
-		rf *kueue.ResourceFlavor
-		cq *kueue.ClusterQueue
-		lq *kueue.LocalQueue
+		ns                 *corev1.Namespace
+		rf                 *kueue.ResourceFlavor
+		cq                 *kueue.ClusterQueue
+		lq                 *kueue.LocalQueue
+		resourceFlavorName string
+		clusterQueueName   string
+		localQueueName     string
 	)
 
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "appwrapper-e2e-")
+		resourceFlavorName = "appwrapper-rf-" + ns.Name
+		clusterQueueName = "appwrapper-cq-" + ns.Name
+		localQueueName = "appwrapper-lq-" + ns.Name
 
 		rf = utiltestingapi.MakeResourceFlavor(resourceFlavorName).
 			NodeLabel("instance-type", "on-demand").
@@ -84,7 +84,7 @@ var _ = ginkgo.Describe("AppWrapper", func() {
 		aw := awtesting.MakeAppWrapper("appwrapper", ns.Name).
 			Component(awtesting.Component{
 				Template: utiltestingjob.MakeJob("job-0", ns.Name).
-					RequestAndLimit(corev1.ResourceCPU, "200m").
+					RequestAndLimit(corev1.ResourceCPU, "100m").
 					Parallelism(int32(numPods)).
 					Completions(int32(numPods)).
 					Suspend(false).

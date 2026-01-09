@@ -34,21 +34,21 @@ import (
 )
 
 var _ = ginkgo.Describe("Deployment", func() {
-	const (
-		resourceFlavorName = "deployment-rf"
-		clusterQueueName   = "deployment-cq"
-		localQueueName     = "deployment-lq"
-	)
-
 	var (
-		ns *corev1.Namespace
-		rf *kueue.ResourceFlavor
-		cq *kueue.ClusterQueue
-		lq *kueue.LocalQueue
+		ns                 *corev1.Namespace
+		rf                 *kueue.ResourceFlavor
+		cq                 *kueue.ClusterQueue
+		lq                 *kueue.LocalQueue
+		resourceFlavorName string
+		clusterQueueName   string
+		localQueueName     string
 	)
 
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "deployment-e2e-")
+		resourceFlavorName = "deployment-rf-" + ns.Name
+		clusterQueueName = "deployment-cq-" + ns.Name
+		localQueueName = "deployment-lq-" + ns.Name
 
 		rf = utiltestingapi.MakeResourceFlavor(resourceFlavorName).
 			NodeLabel("instance-type", "on-demand").

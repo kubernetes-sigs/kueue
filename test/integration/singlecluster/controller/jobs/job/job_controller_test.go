@@ -3299,7 +3299,7 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 				afterDeactivatedByKueue = &metav1.Duration{Duration: util.TinyTimeout}
 			})
 
-			ginkgo.It("should delete job", func() {
+			ginkgo.It("should delete job", framework.SlowSpec, func() {
 				job := testingjob.MakeJob("job", ns.Name).
 					Queue(kueue.LocalQueueName(lq.Name)).
 					Request(corev1.ResourceCPU, "2").

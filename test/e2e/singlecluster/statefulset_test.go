@@ -37,21 +37,21 @@ import (
 )
 
 var _ = ginkgo.Describe("StatefulSet integration", func() {
-	const (
-		resourceFlavorName = "sts-rf"
-		clusterQueueName   = "sts-cq"
-		localQueueName     = "sts-lq"
-	)
-
 	var (
-		ns *corev1.Namespace
-		rf *kueue.ResourceFlavor
-		cq *kueue.ClusterQueue
-		lq *kueue.LocalQueue
+		ns                 *corev1.Namespace
+		rf                 *kueue.ResourceFlavor
+		cq                 *kueue.ClusterQueue
+		lq                 *kueue.LocalQueue
+		resourceFlavorName string
+		clusterQueueName   string
+		localQueueName     string
 	)
 
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "sts-e2e-")
+		resourceFlavorName = "sts-rf-" + ns.Name
+		clusterQueueName = "sts-cq-" + ns.Name
+		localQueueName = "sts-lq-" + ns.Name
 
 		rf = utiltestingapi.MakeResourceFlavor(resourceFlavorName).
 			NodeLabel("instance-type", "on-demand").
@@ -436,12 +436,12 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			highPriorityWPC = utiltestingapi.MakeWorkloadPriorityClass("high-priority").
+			highPriorityWPC = utiltestingapi.MakeWorkloadPriorityClass("high-priority-" + ns.Name).
 				PriorityValue(5000).
 				Obj()
 			util.MustCreate(ctx, k8sClient, highPriorityWPC)
 
-			lowPriorityWPC = utiltestingapi.MakeWorkloadPriorityClass("low-priority").
+			lowPriorityWPC = utiltestingapi.MakeWorkloadPriorityClass("low-priority-" + ns.Name).
 				PriorityValue(1000).
 				Obj()
 			util.MustCreate(ctx, k8sClient, lowPriorityWPC)
