@@ -43,6 +43,7 @@ import (
 	jobsetapplyapi "sigs.k8s.io/jobset/client-go/applyconfiguration/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -282,6 +283,17 @@ func (t *TrainJob) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
 	if t.Annotations == nil {
 		t.Annotations = map[string]string{}
 	}
+	// Filter out the existing overrides that were added by Kueue
+	// (identified by the presence of the PodSetLabel).
+	// This makes the function idempotent, preventing duplicate overrides
+	// if the update operation is retried.
+	var userOverrides []kftrainer.PodTemplateOverride
+	for _, o := range t.Spec.PodTemplateOverrides {
+		if o.Metadata == nil || o.Metadata.Labels == nil || o.Metadata.Labels[constants.PodSetLabel] == "" {
+			userOverrides = append(userOverrides, o)
+		}
+	}
+	t.Spec.PodTemplateOverrides = userOverrides
 	t.Annotations[firstOverrideIdx] = strconv.Itoa(len(t.Spec.PodTemplateOverrides))
 	for _, info := range podSetsInfo {
 		// The trainjob controller merges each podSpecOverride sequentially, so any existing user provided override will be processed first

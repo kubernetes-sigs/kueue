@@ -32,6 +32,7 @@ import (
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -202,6 +203,79 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 		"should return an error if the trainjob references an unknown training runtime": {
 			trainJob: testTrainJob.Clone().Obj(),
 			wantErr:  true,
+		},
+		"should replace existing Kueue overrides (idempotency)": {
+			trainJob: testTrainJob.Clone().
+				PodTemplateOverrides([]kftrainerapi.PodTemplateOverride{
+					{
+						TargetJobs: []kftrainerapi.PodTemplateOverrideTargetJob{
+							{Name: "user-provided"},
+						},
+						Spec: &kftrainerapi.PodTemplateSpecOverride{
+							NodeSelector: map[string]string{"disktype": "sdd"},
+						},
+					},
+					{
+						TargetJobs: []kftrainerapi.PodTemplateOverrideTargetJob{
+							{Name: "node"},
+						},
+						Metadata: &metav1.ObjectMeta{
+							Annotations: map[string]string{
+								"test-annotation": "old-value",
+							},
+							Labels: map[string]string{
+								constants.PodSetLabel: "node",
+							},
+						},
+						Spec: &kftrainerapi.PodTemplateSpecOverride{
+							NodeSelector: map[string]string{"old-selector": "value"},
+						},
+					},
+				}).
+				Obj(),
+			podsetsInfo: []podset.PodSetInfo{
+				{
+					Name: "node",
+					Annotations: map[string]string{
+						"test-annotation": "new-value",
+					},
+					Labels: map[string]string{
+						constants.PodSetLabel: "node",
+					},
+					NodeSelector: map[string]string{"new-selector": "value"},
+				},
+			},
+			wantTrainJob: testTrainJob.Clone().
+				Annotation(firstOverrideIdx, "1").
+				PodTemplateOverrides([]kftrainerapi.PodTemplateOverride{
+					{
+						TargetJobs: []kftrainerapi.PodTemplateOverrideTargetJob{
+							{Name: "user-provided"},
+						},
+						Spec: &kftrainerapi.PodTemplateSpecOverride{
+							NodeSelector: map[string]string{"disktype": "sdd"},
+						},
+					},
+					{
+						TargetJobs: []kftrainerapi.PodTemplateOverrideTargetJob{
+							{Name: "node"},
+						},
+						Metadata: &metav1.ObjectMeta{
+							Annotations: map[string]string{
+								"test-annotation": "new-value",
+							},
+							Labels: map[string]string{
+								constants.PodSetLabel: "node",
+							},
+						},
+						Spec: &kftrainerapi.PodTemplateSpecOverride{
+							NodeSelector: map[string]string{"new-selector": "value"},
+						},
+					},
+				}).
+				Suspend(false).
+				Obj(),
+			wantErr: false,
 		},
 	}
 
