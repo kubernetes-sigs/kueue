@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	draconsts "sigs.k8s.io/dra-example-driver/pkg/consts"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
@@ -78,7 +79,7 @@ var _ = ginkgo.Describe("DRA", func() {
 		ginkgo.It("Should admit and run a job with DRA resource claim template", func() {
 			ginkgo.By("Creating ResourceClaimTemplate referencing gpu.example.com DeviceClass")
 			rct := utiltesting.MakeResourceClaimTemplate("gpu-template", ns.Name).
-				DeviceRequest("gpu-request", "gpu.example.com", 1).
+				DeviceRequest("gpu-request", draconsts.DriverName, 1).
 				Obj()
 			util.MustCreate(ctx, k8sClient, rct)
 
@@ -123,7 +124,7 @@ var _ = ginkgo.Describe("DRA", func() {
 		ginkgo.It("Should keep job suspended when DRA quota is exceeded", func() {
 			ginkgo.By("Creating ResourceClaimTemplate requesting more than available quota")
 			rct := utiltesting.MakeResourceClaimTemplate("large-gpu-template", ns.Name).
-				DeviceRequest("gpu-request", "gpu.example.com", 10). // Exceeds quota of 4
+				DeviceRequest("gpu-request", draconsts.DriverName, 10). // Exceeds quota of 4
 				Obj()
 			util.MustCreate(ctx, k8sClient, rct)
 
@@ -165,12 +166,12 @@ var _ = ginkgo.Describe("DRA", func() {
 		ginkgo.It("Should admit multiple jobs that together fit within DRA quota", func() {
 			ginkgo.By("Creating ResourceClaimTemplates for two jobs (2 GPUs each, total 4 = quota)")
 			rct1 := utiltesting.MakeResourceClaimTemplate("gpu-template-1", ns.Name).
-				DeviceRequest("gpu-request", "gpu.example.com", 2).
+				DeviceRequest("gpu-request", draconsts.DriverName, 2).
 				Obj()
 			util.MustCreate(ctx, k8sClient, rct1)
 
 			rct2 := utiltesting.MakeResourceClaimTemplate("gpu-template-2", ns.Name).
-				DeviceRequest("gpu-request", "gpu.example.com", 2).
+				DeviceRequest("gpu-request", draconsts.DriverName, 2).
 				Obj()
 			util.MustCreate(ctx, k8sClient, rct2)
 
@@ -227,17 +228,17 @@ var _ = ginkgo.Describe("DRA", func() {
 		ginkgo.It("Should queue third job when DRA quota is full and admit it after quota is freed", func() {
 			ginkgo.By("Creating ResourceClaimTemplates for three jobs")
 			rct1 := utiltesting.MakeResourceClaimTemplate("gpu-template-a", ns.Name).
-				DeviceRequest("gpu-request", "gpu.example.com", 2).
+				DeviceRequest("gpu-request", draconsts.DriverName, 2).
 				Obj()
 			util.MustCreate(ctx, k8sClient, rct1)
 
 			rct2 := utiltesting.MakeResourceClaimTemplate("gpu-template-b", ns.Name).
-				DeviceRequest("gpu-request", "gpu.example.com", 2).
+				DeviceRequest("gpu-request", draconsts.DriverName, 2).
 				Obj()
 			util.MustCreate(ctx, k8sClient, rct2)
 
 			rct3 := utiltesting.MakeResourceClaimTemplate("gpu-template-c", ns.Name).
-				DeviceRequest("gpu-request", "gpu.example.com", 2).
+				DeviceRequest("gpu-request", draconsts.DriverName, 2).
 				Obj()
 			util.MustCreate(ctx, k8sClient, rct3)
 
@@ -282,7 +283,7 @@ var _ = ginkgo.Describe("DRA", func() {
 		ginkgo.It("Should correctly calculate DRA resources for multi-pod jobs", func() {
 			ginkgo.By("Creating ResourceClaimTemplate requesting 1 GPU per pod")
 			rct := utiltesting.MakeResourceClaimTemplate("multi-pod-gpu-template", ns.Name).
-				DeviceRequest("gpu-request", "gpu.example.com", 1).
+				DeviceRequest("gpu-request", draconsts.DriverName, 1).
 				Obj()
 			util.MustCreate(ctx, k8sClient, rct)
 

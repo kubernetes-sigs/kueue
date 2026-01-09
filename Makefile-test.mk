@@ -119,19 +119,9 @@ test-multikueue-integration: compile-crd-manifests gomod-download envtest ginkgo
 
 CREATE_KIND_CLUSTER ?= true
 
-SINGLECLUSTER-E2E_TARGETS := $(addprefix run-test-e2e-singlecluster-,$(E2E_KIND_VERSION:kindest/node:v%=%))
-
-# DRA e2e tests require k8s 1.34+
-DRA_MIN_K8S_VERSION := 1.34
-ifeq ($(shell printf '%s\n' "$(E2E_K8S_VERSION)" "$(DRA_MIN_K8S_VERSION)" | sort -V | head -n1),$(DRA_MIN_K8S_VERSION))
-DRA-E2E_TARGETS := $(addprefix run-test-e2e-dra-,$(E2E_KIND_VERSION:kindest/node:v%=%))
-else
-DRA-E2E_TARGETS :=
-endif
-
 test-e2e: E2E_NPROCS := 2
 .PHONY: test-e2e
-test-e2e: setup-e2e-env kueuectl kind-ray-project-mini-image-build $(SINGLECLUSTER-E2E_TARGETS) $(DRA-E2E_TARGETS)
+test-e2e: setup-e2e-env kueuectl kind-ray-project-mini-image-build run-test-e2e-singlecluster-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-helm
 test-e2e-helm: E2E_USE_HELM=true
