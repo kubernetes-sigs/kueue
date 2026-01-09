@@ -1221,12 +1221,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 	}
 
 	steps := []struct {
-		name                 string
-		operation            func(log logr.Logger, cache *Cache) error
-		wantResults          map[kueue.ClusterQueueReference]result
-		wantAssumedWorkloads map[workload.Reference]kueue.ClusterQueueReference
-		wantError            string
-		wantLocalQueue       queue.LocalQueueReference
+		name           string
+		operation      func(log logr.Logger, cache *Cache) error
+		wantResults    map[kueue.ClusterQueueReference]result
+		wantError      string
+		wantLocalQueue queue.LocalQueueReference
 	}{
 		{
 			name: "add",
@@ -1515,78 +1514,6 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 		},
 		{
-			name: "assume",
-			operation: func(log logr.Logger, cache *Cache) error {
-				workloads := []*kueue.Workload{
-					utiltestingapi.MakeWorkload("d", "").PodSets(podSets...).ReserveQuotaAt(&kueue.Admission{
-						ClusterQueue:      "one",
-						PodSetAssignments: psAssignments,
-					}, now).Obj(),
-					utiltestingapi.MakeWorkload("e", "").PodSets(podSets...).ReserveQuotaAt(&kueue.Admission{
-						ClusterQueue:      "two",
-						PodSetAssignments: psAssignments,
-					}, now).Obj(),
-				}
-				for i := range workloads {
-					// if err := cache.AssumeWorkload(log, workloads[i]); err != nil {
-					// 	return err
-					// }
-					if added := cache.AddOrUpdateWorkload(log, workloads[i]); !added {
-						return fmt.Errorf("workload %s/%s could not be assumed in the cache", workloads[i].Namespace, workloads[i].Name)
-					}
-				}
-				return nil
-			},
-			wantResults: map[kueue.ClusterQueueReference]result{
-				"one": {
-					Workloads: sets.New[workload.Reference]("/a", "/b", "/d"),
-					UsedResources: resources.FlavorResourceQuantities{
-						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 20,
-						{Flavor: "spot", Resource: corev1.ResourceCPU}:      30,
-					},
-				},
-				"two": {
-					Workloads: sets.New[workload.Reference]("/c", "/e"),
-					UsedResources: resources.FlavorResourceQuantities{
-						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
-						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
-					},
-				},
-			},
-			wantAssumedWorkloads: map[workload.Reference]kueue.ClusterQueueReference{
-				"/d": "one",
-				"/e": "two",
-			},
-		},
-		{
-			name: "assume error clusterQueue doesn't exist",
-			operation: func(log logr.Logger, cache *Cache) error {
-				w := utiltestingapi.MakeWorkload("d", "").PodSets(podSets...).ReserveQuotaAt(&kueue.Admission{
-					ClusterQueue: "three",
-				}, now).Obj()
-				// if err := cache.AssumeWorkload(log, w); err != nil {
-				//    return err
-				if added := cache.AddOrUpdateWorkload(log, w); !added {
-					return fmt.Errorf("cluster queue not found")
-				}
-				return nil
-			},
-			wantError: "cluster queue not found",
-			wantResults: map[kueue.ClusterQueueReference]result{
-				"one": {
-					Workloads: sets.New[workload.Reference]("/a", "/b"),
-					UsedResources: resources.FlavorResourceQuantities{
-						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
-						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
-					},
-				},
-				"two": {
-					Workloads: sets.New[workload.Reference]("/c"),
-				},
-			},
-			wantAssumedWorkloads: map[workload.Reference]kueue.ClusterQueueReference{},
-		},
-		{
 			name: "forget",
 			operation: func(log logr.Logger, cache *Cache) error {
 				workloads := []*kueue.Workload{
@@ -1600,10 +1527,8 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					}, now).Obj(),
 				}
 				for i := range workloads {
-					// if err := cache.AssumeWorkload(log, workloads[i]); err != nil {
-					//    return err
 					if added := cache.AddOrUpdateWorkload(log, workloads[i]); !added {
-						return fmt.Errorf("workload %s/%s could not be assumed in the cache", workloads[i].Namespace, workloads[i].Name)
+						return fmt.Errorf("workload %s/%s could not be added to the cache", workloads[i].Namespace, workloads[i].Name)
 					}
 				}
 
@@ -1625,83 +1550,6 @@ func TestCacheWorkloadOperations(t *testing.T) {
 						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
 					},
 				},
-			},
-			wantAssumedWorkloads: map[workload.Reference]kueue.ClusterQueueReference{
-				"/e": "two",
-			},
-		},
-		{
-			name: "forget error workload is not assumed",
-			operation: func(log logr.Logger, cache *Cache) error {
-				w := utiltestingapi.MakeWorkload("b", "").ReserveQuotaAt(&kueue.Admission{
-					ClusterQueue: "one",
-				}, now).Obj()
-				if err := cache.ForgetWorkload(log, w); err != nil {
-					return err
-				}
-				return nil
-			},
-			wantError: "",
-			wantResults: map[kueue.ClusterQueueReference]result{
-				"one": {
-					// Workloads: sets.New[workload.Reference]("/a", "/b"),
-					Workloads: sets.New[workload.Reference]("/a"),
-					UsedResources: resources.FlavorResourceQuantities{
-						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
-						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
-					},
-				},
-				"two": {
-					Workloads: sets.New[workload.Reference]("/c"),
-				},
-			},
-		},
-		{
-			name: "add assumed workload",
-			operation: func(log logr.Logger, cache *Cache) error {
-				workloads := []*kueue.Workload{
-					utiltestingapi.MakeWorkload("d", "").PodSets(podSets...).ReserveQuotaAt(&kueue.Admission{
-						ClusterQueue:      "one",
-						PodSetAssignments: psAssignments,
-					}, now).Obj(),
-					utiltestingapi.MakeWorkload("e", "").PodSets(podSets...).ReserveQuotaAt(&kueue.Admission{
-						ClusterQueue:      "two",
-						PodSetAssignments: psAssignments,
-					}, now).Obj(),
-				}
-				for i := range workloads {
-					// if err := cache.AssumeWorkload(log, workloads[i]); err != nil {
-					// return err
-					// }
-					if added := cache.AddOrUpdateWorkload(log, workloads[i]); !added {
-						return fmt.Errorf("workload %s/%s could not be assumed in the cache", workloads[i].Namespace, workloads[i].Name)
-					}
-				}
-
-				w := workloads[0]
-				if !cache.AddOrUpdateWorkload(log, w) {
-					return errors.New("failed to add workload")
-				}
-				return nil
-			},
-			wantResults: map[kueue.ClusterQueueReference]result{
-				"one": {
-					Workloads: sets.New[workload.Reference]("/a", "/b", "/d"),
-					UsedResources: resources.FlavorResourceQuantities{
-						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 20,
-						{Flavor: "spot", Resource: corev1.ResourceCPU}:      30,
-					},
-				},
-				"two": {
-					Workloads: sets.New[workload.Reference]("/c", "/e"),
-					UsedResources: resources.FlavorResourceQuantities{
-						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
-						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
-					},
-				},
-			},
-			wantAssumedWorkloads: map[workload.Reference]kueue.ClusterQueueReference{
-				"/e": "two",
 			},
 		},
 	}
@@ -1730,12 +1578,6 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			if diff := cmp.Diff(step.wantResults, gotResult, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected clusterQueues (-want,+got):\n%s", diff)
 			}
-			// if step.wantAssumedWorkloads == nil {
-			// 	step.wantAssumedWorkloads = map[workload.Reference]kueue.ClusterQueueReference{}
-			// }
-			// if diff := cmp.Diff(step.wantAssumedWorkloads, cache.assumedWorkloads); diff != "" {
-			// 	t.Errorf("Unexpected assumed workloads (-want,+got):\n%s", diff)
-			// }
 		})
 	}
 }
@@ -2651,7 +2493,7 @@ func TestCacheQueueOperations(t *testing.T) {
 				},
 			},
 		},
-		"assume": {
+		"add workload": {
 			ops: []func(context.Context, client.Client, *Cache) error{
 				insertAllClusterQueues,
 				insertAllQueues,
@@ -2662,10 +2504,9 @@ func TestCacheQueueOperations(t *testing.T) {
 						return err
 					}
 					if added := cache.AddOrUpdateWorkload(log, wl); !added {
-						return fmt.Errorf("workload %s/%s could not be assumed in the cache", wl.Namespace, wl.Name)
+						return fmt.Errorf("workload %s/%s could not be added to the cache", wl.Namespace, wl.Name)
 					}
 					return nil
-					// return cache.AssumeWorkload(log, wl)
 				},
 			},
 			wantLocalQueues: map[queue.LocalQueueReference]*LocalQueue{
@@ -2694,7 +2535,7 @@ func TestCacheQueueOperations(t *testing.T) {
 				},
 			},
 		},
-		"assume and forget": {
+		"add workload and forget": {
 			ops: []func(context.Context, client.Client, *Cache) error{
 				insertAllClusterQueues,
 				insertAllQueues,
@@ -2704,11 +2545,8 @@ func TestCacheQueueOperations(t *testing.T) {
 					if err := cl.Create(ctx, wl); err != nil {
 						return err
 					}
-					// if err := cache.AssumeWorkload(log, wl); err != nil {
-					// return err
-					// }
 					if added := cache.AddOrUpdateWorkload(log, wl); !added {
-						return fmt.Errorf("workload %s/%s could not be assumed in the cache", wl.Namespace, wl.Name)
+						return fmt.Errorf("workload %s/%s could not be added to the cache", wl.Namespace, wl.Name)
 					}
 					return cache.ForgetWorkload(log, wl)
 				},
@@ -2993,11 +2831,8 @@ func TestWaitForPodsReadyCancelled(t *testing.T) {
 		ClusterQueue: "one",
 	}, now).Obj()
 	if added := cache.AddOrUpdateWorkload(log, wl); !added {
-		t.Fatalf("workload %s/%s could not be assumed in the cache", wl.Namespace, wl.Name)
+		t.Fatalf("workload %s/%s could not be added to the cache", wl.Namespace, wl.Name)
 	}
-	// if err := cache.AssumeWorkload(log, wl); err != nil {
-	// t.Fatalf("Failed assuming the workload to block the further admission: %v", err)
-	// }
 
 	if cache.PodsReadyForAllAdmittedWorkloads(log) {
 		t.Fatalf("Unexpected that all admitted workloads are in PodsReady condition")
@@ -3074,54 +2909,6 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 			wantReady: true,
 		},
 		{
-			name: "assume Workload without PodsReady condition",
-			operation: func(log logr.Logger, cache *Cache) error {
-				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuotaAt(&kueue.Admission{
-					ClusterQueue: "one",
-				}, now).Obj()
-				if added := cache.AddOrUpdateWorkload(log, wl); !added {
-					return fmt.Errorf("workload %s/%s could not be assumed in the cache", wl.Namespace, wl.Name)
-				}
-				return nil
-				// return cache.AssumeWorkload(log, wl)
-			},
-			wantReady: false,
-		},
-		{
-			name: "assume Workload with PodsReady=False",
-			operation: func(log logr.Logger, cache *Cache) error {
-				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuotaAt(&kueue.Admission{
-					ClusterQueue: "one",
-				}, now).Condition(metav1.Condition{
-					Type:   kueue.WorkloadPodsReady,
-					Status: metav1.ConditionFalse,
-				}).Obj()
-				if added := cache.AddOrUpdateWorkload(log, wl); !added {
-					return fmt.Errorf("workload %s/%s could not be assumed in the cache", wl.Namespace, wl.Name)
-				}
-				return nil
-				// return cache.AssumeWorkload(log, wl)
-			},
-			wantReady: false,
-		},
-		{
-			name: "assume Workload with PodsReady=True",
-			operation: func(log logr.Logger, cache *Cache) error {
-				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuotaAt(&kueue.Admission{
-					ClusterQueue: "one",
-				}, now).Condition(metav1.Condition{
-					Type:   kueue.WorkloadPodsReady,
-					Status: metav1.ConditionTrue,
-				}).Obj()
-				if added := cache.AddOrUpdateWorkload(log, wl); !added {
-					return fmt.Errorf("workload %s/%s could not be assumed in the cache", wl.Namespace, wl.Name)
-				}
-				return nil
-				// return cache.AssumeWorkload(log, wl)
-			},
-			wantReady: true,
-		},
-		{
 			name: "update workload to have PodsReady=True",
 			setup: func(log logr.Logger, cache *Cache) error {
 				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuotaAt(&kueue.Admission{
@@ -3161,30 +2948,6 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 					Status: metav1.ConditionFalse,
 				})
 				return cache.UpdateWorkload(log, wl, newWl)
-			},
-			wantReady: false,
-		},
-		{
-			name: "assume second workload without PodsReady",
-			setup: func(log logr.Logger, cache *Cache) error {
-				wl1 := utiltestingapi.MakeWorkload("a", "").ReserveQuotaAt(&kueue.Admission{
-					ClusterQueue: "one",
-				}, now).Condition(metav1.Condition{
-					Type:   kueue.WorkloadPodsReady,
-					Status: metav1.ConditionTrue,
-				}).Obj()
-				cache.AddOrUpdateWorkload(log, wl1)
-				return nil
-			},
-			operation: func(log logr.Logger, cache *Cache) error {
-				wl2 := utiltestingapi.MakeWorkload("b", "").ReserveQuotaAt(&kueue.Admission{
-					ClusterQueue: "two",
-				}, now).Obj()
-				if added := cache.AddOrUpdateWorkload(log, wl2); !added {
-					return fmt.Errorf("workload %s/%s could not be assumed in the cache", wl2.Namespace, wl2.Name)
-				}
-				return nil
-				// return cache.AssumeWorkload(log, wl2)
 			},
 			wantReady: false,
 		},
@@ -3243,10 +3006,9 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 					Status: metav1.ConditionFalse,
 				}).Obj()
 				if added := cache.AddOrUpdateWorkload(log, wl); !added {
-					return fmt.Errorf("workload %s/%s could not be assumed in the cache", wl.Namespace, wl.Name)
+					return fmt.Errorf("workload %s/%s could not be added to the cache", wl.Namespace, wl.Name)
 				}
 				return nil
-				// return cache.AssumeWorkload(log, wl)
 			},
 			operation: func(log logr.Logger, cache *Cache) error {
 				wl := cache.hm.ClusterQueue("one").Workloads["/a"].Obj
@@ -3285,121 +3047,78 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 	}
 }
 
-// TestIsAssumedOrAdmittedCheckWorkload verifies if workload is in Assumed map from cache or if it is Admitted in one ClusterQueue
-// func TestIsAssumedOrAdmittedCheckWorkload(t *testing.T) {
-// 	tests := []struct {
-// 		name             string
-// 		clusterQueues    map[string]*clusterQueue
-// 		assumedWorkloads map[workload.Reference]kueue.ClusterQueueReference
-// 		workload         workload.Info
-// 		expected         bool
-// 	}{
-// 		{
-// 			name:             "Workload Is Assumed and not Admitted",
-// 			assumedWorkloads: map[workload.Reference]kueue.ClusterQueueReference{"workload_namespace/workload_name": "test", "test2": "test2"},
-// 			workload: workload.Info{
-// 				ClusterQueue: "ClusterQueue1",
-// 				Obj: &kueue.Workload{
-// 					ObjectMeta: metav1.ObjectMeta{
-// 						Name:      "workload_name",
-// 						Namespace: "workload_namespace",
-// 					},
-// 				},
-// 			},
-// 			expected: true,
-// 		},
-// 		{
-// 			name: "Workload Is not Assumed but is Admitted",
-// 			clusterQueues: map[string]*clusterQueue{
-// 				"ClusterQueue1": {
-// 					Name: "ClusterQueue1",
-// 					Workloads: map[workload.Reference]*workload.Info{"workload_namespace/workload_name": {
-// 						Obj: &kueue.Workload{
-// 							ObjectMeta: metav1.ObjectMeta{
-// 								Name:      "workload_name",
-// 								Namespace: "workload_namespace",
-// 							},
-// 						},
-// 					}},
-// 				}},
-// 			workload: workload.Info{
-// 				ClusterQueue: "ClusterQueue1",
-// 				Obj: &kueue.Workload{
-// 					ObjectMeta: metav1.ObjectMeta{
-// 						Name:      "workload_name",
-// 						Namespace: "workload_namespace",
-// 					},
-// 				},
-// 			},
-// 			expected: true,
-// 		},
-// 		{
-// 			name: "Workload Is Assumed and Admitted",
+// TestIsAddedCheckWorkload verifies if workload is correctly returned from cache
+func TestIsAddedCheckWorkload(t *testing.T) {
+	tests := []struct {
+		name          string
+		clusterQueues map[string]*clusterQueue
+		workload      workload.Info
+		expected      bool
+	}{
+		{
+			name: "Workload is Admitted",
+			clusterQueues: map[string]*clusterQueue{
+				"ClusterQueue1": {
+					Name: "ClusterQueue1",
+					Workloads: map[workload.Reference]*workload.Info{"workload_namespace/workload_name": {
+						Obj: &kueue.Workload{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "workload_name",
+								Namespace: "workload_namespace",
+							},
+						},
+					}},
+				}},
+			workload: workload.Info{
+				ClusterQueue: "ClusterQueue1",
+				Obj: &kueue.Workload{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "workload_name",
+						Namespace: "workload_namespace",
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "Workload is not Admitted",
+			clusterQueues: map[string]*clusterQueue{
+				"ClusterQueue1": {
+					Name: "ClusterQueue1",
+					Workloads: map[workload.Reference]*workload.Info{"workload_namespace2/workload_name2": {
+						Obj: &kueue.Workload{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "workload_name2",
+								Namespace: "workload_namespace2",
+							},
+						},
+					}},
+				}},
 
-// 			clusterQueues: map[string]*clusterQueue{
-// 				"ClusterQueue1": {
-// 					Name: "ClusterQueue1",
-// 					Workloads: map[workload.Reference]*workload.Info{"workload_namespace/workload_name": {
-// 						Obj: &kueue.Workload{
-// 							ObjectMeta: metav1.ObjectMeta{
-// 								Name:      "workload_name",
-// 								Namespace: "workload_namespace",
-// 							},
-// 						},
-// 					}},
-// 				}},
-// 			assumedWorkloads: map[workload.Reference]kueue.ClusterQueueReference{"workload_namespace/workload_name": "test", "test2": "test2"},
-// 			workload: workload.Info{
-// 				ClusterQueue: "ClusterQueue1",
-// 				Obj: &kueue.Workload{
-// 					ObjectMeta: metav1.ObjectMeta{
-// 						Name:      "workload_name",
-// 						Namespace: "workload_namespace",
-// 					},
-// 				},
-// 			},
-// 			expected: true,
-// 		},
-// 		{
-// 			name: "Workload Is not Assumed and is not Admitted",
-// 			clusterQueues: map[string]*clusterQueue{
-// 				"ClusterQueue1": {
-// 					Name: "ClusterQueue1",
-// 					Workloads: map[workload.Reference]*workload.Info{"workload_namespace2/workload_name2": {
-// 						Obj: &kueue.Workload{
-// 							ObjectMeta: metav1.ObjectMeta{
-// 								Name:      "workload_name2",
-// 								Namespace: "workload_namespace2",
-// 							},
-// 						},
-// 					}},
-// 				}},
-
-// 			workload: workload.Info{
-// 				ClusterQueue: "ClusterQueue1",
-// 				Obj: &kueue.Workload{
-// 					ObjectMeta: metav1.ObjectMeta{
-// 						Name:      "workload_name",
-// 						Namespace: "workload_namespace",
-// 					},
-// 				},
-// 			},
-// 			expected: false,
-// 		},
-// 	}
-// 	for _, tc := range tests {
-// 		t.Run(tc.name, func(t *testing.T) {
-// 			cache := New(utiltesting.NewFakeClient())
-// 			for _, cq := range tc.clusterQueues {
-// 				cache.hm.AddClusterQueue(cq)
-// 			}
-// 			// cache.assumedWorkloads = tc.assumedWorkloads
-// 			if cache.IsAssumedOrAdmittedWorkload(tc.workload) != tc.expected {
-// 				t.Error("Unexpected response")
-// 			}
-// 		})
-// 	}
-// }
+			workload: workload.Info{
+				ClusterQueue: "ClusterQueue1",
+				Obj: &kueue.Workload{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "workload_name",
+						Namespace: "workload_namespace",
+					},
+				},
+			},
+			expected: false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cache := New(utiltesting.NewFakeClient())
+			for _, cq := range tc.clusterQueues {
+				cache.hm.AddClusterQueue(cq)
+			}
+			if cache.IsAdded(tc.workload) != tc.expected {
+				t.Error("Unexpected response")
+			}
+		})
+	}
+}
 
 func messageOrEmpty(err error) string {
 	if err == nil {

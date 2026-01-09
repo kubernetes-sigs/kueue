@@ -17,12 +17,14 @@ limitations under the License.
 package scheduler
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -741,6 +743,50 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				createWl := &kueue.Workload{}
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), createWl)).To(gomega.Succeed())
 				gomega.Expect(*createWl.Status.Admission.PodSetAssignments[0].Count).To(gomega.Equal(int32(1)))
+			})
+		})
+
+		ginkgo.When("Scheduler patch request fails", func() {
+			var numCalls int
+			ginkgo.BeforeEach(func() {
+				numCalls = 0
+				fakeSubResourcePatchSpec = func(obj client.Object) (fakeClientUsage, error) {
+					wl, ok := obj.(*kueue.Workload)
+					if !ok {
+						return fallThrough, nil
+					}
+					if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadQuotaReserved) {
+						numCalls++
+						return emitResponse, errors.New("simulated admission patch failure")
+					}
+					return fallThrough, nil
+				}
+			})
+
+			ginkgo.AfterEach(func() {
+				fakeSubResourcePatchSpec = nil
+			})
+
+			ginkgo.It("Should not reserve quota", func() {
+				wl := utiltestingapi.MakeWorkload("wl-to-fail", ns.Name).
+					Queue(kueue.LocalQueueName(prodQueue.Name)).
+					Request(corev1.ResourceCPU, "1").
+					Obj()
+				ginkgo.By("Creating the workload", func() {
+					util.MustCreate(ctx, k8sClient, wl)
+				})
+
+				ginkgo.By("Verify that the metrics are not reserved assuming the scheduler tried to admit the workload", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						// it means the scheduler tried to admit the workload at least once
+						g.Expect(numCalls).Should(gomega.BeNumerically(">", 1))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+					util.ExpectPendingWorkloadsMetric(prodClusterQ, 1, 0)
+					util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 0)
+					util.ExpectQuotaReservedWorkloadsTotalMetric(prodClusterQ, "", 0)
+					util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 0)
+				})
 			})
 		})
 	})
