@@ -37,7 +37,7 @@ To find the Workload for a Job, you can use any of the following steps:
 
   ```bash
   JOB_UID=$(kubectl get job -n my-namespace my-job -o jsonpath='{.metadata.uid}')
-  kubectl get workloads -n my-namespace -l "kueue.x-k8s.io/job-uid=$JOB_UID"
+  kubectl get workloads.kueue.x-k8s.io -n my-namespace -l "kueue.x-k8s.io/job-uid=$JOB_UID"
   ```
 
   The output looks like the following:
@@ -52,7 +52,7 @@ To find the Workload for a Job, you can use any of the following steps:
   You can run a command like the following:
 
   ```bash
-  kubectl get workloads -n my-namespace | grep job-my-job
+  kubectl get workloads.kueue.x-k8s.io -n my-namespace | grep job-my-job
   ```
 
   The output looks like the following:

@@ -69,7 +69,7 @@ kubectl create -f sample-job.yaml
 在内部，Kueue 将为此 Job 创建一个与名称匹配的相应[Workload](/zh-CN/docs/concepts/workload)。
 
 ```shell
-kubectl -n default get workloads
+kubectl -n default get workloads.kueue.x-k8s.io
 ```
 
 输出将类似于以下内容：
@@ -116,7 +116,7 @@ Events:               <none>
 要查看 Workload 是否被准入，运行以下命令：
 
 ```shell
-kubectl -n default get workloads
+kubectl -n default get workloads.kueue.x-k8s.io
 ```
 
 输出类似于以下内容：

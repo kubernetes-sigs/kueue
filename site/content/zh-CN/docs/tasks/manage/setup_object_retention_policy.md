@@ -111,7 +111,7 @@ spec:
 
 ```bash
 # ~1m after Finished
-kubectl get workloads -n default
+kubectl get workloads.kueue.x-k8s.io -n default
 # <successful-workload not found>
    
 kubectl get jobs -n default
@@ -182,7 +182,7 @@ spec:
 
 ```bash
 # ~2m after submission
-kubectl get workloads -n default
+kubectl get workloads.kueue.x-k8s.io -n default
 # NAME                    QUEUE    RESERVED IN   ADMITTED   FINISHED   AGE
 # limited-workload                               False                 2m
 ```
@@ -191,7 +191,7 @@ kubectl get workloads -n default
 
 ```bash
 # ~1m after eviction
-kubectl get workloads -n default
+kubectl get workloads.kueue.x-k8s.io -n default
 # <limited-workload not found>
    
 kubectl get jobs -n default

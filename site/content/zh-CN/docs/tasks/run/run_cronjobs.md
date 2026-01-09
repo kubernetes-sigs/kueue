@@ -68,7 +68,7 @@ kubectl create -f sample-cronjob.yaml
 其名称与 Job 匹配。
 
 ```shell
-kubectl -n default get workloads
+kubectl -n default get workloads.kueue.x-k8s.io
 ```
 
 输出类似于以下内容：
