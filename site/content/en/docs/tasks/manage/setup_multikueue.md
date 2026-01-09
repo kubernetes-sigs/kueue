@@ -271,6 +271,39 @@ Where:
 * `plugin-image` is the image reference of an image that contains the plugin executable.
 * `plugin-command` is the name of the executable. For example `gcp-auth-plugin`.
 
+#### (Kubernetes 1.35+) Mount the executable using an image volume
+
+The ability to [mount content from OCI registries into containers](https://kubernetes.io/docs/tasks/configure-pod-container/image-volumes/) reached beta in Kubernetes 1.35. This feature streamlines some aspects of the `initContainers` approach.
+
+For example:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kueue-controller-manager
+  namespace: kueue-system
+spec:
+  template:
+    spec:
+      containers:
+      - name: manager
+        volumeMounts:
+        - name: clusterprofile-plugins
+          mountPath: "/plugins"
+      volumes:
+      - name: clusterprofile-plugins
+        image:
+          reference: <plugin-image>
+          pullPolicy: IfNotPresent
+```
+
+Where:
+* `plugin-image` is the image reference of an image that contains the plugin executable.
+
+The files inside the `plugin-image` will be accessible under the `mountPath` (in this case `/plugins`)
+and can be called analogously to the `initContainers` approach (`/plugins/<plugin-command>`).
+
 #### Build a custom Kueue manager image
 
 Alternatively, a custom Kueue manager image can be built to include the plugin executable.
