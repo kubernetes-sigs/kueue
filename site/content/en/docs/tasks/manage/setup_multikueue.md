@@ -34,7 +34,6 @@ To create the sample queue setup in the `default` namespace, you can apply the f
 
 ### MultiKueue Specific Kubeconfig
 
-
 In order to delegate the jobs in a worker cluster, the manager cluster needs to be able to create, delete, and watch workloads and their parent Jobs.
 
 While `kubectl` is set up to use the worker cluster, download: 
@@ -131,27 +130,79 @@ It provides a robust, modular, and extensible framework that helps other open so
 The integration with OCM is an optional solution that enables Kueue users to streamline the MultiKueue setup process, automate the generation of MultiKueue specific Kubeconfig, and enhance multicluster scheduling capabilities.
 For more details about this solution, please refer to this [link](https://github.com/open-cluster-management-io/ocm/tree/main/solutions/kueue-admission-check).
 
-## Setup MultiKueue with ClusterProfile API
+## Configure federated credential discovery via the ClusterProfile API
 
 {{< feature-state state="alpha" for_version="v0.15" >}}
 
-The [ClusterProfile API](https://multicluster.sigs.k8s.io/concepts/cluster-profile-api/) provides a standardized, vendor-neutral interface for presenting cluster information. It allows defining cluster access information in a standardized `ClusterProfile` object and using credential plugins for authentication.
+The [Cluster Inventory API](https://multicluster.sigs.k8s.io/) provides a standardized, vendor-neutral interface for representing a cluster's properties and status.
+It defines a `ClusterProfile` resource that encapsulates the identity, metadata, and status of a specific cluster within a multi-cluster environment.
 
-### Enable MultiKueueClusterProfile feature gate
-Enable the `MultiKueueClusterProfile` feature gate. Refer to the
-[Installation guide](/docs/installation/#change-the-feature-gates-configuration)
-for instructions on configuring feature gates.
+Kueue can leverage the configuration contained within a `ClusterProfile` object to obtain credentials and connect to the cluster it represents.
+In practice, this means that instead of using Kubeconfig files to specify the connection to its workers, the manager cluster uses the state and
+access providers contained in the existing `ClusterProfile`s. This eliminates a large portion of management required from the administrator and
+allows to delegate credentialing to the entity managing the clusters (like a cloud provider).
 
-### Create ClusterProfile objects
+{{% alert title="Note" color="primary" %}}
 
-If you are using a cloud provider, refer to the documentation on how to generate ClusterProfile objects (e.g. [GKE](https://docs.cloud.google.com/kubernetes-engine/fleet-management/docs/generate-inventory-for-integrations)). Alternatively, you can manually install the `ClusterProfile` CRD and objects for your clusters.
+Kueue itself does not manage the `ClusterProfile` resources, which is the responsibility of the cluster manager, for example a cloud provider or a dedicated controller.
 
-To install the `ClusterProfile` CRD, run:
+{{% /alert %}}
+
+### Enable the `MultiKueueClusterProfile` feature gate
+
+The `MultiKueueClusterProfile` feature gate has to be enabled for Kueue to consider `ClusterProfile` objects when connecting to clusters.
+Refer to the [Installation guide](/docs/installation/#change-the-feature-gates-configuration) for instructions on configuring feature gates.
+
+### Provision the `ClusterProfile` objects for your clusters
+
+#### Cloud provider managed cluster inventory
+
+When using a cloud provider that supports the automatic generation and synchronization of a cluster inventory, the `ClusterProfile` objects are
+managed directly by their platform and do not require that the user sets them up manually or uses a dedicated controller.
+
+To enable the generation of an inventory, refer to your cloud provider's documentation:
+* Google Cloud Platform:
+  * [Full walkthrough of MultiKueue setup with ClusterProfile](https://github.com/GoogleCloudPlatform/gke-fleet-management/blob/b9fe08386c48f84617cb8ab7b042f2790741e893/multikueue-clusterprofile/README.md).
+  * [Inventory generation documentation](https://docs.cloud.google.com/kubernetes-engine/fleet-management/docs/generate-inventory-for-integrations).
+
+When using cloud provider managed cluster inventory, you should expect a `ClusterProfile` object to be created in your MultiKueue manager cluster,
+one per cluster (including the manager itself).
+
+For example:
+```yaml
+apiVersion: multicluster.x-k8s.io/v1alpha1
+kind: ClusterProfile
+metadata:
+  labels:
+    x-k8s.io/cluster-manager: <cloud-provider-service-name>
+  name: multikueue-worker-1
+  namespace: kueue-system
+spec:
+  clusterManager:
+    name: <cloud-provider-service-name>
+  displayName: multikueue-worker-1
+status:
+  accessProviders:
+  - cluster:
+      server: <cluster-url>
+    name: <access-provider-name>
+```
+
+Where:
+* `cloud-provider-service-name` is the name of the service within the cloud provider that manages the cluster. For example `gke-fleet`.
+* `cluster-url` is the URL of the cluster's control plane.
+* `access-provider-name` is the name of the provider of the cluster's credentials. For example `google`.
+
+#### Manually created cluster inventory
+
+In principle, the `ClusterProfile` objects can be provisioned without the use of a cloud provider.
+
+Firstly, the `ClusterProfile` CRDs have to be manually installed within the cluster:
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/cluster-inventory-api/refs/heads/main/config/crd/bases/multicluster.x-k8s.io_clusterprofiles.yaml
 ```
 
-To create a `ClusterProfile` object for `worker1-cluster`, run:
+Next, the `ClusterProfile` objects can be created:
 ```yaml
 apiVersion: multicluster.x-k8s.io/v1alpha1
 kind: ClusterProfile
@@ -162,46 +213,33 @@ spec:
   ...
 status:
   accessProviders:
-  - name: ${PROVIDER_NAME}
+  - name: <access-provider-name>
     cluster:
-      server: https://${SERVER_ENDPOINT}
-      certificate-authority-data: ${CERTIFICATE_AUTHORITY_DATA}
+      ...
 ```
 
-### Configure Kueue Manager
+{{% alert title="Note" color="primary" %}}
 
-Next, configure the controller manager config map with the credentials providers.
+The `ClusterProfile` access providers are within the object's `status` subresource and, in principle, should be managed by the cluster manager
+(i.e. the entity provisioning the clusters, like a cloud provider) and not created manually.
 
-```yaml
-apiVersion: v1
-data:
-  controller_manager_config.yaml: |
-    ...
-    multiKueue:
-      clusterProfile:
-        credentialsProviders:
-        - name: ${PROVIDER_NAME}
-          execConfig:
-            apiVersion: client.authentication.k8s.io/v1beta1
-            command: /plugins/${PLUGIN_COMMAND}
-kind: ConfigMap
-metadata:
-  labels:
-    app.kubernetes.io/name: kueue
-    control-plane: controller-manager
-  name: kueue-manager-config
-  namespace: kueue-system
-```
+{{% /alert %}}
 
-### Install Required Plugins
+### Install the access provider plugin
 
-If your credentials provider requires an executable plugin, you must make it available to the Kueue manager.
+The access provider defined in `ClusterProfile` depends upon an executable plugin being available to the
+Kueue controller manager pods running within the MultiKueue manager cluster.
+It's the responsibility of the Kueue administrator to make sure that the required command is available.
 
-#### Add plugins via volume mounts
+An example plugin can be found [here](https://github.com/kubernetes-sigs/cluster-inventory-api/tree/445319b6307a88778b930e154ed3e2f38d85a689/cmd/secretreader-plugin) (secret reader) or [here](https://cloud.google.com/blog/products/containers-kubernetes/kubectl-auth-changes-in-gke) (Google Cloud Platform).
 
-You can use an `initContainer` to add the plugin to a shared `emptyDir` volume before the Kueue manager starts. The `kueue-controller-manager` container can then mount this volume to access the plugin.
+#### Mount the executable with `initContainers`
 
-Here is an example patch for the `kueue-controller-manager` deployment that adds a custom authentication plugin:
+The [`initContainers`](https://kubernetes.io/docs/concepts/workloads/pods/init-containers/) field within the pods specification
+can be used to populate a volume with the required plugin. The image used by the init container has to be built beforehand.
+
+The `kueue-controller-manager` container within the Kueue manager deployment can then mount this volume in its filesystem to access the executable.
+For example:
 
 ```yaml
 apiVersion: apps/v1
@@ -214,8 +252,8 @@ spec:
     spec:
       initContainers:
       - name: add-auth-plugin
-        image: ${PLUGIN_IMAGE}
-        command: ["cp", "${PLUGIN_COMMAND}", "/plugins/${PLUGIN_COMMAND}"]
+        image: <plugin-image>
+        command: ["cp", "<plugin-command>", "/plugins/<plugin-command>"]
         volumeMounts:
         - name: clusterprofile-plugins
           mountPath: "/plugins"
@@ -229,18 +267,86 @@ spec:
         emptyDir: {}
 ```
 
-This patch does the following:
-1.  Adds an `initContainer` that copies the `${PLUGIN_COMMAND}` from its container image to the `/plugins` directory in the shared volume.
-2.  Adds an `emptyDir` volume named `clusterprofile-plugins` to the pod.
-3.  Mounts the `clusterprofile-plugins` volume to the `manager` container, making the plugin available at `/plugins/${PLUGIN_COMMAND}`.
+Where:
+* `plugin-image` is the image reference of an image that contains the plugin executable.
+* `plugin-command` is the name of the executable. For example `gcp-auth-plugin`.
 
-#### Build a custom image
+#### (Kubernetes 1.35+) Mount the executable using an image volume
 
-Alternatively, you can build a custom Kueue manager image that includes your plugin. You would then update your Kueue deployment to use this new image.
+The ability to [mount content from OCI registries into containers](https://kubernetes.io/docs/tasks/configure-pod-container/image-volumes/) reached beta in Kubernetes 1.35. This feature streamlines some aspects of the `initContainers` approach.
 
-### Configure MultiKueueCluster objects
+For example:
 
-When using the `ClusterProfile` API for authentication, configure your `MultiKueueCluster` objects to reference a `ClusterProfile` via the `clusterProfileRef` field, instead of providing `kubeconfig` directly.
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kueue-controller-manager
+  namespace: kueue-system
+spec:
+  template:
+    spec:
+      containers:
+      - name: manager
+        volumeMounts:
+        - name: clusterprofile-plugins
+          mountPath: "/plugins"
+      volumes:
+      - name: clusterprofile-plugins
+        image:
+          reference: <plugin-image>
+          pullPolicy: IfNotPresent
+```
+
+Where:
+* `plugin-image` is the image reference of an image that contains the plugin executable.
+
+The files inside the `plugin-image` will be accessible under the `mountPath` (in this case `/plugins`)
+and can be called analogously to the `initContainers` approach (`/plugins/<plugin-command>`).
+
+#### Build a custom Kueue manager image
+
+Alternatively, a custom Kueue manager image can be built to include the plugin executable.
+The image reference in the Kueue manager deployment should then point to the user-managed custom image.
+
+### Define the credentials provider in the Kueue manager config
+
+To connect the access providers specified in the `ClusterProfile`s with the mounted plugin,
+an entry within the Kueue configuration has to be created:
+
+```yaml
+apiVersion: v1
+data:
+  controller_manager_config.yaml: |
+    ...
+    multiKueue:
+      clusterProfile:
+        credentialsProviders:
+        - name: <access-provider-name>
+          execConfig:
+            apiVersion: client.authentication.k8s.io/v1beta1
+            command: /plugins/<plugin-command>
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/name: kueue
+    control-plane: controller-manager
+  name: kueue-manager-config
+  namespace: kueue-system
+```
+
+Where:
+* `access-provider-name` is the name of the provider of the cluster's credentials.
+It has to match the `accessProviders` name in the relevant `ClusterProfile`s.
+* `plugin-command` is the name of the executable within the manager container.
+
+This definition will configure the `ClusterProfile`s using the `access-provider-name` to retrieve
+cluster credentials via the `plugin-command` executable.
+
+### Link `MultiKueueCluster` objects to their corresponding `ClusterProfile`
+
+When using the `ClusterProfile` API for authentication, the `MultiKueueCluster` objects have to reference a `ClusterProfile` via the `clusterProfileRef` field,
+instead of providing `kubeconfig` directly.
 
 Here's an example `MultiKueueCluster` object using a `clusterProfileRef`:
 
