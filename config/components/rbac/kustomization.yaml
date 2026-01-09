@@ -59,3 +59,5 @@ resources:
 - jaxjob_viewer_role.yaml
 - trainjob_editor_role.yaml
 - trainjob_viewer_role.yaml
+- leaderworkerset_editor_role.yaml
+- leaderworkerset_viewer_role.yaml
