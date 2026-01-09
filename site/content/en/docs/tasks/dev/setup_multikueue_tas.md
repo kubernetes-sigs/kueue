@@ -248,7 +248,7 @@ Submit a sample job that requires topology-aware scheduling:
 
 ```bash
 kubectl --context kind-manager apply -f examples/multikueue/dev/sample-tas-job.yaml
-kubectl --context kind-manager get workloads -n default
+kubectl --context kind-manager get workloads.kueue.x-k8s.io -n default
 ```
 
 Expected output showing the workload was admitted and delegated to a worker cluster:
