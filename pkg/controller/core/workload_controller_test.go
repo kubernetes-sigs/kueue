@@ -2801,7 +2801,7 @@ func TestWorkloadPriorityClassChanged(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			gotChanged := workloadPriorityClassChanged(tc.oldWorkload, tc.newWorkload)
+			gotChanged := workloadPriorityChanged(tc.oldWorkload, tc.newWorkload)
 			if gotChanged != tc.wantChanged {
 				t.Errorf("workloadPriorityClassChanged() = %v, want %v", gotChanged, tc.wantChanged)
 			}
