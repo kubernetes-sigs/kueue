@@ -387,6 +387,11 @@ func (w *WorkloadWrapper) PastAdmittedTime(v int32) *WorkloadWrapper {
 	return w
 }
 
+func (w *WorkloadWrapper) WallTimeSeconds(v int32) *WorkloadWrapper {
+	w.Status.WallTimeSeconds = &v
+	return w
+}
+
 func (w *WorkloadWrapper) SchedulingStatsEviction(evictionState kueue.WorkloadSchedulingStatsEviction) *WorkloadWrapper {
 	if w.Status.SchedulingStats == nil {
 		w.Status.SchedulingStats = &kueue.SchedulingStats{}
@@ -736,6 +741,21 @@ func (q *LocalQueueWrapper) FairSharing(fs *kueue.FairSharing) *LocalQueueWrappe
 	return q
 }
 
+// WallTimePolicy sets the wall time policy.
+func (q *LocalQueueWrapper) WallTimePolicy(wallTimeAllocatedHours int32, action kueue.StopPolicy) *LocalQueueWrapper {
+	q.Spec.WallTimePolicy = &kueue.LocalQueueWallTimeLimits{
+		WallTimeAllocatedHours:      wallTimeAllocatedHours,
+		ActionWhenWallTimeExhausted: action,
+	}
+	return q
+}
+
+// WallTimeFlavorUsage sets the wall time flavor usage status.
+func (q *LocalQueueWrapper) WallTimeFlavorUsage(usages ...kueue.WallTimeFlavorUsage) *LocalQueueWrapper {
+	q.Status.WallTimeFlavorUsage = usages
+	return q
+}
+
 // PendingWorkloads updates the pendingWorkloads in status.
 func (q *LocalQueueWrapper) PendingWorkloads(n int32) *LocalQueueWrapper {
 	q.Status.PendingWorkloads = n
@@ -973,6 +993,14 @@ func (c *ClusterQueueWrapper) FlavorFungibility(p kueue.FlavorFungibility) *Clus
 // StopPolicy sets the stop policy.
 func (c *ClusterQueueWrapper) StopPolicy(p kueue.StopPolicy) *ClusterQueueWrapper {
 	c.Spec.StopPolicy = &p
+	return c
+}
+
+// WallTimePolicy sets the wall time policy with flavors.
+func (c *ClusterQueueWrapper) WallTimePolicy(flavors ...kueue.WallTimeFlavor) *ClusterQueueWrapper {
+	c.Spec.WallTimePolicy = &kueue.WallTimePolicy{
+		WallTimeFlavors: flavors,
+	}
 	return c
 }
 

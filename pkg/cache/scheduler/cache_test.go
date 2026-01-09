@@ -2125,10 +2125,13 @@ func TestLocalQueueUsage(t *testing.T) {
 	localQueue := *utiltestingapi.MakeLocalQueue("test", "ns1").
 		ClusterQueue("foo").Obj()
 	cases := map[string]struct {
-		cq             *kueue.ClusterQueue
-		wls            []kueue.Workload
-		wantUsage      []kueue.LocalQueueFlavorUsage
-		inAdmissibleWl sets.Set[string]
+		cq                    *kueue.ClusterQueue
+		localQueue            *kueue.LocalQueue
+		wls                   []kueue.Workload
+		wantUsage             []kueue.LocalQueueFlavorUsage
+		wantWallTimeUsage     []kueue.WallTimeFlavorUsage
+		inAdmissibleWl        sets.Set[string]
+		enableWallTimeFeature bool
 	}{
 		"clusterQueue is missing": {
 			wls: []kueue.Workload{
@@ -2177,6 +2180,7 @@ func TestLocalQueueUsage(t *testing.T) {
 					},
 				},
 			},
+			wantWallTimeUsage: []kueue.WallTimeFlavorUsage{},
 		},
 		"all workloads are admitted": {
 			cq: &cq,
@@ -2241,6 +2245,7 @@ func TestLocalQueueUsage(t *testing.T) {
 					},
 				},
 			},
+			wantWallTimeUsage: []kueue.WallTimeFlavorUsage{},
 		},
 		"some workloads are inadmissible": {
 			cq: &cq,
@@ -2298,10 +2303,267 @@ func TestLocalQueueUsage(t *testing.T) {
 					},
 				},
 			},
+			wantWallTimeUsage: []kueue.WallTimeFlavorUsage{},
+		},
+		"wall time policy with no workloads": {
+			cq: utiltestingapi.MakeClusterQueue("foo").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "10", "10").Obj(),
+				).
+				WallTimePolicy(kueue.WallTimeFlavor{Name: "default", WallTimeAllocatedHours: 100, ActionWhenWallTimeExhausted: kueue.Hold}).
+				Obj(),
+			localQueue: utiltestingapi.MakeLocalQueue("test", "ns1").
+				ClusterQueue("foo").
+				WallTimePolicy(100, kueue.Hold).
+				Obj(),
+			wantUsage: []kueue.LocalQueueFlavorUsage{
+				{
+					Name: "default",
+					Resources: []kueue.LocalQueueResourceUsage{
+						{
+							Name:  corev1.ResourceCPU,
+							Total: resource.MustParse("0"),
+						},
+					},
+				},
+			},
+			wantWallTimeUsage: []kueue.WallTimeFlavorUsage{
+				{
+					Name:              "default",
+					WallTimeAllocated: 100,
+					WallTimeUsed:      0,
+				},
+			},
+			enableWallTimeFeature: true,
+		},
+		"wall time policy with admitted workloads": {
+			cq: utiltestingapi.MakeClusterQueue("foo").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "10", "10").Obj(),
+				).
+				WallTimePolicy(kueue.WallTimeFlavor{Name: "default", WallTimeAllocatedHours: 100, ActionWhenWallTimeExhausted: kueue.Hold}).
+				Obj(),
+			localQueue: utiltestingapi.MakeLocalQueue("test", "ns1").
+				ClusterQueue("foo").
+				WallTimePolicy(100, kueue.Hold).
+				Obj(),
+			wls: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("one", "ns1").
+					Queue("test").
+					Request(corev1.ResourceCPU, "5").
+					ReserveQuota(
+						utiltestingapi.MakeAdmission("foo").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "5000m").Obj()).Obj(),
+					).
+					WallTimeSeconds(7200). // 2 hours
+					Obj(),
+			},
+			wantUsage: []kueue.LocalQueueFlavorUsage{
+				{
+					Name: "default",
+					Resources: []kueue.LocalQueueResourceUsage{
+						{
+							Name:  corev1.ResourceCPU,
+							Total: resource.MustParse("5"),
+						},
+					},
+				},
+			},
+			wantWallTimeUsage: []kueue.WallTimeFlavorUsage{
+				{
+					Name:              "default",
+					WallTimeAllocated: 100,
+					WallTimeUsed:      2,
+				},
+			},
+			enableWallTimeFeature: true,
+		},
+		"wall time policy with multiple admitted workloads": {
+			cq: utiltestingapi.MakeClusterQueue("foo").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "10", "10").Obj(),
+				).
+				WallTimePolicy(kueue.WallTimeFlavor{Name: "default", WallTimeAllocatedHours: 100, ActionWhenWallTimeExhausted: kueue.Hold}).
+				Obj(),
+			localQueue: utiltestingapi.MakeLocalQueue("test", "ns1").
+				ClusterQueue("foo").
+				WallTimePolicy(100, kueue.Hold).
+				Obj(),
+			wls: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("one", "ns1").
+					Queue("test").
+					Request(corev1.ResourceCPU, "5").
+					ReserveQuota(
+						utiltestingapi.MakeAdmission("foo").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "5000m").Obj()).Obj(),
+					).
+					WallTimeSeconds(7200). // 2 hours
+					Obj(),
+				*utiltestingapi.MakeWorkload("two", "ns1").
+					Queue("test").
+					Request(corev1.ResourceCPU, "3").
+					ReserveQuota(
+						utiltestingapi.MakeAdmission("foo").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "3000m").Obj()).Obj(),
+					).
+					WallTimeSeconds(10800). // 3 hours
+					Obj(),
+			},
+			wantUsage: []kueue.LocalQueueFlavorUsage{
+				{
+					Name: "default",
+					Resources: []kueue.LocalQueueResourceUsage{
+						{
+							Name:  corev1.ResourceCPU,
+							Total: resource.MustParse("8"),
+						},
+					},
+				},
+			},
+			wantWallTimeUsage: []kueue.WallTimeFlavorUsage{
+				{
+					Name:              "default",
+					WallTimeAllocated: 100,
+					WallTimeUsed:      5, // 2 + 3 hours
+				},
+			},
+			enableWallTimeFeature: true,
+		},
+		"wall time policy with multiple flavors": {
+			cq: utiltestingapi.MakeClusterQueue("foo").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor-a").
+						Resource(corev1.ResourceCPU, "10", "10").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("flavor-b").
+						Resource(corev1.ResourceCPU, "10", "10").Obj(),
+				).
+				WallTimePolicy(
+					kueue.WallTimeFlavor{Name: "flavor-a", WallTimeAllocatedHours: 100, ActionWhenWallTimeExhausted: kueue.Hold},
+					kueue.WallTimeFlavor{Name: "flavor-b", WallTimeAllocatedHours: 50, ActionWhenWallTimeExhausted: kueue.Hold},
+				).
+				Obj(),
+			localQueue: utiltestingapi.MakeLocalQueue("test", "ns1").
+				ClusterQueue("foo").
+				WallTimePolicy(100, kueue.Hold).
+				Obj(),
+			wls: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("one", "ns1").
+					Queue("test").
+					Request(corev1.ResourceCPU, "5").
+					ReserveQuota(
+						utiltestingapi.MakeAdmission("foo").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "flavor-a", "5000m").Obj()).Obj(),
+					).
+					WallTimeSeconds(3600). // 1 hour
+					Obj(),
+				*utiltestingapi.MakeWorkload("two", "ns1").
+					Queue("test").
+					Request(corev1.ResourceCPU, "3").
+					ReserveQuota(
+						utiltestingapi.MakeAdmission("foo").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "flavor-b", "3000m").Obj()).Obj(),
+					).
+					WallTimeSeconds(18000). // 5 hours
+					Obj(),
+			},
+			wantUsage: []kueue.LocalQueueFlavorUsage{
+				{
+					Name: "flavor-a",
+					Resources: []kueue.LocalQueueResourceUsage{
+						{
+							Name:  corev1.ResourceCPU,
+							Total: resource.MustParse("5"),
+						},
+					},
+				},
+				{
+					Name: "flavor-b",
+					Resources: []kueue.LocalQueueResourceUsage{
+						{
+							Name:  corev1.ResourceCPU,
+							Total: resource.MustParse("3"),
+						},
+					},
+				},
+			},
+			wantWallTimeUsage: []kueue.WallTimeFlavorUsage{
+				{
+					Name:              "flavor-a",
+					WallTimeAllocated: 100,
+					WallTimeUsed:      1,
+				},
+				{
+					Name:              "flavor-b",
+					WallTimeAllocated: 100,
+					WallTimeUsed:      5,
+				},
+			},
+			enableWallTimeFeature: true,
+		},
+		"wall time policy with inadmissible workloads": {
+			cq: utiltestingapi.MakeClusterQueue("foo").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "10", "10").Obj(),
+				).
+				WallTimePolicy(kueue.WallTimeFlavor{Name: "default", WallTimeAllocatedHours: 100, ActionWhenWallTimeExhausted: kueue.Hold}).
+				Obj(),
+			localQueue: utiltestingapi.MakeLocalQueue("test", "ns1").
+				ClusterQueue("foo").
+				WallTimePolicy(100, kueue.Hold).
+				Obj(),
+			wls: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("one", "ns1").
+					Queue("test").
+					Request(corev1.ResourceCPU, "5").
+					ReserveQuota(
+						utiltestingapi.MakeAdmission("foo").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "5000m").Obj()).Obj(),
+					).
+					WallTimeSeconds(7200). // 2 hours
+					Obj(),
+				*utiltestingapi.MakeWorkload("two", "ns1").
+					Queue("test").
+					Request(corev1.ResourceCPU, "100000").
+					WallTimeSeconds(3600). // 1 hour
+					Obj(),
+			},
+			inAdmissibleWl: sets.New("two"),
+			wantUsage: []kueue.LocalQueueFlavorUsage{
+				{
+					Name: "default",
+					Resources: []kueue.LocalQueueResourceUsage{
+						{
+							Name:  corev1.ResourceCPU,
+							Total: resource.MustParse("5"),
+						},
+					},
+				},
+			},
+			wantWallTimeUsage: []kueue.WallTimeFlavorUsage{
+				{
+					Name:              "default",
+					WallTimeAllocated: 100,
+					WallTimeUsed:      2, // Only admitted workload counts
+				},
+			},
+			enableWallTimeFeature: true,
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			// Explicitly set WallTimeLimits feature gate based on test case
+			features.SetFeatureGateDuringTest(t, features.WallTimeLimits, tc.enableWallTimeFeature)
+
 			cache := New(utiltesting.NewFakeClient())
 			ctx, log := utiltesting.ContextWithLog(t)
 			if tc.cq != nil {
@@ -2309,7 +2571,14 @@ func TestLocalQueueUsage(t *testing.T) {
 					t.Fatalf("Adding ClusterQueue: %v", err)
 				}
 			}
-			if err := cache.AddLocalQueue(&localQueue); err != nil {
+
+			// Use the localQueue from test case if provided, otherwise use default
+			lq := &localQueue
+			if tc.localQueue != nil {
+				lq = tc.localQueue
+			}
+
+			if err := cache.AddLocalQueue(lq); err != nil {
 				t.Fatalf("Adding LocalQueue: %v", err)
 			}
 			for _, w := range tc.wls {
@@ -2317,12 +2586,15 @@ func TestLocalQueueUsage(t *testing.T) {
 					t.Fatalf("Workload %s was not added", workload.Key(&w))
 				}
 			}
-			gotUsage, err := cache.LocalQueueUsage(&localQueue)
+			gotUsage, err := cache.LocalQueueUsage(lq)
 			if err != nil {
 				t.Fatalf("Couldn't get usage for the queue: %v", err)
 			}
 			if diff := cmp.Diff(tc.wantUsage, gotUsage.ReservedResources); diff != "" {
 				t.Errorf("Unexpected used resources for the queue (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantWallTimeUsage, gotUsage.WallTimeUsage); diff != "" {
+				t.Errorf("Unexpected wall time usage for the queue (-want,+got):\n%s", diff)
 			}
 		})
 	}
@@ -3676,10 +3948,12 @@ func TestCohortCycles(t *testing.T) {
 			Quotas: map[resources.FlavorResource]ResourceQuota{
 				{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: 10_000},
 			},
+			WallTimeQuotas: map[resources.FlavorWallTimeResource]WallTimeResourceQuota{},
 			SubtreeQuota: resources.FlavorResourceQuantities{
 				{Flavor: "arm", Resource: corev1.ResourceCPU}: 15_000,
 			},
-			Usage: resources.FlavorResourceQuantities{},
+			Usage:         resources.FlavorResourceQuantities{},
+			WallTimeUsage: resources.FlavorWallTimeQuantities{},
 		}
 		if diff := cmp.Diff(wantResource, gotResource); diff != "" {
 			t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
@@ -3712,10 +3986,12 @@ func TestCohortCycles(t *testing.T) {
 			Quotas: map[resources.FlavorResource]ResourceQuota{
 				{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: 10_000},
 			},
+			WallTimeQuotas: map[resources.FlavorWallTimeResource]WallTimeResourceQuota{},
 			SubtreeQuota: resources.FlavorResourceQuantities{
 				{Flavor: "arm", Resource: corev1.ResourceCPU}: 15_000,
 			},
-			Usage: resources.FlavorResourceQuantities{},
+			Usage:         resources.FlavorResourceQuantities{},
+			WallTimeUsage: resources.FlavorWallTimeQuantities{},
 		}
 		if diff := cmp.Diff(wantResource, gotResource); diff != "" {
 			t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
@@ -3733,10 +4009,12 @@ func TestCohortCycles(t *testing.T) {
 			Quotas: map[resources.FlavorResource]ResourceQuota{
 				{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: 10_000},
 			},
+			WallTimeQuotas: map[resources.FlavorWallTimeResource]WallTimeResourceQuota{},
 			SubtreeQuota: resources.FlavorResourceQuantities{
 				{Flavor: "arm", Resource: corev1.ResourceCPU}: 10_000,
 			},
-			Usage: resources.FlavorResourceQuantities{},
+			Usage:         resources.FlavorResourceQuantities{},
+			WallTimeUsage: resources.FlavorWallTimeQuantities{},
 		}
 		if diff := cmp.Diff(wantResource, gotResource); diff != "" {
 			t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
@@ -3763,16 +4041,20 @@ func TestCohortCycles(t *testing.T) {
 		// before move
 		{
 			wantRoot1 := resourceNode{
-				Quotas: map[resources.FlavorResource]ResourceQuota{},
+				Quotas:         map[resources.FlavorResource]ResourceQuota{},
+				WallTimeQuotas: map[resources.FlavorWallTimeResource]WallTimeResourceQuota{},
 				SubtreeQuota: resources.FlavorResourceQuantities{
 					{Flavor: "arm", Resource: corev1.ResourceCPU}: 10_000,
 				},
-				Usage: resources.FlavorResourceQuantities{},
+				Usage:         resources.FlavorResourceQuantities{},
+				WallTimeUsage: resources.FlavorWallTimeQuantities{},
 			}
 			wantRoot2 := resourceNode{
-				Quotas:       map[resources.FlavorResource]ResourceQuota{},
-				SubtreeQuota: resources.FlavorResourceQuantities{},
-				Usage:        resources.FlavorResourceQuantities{},
+				Quotas:         map[resources.FlavorResource]ResourceQuota{},
+				WallTimeQuotas: map[resources.FlavorWallTimeResource]WallTimeResourceQuota{},
+				SubtreeQuota:   resources.FlavorResourceQuantities{},
+				Usage:          resources.FlavorResourceQuantities{},
+				WallTimeUsage:  resources.FlavorWallTimeQuantities{},
 			}
 			if diff := cmp.Diff(wantRoot1, cache.hm.Cohort("root1").getResourceNode()); diff != "" {
 				t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
@@ -3788,16 +4070,20 @@ func TestCohortCycles(t *testing.T) {
 		// after move
 		{
 			wantRoot1 := resourceNode{
-				Quotas:       map[resources.FlavorResource]ResourceQuota{},
-				SubtreeQuota: resources.FlavorResourceQuantities{},
-				Usage:        resources.FlavorResourceQuantities{},
+				Quotas:         map[resources.FlavorResource]ResourceQuota{},
+				WallTimeQuotas: map[resources.FlavorWallTimeResource]WallTimeResourceQuota{},
+				SubtreeQuota:   resources.FlavorResourceQuantities{},
+				Usage:          resources.FlavorResourceQuantities{},
+				WallTimeUsage:  resources.FlavorWallTimeQuantities{},
 			}
 			wantRoot2 := resourceNode{
-				Quotas: map[resources.FlavorResource]ResourceQuota{},
+				Quotas:         map[resources.FlavorResource]ResourceQuota{},
+				WallTimeQuotas: map[resources.FlavorWallTimeResource]WallTimeResourceQuota{},
 				SubtreeQuota: resources.FlavorResourceQuantities{
 					{Flavor: "arm", Resource: corev1.ResourceCPU}: 10_000,
 				},
-				Usage: resources.FlavorResourceQuantities{},
+				Usage:         resources.FlavorResourceQuantities{},
+				WallTimeUsage: resources.FlavorWallTimeQuantities{},
 			}
 			if diff := cmp.Diff(wantRoot1, cache.hm.Cohort("root1").getResourceNode()); diff != "" {
 				t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
@@ -3832,11 +4118,13 @@ func TestCohortCycles(t *testing.T) {
 			t.Fatal("Expected success")
 		}
 		wantRoot := resourceNode{
-			Quotas: map[resources.FlavorResource]ResourceQuota{},
+			Quotas:         map[resources.FlavorResource]ResourceQuota{},
+			WallTimeQuotas: map[resources.FlavorWallTimeResource]WallTimeResourceQuota{},
 			SubtreeQuota: resources.FlavorResourceQuantities{
 				{Flavor: "arm", Resource: corev1.ResourceCPU}: 10_000,
 			},
-			Usage: resources.FlavorResourceQuantities{},
+			Usage:         resources.FlavorResourceQuantities{},
+			WallTimeUsage: resources.FlavorWallTimeQuantities{},
 		}
 		if diff := cmp.Diff(wantRoot, cache.hm.Cohort("root").getResourceNode()); diff != "" {
 			t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
@@ -3865,11 +4153,13 @@ func TestCohortCycles(t *testing.T) {
 		// before move
 		{
 			wantRoot := resourceNode{
-				Quotas: map[resources.FlavorResource]ResourceQuota{},
+				Quotas:         map[resources.FlavorResource]ResourceQuota{},
+				WallTimeQuotas: map[resources.FlavorWallTimeResource]WallTimeResourceQuota{},
 				SubtreeQuota: resources.FlavorResourceQuantities{
 					{Flavor: "arm", Resource: corev1.ResourceCPU}: 10_000,
 				},
-				Usage: resources.FlavorResourceQuantities{},
+				Usage:         resources.FlavorResourceQuantities{},
+				WallTimeUsage: resources.FlavorWallTimeQuantities{},
 			}
 			if diff := cmp.Diff(wantRoot, cache.hm.Cohort("root").getResourceNode()); diff != "" {
 				t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
@@ -3884,9 +4174,11 @@ func TestCohortCycles(t *testing.T) {
 		// after move
 		{
 			wantRoot := resourceNode{
-				Quotas:       map[resources.FlavorResource]ResourceQuota{},
-				SubtreeQuota: resources.FlavorResourceQuantities{},
-				Usage:        resources.FlavorResourceQuantities{},
+				Quotas:         map[resources.FlavorResource]ResourceQuota{},
+				WallTimeQuotas: map[resources.FlavorWallTimeResource]WallTimeResourceQuota{},
+				SubtreeQuota:   resources.FlavorResourceQuantities{},
+				Usage:          resources.FlavorResourceQuantities{},
+				WallTimeUsage:  resources.FlavorWallTimeQuantities{},
 			}
 			if diff := cmp.Diff(wantRoot, cache.hm.Cohort("root").getResourceNode()); diff != "" {
 				t.Errorf("Unexpected resource (-want,+got):\n%s", diff)

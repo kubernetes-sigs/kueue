@@ -631,6 +631,11 @@ type WorkloadStatus struct {
 	// +optional
 	AccumulatedPastExecutionTimeSeconds *int32 `json:"accumulatedPastExecutionTimeSeconds,omitempty"`
 
+	// wallTimeSeconds holds the total time, in seconds, the workload spent
+	// in Admitted state.
+	// +optional
+	WallTimeSeconds *int32 `json:"wallTimeSeconds,omitempty"`
+
 	// schedulingStats tracks scheduling statistics
 	//
 	// +optional

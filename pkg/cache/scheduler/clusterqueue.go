@@ -53,6 +53,7 @@ var (
 type clusterQueue struct {
 	Name              kueue.ClusterQueueReference
 	ResourceGroups    []ResourceGroup
+	WallTimeGroups    []WallTimeFlavorGroup
 	Workloads         map[workload.Reference]*workload.Info
 	WorkloadsNotReady sets.Set[workload.Reference]
 	NamespaceSelector labels.Selector
@@ -68,6 +69,7 @@ type clusterQueue struct {
 	AllocatableResourceGeneration int64
 
 	AdmittedUsage resources.FlavorResourceQuantities
+	WallTimeUsage resources.FlavorWallTimeQuantities
 	// localQueues by (namespace/name).
 	localQueues                        map[queue.LocalQueueReference]*LocalQueue
 	podsReadyTracking                  bool
@@ -135,6 +137,10 @@ func (c *clusterQueue) updateClusterQueue(log logr.Logger, in *kueue.ClusterQueu
 		}
 	}
 
+	if in.Spec.WallTimePolicy != nil {
+		c.updateWallTimeGroups(in.Spec.WallTimePolicy.WallTimeFlavors)
+	}
+
 	nsSelector, err := metav1.LabelSelectorAsSelector(in.Spec.NamespaceSelector)
 	if err != nil {
 		return err
@@ -197,6 +203,23 @@ func (c *clusterQueue) updateQuotasAndResourceGroups(in []kueue.ResourceGroup) b
 	return c.AllocatableResourceGeneration == 0 ||
 		!equality.Semantic.DeepEqual(oldRG, c.ResourceGroups) ||
 		!equality.Semantic.DeepEqual(oldQuotas, c.resourceNode.Quotas)
+}
+
+func (c *clusterQueue) updateWallTimeGroups(in []kueue.WallTimeFlavor) bool {
+	oldBG := c.WallTimeGroups
+	oldBQ := c.resourceNode.WallTimeQuotas
+	c.resourceNode.WallTimeQuotas = createWallTimeResourceQuota(in)
+	// Create wall time flavor groups
+	c.WallTimeGroups = make([]WallTimeFlavorGroup, 0, len(in))
+	for _, wallTimeFlavor := range in {
+		c.WallTimeGroups = append(c.WallTimeGroups, WallTimeFlavorGroup{
+			Flavors: []kueue.ResourceFlavorReference{wallTimeFlavor.Name},
+		})
+	}
+	// Start at 1, for backwards compatibility.
+	return c.AllocatableResourceGeneration == 0 ||
+		!equality.Semantic.DeepEqual(oldBG, c.WallTimeGroups) ||
+		!equality.Semantic.DeepEqual(oldBQ, c.resourceNode.WallTimeQuotas)
 }
 
 func (c *clusterQueue) updateQueueStatus(log logr.Logger) {
@@ -508,6 +531,29 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 		if features.Enabled(features.LocalQueueMetrics) {
 			lq.reportActiveWorkloads(c.roleTracker)
 		}
+		// Update wall time usage for local queue
+		if features.Enabled(features.WallTimeLimits) {
+			wallTimeUsage := wi.WallTimeFlavorUsage()
+			for fr, q := range wallTimeUsage {
+				if op == add {
+					lq.wallTimeUsage[fr] += q
+				}
+				if op == subtract { //nolint:staticcheck // empty branch is intentional - wall time usage is not removed on subtract
+					// todo: maybe we don't actually remove wall time usage
+				}
+			}
+		}
+	}
+	if features.Enabled(features.WallTimeLimits) {
+		wallTimeUsage := wi.WallTimeFlavorUsage()
+		for fr, q := range wallTimeUsage {
+			if op == add {
+				addWallTimeUsage(c, fr, q)
+			}
+			if op == subtract { //nolint:staticcheck // empty branch is intentional - wall time usage is not removed on subtract
+				// todo: maybe we don't actually remove wall time usage
+			}
+		}
 	}
 }
 
@@ -561,6 +607,8 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 		key:                qKey,
 		reservingWorkloads: 0,
 		totalReserved:      make(resources.FlavorResourceQuantities),
+		wallTimeUsage:      make(resources.FlavorWallTimeQuantities),
+		wallTimePolicy:     q.Spec.WallTimePolicy,
 	}
 	qImpl.resetFlavorsAndResources(c.resourceNode.Usage, c.AdmittedUsage)
 	for _, wl := range c.Workloads {
@@ -571,6 +619,11 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 			if workload.IsAdmitted(wl.Obj) {
 				qImpl.updateAdmittedUsage(frq, add)
 				qImpl.admittedWorkloads++
+			}
+			// Initialize wall time usage for existing workloads
+			wallTimeUsage := wl.WallTimeFlavorUsage()
+			for fr, q := range wallTimeUsage {
+				qImpl.wallTimeUsage[fr] += q
 			}
 		}
 	}

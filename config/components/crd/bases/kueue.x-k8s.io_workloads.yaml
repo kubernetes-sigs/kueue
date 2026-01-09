@@ -9350,6 +9350,12 @@ spec:
                   - name
                   type: object
                 type: array
+              wallTimeSeconds:
+                description: |-
+                  wallTimeSeconds holds the total time, in seconds, the workload spent
+                  in Admitted state.
+                format: int32
+                type: integer
             type: object
             x-kubernetes-validations:
             - message: clusterName is immutable once set
@@ -18880,6 +18886,12 @@ spec:
                 x-kubernetes-list-map-keys:
                 - name
                 x-kubernetes-list-type: map
+              wallTimeSeconds:
+                description: |-
+                  wallTimeSeconds holds the total time, in seconds, the workload spent
+                  in Admitted state.
+                format: int32
+                type: integer
             type: object
             x-kubernetes-validations:
             - message: clusterName is immutable once set

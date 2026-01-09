@@ -183,6 +183,42 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	if features.Enabled(features.WallTimeLimits) && queueObj.Spec.WallTimePolicy != nil {
+		// Get the current wall time usage stats
+		stats, err := r.cache.LocalQueueUsage(&queueObj)
+		if err != nil {
+			r.log.Error(err, "Failed to get localQueue wall time usage")
+			return ctrl.Result{}, err
+		}
+
+		// Check if any wall time limits are exceeded
+		wallTimeLimitExceeded := false
+		for _, usage := range stats.WallTimeUsage {
+			if usage.WallTimeUsed >= usage.WallTimeAllocated {
+				wallTimeLimitExceeded = true
+				break
+			}
+		}
+
+		// Apply the actionWhenWallTimeExhausted if limits are exceeded
+		if wallTimeLimitExceeded {
+			action := queueObj.Spec.WallTimePolicy.ActionWhenWallTimeExhausted
+			currentStopPolicy := ptr.Deref(queueObj.Spec.StopPolicy, kueue.None)
+
+			// Only update the StopPolicy if it's not already set to the desired action
+			if currentStopPolicy != action && (action == kueue.Hold || action == kueue.HoldAndDrain) {
+				queueObj.Spec.StopPolicy = &action
+				if err := r.client.Update(ctx, &queueObj); err != nil {
+					r.log.Error(err, "Failed to update localQueue stopPolicy due to wall time limit")
+					return ctrl.Result{}, err
+				}
+				r.log.Info("Updated localQueue stopPolicy due to wall time limit exceeded",
+					"localQueue", klog.KObj(&queueObj),
+					"stopPolicy", action)
+			}
+		}
+	}
+
 	if afs.Enabled(r.admissionFSConfig) {
 		initNeeded := r.initializeAfsIfNeeded(&queueObj)
 		lqKey := utilqueue.Key(&queueObj)
@@ -203,6 +239,7 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 		return ctrl.Result{RequeueAfter: r.admissionFSConfig.UsageSamplingInterval.Duration}, nil
 	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -526,6 +563,7 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 	queue.Status.AdmittedWorkloads = int32(stats.AdmittedWorkloads)
 	queue.Status.FlavorsReservation = stats.ReservedResources
 	queue.Status.FlavorsUsage = stats.AdmittedResources
+	queue.Status.WallTimeFlavorUsage = stats.WallTimeUsage
 	if len(conditionStatus) != 0 && len(reason) != 0 && len(msg) != 0 {
 		meta.SetStatusCondition(&queue.Status.Conditions, metav1.Condition{
 			Type:               kueue.LocalQueueActive,
@@ -541,6 +579,7 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 			}, conditionStatus, r.roleTracker)
 		}
 	}
+	r.log.V(2).Info("Status check", "oldStatus", oldStatus, "newStatus", queue.Status)
 	if !equality.Semantic.DeepEqual(oldStatus, queue.Status) {
 		return r.client.Status().Update(ctx, queue)
 	}

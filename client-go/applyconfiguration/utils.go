@@ -103,6 +103,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.LocalQueueSpecApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("LocalQueueStatus"):
 		return &kueuev1beta1.LocalQueueStatusApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("LocalQueueWallTimeLimits"):
+		return &kueuev1beta1.LocalQueueWallTimeLimitsApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("MultiKueueCluster"):
 		return &kueuev1beta1.MultiKueueClusterApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("MultiKueueClusterSpec"):
@@ -163,6 +165,12 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.TopologySpecApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("UnhealthyNode"):
 		return &kueuev1beta1.UnhealthyNodeApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("WallTimeFlavor"):
+		return &kueuev1beta1.WallTimeFlavorApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("WallTimeFlavorUsage"):
+		return &kueuev1beta1.WallTimeFlavorUsageApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("WallTimePolicy"):
+		return &kueuev1beta1.WallTimePolicyApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("Workload"):
 		return &kueuev1beta1.WorkloadApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("WorkloadPriorityClass"):
@@ -239,6 +247,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta2.LocalQueueSpecApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("LocalQueueStatus"):
 		return &kueuev1beta2.LocalQueueStatusApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("LocalQueueWallTimeLimits"):
+		return &kueuev1beta2.LocalQueueWallTimeLimitsApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("MultiKueueCluster"):
 		return &kueuev1beta2.MultiKueueClusterApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("MultiKueueClusterSpec"):
@@ -305,6 +315,12 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta2.TopologySpecApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("UnhealthyNode"):
 		return &kueuev1beta2.UnhealthyNodeApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("WallTimeFlavor"):
+		return &kueuev1beta2.WallTimeFlavorApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("WallTimeFlavorUsage"):
+		return &kueuev1beta2.WallTimeFlavorUsageApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("WallTimePolicy"):
+		return &kueuev1beta2.WallTimePolicyApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("Workload"):
 		return &kueuev1beta2.WorkloadApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("WorkloadPriorityClass"):

@@ -508,11 +508,15 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
+		wallTimeRecheckAfter, err := r.reconcileWallTimeTracking(ctx, &wl)
+		if err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
 
 		// get the minimun non-zero value
-		recheckAfter := min(podsReadyRecheckAfter, maxExecRecheckAfter)
+		recheckAfter := min(podsReadyRecheckAfter, maxExecRecheckAfter, wallTimeRecheckAfter)
 		if recheckAfter == 0 {
-			recheckAfter = max(podsReadyRecheckAfter, maxExecRecheckAfter)
+			recheckAfter = max(podsReadyRecheckAfter, maxExecRecheckAfter, wallTimeRecheckAfter)
 		}
 		return ctrl.Result{RequeueAfter: recheckAfter}, nil
 	}
@@ -594,6 +598,33 @@ func (r *WorkloadReconciler) reconcileMaxExecutionTime(ctx context.Context, wl *
 		r.recorder.Eventf(wl, corev1.EventTypeWarning, kueue.WorkloadMaximumExecutionTimeExceeded, "The maximum execution time (%ds) exceeded", *wl.Spec.MaximumExecutionTimeSeconds)
 	}
 	return 0, nil
+}
+
+// reconcileWallTimeTracking updates the wall time seconds for admitted workloads when the WallTimeLimits feature is enabled.
+func (r *WorkloadReconciler) reconcileWallTimeTracking(ctx context.Context, wl *kueue.Workload) (time.Duration, error) {
+	if !features.Enabled(features.WallTimeLimits) {
+		return 0, nil
+	}
+
+	admittedCondition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+	if admittedCondition == nil || admittedCondition.Status != metav1.ConditionTrue {
+		return 0, nil
+	}
+
+	// Calculate elapsed time since admission
+	elapsedTime := int32(r.clock.Since(admittedCondition.LastTransitionTime.Time).Seconds())
+
+	if ptr.Deref(wl.Status.WallTimeSeconds, -1) != elapsedTime {
+		wl.Status.WallTimeSeconds = &elapsedTime
+		err := r.client.Status().Update(ctx, wl)
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	// Requeue after 1 second to update wall time
+	// TODO: need to make this 5 minutes and fix tests to reflect this.
+	return 1 * time.Second, nil
 }
 
 // reconcileCheckBasedEviction evicts or deactivates the given Workload if any admission checks have failed.
