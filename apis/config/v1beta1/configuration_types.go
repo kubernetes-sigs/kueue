@@ -243,13 +243,13 @@ type WaitForPodsReady struct {
 	// +optional
 	RequeuingStrategy *RequeuingStrategy `json:"requeuingStrategy,omitempty"`
 
-	// RecoveryTimeout defines an opt-in timeout, measured since the
+	// RecoveryTimeout defines a timeout, measured since the
 	// last transition to the PodsReady=false condition after a Workload is Admitted and running.
 	// Such a transition may happen when a Pod failed and the replacement Pod
 	// is awaited to be scheduled.
 	// After exceeding the timeout the corresponding job gets suspended again
 	// and requeued after the backoff delay. The timeout is enforced only if waitForPodsReady.enable=true.
-	// If not set, there is no timeout.
+	// Defaults to the value of timeout. Setting to "0s" disables recovery timeout checking.
 	// +optional
 	RecoveryTimeout *metav1.Duration `json:"recoveryTimeout,omitempty"`
 }
