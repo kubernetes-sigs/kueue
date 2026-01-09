@@ -47,6 +47,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+	"sigs.k8s.io/kueue/pkg/util/priority"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -990,14 +991,17 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 }
 
 func workloadPriorityChanged(old, new *kueue.Workload) bool {
+	// Updates to Pod Priority are not supported.
 	if !workload.IsWorkloadPriorityClass(new) {
 		return false
 	}
-
-	oldName := workload.PriorityClassName(old)
-	newName := workload.PriorityClassName(new)
-
-	return newName != "" && oldName != newName
+	// Check if priority class reference changed.
+	if workload.PriorityClassName(new) != "" &&
+		workload.PriorityClassName(old) != workload.PriorityClassName(new) {
+		return true
+	}
+	// Check if priority value changed (for WorkloadPriorityClass value updates).
+	return priority.Priority(old) != priority.Priority(new)
 }
 
 func (r *WorkloadReconciler) Generic(e event.TypedGenericEvent[*kueue.Workload]) bool {
