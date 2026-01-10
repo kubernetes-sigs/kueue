@@ -9347,9 +9347,11 @@ spec:
           rule: '(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c,
             c.type == ''QuotaReserved'' && c.status == ''True'')) ? (oldSelf.spec.priorityClassSource
             == self.spec.priorityClassSource) : true'
-        - message: field is immutable
+        - message: priorityClassName is immutable while quota is reserved, unless
+            using workloadPriorityClass
           rule: '(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c,
-            c.type == ''QuotaReserved'' && c.status == ''True'') && has(oldSelf.spec.priorityClassName)
+            c.type == ''QuotaReserved'' && c.status == ''True'') && self.spec.priorityClassSource
+            != ''kueue.x-k8s.io/workloadpriorityclass'' && has(oldSelf.spec.priorityClassName)
             && has(self.spec.priorityClassName)) ? (oldSelf.spec.priorityClassName
             == self.spec.priorityClassName) : true'
         - message: field is immutable

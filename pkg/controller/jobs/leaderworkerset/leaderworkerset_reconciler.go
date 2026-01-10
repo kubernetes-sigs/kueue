@@ -38,6 +38,7 @@ import (
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
@@ -106,13 +107,19 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return ctrl.Result{}, err
 	}
 
-	toCreate, toFinalize := r.filterWorkloads(lws, wlList.Items)
+	toCreate, toUpdate, toFinalize := r.filterWorkloads(lws, wlList.Items)
 
 	eg, ctx := errgroup.WithContext(ctx)
 
 	eg.Go(func() error {
 		return parallelize.Until(ctx, len(toCreate), func(i int) error {
 			return r.createPrebuiltWorkload(ctx, lws, toCreate[i])
+		})
+	})
+
+	eg.Go(func() error {
+		return parallelize.Until(ctx, len(toUpdate), func(i int) error {
+			return r.updateWorkloadPriority(ctx, lws, toUpdate[i])
 		})
 	})
 
@@ -130,15 +137,17 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	return ctrl.Result{}, nil
 }
 
-// filterWorkloads compares the desired state in a LeaderWorkerSet with existing workloads,
-// identifying workloads to create and those to finalize.
+// filterWorkloads compares the desired state of a LeaderWorkerSet with existing workloads,
+// determining which workloads need to be created, updated, or finalized.
 //
-// It takes a LeaderWorkerSet and a slice of existing Workload objects as input and returns:
-// 1. A slice of workload names that need to be created
-// 2. A slice of Workload pointers that need to be finalized
-func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, existingWorkloads []kueue.Workload) ([]string, []*kueue.Workload) {
+// It accepts a LeaderWorkerSet and a slice of existing Workload objects as input and returns:
+// 1. A slice of workload names to be created
+// 2. A slice of workloads that may require updates
+// 3. A slice of Workload pointers to be finalized
+func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, existingWorkloads []kueue.Workload) ([]string, []*kueue.Workload, []*kueue.Workload) {
 	var (
 		toCreate   []string
+		toUpdate   []*kueue.Workload
 		toFinalize = utilslices.ToRefMap(existingWorkloads, func(e *kueue.Workload) string {
 			return e.Name
 		})
@@ -147,14 +156,15 @@ func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, exi
 
 	for i := range replicas {
 		workloadName := GetWorkloadName(lws.UID, lws.Name, fmt.Sprint(i))
-		if _, ok := toFinalize[workloadName]; ok {
+		if wl, ok := toFinalize[workloadName]; ok {
+			toUpdate = append(toUpdate, wl)
 			delete(toFinalize, workloadName)
 		} else {
 			toCreate = append(toCreate, workloadName)
 		}
 	}
 
-	return toCreate, slices.Collect(maps.Values(toFinalize))
+	return toCreate, toUpdate, slices.Collect(maps.Values(toFinalize))
 }
 
 func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, workloadName string) error {
@@ -179,6 +189,31 @@ func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, lws *leaderwork
 	r.record.Eventf(
 		lws, corev1.EventTypeNormal, jobframework.ReasonCreatedWorkload,
 		"Created Workload: %v", workload.Key(createdWorkload),
+	)
+	return nil
+}
+
+func (r *Reconciler) updateWorkloadPriority(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, wl *kueue.Workload) error {
+	priorityClassName := jobframework.WorkloadPriorityClassName(lws)
+	if wl.Spec.PriorityClassSource != constants.WorkloadPriorityClassSource || priorityClassName == wl.Spec.PriorityClassName {
+		return nil
+	}
+
+	priorityClassName, source, p, err := jobframework.ExtractPriority(ctx, r.client, lws, wl.Spec.PodSets, nil)
+	if err != nil {
+		return err
+	}
+
+	wl.Spec.PriorityClassName = priorityClassName
+	wl.Spec.Priority = &p
+	wl.Spec.PriorityClassSource = source
+
+	if err := r.client.Update(ctx, wl); err != nil {
+		return err
+	}
+	r.record.Eventf(
+		lws, corev1.EventTypeNormal, jobframework.ReasonUpdatedWorkload,
+		"Updated Workload priority: %v", workload.Key(wl),
 	)
 	return nil
 }
