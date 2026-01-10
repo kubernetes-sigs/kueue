@@ -1456,12 +1456,10 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 				WithClock(fakeClock),
 			)
 
-			// Queue workloads
 			for _, wl := range tc.workloads {
 				manager.QueueSecondPassIfNeeded(ctx, wl, 0)
 			}
 
-			// Simulate real deletion via Manager API
 			for _, ref := range tc.deleted.UnsortedList() {
 				parts := strings.SplitN(string(ref), "/", 2)
 				manager.DeleteWorkload(
@@ -1475,10 +1473,8 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 				)
 			}
 
-			// Advance time
 			fakeClock.Step(tc.passTime)
 
-			// Collect ready workloads
 			gotReady := sets.New[workload.Reference]()
 			for _, wlInfo := range manager.secondPassQueue.takeAllReady() {
 				gotReady.Insert(workload.Key(wlInfo.Obj))
