@@ -944,9 +944,12 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 	return match, nil
 }
 
-// UpdateWorkloadPriority updates workload priority if object's kueue.x-k8s.io/priority-class label changed.
 func UpdateWorkloadPriority(ctx context.Context, c client.Client, r record.EventRecorder, obj client.Object, wl *kueue.Workload, customPriorityClassFunc func() string) error {
-	if workload.IsWorkloadPriorityClass(wl) && WorkloadPriorityClassName(obj) != workload.PriorityClassName(wl) {
+	// This handles both: changing priority (old -> new) AND adding priority (none -> new)
+	jobPriorityClassName := WorkloadPriorityClassName(obj)
+	wlPriorityClassName := workload.PriorityClassName(wl)
+
+	if jobPriorityClassName != "" && jobPriorityClassName != wlPriorityClassName {
 		if err := PrepareWorkloadPriority(ctx, c, obj, wl, customPriorityClassFunc); err != nil {
 			return fmt.Errorf("prepare workload priority: %w", err)
 		}
