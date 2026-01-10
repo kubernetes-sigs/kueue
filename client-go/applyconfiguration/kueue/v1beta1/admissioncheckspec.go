@@ -19,10 +19,21 @@ package v1beta1
 
 // AdmissionCheckSpecApplyConfiguration represents a declarative configuration of the AdmissionCheckSpec type for use
 // with apply.
+//
+// AdmissionCheckSpec defines the desired state of AdmissionCheck
 type AdmissionCheckSpecApplyConfiguration struct {
-	ControllerName    *string                                              `json:"controllerName,omitempty"`
-	RetryDelayMinutes *int64                                               `json:"retryDelayMinutes,omitempty"`
-	Parameters        *AdmissionCheckParametersReferenceApplyConfiguration `json:"parameters,omitempty"`
+	// controllerName identifies the controller that processes the AdmissionCheck,
+	// not necessarily a Kubernetes Pod or Deployment name. Cannot be empty.
+	ControllerName *string `json:"controllerName,omitempty"`
+	// retryDelayMinutes specifies how long to keep the workload suspended after
+	// a failed check (after it transitioned to False). When the delay period has passed, the check
+	// state goes to "Unknown". The default is 15 min.
+	//
+	// Deprecated: retryDelayMinutes has already been deprecated since v0.8 and will be removed in v1beta2.
+	RetryDelayMinutes *int64 `json:"retryDelayMinutes,omitempty"`
+	// parameters identifies a configuration with additional parameters for the
+	// check.
+	Parameters *AdmissionCheckParametersReferenceApplyConfiguration `json:"parameters,omitempty"`
 }
 
 // AdmissionCheckSpecApplyConfiguration constructs a declarative configuration of the AdmissionCheckSpec type for use with

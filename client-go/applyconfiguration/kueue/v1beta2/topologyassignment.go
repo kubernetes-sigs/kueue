@@ -20,7 +20,12 @@ package v1beta2
 // TopologyAssignmentApplyConfiguration represents a declarative configuration of the TopologyAssignment type for use
 // with apply.
 type TopologyAssignmentApplyConfiguration struct {
-	Levels []string                                    `json:"levels,omitempty"`
+	// levels is an ordered list of keys denoting the levels of the assigned
+	// topology (i.e. node label keys), from the highest to the lowest level of
+	// the topology.
+	Levels []string `json:"levels,omitempty"`
+	// slices represent topology assignments for subsets of pods of a workload.
+	// The full assignment is obtained as a union of all slices.
 	Slices []TopologyAssignmentSliceApplyConfiguration `json:"slices,omitempty"`
 }
 

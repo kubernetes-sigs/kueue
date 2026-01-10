@@ -24,6 +24,10 @@ import (
 // AdmissionScopeApplyConfiguration represents a declarative configuration of the AdmissionScope type for use
 // with apply.
 type AdmissionScopeApplyConfiguration struct {
+	// admissionMode indicates which mode for AdmissionFairSharing should be used
+	// in the AdmissionScope. Possible values are:
+	// - UsageBasedAdmissionFairSharing
+	// - NoAdmissionFairSharing
 	AdmissionMode *kueuev1beta2.AdmissionMode `json:"admissionMode,omitempty"`
 }
 

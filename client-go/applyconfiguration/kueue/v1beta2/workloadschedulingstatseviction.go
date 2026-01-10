@@ -24,9 +24,13 @@ import (
 // WorkloadSchedulingStatsEvictionApplyConfiguration represents a declarative configuration of the WorkloadSchedulingStatsEviction type for use
 // with apply.
 type WorkloadSchedulingStatsEvictionApplyConfiguration struct {
-	Reason          *string                               `json:"reason,omitempty"`
+	// reason specifies the programmatic identifier for the eviction cause.
+	Reason *string `json:"reason,omitempty"`
+	// underlyingCause specifies a finer-grained explanation that complements the eviction reason.
+	// This may be an empty string.
 	UnderlyingCause *kueuev1beta2.EvictionUnderlyingCause `json:"underlyingCause,omitempty"`
-	Count           *int32                                `json:"count,omitempty"`
+	// count tracks the number of evictions for this reason and detailed reason.
+	Count *int32 `json:"count,omitempty"`
 }
 
 // WorkloadSchedulingStatsEvictionApplyConfiguration constructs a declarative configuration of the WorkloadSchedulingStatsEviction type for use with

@@ -23,13 +23,39 @@ import (
 
 // WorkloadSpecApplyConfiguration represents a declarative configuration of the WorkloadSpec type for use
 // with apply.
+//
+// WorkloadSpec defines the desired state of Workload
 type WorkloadSpecApplyConfiguration struct {
-	PodSets                     []PodSetApplyConfiguration          `json:"podSets,omitempty"`
-	QueueName                   *kueuev1beta2.LocalQueueName        `json:"queueName,omitempty"`
-	PriorityClassRef            *PriorityClassRefApplyConfiguration `json:"priorityClassRef,omitempty"`
-	Priority                    *int32                              `json:"priority,omitempty"`
-	Active                      *bool                               `json:"active,omitempty"`
-	MaximumExecutionTimeSeconds *int32                              `json:"maximumExecutionTimeSeconds,omitempty"`
+	// podSets is a list of sets of homogeneous pods, each described by a Pod spec
+	// and a count.
+	// There must be at least one element and at most 8.
+	// podSets cannot be changed.
+	PodSets []PodSetApplyConfiguration `json:"podSets,omitempty"`
+	// queueName is the name of the LocalQueue the Workload is associated with.
+	// queueName cannot be changed while .status.admission is not null.
+	QueueName *kueuev1beta2.LocalQueueName `json:"queueName,omitempty"`
+	// priorityClassRef references a PriorityClass object that defines the workload's priority.
+	PriorityClassRef *PriorityClassRefApplyConfiguration `json:"priorityClassRef,omitempty"`
+	// priority determines the order of access to the resources managed by the
+	// ClusterQueue where the workload is queued.
+	// The priority value is populated from the referenced PriorityClass (via priorityClassRef).
+	// The higher the value, the higher the priority.
+	// If priorityClassRef is specified, priority must not be null.
+	Priority *int32 `json:"priority,omitempty"`
+	// active determines if a workload can be admitted into a queue.
+	// Changing active from true to false will evict any running workloads.
+	// Possible values are:
+	//
+	// - false: indicates that a workload should never be admitted and evicts running workloads
+	// - true: indicates that a workload can be evaluated for admission into it's respective queue.
+	//
+	// Defaults to true
+	Active *bool `json:"active,omitempty"`
+	// maximumExecutionTimeSeconds if provided, determines the maximum time, in seconds,
+	// the workload can be admitted before it's automatically deactivated.
+	//
+	// If unspecified, no execution time limit is enforced on the Workload.
+	MaximumExecutionTimeSeconds *int32 `json:"maximumExecutionTimeSeconds,omitempty"`
 }
 
 // WorkloadSpecApplyConfiguration constructs a declarative configuration of the WorkloadSpec type for use with

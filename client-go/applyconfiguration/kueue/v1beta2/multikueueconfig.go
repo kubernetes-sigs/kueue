@@ -25,10 +25,14 @@ import (
 
 // MultiKueueConfigApplyConfiguration represents a declarative configuration of the MultiKueueConfig type for use
 // with apply.
+//
+// MultiKueueConfig is the Schema for the multikueue API
 type MultiKueueConfigApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration    `json:",inline"`
+	v1.TypeMetaApplyConfiguration `json:",inline"`
+	// metadata is the metadata of the MultiKueueConfig.
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Spec                             *MultiKueueConfigSpecApplyConfiguration `json:"spec,omitempty"`
+	// spec is the specification of the MultiKueueConfig.
+	Spec *MultiKueueConfigSpecApplyConfiguration `json:"spec,omitempty"`
 }
 
 // MultiKueueConfig constructs a declarative configuration of the MultiKueueConfig type for use with
@@ -40,6 +44,7 @@ func MultiKueueConfig(name string) *MultiKueueConfigApplyConfiguration {
 	b.WithAPIVersion("kueue.x-k8s.io/v1beta2")
 	return b
 }
+
 func (b MultiKueueConfigApplyConfiguration) IsApplyConfiguration() {}
 
 // WithKind sets the Kind field in the declarative configuration to the given value

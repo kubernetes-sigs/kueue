@@ -20,6 +20,7 @@ package v1beta1
 // SchedulingStatsApplyConfiguration represents a declarative configuration of the SchedulingStats type for use
 // with apply.
 type SchedulingStatsApplyConfiguration struct {
+	// evictions tracks eviction statistics by reason and underlyingCause.
 	Evictions []WorkloadSchedulingStatsEvictionApplyConfiguration `json:"evictions,omitempty"`
 }
 

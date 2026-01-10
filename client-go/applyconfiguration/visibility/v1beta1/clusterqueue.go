@@ -40,6 +40,7 @@ func ClusterQueue(name string) *ClusterQueueApplyConfiguration {
 	b.WithAPIVersion("visibility.kueue.x-k8s.io/v1beta1")
 	return b
 }
+
 func (b ClusterQueueApplyConfiguration) IsApplyConfiguration() {}
 
 // WithKind sets the Kind field in the declarative configuration to the given value

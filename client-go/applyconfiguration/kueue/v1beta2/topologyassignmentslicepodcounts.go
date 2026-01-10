@@ -20,7 +20,12 @@ package v1beta2
 // TopologyAssignmentSlicePodCountsApplyConfiguration represents a declarative configuration of the TopologyAssignmentSlicePodCounts type for use
 // with apply.
 type TopologyAssignmentSlicePodCountsApplyConfiguration struct {
-	Universal  *int32  `json:"universal,omitempty"`
+	// universal - if set - specifies the number of pods allocated in every domain in this slice.
+	// Exactly one of universal, individual must be set.
+	Universal *int32 `json:"universal,omitempty"`
+	// individual - if set - specifies the number of pods allocated in each domain in this slice.
+	// If set, its length must be equal to the "domainCount" field of the TopologyAssignmentSlice.
+	// Exactly one of universal, individual must be set.
 	Individual []int32 `json:"individual,omitempty"`
 }
 

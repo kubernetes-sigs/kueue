@@ -25,11 +25,16 @@ import (
 
 // AdmissionCheckApplyConfiguration represents a declarative configuration of the AdmissionCheck type for use
 // with apply.
+//
+// AdmissionCheck is the Schema for the admissionchecks API
 type AdmissionCheckApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration    `json:",inline"`
+	v1.TypeMetaApplyConfiguration `json:",inline"`
+	// metadata is the metadata of the AdmissionCheck.
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Spec                             *AdmissionCheckSpecApplyConfiguration   `json:"spec,omitempty"`
-	Status                           *AdmissionCheckStatusApplyConfiguration `json:"status,omitempty"`
+	// spec is the specification of the AdmissionCheck.
+	Spec *AdmissionCheckSpecApplyConfiguration `json:"spec,omitempty"`
+	// status is the status of the AdmissionCheck.
+	Status *AdmissionCheckStatusApplyConfiguration `json:"status,omitempty"`
 }
 
 // AdmissionCheck constructs a declarative configuration of the AdmissionCheck type for use with
@@ -41,6 +46,7 @@ func AdmissionCheck(name string) *AdmissionCheckApplyConfiguration {
 	b.WithAPIVersion("kueue.x-k8s.io/v1beta2")
 	return b
 }
+
 func (b AdmissionCheckApplyConfiguration) IsApplyConfiguration() {}
 
 // WithKind sets the Kind field in the declarative configuration to the given value

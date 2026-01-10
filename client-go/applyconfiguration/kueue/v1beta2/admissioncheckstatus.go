@@ -23,7 +23,12 @@ import (
 
 // AdmissionCheckStatusApplyConfiguration represents a declarative configuration of the AdmissionCheckStatus type for use
 // with apply.
+//
+// AdmissionCheckStatus defines the observed state of AdmissionCheck
 type AdmissionCheckStatusApplyConfiguration struct {
+	// conditions hold the latest available observations of the AdmissionCheck
+	// current state.
+	// This is limited to at most 16 separate conditions.
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
 }
 
