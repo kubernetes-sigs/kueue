@@ -2736,7 +2736,6 @@ func TestReconcile(t *testing.T) {
 }
 
 // TestWorkloadPriorityClassChanged tests the workloadPriorityClassChanged function.
-// (none -> some) should be detected as a change and trigger reconciliation.
 func TestWorkloadPriorityClassChanged(t *testing.T) {
 	testCases := map[string]struct {
 		oldWorkload *kueue.Workload
