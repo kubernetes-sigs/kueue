@@ -24,8 +24,10 @@ import (
 // TopologyInfoApplyConfiguration represents a declarative configuration of the TopologyInfo type for use
 // with apply.
 type TopologyInfoApplyConfiguration struct {
-	Name   *kueuev1beta1.TopologyReference `json:"name,omitempty"`
-	Levels []string                        `json:"levels,omitempty"`
+	// name is the name of the topology.
+	Name *kueuev1beta1.TopologyReference `json:"name,omitempty"`
+	// levels define the levels of topology.
+	Levels []string `json:"levels,omitempty"`
 }
 
 // TopologyInfoApplyConfiguration constructs a declarative configuration of the TopologyInfo type for use with

@@ -25,12 +25,24 @@ import (
 
 // LocalQueueFlavorStatusApplyConfiguration represents a declarative configuration of the LocalQueueFlavorStatus type for use
 // with apply.
+//
+// Deprecated: LocalQueueFlavorStatus is deprecated and marked for removal in v1beta2.
 type LocalQueueFlavorStatusApplyConfiguration struct {
-	Name       *kueuev1beta1.ResourceFlavorReference `json:"name,omitempty"`
-	Resources  []v1.ResourceName                     `json:"resources,omitempty"`
-	NodeLabels map[string]string                     `json:"nodeLabels,omitempty"`
-	NodeTaints []corev1.TaintApplyConfiguration      `json:"nodeTaints,omitempty"`
-	Topology   *TopologyInfoApplyConfiguration       `json:"topology,omitempty"`
+	// name of the flavor.
+	Name *kueuev1beta1.ResourceFlavorReference `json:"name,omitempty"`
+	// resources used in the flavor.
+	Resources []v1.ResourceName `json:"resources,omitempty"`
+	// nodeLabels are labels that associate the ResourceFlavor with Nodes that
+	// have the same labels.
+	NodeLabels map[string]string `json:"nodeLabels,omitempty"`
+	// nodeTaints are taints that the nodes associated with this ResourceFlavor
+	// have.
+	NodeTaints []corev1.TaintApplyConfiguration `json:"nodeTaints,omitempty"`
+	// topology is the topology that associated with this ResourceFlavor.
+	//
+	// This is a beta field and requires enabling the TopologyAwareScheduling
+	// feature gate.
+	Topology *TopologyInfoApplyConfiguration `json:"topology,omitempty"`
 }
 
 // LocalQueueFlavorStatusApplyConfiguration constructs a declarative configuration of the LocalQueueFlavorStatus type for use with

@@ -24,7 +24,9 @@ import (
 // AdmissionApplyConfiguration represents a declarative configuration of the Admission type for use
 // with apply.
 type AdmissionApplyConfiguration struct {
-	ClusterQueue      *kueuev1beta2.ClusterQueueReference  `json:"clusterQueue,omitempty"`
+	// clusterQueue is the name of the ClusterQueue that admitted this workload.
+	ClusterQueue *kueuev1beta2.ClusterQueueReference `json:"clusterQueue,omitempty"`
+	// podSetAssignments hold the admission results for each of the .spec.podSets entries.
 	PodSetAssignments []PodSetAssignmentApplyConfiguration `json:"podSetAssignments,omitempty"`
 }
 

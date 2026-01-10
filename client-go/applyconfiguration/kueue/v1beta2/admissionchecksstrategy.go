@@ -19,7 +19,10 @@ package v1beta2
 
 // AdmissionChecksStrategyApplyConfiguration represents a declarative configuration of the AdmissionChecksStrategy type for use
 // with apply.
+//
+// AdmissionChecksStrategy defines a strategy for a AdmissionCheck.
 type AdmissionChecksStrategyApplyConfiguration struct {
+	// admissionChecks is a list of strategies for AdmissionChecks
 	AdmissionChecks []AdmissionCheckStrategyRuleApplyConfiguration `json:"admissionChecks,omitempty"`
 }
 

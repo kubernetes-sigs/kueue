@@ -25,10 +25,14 @@ import (
 
 // TopologyApplyConfiguration represents a declarative configuration of the Topology type for use
 // with apply.
+//
+// Topology is the Schema for the topology API
 type TopologyApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration    `json:",inline"`
+	v1.TypeMetaApplyConfiguration `json:",inline"`
+	// metadata is the metadata of the Topology.
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Spec                             *TopologySpecApplyConfiguration `json:"spec,omitempty"`
+	// spec is the specification of the Topology.
+	Spec *TopologySpecApplyConfiguration `json:"spec,omitempty"`
 }
 
 // Topology constructs a declarative configuration of the Topology type for use with
@@ -40,6 +44,7 @@ func Topology(name string) *TopologyApplyConfiguration {
 	b.WithAPIVersion("kueue.x-k8s.io/v1beta1")
 	return b
 }
+
 func (b TopologyApplyConfiguration) IsApplyConfiguration() {}
 
 // WithKind sets the Kind field in the declarative configuration to the given value

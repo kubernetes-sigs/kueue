@@ -24,7 +24,12 @@ import (
 // KubeConfigApplyConfiguration represents a declarative configuration of the KubeConfig type for use
 // with apply.
 type KubeConfigApplyConfiguration struct {
-	Location     *string                    `json:"location,omitempty"`
+	// location of the KubeConfig.
+	//
+	// If LocationType is Secret then Location is the name of the secret inside the namespace in
+	// which the kueue controller manager is running. The config should be stored in the "kubeconfig" key.
+	Location *string `json:"location,omitempty"`
+	// locationType of the KubeConfig.
 	LocationType *kueuev1beta2.LocationType `json:"locationType,omitempty"`
 }
 

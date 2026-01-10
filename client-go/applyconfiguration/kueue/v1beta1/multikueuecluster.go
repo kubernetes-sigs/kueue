@@ -25,11 +25,16 @@ import (
 
 // MultiKueueClusterApplyConfiguration represents a declarative configuration of the MultiKueueCluster type for use
 // with apply.
+//
+// MultiKueueCluster is the Schema for the multikueue API
 type MultiKueueClusterApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration    `json:",inline"`
+	v1.TypeMetaApplyConfiguration `json:",inline"`
+	// metadata is the metadata of the MultiKueueCluster.
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Spec                             *MultiKueueClusterSpecApplyConfiguration   `json:"spec,omitempty"`
-	Status                           *MultiKueueClusterStatusApplyConfiguration `json:"status,omitempty"`
+	// spec is the specification of the MultiKueueCluster.
+	Spec *MultiKueueClusterSpecApplyConfiguration `json:"spec,omitempty"`
+	// status is the status of the MultiKueueCluster.
+	Status *MultiKueueClusterStatusApplyConfiguration `json:"status,omitempty"`
 }
 
 // MultiKueueCluster constructs a declarative configuration of the MultiKueueCluster type for use with
@@ -41,6 +46,7 @@ func MultiKueueCluster(name string) *MultiKueueClusterApplyConfiguration {
 	b.WithAPIVersion("kueue.x-k8s.io/v1beta1")
 	return b
 }
+
 func (b MultiKueueClusterApplyConfiguration) IsApplyConfiguration() {}
 
 // WithKind sets the Kind field in the declarative configuration to the given value

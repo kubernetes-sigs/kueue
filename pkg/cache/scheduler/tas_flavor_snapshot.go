@@ -1385,9 +1385,9 @@ func (s *TASFlavorSnapshot) fillInCounts(
 		if isNodeLevel {
 			// 1. Check Tolerations against Node Taints
 			nodeTaints := leaf.node.Spec.Taints
-			taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(nodeTaints, tolerations, func(t *corev1.Taint) bool {
+			taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(s.log, nodeTaints, tolerations, func(t *corev1.Taint) bool {
 				return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
-			})
+			}, true)
 			if untolerated {
 				s.log.V(3).Info("excluding node with untolerated taint", "domainID", leaf.id, "taint", taint)
 				stats.Taints[taint.ToString()]++
