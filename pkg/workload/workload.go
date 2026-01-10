@@ -1417,6 +1417,12 @@ func IsWorkloadPriorityClass(wl *kueue.Workload) bool {
 		wl.Spec.PriorityClassRef.Group == kueue.WorkloadPriorityClassGroup
 }
 
+func IsPodPriorityClass(wl *kueue.Workload) bool {
+	return wl.Spec.PriorityClassRef != nil &&
+		wl.Spec.PriorityClassRef.Kind == "PriorityClass" &&
+		(wl.Spec.PriorityClassRef.Group == "" || wl.Spec.PriorityClassRef.Group == "scheduling.k8s.io")
+}
+
 func prepareForEviction(w *kueue.Workload, now time.Time, reason, message string) {
 	SetEvictedCondition(w, now, reason, message)
 	resetClusterNomination(w)

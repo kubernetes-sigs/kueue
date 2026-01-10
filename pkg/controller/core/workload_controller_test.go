@@ -2766,7 +2766,7 @@ func TestWorkloadPriorityClassChanged(t *testing.T) {
 				Obj(),
 			wantChanged: true,
 		},
-		"priority class added (none -> some) - issue #8320": {
+		"priority class added (none -> some)": {
 			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
 			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				WorkloadPriorityClassRef("priority-1").
