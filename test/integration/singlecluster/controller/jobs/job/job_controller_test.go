@@ -1598,7 +1598,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, lowWlKey, lowWl)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, lowWl)
+			util.ExpectWorkloadsToBePreemptedByKey(ctx, k8sClient, lowWlKey)
 
 			ginkgo.By("Verifying the high-priority workload gets admitted")
 			util.ExpectWorkloadsToHaveQuotaReservationByKey(ctx, k8sClient, devClusterQ.Name, noPriorityWlKey)
