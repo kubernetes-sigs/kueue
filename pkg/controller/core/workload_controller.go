@@ -995,7 +995,6 @@ func workloadPriorityChanged(old, new *kueue.Workload) bool {
 	if workload.IsPodPriorityClass(old) || !workload.IsWorkloadPriorityClass(new) {
 		return false
 	}
-
 	// Check if priority class reference changed.
 	if workload.PriorityClassName(new) != "" &&
 		workload.PriorityClassName(old) != workload.PriorityClassName(new) {
