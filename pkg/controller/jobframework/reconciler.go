@@ -970,7 +970,7 @@ func UpdateWorkloadPriority(ctx context.Context, c client.Client, r record.Event
 	jobPriorityClassName := WorkloadPriorityClassName(obj)
 	wlPriorityClassName := workload.PriorityClassName(wl)
 
-	if jobPriorityClassName != "" && jobPriorityClassName != wlPriorityClassName {
+	if (workload.HasNoPriority(wl) || workload.IsWorkloadPriorityClass(wl)) && jobPriorityClassName != wlPriorityClassName {
 		if err := PrepareWorkloadPriority(ctx, c, obj, wl, customPriorityClassFunc); err != nil {
 			return fmt.Errorf("prepare workload priority: %w", err)
 		}
