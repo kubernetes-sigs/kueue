@@ -2795,6 +2795,54 @@ func TestWorkloadPriorityClassChanged(t *testing.T) {
 				Obj(),
 			wantChanged: false,
 		},
+		"no priority value set on either (default 0)": {
+			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			wantChanged: false,
+		},
+		"same priority value on both": {
+			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Priority(100).
+				Obj(),
+			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Priority(100).
+				Obj(),
+			wantChanged: false,
+		},
+		"priority value increased": {
+			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Priority(100).
+				Obj(),
+			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Priority(200).
+				Obj(),
+			wantChanged: false,
+		},
+		"priority value decreased": {
+			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Priority(500).
+				Obj(),
+			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Priority(600).
+				Obj(),
+			wantChanged: false,
+		},
+		"priority changed from default (0) to positive": {
+			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Priority(10).
+				Obj(),
+			wantChanged: false,
+		},
+		"priority changed from positive to negative": {
+			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Priority(10).
+				Obj(),
+			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Priority(-10).
+				Obj(),
+			wantChanged: false,
+		},
 		"priority value decreased": {
 			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Priority(500).
