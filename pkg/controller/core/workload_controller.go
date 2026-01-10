@@ -47,7 +47,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
-	"sigs.k8s.io/kueue/pkg/util/priority"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -60,6 +59,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	"sigs.k8s.io/kueue/pkg/util/priority"
 	qutil "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -996,7 +996,7 @@ func workloadPriorityChanged(old, new *kueue.Workload) bool {
 		return false
 	}
 
-	//check that old wl priority class is of type kueue.WorkloadPriorityClass.
+	// Check that old wl priority class is of type kueue.WorkloadPriorityClass.
 	if workload.IsPodPriorityClass(old) {
 		return false
 	}
