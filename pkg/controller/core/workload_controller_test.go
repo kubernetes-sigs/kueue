@@ -2795,29 +2795,6 @@ func TestWorkloadPriorityClassChanged(t *testing.T) {
 				Obj(),
 			wantChanged: false,
 		},
-		"no priority value set on either (default 0)": {
-			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
-			wantChanged: false,
-		},
-		"same priority value on both": {
-			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				Priority(100).
-				Obj(),
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				Priority(100).
-				Obj(),
-			wantChanged: false,
-		},
-		"priority value increased": {
-			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				Priority(100).
-				Obj(),
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				Priority(200).
-				Obj(),
-			wantChanged: false,
-		},
 		"priority value decreased": {
 			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Priority(500).
@@ -2827,19 +2804,25 @@ func TestWorkloadPriorityClassChanged(t *testing.T) {
 				Obj(),
 			wantChanged: false,
 		},
-		"priority changed from default (0) to positive": {
-			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				Priority(10).
-				Obj(),
-			wantChanged: false,
-		},
-		"priority changed from positive to negative": {
+		"priority value decreased with WPC": {
 			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				Priority(10).
+				WorkloadPriorityClassRef("priority-1").
+				Priority(500).
 				Obj(),
 			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				Priority(-10).
+				WorkloadPriorityClassRef("priority-1").
+				Priority(100).
+				Obj(),
+			wantChanged: true,
+		},
+		"priority value decreased with PPC": {
+			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				PodPriorityClassRef("pod-priority").
+				Priority(500).
+				Obj(),
+			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				PodPriorityClassRef("pod-priority").
+				Priority(100).
 				Obj(),
 			wantChanged: false,
 		},
@@ -2849,7 +2832,7 @@ func TestWorkloadPriorityClassChanged(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			gotChanged := workloadPriorityChanged(tc.oldWorkload, tc.newWorkload)
 			if gotChanged != tc.wantChanged {
-				t.Errorf("workloadPriorityClassChanged() = %v, want %v", gotChanged, tc.wantChanged)
+				t.Errorf("workloadPriorityChanged() = %v, want %v", gotChanged, tc.wantChanged)
 			}
 		})
 	}
