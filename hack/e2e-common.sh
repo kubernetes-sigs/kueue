@@ -21,6 +21,15 @@ export YQ="$ROOT_DIR"/bin/yq
 export HELM="$ROOT_DIR"/bin/helm
 export KUEUE_NAMESPACE="${KUEUE_NAMESPACE:-kueue-system}"
 
+# E2E_MODE controls e2e cluster lifecycle behavior:
+# - ci  (default): create cluster(s), run tests, delete cluster(s)
+# - dev           : create if missing / reuse if existing, run tests, keep cluster(s)
+export E2E_MODE="${E2E_MODE:-ci}"
+if [[ "${E2E_MODE}" != "ci" && "${E2E_MODE}" != "dev" ]]; then
+    echo "Invalid E2E_MODE='${E2E_MODE}'. Supported values: ci|dev" >&2
+    exit 2
+fi
+
 export KIND_VERSION="${E2E_KIND_VERSION/"kindest/node:v"/}"
 
 if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:appwrapper || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
@@ -94,12 +103,77 @@ export E2E_TEST_AGNHOST_IMAGE=${E2E_TEST_AGNHOST_IMAGE_WITH_SHA%%@*}
 # $1 cluster name
 # $2 kubeconfig
 function cluster_cleanup {
-    kubectl config --kubeconfig="$2" use-context "kind-$1"
-    
-    $KIND export logs "$ARTIFACTS" --name "$1" || true
-    kubectl describe pods --kubeconfig="$2" -n kueue-system > "$ARTIFACTS/$1-kueue-system-pods.log" || true
-    kubectl describe pods --kubeconfig="$2" > "$ARTIFACTS/$1-default-pods.log" || true
-    $KIND delete cluster --name "$1"
+    local name=$1
+    local kubeconfig=$2
+
+    cluster_collect_artifacts "$name" "$kubeconfig"
+
+    $KIND delete cluster --name "$name"
+    return 0
+}
+
+# $1 cluster name
+# $2 kubeconfig
+function cluster_collect_artifacts {
+    local name=$1
+    local kubeconfig=${2:-}
+
+    local kubeconfig_args=()
+    if [[ -n "${kubeconfig}" ]]; then
+        kubeconfig_args=(--kubeconfig="${kubeconfig}")
+    fi
+
+    kubectl config "${kubeconfig_args[@]}" use-context "kind-${name}" || true
+    $KIND export logs "$ARTIFACTS" --name "$name" || true
+    kubectl describe pods "${kubeconfig_args[@]}" -n kueue-system > "$ARTIFACTS/${name}-kueue-system-pods.log" || true
+    kubectl describe pods "${kubeconfig_args[@]}" > "$ARTIFACTS/${name}-default-pods.log" || true
+}
+
+# $1 cluster name
+function kind_cluster_exists {
+    $KIND get clusters 2>/dev/null | grep -Fxq "$1"
+}
+
+# $1 cluster name
+# $2 kubeconfig file path (optional)
+function kind_write_kubeconfig {
+    if [[ -n "${2:-}" ]]; then
+        mkdir -p "$(dirname "$2")"
+        $KIND get kubeconfig --name "$1" > "$2"
+    fi
+}
+
+# $1 cluster name
+# $2 cluster kind config
+# $3 kubeconfig file path (optional)
+function ensure_kind_cluster {
+    local name=$1
+    local cfg=$2
+    local kubeconfig=$3
+
+    if [[ "${E2E_MODE}" == "dev" ]]; then
+        if kind_cluster_exists "$name"; then
+            echo "Reusing kind cluster: $name (E2E_MODE=dev)"
+            kind_write_kubeconfig "$name" "$kubeconfig"
+            return 0
+        fi
+
+        echo "Creating kind cluster (E2E_MODE=dev): $name"
+        cluster_create "$name" "$cfg" "$kubeconfig"
+        return 0
+    fi
+
+    # CI mode: always start from a clean cluster.
+    if kind_cluster_exists "$name"; then
+        echo "Deleting existing kind cluster for a clean CI run: $name"
+        $KIND delete cluster --name "$name" || true
+    fi
+    cluster_create "$name" "$cfg" "$kubeconfig"
+}
+
+# $1 cluster name
+function e2e_should_delete_cluster {
+    [[ "${E2E_MODE}" != "dev" ]]
 }
 
 # Patches a kind config file with DRA-specific settings.
@@ -210,8 +284,8 @@ function cluster_kind_load {
 function kind_load {
     kubectl config --kubeconfig="$2" use-context "kind-$1"
 
-    if [ "$CREATE_KIND_CLUSTER" == 'true' ]; then
-	    cluster_kind_load "$1"
+    if kind_cluster_exists "$1"; then
+        cluster_kind_load "$1"
     fi
     if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:appwrapper || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         install_appwrapper "$1" "$2"

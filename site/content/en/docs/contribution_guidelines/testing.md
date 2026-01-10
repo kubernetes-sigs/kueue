@@ -120,7 +120,31 @@ and then you can use GUI of the Ginkgo Test Explorer to run individual tests, pr
 You can use the following approach to start up a kind cluster and then run e2e tests from commandline or VSCode,
 attaching them to the existing cluster. For example, suppose you want to test some of the multikueue-e2e tests.
 
-Run `E2E_RUN_ONLY_ENV=true make kind-image-build test-multikueue-e2e` and wait for the `Do you want to cleanup? [Y/n] ` to appear.
+### DEV mode (recommended)
+Use `E2E_MODE=dev` to create-or-reuse a kind cluster, rebuild/redeploy Kueue, run tests, and keep the cluster running for fast reruns and post-test investigation:
+
+```shell
+# Create if missing, otherwise reuse. Rebuild image, run tests, keep the cluster.
+E2E_MODE=dev make test-e2e
+
+# MultiKueue dev mode
+E2E_MODE=dev make test-multikueue-e2e
+
+# Loop a suite (until it fails) while keeping the cluster
+E2E_MODE=dev GINKGO_ARGS="--until-it-fails" make test-e2e
+```
+
+To delete the kept cluster(s) afterwards:
+
+```shell
+kind delete cluster --name kind
+kind delete cluster --name kind-manager
+kind delete cluster --name kind-worker1
+kind delete cluster --name kind-worker2
+```
+
+### Legacy: interactive attach mode
+Run `E2E_RUN_ONLY_ENV=true make kind-image-build test-multikueue-e2e` and wait for the `Do you want to cleanup? [Y/n] ` to appear (CI-style behavior).
 
 The cluster is ready, and now you can run tests from another terminal:
 ```shell
