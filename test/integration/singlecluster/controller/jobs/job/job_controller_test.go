@@ -1545,6 +1545,64 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 				}, util.ConsistentDuration, util.ConsistentDuration).Should(gomega.Succeed())
 			})
 		})
+
+		ginkgo.It("should trigger preemption when WorkloadPriorityClass is added to a pending workload that had no priority class", framework.SlowSpec, func() {
+			ginkgo.By("Creating a low-priority job that gets admitted on spot-untainted flavor")
+			jobLow := testingjob.MakeJob(jobName+"-low", ns.Name).
+				WorkloadPriorityClass(lowWorkloadPriorityClass.Name).
+				Queue(kueue.LocalQueueName(devLocalQ.Name)).
+				Request(corev1.ResourceCPU, "5").
+				NodeSelector(instanceKey, "spot-untainted").
+				Obj()
+			util.MustCreate(ctx, k8sClient, jobLow)
+
+			lowWlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(jobLow.Name, jobLow.UID), Namespace: ns.Name}
+
+			ginkgo.By("Verifying the low-priority workload is admitted")
+			util.ExpectWorkloadsToHaveQuotaReservationByKey(ctx, k8sClient, devClusterQ.Name, lowWlKey)
+
+			ginkgo.By("Creating a job WITHOUT any WorkloadPriorityClass on the SAME flavor (will be pending)")
+			jobNoPriority := testingjob.MakeJob(jobName+"-no-priority", ns.Name).
+				Queue(kueue.LocalQueueName(devLocalQ.Name)).
+				Request(corev1.ResourceCPU, "5").
+				NodeSelector(instanceKey, "spot-untainted").
+				Obj()
+			util.MustCreate(ctx, k8sClient, jobNoPriority)
+
+			noPriorityWlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(jobNoPriority.Name, jobNoPriority.UID), Namespace: ns.Name}
+
+			ginkgo.By("Verifying the no-priority workload is pending (not admitted)")
+			gomega.Eventually(func(g gomega.Gomega) {
+				wl := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, noPriorityWlKey, wl)).To(gomega.Succeed())
+				g.Expect(wl.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, "Pending"))
+				g.Expect(wl.Spec.PriorityClassRef).To(gomega.BeNil())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Adding high WorkloadPriorityClass to the pending job via label update")
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdJob := &batchv1.Job{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(jobNoPriority), createdJob)).To(gomega.Succeed())
+				if createdJob.Labels == nil {
+					createdJob.Labels = make(map[string]string)
+				}
+				createdJob.Labels[constants.WorkloadPriorityClassLabel] = highWorkloadPriorityClass.Name
+				g.Expect(k8sClient.Update(ctx, createdJob)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying the workload's priority is updated")
+			util.ExpectWorkloadsWithWorkloadPriority(ctx, k8sClient, highWorkloadPriorityClass.Name, highWorkloadPriorityClass.Value, noPriorityWlKey)
+
+			ginkgo.By("Verifying the low-priority workload gets preempted")
+			lowWl := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, lowWlKey, lowWl)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, lowWl)
+
+			ginkgo.By("Verifying the high-priority workload gets admitted")
+			util.ExpectWorkloadsToHaveQuotaReservationByKey(ctx, k8sClient, devClusterQ.Name, noPriorityWlKey)
+		})
 	})
 
 	ginkgo.When("Patch a WorkloadPriorityClass", func() {
