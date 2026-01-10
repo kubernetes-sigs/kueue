@@ -839,6 +839,12 @@ func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload, iterat
 	m.Lock()
 	defer m.Unlock()
 
+	key := workload.Key(w)
+
+	if !m.secondPassQueue.prequeued.Has(key) {
+		return
+	}
+
 	log := ctrl.LoggerFrom(ctx)
 	wInfo := workload.NewInfo(w, m.workloadInfoOptions...)
 	wInfo.SecondPassIteration = iteration
