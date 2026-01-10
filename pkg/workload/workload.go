@@ -1443,8 +1443,8 @@ func IsWorkloadPriorityClass(wl *kueue.Workload) bool {
 
 func IsPodPriorityClass(wl *kueue.Workload) bool {
 	return wl.Spec.PriorityClassRef != nil &&
-		wl.Spec.PriorityClassRef.Kind == "PriorityClass" &&
-		(wl.Spec.PriorityClassRef.Group == "" || wl.Spec.PriorityClassRef.Group == kueue.PodPriorityClassGroup)
+		wl.Spec.PriorityClassRef.Kind == kueue.PodPriorityClassKind &&
+		(wl.Spec.PriorityClassRef.Group == kueue.PodPriorityClassGroup)
 }
 
 func HasNoPriority(wl *kueue.Workload) bool {
