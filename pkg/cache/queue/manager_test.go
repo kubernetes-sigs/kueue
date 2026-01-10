@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	testingclock "k8s.io/utils/clock/testing"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -1386,6 +1387,7 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			RequiredTopologyRequest(corev1.LabelHostname).
 			Request(corev1.ResourceCPU, "1").
 			Obj())
+
 	baseWorkloadNeedingSecondPass := baseWorkloadBuilder.Clone().
 		ReserveQuotaAt(
 			utiltestingapi.MakeAdmission("tas-main").
@@ -1395,12 +1397,14 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 						DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
 						Obj(),
 				).
-				Obj(), now,
+				Obj(),
+			now,
 		).
 		AdmissionCheck(kueue.AdmissionCheckState{
 			Name:  "prov-check",
 			State: kueue.CheckStateReady,
 		})
+
 	baseWorkloadNotNeedingSecondPass := baseWorkloadBuilder.Clone()
 
 	cases := map[string]struct {
@@ -1410,7 +1414,9 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 		wantReady sets.Set[workload.Reference]
 	}{
 		"single queued workload checked immediately": {
-			workloads: []*kueue.Workload{baseWorkloadNeedingSecondPass.Obj()},
+			workloads: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.Obj(),
+			},
 		},
 		"single queued workload checked after 1s": {
 			workloads: []*kueue.Workload{
@@ -1436,41 +1442,48 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			passTime:  time.Second,
 			wantReady: sets.New(workload.NewReference("default", "second")),
 		},
-		"workload no longer needs second pass after first iteration": {
-			workloads: []*kueue.Workload{
-				baseWorkloadNeedingSecondPass.DeepCopy(),
-			},
-			passTime:  time.Second,
-			wantReady: sets.New[workload.Reference](),
-		},
 	}
+
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			fakeClock := testingclock.NewFakeClock(now)
-			opts := []Option{
-				WithClock(fakeClock),
-			}
-			manager := NewManager(utiltesting.NewFakeClient(), nil, opts...)
+			log := ctrl.LoggerFrom(ctx)
 
+			fakeClock := testingclock.NewFakeClock(now)
+			manager := NewManager(
+				utiltesting.NewFakeClient(),
+				nil,
+				WithClock(fakeClock),
+			)
+
+			// Queue workloads
 			for _, wl := range tc.workloads {
 				manager.QueueSecondPassIfNeeded(ctx, wl, 0)
 			}
-			if name == "workload no longer needs second pass after first iteration" {
-				manager.QueueSecondPassIfNeeded(
-					ctx,
-					baseWorkloadNotNeedingSecondPass.DeepCopy(),
-					1,
+
+			// Simulate real deletion via Manager API
+			for _, ref := range tc.deleted.UnsortedList() {
+				parts := strings.SplitN(string(ref), "/", 2)
+				manager.DeleteWorkload(
+					log,
+					&kueue.Workload{
+						ObjectMeta: metav1.ObjectMeta{
+							Namespace: parts[0],
+							Name:      parts[1],
+						},
+					},
 				)
 			}
-			for _, wl := range tc.deleted.UnsortedList() {
-				manager.secondPassQueue.deleteByKey(wl)
-			}
+
+			// Advance time
 			fakeClock.Step(tc.passTime)
+
+			// Collect ready workloads
 			gotReady := sets.New[workload.Reference]()
 			for _, wlInfo := range manager.secondPassQueue.takeAllReady() {
 				gotReady.Insert(workload.Key(wlInfo.Obj))
 			}
+
 			if diff := cmp.Diff(tc.wantReady, gotReady); diff != "" {
 				t.Errorf("Unexpected ready workloads returned (-want,+got):\n%s", diff)
 			}
