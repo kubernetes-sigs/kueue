@@ -2,77 +2,93 @@ kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
   - role: control-plane
-    kubeadmConfigPatches:
-      - |
+    kubeadmConfigPatchesJSON6902:
+      - group: kubeadm.k8s.io
+        version: v1beta4
         kind: ClusterConfiguration
-        apiVersion: kubeadm.k8s.io/v1beta4
-        scheduler:
-          extraArgs:
-            - name: v
-              value: "3"
-        controllerManager:
-          extraArgs:
-            - name: v
-              value: "3"
-        apiServer:
-          extraArgs:
-            - name: enable-aggregator-routing
-              value: "true"
-            - name: v
-              value: "3"
-      - |
+        patch: |
+          - op: add
+            path: /apiServer/extraArgs
+            value:
+              - name: enable-aggregator-routing
+                value: "true"
+              - name: v
+                value: "3"
+          - op: add
+            path: /scheduler/extraArgs
+            value:
+              - name: v
+                value: "3"
+          - op: add
+            path: /controllerManager/extraArgs
+            value:
+              - name: v
+                value: "3"
+      - group: kubeadm.k8s.io
+        version: v1beta4
         kind: InitConfiguration
-        apiVersion: kubeadm.k8s.io/v1beta4
-        nodeRegistration:
-          kubeletExtraArgs:
-            - name: v
-              value: "3"
+        patch: |
+          - op: add
+            path: /nodeRegistration/kubeletExtraArgs
+            value:
+              - name: v
+                value: "3"
+
   - role: worker
     labels:
       cloud.provider.com/node-group: tas-group
       cloud.provider.com/topology-block: b1
       cloud.provider.com/topology-rack: r1
+
   - role: worker
     labels:
       cloud.provider.com/node-group: tas-group
       cloud.provider.com/topology-block: b1
       cloud.provider.com/topology-rack: r1
+
   - role: worker
     labels:
       cloud.provider.com/node-group: tas-group
       cloud.provider.com/topology-block: b1
       cloud.provider.com/topology-rack: r2
+
   - role: worker
     labels:
       cloud.provider.com/node-group: tas-group
       cloud.provider.com/topology-block: b1
       cloud.provider.com/topology-rack: r2
+
   - role: worker
     labels:
       cloud.provider.com/node-group: tas-group
       cloud.provider.com/topology-block: b2
       cloud.provider.com/topology-rack: r1
+
   - role: worker
     labels:
       cloud.provider.com/node-group: tas-group
       cloud.provider.com/topology-block: b2
       cloud.provider.com/topology-rack: r1
-  - role: worker
-    labels:
-      cloud.provider.com/node-group: tas-group
-      cloud.provider.com/topology-block: b2
-      cloud.provider.com/topology-rack: r2
+
   - role: worker
     labels:
       cloud.provider.com/node-group: tas-group
       cloud.provider.com/topology-block: b2
       cloud.provider.com/topology-rack: r2
 
-kubeadmConfigPatches:
-  - |
+  - role: worker
+    labels:
+      cloud.provider.com/node-group: tas-group
+      cloud.provider.com/topology-block: b2
+      cloud.provider.com/topology-rack: r2
+
+kubeadmConfigPatchesJSON6902:
+  - group: kubeadm.k8s.io
+    version: v1beta4
     kind: JoinConfiguration
-    apiVersion: kubeadm.k8s.io/v1beta4
-    nodeRegistration:
-      kubeletExtraArgs:
-        - name: v
-          value: "3"
+    patch: |
+      - op: add
+        path: /nodeRegistration/kubeletExtraArgs
+        value:
+          - name: v
+            value: "3"
