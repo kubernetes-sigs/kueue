@@ -403,13 +403,7 @@ func ExpectWorkloadsToBeAdmittedByKeys(ctx context.Context, k8sClient client.Cli
 
 func ExpectWorkloadsToBeAdmittedCount(ctx context.Context, k8sClient client.Client, count int, wls ...*kueue.Workload) {
 	ginkgo.GinkgoHelper()
-	wlKeys := workloadKeys(wls)
-	ExpectWorkloadsToBeAdmittedCountByKeys(ctx, k8sClient, count, wlKeys...)
-}
-
-func ExpectWorkloadsToBeAdmittedCountByKeys(ctx context.Context, k8sClient client.Client, count int, wlKeys ...client.ObjectKey) {
-	ginkgo.GinkgoHelper()
-	wlKeys = uniqueKeys(wlKeys)
+	wlKeys := uniqueKeys(workloadKeys(wls))
 	gomega.Eventually(func(g gomega.Gomega) {
 		admitted, err := admittedWorkloadKeys(ctx, k8sClient, wlKeys)
 		g.Expect(err).NotTo(gomega.HaveOccurred())
