@@ -979,6 +979,46 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 				compatible: true,
 			},
 		},
+		"TwoWorkloads_OldWithReservedQuota_NewWithReplacementAnnotationAndQuota": {
+			args: args{
+				clnt: testWorkloadClientBuilder().WithObjects(
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+						ResourceVersion("1").
+						Creation(fiveMinutesAgo).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+						ReserveQuotaAt(utiltestingapi.MakeAdmission("default").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
+						Obj(),
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
+						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+						ResourceVersion("1").
+						Creation(now).
+						Annotation(WorkloadSliceReplacementFor, string(workload.NewReference(testJobObject.Namespace, testJobObject.Name+"-1"))).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+						ReserveQuotaAt(utiltestingapi.MakeAdmission("default").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").Count(3).Obj()).Obj(), now).
+						Obj()).
+					WithInterceptorFuncs(interceptor.Funcs{
+						SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+							return assertStatusConditionPatch(t, subResourceName, obj, testJobObject.Name+"-1", kueue.WorkloadFinished, kueue.WorkloadFinishedReasonOutOfSync)
+						},
+					}).
+					Build(),
+				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()},
+				jobObject:    testJobObject,
+				jobObjectGVK: testJobGVK,
+			},
+			want: want{
+				compatible: true,
+				workload: utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
+					OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+					ResourceVersion("1").
+					Creation(now).
+					Annotation(WorkloadSliceReplacementFor, string(workload.NewReference(testJobObject.Namespace, testJobObject.Name+"-1"))).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("default").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").Count(3).Obj()).Obj(), now).
+					Obj(),
+			},
+		},
 		//
 		"MoreThanTwoWorkloadSlices": {
 			args: args{

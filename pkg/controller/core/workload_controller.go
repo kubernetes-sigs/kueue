@@ -847,22 +847,14 @@ func (r *WorkloadReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) b
 	ctx := ctrl.LoggerInto(context.Background(), log)
 	wlKey := workload.Key(e.Object)
 
-	// When assigning a clusterQueue to a workload, we assume it in the cache. If
-	// the state is unknown, the workload could have been assumed, and we need
-	// to clear it from the cache.
-	if workload.IsFinished(e.Object) || workload.HasQuotaReservation(e.Object) || e.DeleteStateUnknown {
-		// trigger the move of associated inadmissibleWorkloads if required.
-		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() {
-			// Delete the workload from cache while holding the queues lock
-			// to guarantee that requeued workloads are taken into account before
-			// the next scheduling cycle.
-			if err := r.cache.DeleteWorkload(log, e.Object); err != nil {
-				if !e.DeleteStateUnknown {
-					log.Error(err, "Failed to delete workload from cache")
-				}
-			}
-		})
-	}
+	// Delete from cache unconditionally. Pending workloads may have been "assumed"
+	// by the scheduler, and leaving them blocks ClusterQueue finalizer removal.
+	// The operation is idempotent if the workload was never in the cache.
+	r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() {
+		if err := r.cache.DeleteWorkload(log, e.Object); err != nil {
+			log.Error(err, "Failed to delete workload from cache")
+		}
+	})
 
 	// Even if the state is unknown, the last cached state tells us whether the
 	// workload was in the queues and should be cleared from them.
