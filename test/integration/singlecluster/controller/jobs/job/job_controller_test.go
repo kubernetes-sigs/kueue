@@ -1572,12 +1572,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			noPriorityWlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(jobNoPriority.Name, jobNoPriority.UID), Namespace: ns.Name}
 
 			ginkgo.By("Verifying the no-priority workload is pending (not admitted)")
-			gomega.Eventually(func(g gomega.Gomega) {
-				wl := &kueue.Workload{}
-				g.Expect(k8sClient.Get(ctx, noPriorityWlKey, wl)).To(gomega.Succeed())
-				g.Expect(wl.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, "Pending"))
-				g.Expect(wl.Spec.PriorityClassRef).To(gomega.BeNil())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectWorkloadsToBePendingByKeys(ctx, k8sClient, noPriorityWlKey)
 
 			ginkgo.By("Adding high WorkloadPriorityClass to the pending job via label update")
 			gomega.Eventually(func(g gomega.Gomega) {
