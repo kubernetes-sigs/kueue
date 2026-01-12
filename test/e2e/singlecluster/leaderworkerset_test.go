@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/discovery"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
@@ -802,6 +803,17 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 		})
 
 		ginkgo.It("should allow to update the workload priority in LeaderWorkerSet", func() {
+			ginkgo.By("check if the functionality can be tested", func() {
+				discoveryClient := discovery.NewDiscoveryClientForConfigOrDie(cfg)
+				version, err := discoveryClient.ServerVersion()
+				if err != nil {
+					ginkgo.Fail("Failed to get server version")
+				}
+				if version.Major == "1" && version.Minor >= "35" {
+					ginkgo.Skip("Skipping test: the tested functionality is broken on 1.35+ on 0.14")
+				}
+			})
+
 			lowPriorityLWS := leaderworkersettesting.MakeLeaderWorkerSet("low-priority", ns.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Size(3).
