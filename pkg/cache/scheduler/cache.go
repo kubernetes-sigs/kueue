@@ -46,10 +46,10 @@ import (
 )
 
 var (
-	ErrCohortNotFound           = errors.New("cohort not found")
-	ErrCohortHasCycle           = errors.New("cohort has a cycle")
-	ErrCqNotFound               = errors.New("cluster queue not found")
-	errQNotFound                = errors.New("queue not found")
+	ErrCohortNotFound = errors.New("cohort not found")
+	ErrCohortHasCycle = errors.New("cohort has a cycle")
+	ErrCqNotFound     = errors.New("cluster queue not found")
+	errQNotFound      = errors.New("queue not found")
 )
 
 const (
