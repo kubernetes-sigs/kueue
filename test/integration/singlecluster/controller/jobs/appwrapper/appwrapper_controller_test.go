@@ -109,15 +109,9 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 			util.MustCreate(ctx, k8sClient, onDemandFlavor)
 			spotFlavor = utiltestingapi.MakeResourceFlavor("spot").NodeLabel(instanceKey, "spot").Obj()
 			util.MustCreate(ctx, k8sClient, spotFlavor)
-
-			priorityClass := testing.MakePriorityClass(priorityClassName).
-				PriorityValue(priorityValue).Obj()
-			util.MustCreate(ctx, k8sClient, priorityClass)
 		})
 
 		ginkgo.AfterEach(func() {
-			priorityClass := &schedulingv1.PriorityClass{ObjectMeta: metav1.ObjectMeta{Name: priorityClassName}}
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, priorityClass, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, spotFlavor, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
