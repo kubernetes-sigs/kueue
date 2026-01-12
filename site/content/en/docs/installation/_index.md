@@ -281,7 +281,7 @@ spec:
 ### Feature gates for alpha and beta features
 
 | Feature                                       | Default | Stage | Since | Until |
-| --------------------------------------------- | ------- | ----- | ----- | ----- |
+| --------------------------------------------- |---------|-------|-------| ----- |
 | `FlavorFungibility`                           | `true`  | Beta  | 0.5   |       |
 | `MultiKueue`                                  | `false` | Alpha | 0.6   | 0.8   |
 | `MultiKueue`                                  | `true`  | Beta  | 0.9   |       |
@@ -322,6 +322,7 @@ spec:
 | `MultiKueueAdaptersForCustomJobs`             | `true`  | Beta  | 0.15  |       |
 | `PropagateBatchJobLabelsToWorkload`           | `true`  | Beta  | 0.15  |       |
 | `FailureRecoveryPolicy`                       | `false` | Alpha | 0.15  |       |
+| `SkipFinalizersForServingWorkloads`           | `true`  | Beta  | 0.16  |       |
 
 {{% alert title="Note" color="primary" %}}
 The SanitizePodSets and MultiKueueAllowInsecureKubeconfigs features are available starting from versions 0.13.8 and 0.14.3.

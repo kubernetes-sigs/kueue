@@ -71,6 +71,8 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile LeaderWorkerSet Pod")
 
+	// TODO (#8530): As discussed in https://github.com/kubernetes-sigs/kueue/pull/8530#discussion_r2681240298,
+	// this check should be removed in v0.18.
 	if utilpod.IsTerminated(pod) {
 		err = client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
 			removed := controllerutil.RemoveFinalizer(pod, podconstants.PodFinalizer)
