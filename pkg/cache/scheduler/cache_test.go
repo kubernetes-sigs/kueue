@@ -1513,45 +1513,6 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				},
 			},
 		},
-		{
-			name: "forget",
-			operation: func(log logr.Logger, cache *Cache) error {
-				workloads := []*kueue.Workload{
-					utiltestingapi.MakeWorkload("d", "").PodSets(podSets...).ReserveQuotaAt(&kueue.Admission{
-						ClusterQueue:      "one",
-						PodSetAssignments: psAssignments,
-					}, now).Obj(),
-					utiltestingapi.MakeWorkload("e", "").PodSets(podSets...).ReserveQuotaAt(&kueue.Admission{
-						ClusterQueue:      "two",
-						PodSetAssignments: psAssignments,
-					}, now).Obj(),
-				}
-				for i := range workloads {
-					if added := cache.AddOrUpdateWorkload(log, workloads[i]); !added {
-						return fmt.Errorf("workload %s/%s could not be added to the cache", workloads[i].Namespace, workloads[i].Name)
-					}
-				}
-
-				w := workloads[0]
-				return cache.ForgetWorkload(log, w)
-			},
-			wantResults: map[kueue.ClusterQueueReference]result{
-				"one": {
-					Workloads: sets.New[workload.Reference]("/a", "/b"),
-					UsedResources: resources.FlavorResourceQuantities{
-						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
-						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
-					},
-				},
-				"two": {
-					Workloads: sets.New[workload.Reference]("/c", "/e"),
-					UsedResources: resources.FlavorResourceQuantities{
-						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
-						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
-					},
-				},
-			},
-		},
 	}
 	for _, step := range steps {
 		t.Run(step.name, func(t *testing.T) {
@@ -2535,48 +2496,6 @@ func TestCacheQueueOperations(t *testing.T) {
 				},
 			},
 		},
-		"add workload and forget": {
-			ops: []func(context.Context, client.Client, *Cache) error{
-				insertAllClusterQueues,
-				insertAllQueues,
-				func(ctx context.Context, cl client.Client, cache *Cache) error {
-					log := ctrl.LoggerFrom(ctx)
-					wl := workloads[0].DeepCopy()
-					if err := cl.Create(ctx, wl); err != nil {
-						return err
-					}
-					if added := cache.AddOrUpdateWorkload(log, wl); !added {
-						return fmt.Errorf("workload %s/%s could not be added to the cache", wl.Namespace, wl.Name)
-					}
-					return cache.ForgetWorkload(log, wl)
-				},
-			},
-			wantLocalQueues: map[queue.LocalQueueReference]*LocalQueue{
-				"ns1/alpha": {
-					key:                "ns1/alpha",
-					reservingWorkloads: 0,
-					admittedWorkloads:  0,
-					totalReserved: resources.FlavorResourceQuantities{
-						{Flavor: "spot", Resource: corev1.ResourceCPU}:    resources.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
-						{Flavor: "spot", Resource: corev1.ResourceMemory}: resources.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
-					},
-					admittedUsage: resources.FlavorResourceQuantities{
-						{Flavor: "spot", Resource: corev1.ResourceCPU}:    resources.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
-						{Flavor: "spot", Resource: corev1.ResourceMemory}: resources.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
-					},
-				},
-				"ns2/beta": {
-					key:                "ns2/beta",
-					reservingWorkloads: 0,
-					admittedWorkloads:  0,
-				},
-				"ns1/gamma": {
-					key:                "ns1/gamma",
-					reservingWorkloads: 0,
-					admittedWorkloads:  0,
-				},
-			},
-		},
 		"delete workload": {
 			ops: []func(ctx context.Context, cl client.Client, cache *Cache) error{
 				insertAllClusterQueues,
@@ -2993,26 +2912,6 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 			operation: func(log logr.Logger, cache *Cache) error {
 				wl := cache.hm.ClusterQueue("one").Workloads["/a"].Obj
 				return cache.DeleteWorkload(log, wl)
-			},
-			wantReady: true,
-		},
-		{
-			name: "forget workload with PodsReady=False",
-			setup: func(log logr.Logger, cache *Cache) error {
-				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuotaAt(&kueue.Admission{
-					ClusterQueue: "one",
-				}, now).Condition(metav1.Condition{
-					Type:   kueue.WorkloadPodsReady,
-					Status: metav1.ConditionFalse,
-				}).Obj()
-				if added := cache.AddOrUpdateWorkload(log, wl); !added {
-					return fmt.Errorf("workload %s/%s could not be added to the cache", wl.Namespace, wl.Name)
-				}
-				return nil
-			},
-			operation: func(log logr.Logger, cache *Cache) error {
-				wl := cache.hm.ClusterQueue("one").Workloads["/a"].Obj
-				return cache.ForgetWorkload(log, wl)
 			},
 			wantReady: true,
 		},

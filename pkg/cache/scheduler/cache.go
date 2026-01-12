@@ -50,7 +50,6 @@ var (
 	ErrCohortHasCycle           = errors.New("cohort has a cycle")
 	ErrCqNotFound               = errors.New("cluster queue not found")
 	errQNotFound                = errors.New("queue not found")
-	errWorkloadNotQuotaReserved = errors.New("workload does not have quota reservation by a ClusterQueue")
 )
 
 const (
@@ -641,25 +640,6 @@ func (c *Cache) IsAdded(w workload.Info) bool {
 		}
 	}
 	return false
-}
-
-func (c *Cache) ForgetWorkload(log logr.Logger, w *kueue.Workload) error {
-	c.Lock()
-	defer c.Unlock()
-
-	if !workload.HasQuotaReservation(w) {
-		return errWorkloadNotQuotaReserved
-	}
-
-	cq := c.hm.ClusterQueue(w.Status.Admission.ClusterQueue)
-	if cq == nil {
-		return ErrCqNotFound
-	}
-	cq.forgetWorkload(log, w)
-	if c.podsReadyTracking {
-		c.podsReadyCond.Broadcast()
-	}
-	return nil
 }
 
 type ClusterQueueUsageStats struct {
