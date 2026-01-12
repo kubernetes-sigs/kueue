@@ -622,7 +622,7 @@ func (c *Cache) addOrUpdateWorkloadToQueue(log logr.Logger, w *kueue.Workload, c
 			assignedCQ.deleteWorkload(log, wlKey)
 		}
 	}
-	
+
 	c.workloadAssignedQueues[wlKey] = cq.Name
 	cq.addOrUpdateWorkload(log, w)
 }
@@ -642,7 +642,7 @@ func (c *Cache) DeleteWorkload(log logr.Logger, w *kueue.Workload) error {
 		return ErrCqNotFound
 	}
 
-	cq.deleteWorkload(log, wlKey)
+	cq.forgetWorkload(log, wlKey)
 	delete(c.workloadAssignedQueues, wlKey)
 
 	if c.podsReadyTracking {

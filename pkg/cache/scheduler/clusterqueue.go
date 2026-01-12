@@ -443,7 +443,8 @@ func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, w *kueue.Workload) {
 	c.reportActiveWorkloads()
 }
 
-func (c *clusterQueue) forgetWorkloadTASData(log logr.Logger, wlKey workload.Reference) {
+func (c *clusterQueue) forgetWorkload(log logr.Logger, wlKey workload.Reference) {
+	c.deleteWorkload(log, wlKey)
 	delete(c.workloadsNotAccountedForTAS, wlKey)
 }
 
