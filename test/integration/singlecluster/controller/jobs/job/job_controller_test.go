@@ -1559,7 +1559,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			lowWlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(jobLow.Name, jobLow.UID), Namespace: ns.Name}
 
 			ginkgo.By("Verifying the low-priority workload is admitted")
-			util.ExpectWorkloadsToHaveQuotaReservationByKey(ctx, k8sClient, devClusterQ.Name, lowWlKey)
+			util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, lowWlKey)
 
 			ginkgo.By("Creating a job WITHOUT any WorkloadPriorityClass on the SAME flavor (will be pending)")
 			jobNoPriority := testingjob.MakeJob(jobName+"-no-priority", ns.Name).
