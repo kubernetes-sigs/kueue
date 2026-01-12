@@ -19,6 +19,7 @@ package scheduler
 import (
 	"errors"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -748,7 +749,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 	ginkgo.When("Scheduler patch request fails", func() {
 		var (
-			numCalls int
+			numCalls atomic.Int32
 			cq       *kueue.ClusterQueue
 			queue    *kueue.LocalQueue
 		)
@@ -762,14 +763,13 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			queue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 			util.MustCreate(ctx, k8sClient, queue)
 
-			numCalls = 0
 			fakeSubResourcePatchSpec = func(obj client.Object) (fakeClientUsage, error) {
 				wl, ok := obj.(*kueue.Workload)
 				if !ok {
 					return fallThrough, nil
 				}
 				if meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadQuotaReserved) {
-					numCalls++
+					numCalls.Add(1)
 					return emitResponse, errors.New("simulated admission patch failure")
 				}
 				return fallThrough, nil
@@ -793,7 +793,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ginkgo.By("Verify that the metrics are not reserved assuming the scheduler tried to admit the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					// it means the scheduler tried to admit the workload at least once
-					g.Expect(numCalls).Should(gomega.BeNumerically(">", 0))
+					g.Expect(numCalls.Load()).Should(gomega.BeNumerically(">", 0))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				util.ExpectPendingWorkloadsMetric(cq, 1, 0)
