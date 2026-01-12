@@ -222,7 +222,9 @@ func (c *clusterQueue) updateQueueStatus(log logr.Logger) {
 		c.isTASViolated() ||
 		// one multikueue admission check is allowed
 		len(c.multiKueueAdmissionChecks) > 1 ||
-		len(c.perFlavorMultiKueueAdmissionChecks) > 0 {
+		len(c.perFlavorMultiKueueAdmissionChecks) > 0 ||
+		// provisioning requests should not be used on manager cluster with multikueue
+		(len(c.multiKueueAdmissionChecks) > 0 && len(c.provisioningAdmissionChecks) > 0) {
 		status = pending
 	}
 	if c.Status == terminating {
@@ -276,6 +278,12 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 		if len(c.perFlavorMultiKueueAdmissionChecks) > 0 {
 			reasons = append(reasons, kueue.ClusterQueueActiveReasonMultiKueueAdmissionCheckAppliedPerFlavor)
 			messages = append(messages, fmt.Sprintf("Cannot specify MultiKueue AdmissionCheck per flavor, found: %s", stringsutils.Join(c.perFlavorMultiKueueAdmissionChecks, ",")))
+		}
+
+		if len(c.multiKueueAdmissionChecks) > 0 && len(c.provisioningAdmissionChecks) > 0 {
+			reasons = append(reasons, kueue.ClusterQueueActiveReasonMultiKueueWithProvisioningRequest)
+			messages = append(messages, fmt.Sprintf("Cannot use both MultiKueue and ProvisioningRequest AdmissionChecks together, found: %s, %s",
+				stringsutils.Join(c.multiKueueAdmissionChecks, ","), stringsutils.Join(c.provisioningAdmissionChecks, ",")))
 		}
 
 		if features.Enabled(features.TopologyAwareScheduling) && len(c.tasFlavors) > 0 {
