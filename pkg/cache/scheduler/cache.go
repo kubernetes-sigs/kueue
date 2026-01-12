@@ -600,15 +600,15 @@ func (c *Cache) UpdateWorkload(log logr.Logger, wl *kueue.Workload) error {
 		return nil
 	}
 
-	clusterQueue := c.hm.ClusterQueue(wl.Status.Admission.ClusterQueue)
-	if clusterQueue == nil {
+	cq := c.hm.ClusterQueue(wl.Status.Admission.ClusterQueue)
+	if cq == nil {
 		return ErrCqNotFound
 	}
 
 	if c.podsReadyTracking {
 		c.podsReadyCond.Broadcast()
 	}
-	c.addOrUpdateWorkloadToQueue(log, wl, clusterQueue)
+	c.addOrUpdateWorkloadToQueue(log, wl, cq)
 
 	return nil
 }
