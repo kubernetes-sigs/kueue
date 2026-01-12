@@ -21,7 +21,7 @@ tool (
 )
 
 require (
-	github.com/gohugoio/hugo v0.154.2
+	github.com/gohugoio/hugo v0.154.5
 	github.com/golangci/golangci-lint/v2 v2.7.2
 	github.com/google/go-cmp v0.7.0
 	github.com/helm-unittest/helm-unittest v1.0.3
@@ -252,7 +252,7 @@ require (
 	github.com/gobuffalo/flect v1.0.3 // indirect
 	github.com/gobwas/glob v0.2.3 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
-	github.com/goccy/go-yaml v1.19.1 // indirect
+	github.com/goccy/go-yaml v1.19.2 // indirect
 	github.com/godoc-lint/godoc-lint v0.10.2 // indirect
 	github.com/gofrs/flock v0.13.0 // indirect
 	github.com/gohugoio/go-i18n/v2 v2.1.3-0.20251018145728-cfcc22d823c6 // indirect
@@ -455,7 +455,7 @@ require (
 	github.com/yargevad/filepathx v1.0.0 // indirect
 	github.com/yeya24/promlinter v0.3.0 // indirect
 	github.com/ykadowak/zerologlint v0.1.5 // indirect
-	github.com/yuin/goldmark v1.7.13 // indirect
+	github.com/yuin/goldmark v1.7.16 // indirect
 	github.com/yuin/goldmark-emoji v1.0.6 // indirect
 	github.com/yuin/goldmark-highlighting v0.0.0-20210516132338-9216f9c5aa01 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
