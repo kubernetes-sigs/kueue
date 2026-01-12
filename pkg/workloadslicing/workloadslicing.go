@@ -215,10 +215,22 @@ func EnsureWorkloadSlices(ctx context.Context, clnt client.Client, clk clock.Clo
 		// and the old slice is pending deactivation. The system should resolve this
 		// by deactivating the old slice, after which processing will continue under "case #1".
 		oldWorkload := workloads[0]
+		newWorkload := workloads[1]
 
-		// Finish the old workload slice if it lost its quota reservation or if it was
-		// explicitly evicted.
-		if evictedCondition := apimeta.FindStatusCondition(oldWorkload.Status.Conditions, kueue.WorkloadEvicted); !workload.HasQuotaReservation(&oldWorkload) || evictedCondition != nil {
+		// Finish the old workload slice if:
+		// a. It lost its quota reservation, or
+		// b. It was explicitly evicted, or
+		// c. The new workload has been admitted (has quota reservation) AND has a replacement
+		//    annotation pointing to the old workload. This handles the case where the scheduler
+		//    admitted the new slice but failed to finish the old slice.
+		replacementKey := ReplacementForKey(&newWorkload)
+		oldWorkloadKey := workload.Key(&oldWorkload)
+		newWorkloadAdmittedAsReplacement := workload.HasQuotaReservation(&newWorkload) &&
+			replacementKey != nil && *replacementKey == oldWorkloadKey
+		shouldFinishOldSlice := !workload.HasQuotaReservation(&oldWorkload) ||
+			workload.IsEvicted(&oldWorkload) ||
+			newWorkloadAdmittedAsReplacement
+		if shouldFinishOldSlice {
 			// Finish the old workload slice as out of sync.
 			if err := Finish(ctx, clnt, clk, &oldWorkload, kueue.WorkloadFinishedReasonOutOfSync, "The workload slice is out of sync with its parent job"); err != nil {
 				return nil, true, err
@@ -226,7 +238,6 @@ func EnsureWorkloadSlices(ctx context.Context, clnt client.Client, clk clock.Clo
 		}
 
 		// We consider the new workload slice only when evaluating against the incoming job (pod sets).
-		newWorkload := workloads[1]
 		newCounts := workload.ExtractPodSetCountsFromWorkload(&newWorkload)
 
 		// Check if new workload and job's pod sets are compatible (have the same keys and keys count)
@@ -234,12 +245,15 @@ func EnsureWorkloadSlices(ctx context.Context, clnt client.Client, clk clock.Clo
 			return nil, false, nil
 		}
 
-		// Return an error if the new workload has a reserved quota.
+		// Return an error if the new workload has a reserved quota and we didn't just finish
+		// the old workload due to the replacement annotation.
 		//
 		// A combination of a new workload with a reserved quota and an active old workload is considered an anomaly.
 		// This condition may indicate a race condition or external interference. Specifically, a new workload slice
 		// should never gain a quota reservation without the prior finalization of the old slice.
-		if workload.HasQuotaReservation(&newWorkload) {
+		// However, if the new workload was admitted as a replacement (and we just finished the old slice above),
+		// this is the expected cleanup path and not an error.
+		if workload.HasQuotaReservation(&newWorkload) && !newWorkloadAdmittedAsReplacement {
 			return nil, true, errors.New("unexpected combination of old and new workload slices with reserved quota")
 		}
 
