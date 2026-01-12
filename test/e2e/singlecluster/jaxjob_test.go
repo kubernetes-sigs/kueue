@@ -32,7 +32,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("JAX integration", func() {
+var _ = ginkgo.Describe("JAX integration", ginkgo.Label("area:singlecluster", "feature:jaxjob"), func() {
 	var (
 		ns                 *corev1.Namespace
 		rf                 *kueue.ResourceFlavor
