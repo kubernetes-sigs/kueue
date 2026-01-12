@@ -2867,7 +2867,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 					Type:   kueue.WorkloadPodsReady,
 					Status: metav1.ConditionFalse,
 				})
-				return cache.UpdateWorkload(log, wl, newWl)
+				return cache.UpdateWorkload(log, newWl)
 			},
 			wantReady: false,
 		},
