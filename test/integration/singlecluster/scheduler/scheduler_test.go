@@ -17,7 +17,9 @@ limitations under the License.
 package scheduler
 
 import (
+	"errors"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -741,6 +743,63 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				createWl := &kueue.Workload{}
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), createWl)).To(gomega.Succeed())
 				gomega.Expect(*createWl.Status.Admission.PodSetAssignments[0].Count).To(gomega.Equal(int32(1)))
+			})
+		})
+	})
+
+	ginkgo.When("Scheduler patch request fails", func() {
+		var (
+			numCalls atomic.Int32
+			cq       *kueue.ClusterQueue
+			queue    *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			cq = utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
+				).Obj()
+			util.MustCreate(ctx, k8sClient, cq)
+			queue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			util.MustCreate(ctx, k8sClient, queue)
+
+			fakeSubResourcePatchSpec = func(obj client.Object) (fakeClientUsage, error) {
+				wl, ok := obj.(*kueue.Workload)
+				if !ok {
+					return fallThrough, nil
+				}
+				if meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadQuotaReserved) {
+					numCalls.Add(1)
+					return emitResponse, errors.New("simulated admission patch failure")
+				}
+				return fallThrough, nil
+			}
+		})
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			fakeSubResourcePatchSpec = nil
+		})
+
+		ginkgo.It("Should not reserve quota", func() {
+			wl := utiltestingapi.MakeWorkload("wl-to-fail", ns.Name).
+				Queue(kueue.LocalQueueName(queue.Name)).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			ginkgo.By("Creating the workload", func() {
+				util.MustCreate(ctx, k8sClient, wl)
+			})
+
+			ginkgo.By("Verify that the metrics are not reserved assuming the scheduler tried to admit the workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					// it means the scheduler tried to admit the workload at least once
+					g.Expect(numCalls.Load()).Should(gomega.BeNumerically(">", 0))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				util.ExpectPendingWorkloadsMetric(cq, 1, 0)
+				util.ExpectReservingActiveWorkloadsMetric(cq, 0)
+				util.ExpectQuotaReservedWorkloadsTotalMetric(cq, "", 0)
+				util.ExpectAdmittedWorkloadsTotalMetric(cq, "", 0)
 			})
 		})
 	})
