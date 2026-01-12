@@ -74,11 +74,11 @@ func (ti *TextInserter) insertBelowKey(yamlData []byte, opts InsertOptions) ([]b
 		buffer.WriteString(line + "\n")
 
 		if slices.Contains(keyLines, i+offset) {
-			index := strings.Index(line, trimmedLine)
-			if index == -1 {
+			before, _, ok := strings.Cut(line, trimmedLine)
+			if !ok {
 				return nil, fmt.Errorf("unable to calculate indentation for %q in line %q (line number: %d)", trimmedLine, line, i)
 			}
-			baseIndent := line[:index]
+			baseIndent := before
 			indentedContent := ti.indentContent(opts.Value, baseIndent+strings.Repeat(" ", opts.Indentation))
 			buffer.WriteString(indentedContent)
 			offset += len(strings.Split(indentedContent, "\n"))
