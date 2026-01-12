@@ -490,6 +490,13 @@ func ExpectWorkloadsToBePreempted(ctx context.Context, k8sClient client.Client, 
 	ginkgo.GinkgoHelper()
 	wlKeys := uniqueKeys(workloadKeys(wls))
 	wl := &kueue.Workload{}
+	ExpectWorkloadsToBePreemptedByKey(ctx, k8sClient, wlKeys...)
+}
+
+func ExpectWorkloadsToBePreemptedByKey(ctx context.Context, k8sClient client.Client, wlKeys ...client.ObjectKey) {
+	ginkgo.GinkgoHelper()
+	wlKeys = uniqueKeys(wlKeys)
+	wl := &kueue.Workload{}
 	gomega.Eventually(func(g gomega.Gomega) {
 		preempted := make([]client.ObjectKey, 0, len(wlKeys))
 		for _, wlKey := range wlKeys {
