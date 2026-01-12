@@ -23,18 +23,18 @@ export KUEUE_NAMESPACE="${KUEUE_NAMESPACE:-kueue-system}"
 
 export KIND_VERSION="${E2E_KIND_VERSION/"kindest/node:v"/}"
 
-if [[ -n ${APPWRAPPER_VERSION:-} ]]; then
+if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:appwrapper || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export APPWRAPPER_MANIFEST=${ROOT_DIR}/dep-crds/appwrapper/config/default
-    APPWRAPPER_IMAGE=quay.io/ibm/appwrapper:${APPWRAPPER_VERSION}
+    export APPWRAPPER_IMAGE=quay.io/ibm/appwrapper:${APPWRAPPER_VERSION}
 fi
 
-if [[ -n ${JOBSET_VERSION:-} ]]; then
+if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export JOBSET_MANIFEST="https://github.com/kubernetes-sigs/jobset/releases/download/${JOBSET_VERSION}/manifests.yaml"
     export JOBSET_IMAGE=registry.k8s.io/jobset/jobset:${JOBSET_VERSION}
     export JOBSET_CRDS=${ROOT_DIR}/dep-crds/jobset-operator/
 fi
 
-if [[ -n ${KUBEFLOW_VERSION:-} ]]; then
+if [[ -n ${KUBEFLOW_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jaxjob|pytorchjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export KUBEFLOW_MANIFEST_ORIG=${ROOT_DIR}/dep-crds/training-operator/manifests/overlays/standalone/kustomization.yaml
     export KUBEFLOW_MANIFEST_PATCHED=${ROOT_DIR}/test/e2e/config/multikueue
     # Extract the Kubeflow Training Operator image version tag (newTag) from the manifest.
@@ -44,7 +44,7 @@ if [[ -n ${KUBEFLOW_VERSION:-} ]]; then
     export KUBEFLOW_IMAGE=kubeflow/training-operator:${KUBEFLOW_IMAGE_VERSION}
 fi
 
-if [[ -n ${KUBEFLOW_TRAINER_VERSION:-} ]]; then
+if [[ -n ${KUBEFLOW_TRAINER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(tas|trainjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export KUBEFLOW_TRAINER_MANIFEST=${ROOT_DIR}/dep-crds/kf-trainer/manifests
     # Extract the Kubeflow Trainer controller manager image version tag (newTag) from the manifest.
     # This is necessary because the image version tag does not follow the usual package versioning convention.
@@ -58,12 +58,12 @@ if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
     export KUBEFLOW_MPI_IMAGE=mpioperator/mpi-operator:${KUBEFLOW_MPI_VERSION/#v}
 fi
 
-if [[ -n ${KUBERAY_VERSION:-} ]]; then
+if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export KUBERAY_MANIFEST="${ROOT_DIR}/dep-crds/ray-operator/default/"
     export KUBERAY_IMAGE=quay.io/kuberay/operator:${KUBERAY_VERSION}
 fi
 
-if [[ -n ${LEADERWORKERSET_VERSION:-} ]]; then
+if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:leaderworkerset || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export LEADERWORKERSET_MANIFEST="https://github.com/kubernetes-sigs/lws/releases/download/${LEADERWORKERSET_VERSION}/manifests.yaml"
     export LEADERWORKERSET_IMAGE=registry.k8s.io/lws/lws:${LEADERWORKERSET_VERSION}
 fi
@@ -162,31 +162,30 @@ function prepare_docker_images {
     docker tag "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE_OLD"
     docker tag "$E2E_TEST_AGNHOST_IMAGE_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE"
 
-    if [[ -n ${APPWRAPPER_VERSION:-} ]]; then
+    if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:appwrapper || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         docker pull "${APPWRAPPER_IMAGE}"
     fi
-    if [[ -n ${JOBSET_VERSION:-} ]]; then
+    if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         docker pull "${JOBSET_IMAGE}"
     fi
-    if [[ -n ${KUBEFLOW_VERSION:-} ]]; then
+    if [[ -n ${KUBEFLOW_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jaxjob|pytorchjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         docker pull "${KUBEFLOW_IMAGE}"
     fi
-    
-    if [[ -n ${KUBEFLOW_TRAINER_VERSION:-} ]]; then
+    if [[ -n ${KUBEFLOW_TRAINER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(tas|trainjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         docker pull "${KF_TRAINER_IMAGE}"
     fi
 
     if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
         docker pull "${KUBEFLOW_MPI_IMAGE}"
     fi
-    if [[ -n ${KUBERAY_VERSION:-} ]]; then
+    if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         docker pull "${KUBERAY_IMAGE}"
         determine_kuberay_ray_image
         if [[ ${USE_RAY_FOR_TESTS:-} == "ray" ]]; then
             docker pull "${KUBERAY_RAY_IMAGE}"
         fi
     fi
-    if [[ -n ${LEADERWORKERSET_VERSION:-} ]]; then
+    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:leaderworkerset || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         docker pull "${LEADERWORKERSET_IMAGE}"
     fi
     if [[ -n ${KUEUE_UPGRADE_FROM_VERSION:-} ]]; then
@@ -214,30 +213,30 @@ function kind_load {
     if [ "$CREATE_KIND_CLUSTER" == 'true' ]; then
 	    cluster_kind_load "$1"
     fi
-    if [[ -n ${APPWRAPPER_VERSION:-} ]]; then
+    if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:appwrapper || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         install_appwrapper "$1" "$2"
     fi
-    if [[ -n ${JOBSET_VERSION:-} ]]; then
+    if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         install_jobset "$1" "$2"
     fi
-    if [[ -n ${KUBEFLOW_VERSION:-} ]]; then
+    if [[ -n ${KUBEFLOW_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jaxjob|pytorchjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         # In order for MPI-operator and Training-operator to work on the same cluster it is required that:
         # 1. 'kubeflow.org_mpijobs.yaml' is removed from base/crds/kustomization.yaml - https://github.com/kubeflow/training-operator/issues/1930
         # 2. Training-operator deployment is modified to enable all kubeflow jobs except for mpi -  https://github.com/kubeflow/training-operator/issues/1777
         install_kubeflow "$1" "$2"
     fi
 
-    if [[ -n ${KUBEFLOW_TRAINER_VERSION:-} ]]; then
+    if [[ -n ${KUBEFLOW_TRAINER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(tas|trainjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         install_kubeflow_trainer "$1" "$2"
     fi
 
     if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
         install_mpi "$1" "$2"
     fi
-    if [[ -n ${LEADERWORKERSET_VERSION:-} ]]; then
+    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:leaderworkerset || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         install_lws "$1" "$2"
     fi
-    if [[ -n ${KUBERAY_VERSION:-} ]]; then
+    if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         install_kuberay "$1" "$2"
     fi
     if [[ -n ${CERTMANAGER_VERSION:-} ]]; then

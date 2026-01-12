@@ -41,7 +41,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Pod groups", func() {
+var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "feature:pod"), func() {
 	var (
 		ns             *corev1.Namespace
 		onDemandRF     *kueue.ResourceFlavor

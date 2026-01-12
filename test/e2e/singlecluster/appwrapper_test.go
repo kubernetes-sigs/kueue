@@ -35,7 +35,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("AppWrapper", func() {
+var _ = ginkgo.Describe("AppWrapper", ginkgo.Label("area:singlecluster", "feature:appwrapper"), func() {
 	var (
 		ns                 *corev1.Namespace
 		rf                 *kueue.ResourceFlavor

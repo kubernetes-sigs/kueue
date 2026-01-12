@@ -119,6 +119,13 @@ test-multikueue-integration: compile-crd-manifests gomod-download envtest ginkgo
 
 CREATE_KIND_CLUSTER ?= true
 
+## Label Taxonomy:
+##   Features: appwrapper,certs,deployment,job,fairsharing,jaxjob,jobset,kuberay,kueuectl,leaderworkerset,metrics,pod,pytorchjob,statefulset,tas,trainjob,visibility,e2e_v1beta1
+##
+## Examples:
+##   Run only AppWrapper tests: GINKGO_ARGS="--label-filter=feature:appwrapper" make test-e2e
+##   Run only certs tests: GINKGO_ARGS="--label-filter=feature:certs" make test-e2e
+##   Run only jobset and trainjob tests: GINKGO_ARGS="--label-filter=feature:jobset,feature:trainjob" make test-e2e
 test-e2e: E2E_NPROCS := 2
 .PHONY: test-e2e
 test-e2e: setup-e2e-env kueuectl kind-ray-project-mini-image-build run-test-e2e-singlecluster-$(E2E_KIND_VERSION:kindest/node:v%=%)

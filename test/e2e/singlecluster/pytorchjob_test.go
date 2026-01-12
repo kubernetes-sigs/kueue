@@ -32,7 +32,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("PyTorch integration", func() {
+var _ = ginkgo.Describe("PyTorch integration", ginkgo.Label("area:singlecluster", "feature:pytorchjob"), func() {
 	var (
 		ns                 *corev1.Namespace
 		rf                 *kueue.ResourceFlavor
