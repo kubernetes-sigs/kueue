@@ -616,11 +616,13 @@ func (c *Cache) UpdateWorkload(log logr.Logger, wl *kueue.Workload) error {
 func (c *Cache) addOrUpdateWorkloadToQueue(log logr.Logger, w *kueue.Workload, cq *clusterQueue) {
 	wlKey := workload.Key(w)
 
-	assignedCQ, assigned := c.workloadAssignedQueues[wlKey]
-	if assigned && assignedCQ != cq.Name {
-		c.deleteWorkloadFromAssignedQueue(log, wlKey)
+	assignedCqName, assigned := c.workloadAssignedQueues[wlKey]
+	if assigned && assignedCqName != cq.Name {
+		if assignedCQ := c.hm.ClusterQueue(assignedCqName); assignedCQ != nil {
+			assignedCQ.deleteWorkload(log, wlKey)
+		}
 	}
-
+	
 	c.workloadAssignedQueues[wlKey] = cq.Name
 	cq.addOrUpdateWorkload(log, w)
 }
@@ -630,12 +632,17 @@ func (c *Cache) DeleteWorkload(log logr.Logger, w *kueue.Workload) error {
 	defer c.Unlock()
 	wlKey := workload.Key(w)
 
-	_, assigned := c.workloadAssignedQueues[wlKey]
+	cqName, assigned := c.workloadAssignedQueues[wlKey]
 	if !assigned {
 		return nil
 	}
 
-	c.deleteWorkloadFromAssignedQueue(log, wlKey)
+	cq := c.hm.ClusterQueue(cqName)
+	if cq == nil {
+		return ErrCqNotFound
+	}
+
+	cq.deleteWorkload(log, wlKey)
 	delete(c.workloadAssignedQueues, wlKey)
 
 	if c.podsReadyTracking {
@@ -643,14 +650,6 @@ func (c *Cache) DeleteWorkload(log logr.Logger, w *kueue.Workload) error {
 	}
 
 	return nil
-}
-
-func (c *Cache) deleteWorkloadFromAssignedQueue(log logr.Logger, wlKey workload.Reference) {
-	cqName := c.workloadAssignedQueues[wlKey]
-	cq := c.hm.ClusterQueue(cqName)
-	if cq != nil {
-		cq.deleteWorkload(log, wlKey)
-	}
 }
 
 func (c *Cache) IsAdded(w workload.Info) bool {
