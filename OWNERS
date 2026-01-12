@@ -28,6 +28,11 @@ filters:
     approvers:
       - dependency-approvers
 
+  # Vendor directory
+  "^vendor/.*$":
+    approvers:
+      - dependency-approvers
+
   # Any directory depth: *_test.go
   "_test\\.go$":
     approvers:
