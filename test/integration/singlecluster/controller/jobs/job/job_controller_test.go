@@ -1584,7 +1584,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 				createdJob := &batchv1.Job{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(jobNoPriority), createdJob)).To(gomega.Succeed())
 				if createdJob.Labels == nil {
-					createdJob.Labels = make(map[string]string)
+					createdJob.Labels = make(map[string]string, 1)
 				}
 				createdJob.Labels[constants.WorkloadPriorityClassLabel] = highWorkloadPriorityClass.Name
 				g.Expect(k8sClient.Update(ctx, createdJob)).To(gomega.Succeed())
@@ -1597,7 +1597,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			util.ExpectWorkloadsToBePreemptedByKey(ctx, k8sClient, lowWlKey)
 
 			ginkgo.By("Verifying the high-priority workload gets admitted")
-			util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, lowWlKey)
+			util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, noPriorityWlKey)
 		})
 	})
 
