@@ -350,7 +350,13 @@ func filterWorkloads(ctx context.Context, k8sClient client.Client, filter func(*
 
 func ExpectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
 	ginkgo.GinkgoHelper()
-	wlKeys := uniqueKeys(workloadKeys(wls))
+	wlKeys := workloadKeys(wls)
+	ExpectWorkloadsToBePendingByKeys(ctx, k8sClient, wlKeys...)
+}
+
+func ExpectWorkloadsToBePendingByKeys(ctx context.Context, k8sClient client.Client, wlKeys ...client.ObjectKey) {
+	ginkgo.GinkgoHelper()
+	wlKeys = uniqueKeys(wlKeys)
 	wl := &kueue.Workload{}
 	gomega.Eventually(func(g gomega.Gomega) {
 		pending := make([]client.ObjectKey, 0, len(wlKeys))
