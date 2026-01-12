@@ -845,13 +845,14 @@ func (r *WorkloadReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) b
 	log := r.log.WithValues("workload", klog.KObj(e.Object), "queue", e.Object.Spec.QueueName, "status", status)
 	log.V(2).Info("Workload delete event")
 	ctx := ctrl.LoggerInto(context.Background(), log)
+	wlKey := workload.Key(e.Object)
 
 	// When assigning a clusterQueue to a workload, we assume it in the cache. If
 	// the state is unknown, the workload could have been assumed, and we need
 	// to clear it from the cache.
 	if workload.IsFinished(e.Object) || workload.HasQuotaReservation(e.Object) || e.DeleteStateUnknown {
 		// trigger the move of associated inadmissibleWorkloads if required.
-		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, e.Object, func() {
+		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() {
 			// Delete the workload from cache while holding the queues lock
 			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
@@ -865,7 +866,7 @@ func (r *WorkloadReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) b
 
 	// Even if the state is unknown, the last cached state tells us whether the
 	// workload was in the queues and should be cleared from them.
-	r.queues.DeleteAndForgetWorkload(log, e.Object)
+	r.queues.DeleteAndForgetWorkload(log, wlKey)
 
 	return true
 }
@@ -895,6 +896,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	log.V(2).Info("Workload update event")
 
 	wlCopy := e.ObjectNew.DeepCopy()
+	wlKey := workload.Key(e.ObjectNew)
 	// We do not handle old workload here as it will be deleted or replaced by new one anyway.
 	workload.AdjustResources(ctrl.LoggerInto(ctx, log), r.client, wlCopy)
 
@@ -904,10 +906,10 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			log.V(2).Info("Workload will not be queued because the workload is not active")
 		}
 		// The workload could have been in the queues if we missed an event.
-		r.queues.DeleteWorkload(log, e.ObjectNew)
+		r.queues.DeleteWorkload(log, wlKey)
 
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
-		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, e.ObjectNew, func() {
+		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() {
 			// Delete the workload from cache while holding the queues lock
 			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
@@ -927,7 +929,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			}
 		}
 	case prevStatus == workload.StatusPending && (status == workload.StatusQuotaReserved || status == workload.StatusAdmitted):
-		r.queues.DeleteWorkload(log, e.ObjectOld)
+		r.queues.DeleteWorkload(log, wlKey)
 		if !r.cache.AddOrUpdateWorkload(log, wlCopy) {
 			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 		}
@@ -942,7 +944,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		immediate := backoff <= 0
 		log.V(3).Info("Workload transitioned back to pending", "backoff", backoff, "immediate", immediate)
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
-		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, e.ObjectNew, func() {
+		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() {
 			// Delete the workload from cache while holding the queues lock
 			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
@@ -962,7 +964,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 					if err := r.queues.AddOrUpdateWorkloadWithoutLock(log, wlCopy); err != nil {
 						log.V(2).Info("ignored an error for now", "error", err)
 					}
-					r.queues.DeleteSecondPassWithoutLock(wlCopy)
+					r.queues.DeleteSecondPassWithoutLock(wlKey)
 				}
 			}
 		})
@@ -970,7 +972,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(e.ObjectOld), workload.ExtractPodSetCountsFromWorkload(e.ObjectNew)),
 		workloadPriorityChanged(e.ObjectOld, e.ObjectNew):
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
-		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, e.ObjectNew, func() {
+		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() {
 			// Update the workload from cache while holding the queues lock
 			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
