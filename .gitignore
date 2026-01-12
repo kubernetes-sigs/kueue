@@ -42,3 +42,7 @@ test/e2e/kueueviz/cypress/videos
 
 cmd/experimental/kueue-populator/charts/kueue-populator/charts
 cmd/experimental/kueue-populator/charts/kueue-populator/Chart.lock
+
+# Hugo build artifacts
+public/
+.hugo_build.lock

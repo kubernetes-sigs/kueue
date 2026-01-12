@@ -41,7 +41,7 @@ Workload 的保留策略在 `.objectRetentionPolicies.workloads` 字段下定义
 
 ### Kueue 配置 {##kueue-configuration}
 
-**配置** Kueue 使用 1 分钟的保留策略，并启用 [waitForPodsReady](/zh-CN/docs/tasks/manage/setup_wait_for_pods_ready.md)：
+**配置** Kueue 使用 1 分钟的保留策略，并启用 [waitForPodsReady](/zh-CN/docs/tasks/manage/setup_wait_for_pods_ready)：
 
 ```yaml
   objectRetentionPolicies:
