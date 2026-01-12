@@ -587,9 +587,9 @@ func (c *Cache) addOrUpdateWorkload(log logr.Logger, w *kueue.Workload) bool {
 	if c.podsReadyTracking {
 		c.podsReadyCond.Broadcast()
 	}
+	c.addOrUpdateWorkloadToQueue(log, w, clusterQueue)
 
-	err := c.addOrUpdateWorkloadToQueue(log, w, clusterQueue)
-	return err == nil
+	return true
 }
 
 func (c *Cache) UpdateWorkload(log logr.Logger, wl *kueue.Workload) error {
@@ -608,31 +608,21 @@ func (c *Cache) UpdateWorkload(log logr.Logger, wl *kueue.Workload) error {
 	if c.podsReadyTracking {
 		c.podsReadyCond.Broadcast()
 	}
+	c.addOrUpdateWorkloadToQueue(log, wl, clusterQueue)
 
-	return c.addOrUpdateWorkloadToQueue(log, wl, clusterQueue)
+	return nil
 }
 
-func (c *Cache) addOrUpdateWorkloadToQueue(log logr.Logger, w *kueue.Workload, cq *clusterQueue) error {
+func (c *Cache) addOrUpdateWorkloadToQueue(log logr.Logger, w *kueue.Workload, cq *clusterQueue) {
 	wlKey := workload.Key(w)
 
-	if err := c.purgeSavedWorkloadData(log, wlKey); err != nil {
-		return err
+	assignedCQ, assigned := c.workloadAssignedQueues[wlKey]
+	if assigned && assignedCQ != cq.Name {
+		c.deleteWorkloadFromAssignedQueue(log, wlKey)
 	}
 
 	c.workloadAssignedQueues[wlKey] = cq.Name
 	cq.addOrUpdateWorkload(log, w)
-	return nil
-}
-
-func (c *Cache) purgeSavedWorkloadData(log logr.Logger, wlKey workload.Reference) error {
-	assignedCQ, assigned := c.workloadAssignedQueues[wlKey]
-	if assignded {
-		if cq := c.hm.ClusterQueue(assignedCQ); cq != nil {
-			cq.deleteWorkload(log, wlKey)
-		}
-		delete(c.workloadAssignedQueues, wlKey)
-	}
-	return nil
 }
 
 func (c *Cache) DeleteWorkload(log logr.Logger, w *kueue.Workload) error {
@@ -640,20 +630,27 @@ func (c *Cache) DeleteWorkload(log logr.Logger, w *kueue.Workload) error {
 	defer c.Unlock()
 	wlKey := workload.Key(w)
 
-	cqName, assigned := c.workloadAssignedQueues[wlKey]
+	_, assigned := c.workloadAssignedQueues[wlKey]
 	if !assigned {
 		return nil
 	}
 
-	cq := c.hm.ClusterQueue(cqName)
-	if cq == nil {
-		return ErrCqNotFound
-	}
+	c.deleteWorkloadFromAssignedQueue(log, wlKey)
+	delete(c.workloadAssignedQueues, wlKey)
 
 	if c.podsReadyTracking {
 		c.podsReadyCond.Broadcast()
 	}
+
 	return nil
+}
+
+func (c *Cache) deleteWorkloadFromAssignedQueue(log logr.Logger, wlKey workload.Reference) {
+	cqName := c.workloadAssignedQueues[wlKey]
+	cq := c.hm.ClusterQueue(cqName)
+	if cq != nil {
+		cq.deleteWorkload(log, wlKey)
+	}
 }
 
 func (c *Cache) IsAdded(w workload.Info) bool {
