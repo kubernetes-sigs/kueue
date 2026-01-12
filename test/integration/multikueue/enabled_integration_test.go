@@ -153,14 +153,12 @@ var _ = ginkgo.Describe("MultiKueue when not all integrations are enabled", gink
 				g.Expect(acs).NotTo(gomega.BeNil())
 				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStateReady))
 				g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
-				ok, err := utiltesting.HasEventAppeared(managerTestCluster.ctx, managerTestCluster.client, corev1.Event{
-					Reason:  "MultiKueue",
-					Type:    corev1.EventTypeNormal,
-					Message: `The workload got reservation on "worker1"`,
-				})
-				g.Expect(err).NotTo(gomega.HaveOccurred())
-				g.Expect(ok).To(gomega.BeTrue())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, corev1.Event{
+				Reason:  "MultiKueue",
+				Type:    corev1.EventTypeNormal,
+				Message: `The workload got reservation on "worker1"`,
+			})
 		})
 
 		ginkgo.By("finishing the worker job", func() {
