@@ -350,6 +350,12 @@ func WaitForKubeRayOperatorAvailability(ctx context.Context, k8sClient client.Cl
 	verifyNoControllerRestarts(ctx, k8sClient, kroKey)
 }
 
+func WaitForKubeFlowTrainnerControllerManagerAvailability(ctx context.Context, k8sClient client.Client) {
+	kftoKey := types.NamespacedName{Namespace: "kubeflow-system", Name: "kubeflow-trainer-controller-manager"}
+	waitForDeploymentAvailability(ctx, k8sClient, kftoKey)
+	verifyNoControllerRestarts(ctx, k8sClient, kftoKey)
+}
+
 func GetKueueConfiguration(ctx context.Context, k8sClient client.Client) *configapi.Configuration {
 	var kueueCfg configapi.Configuration
 	kueueNS := GetKueueNamespace()
