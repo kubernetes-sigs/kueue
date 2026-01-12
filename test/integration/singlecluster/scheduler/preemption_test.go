@@ -259,7 +259,6 @@ var _ = ginkgo.Describe("Preemption", func() {
 			cQPath := "/" + cq.Name
 			util.ExpectPreemptedCondition(ctx, k8sClient, kueue.InClusterQueueReason, metav1.ConditionTrue, lowWl, highWl, string(highWl.UID), "job-uid", cQPath, cQPath)
 		})
-
 	})
 
 	ginkgo.Context("In a ClusterQueue that is part of a cohort", func() {
