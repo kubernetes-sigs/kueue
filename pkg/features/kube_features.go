@@ -225,6 +225,12 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/7597
 	// Do not remove job-name label from Workload PodTemplate object.
 	PropagateBatchJobLabelsToWorkload featuregate.Feature = "PropagateBatchJobLabelsToWorkload"
+
+	// owner: @mbobrovskyi
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/5298
+	// Enabled skip adding finalizers for serving workloads.
+	SkipFinalizersForPodsSuspendedByParent featuregate.Feature = "SkipFinalizersForPodsSuspendedByParent"
 )
 
 func init() {
@@ -350,6 +356,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	PropagateBatchJobLabelsToWorkload: {
 		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.Beta},
+	},
+	SkipFinalizersForPodsSuspendedByParent: {
+		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 
