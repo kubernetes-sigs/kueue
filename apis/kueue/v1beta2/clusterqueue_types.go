@@ -31,6 +31,7 @@ const (
 	ClusterQueueActiveReasonAdmissionCheckInactive                   = "AdmissionCheckInactive"
 	ClusterQueueActiveReasonMultipleMultiKueueAdmissionChecks        = "MultipleMultiKueueAdmissionChecks"
 	ClusterQueueActiveReasonMultiKueueAdmissionCheckAppliedPerFlavor = "MultiKueueAdmissionCheckAppliedPerFlavor"
+	ClusterQueueActiveReasonMultiKueueWithProvisioningRequest        = "MultiKueueWithProvisioningRequest"
 	ClusterQueueActiveReasonTopologyNotFound                         = "TopologyNotFound"
 	ClusterQueueActiveReasonUnknown                                  = "Unknown"
 	ClusterQueueActiveReasonReady                                    = "Ready"
