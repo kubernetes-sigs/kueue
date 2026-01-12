@@ -78,6 +78,8 @@ var (
 	ErrNoMatchingWorkloads            = errors.New("no matching workloads")
 	ErrExtraWorkloads                 = errors.New("extra workloads")
 	ErrPrebuiltWorkloadNotFound       = errors.New("prebuilt workload not found")
+	ErrPriorityClassNotFound          = errors.New("priority class not found")
+	ErrWorkloadPriorityClassNotFound  = errors.New("workload priority class not found")
 )
 
 type WorkloadRetentionPolicy struct {
@@ -968,7 +970,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 // UpdateWorkloadPriority updates workload priority if object's kueue.x-k8s.io/priority-class label changed.
 func UpdateWorkloadPriority(ctx context.Context, c client.Client, r record.EventRecorder, obj client.Object, wl *kueue.Workload, customPriorityClassFunc func() string) error {
 	if workload.IsWorkloadPriorityClass(wl) && WorkloadPriorityClassName(obj) != workload.PriorityClassName(wl) {
-		if err := PrepareWorkloadPriority(ctx, c, obj, wl, customPriorityClassFunc); err != nil {
+		if err := PrepareWorkloadPriority(ctx, c, r, obj, wl, customPriorityClassFunc); err != nil {
 			return fmt.Errorf("prepare workload priority: %w", err)
 		}
 		if err := c.Update(ctx, wl); err != nil {
@@ -1329,8 +1331,8 @@ func getCustomPriorityClassFuncFromJob(job GenericJob) func() string {
 	return nil
 }
 
-func PrepareWorkloadPriority(ctx context.Context, c client.Client, obj client.Object, wl *kueue.Workload, customPriorityClassFunc func() string) error {
-	priorityClassRef, priority, err := ExtractPriority(ctx, c, obj, wl.Spec.PodSets, customPriorityClassFunc)
+func PrepareWorkloadPriority(ctx context.Context, c client.Client, r record.EventRecorder, obj client.Object, wl *kueue.Workload, customPriorityClassFunc func() string) error {
+	priorityClassRef, priority, err := ExtractPriority(ctx, c, r, obj, wl.Spec.PodSets, customPriorityClassFunc)
 	if err != nil {
 		return err
 	}
@@ -1345,7 +1347,7 @@ func PrepareWorkloadPriority(ctx context.Context, c client.Client, obj client.Ob
 // active is used to set the active field of the workload. If active is nil, the workload will be set to active by default.
 // for the existing workload, the original active status should be retained.
 func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl *kueue.Workload, active *bool) error {
-	if err := PrepareWorkloadPriority(ctx, r.client, job.Object(), wl, getCustomPriorityClassFuncFromJob(job)); err != nil {
+	if err := PrepareWorkloadPriority(ctx, r.client, r.record, job.Object(), wl, getCustomPriorityClassFuncFromJob(job)); err != nil {
 		return err
 	}
 
@@ -1358,14 +1360,26 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 	return nil
 }
 
-func ExtractPriority(ctx context.Context, c client.Client, obj client.Object, podSets []kueue.PodSet, customPriorityClassFunc func() string) (*kueue.PriorityClassRef, int32, error) {
+func ExtractPriority(ctx context.Context, c client.Client, r record.EventRecorder, obj client.Object, podSets []kueue.PodSet, customPriorityClassFunc func() string) (*kueue.PriorityClassRef, int32, error) {
 	if workloadPriorityClass := WorkloadPriorityClassName(obj); len(workloadPriorityClass) > 0 {
-		return utilpriority.GetPriorityFromWorkloadPriorityClass(ctx, c, workloadPriorityClass)
+		priorityClassRef, priority, err := utilpriority.GetPriorityFromWorkloadPriorityClass(ctx, c, workloadPriorityClass)
+		if apierrors.IsNotFound(err) {
+			r.Eventf(obj, corev1.EventTypeWarning, ReasonWorkloadPriorityClassNotFound, "WorkloadPriorityClass %v not found", workloadPriorityClass)
+			return priorityClassRef, priority, fmt.Errorf("%w: workloadPriorityClass %v", ErrWorkloadPriorityClassNotFound, workloadPriorityClass)
+		}
+		return priorityClassRef, priority, err
 	}
+
+	priorityClassName := extractPriorityFromPodSets(podSets)
 	if customPriorityClassFunc != nil {
-		return utilpriority.GetPriorityFromPriorityClass(ctx, c, customPriorityClassFunc())
+		priorityClassName = customPriorityClassFunc()
 	}
-	return utilpriority.GetPriorityFromPriorityClass(ctx, c, extractPriorityFromPodSets(podSets))
+	priorityClassRef, priority, err := utilpriority.GetPriorityFromPriorityClass(ctx, c, priorityClassName)
+	if apierrors.IsNotFound(err) {
+		r.Eventf(obj, corev1.EventTypeWarning, ReasonPriorityClassNotFound, "PriorityClass %v not found", priorityClassName)
+		return priorityClassRef, priority, fmt.Errorf("%w: priorityClass %v", ErrPriorityClassNotFound, priorityClassName)
+	}
+	return priorityClassRef, priority, err
 }
 
 func extractPriorityFromPodSets(podSets []kueue.PodSet) string {
