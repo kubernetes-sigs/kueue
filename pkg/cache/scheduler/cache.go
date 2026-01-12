@@ -625,7 +625,7 @@ func (c *Cache) addOrUpdateWorkloadToQueue(log logr.Logger, w *kueue.Workload, c
 }
 
 func (c *Cache) purgeSavedWorkloadData(log logr.Logger, wlKey workload.Reference) error {
-	assignedCQ, assignded := c.workloadAssignedQueues[wlKey]
+	assignedCQ, assigned := c.workloadAssignedQueues[wlKey]
 	if assignded {
 		if cq := c.hm.ClusterQueue(assignedCQ); cq != nil {
 			cq.deleteWorkload(log, wlKey)
