@@ -515,23 +515,6 @@ func ExpectWorkloadsToBePreemptedByKeys(ctx context.Context, k8sClient client.Cl
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
-func ExpectWorkloadsToBePreemptedByKey(ctx context.Context, k8sClient client.Client, wlKeys ...client.ObjectKey) {
-	ginkgo.GinkgoHelper()
-	uniqueWlKeys := uniqueKeys(wlKeys)
-	wl := &kueue.Workload{}
-	gomega.Eventually(func(g gomega.Gomega) {
-		preempted := make([]client.ObjectKey, 0, len(uniqueWlKeys))
-		for _, wlKey := range uniqueWlKeys {
-			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-			cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted)
-			if cond != nil && cond.Status == metav1.ConditionTrue && cond.Reason == kueue.WorkloadPreempted {
-				preempted = append(preempted, wlKey)
-			}
-		}
-		g.Expect(preempted).Should(gomega.Equal(uniqueWlKeys), "Unexpected workloads are preempted")
-	}, Timeout, Interval).Should(gomega.Succeed())
-}
-
 func ExpectWorkloadsToBeWaiting(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
 	ginkgo.GinkgoHelper()
 	wlKeys := uniqueKeys(workloadKeys(wls))
