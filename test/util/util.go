@@ -491,10 +491,10 @@ func ExpectWorkloadToHaveRequeueState(ctx context.Context, k8sClient client.Clie
 func ExpectWorkloadsToBePreempted(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
 	ginkgo.GinkgoHelper()
 	wlKeys := workloadKeys(wls)
-	ExpectWorkloadsToBePreemptedByKey(ctx, k8sClient, wlKeys...)
+	ExpectWorkloadsToBePreemptedByKeys(ctx, k8sClient, wlKeys...)
 }
 
-func ExpectWorkloadsToBePreemptedByKey(ctx context.Context, k8sClient client.Client, wlKeys ...client.ObjectKey) {
+func ExpectWorkloadsToBePreemptedByKeys(ctx context.Context, k8sClient client.Client, wlKeys ...client.ObjectKey) {
 	ginkgo.GinkgoHelper()
 	wlKeys = uniqueKeys(wlKeys)
 	wl := &kueue.Workload{}

@@ -1594,7 +1594,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			util.ExpectWorkloadsWithWorkloadPriority(ctx, k8sClient, highWorkloadPriorityClass.Name, highWorkloadPriorityClass.Value, noPriorityWlKey)
 
 			ginkgo.By("Verifying the low-priority workload gets preempted")
-			util.ExpectWorkloadsToBePreemptedByKey(ctx, k8sClient, lowWlKey)
+			util.ExpectWorkloadsToBePreemptedByKeys(ctx, k8sClient, lowWlKey)
 
 			ginkgo.By("Verifying the high-priority workload gets admitted")
 			util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, noPriorityWlKey)
