@@ -1353,7 +1353,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 		},
 		{
-			name: "addOrUpdateWorkload; quota assigned -> quota unassigned",
+			name: "AddOrUpdateWorkload; quota assigned -> quota unassigned",
 			operation: func(log logr.Logger, cache *Cache) error {
 				w := utiltestingapi.MakeWorkload("b", "").Obj()
 				if !cache.AddOrUpdateWorkload(log, w) {
@@ -1375,7 +1375,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 		},
 		{
-			name: "addOrUpdateWorkload; quota not assigned -> quota still not assigned",
+			name: "AddOrUpdateWorkload; quota not assigned -> quota still not assigned",
 			operation: func(log logr.Logger, cache *Cache) error {
 				w := utiltestingapi.MakeWorkload("d", "").Obj()
 				if cache.AddOrUpdateWorkload(log, w) {
