@@ -984,11 +984,11 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 
 func workloadPriorityChanged(old, new *kueue.Workload) bool {
 	// Updates to Pod Priority are not supported.
-	if !workload.IsWorkloadPriorityClass(old) || !workload.IsWorkloadPriorityClass(new) {
+	if workload.IsPodPriorityClass(old) || !workload.IsWorkloadPriorityClass(new) {
 		return false
 	}
 	// Check if priority class reference changed.
-	if workload.PriorityClassName(old) != "" && workload.PriorityClassName(new) != "" &&
+	if workload.PriorityClassName(new) != "" &&
 		workload.PriorityClassName(old) != workload.PriorityClassName(new) {
 		return true
 	}
