@@ -1039,6 +1039,16 @@ readCh:
 	gomega.ExpectWithOffset(1, gotObjs).To(gomega.Equal(objs))
 }
 
+// ExpectEventAppeared asserts that an event matching Reason/Type/Message has been emitted.
+func ExpectEventAppeared(ctx context.Context, k8sClient client.Client, event corev1.Event) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		ok, err := utiltesting.HasEventAppeared(ctx, k8sClient, event)
+		g.Expect(err).NotTo(gomega.HaveOccurred())
+		g.Expect(ok).Should(gomega.BeTrue())
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
 func ExpectPreemptedCondition(ctx context.Context, k8sClient client.Client, reason string, status metav1.ConditionStatus, preemptedWl, preempteeWl *kueue.Workload, preemteeWorkloadUID, preempteeJobUID string) {
 	conditionCmpOpts := cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "ObservedGeneration")
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
