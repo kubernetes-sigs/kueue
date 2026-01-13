@@ -428,7 +428,10 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 		if !workload.HasQuotaReservation(&w) || workload.IsFinished(&w) {
 			continue
 		}
-		c.addOrUpdateWorkloadWithoutLock(log, &workloads.Items[i])
+		if _, err := c.addOrUpdateWorkloadWithoutLock(log, &workloads.Items[i]); err != nil {
+			log.Error(err, "Workload found to be matching the ClusterQueue but failed to be added to it")
+			return err
+		}
 	}
 
 	return nil
