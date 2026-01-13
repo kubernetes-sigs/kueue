@@ -118,7 +118,7 @@ func (r *reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	// 1. finish the workloads eviction
 	if workload.IsEvicted(&wl) {
 		err := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			return workload.UnsetQuotaReservationWithCondition(wl, "Pending", "Evicted by the test runner", time.Now()), nil
+			return workload.UnsetQuotaReservationWithCondition(wl, "Pending", "Evicted by the test runner", time.Now(), time.Time{}), nil
 		})
 		if err == nil {
 			log.V(5).Info("Finish eviction")
