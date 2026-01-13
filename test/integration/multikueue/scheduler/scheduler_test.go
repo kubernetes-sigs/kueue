@@ -33,6 +33,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing"
@@ -570,6 +571,50 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, lowWlKey, &kueue.Workload{})).To(testing.BeNotFoundError())
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, lowWlKey, &kueue.Workload{})).To(testing.BeNotFoundError())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("should update the workload’s priority class on the worker if it changes on the manager", func() {
+		job := testingjob.MakeJob("job", managerNs.Name).
+			WorkloadPriorityClass(managerHighWPC.Name).
+			Queue(kueue.LocalQueueName(managerLq.Name)).
+			RequestAndLimit(corev1.ResourceCPU, "2").
+			RequestAndLimit(corev1.ResourceMemory, "1G").
+			Obj()
+		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
+
+		wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
+
+		managerWl := &kueue.Workload{}
+		workerWl := &kueue.Workload{}
+
+		ginkgo.By("Checking that the workload is created and admitted in the manager cluster", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlKey, managerWl)).To(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(managerWl)).To(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Checking that the workload is created in worker1 and not in worker2, and that its spec matches the manager workload", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlKey, workerWl)).To(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(workerWl)).To(gomega.BeTrue())
+				g.Expect(workerWl.Spec).To(gomega.BeComparableTo(managerWl.Spec))
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlKey, &kueue.Workload{})).To(testing.BeNotFoundError())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Setting a low priority class on the job", func() {
+			createdJob := &batchv1.Job{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
+				createdJob.Labels[constants.WorkloadPriorityClassLabel] = managerLowWPC.Name
+				g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, createdJob)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Checking that the workload priority class updated in the worker", func() {
+			util.ExpectWorkloadsWithWorkloadPriority(worker1TestCluster.ctx, worker1TestCluster.client, managerLowWPC.Name, managerLowWPC.Value, wlKey)
 		})
 	})
 })
