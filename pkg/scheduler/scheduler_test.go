@@ -8628,20 +8628,20 @@ func TestLastSchedulingContext(t *testing.T) {
 				}
 
 				for _, workloadReference := range tc.deleteWorkloads {
-					var workload kueue.Workload
-					err := cl.Get(ctx, workloadReference, &workload)
+					var wl kueue.Workload
+					err := cl.Get(ctx, workloadReference, &wl)
 					if err != nil {
 						t.Errorf("Unable to get workload: %v", err)
 					}
-					err = cl.Delete(ctx, &workload)
+					err = cl.Delete(ctx, &wl)
 					if err != nil {
 						t.Errorf("Delete workload failed: %v", err)
 					}
-					err = cqCache.DeleteWorkload(log, &workload)
+					err = cqCache.DeleteWorkload(log, &wl)
 					if err != nil {
 						t.Errorf("Delete workload failed: %v", err)
 					}
-					qManager.QueueAssociatedInadmissibleWorkloadsAfter(ctx, &workload, nil)
+					qManager.QueueAssociatedInadmissibleWorkloadsAfter(ctx, workload.Key(&wl), nil)
 				}
 
 				scheduler.schedule(ctx)

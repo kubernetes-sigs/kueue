@@ -464,11 +464,12 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 		return errWorkloadIsInadmissible
 	}
 
+	wlKey := workload.Key(w)
 	qKey := queue.KeyFromWorkload(w)
 
-	assignedQueue, ok := m.workloadAssignedQueues[workload.Key(w)]
+	assignedQueue, ok := m.workloadAssignedQueues[wlKey]
 	if ok && assignedQueue != qKey {
-		m.deleteAndForgetWorkloadWithoutLock(log, w)
+		m.deleteAndForgetWorkloadWithoutLock(log, wlKey)
 	}
 
 	q := m.localQueues[qKey]
@@ -535,24 +536,24 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 
 // Delete the workload from queue or cluster queue.
 // Does not remove the queue assignment caching.
-func (m *Manager) DeleteWorkload(log logr.Logger, wl *kueue.Workload) {
+func (m *Manager) DeleteWorkload(log logr.Logger, wlKey workload.Reference) {
 	m.Lock()
 	defer m.Unlock()
-	m.deleteWorkloadWithoutLock(log, wl)
+	m.deleteWorkloadWithoutLock(log, wlKey)
 }
 
 // Deletes the workload from assigned queue and purges the assigment caching.
 // Uses a lock to ensure operation safety.
-func (m *Manager) DeleteAndForgetWorkload(log logr.Logger, wl *kueue.Workload) {
+func (m *Manager) DeleteAndForgetWorkload(log logr.Logger, wlKey workload.Reference) {
 	m.Lock()
 	defer m.Unlock()
-	m.deleteAndForgetWorkloadWithoutLock(log, wl)
+	m.deleteAndForgetWorkloadWithoutLock(log, wlKey)
 }
 
 // Deletes the workload from local/cluster queue and purges queue assignment caching.
-func (m *Manager) deleteAndForgetWorkloadWithoutLock(log logr.Logger, wl *kueue.Workload) {
-	m.deleteWorkloadWithoutLock(log, wl)
-	delete(m.workloadAssignedQueues, workload.Key(wl))
+func (m *Manager) deleteAndForgetWorkloadWithoutLock(log logr.Logger, wlKey workload.Reference) {
+	m.deleteWorkloadWithoutLock(log, wlKey)
+	delete(m.workloadAssignedQueues, wlKey)
 }
 
 func (m *Manager) addWorkload(wlInfo *workload.Info, q *LocalQueue) {
@@ -564,9 +565,7 @@ func (m *Manager) assignWorkload(wlKey workload.Reference, qKey queue.LocalQueue
 	m.workloadAssignedQueues[wlKey] = qKey
 }
 
-func (m *Manager) deleteWorkloadWithoutLock(log logr.Logger, wl *kueue.Workload) {
-	wlKey := workload.Key(wl)
-
+func (m *Manager) deleteWorkloadWithoutLock(log logr.Logger, wlKey workload.Reference) {
 	qKey := m.workloadAssignedQueues[wlKey]
 	q := m.localQueues[qKey]
 	if q == nil {
@@ -576,7 +575,7 @@ func (m *Manager) deleteWorkloadWithoutLock(log logr.Logger, wl *kueue.Workload)
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq != nil {
-		cq.Delete(log, wl)
+		cq.Delete(log, wlKey)
 		m.reportPendingWorkloads(q.ClusterQueue, cq)
 	}
 
@@ -584,7 +583,7 @@ func (m *Manager) deleteWorkloadWithoutLock(log logr.Logger, wl *kueue.Workload)
 		m.reportLQPendingWorkloads(q)
 	}
 
-	m.DeleteSecondPassWithoutLock(wl)
+	m.DeleteSecondPassWithoutLock(wlKey)
 }
 
 // QueueAssociatedInadmissibleWorkloadsAfter requeues into the heaps all
@@ -593,14 +592,13 @@ func (m *Manager) deleteWorkloadWithoutLock(log logr.Logger, wl *kueue.Workload)
 // An optional action can be executed at the beginning of the function,
 // while holding the lock, to provide atomicity with the operations in the
 // queues.
-func (m *Manager) QueueAssociatedInadmissibleWorkloadsAfter(ctx context.Context, w *kueue.Workload, action func()) {
+func (m *Manager) QueueAssociatedInadmissibleWorkloadsAfter(ctx context.Context, wlKey workload.Reference, action func()) {
 	m.Lock()
 	defer m.Unlock()
 	if action != nil {
 		action()
 	}
 
-	wlKey := workload.Key(w)
 	qKey, ok := m.workloadAssignedQueues[wlKey]
 	if !ok {
 		return
@@ -838,8 +836,8 @@ func (m *Manager) ClusterQueueFromLocalQueue(localQueueKey queue.LocalQueueRefer
 
 // DeleteSecondPassWithoutLock deletes the pending workload from the second
 // pass queue.
-func (m *Manager) DeleteSecondPassWithoutLock(wl *kueue.Workload) {
-	m.secondPassQueue.deleteByKey(workload.Key(wl))
+func (m *Manager) DeleteSecondPassWithoutLock(wlKey workload.Reference) {
+	m.secondPassQueue.deleteByKey(wlKey)
 }
 
 // QueueSecondPassIfNeeded queues for the second pass of scheduling with exponential

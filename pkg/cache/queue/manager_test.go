@@ -673,7 +673,7 @@ func TestDeleteWorkload(t *testing.T) {
 			}
 		}
 
-		manager.DeleteWorkload(log, wl1)
+		manager.DeleteWorkload(log, workload.Key(wl1))
 
 		q := manager.localQueues[queue.Key(queues[0])]
 		if diff := cmp.Diff(map[workload.Reference]*workload.Info{
@@ -724,7 +724,7 @@ func TestDeleteAndForgetWorkload(t *testing.T) {
 			}
 		}
 
-		manager.DeleteAndForgetWorkload(log, wl1)
+		manager.DeleteAndForgetWorkload(log, workload.Key(wl1))
 
 		q := manager.localQueues[queue.Key(queues[0])]
 		if diff := cmp.Diff(map[workload.Reference]*workload.Info{
