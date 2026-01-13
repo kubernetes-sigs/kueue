@@ -1309,6 +1309,94 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 		},
 		{
+			name: "UpdateWorkload; quota assigned -> quota unassigned",
+			operation: func(log logr.Logger, cache *Cache) error {
+				w := utiltestingapi.MakeWorkload("b", "").Obj()
+				if err := cache.UpdateWorkload(log, w); err != nil {
+					return errors.Join(errors.New("failed to update workload"), err)
+				}
+				return nil
+			},
+			wantResults: map[kueue.ClusterQueueReference]result{
+				"one": {
+					Workloads: sets.New[workload.Reference]("/a"),
+					UsedResources: resources.FlavorResourceQuantities{
+						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
+						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
+					},
+				},
+				"two": {
+					Workloads: sets.New[workload.Reference]("/c"),
+				},
+			},
+		},
+		{
+			name: "UpdateWorkload; quota not assigned -> quota still not assigned",
+			operation: func(log logr.Logger, cache *Cache) error {
+				w := utiltestingapi.MakeWorkload("d", "").Obj()
+				if err := cache.UpdateWorkload(log, w); err != nil {
+					return errors.Join(errors.New("failed to update workload"), err)
+				}
+				return nil
+			},
+			wantResults: map[kueue.ClusterQueueReference]result{
+				"one": {
+					Workloads: sets.New[workload.Reference]("/a", "/b"),
+					UsedResources: resources.FlavorResourceQuantities{
+						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
+						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
+					},
+				},
+				"two": {
+					Workloads: sets.New[workload.Reference]("/c"),
+				},
+			},
+		},
+		{
+			name: "addOrUpdateWorkload; quota assigned -> quota unassigned",
+			operation: func(log logr.Logger, cache *Cache) error {
+				w := utiltestingapi.MakeWorkload("b", "").Obj()
+				if !cache.AddOrUpdateWorkload(log, w) {
+					return errors.New("failed to add workload")
+				}
+				return nil
+			},
+			wantResults: map[kueue.ClusterQueueReference]result{
+				"one": {
+					Workloads: sets.New[workload.Reference]("/a"),
+					UsedResources: resources.FlavorResourceQuantities{
+						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
+						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
+					},
+				},
+				"two": {
+					Workloads: sets.New[workload.Reference]("/c"),
+				},
+			},
+		},
+		{
+			name: "addOrUpdateWorkload; quota not assigned -> quota still not assigned",
+			operation: func(log logr.Logger, cache *Cache) error {
+				w := utiltestingapi.MakeWorkload("d", "").Obj()
+				if cache.AddOrUpdateWorkload(log, w) {
+					return errors.New("returned true when no operations were required")
+				}
+				return nil
+			},
+			wantResults: map[kueue.ClusterQueueReference]result{
+				"one": {
+					Workloads: sets.New[workload.Reference]("/a", "/b"),
+					UsedResources: resources.FlavorResourceQuantities{
+						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
+						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
+					},
+				},
+				"two": {
+					Workloads: sets.New[workload.Reference]("/c"),
+				},
+			},
+		},
+		{
 			name: "update cluster queue for a workload",
 			operation: func(log logr.Logger, cache *Cache) error {
 				latest := utiltestingapi.MakeWorkload("a", "").PodSets(podSets...).ReserveQuotaAt(&kueue.Admission{
