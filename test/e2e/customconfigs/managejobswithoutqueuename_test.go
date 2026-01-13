@@ -569,7 +569,6 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 					g.Expect(k8sClient.Get(ctx, podLookupKey, createdPod)).Should(gomega.Succeed())
 					g.Expect(createdPod.Spec.SchedulingGates).ShouldNot(gomega.BeEmpty())
 					g.Expect(createdPod.Labels).Should(gomega.HaveKeyWithValue(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue))
-					g.Expect(createdPod.Finalizers).Should(gomega.ContainElement(podcontroller.PodFinalizer))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -625,7 +624,6 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 					for _, pod := range pods.Items {
 						g.Expect(pod.Spec.SchedulingGates).ShouldNot(gomega.BeEmpty())
 						g.Expect(pod.Labels).Should(gomega.HaveKeyWithValue(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue))
-						g.Expect(pod.Finalizers).Should(gomega.ContainElement(podcontroller.PodFinalizer))
 					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})

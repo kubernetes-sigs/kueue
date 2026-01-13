@@ -112,6 +112,10 @@ func (p *PodWrapper) Queue(q string) *PodWrapper {
 	return p.Label(controllerconsts.QueueLabel, q)
 }
 
+func (p *PodWrapper) SuspendedByParent(controller string) *PodWrapper {
+	return p.Annotation(podconstants.SuspendedByParentAnnotation, controller)
+}
+
 func (p *PodWrapper) PrebuiltWorkload(name string) *PodWrapper {
 	return p.Label(controllerconsts.PrebuiltWorkloadLabel, name)
 }

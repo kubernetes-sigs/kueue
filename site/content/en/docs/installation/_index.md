@@ -298,6 +298,7 @@ spec:
 | `SanitizePodSets`                             | `true`  | Beta  | 0.13  |       |
 | `MultiKueueAllowInsecureKubeconfigs`          | `false` | Alpha | 0.14  |       |
 | `ReclaimablePods`                             | `true`  | Beta  | 0.14  |       |
+| `SkipFinalizersForServingWorkloads`           | `true`  | Beta  | 0.16  |       |
 
 ### Feature gates for graduated or deprecated features
 
