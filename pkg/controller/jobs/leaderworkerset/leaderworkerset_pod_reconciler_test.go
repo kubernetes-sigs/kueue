@@ -23,7 +23,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -149,12 +148,21 @@ func TestPodReconciler(t *testing.T) {
 				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
 			}
 
-			gotPod := &corev1.Pod{}
-			if err := kClient.Get(ctx, podKey, gotPod); err != nil {
-				if !apierrors.IsNotFound(err) || tc.wantPod != nil {
-					t.Fatalf("Could not get Pod after reconcile: %v", err)
+			gotPods := &corev1.PodList{}
+			if err := kClient.List(ctx, gotPods, client.InNamespace(tc.pod.Namespace)); err != nil {
+				t.Fatalf("Could not list Pods after reconcile: %v", err)
+			}
+
+			var gotPod *corev1.Pod
+			if tc.wantPod == nil {
+				if len(gotPods.Items) != 0 {
+					t.Errorf("Expected no pods, but got %d pod(s)", len(gotPods.Items))
 				}
-				gotPod = nil
+			} else {
+				if len(gotPods.Items) != 1 {
+					t.Fatalf("Expected 1 pod, but got %d pod(s)", len(gotPods.Items))
+				}
+				gotPod = &gotPods.Items[0]
 			}
 
 			if diff := cmp.Diff(tc.wantPod, gotPod, baseCmpOpts...); diff != "" {
