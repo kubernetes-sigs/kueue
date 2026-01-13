@@ -48,6 +48,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	"sigs.k8s.io/kueue/pkg/util/priority"
 	utilptr "sigs.k8s.io/kueue/pkg/util/ptr"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/resource"
@@ -1554,4 +1555,18 @@ func ReasonWithCause(reason, underlyingCause string) string {
 // it returns an empty string.
 func ClusterName(wl *kueue.Workload) string {
 	return ptr.Deref(wl.Status.ClusterName, "")
+}
+
+func PriorityChanged(old, new *kueue.Workload) bool {
+	// Updates to Pod Priority are not supported.
+	if IsPodPriorityClass(old) || !IsWorkloadPriorityClass(new) {
+		return false
+	}
+	// Check if priority class reference changed.
+	if PriorityClassName(new) != "" &&
+		PriorityClassName(old) != PriorityClassName(new) {
+		return true
+	}
+	// Check if priority value changed (for WorkloadPriorityClass value updates).
+	return priority.Priority(old) != priority.Priority(new)
 }
