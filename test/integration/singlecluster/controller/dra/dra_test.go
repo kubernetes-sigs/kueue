@@ -32,6 +32,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -101,7 +102,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 		})
 
-		ginkgo.It("Should reject workload with DRA resource claims with inadmissible condition", func() {
+		ginkgo.It("Should reject workload with DRA resource claims with inadmissible condition", framework.SlowSpec, func() {
 			ginkgo.By("Creating a ResourceClaim")
 			rc := makeResourceClaim("test-rc", ns.Name, "foo.example.com", 2)
 			gomega.Expect(k8sClient.Create(ctx, rc)).To(gomega.Succeed())
@@ -469,7 +470,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("Should handle unmapped device classes with proper error", func() {
+		ginkgo.It("Should handle unmapped device classes with proper error", framework.SlowSpec, func() {
 			ginkgo.By("Creating a ResourceClaimTemplate with unmapped device class")
 			rct := &resourcev1beta2.ResourceClaimTemplate{
 				ObjectMeta: metav1.ObjectMeta{

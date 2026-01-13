@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -506,7 +507,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 	})
 
 	ginkgo.When("the workload has a maximum execution time set", func() {
-		ginkgo.It("should deactivate the workload when the time expires", func() {
+		ginkgo.It("should deactivate the workload when the time expires", framework.SlowSpec, func() {
 			// due time rounding in conditions, the workload will stay admitted
 			// for a time between maxExecutionTime - 1s and maxExecutionTime
 			maxExecTime := 2 * time.Second
@@ -543,7 +544,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
-		ginkgo.It("should deactivate the workload when the time expires with multiple admissions", func() {
+		ginkgo.It("should deactivate the workload when the time expires with multiple admissions", framework.SlowSpec, func() {
 			// due time rounding in conditions, the workload will stay admitted
 			// for a time between maxExecutionTime - 1s and maxExecutionTime
 			maxExecTime := 30 * time.Second
@@ -666,7 +667,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, runtimeClass, true)
 		})
 
-		ginkgo.It("should not temporarily admit an inactive workload after changing the runtime class", func() {
+		ginkgo.It("should not temporarily admit an inactive workload after changing the runtime class", framework.SlowSpec, func() {
 			ginkgo.By("creating an inactive workload", func() {
 				wl = utiltestingapi.MakeWorkload("wl1", ns.Name).
 					Queue(kueue.LocalQueueName(localQueue.Name)).
@@ -709,7 +710,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo
 			})
 		})
 
-		ginkgo.It("should not temporarily admit a finished workload after changing the runtime class", func() {
+		ginkgo.It("should not temporarily admit a finished workload after changing the runtime class", framework.SlowSpec, func() {
 			wl = utiltestingapi.MakeWorkload("wl1", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Request(corev1.ResourceCPU, "1").
@@ -764,7 +765,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo
 			})
 		})
 
-		ginkgo.It("should not temporarily admit a finished workload on restart manager", func() {
+		ginkgo.It("should not temporarily admit a finished workload on restart manager", framework.SlowSpec, func() {
 			wl = utiltestingapi.MakeWorkload("wl1", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Request(corev1.ResourceCPU, "1").
@@ -863,7 +864,7 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
 		})
 
-		ginkgo.It("should delete the workload after retention period elapses", func() {
+		ginkgo.It("should delete the workload after retention period elapses", framework.SlowSpec, func() {
 			var (
 				wl    *kueue.Workload
 				wlKey client.ObjectKey
@@ -952,7 +953,7 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
 		})
 
-		ginkgo.It("should not delete the workload before retention period elapses", func() {
+		ginkgo.It("should not delete the workload before retention period elapses", framework.SlowSpec, func() {
 			var (
 				wl    *kueue.Workload
 				wlKey client.ObjectKey

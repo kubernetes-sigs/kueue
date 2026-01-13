@@ -83,12 +83,11 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 
 	ginkgo.By("checking the workload is created without queue assigned")
 	createdWorkload := util.AwaitAndVerifyCreatedWorkload(ctx, k8sClient, wlLookupKey, createdJob.Object())
-	util.VerifyWorkloadPriority(createdWorkload, priorityClassName, priorityValue)
 	gomega.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(kueue.LocalQueueName("")), "The Workload shouldn't have .spec.queueName set")
 
-	ginkgo.By("checking the workload is created with priority and priorityName")
-	gomega.Expect(createdWorkload.Spec.PriorityClassName).Should(gomega.Equal(priorityClassName))
-	gomega.Expect(*createdWorkload.Spec.Priority).Should(gomega.Equal(int32(priorityValue)))
+	ginkgo.By("checking the workload is created with workload priority class", func() {
+		util.ExpectWorkloadsWithPodPriority(ctx, k8sClient, priorityClassName, priorityValue, wlLookupKey)
+	})
 
 	ginkgo.By("checking the workload is updated with queue name when the job does")
 	createdJob.Object().SetAnnotations(map[string]string{constants.QueueAnnotation: string(jobQueueName)})
