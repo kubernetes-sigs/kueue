@@ -21,7 +21,9 @@ You can [modify kueue configurations from installed releases](/docs/installation
 {{% alert title="Note" color="primary" %}}
 In order to use SparkApplication integration, you must install [Spark Operator](https://github.com/kubeflow/spark-operator) [v2.4.0](https://github.com/kubeflow/spark-operator/releases/tag/v2.4.0) or above.
 
-Please also remember that you will have to activate namespaces that you will deploy SparkApplication as described in [the official installation docs](https://www.kubeflow.org/docs/components/spark-operator/getting-started/#about-spark-job-namespaces).
+Please also remember belows:
+- You will have to activate namespaces that you will deploy SparkApplication as described in [the official installation docs](https://www.kubeflow.org/docs/components/spark-operator/getting-started/#about-spark-job-namespaces).
+- You will have to create spark serviceaccount and attach a proper role beforehand. Please refer to [Spark Operator's Getting Started Guide](https://www.kubeflow.org/docs/components/spark-operator/getting-started/#about-the-service-account-for-driver-pods) for details.
 {{% /alert %}}
 
 {{% alert title="Note" color="primary" %}}
@@ -58,5 +60,3 @@ By default, Kueue will set `suspend` to true via webhook and unsuspend it when t
 ## Sample SparkApplication
 
 {{< include "examples/jobs/sample-sparkapplication.yaml" "yaml" >}}
-
-Please remember that you will have to create spark serviceaccount and attach a proper role beforehand. Please refer to [Spark Operator's Getting Started Guide](https://www.kubeflow.org/docs/components/spark-operator/getting-started/#about-the-service-account-for-driver-pods) for details.
