@@ -586,17 +586,18 @@ func (c *Cache) UpdateWorkload(log logr.Logger, wl *kueue.Workload) error {
 }
 
 func (c *Cache) addOrUpdateWorkloadWithoutLock(log logr.Logger, wl *kueue.Workload) (bool, error) {
-	if workload.HasQuotaReservation(wl) {
-		cq := c.hm.ClusterQueue(wl.Status.Admission.ClusterQueue)
-		if cq == nil {
-			return false, ErrCqNotFound
-		}
-		c.addOrUpdateWorkloadWithQuota(log, wl, cq)
-		return true, nil
+	if !workload.HasQuotaReservation(wl) {
+		c.deleteAndUnassign(log, workload.Key(wl))
+		return false, nil
 	}
 
-	anyOperationsPerformed := c.deleteAndUnassign(log, workload.Key(wl))
-	return anyOperationsPerformed, nil
+	cq := c.hm.ClusterQueue(wl.Status.Admission.ClusterQueue)
+	if cq == nil {
+		return false, ErrCqNotFound
+	}
+
+	c.addOrUpdateWorkloadWithQuota(log, wl, cq)
+	return true, nil
 }
 
 func (c *Cache) addOrUpdateWorkloadWithQuota(log logr.Logger, wl *kueue.Workload, cq *clusterQueue) {
@@ -617,7 +618,7 @@ func (c *Cache) addOrUpdateWorkloadWithQuota(log logr.Logger, wl *kueue.Workload
 	cq.addOrUpdateWorkload(log, wl)
 }
 
-func (c *Cache) deleteAndUnassign(log logr.Logger, wlKey workload.Reference) bool {
+func (c *Cache) deleteAndUnassign(log logr.Logger, wlKey workload.Reference) {
 	assignedCqName, assigned := c.workloadAssignedQueues[wlKey]
 	if assigned {
 		if assignedCQ := c.hm.ClusterQueue(assignedCqName); assignedCQ != nil {
@@ -625,7 +626,6 @@ func (c *Cache) deleteAndUnassign(log logr.Logger, wlKey workload.Reference) boo
 		}
 		delete(c.workloadAssignedQueues, wlKey)
 	}
-	return assigned
 }
 
 func (c *Cache) DeleteWorkload(log logr.Logger, w *kueue.Workload) error {
