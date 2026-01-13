@@ -1,0 +1,23 @@
+# permissions for end users to view leaderworkersets.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: leaderworkerset-viewer-role
+  labels:
+    rbac.kueue.x-k8s.io/batch-admin: "true"
+    rbac.kueue.x-k8s.io/batch-user: "true"
+rules:
+- apiGroups:
+  - leaderworkerset.x-k8s.io
+  resources:
+  - leaderworkersets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - leaderworkerset.x-k8s.io
+  resources:
+  - leaderworkersets/status
+  verbs:
+  - get
