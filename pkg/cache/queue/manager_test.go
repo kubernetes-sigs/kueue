@@ -31,7 +31,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	testingclock "k8s.io/utils/clock/testing"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -1409,7 +1408,7 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 
 	cases := map[string]struct {
 		workloads []*kueue.Workload
-		deleted   sets.Set[workload.Reference]
+		update    func(*kueue.Workload)
 		passTime  time.Duration
 		wantReady sets.Set[workload.Reference]
 	}{
@@ -1426,19 +1425,24 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			passTime:  time.Second,
 			wantReady: sets.New(workload.Key(baseWorkloadNeedingSecondPass.Obj())),
 		},
-		"single queued workload deleted in the meanwhile": {
+		"workload stops needing second pass after being queued": {
 			workloads: []*kueue.Workload{
 				baseWorkloadNeedingSecondPass.DeepCopy(),
-				baseWorkloadNotNeedingSecondPass.DeepCopy(),
 			},
-			deleted:  sets.New(workload.Key(baseWorkloadNeedingSecondPass.Obj())),
-			passTime: time.Second,
+			update: func(wl *kueue.Workload) {
+				wl.Status.Admission = nil
+			},
+			passTime:  time.Second,
+			wantReady: nil,
 		},
-		"two queued workloads, one deleted in the meanwhile": {
+		"two queued workloads, one updated to no longer need second pass": {
 			workloads: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.Clone().Name("first").Obj(),
 				baseWorkloadNeedingSecondPass.Clone().Name("second").Obj(),
 			},
-			deleted:   sets.New(workload.Key(baseWorkloadNeedingSecondPass.Obj())),
+			update: func(wl *kueue.Workload) {
+				wl.Status.Admission = nil
+			},
 			passTime:  time.Second,
 			wantReady: sets.New(workload.NewReference("default", "second")),
 		},
@@ -1447,7 +1451,6 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			log := ctrl.LoggerFrom(ctx)
 
 			fakeClock := testingclock.NewFakeClock(now)
 			manager := NewManager(
@@ -1460,17 +1463,10 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 				manager.QueueSecondPassIfNeeded(ctx, wl, 0)
 			}
 
-			for _, ref := range tc.deleted.UnsortedList() {
-				parts := strings.SplitN(string(ref), "/", 2)
-				manager.DeleteWorkload(
-					log,
-					&kueue.Workload{
-						ObjectMeta: metav1.ObjectMeta{
-							Namespace: parts[0],
-							Name:      parts[1],
-						},
-					},
-				)
+			if tc.update != nil {
+				wl := tc.workloads[0]
+				tc.update(wl)
+				manager.QueueSecondPassIfNeeded(ctx, wl, 1)
 			}
 
 			fakeClock.Step(tc.passTime)
