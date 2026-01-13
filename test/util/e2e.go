@@ -309,6 +309,7 @@ func WaitForKueueAvailability(ctx context.Context, k8sClient client.Client) {
 	kcmKey := types.NamespacedName{Namespace: kueueNS, Name: "kueue-controller-manager"}
 	waitForDeploymentAvailability(ctx, k8sClient, kcmKey)
 	verifyNoControllerRestarts(ctx, k8sClient, kcmKey)
+	time.Sleep(time.Minute)
 }
 
 func WaitForAppWrapperAvailability(ctx context.Context, k8sClient client.Client) {
