@@ -114,7 +114,7 @@ type Cache struct {
 	workloadInfoOptions  []workload.InfoOption
 	fairSharingEnabled   bool
 	admissionFairSharing *config.AdmissionFairSharing
-	// Tracks Workload's ClusterQueue assignment throughout its presence in the cache.
+	// Tracks Workload's ClusterQueue assignment throughout its presence in the cache, which is when they reserve quota (`QuotaReserved=True`).
 	workloadAssignedQueues map[workload.Reference]kueue.ClusterQueueReference
 
 	hm hierarchy.Manager[*clusterQueue, *cohort]
