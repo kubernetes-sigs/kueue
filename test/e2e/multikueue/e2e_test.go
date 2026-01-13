@@ -537,6 +537,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 		ginkgo.It("Should preempt a running low-priority workload when a high-priority workload is admitted (same worker)", func() {
 			lowJob := testingjob.MakeJob("low-job", managerNs.Name).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				WorkloadPriorityClass(managerLowWPC.Name).
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "2").
@@ -566,6 +567,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 
 			highJob := testingjob.MakeJob("high-job", managerNs.Name).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				WorkloadPriorityClass(managerHighWPC.Name).
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "2").
@@ -612,6 +614,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 		ginkgo.It("Should preempt a running low-priority workload when a high-priority workload is admitted (other workers)", func() {
 			lowJob := testingjob.MakeJob("low-job", managerNs.Name).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				WorkloadPriorityClass(managerLowWPC.Name).
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "2").
@@ -641,6 +644,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 
 			highJob := testingjob.MakeJob("high-job", managerNs.Name).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				WorkloadPriorityClass(managerHighWPC.Name).
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "1").
