@@ -1282,7 +1282,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		)
 
 		ginkgo.BeforeAll(func() {
-			ginkgo.By("setting MultiKueue Dispatcher to Incremental", func() {
+			ginkgo.By("setting MultiKueueClusterProfile feature gate", func() {
 				defaultManagerKueueCfg = util.GetKueueConfiguration(ctx, k8sManagerClient)
 				newCfg := defaultManagerKueueCfg.DeepCopy()
 				util.UpdateKueueConfiguration(ctx, k8sManagerClient, newCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
@@ -1291,7 +1291,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 		})
 		ginkgo.AfterAll(func() {
-			ginkgo.By("setting MultiKueue Dispatcher back to AllAtOnce", func() {
+			ginkgo.By("reverting the configuration", func() {
 				util.ApplyKueueConfiguration(ctx, k8sManagerClient, defaultManagerKueueCfg)
 				util.RestartKueueController(ctx, k8sManagerClient, managerClusterName)
 			})
@@ -1308,8 +1308,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			}
 		})
 
-		ginkgo.It("Should be able to use ClusterProfile as way to connect worker cluster", func() {
-			ginkgo.By("Update MultiKueueConfig to include worker that use ClusterProfile", func() {
+		ginkgo.It("uses ClusterProfile as way to connect worker cluster", func() {
+			ginkgo.By("updating MultiKueueConfig to include worker that use ClusterProfile", func() {
 				createdMkConfig := &kueue.MultiKueueConfig{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(multiKueueConfig), createdMkConfig)).To(gomega.Succeed())
@@ -1320,7 +1320,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 			worker3MkClusterKey := client.ObjectKeyFromObject(workerCluster3)
-			ginkgo.By("Check MultiKueueCluster status", func() {
+			ginkgo.By("checking MultiKueueCluster status", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdCluster := &kueue.MultiKueueCluster{}
 					g.Expect(k8sManagerClient.Get(ctx, worker3MkClusterKey, createdCluster)).To(gomega.Succeed())
@@ -1336,20 +1336,20 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 
 			var cp *inventoryv1alpha1.ClusterProfile
-			ginkgo.By("Create missing ClusterProfile", func() {
+			ginkgo.By("creating missing ClusterProfile", func() {
 				cp = utiltestingapi.MakeClusterProfile("clusterprofile3", kueueNS).
 					ClusterManager("clustermanager3").
 					Obj()
 				util.MustCreate(ctx, k8sManagerClient, cp)
 			})
-			ginkgo.By("Check ClusterProfile exists", func() {
+			ginkgo.By("checking ClusterProfile exists", func() {
 				clusterProfileKey := client.ObjectKeyFromObject(cp)
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdClusterProfile := &inventoryv1alpha1.ClusterProfile{}
 					g.Expect(k8sManagerClient.Get(ctx, clusterProfileKey, createdClusterProfile)).To(gomega.Succeed())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
-			ginkgo.By("Trigger MultiKueueCluster reconciliation", func() {
+			ginkgo.By("triggering MultiKueueCluster reconciliation", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdCluster := &kueue.MultiKueueCluster{}
 					g.Expect(k8sManagerClient.Get(ctx, worker3MkClusterKey, createdCluster)).To(gomega.Succeed())
@@ -1358,7 +1358,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 			worker3MkClusterKey = client.ObjectKeyFromObject(workerCluster3)
-			ginkgo.By("Check MultiKueueCluster status again", func() {
+			ginkgo.By("checking MultiKueueCluster status again", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdCluster := &kueue.MultiKueueCluster{}
 					g.Expect(k8sManagerClient.Get(ctx, worker3MkClusterKey, createdCluster)).To(gomega.Succeed())
