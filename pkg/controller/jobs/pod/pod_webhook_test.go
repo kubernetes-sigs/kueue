@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -85,6 +86,7 @@ func TestDefault(t *testing.T) {
 	testCases := map[string]struct {
 		enableTopologyAwareScheduling bool
 
+		features                     map[featuregate.Feature]bool
 		initObjects                  []client.Object
 		pod                          *corev1.Pod
 		localQueueDefaulting         bool
@@ -97,6 +99,39 @@ func TestDefault(t *testing.T) {
 		want                         *corev1.Pod
 		wantErr                      error
 	}{
+		"pod with suspend by parent annotation shouldn't skip finalizer when SkipFinalizersForPodsSuspendedByParent disabled": {
+			features: map[featuregate.Feature]bool{
+				features.SkipFinalizersForPodsSuspendedByParent: false,
+			},
+			initObjects: []client.Object{defaultNamespace},
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				SuspendedByParent("test").
+				Queue("test-queue").
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				SuspendedByParent("test").
+				Queue("test-queue").
+				KueueSchedulingGate().
+				KueueFinalizer().
+				RoleHash("a9f06f3a").
+				Obj(),
+		},
+		"pod with suspend by parent annotation should skip finalizer when SkipFinalizersForPodsSuspendedByParent enabled": {
+			features: map[featuregate.Feature]bool{
+				features.SkipFinalizersForPodsSuspendedByParent: true,
+			},
+			initObjects: []client.Object{defaultNamespace},
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				SuspendedByParent("test").
+				Queue("test-queue").
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				SuspendedByParent("test").
+				Queue("test-queue").
+				KueueSchedulingGate().
+				RoleHash("a9f06f3a").
+				Obj(),
+		},
 		"pod with queue nil ns selector": {
 			initObjects: []client.Object{defaultNamespace},
 			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
@@ -522,6 +557,9 @@ func TestDefault(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			for feature, enabled := range tc.features {
+				features.SetFeatureGateDuringTest(t, feature, enabled)
+			}
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
 			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
 			t.Cleanup(jobframework.EnableIntegrationsForTest(t, tc.enableIntegrations...))
