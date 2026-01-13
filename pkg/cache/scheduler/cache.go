@@ -586,8 +586,14 @@ func (c *Cache) UpdateWorkload(log logr.Logger, wl *kueue.Workload) error {
 }
 
 func (c *Cache) addOrUpdateWorkloadWithoutLock(log logr.Logger, wl *kueue.Workload) (bool, error) {
+	wlKey := workload.Key(wl)
+	assignedCqName, assigned := c.workloadAssignedQueues[wlKey]
+
 	if !workload.HasQuotaReservation(wl) {
-		c.deleteAndUnassign(log, workload.Key(wl))
+		if assigned {
+			c.deleteFromQueueIfPresent(log, wlKey, assignedCqName)
+			delete(c.workloadAssignedQueues, wlKey)
+		}
 		return false, nil
 	}
 
@@ -596,18 +602,8 @@ func (c *Cache) addOrUpdateWorkloadWithoutLock(log logr.Logger, wl *kueue.Worklo
 		return false, ErrCqNotFound
 	}
 
-	c.addOrUpdateWorkloadWithQuota(log, wl, cq)
-	return true, nil
-}
-
-func (c *Cache) addOrUpdateWorkloadWithQuota(log logr.Logger, wl *kueue.Workload, cq *clusterQueue) {
-	wlKey := workload.Key(wl)
-	assignedCqName, assigned := c.workloadAssignedQueues[wlKey]
-
 	if assigned && assignedCqName != cq.Name {
-		if assignedCQ := c.hm.ClusterQueue(assignedCqName); assignedCQ != nil {
-			assignedCQ.deleteWorkload(log, wlKey)
-		}
+		c.deleteFromQueueIfPresent(log, wlKey, assignedCqName)
 	}
 
 	if c.podsReadyTracking {
@@ -616,15 +612,13 @@ func (c *Cache) addOrUpdateWorkloadWithQuota(log logr.Logger, wl *kueue.Workload
 
 	c.workloadAssignedQueues[wlKey] = cq.Name
 	cq.addOrUpdateWorkload(log, wl)
+
+	return true, nil
 }
 
-func (c *Cache) deleteAndUnassign(log logr.Logger, wlKey workload.Reference) {
-	assignedCqName, assigned := c.workloadAssignedQueues[wlKey]
-	if assigned {
-		if assignedCQ := c.hm.ClusterQueue(assignedCqName); assignedCQ != nil {
-			assignedCQ.deleteWorkload(log, wlKey)
-		}
-		delete(c.workloadAssignedQueues, wlKey)
+func (c *Cache) deleteFromQueueIfPresent(log logr.Logger, wlKey workload.Reference, cqName kueue.ClusterQueueReference) {
+	if cq := c.hm.ClusterQueue(cqName); cq != nil {
+		cq.deleteWorkload(log, wlKey)
 	}
 }
 
