@@ -428,7 +428,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 		if !workload.HasQuotaReservation(&w) || workload.IsFinished(&w) {
 			continue
 		}
-		c.addOrUpdateWorkload(log, &workloads.Items[i])
+		c.addOrUpdateWorkloadWithoutLock(log, &workloads.Items[i])
 	}
 
 	return nil
@@ -571,60 +571,47 @@ func (c *Cache) UpdateLocalQueue(oldQ, newQ *kueue.LocalQueue) error {
 func (c *Cache) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload) bool {
 	c.Lock()
 	defer c.Unlock()
-	return c.addOrUpdateWorkload(log, w)
-}
-
-func (c *Cache) addOrUpdateWorkload(log logr.Logger, w *kueue.Workload) bool {
-	if !workload.HasQuotaReservation(w) {
-		return false
-	}
-
-	clusterQueue := c.hm.ClusterQueue(w.Status.Admission.ClusterQueue)
-	if clusterQueue == nil {
-		return false
-	}
-
-	if c.podsReadyTracking {
-		c.podsReadyCond.Broadcast()
-	}
-	c.addOrUpdateWorkloadToQueue(log, w, clusterQueue)
-
-	return true
+	updated, _ := c.addOrUpdateWorkloadWithoutLock(log, w)
+	return updated
 }
 
 func (c *Cache) UpdateWorkload(log logr.Logger, wl *kueue.Workload) error {
 	c.Lock()
 	defer c.Unlock()
+	_, err := c.addOrUpdateWorkloadWithoutLock(log, wl)
+	return err
+}
 
-	if !workload.HasQuotaReservation(wl) {
-		return nil
-	}
-
+func (c *Cache) addOrUpdateWorkloadWithoutLock(log logr.Logger, wl *kueue.Workload) (bool, error) {
 	cq := c.hm.ClusterQueue(wl.Status.Admission.ClusterQueue)
 	if cq == nil {
-		return ErrCqNotFound
+		return false, ErrCqNotFound
+	}
+
+	wlKey := workload.Key(wl)
+	assignedCqName, assigned := c.workloadAssignedQueues[wlKey]
+	noQuotaReserved := !workload.HasQuotaReservation(wl)
+
+	if assigned && (assignedCqName != cq.Name || noQuotaReserved) {
+		// Cleanup stored data if queue assignment changed or workload no longer has quota reservation.
+		if assignedCQ := c.hm.ClusterQueue(assignedCqName); assignedCQ != nil {
+			assignedCQ.deleteWorkload(log, wlKey)
+		}
+		delete(c.workloadAssignedQueues, wlKey)
+	}
+
+	if noQuotaReserved {
+		return assigned, nil
 	}
 
 	if c.podsReadyTracking {
 		c.podsReadyCond.Broadcast()
 	}
-	c.addOrUpdateWorkloadToQueue(log, wl, cq)
-
-	return nil
-}
-
-func (c *Cache) addOrUpdateWorkloadToQueue(log logr.Logger, w *kueue.Workload, cq *clusterQueue) {
-	wlKey := workload.Key(w)
-
-	assignedCqName, assigned := c.workloadAssignedQueues[wlKey]
-	if assigned && assignedCqName != cq.Name {
-		if assignedCQ := c.hm.ClusterQueue(assignedCqName); assignedCQ != nil {
-			assignedCQ.deleteWorkload(log, wlKey)
-		}
-	}
 
 	c.workloadAssignedQueues[wlKey] = cq.Name
-	cq.addOrUpdateWorkload(log, w)
+	cq.addOrUpdateWorkload(log, wl)
+
+	return true, nil
 }
 
 func (c *Cache) DeleteWorkload(log logr.Logger, w *kueue.Workload) error {
