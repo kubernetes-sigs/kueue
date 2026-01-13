@@ -829,8 +829,8 @@ func TestWlReconcile(t *testing.T) {
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
-						State:   kueue.CheckStatePending,
-						Message: `Workload evicted on worker cluster: "worker1", resetting for re-admission`,
+						State:   kueue.CheckStateRetry,
+						Message: `Workload evicted on worker cluster: "worker1", resetting for re-admission. Previously: "Ready"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
@@ -840,15 +840,34 @@ func TestWlReconcile(t *testing.T) {
 			wantManagersJobs: []batchv1.Job{
 				*baseJobManagedByKueueBuilder.Clone().Active(1).Obj(),
 			},
-			wantWorker1Workloads: []kueue.Workload{},
-			wantWorker1Jobs:      []batchv1.Job{},
-			wantWorker2Workloads: []kueue.Workload{},
+			wantWorker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "ByTest",
+						Message: "Evicted by test",
+					}).
+					Obj(),
+			},
+			wantWorker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Active(1).
+					Obj(),
+			},
+			wantWorker2Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.DeepCopy(),
+			},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       client.ObjectKeyFromObject(baseWorkloadBuilder.Clone().Obj()),
 					EventType: "Normal",
 					Reason:    "MultiKueue",
-					Message:   `Workload evicted on worker cluster: "worker1", resetting for re-admission`,
+					Message:   `Workload evicted on worker cluster: "worker1", resetting for re-admission. Previously: "Ready"`,
 				},
 			},
 		},
