@@ -584,20 +584,22 @@ func (c *Cache) UpdateWorkload(log logr.Logger, wl *kueue.Workload) error {
 
 func (c *Cache) addOrUpdateWorkloadWithoutLock(log logr.Logger, wl *kueue.Workload) (bool, error) {
 	if workload.HasQuotaReservation(wl) {
-		err := c.addOrUpdateWorkloadWithQuota(log, wl)
-		return err == nil, err
+		cq := c.hm.ClusterQueue(wl.Status.Admission.ClusterQueue)
+		if cq == nil {
+			return false, ErrCqNotFound
+		}
+		c.addOrUpdateWorkloadWithQuota(log, wl, cq)
+		return true, nil
 	}
-	return c.cleanUpWorkloadWithoutQuota(log, workload.Key(wl)), nil
+
+	anyOperationsPerformed := c.deleteAndUnassign(log, workload.Key(wl))
+	return anyOperationsPerformed, nil
 }
 
-func (c *Cache) addOrUpdateWorkloadWithQuota(log logr.Logger, wl *kueue.Workload) error {
-	cq := c.hm.ClusterQueue(wl.Status.Admission.ClusterQueue)
-	if cq == nil {
-		return ErrCqNotFound
-	}
-
+func (c *Cache) addOrUpdateWorkloadWithQuota(log logr.Logger, wl *kueue.Workload, cq *clusterQueue) {
 	wlKey := workload.Key(wl)
 	assignedCqName, assigned := c.workloadAssignedQueues[wlKey]
+
 	if assigned && assignedCqName != cq.Name {
 		if assignedCQ := c.hm.ClusterQueue(assignedCqName); assignedCQ != nil {
 			assignedCQ.deleteWorkload(log, wlKey)
@@ -610,11 +612,9 @@ func (c *Cache) addOrUpdateWorkloadWithQuota(log logr.Logger, wl *kueue.Workload
 
 	c.workloadAssignedQueues[wlKey] = cq.Name
 	cq.addOrUpdateWorkload(log, wl)
-
-	return nil
 }
 
-func (c *Cache) cleanUpWorkloadWithoutQuota(log logr.Logger, wlKey workload.Reference) bool {
+func (c *Cache) deleteAndUnassign(log logr.Logger, wlKey workload.Reference) bool {
 	assignedCqName, assigned := c.workloadAssignedQueues[wlKey]
 	if assigned {
 		if assignedCQ := c.hm.ClusterQueue(assignedCqName); assignedCQ != nil {
