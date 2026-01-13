@@ -372,14 +372,12 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
 					g.Expect(workload.IsActive(updatedWl)).To(gomega.BeFalse())
-					ok, err := utiltesting.HasEventAppeared(ctx, k8sClient, corev1.Event{
-						Reason:  "AdmissionCheckRejected",
-						Type:    corev1.EventTypeWarning,
-						Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: %s", "check1", "check rejected"),
-					})
-					g.Expect(err).NotTo(gomega.HaveOccurred())
-					g.Expect(ok).To(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectEventAppeared(ctx, k8sClient, corev1.Event{
+					Reason:  "AdmissionCheckRejected",
+					Type:    corev1.EventTypeWarning,
+					Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: %s", "check1", "check rejected"),
+				})
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
@@ -453,14 +451,12 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
 					g.Expect(workload.IsActive(updatedWl)).To(gomega.BeFalse())
-					ok, err := utiltesting.HasEventAppeared(ctx, k8sClient, corev1.Event{
-						Reason:  "AdmissionCheckRejected",
-						Type:    corev1.EventTypeWarning,
-						Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: %s", "check1", "check rejected"),
-					})
-					g.Expect(err).NotTo(gomega.HaveOccurred())
-					g.Expect(ok).To(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectEventAppeared(ctx, k8sClient, corev1.Event{
+					Reason:  "AdmissionCheckRejected",
+					Type:    corev1.EventTypeWarning,
+					Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: %s", "check1", "check rejected"),
+				})
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())

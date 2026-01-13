@@ -41,7 +41,7 @@ const (
 	metricsReaderClusterRoleName = "kueue-metrics-reader"
 )
 
-var _ = ginkgo.Describe("Metrics", func() {
+var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:metrics"), func() {
 	var (
 		ns             *corev1.Namespace
 		resourceFlavor *kueue.ResourceFlavor

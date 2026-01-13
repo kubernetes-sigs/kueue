@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Kueue Certs", ginkgo.Serial, func() {
+var _ = ginkgo.Describe("Kueue Certs", ginkgo.Label("area:singlecluster", "feature:certs"), ginkgo.Serial, func() {
 	var (
 		ns             *corev1.Namespace
 		onDemandFlavor *kueue.ResourceFlavor

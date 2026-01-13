@@ -433,7 +433,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		ns := corev1.Namespace{}
 		e := entry{Info: w}
 		e.clusterQueueSnapshot = snap.ClusterQueue(w.ClusterQueue)
-		if !workload.NeedsSecondPass(w.Obj) && s.cache.IsAssumedOrAdmittedWorkload(w) {
+		if !workload.NeedsSecondPass(w.Obj) && s.cache.IsAdded(w) {
 			log.Info("Workload skipped from admission because it's already accounted in cache, and it does not need second pass", "workload", klog.KObj(w.Obj))
 			continue
 		} else if workload.HasRetryChecks(w.Obj) || workload.HasRejectedChecks(w.Obj) {
@@ -662,7 +662,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 		}
 		// Ignore errors because the workload or clusterQueue could have been deleted
 		// by an event.
-		_ = s.cache.ForgetWorkload(log, cacheWl)
+		_ = s.cache.DeleteWorkload(log, cacheWl)
 		if afs.Enabled(s.admissionFairSharing) {
 			s.updateEntryPenalty(log, e, subtract)
 		}
@@ -689,8 +689,8 @@ func (s *Scheduler) prepareWorkload(log logr.Logger, wl *kueue.Workload, cq *sch
 func (s *Scheduler) assumeWorkload(log logr.Logger, e *entry, cq *schdcache.ClusterQueueSnapshot, admission *kueue.Admission) (*kueue.Workload, error) {
 	cacheWl := e.Obj.DeepCopy()
 	s.prepareWorkload(log, cacheWl, cq, admission)
-	if err := s.cache.AssumeWorkload(log, cacheWl); err != nil {
-		return nil, err
+	if added := s.cache.AddOrUpdateWorkload(log, cacheWl); !added {
+		return nil, fmt.Errorf("workload %s/%s could not be added to the cache", cacheWl.Namespace, cacheWl.Name)
 	}
 
 	e.status = assumed

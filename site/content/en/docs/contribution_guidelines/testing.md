@@ -163,6 +163,24 @@ INTEGRATION_FILTERS="--label-filter=feature:tas" make test-integration
 INTEGRATION_FILTERS="--label-filter=feature:fairsharing" make test-integration
 ```
 
+### Use label filters for e2e singlecluster tests
+SingleCluster tests are labeled by feature and area. You can use `GINKGO_ARGS` with `--label-filter` to run specific tests:
+
+**Label Taxonomy:**
+- Features: `appwrapper,certs,deployment,job,fairsharing,jaxjob,jobset,kuberay,kueuectl,leaderworkerset,metrics,pod,pytorchjob,statefulset,tas,trainjob,visibility,e2e_v1beta1`
+
+**Examples:**
+```shell
+# Run only appwrapper tests
+GINKGO_ARGS="--label-filter=feature:appwrapper" make test-e2e
+
+# Run only deployment tests with helm
+GINKGO_ARGS="--label-filter=feature:deployment" make test-e2e-helm
+
+# Run only jobset and trainjob tests with helm
+GINKGO_ARGS="--label-filter=feature:jobset,feature:trainjob" make test-e2e
+```
+
 ### Use Ginkgo --focus arg
 ```shell
 GINKGO_ARGS="--focus=Scheduler" make test-integration
