@@ -104,7 +104,9 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook")
 	log.V(5).Info("Applying defaults")
 
-	_, suspend := pod.pod.GetAnnotations()[podconstants.SuspendedByParentAnnotation]
+	_, suspendByParent := pod.pod.GetAnnotations()[podconstants.SuspendedByParentAnnotation]
+
+	suspend := suspendByParent
 	if !suspend {
 		// Namespace filtering
 		ns := corev1.Namespace{}
@@ -164,7 +166,10 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	}
 
 	if suspend {
-		controllerutil.AddFinalizer(pod.Object(), podconstants.PodFinalizer)
+		if !features.Enabled(features.SkipFinalizersForPodsSuspendedByParent) || !suspendByParent {
+			controllerutil.AddFinalizer(pod.Object(), podconstants.PodFinalizer)
+		}
+
 		gate(&pod.pod)
 
 		if features.Enabled(features.TopologyAwareScheduling) {
