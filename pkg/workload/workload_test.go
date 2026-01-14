@@ -1853,6 +1853,13 @@ func TestWorkloadPriorityClassChanged(t *testing.T) {
 				Obj(),
 			wantChanged: true,
 		},
+		"priority class added (none -> some)": {
+			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				WorkloadPriorityClassRef("priority-1").
+				Obj(),
+			wantChanged: true,
+		},
 		"priority class removed (some -> none) - blocked by validation": {
 			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				WorkloadPriorityClassRef("priority-1").
