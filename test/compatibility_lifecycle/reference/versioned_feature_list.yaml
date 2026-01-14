@@ -119,6 +119,18 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.15"
+- name: MultiKueueRedoAdmissionOnEvictionInWorker
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.16"
+- name: MultiKueueWaitForWorkloadAdmitted
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.16"
 - name: ObjectRetentionPolicies
   versionedSpecs:
   - default: false
@@ -163,6 +175,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.13"
+- name: SkipFinalizersForPodsSuspendedByParent
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.16"
 - name: TASBalancedPlacement
   versionedSpecs:
   - default: false

@@ -19,8 +19,12 @@ set -o nounset
 set -o pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MOD_FILE="${REPO_ROOT}/hack/internal/tools/go.mod"
-K8S_TOOL_PKG="k8s.io/kubernetes/test/compatibility_lifecycle"
+BIN_DIR="${REPO_ROOT}/bin"
+COMPAT_LIFECYCLE_BIN="${BIN_DIR}/compatibility-lifecycle"
+COMPAT_LIFECYCLE_BIN_STAMP="${BIN_DIR}/compatibility-lifecycle.version"
+K8S_REPO_URL="${K8S_REPO_URL:-https://github.com/kubernetes/kubernetes.git}"
+K8S_REPO_REF="${K8S_REPO_REF:-v1.34.2}"
+K8S_CACHE_DIR="${REPO_ROOT}/.cache/compatibility_lifecycle/kubernetes-${K8S_REPO_REF}"
 REFERENCE_FILE="${REPO_ROOT}/test/compatibility_lifecycle/reference/versioned_feature_list.yaml"
 SITE_DATA_FILE="${REPO_ROOT}/site/data/featuregates/versioned_feature_list.yaml"
 
@@ -29,10 +33,34 @@ if [[ ! -f "${REFERENCE_FILE}" ]]; then
   exit 1
 fi
 
-if ! go run -mod=mod -modfile="${MOD_FILE}" "${K8S_TOOL_PKG}" feature-gates verify; then
+need_build=true
+if [[ -x "${COMPAT_LIFECYCLE_BIN}" && -f "${COMPAT_LIFECYCLE_BIN_STAMP}" ]]; then
+  if [[ "$(cat "${COMPAT_LIFECYCLE_BIN_STAMP}")" == "${K8S_REPO_REF}" ]]; then
+    need_build=false
+  fi
+fi
+
+if [[ "${need_build}" == "true" ]]; then
+  mkdir -p "${BIN_DIR}"
+  mkdir -p "$(dirname "${K8S_CACHE_DIR}")"
+  if [[ ! -d "${K8S_CACHE_DIR}/.git" ]]; then
+    rm -rf "${K8S_CACHE_DIR}"
+    git clone --depth=1 --branch "${K8S_REPO_REF}" "${K8S_REPO_URL}" "${K8S_CACHE_DIR}"
+  fi
+  pushd "${K8S_CACHE_DIR}" >/dev/null
+  go build -o "${COMPAT_LIFECYCLE_BIN}" ./test/compatibility_lifecycle
+  popd >/dev/null
+  echo -n "${K8S_REPO_REF}" > "${COMPAT_LIFECYCLE_BIN_STAMP}"
+fi
+
+mkdir -p "${REPO_ROOT}/staging"
+pushd "${REPO_ROOT}" >/dev/null
+if ! "${COMPAT_LIFECYCLE_BIN}" feature-gates verify; then
+  popd >/dev/null
   echo "Please run 'hack/update-featuregates.sh' to regenerate feature gates." >&2
   exit 1
 fi
+popd >/dev/null
 
 if ! cmp -s "${REFERENCE_FILE}" "${SITE_DATA_FILE}"; then
   echo "Feature-gate YAML under site/data/featuregates is out of sync. Re-run hack/update-featuregates.sh." >&2
