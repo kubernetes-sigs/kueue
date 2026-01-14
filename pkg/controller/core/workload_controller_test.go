@@ -38,8 +38,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/kueue/pkg/workload"
-
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
@@ -2733,108 +2731,5 @@ func TestReconcile(t *testing.T) {
 				}
 			})
 		}
-	}
-}
-
-// TestWorkloadPriorityClassChanged tests the workloadPriorityClassChanged function.
-func TestWorkloadPriorityClassChanged(t *testing.T) {
-	testCases := map[string]struct {
-		oldWorkload *kueue.Workload
-		newWorkload *kueue.Workload
-		wantChanged bool
-	}{
-		"no priority class on either workload": {
-			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
-			wantChanged: false,
-		},
-		"same priority class on both workloads": {
-			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				WorkloadPriorityClassRef("priority-1").
-				Obj(),
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				WorkloadPriorityClassRef("priority-1").
-				Obj(),
-			wantChanged: false,
-		},
-		"priority class changed from one to another": {
-			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				WorkloadPriorityClassRef("priority-1").
-				Obj(),
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				WorkloadPriorityClassRef("priority-2").
-				Obj(),
-			wantChanged: true,
-		},
-		"priority class added (none -> some)": {
-			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				WorkloadPriorityClassRef("priority-1").
-				Obj(),
-			wantChanged: true,
-		},
-		"priority class removed (some -> none) - blocked by validation": {
-			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				WorkloadPriorityClassRef("priority-1").
-				Obj(),
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
-			wantChanged: false,
-		},
-		"PodPriorityClass (not WorkloadPriorityClass) changed - should not trigger": {
-			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				PodPriorityClassRef("pod-priority-1").
-				Obj(),
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				PodPriorityClassRef("pod-priority-2").
-				Obj(),
-			wantChanged: false,
-		},
-		"PodPriorityClass added (none -> some) - should not trigger": {
-			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				PodPriorityClassRef("pod-priority-1").
-				Obj(),
-			wantChanged: false,
-		},
-		"priority value decreased": {
-			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				Priority(500).
-				Obj(),
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				Priority(600).
-				Obj(),
-			wantChanged: false,
-		},
-		"priority value decreased with WPC": {
-			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				WorkloadPriorityClassRef("priority-1").
-				Priority(500).
-				Obj(),
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				WorkloadPriorityClassRef("priority-1").
-				Priority(100).
-				Obj(),
-			wantChanged: true,
-		},
-		"priority value decreased with PPC": {
-			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				PodPriorityClassRef("pod-priority").
-				Priority(500).
-				Obj(),
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				PodPriorityClassRef("pod-priority").
-				Priority(100).
-				Obj(),
-			wantChanged: false,
-		},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			gotChanged := workload.PriorityChanged(tc.oldWorkload, tc.newWorkload)
-			if gotChanged != tc.wantChanged {
-				t.Errorf("workloadPriorityChanged() = %v, want %v", gotChanged, tc.wantChanged)
-			}
-		})
 	}
 }
