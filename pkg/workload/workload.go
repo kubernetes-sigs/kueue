@@ -1550,11 +1550,11 @@ func ResetRequeue(wl *kueue.Workload) bool {
 
 func PriorityChanged(old, new *kueue.Workload) bool {
 	// Updates to Pod Priority are not supported.
-	if !IsWorkloadPriorityClass(old) || !IsWorkloadPriorityClass(new) {
+	if IsPodPriorityClass(old) || !IsWorkloadPriorityClass(new) {
 		return false
 	}
 	// Check if priority class reference changed.
-	if PriorityClassName(old) != "" && PriorityClassName(new) != "" &&
+	if PriorityClassName(new) != "" &&
 		PriorityClassName(old) != PriorityClassName(new) {
 		return true
 	}

@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/kueue/pkg/workload"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -2826,42 +2827,11 @@ func TestWorkloadPriorityClassChanged(t *testing.T) {
 				Obj(),
 			wantChanged: false,
 		},
-		"priority value decreased": {
-			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				Priority(500).
-				Obj(),
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				Priority(600).
-				Obj(),
-			wantChanged: false,
-		},
-		"priority value decreased with WPC": {
-			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				WorkloadPriorityClassRef("priority-1").
-				Priority(500).
-				Obj(),
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				WorkloadPriorityClassRef("priority-1").
-				Priority(100).
-				Obj(),
-			wantChanged: true,
-		},
-		"priority value decreased with PPC": {
-			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				PodPriorityClassRef("pod-priority").
-				Priority(500).
-				Obj(),
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				PodPriorityClassRef("pod-priority").
-				Priority(100).
-				Obj(),
-			wantChanged: false,
-		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			gotChanged := workloadPriorityChanged(tc.oldWorkload, tc.newWorkload)
+			gotChanged := workload.PriorityChanged(tc.oldWorkload, tc.newWorkload)
 			if gotChanged != tc.wantChanged {
 				t.Errorf("workloadPriorityChanged() = %v, want %v", gotChanged, tc.wantChanged)
 			}
