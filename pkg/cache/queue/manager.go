@@ -842,6 +842,7 @@ func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload, iterat
 	key := workload.Key(w)
 
 	if !m.secondPassQueue.prequeued.Has(key) {
+		m.secondPassQueue.deleteByKey(key)
 		return
 	}
 
