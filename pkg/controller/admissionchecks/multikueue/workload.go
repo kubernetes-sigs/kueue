@@ -46,6 +46,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
@@ -403,9 +404,13 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		}
 	}
 
-	// 6. Get the first reserving
-	if remoteQuotaReservedCond, reservingRemote := group.bestMatchByCondition(kueue.WorkloadQuotaReserved); remoteQuotaReservedCond != nil {
-		// remove the non-reserving worker workloads
+	// 6. Get the first reserving/admitted workload.
+	conditionToCheck := kueue.WorkloadAdmitted
+	if !features.Enabled(features.MultiKueueWaitForWorkloadAdmitted) {
+		conditionToCheck = kueue.WorkloadQuotaReserved
+	}
+	if remoteCond, reservingRemote := group.bestMatchByCondition(conditionToCheck); remoteCond != nil {
+		// remove the non-selected worker workloads
 		for rem, remWl := range group.remotes {
 			if remWl != nil && rem != reservingRemote {
 				if err := client.IgnoreNotFound(group.RemoveRemoteObjects(ctx, rem)); err != nil {

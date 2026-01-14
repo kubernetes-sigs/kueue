@@ -234,6 +234,12 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/5298
 	// Enabled skip adding finalizers for serving workloads.
 	SkipFinalizersForPodsSuspendedByParent featuregate.Feature = "SkipFinalizersForPodsSuspendedByParent"
+
+	// owner: @IrvingMg
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/8585
+	// Enable waiting for WorkloadAdmitted before cleaning up non-selected worker workloads.
+	MultiKueueWaitForWorkloadAdmitted featuregate.Feature = "MultiKueueWaitForWorkloadAdmitted"
 )
 
 func init() {
@@ -365,6 +371,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	SkipFinalizersForPodsSuspendedByParent: {
+		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
+	},
+
+	MultiKueueWaitForWorkloadAdmitted: {
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
 	},
 }

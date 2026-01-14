@@ -458,6 +458,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 		ginkgo.It("should admit workload when nodes are provisioned", func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueBatchJobWithManagedBy, true)
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueWaitForWorkloadAdmitted, false)
 
 			job := testingjob.MakeJob("job", managerNs.Name).
 				ManagedBy(kueue.MultiKueueControllerName).
