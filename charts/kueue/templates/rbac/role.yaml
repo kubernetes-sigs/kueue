@@ -353,6 +353,7 @@ rules:
   - apiGroups:
       - resource.k8s.io
     resources:
+      - deviceclasses
       - resourceclaims
       - resourceclaimtemplates
     verbs:
