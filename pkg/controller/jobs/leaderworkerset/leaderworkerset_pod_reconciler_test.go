@@ -153,20 +153,13 @@ func TestPodReconciler(t *testing.T) {
 				t.Fatalf("Could not list Pods after reconcile: %v", err)
 			}
 
-			var gotPod *corev1.Pod
-			if tc.wantPod == nil {
-				if len(gotPods.Items) != 0 {
-					t.Errorf("Expected no pods, but got %d pod(s)", len(gotPods.Items))
-				}
-			} else {
-				if len(gotPods.Items) != 1 {
-					t.Fatalf("Expected 1 pod, but got %d pod(s)", len(gotPods.Items))
-				}
-				gotPod = &gotPods.Items[0]
+			var wantPods []corev1.Pod
+			if tc.wantPod != nil {
+				wantPods = []corev1.Pod{*tc.wantPod}
 			}
 
-			if diff := cmp.Diff(tc.wantPod, gotPod, baseCmpOpts...); diff != "" {
-				t.Errorf("Pod after reconcile (-want,+got):\n%s", diff)
+			if diff := cmp.Diff(wantPods, gotPods.Items, baseCmpOpts...); diff != "" {
+				t.Errorf("Pods after reconcile (-want,+got):\n%s", diff)
 			}
 		})
 	}

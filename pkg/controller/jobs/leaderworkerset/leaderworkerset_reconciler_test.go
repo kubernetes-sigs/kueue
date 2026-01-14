@@ -23,6 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -665,21 +666,12 @@ func TestReconciler(t *testing.T) {
 				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
 			}
 
-			gotLeaderWorkerSets := &leaderworkersetv1.LeaderWorkerSetList{}
-			if err := kClient.List(ctx, gotLeaderWorkerSets, client.InNamespace(tc.leaderWorkerSet.Namespace)); err != nil {
-				t.Fatalf("Could not list LeaderWorkerSets after reconcile: %v", err)
-			}
-
-			var gotLeaderWorkerSet *leaderworkersetv1.LeaderWorkerSet
-			if tc.wantLeaderWorkerSet == nil {
-				if len(gotLeaderWorkerSets.Items) != 0 {
-					t.Errorf("Expected no LeaderWorkerSets, but got %d", len(gotLeaderWorkerSets.Items))
+			gotLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
+			if err := kClient.Get(ctx, lwsKey, gotLeaderWorkerSet); err != nil {
+				if !errors.IsNotFound(err) {
+					t.Fatalf("Could not get LeaderWorkerSet after reconcile: %v", err)
 				}
-			} else {
-				if len(gotLeaderWorkerSets.Items) != 1 {
-					t.Fatalf("Expected 1 LeaderWorkerSet, but got %d", len(gotLeaderWorkerSets.Items))
-				}
-				gotLeaderWorkerSet = &gotLeaderWorkerSets.Items[0]
+				gotLeaderWorkerSet = nil
 			}
 
 			if diff := cmp.Diff(tc.wantLeaderWorkerSet, gotLeaderWorkerSet, baseCmpOpts...); diff != "" {
