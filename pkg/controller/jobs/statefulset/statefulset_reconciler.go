@@ -132,7 +132,7 @@ func ungateAndFinalize(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
 		updated = true
 	}
 
-	// TODO (#8530): As discussed in https://github.com/kubernetes-sigs/kueue/pull/8530#discussion_r2681240298,
+	// TODO (#8571): As discussed in https://github.com/kubernetes-sigs/kueue/issues/8571,
 	// this check should be removed in v0.20.
 	if shouldFinalize(sts, pod) && controllerutil.RemoveFinalizer(pod, podcontroller.PodFinalizer) {
 		updated = true
