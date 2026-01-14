@@ -429,3 +429,90 @@ func TestHasLevel(t *testing.T) {
 		})
 	}
 }
+
+// TestSortedDomainsWithLeader verifies the sorting criteria (in order of priority):
+// 1. leaderState - descending (always)
+// 2. sliceStateWithLeader - descending (BestFit) or ascending (LeastFreeCapacity)
+// 3. stateWithLeader - ascending (always, as tiebreaker)
+// 4. levelValues - ascending (always, as final tiebreaker)
+func TestSortedDomainsWithLeader(t *testing.T) {
+	levels := []string{"block"}
+
+	testCases := map[string]struct {
+		domains       []*domain
+		unconstrained bool
+		wantOrder     []string
+	}{
+		"leaderState descending: domains that can host leader come first": {
+			domains: []*domain{
+				{id: "no-leader", leaderState: 0, sliceStateWithLeader: 10, stateWithLeader: 10, levelValues: []string{"a"}},
+				{id: "has-leader", leaderState: 1, sliceStateWithLeader: 1, stateWithLeader: 1, levelValues: []string{"b"}},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"has-leader", "no-leader"},
+		},
+		"BestFit: sliceStateWithLeader descending": {
+			domains: []*domain{
+				{id: "a", leaderState: 1, sliceStateWithLeader: 3, stateWithLeader: 1, levelValues: []string{"a"}},
+				{id: "b", leaderState: 1, sliceStateWithLeader: 1, stateWithLeader: 1, levelValues: []string{"b"}},
+				{id: "c", leaderState: 1, sliceStateWithLeader: 2, stateWithLeader: 1, levelValues: []string{"c"}},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"a", "c", "b"},
+		},
+		"LeastFreeCapacity: sliceStateWithLeader ascending": {
+			domains: []*domain{
+				{id: "a", leaderState: 1, sliceStateWithLeader: 3, stateWithLeader: 1, levelValues: []string{"a"}},
+				{id: "b", leaderState: 1, sliceStateWithLeader: 1, stateWithLeader: 1, levelValues: []string{"b"}},
+				{id: "c", leaderState: 1, sliceStateWithLeader: 2, stateWithLeader: 1, levelValues: []string{"c"}},
+			},
+			unconstrained: true,
+			wantOrder:     []string{"b", "c", "a"},
+		},
+		"BestFit: stateWithLeader ascending as tiebreaker": {
+			domains: []*domain{
+				{id: "large", leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 100, levelValues: []string{"a"}},
+				{id: "small", leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"b"}},
+				{id: "medium", leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 50, levelValues: []string{"c"}},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"small", "medium", "large"},
+		},
+		"LeastFreeCapacity: stateWithLeader ascending as tiebreaker": {
+			domains: []*domain{
+				{id: "large", leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 100, levelValues: []string{"a"}},
+				{id: "small", leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"b"}},
+				{id: "medium", leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 50, levelValues: []string{"c"}},
+			},
+			unconstrained: true,
+			wantOrder:     []string{"small", "medium", "large"},
+		},
+		"levelValues ascending as final tiebreaker": {
+			domains: []*domain{
+				{id: "c", leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"c"}},
+				{id: "a", leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"a"}},
+				{id: "b", leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"b"}},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"a", "b", "c"},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
+			s := newTASFlavorSnapshot(log, "test", levels, nil)
+
+			sorted := s.sortedDomainsWithLeader(tc.domains, tc.unconstrained)
+
+			gotOrder := make([]string, len(sorted))
+			for i, d := range sorted {
+				gotOrder[i] = string(d.id)
+			}
+
+			if diff := cmp.Diff(tc.wantOrder, gotOrder); diff != "" {
+				t.Errorf("unexpected domain order (-want,+got): %s", diff)
+			}
+		})
+	}
+}
