@@ -37,14 +37,15 @@ const (
 )
 
 type SetupOptions struct {
-	gcInterval           time.Duration
-	origin               string
-	workerLostTimeout    time.Duration
-	eventsBatchPeriod    time.Duration
-	adapters             map[string]jobframework.MultiKueueAdapter
-	dispatcherName       string
-	clusterProfileConfig *configapi.ClusterProfile
-	roleTracker          *roletracker.RoleTracker
+	gcInterval                     time.Duration
+	origin                         string
+	workerLostTimeout              time.Duration
+	eventsBatchPeriod              time.Duration
+	adapters                       map[string]jobframework.MultiKueueAdapter
+	dispatcherName                 string
+	clusterProfileConfig           *configapi.ClusterProfile
+	roleTracker                    *roletracker.RoleTracker
+	requireAllAdmissionChecksReady bool
 }
 
 type SetupOption func(o *SetupOptions)
@@ -108,14 +109,22 @@ func WithRoleTracker(tracker *roletracker.RoleTracker) SetupOption {
 	}
 }
 
+// WithRequireAllAdmissionChecksReady sets whether all admission checks must be ready
+func WithRequireAllAdmissionChecksReady(required bool) SetupOption {
+	return func(o *SetupOptions) {
+		o.requireAllAdmissionChecksReady = required
+	}
+}
+
 func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) error {
 	options := &SetupOptions{
-		gcInterval:        defaultGCInterval,
-		origin:            defaultOrigin,
-		workerLostTimeout: defaultWorkerLostTimeout,
-		eventsBatchPeriod: constants.UpdatesBatchPeriod,
-		adapters:          make(map[string]jobframework.MultiKueueAdapter),
-		dispatcherName:    configapi.MultiKueueDispatcherModeAllAtOnce,
+		gcInterval:                     defaultGCInterval,
+		origin:                         defaultOrigin,
+		workerLostTimeout:              defaultWorkerLostTimeout,
+		eventsBatchPeriod:              constants.UpdatesBatchPeriod,
+		adapters:                       make(map[string]jobframework.MultiKueueAdapter),
+		dispatcherName:                 configapi.MultiKueueDispatcherModeAllAtOnce,
+		requireAllAdmissionChecksReady: false,
 	}
 
 	for _, o := range opts {
@@ -161,6 +170,7 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 	}
 
 	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec, options.origin, mgr.GetEventRecorderFor(constants.WorkloadControllerName),
-		options.workerLostTimeout, options.eventsBatchPeriod, options.adapters, options.dispatcherName, options.roleTracker)
+		options.workerLostTimeout, options.eventsBatchPeriod, options.adapters, options.dispatcherName, options.roleTracker,
+		options.requireAllAdmissionChecksReady)
 	return wlRec.setupWithManager(mgr)
 }

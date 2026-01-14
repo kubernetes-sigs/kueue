@@ -277,6 +277,12 @@ type MultiKueue struct {
 	// ClusterProfile defines configuration for using the ClusterProfile API.
 	// +optional
 	ClusterProfile *ClusterProfile `json:"clusterProfile,omitempty"`
+
+	// RequireAllAdmissionChecksReady determines whether all admission checks must be
+	// in Ready state for a workload to be considered when selecting which remote cluster
+	// reserved quota first. Defaults to false.
+	// +optional
+	RequireAllAdmissionChecksReady *bool `json:"requireAllAdmissionChecksReady,omitempty"`
 }
 
 // MultiKueueExternalFramework defines a framework that is not built-in.
