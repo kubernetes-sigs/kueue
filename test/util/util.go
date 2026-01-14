@@ -347,18 +347,21 @@ func filterWorkloads(ctx context.Context, k8sClient client.Client, filter func(*
 }
 
 func ExpectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
+	ginkgo.GinkgoHelper()
 	wlKeys := workloadKeys(wls...)
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		pending := sets.New[client.ObjectKey]()
-		var updatedWorkload kueue.Workload
-		for _, wl := range wls {
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
-			cond := apimeta.FindStatusCondition(updatedWorkload.Status.Conditions, kueue.WorkloadQuotaReserved)
-			if cond == nil {
-				continue
-			}
-			if cond.Status == metav1.ConditionFalse && cond.Reason == "Pending" {
-				pending.Insert(client.ObjectKeyFromObject(wl))
+	ExpectWorkloadsToBePendingByKeys(ctx, k8sClient, wlKeys.UnsortedList()...)
+}
+
+func ExpectWorkloadsToBePendingByKeys(ctx context.Context, k8sClient client.Client, wlKeys ...client.ObjectKey) {
+	ginkgo.GinkgoHelper()
+	wl := &kueue.Workload{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		pending := make([]client.ObjectKey, 0, len(wlKeys))
+		for _, wlKey := range wlKeys {
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+			cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+			if cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == "Pending" {
+				pending = append(pending, wlKey)
 			}
 		}
 		g.Expect(pending).Should(gomega.Equal(wlKeys), "Unexpected workloads are pending")

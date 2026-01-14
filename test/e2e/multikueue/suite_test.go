@@ -91,7 +91,7 @@ func policyRule(group, resource string, verbs ...string) rbacv1.PolicyRule {
 // - the server URL is set to https://<clusterName>-control-plane:6443.
 func kubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig *rest.Config, ns string, prefix string, clusterName string) ([]byte, error) {
 	roleName := prefix + "-role"
-	resourceVerbs := []string{"create", "patch", "delete", "get", "list", "watch"}
+	resourceVerbs := []string{"create", "update", "patch", "delete", "get", "list", "watch"}
 	cr := &rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{Name: roleName},
 		Rules: []rbacv1.PolicyRule{
