@@ -26,3 +26,7 @@ resources:
   - name: gpu
     deviceClassNames:
     - gpu.example.com
+    # DeviceClass with extendedResourceName for Extended Resources backed by DRA testing
+    - gpu-extended.example.com
+    # DeviceClass for late creation test (re-queue on DeviceClass creation)
+    - late-gpu.example.com

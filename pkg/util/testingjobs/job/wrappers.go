@@ -221,6 +221,12 @@ func (j *JobWrapper) Containers(containers ...corev1.Container) *JobWrapper {
 	return j
 }
 
+// InitContainers sets the init containers for the pod template.
+func (j *JobWrapper) InitContainers(containers ...corev1.Container) *JobWrapper {
+	j.Spec.Template.Spec.InitContainers = containers
+	return j
+}
+
 // UID updates the uid of the job.
 func (j *JobWrapper) UID(uid string) *JobWrapper {
 	j.ObjectMeta.UID = types.UID(uid)

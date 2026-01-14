@@ -65,9 +65,14 @@ func TestIsExtendedResourceName(t *testing.T) {
 			want:     true,
 		},
 		{
-			name:     "custom-resource is extended resource",
+			name:     "unqualified name is not extended resource",
 			resource: "custom-resource",
-			want:     true,
+			want:     false,
+		},
+		{
+			name:     "hugepages is not extended resource",
+			resource: "hugepages-2Mi",
+			want:     false,
 		},
 	}
 
