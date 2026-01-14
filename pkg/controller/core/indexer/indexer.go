@@ -29,19 +29,21 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
+	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 )
 
 const (
-	WorkloadQueueKey           = "spec.queueName"
-	WorkloadClusterQueueKey    = "status.admission.clusterQueue"
-	QueueClusterQueueKey       = "spec.clusterQueue"
-	LimitRangeHasContainerType = "spec.hasContainerType"
-	WorkloadQuotaReservedKey   = "status.quotaReserved"
-	WorkloadRuntimeClassKey    = "spec.runtimeClass"
-	OwnerReferenceUID          = "metadata.ownerReferences.uid"
-	WorkloadAdmissionCheckKey  = "status.admissionChecks"
-	WorkloadPriorityClassKey   = "spec.priorityClassRef"
+	WorkloadQueueKey              = "spec.queueName"
+	WorkloadClusterQueueKey       = "status.admission.clusterQueue"
+	QueueClusterQueueKey          = "spec.clusterQueue"
+	LimitRangeHasContainerType    = "spec.hasContainerType"
+	WorkloadQuotaReservedKey      = "status.quotaReserved"
+	WorkloadRuntimeClassKey       = "spec.runtimeClass"
+	OwnerReferenceUID             = "metadata.ownerReferences.uid"
+	WorkloadAdmissionCheckKey     = "status.admissionChecks"
+	WorkloadPriorityClassKey      = "spec.priorityClassRef"
+	WorkloadExtendedResourceIndex = "spec.podSets.extendedResources"
 	// WorkloadSliceNameKey is an index for pods by their workload slice name annotation.
 	// Used to find pods belonging to an elastic workload slice chain.
 	WorkloadSliceNameKey = "metadata.workloadSliceName"
@@ -206,6 +208,33 @@ func IndexWorkloadPriorityClass(obj client.Object) []string {
 	return []string{wl.Spec.PriorityClassRef.Name}
 }
 
+// IndexWorkloadExtendedResources indexes workloads by the extended resource names they request.
+func IndexWorkloadExtendedResources(obj client.Object) []string {
+	wl, ok := obj.(*kueue.Workload)
+	if !ok {
+		return nil
+	}
+	extResources := sets.New[string]()
+	for i := range wl.Spec.PodSets {
+		ps := &wl.Spec.PodSets[i]
+		for _, c := range ps.Template.Spec.InitContainers {
+			for resName, qty := range c.Resources.Requests {
+				if !qty.IsZero() && utilresource.IsExtendedResourceName(resName) {
+					extResources.Insert(string(resName))
+				}
+			}
+		}
+		for _, c := range ps.Template.Spec.Containers {
+			for resName, qty := range c.Resources.Requests {
+				if !qty.IsZero() && utilresource.IsExtendedResourceName(resName) {
+					extResources.Insert(string(resName))
+				}
+			}
+		}
+	}
+	return extResources.UnsortedList()
+}
+
 // Setup sets the index with the given fields for core apis.
 func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadQueueKey, IndexWorkloadQueue); err != nil {
@@ -246,6 +275,12 @@ func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 		// TODO(sohankunkerkar): remove in 0.18
 		if err := indexer.IndexField(ctx, &corev1.Pod{}, OwnerReferenceUID, IndexOwnerUID); err != nil {
 			return fmt.Errorf("setting index on ownerReferences.uid for Pod: %w", err)
+		}
+	}
+	// Index workloads by extended resources for efficient lookup on DeviceClass changes.
+	if features.Enabled(features.DynamicResourceAllocation) {
+		if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadExtendedResourceIndex, IndexWorkloadExtendedResources); err != nil {
+			return fmt.Errorf("setting index on extendedResources for Workload: %w", err)
 		}
 	}
 	return nil

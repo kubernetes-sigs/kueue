@@ -17,6 +17,8 @@ limitations under the License.
 package resource
 
 import (
+	"strings"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
@@ -128,4 +130,9 @@ func IsZero(rl corev1.ResourceList) bool {
 	}
 
 	return true
+}
+
+// IsExtendedResourceName returns true if the resource name is an extended resource.
+func IsExtendedResourceName(name corev1.ResourceName) bool {
+	return strings.Contains(string(name), "/")
 }

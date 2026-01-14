@@ -299,3 +299,56 @@ func TestQuantityToFloat(t *testing.T) {
 		})
 	}
 }
+
+func TestIsExtendedResourceName(t *testing.T) {
+	cases := map[string]struct {
+		name corev1.ResourceName
+		want bool
+	}{
+		"cpu": {
+			name: corev1.ResourceCPU,
+			want: false,
+		},
+		"memory": {
+			name: corev1.ResourceMemory,
+			want: false,
+		},
+		"ephemeral-storage": {
+			name: corev1.ResourceEphemeralStorage,
+			want: false,
+		},
+		"hugepages-2Mi": {
+			name: corev1.ResourceName(corev1.ResourceHugePagesPrefix + "2Mi"),
+			want: false,
+		},
+		"extended resource with domain": {
+			name: "example.com/gpu",
+			want: true,
+		},
+		"nvidia gpu": {
+			name: "nvidia.com/gpu",
+			want: true,
+		},
+		"extended resource with subdomain": {
+			name: "gpu.resource.nvidia.com/mig-1g.5gb",
+			want: true,
+		},
+		"empty string": {
+			name: "",
+			want: false,
+		},
+		"simple name without slash": {
+			name: "custom-resource",
+			want: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := IsExtendedResourceName(tc.name)
+			if got != tc.want {
+				t.Errorf("IsExtendedResourceName(%q) = %v, want %v", tc.name, got, tc.want)
+			}
+		})
+	}
+}

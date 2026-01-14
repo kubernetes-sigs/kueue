@@ -125,7 +125,7 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 		queues := qcache.NewManager(mgr.GetClient(), cCache)
 
 		// Core controllers
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil)
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		// Scheduler - required for workload admission

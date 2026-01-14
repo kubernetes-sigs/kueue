@@ -81,7 +81,7 @@ func managerAndSchedulerSetup(transformations []config.ResourceTransformation) f
 		configuration := &config.Configuration{}
 		mgr.GetScheme().Default(configuration)
 
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil)
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		failedWebhook, err := webhooks.Setup(mgr, nil)
