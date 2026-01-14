@@ -369,23 +369,22 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			return reconcile.Result{}, nil
 		}
 
-			if acs.State == kueue.CheckStateReady {
-				// workload evicted on worker cluster
-				log.V(3).Info("Workload was evicted in the remote cluster", "cluster", evictedRemote)
-				if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
-					acs.Message = fmt.Sprintf("Workload evicted on worker cluster: %q, resetting for re-admission. Previously: %q", *group.local.Status.ClusterName, acs.State)
-					acs.State = kueue.CheckStateRetry
-					acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
-					workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *acs, w.clock)
-					return true, nil
-				}); err != nil {
-					log.Error(err, "Failed to patch workload status")
-					return reconcile.Result{}, err
-				}
-
-				w.recorder.Eventf(group.local, corev1.EventTypeNormal, "MultiKueue", acs.Message)
-				return reconcile.Result{}, nil
+		if features.Enabled(features.MultiKueueRedoAdmissionOnEvictionInWorker) && acs.State == kueue.CheckStateReady {
+			// workload evicted on worker cluster
+			log.V(3).Info("Workload was evicted in the remote cluster", "cluster", evictedRemote)
+			if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+				acs.Message = fmt.Sprintf("Workload evicted on worker cluster: %q, resetting for re-admission. Previously: %q", *group.local.Status.ClusterName, acs.State)
+				acs.State = kueue.CheckStateRetry
+				acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
+				return workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *acs, w.clock), nil
+			}); err != nil {
+				log.Error(err, "Failed to patch workload status")
+				return reconcile.Result{}, err
 			}
+
+			w.recorder.Eventf(group.local, corev1.EventTypeNormal, "MultiKueue", acs.Message)
+			return reconcile.Result{}, nil
+		}
 	}
 
 	// 5. Delete workloads that are out of sync or are not in the chosen worker,

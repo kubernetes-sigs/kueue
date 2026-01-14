@@ -628,6 +628,15 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		})
 
 		ginkgo.It("Should re-do admission process when workload gets evicted in the worker", func() {
+			defaultManagerKueueCfg := util.GetKueueConfiguration(ctx, k8sManagerClient)
+			util.UpdateKueueConfiguration(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
+				cfg.FeatureGates[string(features.MultiKueueRedoAdmissionOnEvictionInWorker)] = true
+			})
+
+			ginkgo.DeferCleanup(func() {
+				util.UpdateKueueConfiguration(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {})
+			})
+
 			job := testingjob.MakeJob("job", managerNs.Name).
 				WorkloadPriorityClass(managerLowWPC.Name).
 				Queue(kueue.LocalQueueName(managerLq.Name)).

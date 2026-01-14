@@ -784,7 +784,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"handle workload evicted on worker cluster": {
-			features:     map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: true},
+			features:     map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: true, features.MultiKueueRedoAdmissionOnEvictionInWorker: true},
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
