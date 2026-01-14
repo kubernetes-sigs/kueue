@@ -1417,6 +1417,16 @@ func IsWorkloadPriorityClass(wl *kueue.Workload) bool {
 		wl.Spec.PriorityClassRef.Group == kueue.WorkloadPriorityClassGroup
 }
 
+func IsPodPriorityClass(wl *kueue.Workload) bool {
+	return wl.Spec.PriorityClassRef != nil &&
+		wl.Spec.PriorityClassRef.Kind == kueue.PodPriorityClassKind &&
+		wl.Spec.PriorityClassRef.Group == kueue.PodPriorityClassGroup
+}
+
+func HasNoPriority(wl *kueue.Workload) bool {
+	return wl.Spec.PriorityClassRef == nil
+}
+
 func prepareForEviction(w *kueue.Workload, now time.Time, reason, message string) {
 	SetEvictedCondition(w, now, reason, message)
 	resetClusterNomination(w)
@@ -1544,11 +1554,11 @@ func ResetRequeue(wl *kueue.Workload) bool {
 
 func PriorityChanged(old, new *kueue.Workload) bool {
 	// Updates to Pod Priority are not supported.
-	if !IsWorkloadPriorityClass(old) || !IsWorkloadPriorityClass(new) {
+	if IsPodPriorityClass(old) || !IsWorkloadPriorityClass(new) {
 		return false
 	}
 	// Check if priority class reference changed.
-	if PriorityClassName(old) != "" && PriorityClassName(new) != "" &&
+	if PriorityClassName(new) != "" &&
 		PriorityClassName(old) != PriorityClassName(new) {
 		return true
 	}
