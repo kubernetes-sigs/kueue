@@ -1314,15 +1314,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				w := utiltestingapi.MakeWorkload("b", "").Obj()
 				added, err := cache.AddOrUpdateWorkload(log, w)
 
-				testErr := []error{}
 				if added {
-					testErr = append(testErr, errors.New("declared workload update performed when only a deletion should have been performed"))
+					err = errors.Join(err, errors.New("declared workload update performed when only a deletion should have been performed"))
 				}
 				if err != nil {
-					testErr = append(testErr, err)
-				}
-				if len(testErr) > 0 {
-					return errors.Join(testErr...)
+					return err
 				}
 
 				return nil
@@ -1346,15 +1342,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				w := utiltestingapi.MakeWorkload("d", "").Obj()
 				added, err := cache.AddOrUpdateWorkload(log, w)
 
-				testErr := []error{}
 				if added {
-					testErr = append(testErr, errors.New("declared workload update performed when no action should have been taken"))
+					err = errors.Join(err, errors.New("declared workload update performed when only a deletion should have been performed"))
 				}
 				if err != nil {
-					testErr = append(testErr, err)
-				}
-				if len(testErr) > 0 {
-					return errors.Join(testErr...)
+					return err
 				}
 
 				return nil
