@@ -454,7 +454,7 @@ spec:
       metadata:
         annotations:
           kueue.x-k8s.io/podset-group-name: lws-group
-          kueue.x-k8s.io/podset-group-required-topology: cloud.provider.com/topology-host
+          kueue.x-k8s.io/podset-required-topology: cloud.provider.com/topology-host
       spec:
         containers:
           - name: leader
@@ -465,7 +465,7 @@ spec:
       metadata:
         annotations:
           kueue.x-k8s.io/podset-group-name: lws-group
-          kueue.x-k8s.io/podset-group-required-topology: cloud.provider.com/topology-host
+          kueue.x-k8s.io/podset-required-topology: cloud.provider.com/topology-host
       spec:
         containers:
           - name: leader
