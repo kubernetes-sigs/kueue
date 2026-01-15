@@ -54,6 +54,7 @@ import (
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
+	workloadstatefulset "sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
 	workloadtrainjob "sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
@@ -69,6 +70,7 @@ import (
 	testingpytorchjob "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
+	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
@@ -407,6 +409,56 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						g.Expect(pods.Items).To(gomega.BeEmpty())
 					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				}
+			})
+		})
+
+		ginkgo.It("Should sync a StatefulSet to worker if admitted", func() {
+			statefulset := testingstatefulset.MakeStatefulSet("statefulset", managerNs.Name).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Replicas(3).
+				Request(corev1.ResourceCPU, "500m").
+				Queue(managerLq.Name).
+				Obj()
+
+			ginkgo.By("Creating the statefulset", func() {
+				util.MustCreate(ctx, k8sManagerClient, statefulset)
+			})
+
+			wlLookupKey := types.NamespacedName{
+				Name:      workloadstatefulset.GetWorkloadName(statefulset.Name),
+				Namespace: managerNs.Name,
+			}
+
+			waitForJobAdmitted(wlLookupKey, multiKueueAc.Name, "worker1")
+
+			ginkgo.By("Verifying pods on management cluster remain gated", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					pods := &corev1.PodList{}
+					g.Expect(k8sManagerClient.List(ctx, pods, client.InNamespace(managerNs.Name), client.MatchingLabels{
+						podconstants.GroupNameLabel: workloadstatefulset.GetWorkloadName(statefulset.Name),
+					})).To(gomega.Succeed())
+					g.Expect(pods.Items).ToNot(gomega.BeEmpty())
+					for _, pod := range pods.Items {
+						g.Expect(utilpod.HasGate(&pod, podconstants.SchedulingGateName)).To(gomega.BeTrue())
+					}
+				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verifying status is synced back to manager", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					managerSts := &appsv1.StatefulSet{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(statefulset), managerSts)).To(gomega.Succeed())
+					g.Expect(managerSts.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Deleting the statefulset", func() {
+				gomega.Expect(k8sManagerClient.Delete(ctx, statefulset)).Should(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					workerSts := &appsv1.StatefulSet{}
+					err := k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(statefulset), workerSts)
+					g.Expect(err).To(gomega.HaveOccurred())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 
