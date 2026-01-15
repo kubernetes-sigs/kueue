@@ -63,6 +63,16 @@ The dispatching flow works as follows:
    - The manager performs a final status sync.
    - It then deletes the corresponding objects from the worker cluster.
 
+{{< feature-state state="beta" for_version="v0.15" >}}
+
+{{% alert title="Note" color="primary" %}}
+By default, Workloads are only deleted from non-selected worker clusters after a Workload is
+fully admitted (quota reserved AND all admission checks satisfied). This allows parallel
+ProvisioningRequests across worker clusters. To revert to the previous behavior where Workloads
+are deleted immediately upon quota reservation, disable the `MultiKueueWaitForWorkloadAdmitted`
+feature gate.
+{{% /alert %}}
+
 ## Workload Dispatching
 
 {{% alert title="Note" color="primary" %}}
