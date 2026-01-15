@@ -299,6 +299,7 @@ spec:
 | `MultiKueueAllowInsecureKubeconfigs`          | `false` | Alpha | 0.14  |       |
 | `ReclaimablePods`                             | `true`  | Beta  | 0.14  |       |
 | `SkipFinalizersForPodsSuspendedByParent`      | `true`  | Beta  | 0.14  |       |
+| `MultiKueueWaitForWorkloadAdmitted`           | `true`  | Beta  | 0.14  |       |
 
 ### Feature gates for graduated or deprecated features
 
