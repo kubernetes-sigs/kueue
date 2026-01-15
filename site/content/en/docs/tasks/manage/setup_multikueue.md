@@ -193,6 +193,12 @@ Where:
 * `cluster-url` is the URL of the cluster's control plane.
 * `access-provider-name` is the name of the provider of the cluster's credentials. For example `google`.
 
+{{% alert title="Note" color="primary" %}}
+
+The `ClusterProfile`s have to be provisioned within the Kueue system namespace (`kueue-system` by default).
+
+{{% /alert %}}
+
 #### Manually created cluster inventory
 
 In principle, the `ClusterProfile` objects can be provisioned without the use of a cloud provider.
@@ -222,6 +228,8 @@ status:
 
 The `ClusterProfile` access providers are within the object's `status` subresource and, in principle, should be managed by the cluster manager
 (i.e. the entity provisioning the clusters, like a cloud provider) and not created manually.
+
+They also have to be provisioned within the Kueue system namespace (`kueue-system` by default).
 
 {{% /alert %}}
 
