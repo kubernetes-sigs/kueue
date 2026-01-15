@@ -225,6 +225,12 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/8585
 	// Enable waiting for WorkloadAdmitted before cleaning up non-selected worker workloads.
 	MultiKueueWaitForWorkloadAdmitted featuregate.Feature = "MultiKueueWaitForWorkloadAdmitted"
+
+	// owner: @mszadkow
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/8302
+	// Redo admission on eviction in worker cluster.
+	MultiKueueRedoAdmissionOnEvictionInWorker featuregate.Feature = "MultiKueueRedoAdmissionOnEvictionInWorker"
 )
 
 func init() {
@@ -351,6 +357,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	MultiKueueWaitForWorkloadAdmitted: {
+		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
+	},
+	MultiKueueRedoAdmissionOnEvictionInWorker: {
 		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
 	},
 }

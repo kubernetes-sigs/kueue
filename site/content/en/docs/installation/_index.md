@@ -323,6 +323,7 @@ spec:
 | `FailureRecoveryPolicy`                       | `false` | Alpha | 0.15  |       |
 | `SkipFinalizersForPodsSuspendedByParent`      | `true`  | Beta  | 0.16  |       |
 | `MultiKueueWaitForWorkloadAdmitted`           | `true`  | Beta  | 0.16  |       |
+| `MultiKueueRedoAdmissionOnEvictionInWorker`   | `true`  | Beta  | 0.16  |       |
 
 {{% alert title="Note" color="primary" %}}
 The SanitizePodSets and MultiKueueAllowInsecureKubeconfigs features are available starting from versions 0.13.8 and 0.14.3.

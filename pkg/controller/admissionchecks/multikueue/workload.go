@@ -350,23 +350,41 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		return reconcile.Result{}, workload.Finish(ctx, w.client, group.local, remoteFinishedCond.Reason, remoteFinishedCond.Message, w.clock)
 	}
 
-	// 4. Handle workload evicted on manager cluster
+	// 4. Handle workload eviction
 	remoteEvictCond, evictedRemote := group.bestMatchByCondition(kueue.WorkloadEvicted)
-	if remoteEvictCond != nil && remoteEvictCond.Reason == workload.ReasonWithCause(kueue.WorkloadDeactivated, kueue.WorkloadEvictedOnManagerCluster) {
+	if remoteEvictCond != nil {
 		remoteCl := group.remoteClients[evictedRemote].client
 		remoteWl := group.remotes[evictedRemote]
 
 		log = log.WithValues("remote", evictedRemote, "remoteWorkload", klog.KObj(remoteWl))
 		ctx = ctrl.LoggerInto(ctx, log)
 
-		if err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin); err != nil {
-			log.Error(err, "Syncing remote controller object")
-			// We'll retry this in the next reconciling.
-			return reconcile.Result{}, err
+		// workload evicted on manager cluster
+		if remoteEvictCond.Reason == workload.ReasonWithCause(kueue.WorkloadDeactivated, kueue.WorkloadEvictedOnManagerCluster) {
+			if err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin); err != nil {
+				log.Error(err, "Syncing remote controller object")
+				// We'll retry this in the next reconciling.
+				return reconcile.Result{}, err
+			}
+			return reconcile.Result{}, nil
 		}
 
-		// Wait for QuotaReserved=false in the local job.
-		return reconcile.Result{}, nil
+		if features.Enabled(features.MultiKueueRedoAdmissionOnEvictionInWorker) && acs.State == kueue.CheckStateReady {
+			// workload evicted on worker cluster
+			log.V(3).Info("Workload was evicted in the remote cluster", "cluster", evictedRemote)
+			if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+				acs.Message = fmt.Sprintf("Workload evicted on worker cluster: %q, resetting for re-admission. Previously: %q", *group.local.Status.ClusterName, acs.State)
+				acs.State = kueue.CheckStateRetry
+				acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
+				return workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *acs, w.clock), nil
+			}); err != nil {
+				log.Error(err, "Failed to patch workload status")
+				return reconcile.Result{}, err
+			}
+
+			w.recorder.Eventf(group.local, corev1.EventTypeNormal, "MultiKueue", acs.Message)
+			return reconcile.Result{}, nil
+		}
 	}
 
 	// 5. Delete workloads that are out of sync or are not in the chosen worker,
