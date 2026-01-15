@@ -571,13 +571,18 @@ func (c *Cache) UpdateLocalQueue(oldQ, newQ *kueue.LocalQueue) error {
 	return nil
 }
 
-// Returns whether workload was successfully updated
-// (does not consider deleting stale data as an update)
-// alongside any errors that may have occurred.
-func (c *Cache) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload) (bool, error) {
+func (c *Cache) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload) bool {
 	c.Lock()
 	defer c.Unlock()
-	return c.addOrUpdateWorkloadWithoutLock(log, w)
+	updated, _ := c.addOrUpdateWorkloadWithoutLock(log, w)
+	return updated
+}
+
+func (c *Cache) UpdateWorkload(log logr.Logger, wl *kueue.Workload) error {
+	c.Lock()
+	defer c.Unlock()
+	_, err := c.addOrUpdateWorkloadWithoutLock(log, wl)
+	return err
 }
 
 func (c *Cache) addOrUpdateWorkloadWithoutLock(log logr.Logger, wl *kueue.Workload) (bool, error) {

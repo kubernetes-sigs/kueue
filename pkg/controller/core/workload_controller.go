@@ -290,7 +290,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				return ctrl.Result{}, err
 			}
 		} else {
-			if success, _ := r.cache.AddOrUpdateWorkload(log, wl.DeepCopy()); !success {
+			if !r.cache.AddOrUpdateWorkload(log, wl.DeepCopy()) {
 				log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 			}
 		}
@@ -828,7 +828,7 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 		}
 		return true
 	}
-	if success, _ := r.cache.AddOrUpdateWorkload(log, wlCopy); !success {
+	if !r.cache.AddOrUpdateWorkload(log, wlCopy) {
 		log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 	}
 	r.queues.QueueSecondPassIfNeeded(ctx, e.Object, 0)
@@ -921,7 +921,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		}
 	case prevStatus == workload.StatusPending && (status == workload.StatusQuotaReserved || status == workload.StatusAdmitted):
 		r.queues.DeleteWorkload(log, wlKey)
-		if success, _ := r.cache.AddOrUpdateWorkload(log, wlCopy); !success {
+		if !r.cache.AddOrUpdateWorkload(log, wlCopy) {
 			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 		}
 		if afs.Enabled(r.admissionFSConfig) && status == workload.StatusAdmitted && r.cache.ClusterQueueUsesAdmissionFairSharing(wlCopy.Status.Admission.ClusterQueue) {
@@ -967,7 +967,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			// Update the workload from cache while holding the queues lock
 			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
-			if _, err := r.cache.AddOrUpdateWorkload(log, wlCopy); err != nil {
+			if err := r.cache.UpdateWorkload(log, wlCopy); err != nil {
 				log.Error(err, "Updating workload in cache")
 			}
 		})
@@ -975,7 +975,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	default:
 		// Workload update in the cache is handled here; however, some fields are immutable
 		// and are not supposed to actually change anything.
-		if _, err := r.cache.AddOrUpdateWorkload(log, wlCopy); err != nil {
+		if err := r.cache.UpdateWorkload(log, wlCopy); err != nil {
 			log.Error(err, "Updating workload in cache")
 		}
 	}
