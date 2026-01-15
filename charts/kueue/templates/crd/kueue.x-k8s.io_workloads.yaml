@@ -8803,7 +8803,7 @@ spec:
                     This field is optional.
                   items:
                     type: string
-                  maxItems: 10
+                  maxItems: 20
                   type: array
                   x-kubernetes-list-type: atomic
                 reclaimablePods:
@@ -17766,7 +17766,7 @@ spec:
                   items:
                     maxLength: 256
                     type: string
-                  maxItems: 10
+                  maxItems: 20
                   type: array
                   x-kubernetes-list-type: atomic
                 reclaimablePods:

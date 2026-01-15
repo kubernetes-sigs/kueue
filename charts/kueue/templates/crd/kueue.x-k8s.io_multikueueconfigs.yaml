@@ -65,7 +65,7 @@ spec:
                   description: clusters is a list of MultiKueueClusters names where the workloads from the ClusterQueue should be distributed.
                   items:
                     type: string
-                  maxItems: 10
+                  maxItems: 20
                   minItems: 1
                   type: array
                   x-kubernetes-list-type: set
@@ -105,7 +105,7 @@ spec:
                   items:
                     maxLength: 256
                     type: string
-                  maxItems: 10
+                  maxItems: 20
                   minItems: 1
                   type: array
                   x-kubernetes-list-type: set
