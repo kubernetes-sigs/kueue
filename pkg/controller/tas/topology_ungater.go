@@ -219,6 +219,22 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 				log.Error(err, "failed to list Pods for PodSet", "podset", psa.Name, "count", psa.Count)
 				return reconcile.Result{}, err
 			}
+			if len(pods) > 0 {
+				// Assume that same replica all Pods has the same offset value.
+				offsetVal, found := pods[0].Annotations[kueue.PodIndexOffsetAnnotation]
+				if found {
+					if offset, err := strconv.Atoi(offsetVal); err != nil {
+						// If unGater failed to parse offset annotation value, it will fall back to greedy index assignment algorithm.
+						log.Error(err, "failed to parse offset annotation",
+							kueue.PodIndexOffsetAnnotation, offsetVal,
+							"pod", klog.KObj(pods[0]),
+						)
+					} else {
+						rankOffsets[psa.Name] += int32(offset)
+						maxRank[psa.Name] += int32(offset)
+					}
+				}
+			}
 			gatedPodsToDomains := assignGatedPodsToDomains(log, &psa, pods, psNameToTopologyRequest[psa.Name], rankOffsets[psa.Name], maxRank[psa.Name])
 			if len(gatedPodsToDomains) > 0 {
 				toUngate := podsToUngateInfo(&psa, gatedPodsToDomains)
