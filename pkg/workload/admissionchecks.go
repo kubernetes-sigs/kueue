@@ -36,7 +36,6 @@ import (
 func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 	hasReservation := HasQuotaReservation(w)
 	hasAllChecksReady := HasAllChecksReady(w)
-	isFinished := IsFinished(w)
 	isAdmitted := IsAdmitted(w)
 	hasAllTopologyAssignmentsReady := !HasTopologyAssignmentsPending(w)
 
@@ -52,10 +51,6 @@ func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 		LastTransitionTime: metav1.NewTime(now),
 	}
 	switch {
-	case isFinished:
-		newCondition.Status = metav1.ConditionFalse
-		newCondition.Reason = kueue.WorkloadFinished
-		newCondition.Message = "Workload has finished"
 	case !hasReservation && !hasAllChecksReady:
 		newCondition.Status = metav1.ConditionFalse
 		newCondition.Reason = "NoReservationUnsatisfiedChecks"

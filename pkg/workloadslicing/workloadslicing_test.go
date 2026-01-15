@@ -358,13 +358,6 @@ func TestFinish(t *testing.T) {
 				workload: testWorkload("test", "test-job", "job-uid", now).
 					ResourceVersion("2").
 					Condition(metav1.Condition{
-						Type:               kueue.WorkloadQuotaReserved,
-						Status:             metav1.ConditionFalse,
-						Reason:             kueue.WorkloadFinished,
-						Message:            "Workload has finished",
-						LastTransitionTime: metav1.NewTime(now),
-					}).
-					Condition(metav1.Condition{
 						Type:               kueue.WorkloadFinished,
 						Status:             metav1.ConditionTrue,
 						Reason:             "TestReason",
