@@ -140,6 +140,9 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 	if err := DeleteAllTrainingRuntimesInNamespace(ctx, c, ns); err != nil {
 		return err
 	}
+	if err := DeleteAllMPIJobsInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
 	if err := c.DeleteAllOf(ctx, &appsv1.StatefulSet{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}

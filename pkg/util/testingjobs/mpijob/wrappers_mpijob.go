@@ -76,27 +76,7 @@ func (j *MPIJobWrapper) MPIJobReplicaSpecs(replicaSpecs ...MPIJobReplicaSpecRequ
 }
 
 func (j *MPIJobWrapper) GenericLauncherAndWorker() *MPIJobWrapper {
-	j.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher] = &kfmpi.ReplicaSpec{
-		Replicas: ptr.To[int32](1),
-		Template: corev1.PodTemplateSpec{
-			Spec: corev1.PodSpec{
-				RestartPolicy: corev1.RestartPolicyNever,
-				Containers: []corev1.Container{
-					{
-						Name:    "mpijob",
-						Image:   "pause",
-						Command: []string{},
-						Resources: corev1.ResourceRequirements{
-							Requests: corev1.ResourceList{},
-							Limits:   corev1.ResourceList{},
-						},
-					},
-				},
-				NodeSelector: map[string]string{},
-			},
-		},
-	}
-
+	j.GenericLauncher()
 	j.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker] = &kfmpi.ReplicaSpec{
 		Replicas: ptr.To[int32](1),
 		Template: corev1.PodTemplateSpec{
@@ -118,6 +98,30 @@ func (j *MPIJobWrapper) GenericLauncherAndWorker() *MPIJobWrapper {
 		},
 	}
 
+	return j
+}
+
+func (j *MPIJobWrapper) GenericLauncher() *MPIJobWrapper {
+	j.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher] = &kfmpi.ReplicaSpec{
+		Replicas: ptr.To[int32](1),
+		Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				RestartPolicy: corev1.RestartPolicyNever,
+				Containers: []corev1.Container{
+					{
+						Name:    "mpijob",
+						Image:   "pause",
+						Command: []string{},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{},
+							Limits:   corev1.ResourceList{},
+						},
+					},
+				},
+				NodeSelector: map[string]string{},
+			},
+		},
+	}
 	return j
 }
 
@@ -253,5 +257,11 @@ func (j *MPIJobWrapper) ManagedBy(c string) *MPIJobWrapper {
 func (j *MPIJobWrapper) TerminationGracePeriodSeconds(seconds int64) *MPIJobWrapper {
 	j.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher].Template.Spec.TerminationGracePeriodSeconds = ptr.To(seconds)
 	j.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template.Spec.TerminationGracePeriodSeconds = ptr.To(seconds)
+	return j
+}
+
+// RunLauncherAsWorker sets the RunLauncherAsWorker field.
+func (j *MPIJobWrapper) RunLauncherAsWorker(v bool) *MPIJobWrapper {
+	j.Spec.RunLauncherAsWorker = ptr.To(v)
 	return j
 }

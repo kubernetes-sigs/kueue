@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -93,6 +94,22 @@ func (w *MpiJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	}
 
 	jobframework.ApplyDefaultForManagedBy(mpiJob, w.queues, w.cache, log)
+
+	if features.Enabled(features.TopologyAwareScheduling) {
+		if replicaSpecs := mpiJob.Spec.MPIReplicaSpecs; ptr.Deref(mpiJob.Spec.RunLauncherAsWorker, false) &&
+			len(replicaSpecs) == 2 && replicaSpecs[v2beta1.MPIReplicaTypeWorker] != nil {
+			// The offset is handled as PodSet group scheduling mechanism separately in topology-unGater
+			// when the MPIJob constructs PodSet group across Launcher and Worker.
+			if _, isPodSetGroup := replicaSpecs[v2beta1.MPIReplicaTypeLauncher].Template.Annotations[kueue.PodSetGroupName]; isPodSetGroup {
+				return nil
+			}
+
+			if mpiJob.Spec.MPIReplicaSpecs[v2beta1.MPIReplicaTypeWorker].Template.Annotations == nil {
+				mpiJob.Spec.MPIReplicaSpecs[v2beta1.MPIReplicaTypeWorker].Template.Annotations = make(map[string]string)
+			}
+			mpiJob.Spec.MPIReplicaSpecs[v2beta1.MPIReplicaTypeWorker].Template.Annotations[kueue.PodIndexOffsetAnnotation] = "1"
+		}
+	}
 
 	return nil
 }
