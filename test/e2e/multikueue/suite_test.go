@@ -31,6 +31,7 @@ import (
 	"github.com/onsi/gomega"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	appsv1 "k8s.io/api/apps/v1"
 	authenticationv1 "k8s.io/api/authentication/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -119,6 +120,8 @@ func kubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig 
 			policyRule(rayv1.SchemeGroupVersion.Group, "rayjobs/status", "get"),
 			policyRule(corev1.SchemeGroupVersion.Group, "pods", resourceVerbs...),
 			policyRule(corev1.SchemeGroupVersion.Group, "pods/status", "get"),
+			policyRule(appsv1.SchemeGroupVersion.Group, "statefulsets", resourceVerbs...),
+			policyRule(appsv1.SchemeGroupVersion.Group, "statefulsets/status", "get"),
 			policyRule(rayv1.SchemeGroupVersion.Group, "rayclusters", resourceVerbs...),
 			policyRule(rayv1.SchemeGroupVersion.Group, "rayclusters/status", "get"),
 			policyRule(kftrainerapi.SchemeGroupVersion.Group, "trainjobs", resourceVerbs...),
