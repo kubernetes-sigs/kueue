@@ -1649,6 +1649,72 @@ func TestSchedule(t *testing.T) {
 				"flavor-nonexistent-cq": {"sales/foo"},
 			},
 		},
+		"workload submitted to a CQ with no resource groups": {
+			additionalClusterQueues: []kueue.ClusterQueue{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "cq-no-rg",
+					},
+					Spec: kueue.ClusterQueueSpec{
+						QueueingStrategy: kueue.StrictFIFO,
+					},
+				},
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("local-q", "sales").ClusterQueue("cq-no-rg").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-workload", "sales").
+					Queue("local-q").
+					PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-workload", "sales").
+					Queue("local-q").
+					PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq-no-rg": {"sales/test-workload"},
+			},
+		},
+		"workload submitted to a CQ with a resource group with empty flavors": {
+			additionalClusterQueues: []kueue.ClusterQueue{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "cq-with-empty-rg",
+					},
+					Spec: kueue.ClusterQueueSpec{
+						QueueingStrategy: kueue.StrictFIFO,
+						ResourceGroups: []kueue.ResourceGroup{
+							{
+								CoveredResources: []corev1.ResourceName{corev1.ResourceCPU},
+								Flavors:          []kueue.FlavorQuotas{},
+							},
+						},
+					},
+				},
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("local-q", "sales").ClusterQueue("cq-with-empty-rg").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-workload", "sales").
+					Queue("local-q").
+					PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-workload", "sales").
+					Queue("local-q").
+					PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq-with-empty-rg": {"sales/test-workload"},
+			},
+		},
 		"no overadmission while borrowing": {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("new", "eng-beta").
