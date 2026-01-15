@@ -689,7 +689,7 @@ func (s *Scheduler) prepareWorkload(log logr.Logger, wl *kueue.Workload, cq *sch
 func (s *Scheduler) assumeWorkload(log logr.Logger, e *entry, cq *schdcache.ClusterQueueSnapshot, admission *kueue.Admission) (*kueue.Workload, error) {
 	cacheWl := e.Obj.DeepCopy()
 	s.prepareWorkload(log, cacheWl, cq, admission)
-	if added := s.cache.AddOrUpdateWorkload(log, cacheWl); !added {
+	if added, _ := s.cache.AddOrUpdateWorkload(log, cacheWl); !added {
 		return nil, fmt.Errorf("workload %s/%s could not be added to the cache", cacheWl.Namespace, cacheWl.Name)
 	}
 
