@@ -8637,7 +8637,7 @@ func TestLastSchedulingContext(t *testing.T) {
 					if err != nil {
 						t.Errorf("Delete workload failed: %v", err)
 					}
-					err = cqCache.DeleteWorkload(log, &wl)
+					err = cqCache.DeleteWorkload(log, workload.Key(&wl))
 					if err != nil {
 						t.Errorf("Delete workload failed: %v", err)
 					}

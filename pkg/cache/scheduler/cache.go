@@ -622,10 +622,9 @@ func (c *Cache) deleteFromQueueIfPresent(log logr.Logger, wlKey workload.Referen
 	}
 }
 
-func (c *Cache) DeleteWorkload(log logr.Logger, w *kueue.Workload) error {
+func (c *Cache) DeleteWorkload(log logr.Logger, wlKey workload.Reference) error {
 	c.Lock()
 	defer c.Unlock()
-	wlKey := workload.Key(w)
 
 	cqName, assigned := c.workloadAssignedQueues[wlKey]
 	if !assigned {
