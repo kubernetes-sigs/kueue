@@ -45,6 +45,7 @@ func init() {
 		AddToScheme:                     appsv1.AddToScheme,
 		ImplicitlyEnabledFrameworkNames: []string{"pod"},
 		GVK:                             gvk,
+		MultiKueueAdapter:               &multiKueueAdapter{},
 	}))
 }
 
