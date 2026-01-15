@@ -850,7 +850,7 @@ func (r *WorkloadReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) b
 	// by the scheduler, and leaving them blocks ClusterQueue finalizer removal.
 	// The operation is idempotent if the workload was never in the cache.
 	r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() {
-		if err := r.cache.DeleteWorkload(log, e.Object); err != nil {
+		if err := r.cache.DeleteWorkload(log, wlKey); err != nil {
 			log.Error(err, "Failed to delete workload from cache")
 		}
 	})
@@ -904,7 +904,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			// Delete the workload from cache while holding the queues lock
 			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
-			if err := r.cache.DeleteWorkload(log, e.ObjectOld); err != nil && prevStatus == workload.StatusAdmitted {
+			if err := r.cache.DeleteWorkload(log, wlKey); err != nil && prevStatus == workload.StatusAdmitted {
 				log.Error(err, "Failed to delete workload from cache")
 			}
 		})
@@ -939,7 +939,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			// Delete the workload from cache while holding the queues lock
 			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
-			if err := r.cache.DeleteWorkload(log, e.ObjectNew); err != nil {
+			if err := r.cache.DeleteWorkload(log, wlKey); err != nil {
 				log.Error(err, "Failed to delete workload from cache")
 			}
 			// Here we don't take the lock as it is already taken by the wrapping function.

@@ -1471,7 +1471,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				w := utiltestingapi.MakeWorkload("a", "").ReserveQuotaAt(&kueue.Admission{
 					ClusterQueue: "one",
 				}, now).Obj()
-				return cache.DeleteWorkload(log, w)
+				return cache.DeleteWorkload(log, workload.Key(w))
 			},
 			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
@@ -1490,7 +1490,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			name: "delete workload with cancelled admission",
 			operation: func(log logr.Logger, cache *Cache) error {
 				w := utiltestingapi.MakeWorkload("a", "").Obj()
-				return cache.DeleteWorkload(log, w)
+				return cache.DeleteWorkload(log, workload.Key(w))
 			},
 			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
@@ -1509,7 +1509,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			name: "delete non-existing workload with cancelled admission",
 			operation: func(log logr.Logger, cache *Cache) error {
 				w := utiltestingapi.MakeWorkload("d", "").Obj()
-				return cache.DeleteWorkload(log, w)
+				return cache.DeleteWorkload(log, workload.Key(w))
 			},
 			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
@@ -1546,7 +1546,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				}
 				cache.DeleteClusterQueue(cq)
 
-				return cache.DeleteWorkload(log, w)
+				return cache.DeleteWorkload(log, workload.Key(w))
 			},
 			wantError: "cluster queue not found",
 			wantResults: map[kueue.ClusterQueueReference]result{
@@ -1574,7 +1574,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				w := utiltestingapi.MakeWorkload("d", "").ReserveQuotaAt(&kueue.Admission{
 					ClusterQueue: "one",
 				}, now).Obj()
-				return cache.DeleteWorkload(log, w)
+				return cache.DeleteWorkload(log, workload.Key(w))
 			},
 			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
@@ -2592,7 +2592,7 @@ func TestCacheQueueOperations(t *testing.T) {
 				insertAllWorkloads,
 				func(ctx context.Context, cl client.Client, cache *Cache) error {
 					log := ctrl.LoggerFrom(ctx)
-					return cache.DeleteWorkload(log, workloads[0])
+					return cache.DeleteWorkload(log, workload.Key(workloads[0]))
 				},
 			},
 			wantLocalQueues: map[queue.LocalQueueReference]*LocalQueue{
@@ -3000,7 +3000,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 			},
 			operation: func(log logr.Logger, cache *Cache) error {
 				wl := cache.hm.ClusterQueue("one").Workloads["/a"].Obj
-				return cache.DeleteWorkload(log, wl)
+				return cache.DeleteWorkload(log, workload.Key(wl))
 			},
 			wantReady: true,
 		},
