@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/utils/ptr"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -91,13 +90,6 @@ func (j *RayCluster) IsActive() bool {
 }
 
 func (j *RayCluster) Suspend() {
-	// Log the suspend operation
-	log := ctrl.Log.WithName("raycluster-controller")
-	log.Info("Suspending RayCluster",
-		"name", j.Name,
-		"namespace", j.Namespace,
-		"suspend", true)
-
 	j.Spec.Suspend = ptr.To(true)
 }
 
@@ -168,13 +160,6 @@ func (j *RayCluster) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podse
 	if len(podSetsInfo) != expectedLen {
 		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
 	}
-
-	// Log the unsuspend operation
-	log := ctrl.Log.WithName("raycluster-controller")
-	log.Info("Unsuspending RayCluster",
-		"name", j.Name,
-		"namespace", j.Namespace,
-		"suspend", false)
 
 	j.Spec.Suspend = ptr.To(false)
 
