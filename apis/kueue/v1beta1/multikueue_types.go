@@ -126,7 +126,7 @@ type MultiKueueConfigSpec struct {
 	//
 	// +listType=set
 	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=10
+	// +kubebuilder:validation:MaxItems=20
 	Clusters []string `json:"clusters"`
 }
 
