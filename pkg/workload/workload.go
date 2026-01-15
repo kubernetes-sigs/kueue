@@ -1388,19 +1388,14 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 	return nil
 }
 
-func setFinish(wl *kueue.Workload, reason, msg string, now time.Time) bool {
-	updated := SetFinishedCondition(wl, now, reason, msg)
-	return UnsetQuotaReservationWithCondition(wl, kueue.WorkloadFinished, "Workload has finished", now) || updated
-}
-
 func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, msg string, clock clock.Clock) error {
 	if features.Enabled(features.WorkloadRequestUseMergePatch) {
 		return clientutil.PatchStatus(ctx, c, wl, func() (bool, error) {
-			return setFinish(wl, reason, msg, clock.Now()), nil
+			return SetFinishedCondition(wl, clock.Now(), reason, msg), nil
 		})
 	}
 	wlPatch := PrepareWorkloadPatch(wl, true, clock)
-	setFinish(wlPatch, reason, msg, clock.Now())
+	SetFinishedCondition(wlPatch, clock.Now(), reason, msg)
 	return c.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(constants.AdmissionName), client.ForceOwnership)
 }
 

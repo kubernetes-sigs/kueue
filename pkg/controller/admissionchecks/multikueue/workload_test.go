@@ -1109,7 +1109,6 @@ func TestWlReconcile(t *testing.T) {
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
-					Condition(metav1.Condition{Type: kueue.WorkloadQuotaReserved, Status: metav1.ConditionFalse, Reason: kueue.WorkloadFinished, Message: `Workload has finished`}).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: `by test`}).
 					Obj(),
 			},
@@ -1175,7 +1174,6 @@ func TestWlReconcile(t *testing.T) {
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
-					Condition(metav1.Condition{Type: kueue.WorkloadQuotaReserved, Status: metav1.ConditionFalse, Reason: kueue.WorkloadFinished, Message: `Workload has finished`}).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: `by test`}).
 					Obj(),
 			},
