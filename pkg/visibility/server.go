@@ -22,6 +22,7 @@ import (
 	"net"
 	"strings"
 
+	"github.com/spf13/pflag"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -113,6 +114,7 @@ func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, en
 	if err := o.SecureServing.MaybeDefaultWithSelfSignedCerts("localhost", nil, []net.IP{net.ParseIP("127.0.0.1")}); err != nil {
 		return fmt.Errorf("error creating self-signed certificates: %v", err)
 	}
+	o.AddFlags(pflag.CommandLine)
 	return o.ApplyTo(config)
 }
 
