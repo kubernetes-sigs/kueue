@@ -1609,6 +1609,7 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			RequiredTopologyRequest(corev1.LabelHostname).
 			Request(corev1.ResourceCPU, "1").
 			Obj())
+
 	baseWorkloadNeedingSecondPass := baseWorkloadBuilder.Clone().
 		ReserveQuotaAt(
 			utiltestingapi.MakeAdmission("tas-main").
@@ -1618,22 +1619,26 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 						DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
 						Obj(),
 				).
-				Obj(), now,
+				Obj(),
+			now,
 		).
 		AdmissionCheck(kueue.AdmissionCheckState{
 			Name:  "prov-check",
 			State: kueue.CheckStateReady,
 		})
+
 	baseWorkloadNotNeedingSecondPass := baseWorkloadBuilder.Clone()
 
 	cases := map[string]struct {
 		workloads []*kueue.Workload
-		deleted   sets.Set[workload.Reference]
+		update    func(*kueue.Workload)
 		passTime  time.Duration
 		wantReady sets.Set[workload.Reference]
 	}{
 		"single queued workload checked immediately": {
-			workloads: []*kueue.Workload{baseWorkloadNeedingSecondPass.Obj()},
+			workloads: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.Obj(),
+			},
 		},
 		"single queued workload checked after 1s": {
 			workloads: []*kueue.Workload{
@@ -1643,43 +1648,57 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			passTime:  time.Second,
 			wantReady: sets.New(workload.Key(baseWorkloadNeedingSecondPass.Obj())),
 		},
-		"single queued workload deleted in the meanwhile": {
+		"workload stops needing second pass after being queued": {
 			workloads: []*kueue.Workload{
 				baseWorkloadNeedingSecondPass.DeepCopy(),
-				baseWorkloadNotNeedingSecondPass.DeepCopy(),
 			},
-			deleted:  sets.New(workload.Key(baseWorkloadNeedingSecondPass.Obj())),
-			passTime: time.Second,
+			update: func(wl *kueue.Workload) {
+				wl.Status.Admission = nil
+			},
+			passTime:  time.Second,
+			wantReady: nil,
 		},
-		"two queued workloads, one deleted in the meanwhile": {
+		"two queued workloads, one updated to no longer need second pass": {
 			workloads: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.Clone().Name("first").Obj(),
 				baseWorkloadNeedingSecondPass.Clone().Name("second").Obj(),
 			},
-			deleted:   sets.New(workload.Key(baseWorkloadNeedingSecondPass.Obj())),
+			update: func(wl *kueue.Workload) {
+				wl.Status.Admission = nil
+			},
 			passTime:  time.Second,
 			wantReady: sets.New(workload.NewReference("default", "second")),
 		},
 	}
+
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
+
 			fakeClock := testingclock.NewFakeClock(now)
-			opts := []Option{
+			manager := NewManager(
+				utiltesting.NewFakeClient(),
+				nil,
 				WithClock(fakeClock),
-			}
-			manager := NewManager(utiltesting.NewFakeClient(), nil, opts...)
+			)
 
 			for _, wl := range tc.workloads {
 				manager.QueueSecondPassIfNeeded(ctx, wl, 0)
 			}
-			for _, wl := range tc.deleted.UnsortedList() {
-				manager.secondPassQueue.deleteByKey(wl)
+
+			if tc.update != nil {
+				wl := tc.workloads[0]
+				tc.update(wl)
+				manager.QueueSecondPassIfNeeded(ctx, wl, 1)
 			}
+
 			fakeClock.Step(tc.passTime)
+
 			gotReady := sets.New[workload.Reference]()
 			for _, wlInfo := range manager.secondPassQueue.takeAllReady() {
 				gotReady.Insert(workload.Key(wlInfo.Obj))
 			}
+
 			if diff := cmp.Diff(tc.wantReady, gotReady); diff != "" {
 				t.Errorf("Unexpected ready workloads returned (-want,+got):\n%s", diff)
 			}

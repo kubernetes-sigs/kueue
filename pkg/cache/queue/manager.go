@@ -843,16 +843,22 @@ func (m *Manager) DeleteSecondPassWithoutLock(wlKey workload.Reference) {
 // QueueSecondPassIfNeeded queues for the second pass of scheduling with exponential
 // delay.
 func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload, iteration int) bool {
+	log := ctrl.LoggerFrom(ctx)
 	if workload.NeedsSecondPass(w) {
 		iteration++
 		delay := m.secondPassQueue.nextDelay(iteration)
-		log := ctrl.LoggerFrom(ctx)
 		log.V(3).Info("Workload pre-queued for second pass (with backoff)", "workload", workload.Key(w), "delay", delay)
 		m.secondPassQueue.prequeue(w)
 		m.clock.AfterFunc(delay, func() {
 			m.queueSecondPass(ctx, w, iteration)
 		})
 		return true
+	} else if iteration > 0 {
+		// Remove the workload from the second-pass queue only after at least one
+		// retry iteration, to avoid canceling the initial backoff window.
+		// See #8357.
+		log.V(3).Info("Workload removed from second pass queue", "workload", workload.Key(w))
+		m.secondPassQueue.deleteByKey(workload.Key(w))
 	}
 	return false
 }
