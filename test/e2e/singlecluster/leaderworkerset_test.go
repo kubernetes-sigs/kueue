@@ -945,6 +945,203 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 		})
 	})
 
+	ginkgo.When("LeaderWorkerSet created with Restart Policy", func() {
+		ginkgo.It("should recreate pods when policy is set to RecreateGroupOnPodRestart", func() {
+			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Size(3).
+				Replicas(1).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				TerminationGracePeriod(1).
+				Queue(lq.Name).
+				RestartPolicy(leaderworkersetv1.RecreateGroupOnPodRestart).
+				Obj()
+
+			ginkgo.By("Create a LeaderWorkerSet", func() {
+				util.MustCreate(ctx, k8sClient, lws)
+			})
+
+			ginkgo.By("Waiting for replicas to be ready", func() {
+				createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
+					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
+					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			createdWorkload := &kueue.Workload{}
+			wlLookupKey := types.NamespacedName{
+				Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0"),
+				Namespace: ns.Name,
+			}
+
+			ginkgo.By("Check workload is created", func() {
+				gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+			})
+
+			var podToDelete *corev1.Pod
+			originalPodUIDs := make(map[string]types.UID)
+			ginkgo.By("Select a worker pod to delete", func() {
+				pods := &corev1.PodList{}
+				gomega.Expect(k8sClient.List(ctx, pods, client.MatchingLabels{
+					leaderworkersetv1.SetNameLabelKey: lws.Name,
+				}, client.InNamespace(lws.Namespace))).Should(gomega.Succeed())
+				gomega.Expect(pods.Items).To(gomega.HaveLen(3))
+
+				for _, pod := range pods.Items {
+					originalPodUIDs[pod.Name] = pod.UID
+				}
+
+				for i := range pods.Items {
+					pod := &pods.Items[i]
+					if _, isLeader := pod.Labels[leaderworkersetv1.WorkerIndexLabelKey]; !isLeader || pod.Labels[leaderworkersetv1.WorkerIndexLabelKey] != "0" {
+						podToDelete = pod
+						break
+					}
+				}
+				gomega.Expect(podToDelete).NotTo(gomega.BeNil(), "Couldn't find a worker pod to delete")
+			})
+
+			ginkgo.By("Delete the worker pod", func() {
+				gomega.Expect(k8sClient.Delete(ctx, podToDelete)).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Wait for all pods to be recreated with new UIDs", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					pods := &corev1.PodList{}
+					g.Expect(k8sClient.List(ctx, pods, client.MatchingLabels{
+						leaderworkersetv1.SetNameLabelKey: lws.Name,
+					}, client.InNamespace(lws.Namespace))).Should(gomega.Succeed())
+
+					recreatedCount := 0
+					for _, pod := range pods.Items {
+						originalUID, existed := originalPodUIDs[pod.Name]
+						if existed && pod.UID != originalUID {
+							recreatedCount++
+						}
+					}
+					g.Expect(recreatedCount).To(gomega.Equal(3), "all pods should be recreated with new UIDs due to RecreateGroupOnPodRestart policy")
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verify all pods are running", func() {
+				pods := &corev1.PodList{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.List(ctx, pods, client.MatchingLabels{
+						leaderworkersetv1.SetNameLabelKey: lws.Name,
+					}, client.InNamespace(lws.Namespace))).Should(gomega.Succeed())
+					g.Expect(pods.Items).To(gomega.HaveLen(3))
+					for _, pod := range pods.Items {
+						g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
+					}
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+		})
+
+		ginkgo.It("should only recreate the deleted pod when policy is set to NoneRestartPolicy", func() {
+			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Size(3).
+				Replicas(1).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				TerminationGracePeriod(1).
+				Queue(lq.Name).
+				RestartPolicy(leaderworkersetv1.NoneRestartPolicy).
+				Obj()
+
+			ginkgo.By("Create a LeaderWorkerSet", func() {
+				util.MustCreate(ctx, k8sClient, lws)
+			})
+
+			ginkgo.By("Waiting for replicas to be ready", func() {
+				createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
+					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
+					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			createdWorkload := &kueue.Workload{}
+			wlLookupKey := types.NamespacedName{
+				Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0"),
+				Namespace: ns.Name,
+			}
+
+			ginkgo.By("Check workload is created", func() {
+				gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+			})
+
+			var podToDelete *corev1.Pod
+			originalPodUIDs := make(map[string]types.UID)
+			ginkgo.By("Select a worker pod to delete", func() {
+				pods := &corev1.PodList{}
+				gomega.Expect(k8sClient.List(ctx, pods, client.MatchingLabels{
+					leaderworkersetv1.SetNameLabelKey: lws.Name,
+				}, client.InNamespace(lws.Namespace))).Should(gomega.Succeed())
+				gomega.Expect(pods.Items).To(gomega.HaveLen(3))
+
+				for _, pod := range pods.Items {
+					originalPodUIDs[pod.Name] = pod.UID
+				}
+
+				for i := range pods.Items {
+					pod := &pods.Items[i]
+					if _, isLeader := pod.Labels[leaderworkersetv1.WorkerIndexLabelKey]; !isLeader || pod.Labels[leaderworkersetv1.WorkerIndexLabelKey] != "0" {
+						podToDelete = pod
+						break
+					}
+				}
+				gomega.Expect(podToDelete).NotTo(gomega.BeNil(), "Couldn't find a worker pod to delete")
+			})
+
+			deletedPodName := podToDelete.Name
+			ginkgo.By("Delete the worker pod", func() {
+				gomega.Expect(k8sClient.Delete(ctx, podToDelete)).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Wait for deleted pod to be recreated and verify other pods were NOT recreated", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					pods := &corev1.PodList{}
+					g.Expect(k8sClient.List(ctx, pods, client.MatchingLabels{
+						leaderworkersetv1.SetNameLabelKey: lws.Name,
+					}, client.InNamespace(lws.Namespace))).Should(gomega.Succeed())
+
+					recreatedCount := 0
+					unchangedCount := 0
+					for _, pod := range pods.Items {
+						originalUID, existed := originalPodUIDs[pod.Name]
+						if existed {
+							if pod.UID != originalUID {
+								recreatedCount++
+								g.Expect(pod.Name).To(gomega.Equal(deletedPodName), "only the deleted pod should be recreated")
+							} else {
+								unchangedCount++
+							}
+						}
+					}
+					g.Expect(recreatedCount).To(gomega.Equal(1), "only the deleted pod should be recreated with NoneRestartPolicy")
+					g.Expect(unchangedCount).To(gomega.Equal(2), "other pods should NOT be recreated with NoneRestartPolicy")
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verify all pods are running", func() {
+				pods := &corev1.PodList{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.List(ctx, pods, client.MatchingLabels{
+						leaderworkersetv1.SetNameLabelKey: lws.Name,
+					}, client.InNamespace(lws.Namespace))).Should(gomega.Succeed())
+					g.Expect(pods.Items).To(gomega.HaveLen(3))
+					for _, pod := range pods.Items {
+						g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
+					}
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
+
 	ginkgo.When("Workload deactivated", func() {
 		ginkgo.It("shouldn't delete deactivated Workload", func() {
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
