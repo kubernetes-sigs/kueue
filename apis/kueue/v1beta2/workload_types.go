@@ -642,7 +642,7 @@ type WorkloadStatus struct {
 	// This field is optional.
 	//
 	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=10
+	// +kubebuilder:validation:MaxItems=20
 	// +kubebuilder:validation:items:MaxLength=256
 	// +optional
 	NominatedClusterNames []string `json:"nominatedClusterNames,omitempty"`
