@@ -124,60 +124,6 @@ func applyWorkloadSliceSchedulingGate(ctx context.Context, job *Job) {
 	utilpod.GateTemplate(&job.Spec.Template, kueue.ElasticJobSchedulingGate)
 }
 
-// isRayRedisCleanupJob checks if the batch job is owned by a RayCluster and has the redis-cleanup label.
-// Returns true if the job should be excluded from getting scheduling gates.
-func isRayRedisCleanupJob(ctx context.Context, job *Job) bool {
-	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
-	obj := job.Object()
-
-	// Check if the job is owned by a RayCluster
-	isOwnedByRayCluster := false
-	var ownerInfo string
-	for _, owner := range obj.GetOwnerReferences() {
-		if owner.Kind == "RayCluster" && owner.APIVersion == "ray.io/v1" {
-			isOwnedByRayCluster = true
-			ownerInfo = owner.Name
-			break
-		}
-	}
-
-	if !isOwnedByRayCluster {
-		log.Info("Job is not owned by ray.io/v1/RayCluster",
-			"jobName", job.Name,
-			"jobNamespace", job.Namespace)
-		return false
-	}
-
-	// Check if the job has the redis-cleanup label
-	labels := obj.GetLabels()
-	if labels == nil {
-		log.Info("Job owned by RayCluster but has no labels",
-			"jobName", job.Name,
-			"jobNamespace", job.Namespace,
-			"rayClusterOwner", ownerInfo)
-		return false
-	}
-
-	nodeType, exists := labels["ray.io/node-type"]
-	isRedisCleanup := exists && nodeType == "redis-cleanup"
-
-	if isRedisCleanup {
-		log.Info("Identified Ray redis-cleanup job",
-			"jobName", job.Name,
-			"jobNamespace", job.Namespace,
-			"rayClusterOwner", ownerInfo,
-			"nodeType", nodeType)
-	} else {
-		log.Info("Job owned by RayCluster but not redis-cleanup",
-			"jobName", job.Name,
-			"jobNamespace", job.Namespace,
-			"rayClusterOwner", ownerInfo,
-			"nodeType", nodeType)
-	}
-
-	return isRedisCleanup
-}
-
 type JobWebhook struct {
 	client                       client.Client
 	manageJobsWithoutQueueName   bool

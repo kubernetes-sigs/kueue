@@ -96,38 +96,16 @@ func (w *RayClusterWebhook) Default(ctx context.Context, obj runtime.Object) err
 
 	rjob := obj.(*rayv1.RayCluster)
 	elasticJobEnabled := isAnElasticJob(rjob)
-	log.V(10).Info("checking elastic job status",
-		"name", rjob.Name,
-		"namespace", rjob.Namespace,
-		"elasticJobEnabled", elasticJobEnabled,
-		"ElasticJobsViaWorkloadSlices", features.Enabled(features.ElasticJobsViaWorkloadSlices),
-		"workloadSlicingEnabled", workloadslicing.Enabled(rjob.GetObjectMeta()))
 
 	if elasticJobEnabled {
 		// Ensure that the PodSchedulingGate is present in the RayCluster's pod Templates for its Head and all its Workers
 		utilpod.GateTemplate(&job.Spec.HeadGroupSpec.Template, kueue.ElasticJobSchedulingGate)
-
-		// Log final gates after applying
-		finalHeadGates := []string{}
-		for _, gate := range job.Spec.HeadGroupSpec.Template.Spec.SchedulingGates {
-			finalHeadGates = append(finalHeadGates, gate.Name)
-		}
-		log.V(10).Info("head group final gates after applying",
-			"name", rjob.Name,
-			"namespace", rjob.Namespace,
-			"finalHeadGates", finalHeadGates)
 
 		for index := range job.Spec.WorkerGroupSpecs {
 			wgs := &job.Spec.WorkerGroupSpecs[index]
 
 			utilpod.GateTemplate(&wgs.Template, kueue.ElasticJobSchedulingGate)
 		}
-
-		log.V(10).Info("completed adding elastic scheduling gates to all pod templates",
-			"name", rjob.Name,
-			"namespace", rjob.Namespace,
-			"headGatesCount", len(job.Spec.HeadGroupSpec.Template.Spec.SchedulingGates),
-			"workerGroupsCount", len(job.Spec.WorkerGroupSpecs))
 	} else {
 		log.V(3).Info("skipping elastic scheduling gates",
 			"name", rjob.Name,
