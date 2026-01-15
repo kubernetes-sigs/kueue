@@ -19,7 +19,6 @@ package job
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strconv"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -85,18 +84,7 @@ func applyWorkloadSliceSchedulingGate(ctx context.Context, job *Job) {
 			"jobNamespace", job.Namespace)
 
 		// Safely remove the elastic job scheduling gate if it exists (inherited from RayCluster template)
-		// Use reverse iteration to avoid index shifting issues when removing elements
-		// Use slices.Delete for safe removal
-		updated := false
-		for i := len(job.Spec.Template.Spec.SchedulingGates) - 1; i >= 0; i-- {
-			gate := job.Spec.Template.Spec.SchedulingGates[i]
-			if gate.Name == kueue.ElasticJobSchedulingGate {
-				job.Spec.Template.Spec.SchedulingGates = slices.Delete(job.Spec.Template.Spec.SchedulingGates, i, i+1)
-				updated = true
-				break // Exit after first match since there should only be one elastic gate
-			}
-		}
-		if updated {
+		if utilpod.UngateTemplate(&job.Spec.Template, kueue.ElasticJobSchedulingGate) {
 			log.V(3).Info("Successfully removed inherited elastic scheduling gate from redis-cleanup job",
 				"jobName", job.Name,
 				"jobNamespace", job.Namespace)
