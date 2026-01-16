@@ -44,8 +44,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/klog/v2"
 	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -544,6 +547,12 @@ func GetKuberayTestImage() string {
 	return kuberayTestImage
 }
 
+func GetClusterProfilePluginImage() string {
+	clusterProfilePluginImage, found := os.LookupEnv("CLUSTERPROFILE_PLUGIN_IMAGE")
+	gomega.Expect(found).To(gomega.BeTrue())
+	return clusterProfilePluginImage
+}
+
 func CreateNamespaceWithLog(ctx context.Context, k8sClient client.Client, nsName string) *corev1.Namespace {
 	ginkgo.GinkgoHelper()
 	return CreateNamespaceFromObjectWithLog(ctx, k8sClient, utiltesting.MakeNamespace(nsName))
@@ -610,4 +619,24 @@ func UpdateKueueConfiguration(ctx context.Context, k8sClient client.Client, conf
 
 func BaseSSAWorkload(w *kueue.Workload) *kueue.Workload {
 	return workload.BaseSSAWorkload(w, true)
+}
+
+func GetClusterServerAddress(clusterName string) string {
+	return "https://" + clusterName + "-control-plane:6443"
+}
+
+func GetAuthInfoFromKubeConfig(kubeConfig []byte) *clientcmdapi.AuthInfo {
+	ginkgo.GinkgoHelper()
+	cfg, err := clientcmd.Load(kubeConfig)
+	gomega.Expect(err).To(gomega.Succeed())
+	return cfg.AuthInfos[cfg.Contexts[cfg.CurrentContext].AuthInfo]
+}
+
+func GetKubernetesVersion(cfg *rest.Config) string {
+	ginkgo.GinkgoHelper()
+	discoveryClient := discovery.NewDiscoveryClientForConfigOrDie(cfg)
+	ver, err := discoveryClient.ServerVersion()
+
+	gomega.Expect(err).To(gomega.Succeed())
+	return ver.String()
 }

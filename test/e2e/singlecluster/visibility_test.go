@@ -574,13 +574,10 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Serial, func() {
 		var roleBinding *rbacv1.RoleBinding
 
 		ginkgo.BeforeEach(func() {
-			roleBinding = &rbacv1.RoleBinding{
-				ObjectMeta: metav1.ObjectMeta{Name: "read-pending-workloads", Namespace: nsA.Name},
-				RoleRef:    rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "ClusterRole", Name: "kueue-batch-user-role"},
-				Subjects: []rbacv1.Subject{
-					{Name: "default", APIGroup: "", Namespace: kueueNS, Kind: rbacv1.ServiceAccountKind},
-				},
-			}
+			roleBinding = utiltesting.MakeRoleBinding("read-pending-workloads", nsA.Name).
+				RoleRef(rbacv1.GroupName, "ClusterRole", "kueue-batch-user-role").
+				Subject(rbacv1.ServiceAccountKind, "default", kueueNS).
+				Obj()
 			util.MustCreate(ctx, k8sClient, roleBinding)
 			ginkgo.By("Wait for ResourceNotFound error instead of Forbidden to make sure the role bindings work", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
