@@ -17,9 +17,38 @@
 # This script migrates Kueue resources to the v1beta2 storage version.
 # It handles both namespaced and cluster-scoped resources.
 
-set -o errexit
 set -o nounset
 set -o pipefail
+
+DRY_RUN=""
+VERBOSE=false
+
+# Parse flags
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run)
+      DRY_RUN="--dry-run=client"
+      shift
+      ;;
+    --dry-run=client|--dry-run=server)
+      DRY_RUN="$1"
+      shift
+      ;;
+    -v|--verbose)
+      VERBOSE=true
+      shift
+      ;;
+    *)
+      # ignore unknown flags or stop here
+      break
+      ;;
+  esac
+done
+
+if [[ -n "$DRY_RUN" ]]; then
+    echo "Running in dry-run mode ($DRY_RUN) – no changes will be applied."
+    echo ""
+fi
 
 kinds=(
   cohorts
@@ -35,33 +64,94 @@ kinds=(
   workloads
 )
 
+patch_payload='{"apiVersion":"kueue.x-k8s.io/v1beta2"}'
+
+exit_code=0
+
 for kind in "${kinds[@]}"; do
-  echo "Migrating $kind.kueue.x-k8s.io ..."
+  echo "Migrating $kind.kueue.x-k8s.io..."
+
+  resources_cmd="kubectl get \"${kind}.kueue.x-k8s.io\" -A -o jsonpath='{range .items[*]}{.metadata.namespace}{\"/\"}{.metadata.name}{\"\n\"}{end}'"
+  if $VERBOSE; then
+    echo "  → ${resources_cmd}"
+  fi
 
   # Get resources in namespace/name format
-  resources=$(kubectl get "$kind.kueue.x-k8s.io" -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"/"}{.metadata.name}{"\n"}{end}')
-
-  if [[ -z "$resources" ]]; then
-    echo "  → No $kind found, skipping"
+  resources=$(eval "$resources_cmd")
+  # shellcheck disable=SC2181
+  if [ $? -ne 0 ]; then
+    echo "" >&2
+    exit_code=1
     continue
   fi
 
-  echo "$resources" | while read -r entry; do
-    [[ -z "$entry" || "$entry" == "/" ]] && continue
+  if [[ -z "${resources}" ]]; then
+    echo "  → No $kind found, skipping."
+    echo ""
+    continue
+  fi
 
+  filtered=$(echo "${resources}" | grep -v '^$' | grep -v '^/$')
+  total=$(echo "${filtered}" | wc -l | tr -d '[:space:]')
+
+  if [[ -z "${total}" ]] || (( total == 0 )); then
+    echo "  → No valid ${kind} found, skipping."
+    echo ""
+    continue
+  fi
+
+  echo "  → Found: ${total} object(s)"
+
+  patched=0
+  percent=0
+
+  while read -r entry; do
     ns="${entry%/*}"
     name="${entry#*/}"
 
-    if [[ -z "$ns" ]]; then
-      # Cluster-scoped resource
-      kubectl patch "$kind.kueue.x-k8s.io" "$name" --type=merge -p '{"apiVersion":"kueue.x-k8s.io/v1beta2"}'
-    else
+    patch_cmd=(kubectl patch "$kind.kueue.x-k8s.io" "$name")
+    if [[ -n "$ns" ]]; then
       # Namespaced resource
-      kubectl patch "$kind.kueue.x-k8s.io" "$name" -n "$ns" --type=merge -p '{"apiVersion":"kueue.x-k8s.io/v1beta2"}'
+      patch_cmd+=(-n "$ns")
     fi
-  done
 
-  echo "  → $kind migration complete"
+    # shellcheck disable=SC2206
+    patch_cmd+=(--type=merge -p "$patch_payload" $DRY_RUN)
+
+    if $VERBOSE; then
+        echo "    └─ ${patch_cmd[*]}"
+    fi
+
+    output=$("${patch_cmd[@]}")
+    # shellcheck disable=SC2181
+    if [ $? -eq 0 ]; then
+      patched=$((patched + 1))
+    else
+      exit_code=1
+      continue
+    fi
+
+    if $VERBOSE; then
+      echo "       $output" >&2
+    fi
+
+    percent=$(( (patched * 100 + total / 2) / total ))
+    printf "  → Progress: %3d%% (%d/%d)\r" "${percent}" "${patched}" "${total}"
+  done <<< "$filtered"
+
+  printf "  → Progress: %3d%% (%d/%d)\n" "${percent}" "${patched}" "${total}"
+
+  if [ "$patched" -ne "$total" ]; then
+    failures=$(( total - patched ))
+    echo "  → Error: only ${patched}/${total} object(s) patched successfully (${failures} failure(s))!"
+  fi
+
+  echo ""
 done
 
-echo "All migrations finished successfully!"
+if [ $exit_code -eq 0 ]; then
+  echo "All migrations finished successfully!"
+else
+  echo "Error: Migration completed with issues!" >&2
+  exit $exit_code
+fi
