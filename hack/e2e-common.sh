@@ -353,7 +353,8 @@ function helm_install {
 function build_and_apply_kueue_manifests {
     local build_output
     build_output=$($KUSTOMIZE build "$2")
-    build_output=${build_output//kueue-system/$KUEUE_NAMESPACE}
+    # shellcheck disable=SC2001 # bash parameter substitution does not work on macOS
+    build_output=$(echo "$build_output" | sed "s/kueue-system/$KUEUE_NAMESPACE/g")
     echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side -f -
 }
 
@@ -607,7 +608,8 @@ EOF
         
         local build_output
         build_output=$($KUSTOMIZE build "${ROOT_DIR}/test/e2e/config/default")
-        build_output=${build_output//kueue-system/$KUEUE_NAMESPACE}
+        # shellcheck disable=SC2001 # bash parameter substitution does not work on macOS
+        build_output=$(echo "$build_output" | sed "s/kueue-system/$KUEUE_NAMESPACE/g")
         echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side --force-conflicts -f -
     )
     
