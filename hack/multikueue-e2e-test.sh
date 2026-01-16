@@ -36,6 +36,11 @@ function cleanup {
         mkdir -p "$ARTIFACTS"
     fi
 
+    cluster_collect_artifacts "$MANAGER_KIND_CLUSTER_NAME" "$MANAGER_KUBECONFIG" &
+    cluster_collect_artifacts "$WORKER1_KIND_CLUSTER_NAME" "$WORKER1_KUBECONFIG" &
+    cluster_collect_artifacts "$WORKER2_KIND_CLUSTER_NAME" "$WORKER2_KUBECONFIG" &
+    wait
+
     if e2e_should_delete_cluster; then
         cluster_cleanup "$MANAGER_KIND_CLUSTER_NAME" "$MANAGER_KUBECONFIG" &
         cluster_cleanup "$WORKER1_KIND_CLUSTER_NAME" "$WORKER1_KUBECONFIG" &
@@ -44,13 +49,9 @@ function cleanup {
         return 0
     fi
 
-    cluster_collect_artifacts "$MANAGER_KIND_CLUSTER_NAME" "$MANAGER_KUBECONFIG" &
-    cluster_collect_artifacts "$WORKER1_KIND_CLUSTER_NAME" "$WORKER1_KUBECONFIG" &
-    cluster_collect_artifacts "$WORKER2_KIND_CLUSTER_NAME" "$WORKER2_KUBECONFIG" &
-    wait
-    echo "Keeping kind clusters (E2E_MODE=${E2E_MODE})."
+    echo "Keeping kind clusters '$MANAGER_KIND_CLUSTER_NAME' '$WORKER1_KIND_CLUSTER_NAME' '$WORKER2_KIND_CLUSTER_NAME' (E2E_MODE=${E2E_MODE})."
     echo "To delete them:"
-    echo "  kind delete cluster $MANAGER_KIND_CLUSTER_NAME $WORKER1_KIND_CLUSTER_NAME $WORKER2_KIND_CLUSTER_NAME"
+    echo "  kind delete clusters $MANAGER_KIND_CLUSTER_NAME $WORKER1_KIND_CLUSTER_NAME $WORKER2_KIND_CLUSTER_NAME"
 }
 
 
@@ -103,9 +104,7 @@ if [ "$E2E_RUN_ONLY_ENV" = "true" ]; then
   if [[ "$reply" =~ ^[nN]$ ]]; then
     trap - EXIT
     echo "Skipping cleanup for kind clusters."
-    echo -e "\nManager kind cluster cleanup:\n  kind delete cluster --name $MANAGER_KIND_CLUSTER_NAME"
-    echo -e "\nWorker1 kind cluster cleanup:\n  kind delete cluster --name $WORKER1_KIND_CLUSTER_NAME"
-    echo -e "\nWorker2 kind cluster cleanup:\n  kind delete cluster --name $WORKER2_KIND_CLUSTER_NAME"
+    echo -e "\nKind cluster cleanup:\n  kind delete clusters $MANAGER_KIND_CLUSTER_NAME $WORKER1_KIND_CLUSTER_NAME $WORKER2_KIND_CLUSTER_NAME"
   fi
   exit 0
 fi

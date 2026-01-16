@@ -106,8 +106,6 @@ function cluster_cleanup {
     local name=$1
     local kubeconfig=$2
 
-    cluster_collect_artifacts "$name" "$kubeconfig"
-
     $KIND delete cluster --name "$name"
     return 0
 }
@@ -166,7 +164,7 @@ function ensure_kind_cluster {
     # CI mode: always start from a clean cluster.
     if kind_cluster_exists "$name"; then
         echo "Deleting existing kind cluster for a clean CI run: $name"
-        $KIND delete cluster --name "$name" || true
+        $KIND delete cluster --name "$name"
     fi
     cluster_create "$name" "$cfg" "$kubeconfig"
 }

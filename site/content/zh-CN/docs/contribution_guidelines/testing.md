@@ -137,10 +137,7 @@ E2E_MODE=dev GINKGO_ARGS="--until-it-fails" make test-e2e
 测试结束后如需删除保留的集群：
 
 ```shell
-kind delete cluster --name kind
-kind delete cluster --name kind-manager
-kind delete cluster --name kind-worker1
-kind delete cluster --name kind-worker2
+kind delete clusters kind kind-manager kind-worker1 kind-worker2
 ```
 
 ### 旧方式：交互式附加模式
