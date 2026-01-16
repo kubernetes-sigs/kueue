@@ -1387,8 +1387,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		})
 		ginkgo.AfterAll(func() {
 			ginkgo.By("setting MultiKueue Dispatcher back to AllAtOnce", func() {
-				util.ApplyKueueConfiguration(ctx, k8sManagerClient, defaultManagerKueueCfg)
-				util.RestartKueueController(ctx, k8sManagerClient, managerClusterName)
+				util.UpdateKueueConfiguration(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName)
 			})
 		})
 		ginkgo.It("Should run a job on worker if admitted", func() {
@@ -1621,8 +1620,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		})
 		ginkgo.AfterAll(func() {
 			ginkgo.By("reverting the configuration", func() {
-				util.ApplyKueueConfiguration(ctx, k8sManagerClient, defaultManagerKueueCfg)
-				util.RestartKueueController(ctx, k8sManagerClient, managerClusterName)
+				util.UpdateKueueConfiguration(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName)
 			})
 		})
 
@@ -1830,7 +1828,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				util.WaitForKueueAvailability(ctx, k8sManagerClient)
 			})
 			ginkgo.By("setting back the configuration", func() {
-				util.UpdateKueueConfiguration(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {})
+				util.UpdateKueueConfiguration(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName)
 			})
 
 			for _, s := range clusterProfileSecrets {

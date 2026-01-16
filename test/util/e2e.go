@@ -370,7 +370,7 @@ func GetKueueConfiguration(ctx context.Context, k8sClient client.Client) *config
 	return &kueueCfg
 }
 
-func ApplyKueueConfiguration(ctx context.Context, k8sClient client.Client, kueueCfg *configapi.Configuration) {
+func applyKueueConfiguration(ctx context.Context, k8sClient client.Client, kueueCfg *configapi.Configuration) {
 	configMap := &corev1.ConfigMap{}
 	kueueNS := GetKueueNamespace()
 	kcmKey := types.NamespacedName{Namespace: kueueNS, Name: "kueue-manager-config"}
@@ -614,13 +614,15 @@ func WaitForPodRunning(ctx context.Context, k8sClient client.Client, pod *corev1
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 
-func UpdateKueueConfiguration(ctx context.Context, k8sClient client.Client, config *configapi.Configuration, kindClusterName string, applyChanges func(cfg *configapi.Configuration)) {
-	configurationUpdate := time.Now()
+func UpdateKueueConfiguration(ctx context.Context, k8sClient client.Client, config *configapi.Configuration, kindClusterName string, applyChanges ...func(cfg *configapi.Configuration)) {
+	startTime := time.Now()
 	config = config.DeepCopy()
-	applyChanges(config)
-	ApplyKueueConfiguration(ctx, k8sClient, config)
+	for _, applyChange := range applyChanges {
+		applyChange(config)
+	}
+	applyKueueConfiguration(ctx, k8sClient, config)
 	RestartKueueController(ctx, k8sClient, kindClusterName)
-	ginkgo.GinkgoLogr.Info("Kueue configuration updated", "took", time.Since(configurationUpdate))
+	ginkgo.GinkgoLogr.Info("Kueue configuration updated", "took", time.Since(startTime))
 }
 
 func BaseSSAWorkload(w *kueue.Workload) *kueue.Workload {
