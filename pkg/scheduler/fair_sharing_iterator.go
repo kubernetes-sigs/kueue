@@ -18,7 +18,6 @@ package scheduler
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/go-logr/logr"
 	"k8s.io/klog/v2"
@@ -218,12 +217,25 @@ func (e *entryComparer) computeDRS(rootCohort *schdcache.CohortSnapshot, cqToEnt
 	}
 }
 
+type drsLogEntry struct {
+	ParentCohort string  `json:"parentCohort"`
+	Workload     string  `json:"workload"`
+	DRS          float64 `json:"drs"`
+}
+
 func (e *entryComparer) logDrsValuesWhenVerbose(log logr.Logger) {
 	if logV := log.V(5); logV.Enabled() {
-		serializableDrs := make([]string, 0, len(e.drsValues))
+		entries := make([]drsLogEntry, 0, len(e.drsValues))
 		for k, v := range e.drsValues {
-			serializableDrs = append(serializableDrs, fmt.Sprintf("{parentCohort: %s, workload %s, drs: %.3f}", k.parentCohort, k.workloadKey, v.PreciseWeightedShare()))
+			entries = append(entries, drsLogEntry{
+				ParentCohort: string(k.parentCohort),
+				Workload:     string(k.workloadKey),
+				DRS:          v.PreciseWeightedShare(),
+			})
 		}
-		logV.Info("DominantResourceShare values used during tournament", "drsValues", serializableDrs)
+		logV.Info(
+			"DominantResourceShare values used during tournament",
+			"drsValues", entries,
+		)
 	}
 }
