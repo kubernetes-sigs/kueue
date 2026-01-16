@@ -74,18 +74,10 @@ func TestReconciler(t *testing.T) {
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						kueue.PodSet{
-							Name: kueue.DefaultPodSetName,
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									Containers: []corev1.Container{
-										{Name: "c", Image: "pause"},
-									},
-								},
-							},
-							Count:           1,
-							TopologyRequest: nil,
-						}).
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							RestartPolicy("").
+							Image("pause").
+							Obj()).
 					Priority(0).
 					Obj(),
 			},
@@ -132,30 +124,14 @@ func TestReconciler(t *testing.T) {
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						kueue.PodSet{
-							Name: leaderPodSetName,
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									Containers: []corev1.Container{
-										{Name: "c", Image: "pause"},
-									},
-								},
-							},
-							Count:           1,
-							TopologyRequest: nil,
-						},
-						kueue.PodSet{
-							Name: workerPodSetName,
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									Containers: []corev1.Container{
-										{Name: "c", Image: "pause"},
-									},
-								},
-							},
-							Count:           2,
-							TopologyRequest: nil,
-						},
+						*utiltestingapi.MakePodSet(leaderPodSetName, 1).
+							RestartPolicy("").
+							Image("pause").
+							Obj(),
+						*utiltestingapi.MakePodSet(workerPodSetName, 2).
+							RestartPolicy("").
+							Image("pause").
+							Obj(),
 					).
 					Priority(0).
 					Obj(),
@@ -205,30 +181,14 @@ func TestReconciler(t *testing.T) {
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						kueue.PodSet{
-							Name: leaderPodSetName,
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									Containers: []corev1.Container{
-										{Name: "c", Image: "pause"},
-									},
-								},
-							},
-							Count:           1,
-							TopologyRequest: nil,
-						},
-						kueue.PodSet{
-							Name: workerPodSetName,
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									Containers: []corev1.Container{
-										{Name: "c", Image: "pause"},
-									},
-								},
-							},
-							Count:           2,
-							TopologyRequest: nil,
-						},
+						*utiltestingapi.MakePodSet(leaderPodSetName, 1).
+							RestartPolicy("").
+							Image("pause").
+							Obj(),
+						*utiltestingapi.MakePodSet(workerPodSetName, 2).
+							RestartPolicy("").
+							Image("pause").
+							Obj(),
 					).
 					Priority(0).
 					Obj(),
@@ -237,30 +197,14 @@ func TestReconciler(t *testing.T) {
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						kueue.PodSet{
-							Name: leaderPodSetName,
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									Containers: []corev1.Container{
-										{Name: "c", Image: "pause"},
-									},
-								},
-							},
-							Count:           1,
-							TopologyRequest: nil,
-						},
-						kueue.PodSet{
-							Name: workerPodSetName,
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									Containers: []corev1.Container{
-										{Name: "c", Image: "pause"},
-									},
-								},
-							},
-							Count:           2,
-							TopologyRequest: nil,
-						},
+						*utiltestingapi.MakePodSet(leaderPodSetName, 1).
+							RestartPolicy("").
+							Image("pause").
+							Obj(),
+						*utiltestingapi.MakePodSet(workerPodSetName, 2).
+							RestartPolicy("").
+							Image("pause").
+							Obj(),
 					).
 					Priority(0).
 					Obj(),
@@ -352,35 +296,17 @@ func TestReconciler(t *testing.T) {
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						kueue.PodSet{
-							Name: leaderPodSetName,
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									Containers: []corev1.Container{
-										{Name: "c", Image: "pause"},
-									},
-								},
-							},
-							Count: 1,
-							TopologyRequest: &kueue.PodSetTopologyRequest{
-								Required: ptr.To("cloud.com/block"),
-							},
-						},
-						kueue.PodSet{
-							Name: workerPodSetName,
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									Containers: []corev1.Container{
-										{Name: "c", Image: "pause"},
-									},
-								},
-							},
-							Count: 2,
-							TopologyRequest: &kueue.PodSetTopologyRequest{
-								Required:      ptr.To("cloud.com/block"),
-								PodIndexLabel: ptr.To(leaderworkersetv1.WorkerIndexLabelKey),
-							},
-						},
+						*utiltestingapi.MakePodSet(leaderPodSetName, 1).
+							RestartPolicy("").
+							Image("pause").
+							RequiredTopologyRequest("cloud.com/block").
+							Obj(),
+						*utiltestingapi.MakePodSet(workerPodSetName, 2).
+							RestartPolicy("").
+							Image("pause").
+							RequiredTopologyRequest("cloud.com/block").
+							PodIndexLabel(ptr.To(leaderworkersetv1.WorkerIndexLabelKey)).
+							Obj(),
 					).
 					Priority(0).
 					Obj(),
@@ -462,28 +388,14 @@ func TestReconciler(t *testing.T) {
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						kueue.PodSet{
-							Name: leaderPodSetName,
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									Containers: []corev1.Container{
-										{Name: "c", Image: "pause"},
-									},
-								},
-							},
-							Count: 1,
-						},
-						kueue.PodSet{
-							Name: workerPodSetName,
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									Containers: []corev1.Container{
-										{Name: "c", Image: "pause"},
-									},
-								},
-							},
-							Count: 2,
-						},
+						*utiltestingapi.MakePodSet(leaderPodSetName, 1).
+							RestartPolicy("").
+							Image("pause").
+							Obj(),
+						*utiltestingapi.MakePodSet(workerPodSetName, 2).
+							RestartPolicy("").
+							Image("pause").
+							Obj(),
 					).
 					Priority(0).
 					Obj(),
@@ -520,18 +432,10 @@ func TestReconciler(t *testing.T) {
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						kueue.PodSet{
-							Name: kueue.DefaultPodSetName,
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									Containers: []corev1.Container{
-										{Name: "c", Image: "pause"},
-									},
-								},
-							},
-							Count:           1,
-							TopologyRequest: nil,
-						}).
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							RestartPolicy("").
+							Image("pause").
+							Obj()).
 					WorkloadPriorityClassRef("high-priority").
 					Priority(5000).
 					Obj(),
@@ -560,17 +464,10 @@ func TestReconciler(t *testing.T) {
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						kueue.PodSet{
-							Name: kueue.DefaultPodSetName,
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									Containers: []corev1.Container{
-										{Name: "c", Image: "pause"},
-									},
-								},
-							},
-							Count: 1,
-						}).
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							RestartPolicy("").
+							Image("pause").
+							Obj()).
 					Priority(0).
 					Obj(),
 				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "1"), testNS).
@@ -579,17 +476,10 @@ func TestReconciler(t *testing.T) {
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						kueue.PodSet{
-							Name: kueue.DefaultPodSetName,
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									Containers: []corev1.Container{
-										{Name: "c", Image: "pause"},
-									},
-								},
-							},
-							Count: 1,
-						}).
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							RestartPolicy("").
+							Image("pause").
+							Obj()).
 					Priority(0).
 					Obj(),
 			},
@@ -600,17 +490,10 @@ func TestReconciler(t *testing.T) {
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						kueue.PodSet{
-							Name: kueue.DefaultPodSetName,
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									Containers: []corev1.Container{
-										{Name: "c", Image: "pause"},
-									},
-								},
-							},
-							Count: 1,
-						}).
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							RestartPolicy("").
+							Image("pause").
+							Obj()).
 					Priority(0).
 					Obj(),
 				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "1"), testNS).
@@ -618,17 +501,10 @@ func TestReconciler(t *testing.T) {
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						kueue.PodSet{
-							Name: kueue.DefaultPodSetName,
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									Containers: []corev1.Container{
-										{Name: "c", Image: "pause"},
-									},
-								},
-							},
-							Count: 1,
-						}).
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							RestartPolicy("").
+							Image("pause").
+							Obj()).
 					Priority(0).
 					Obj(),
 			},
