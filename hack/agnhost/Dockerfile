@@ -1,1 +1,1 @@
-FROM registry.k8s.io/e2e-test-images/agnhost:2.59@sha256:10ed98804c877e505e17bced991682b6fd50ab1da9cddcd19935b48d645da40a
+FROM registry.k8s.io/e2e-test-images/agnhost:2.60@sha256:91dd208a8c24aab8f6da6cd1e80128a0f82737fbf6746cdacc27d128962857dc
