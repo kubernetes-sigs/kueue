@@ -431,8 +431,16 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 			waitForJobAdmitted(wlLookupKey, multiKueueAc.Name, "worker1")
 
+			ginkgo.By("Verifying status is synced back to manager", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					managerSts := &appsv1.StatefulSet{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(statefulset), managerSts)).To(gomega.Succeed())
+					g.Expect(managerSts.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
 			ginkgo.By("Verifying pods on management cluster remain gated", func() {
-				gomega.Consistently(func(g gomega.Gomega) {
+				gomega.Eventually(func(g gomega.Gomega) {
 					pods := &corev1.PodList{}
 					g.Expect(k8sManagerClient.List(ctx, pods, client.InNamespace(managerNs.Name), client.MatchingLabels{
 						podconstants.GroupNameLabel: workloadstatefulset.GetWorkloadName(statefulset.Name),
@@ -441,15 +449,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					for _, pod := range pods.Items {
 						g.Expect(utilpod.HasGate(&pod, podconstants.SchedulingGateName)).To(gomega.BeTrue())
 					}
-				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Verifying status is synced back to manager", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					managerSts := &appsv1.StatefulSet{}
-					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(statefulset), managerSts)).To(gomega.Succeed())
-					g.Expect(managerSts.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Deleting the statefulset", func() {

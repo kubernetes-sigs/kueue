@@ -155,20 +155,18 @@ func TestMultiKueueAdapter(t *testing.T) {
 
 			gotManagersStatefulSets := &appsv1.StatefulSetList{}
 			if err := managerClient.List(ctx, gotManagersStatefulSets); err != nil {
-				t.Errorf("unexpected list manager's statefulsets error %s", err)
-			} else {
-				if diff := cmp.Diff(tc.wantManagersStatefulSets, gotManagersStatefulSets.Items, objCheckOpts...); diff != "" {
-					t.Errorf("unexpected manager's statefulsets (-want/+got):\n%s", diff)
-				}
+				t.Fatalf("unexpected list manager's statefulsets error %s", err)
+			}
+			if diff := cmp.Diff(tc.wantManagersStatefulSets, gotManagersStatefulSets.Items, objCheckOpts...); diff != "" {
+				t.Errorf("unexpected manager's statefulsets (-want/+got):\n%s", diff)
 			}
 
 			gotWorkerStatefulSets := &appsv1.StatefulSetList{}
 			if err := workerClient.List(ctx, gotWorkerStatefulSets); err != nil {
-				t.Errorf("unexpected list worker's statefulsets error %s", err)
-			} else {
-				if diff := cmp.Diff(tc.wantWorkerStatefulSets, gotWorkerStatefulSets.Items, objCheckOpts...); diff != "" {
-					t.Errorf("unexpected worker's statefulsets (-want/+got):\n%s", diff)
-				}
+				t.Fatalf("unexpected list worker's statefulsets error %s", err)
+			}
+			if diff := cmp.Diff(tc.wantWorkerStatefulSets, gotWorkerStatefulSets.Items, objCheckOpts...); diff != "" {
+				t.Errorf("unexpected worker's statefulsets (-want/+got):\n%s", diff)
 			}
 		})
 	}
