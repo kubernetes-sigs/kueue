@@ -13,9 +13,9 @@ tool (
 	gotest.tools/gotestsum
 	helm.sh/helm/v3/cmd/helm
 	k8s.io/code-generator
+	sigs.k8s.io/cluster-inventory-api
 	sigs.k8s.io/controller-runtime/tools/setup-envtest
 	sigs.k8s.io/controller-tools/cmd/controller-gen
-	sigs.k8s.io/cluster-inventory-api
 	sigs.k8s.io/kind
 	sigs.k8s.io/kustomize/kustomize/v5
 	sigs.k8s.io/mdtoc
@@ -35,7 +35,7 @@ require (
 	gopkg.in/op/go-logging.v1 v1.0.0-20160211212156-b2cb9fa56473
 	gopkg.in/yaml.v3 v3.0.1
 	gotest.tools/gotestsum v1.13.0
-	helm.sh/helm/v4 v4.0.4
+	helm.sh/helm/v4 v4.0.5
 	k8s.io/code-generator v0.35.0
 	sigs.k8s.io/cluster-inventory-api v0.0.0-20251124125836-445319b6307a
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20250407161039-6ad5c1dd4418
