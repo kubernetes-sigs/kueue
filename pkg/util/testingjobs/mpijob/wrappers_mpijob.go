@@ -255,3 +255,9 @@ func (j *MPIJobWrapper) TerminationGracePeriodSeconds(seconds int64) *MPIJobWrap
 	j.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template.Spec.TerminationGracePeriodSeconds = ptr.To(seconds)
 	return j
 }
+
+// RunLauncherAsWorker sets the RunLauncherAsWorker field.
+func (j *MPIJobWrapper) RunLauncherAsWorker(v bool) *MPIJobWrapper {
+	j.Spec.RunLauncherAsWorker = ptr.To(v)
+	return j
+}
