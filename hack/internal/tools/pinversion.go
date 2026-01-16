@@ -31,6 +31,7 @@ import (
 	_ "gotest.tools/gotestsum"
 	_ "helm.sh/helm/v4/cmd/helm"
 	_ "k8s.io/code-generator"
+	_ "sigs.k8s.io/cluster-inventory-api/cmd/secretreader-plugin"
 	_ "sigs.k8s.io/controller-runtime/tools/setup-envtest"
 	_ "sigs.k8s.io/controller-tools/cmd/controller-gen"
 	_ "sigs.k8s.io/kind"

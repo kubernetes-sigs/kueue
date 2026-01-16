@@ -19,6 +19,7 @@ package testing
 import (
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -168,6 +169,11 @@ func (c *ContainerWrapper) Image(image string) *ContainerWrapper {
 	return c
 }
 
+func (c *ContainerWrapper) ImagePullPolicy(policy corev1.PullPolicy) *ContainerWrapper {
+	c.Container.ImagePullPolicy = policy
+	return c
+}
+
 // WithResourceReq appends a resource request to the container.
 func (c *ContainerWrapper) WithResourceReq(resourceName corev1.ResourceName, quantity string) *ContainerWrapper {
 	requests := utilResource.MergeResourceListKeepFirst(c.Resources.Requests, corev1.ResourceList{
@@ -198,6 +204,19 @@ func (c *ContainerWrapper) WithEnvVar(envVar corev1.EnvVar) *ContainerWrapper {
 func (c *ContainerWrapper) AsSidecar() *ContainerWrapper {
 	c.RestartPolicy = ptr.To(corev1.ContainerRestartPolicyAlways)
 
+	return c
+}
+
+func (c *ContainerWrapper) VolumeMount(name, mountPath string) *ContainerWrapper {
+	c.VolumeMounts = append(c.VolumeMounts, corev1.VolumeMount{
+		Name:      name,
+		MountPath: mountPath,
+	})
+	return c
+}
+
+func (c *ContainerWrapper) Command(cmd ...string) *ContainerWrapper {
+	c.Container.Command = cmd
 	return c
 }
 
@@ -651,4 +670,65 @@ func (s *SecretWrapper) Data(key string, value []byte) *SecretWrapper {
 	}
 	s.Secret.Data[key] = value
 	return s
+}
+
+type RoleWrapper struct{ rbacv1.Role }
+
+func MakeRole(name, ns string) *RoleWrapper {
+	return &RoleWrapper{
+		rbacv1.Role{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: ns,
+			},
+		},
+	}
+}
+
+func (r *RoleWrapper) Obj() *rbacv1.Role {
+	return &r.Role
+}
+
+func (r *RoleWrapper) Rule(apiGroups, resources, verbs []string) *RoleWrapper {
+	r.Rules = append(r.Rules, rbacv1.PolicyRule{
+		APIGroups: apiGroups,
+		Resources: resources,
+		Verbs:     verbs,
+	})
+	return r
+}
+
+type RoleBindingWrapper struct{ rbacv1.RoleBinding }
+
+func MakeRoleBinding(name, ns string) *RoleBindingWrapper {
+	return &RoleBindingWrapper{
+		rbacv1.RoleBinding{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: ns,
+			},
+		},
+	}
+}
+
+func (rb *RoleBindingWrapper) Obj() *rbacv1.RoleBinding {
+	return &rb.RoleBinding
+}
+
+func (rb *RoleBindingWrapper) RoleRef(apiGroup, kind, name string) *RoleBindingWrapper {
+	rb.RoleBinding.RoleRef = rbacv1.RoleRef{
+		APIGroup: apiGroup,
+		Kind:     kind,
+		Name:     name,
+	}
+	return rb
+}
+
+func (rb *RoleBindingWrapper) Subject(kind, name, namespace string) *RoleBindingWrapper {
+	rb.Subjects = append(rb.Subjects, rbacv1.Subject{
+		Kind:      kind,
+		Name:      name,
+		Namespace: namespace,
+	})
+	return rb
 }

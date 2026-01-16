@@ -74,6 +74,7 @@ fi
 
 if [[ -n "${CLUSTERPROFILE_VERSION:-}" ]]; then
     export CLUSTERPROFILE_CRD=${ROOT_DIR}/dep-crds/clusterprofile/multicluster.x-k8s.io_clusterprofiles.yaml
+    export CLUSTERPROFILE_PLUGIN_IMAGE=us-central1-docker.pkg.dev/k8s-staging-images/kueue/secretreader-plugin:${CLUSTERPROFILE_PLUGIN_IMAGE_VERSION}
 fi
 
 if [[ -n "${DRA_EXAMPLE_DRIVER_VERSION:-}" ]]; then
@@ -202,6 +203,9 @@ function cluster_kind_load {
     if [[ -n ${KUEUE_UPGRADE_FROM_VERSION:-} ]]; then
         local old_image="${IMAGE_TAG%:*}:${KUEUE_UPGRADE_FROM_VERSION}"
         cluster_kind_load_image "$1" "${old_image}"
+    fi
+    if [[ -n "${CLUSTERPROFILE_VERSION:-}" ]]; then
+        cluster_kind_load_image "$1" "${CLUSTERPROFILE_PLUGIN_IMAGE}"
     fi
 }
 

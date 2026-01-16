@@ -68,6 +68,9 @@ var (
 	worker1Cfg *rest.Config
 	worker2Cfg *rest.Config
 
+	worker1KConfig []byte
+	worker2KConfig []byte
+
 	managerRestClient *rest.RESTClient
 	worker1RestClient *rest.RESTClient
 	worker2RestClient *rest.RESTClient
@@ -183,7 +186,7 @@ func kubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig 
 		APIVersion: "v1",
 		Clusters: map[string]*clientcmdapi.Cluster{
 			"default-cluster": {
-				Server:                   "https://" + clusterName + "-control-plane:6443",
+				Server:                   util.GetClusterServerAddress(clusterName),
 				CertificateAuthorityData: restConfig.CAData,
 			},
 		},
@@ -266,13 +269,13 @@ var _ = ginkgo.BeforeSuite(func() {
 
 	ctx = ginkgo.GinkgoT().Context()
 
-	worker1Kconfig, err := kubeconfigForMultiKueueSA(ctx, k8sWorker1Client, worker1Cfg, kueueNS, "mksa", worker1ClusterName)
+	worker1KConfig, err = kubeconfigForMultiKueueSA(ctx, k8sWorker1Client, worker1Cfg, kueueNS, "mksa", worker1ClusterName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(makeMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue1", worker1Kconfig)).To(gomega.Succeed())
+	gomega.Expect(makeMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue1", worker1KConfig)).To(gomega.Succeed())
 
-	worker2Kconfig, err := kubeconfigForMultiKueueSA(ctx, k8sWorker2Client, worker2Cfg, kueueNS, "mksa", worker2ClusterName)
+	worker2KConfig, err = kubeconfigForMultiKueueSA(ctx, k8sWorker2Client, worker2Cfg, kueueNS, "mksa", worker2ClusterName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(makeMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue2", worker2Kconfig)).To(gomega.Succeed())
+	gomega.Expect(makeMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue2", worker2KConfig)).To(gomega.Succeed())
 
 	waitForAvailableStart := time.Now()
 	util.WaitForKueueAvailability(ctx, k8sManagerClient)
