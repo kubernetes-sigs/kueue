@@ -226,6 +226,18 @@ func (w *WorkloadWrapper) Evicted() *WorkloadWrapper {
 	return w
 }
 
+func (w *WorkloadWrapper) EvictedAt(t time.Time) *WorkloadWrapper {
+	cond := metav1.Condition{
+		Type:               kueue.WorkloadEvicted,
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.NewTime(t),
+		Reason:             "ByTest",
+		Message:            "Evicted by test",
+	}
+	apimeta.SetStatusCondition(&w.Status.Conditions, cond)
+	return w
+}
+
 func (w *WorkloadWrapper) Creation(t time.Time) *WorkloadWrapper {
 	w.CreationTimestamp = metav1.NewTime(t)
 	return w
