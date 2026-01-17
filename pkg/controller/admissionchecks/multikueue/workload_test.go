@@ -514,7 +514,7 @@ func TestWlReconcile(t *testing.T) {
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 					ClusterName("worker1").
-					Evicted().
+					EvictedAt(now).
 					Obj(),
 			},
 			managersJobs: []batchv1.Job{
@@ -546,7 +546,7 @@ func TestWlReconcile(t *testing.T) {
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 					ClusterName("worker1").
-					Evicted().
+					EvictedAt(now).
 					Obj(),
 			},
 			wantManagersJobs: []batchv1.Job{
@@ -584,7 +584,7 @@ func TestWlReconcile(t *testing.T) {
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 					ClusterName("worker1").
-					Evicted().
+					EvictedAt(now).
 					Obj(),
 			},
 			managersJobs: []batchv1.Job{
@@ -623,7 +623,7 @@ func TestWlReconcile(t *testing.T) {
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 					ClusterName("worker1").
-					Evicted().
+					EvictedAt(now).
 					Obj(),
 			},
 			wantManagersJobs: []batchv1.Job{
