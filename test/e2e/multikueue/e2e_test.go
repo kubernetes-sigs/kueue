@@ -1723,29 +1723,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		)
 
 		ginkgo.BeforeAll(func() {
-			ginkgo.By("Updating MultiKueue configuration with CredentialsProviders", func() {
-				defaultManagerKueueCfg = util.GetKueueConfiguration(ctx, k8sManagerClient)
-				util.UpdateKueueConfiguration(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
-					cfg.FeatureGates[string(features.MultiKueueClusterProfile)] = true
-					if cfg.MultiKueue == nil {
-						cfg.MultiKueue = &kueueconfig.MultiKueue{}
-					}
-					cfg.MultiKueue.ClusterProfile = &kueueconfig.ClusterProfile{
-						CredentialsProviders: []kueueconfig.ClusterProfileCredentialsProvider{
-							{
-								Name: "secretreader",
-								ExecConfig: api.ExecConfig{
-									APIVersion:         "client.authentication.k8s.io/v1",
-									Command:            secretReaderPath,
-									ProvideClusterInfo: true,
-									InteractiveMode:    api.NeverExecInteractiveMode,
-								},
-							},
-						},
-					}
-				})
-			})
-
 			ginkgo.By("Creating Role and RoleBinding for secretreader-plugin", func() {
 				secretReaderRole = utiltesting.MakeRole("secretreader", kueueNS).
 					Rule([]string{""}, []string{"secrets"}, []string{"get", "list", "watch"}).
@@ -1814,9 +1791,31 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					}
 					g.Expect(k8sManagerClient.Update(ctx, updatedDeployment)).Should(gomega.Succeed())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				// We will wait for Kueue after setting the configuration
 			})
 
-			util.WaitForKueueAvailability(ctx, k8sManagerClient)
+			ginkgo.By("Updating MultiKueue configuration with CredentialsProviders", func() {
+				defaultManagerKueueCfg = util.GetKueueConfiguration(ctx, k8sManagerClient)
+				util.UpdateKueueConfiguration(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
+					cfg.FeatureGates[string(features.MultiKueueClusterProfile)] = true
+					if cfg.MultiKueue == nil {
+						cfg.MultiKueue = &kueueconfig.MultiKueue{}
+					}
+					cfg.MultiKueue.ClusterProfile = &kueueconfig.ClusterProfile{
+						CredentialsProviders: []kueueconfig.ClusterProfileCredentialsProvider{
+							{
+								Name: "secretreader",
+								ExecConfig: api.ExecConfig{
+									APIVersion:         "client.authentication.k8s.io/v1",
+									Command:            secretReaderPath,
+									ProvideClusterInfo: true,
+									InteractiveMode:    api.NeverExecInteractiveMode,
+								},
+							},
+						},
+					}
+				})
+			})
 		})
 		ginkgo.AfterAll(func() {
 			ginkgo.By("setting back the deployment", func() {
@@ -1826,8 +1825,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					updatedDeployment.Spec = *defaultManagerDeployment.Spec.DeepCopy()
 					g.Expect(k8sManagerClient.Update(ctx, updatedDeployment)).Should(gomega.Succeed())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-
-				util.WaitForKueueAvailability(ctx, k8sManagerClient)
+				// We will wait for Kueue after setting back the configuration
 			})
 			ginkgo.By("setting back the configuration", func() {
 				util.UpdateKueueConfiguration(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {})
