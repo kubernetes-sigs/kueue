@@ -64,7 +64,6 @@ import (
 	kueueclientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	visibilityv1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 const (
@@ -621,10 +620,6 @@ func UpdateKueueConfiguration(ctx context.Context, k8sClient client.Client, conf
 	ApplyKueueConfiguration(ctx, k8sClient, config)
 	RestartKueueController(ctx, k8sClient, kindClusterName)
 	ginkgo.GinkgoLogr.Info("Kueue configuration updated", "took", time.Since(configurationUpdate))
-}
-
-func BaseSSAWorkload(w *kueue.Workload) *kueue.Workload {
-	return workload.BaseSSAWorkload(w, true)
 }
 
 func GetClusterServerAddress(clusterName string) string {
