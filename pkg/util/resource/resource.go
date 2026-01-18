@@ -17,6 +17,8 @@ limitations under the License.
 package resource
 
 import (
+	"strings"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
@@ -127,5 +129,19 @@ func IsZero(rl corev1.ResourceList) bool {
 		}
 	}
 
+	return true
+}
+
+// IsExtendedResourceName returns true if the resource name is an extended resource.
+// Extended resources must be qualified names (domain/name format like "example.com/gpu").
+func IsExtendedResourceName(name corev1.ResourceName) bool {
+	// Extended resources must be qualified (contain domain prefix)
+	if !strings.Contains(string(name), "/") {
+		return false
+	}
+	// Exclude hugepages which also have "/" but aren't extended resources
+	if strings.HasPrefix(string(name), corev1.ResourceHugePagesPrefix) {
+		return false
+	}
 	return true
 }
