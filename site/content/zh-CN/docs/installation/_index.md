@@ -293,7 +293,8 @@ spec:
 | `TASReplaceNodeOnPodTermination`              | `true`  | Beta  | 0.14 |      |
 | `ElasticJobsViaWorkloadSlices`                | `false` | Alpha | 0.13 |      |
 | `ManagedJobsNamespaceSelectorAlwaysRespected` | `false` | Alpha | 0.13 |      |
-| `WorkloadRequestUseMergePatch`                | `false` | Alpha | 0.14 |      |
+| `WorkloadRequestUseMergePatch`                | `false` | Alpha | 0.14 | 0.15 |
+| `WorkloadRequestUseMergePatch`                | `true`  | Beta  | 0.16 |      |
 | `SanitizePodSets`                             | `true`  | Beta  | 0.13 |      |
 | `MultiKueueAllowInsecureKubeconfigs`          | `false` | Alpha | 0.13 |      |
 | `SkipFinalizersForPodsSuspendedByParent`      | `true`  | Beta  | 0.16 |      |

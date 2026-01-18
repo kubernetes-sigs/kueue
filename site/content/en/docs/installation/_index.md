@@ -281,7 +281,7 @@ spec:
 ### Feature gates for alpha and beta features
 
 | Feature                                       | Default | Stage | Since | Until |
-| --------------------------------------------- |---------|-------|-------| ----- |
+| --------------------------------------------- |---------|-------|-------|-------|
 | `FlavorFungibility`                           | `true`  | Beta  | 0.5   |       |
 | `MultiKueue`                                  | `false` | Alpha | 0.6   | 0.8   |
 | `MultiKueue`                                  | `true`  | Beta  | 0.9   |       |
@@ -313,7 +313,8 @@ spec:
 | `ElasticJobsViaWorkloadSlices`                | `false` | Alpha | 0.13  |       |
 | `ManagedJobsNamespaceSelectorAlwaysRespected` | `false` | Alpha | 0.13  | 0.15  |
 | `ManagedJobsNamespaceSelectorAlwaysRespected` | `true`  | Beta  | 0.15  |       |
-| `WorkloadRequestUseMergePatch`                | `false` | Alpha | 0.14  |       |
+| `WorkloadRequestUseMergePatch`                | `false` | Alpha | 0.14  | 0.15  |
+| `WorkloadRequestUseMergePatch`                | `true`  | Beta  | 0.16  |       |
 | `SanitizePodSets`                             | `true`  | Beta  | 0.13  |       |
 | `MultiKueueAllowInsecureKubeconfigs`          | `false` | Alpha | 0.13  |       |
 | `ReclaimablePods`                             | `true`  | Beta  | 0.15  |       |
