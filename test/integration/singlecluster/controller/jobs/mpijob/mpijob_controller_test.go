@@ -305,10 +305,10 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteObject(ctx, k8sClient, admissionCheck)).To(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, testFlavor, true)
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueueAc, true)
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, admissionCheck)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, testFlavor, true)
 		})
 
 		ginkgo.It("labels and annotations should be propagated from admission check to job", func() {
@@ -971,6 +971,86 @@ var _ = ginkgo.Describe("MPIJob controller with TopologyAwareScheduling", ginkgo
 			Obj()
 		ginkgo.By("creating a MPIJob", func() {
 			util.MustCreate(ctx, k8sClient, mpiJob)
+		})
+
+		wl := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{
+			Name:      workloadmpijob.GetWorkloadNameForMPIJob(mpiJob.Name, mpiJob.UID),
+			Namespace: ns.Name,
+		}
+
+		ginkgo.By("verify the workload is created", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Spec.PodSets).Should(gomega.BeComparableTo([]kueue.PodSet{
+					{
+						Name:  kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeLauncher)),
+						Count: 1,
+						TopologyRequest: &kueue.PodSetTopologyRequest{
+							Required:      ptr.To(utiltesting.DefaultBlockTopologyLevel),
+							PodIndexLabel: ptr.To(kfmpi.ReplicaIndexLabel),
+						},
+					},
+					{
+						Name:  kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeWorker)),
+						Count: 1,
+						TopologyRequest: &kueue.PodSetTopologyRequest{
+							Preferred:     ptr.To(utiltesting.DefaultRackTopologyLevel),
+							PodIndexLabel: ptr.To(kfmpi.ReplicaIndexLabel),
+						},
+					},
+				}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verify the workload is admitted", func() {
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
+		})
+
+		ginkgo.By("verify admission for the workload", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
+				g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(2))
+				g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+					tas.V1Beta2From(&tas.TopologyAssignment{
+						Levels:  []string{utiltesting.DefaultBlockTopologyLevel, utiltesting.DefaultRackTopologyLevel},
+						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
+					}),
+				))
+				g.Expect(wl.Status.Admission.PodSetAssignments[1].TopologyAssignment).Should(gomega.BeComparableTo(
+					tas.V1Beta2From(&tas.TopologyAssignment{
+						Levels:  []string{utiltesting.DefaultBlockTopologyLevel, utiltesting.DefaultRackTopologyLevel},
+						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
+					}),
+				))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("should admit MPIJob with runLauncherAsWorker workload which fits in a required topology domain", framework.SlowSpec, func() {
+		mpiJob := testingmpijob.MakeMPIJob(jobName, ns.Name).
+			Queue(localQueue.Name).
+			GenericLauncherAndWorker().
+			RunLauncherAsWorker(true).
+			PodAnnotation(kfmpi.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
+			PodAnnotation(kfmpi.MPIReplicaTypeWorker, kueue.PodSetPreferredTopologyAnnotation, utiltesting.DefaultRackTopologyLevel).
+			Request(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "100m").
+			Request(kfmpi.MPIReplicaTypeWorker, corev1.ResourceCPU, "100m").
+			Obj()
+
+		ginkgo.By("creating a MPIJob", func() {
+			util.MustCreate(ctx, k8sClient, mpiJob)
+		})
+
+		ginkgo.By("verify the webhook adds pod-index-offset annotation to Worker", func() {
+			createdMPIJob := &kfmpi.MPIJob{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: jobName, Namespace: ns.Name}, createdMPIJob)).Should(gomega.Succeed())
+				g.Expect(createdMPIJob.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template.Annotations).Should(
+					gomega.HaveKeyWithValue(kueue.PodIndexOffsetAnnotation, "1"))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		wl := &kueue.Workload{}
