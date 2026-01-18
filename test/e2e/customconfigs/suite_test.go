@@ -75,7 +75,5 @@ var _ = ginkgo.BeforeSuite(func() {
 })
 
 var _ = ginkgo.AfterSuite(func() {
-	util.ApplyKueueConfiguration(ctx, k8sClient, defaultKueueCfg)
-	util.RestartKueueController(ctx, k8sClient, kindClusterName)
-	ginkgo.GinkgoLogr.Info("Default Kueue configuration restored")
+	util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName)
 })
