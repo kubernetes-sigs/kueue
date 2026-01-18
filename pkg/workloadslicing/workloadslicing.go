@@ -91,6 +91,14 @@ func ReplacementForKey(wl *kueue.Workload) *workload.Reference {
 	return &ref
 }
 
+// GetOriginName returns the original workload name in a replacement chain.
+func GetOriginName(_ context.Context, _ client.Client, wl *kueue.Workload) string {
+	if originName, found := wl.Annotations[kueue.WorkloadSliceNameAnnotation]; found {
+		return originName
+	}
+	return wl.Name
+}
+
 // Finish updates the status of a workload slice by applying the "Finished" condition
 // Finish updates the status of a workload slice by applying the "Finished" condition.
 // The function checks if the "Finished" condition is already applied, and if so, does nothing (NOOP).
