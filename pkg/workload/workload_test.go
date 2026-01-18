@@ -1489,7 +1489,7 @@ func TestNeedsSecondPass(t *testing.T) {
 						Obj(), now,
 				).
 				AdmittedAt(true, now).
-				Evicted().
+				EvictedAt(now).
 				Obj(),
 			want: false,
 		},
