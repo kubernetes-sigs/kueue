@@ -231,6 +231,12 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/8302
 	// Redo admission on eviction in worker cluster.
 	MultiKueueRedoAdmissionOnEvictionInWorker featuregate.Feature = "MultiKueueRedoAdmissionOnEvictionInWorker"
+
+	// owner: @kannon92
+	//
+	// issue:https://github.com/kubernetes-sigs/kueue/issues/8190
+	// Enables TLSOptions for TLSMinVersion and CipherSuites for kueue servers
+	TLSOptions featuregate.Feature = "TLSOptions"
 )
 
 func init() {
@@ -359,7 +365,12 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	MultiKueueWaitForWorkloadAdmitted: {
 		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
 	},
+
 	MultiKueueRedoAdmissionOnEvictionInWorker: {
+		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
+	},
+
+	TLSOptions: {
 		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
 	},
 }

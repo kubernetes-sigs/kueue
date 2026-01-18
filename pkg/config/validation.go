@@ -62,6 +62,7 @@ var (
 	dynamicResourceAllocationPath                = field.NewPath("resources", "deviceClassMappings")
 	objectRetentionPoliciesPath                  = field.NewPath("objectRetentionPolicies")
 	objectRetentionPoliciesWorkloadsPath         = objectRetentionPoliciesPath.Child("workloads")
+	tlsPath                                      = field.NewPath("tls")
 )
 
 func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorList {
@@ -76,6 +77,7 @@ func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorLis
 	allErrs = append(allErrs, validateDeviceClassMappings(c)...)
 	allErrs = append(allErrs, validateManagedJobsNamespaceSelector(c)...)
 	allErrs = append(allErrs, validateObjectRetentionPolicies(c)...)
+	allErrs = append(allErrs, validateTLS(c)...)
 	return allErrs
 }
 
@@ -525,6 +527,20 @@ func validateObjectRetentionPolicies(c *configapi.Configuration) field.ErrorList
 	if rr.Workloads.AfterDeactivatedByKueue != nil && rr.Workloads.AfterDeactivatedByKueue.Duration < 0 {
 		allErrs = append(allErrs, field.Invalid(objectRetentionPoliciesWorkloadsPath.Child("afterDeactivatedByKueue"),
 			c.ObjectRetentionPolicies.Workloads.AfterDeactivatedByKueue.Duration.String(), apimachineryvalidation.IsNegativeErrorMsg))
+	}
+	return allErrs
+}
+
+func validateTLS(c *configapi.Configuration) field.ErrorList {
+	var allErrs field.ErrorList
+	if c.TLS == nil {
+		return allErrs
+	}
+	// TLS 1.3 cipher suites are not configurable in Go's crypto/tls package.
+	// When TLS 1.3 is set as the minimum version, cipher suites must not be specified.
+	if c.TLS.TLSMinVersion == "VersionTLS13" && len(c.TLS.TLSCipherSuites) > 0 {
+		allErrs = append(allErrs, field.Invalid(tlsPath.Child("tlsCipherSuites"),
+			c.TLS.TLSCipherSuites, "cipher suites cannot be configured when tlsMinVersion is VersionTLS13"))
 	}
 	return allErrs
 }
