@@ -30,10 +30,10 @@ import (
 const (
 	TinyTimeout  = 10 * time.Millisecond
 	ShortTimeout = time.Second
-	Timeout      = 10 * time.Second
+	Timeout      = 2 * time.Second
 	// LongTimeout is meant for E2E tests when waiting for complex operations
 	// such as running pods to completion.
-	LongTimeout = 45 * time.Second
+	LongTimeout = 3 * time.Second
 	// VeryLongTimeout is meant for E2E tests involving Ray which starts ray-project images (over 2GB)
 	// and also synchronizes the cluster before it can be used
 	VeryLongTimeout = 5 * time.Minute
