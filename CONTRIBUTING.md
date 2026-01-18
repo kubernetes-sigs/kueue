@@ -25,3 +25,21 @@ If your repo has certain guidelines for contribution, put them here ahead of the
 
 - [Slack](https://kubernetes.slack.com/messages/sig-scheduling)
 - [Mailing List](https://groups.google.com/forum/#!forum/kubernetes-sig-scheduling)
+
+## Feature gate documentation workflow
+
+Kueue treats `pkg/features/kube_features.go` as the source of truth for every feature gate. After you change that file, run:
+
+```shell
+make featuregates-update
+```
+
+This command builds (and caches) Kubernetes' `compatibility_lifecycle` tool from a pinned Kubernetes git ref, then uses it to regenerate `test/compatibility_lifecycle/reference/versioned_feature_list.yaml` and copies the result to `site/data/featuregates/versioned_feature_list.yaml`. The docs under `site/content/*/docs/installation/_index.md` consume that YAML through the `feature-gates-table` shortcode, so no manual table edits are required.
+
+CI enforces that the YAML and documentation stay in sync. You can run the same check locally with:
+
+```shell
+make featuregates-verify
+```
+
+or simply rely on `make verify`, which now calls the verification target automatically.
