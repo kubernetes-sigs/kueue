@@ -7301,6 +7301,158 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 			},
 		},
+		"admit workload with zero-quantity request for resource not in ClusterQueue": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("zero-resource-wl", "sales").
+					Queue("main").
+					Request(corev1.ResourceCPU, "1").
+					Request("example.com/gpu", "0").
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"sales/zero-resource-wl": {
+					ClusterQueue: "sales",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						utiltestingapi.MakePodSetAssignment("main").
+							Assignment(corev1.ResourceCPU, "default", "1000m").
+							Obj(),
+					},
+				},
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("zero-resource-wl", "sales").
+					Queue("main").
+					Request(corev1.ResourceCPU, "1").
+					Request("example.com/gpu", "0").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "QuotaReserved",
+						Message:            "Quota reserved in ClusterQueue sales",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Admitted",
+						Message:            "The workload is admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Admission(utiltestingapi.MakeAdmission("sales").
+						PodSets(
+							utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1000m").
+								Obj()).
+						Obj()).
+					Obj(),
+			},
+			eventCmpOpts: ignoreEventMessageCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("sales", "zero-resource-wl", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("sales", "zero-resource-wl", "Admitted", corev1.EventTypeNormal).Obj(),
+			},
+		},
+		"preempt when workload requests zero of a resource not defined in ClusterQueue": {
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("preempt-zero-gpu-cq").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "4").Obj(),
+					).Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("preempt-zero-gpu-lq", "sales").ClusterQueue("preempt-zero-gpu-cq").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("preemptor", "sales").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
+					Queue("preempt-zero-gpu-lq").
+					Request(corev1.ResourceCPU, "2").
+					Request("example.com/gpu", "0").
+					Obj(),
+				*utiltestingapi.MakeWorkload("low-priority", "sales").
+					Priority(-1).
+					Queue("preempt-zero-gpu-lq").
+					Request(corev1.ResourceCPU, "4").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("preempt-zero-gpu-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "4000m").
+							Obj()).
+						Obj(), now).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("low-priority", "sales").
+					Priority(-1).
+					Queue("preempt-zero-gpu-lq").
+					Request(corev1.ResourceCPU, "4").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("preempt-zero-gpu-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "4000m").
+							Obj()).
+						Obj(), now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue; preemptor path: /preempt-zero-gpu-cq; preemptee path: /preempt-zero-gpu-cq",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue; preemptor path: /preempt-zero-gpu-cq; preemptee path: /preempt-zero-gpu-cq",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("preemptor", "sales").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
+					Queue("preempt-zero-gpu-lq").
+					Request(corev1.ResourceCPU, "2").
+					Request("example.com/gpu", "0").
+					ResourceRequests(kueue.PodSetRequest{
+						Name: kueue.DefaultPodSetName,
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU:                     resource.MustParse("2"),
+							corev1.ResourceName("example.com/gpu"): resource.MustParse("0"),
+						},
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             "Pending",
+						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default, 2 more needed. Pending the preemption of 1 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"sales/low-priority": {
+					ClusterQueue: "preempt-zero-gpu-cq",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						utiltestingapi.MakePodSetAssignment("main").
+							Assignment(corev1.ResourceCPU, "default", "4000m").
+							Obj(),
+					},
+				},
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"preempt-zero-gpu-cq": {"sales/preemptor"},
+			},
+			eventCmpOpts: ignoreEventMessageCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("sales", "low-priority", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("sales", "low-priority", "Preempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("sales", "preemptor", "Pending", corev1.EventTypeWarning).Obj(),
+			},
+		},
 	}
 	for name, tc := range cases {
 		for _, enabled := range []bool{false, true} {
