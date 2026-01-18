@@ -1,0 +1,120 @@
+name: website-linkcheck
+
+on:
+  pull_request:
+    paths:
+      - "site/**"
+      - "netlify.toml"
+      - ".github/workflows/website-linkcheck.yml"
+  schedule:
+    # Weekly Monday 09:00 UTC 
+    - cron: "0 9 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  linkcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Parse Hugo version from netlify.toml (keeps CI in sync with deploy config)
+      - name: Read Hugo version from netlify.toml
+        id: hugo
+        shell: bash
+        run: |
+          set -euo pipefail
+          ver="$(grep -E '^[[:space:]]*HUGO_VERSION[[:space:]]*=' netlify.toml | head -n1 | sed -E 's/.*"([^"]+)".*/\1/')"
+          if [[ -z "${ver}" ]]; then
+            echo "Failed to parse HUGO_VERSION from netlify.toml"
+            exit 1
+          fi
+          echo "version=${ver}" >> "$GITHUB_OUTPUT"
+          echo "Hugo version: ${ver}"
+
+      - name: Setup Hugo
+        uses: peaceiris/actions-hugo@v3
+        with:
+          hugo-version: ${{ steps.hugo.outputs.version }}
+          extended: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Build website
+        shell: bash
+        run: |
+          set -euo pipefail
+          hugo --source site --destination site/public --minify
+
+      - name: Serve built site
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m http.server 1313 --directory site/public >/tmp/http.log 2>&1 &
+          echo $! > /tmp/http.pid
+          # basic wait
+          for i in {1..20}; do
+            if curl -fsS http://localhost:1313/ >/dev/null; then
+              echo "Server is up"
+              exit 0
+            fi
+            sleep 0.5
+          done
+          echo "Server failed to start"
+          cat /tmp/http.log || true
+          exit 1
+
+      - name: Install LinkChecker
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install LinkChecker
+
+      # PRs: internal links only (stable)
+      - name: Link check (PR / internal only)
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          linkchecker \
+            --no-warnings \
+            --threads=10 \
+            --timeout=20 \
+            --ignore-url='^mailto:' \
+            --ignore-url='^tel:' \
+            http://localhost:1313/
+
+      # Scheduled: include external link validation (can be flaky; keep it off PRs)
+      - name: Link check (scheduled / include external)
+        if: github.event_name == 'schedule'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Check external URLs but don't crawl the external web.
+          # (Keeps recursion restricted to our localhost site.)
+          linkchecker \
+            --check-extern \
+            --no-follow-url='!^http://localhost:1313/' \
+            --no-warnings \
+            --threads=10 \
+            --timeout=20 \
+            --ignore-url='^mailto:' \
+            --ignore-url='^tel:' \
+            http://localhost:1313/
+
+      - name: Stop server
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f /tmp/http.pid ]]; then
+            kill "$(cat /tmp/http.pid)" || true
+          fi
+
