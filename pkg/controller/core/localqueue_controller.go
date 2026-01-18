@@ -374,7 +374,7 @@ func recordLocalQueueUsageMetrics(queue *kueue.LocalQueue, tracker *roletracker.
 	}
 	for _, flavor := range queue.Status.FlavorsReservation {
 		for _, r := range flavor.Resources {
-			metrics.ReportLocalQueueResourceReservations(localQueueReferenceFromLocalQueue(queue), string(flavor.Name), string(r.Name), resource.QuantityToFloat(&r.Total), tracker)
+			metrics.ReportLocalQueueResourceReservations(localQueueReferenceFromLocalQueue(queue), string(flavor.Name), string(r.Name), resource.QuantityToFloat(&r.Total), "", tracker)
 		}
 	}
 }
