@@ -1285,7 +1285,24 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				util.MustCreate(ctx, k8sManagerClient, rayjob)
 			})
 
-			wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(rayjob.Name, rayjob.UID), Namespace: managerNs.Name}
+			createdRayJob := &rayv1.RayJob{}
+
+			ginkgo.By("Waiting for RayClusterName to be populated", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(rayjob), createdRayJob)).To(gomega.Succeed())
+					g.Expect(createdRayJob.Status.RayClusterName).NotTo(gomega.BeEmpty())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			rayCluster := &rayv1.RayCluster{}
+
+			ginkgo.By("Waiting for RayCluster", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sManagerClient.Get(ctx, types.NamespacedName{Name: createdRayJob.Status.RayClusterName, Namespace: managerNs.Name}, rayCluster)).To(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(rayCluster.Name, rayCluster.UID), Namespace: managerNs.Name}
 			// the execution should be given to the worker1
 			waitForJobAdmitted(wlLookupKey, multiKueueAc.Name, "worker1")
 

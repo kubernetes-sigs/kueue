@@ -60,7 +60,7 @@ func TestDefault(t *testing.T) {
 				Suspend(false).
 				Obj(),
 			newJob: testingrayutil.MakeJob("job", "ns").
-				Suspend(true).
+				Suspend(false).
 				Obj(),
 			manageAll: true,
 		},
@@ -71,7 +71,17 @@ func TestDefault(t *testing.T) {
 				Obj(),
 			newJob: testingrayutil.MakeJob("job", "ns").
 				Queue("queue").
+				Suspend(false).
+				Obj(),
+		},
+		"managed - by queue, initial suspend being true": {
+			oldJob: testingrayutil.MakeJob("job", "ns").
+				Queue("queue").
 				Suspend(true).
+				Obj(),
+			newJob: testingrayutil.MakeJob("job", "ns").
+				Queue("queue").
+				Suspend(false).
 				Obj(),
 		},
 		"LocalQueueDefaulting enabled, default lq is created, job doesn't have queue label": {
@@ -80,6 +90,7 @@ func TestDefault(t *testing.T) {
 			oldJob:               testingrayutil.MakeJob("test-job", "default").Obj(),
 			newJob: testingrayutil.MakeJob("test-job", "default").
 				Queue("default").
+				Suspend(false).
 				Obj(),
 		},
 		"LocalQueueDefaulting enabled, default lq is created, job has queue label": {
@@ -88,6 +99,7 @@ func TestDefault(t *testing.T) {
 			oldJob:               testingrayutil.MakeJob("test-job", "").Queue("test-queue").Obj(),
 			newJob: testingrayutil.MakeJob("test-job", "").
 				Queue("test-queue").
+				Suspend(false).
 				Obj(),
 		},
 		"LocalQueueDefaulting enabled, default lq isn't created, job doesn't have queue label": {
@@ -95,6 +107,7 @@ func TestDefault(t *testing.T) {
 			defaultLqExist:       false,
 			oldJob:               testingrayutil.MakeJob("test-job", "").Obj(),
 			newJob: testingrayutil.MakeJob("test-job", "").
+				Suspend(false).
 				Obj(),
 		},
 	}
