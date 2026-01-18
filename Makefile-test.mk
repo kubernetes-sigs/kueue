@@ -134,8 +134,12 @@ test-e2e: setup-e2e-env kueuectl kind-ray-project-mini-image-build run-test-e2e-
 test-e2e-helm: E2E_USE_HELM=true
 test-e2e-helm: test-e2e
 
+.PHONY: test-multikueue-e2e-parallel-builds
+test-multikueue-e2e-parallel-builds:
+	$(MAKE) -j2 kind-ray-project-mini-image-build kind-secretreader-plugin-image-build
+
 .PHONY: test-multikueue-e2e
-test-multikueue-e2e: setup-e2e-env kind-ray-project-mini-image-build kind-secretreader-plugin-image-build run-test-multikueue-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-multikueue-e2e: setup-e2e-env test-multikueue-e2e-parallel-builds run-test-multikueue-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-multikueue-e2e-helm
 test-multikueue-e2e-helm: E2E_USE_HELM=true
