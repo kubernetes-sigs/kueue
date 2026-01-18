@@ -25,23 +25,26 @@ ROOT_DIR="$SOURCE_DIR/.."
 source "${SOURCE_DIR}/e2e-common.sh"
 
 function cleanup {
-    if [ "$CREATE_KIND_CLUSTER" == 'true' ]
-    then
-        if [ ! -d "$ARTIFACTS" ]; then
-            mkdir -p "$ARTIFACTS"
-        fi
+    if [ ! -d "$ARTIFACTS" ]; then
+        mkdir -p "$ARTIFACTS"
+    fi
+
+    cluster_collect_artifacts "$KIND_CLUSTER_NAME" ""
+
+    if e2e_should_delete_cluster; then
         cluster_cleanup "$KIND_CLUSTER_NAME" ""
+    else
+        echo "Keeping kind cluster '$KIND_CLUSTER_NAME' (E2E_MODE=${E2E_MODE})."
+        echo "To delete it:"
+        echo "  kind delete clusters $KIND_CLUSTER_NAME"
     fi
 }
 
 function startup {
-    if [ "$CREATE_KIND_CLUSTER" == 'true' ]
-    then
-        if [ ! -d "$ARTIFACTS" ]; then
-            mkdir -p "$ARTIFACTS"
-        fi
-        cluster_create "$KIND_CLUSTER_NAME"  "$SOURCE_DIR/$KIND_CLUSTER_FILE" ""
+    if [ ! -d "$ARTIFACTS" ]; then
+        mkdir -p "$ARTIFACTS"
     fi
+    ensure_kind_cluster "$KIND_CLUSTER_NAME" "$SOURCE_DIR/$KIND_CLUSTER_FILE" ""
 }
 
 trap cleanup EXIT
@@ -56,7 +59,7 @@ if [ "$E2E_RUN_ONLY_ENV" = "true" ]; then
   if [[ "$reply" =~ ^[nN]$ ]]; then
     trap - EXIT
     echo "Skipping cleanup for kind cluster."
-    echo -e "\nKind cluster cleanup:\n  kind delete cluster --name $KIND_CLUSTER_NAME"
+    echo -e "\nKind cluster cleanup:\n  kind delete clusters $KIND_CLUSTER_NAME"
   fi
   exit 0
 fi
