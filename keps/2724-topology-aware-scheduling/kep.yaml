@@ -17,6 +17,7 @@ approvers:
 
 see-also:
   - "/keps/1136-provisioning-request-support"
+  - "/keps/77-dynamically-sized-jobs"
 
 # The target maturity stage in the current dev cycle for this KEP.
 stage: beta
