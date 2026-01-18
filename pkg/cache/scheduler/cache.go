@@ -574,15 +574,11 @@ func (c *Cache) UpdateLocalQueue(oldQ, newQ *kueue.LocalQueue) error {
 func (c *Cache) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload) bool {
 	c.Lock()
 	defer c.Unlock()
-	updated, _ := c.addOrUpdateWorkloadWithoutLock(log, w)
+	updated, err := c.addOrUpdateWorkloadWithoutLock(log, w)
+	if err != nil {
+		log.Error(err, "Updating workload in cache")
+	}
 	return updated
-}
-
-func (c *Cache) UpdateWorkload(log logr.Logger, wl *kueue.Workload) error {
-	c.Lock()
-	defer c.Unlock()
-	_, err := c.addOrUpdateWorkloadWithoutLock(log, wl)
-	return err
 }
 
 func (c *Cache) addOrUpdateWorkloadWithoutLock(log logr.Logger, wl *kueue.Workload) (bool, error) {

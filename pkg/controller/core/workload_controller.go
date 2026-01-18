@@ -967,17 +967,13 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			// Update the workload from cache while holding the queues lock
 			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
-			if err := r.cache.UpdateWorkload(log, wlCopy); err != nil {
-				log.Error(err, "Updating workload in cache")
-			}
+			r.cache.AddOrUpdateWorkload(log, wlCopy)
 		})
 
 	default:
 		// Workload update in the cache is handled here; however, some fields are immutable
 		// and are not supposed to actually change anything.
-		if err := r.cache.UpdateWorkload(log, wlCopy); err != nil {
-			log.Error(err, "Updating workload in cache")
-		}
+		r.cache.AddOrUpdateWorkload(log, wlCopy)
 	}
 	r.queues.QueueSecondPassIfNeeded(ctx, e.ObjectNew, 0)
 	return true
