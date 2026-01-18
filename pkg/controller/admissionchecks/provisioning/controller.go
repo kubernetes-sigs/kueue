@@ -332,7 +332,7 @@ func (c *Controller) handleError(ctx context.Context, wl *kueue.Workload, ac *ku
 		ac.Message = api.TruncateConditionMessage(msg)
 		ac.LastTransitionTime = metav1.NewTime(c.clock.Now())
 		return workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *ac, c.clock), nil
-	})
+	}, workload.WithRetryOnConflictForPatch())
 	return errors.Join(err, patchErr)
 }
 
@@ -609,7 +609,7 @@ func (c *Controller) syncCheckStates(
 			workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, checkState, c.clock)
 		}
 		return updated, nil
-	})
+	}, workload.WithRetryOnConflictForPatch())
 	if err != nil {
 		return err
 	}
