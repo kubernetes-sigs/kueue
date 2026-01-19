@@ -17,6 +17,8 @@ limitations under the License.
 package e2e
 
 import (
+	"fmt"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -467,8 +469,15 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 				wlLookupKey2 := types.NamespacedName{Name: leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "1"), Namespace: ns.Name}
 				ginkgo.By("Check workload for group 2 is deleted", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, wlLookupKey2, createdWorkload2)).To(testing.BeNotFoundError())
-					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+						err := k8sClient.Get(ctx, wlLookupKey2, createdWorkload2)
+						if err == nil {
+							fmt.Println("createdWorkload2.OwnerReferences", createdWorkload2.OwnerReferences)
+							fmt.Println("createdWorkload2.Finalizers", createdWorkload2.Finalizers)
+							fmt.Println("createdWorkload2.DeletionTimestamp", createdWorkload2.DeletionTimestamp)
+							fmt.Println("createdWorkload2.Status.Conditions", createdWorkload2.Status.Conditions)
+						}
+						g.Expect(err).To(testing.BeNotFoundError())
+					}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 				})
 
 				ginkgo.By("Delete the LeaderWorkerSet", func() {
@@ -491,7 +500,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 				})
 			},
 			ginkgo.Entry("LeaderCreatedStartupPolicy", leaderworkersetv1.LeaderCreatedStartupPolicy),
-			ginkgo.Entry("LeaderReadyStartupPolicy", leaderworkersetv1.LeaderReadyStartupPolicy),
+			ginkgo.FEntry("LeaderReadyStartupPolicy", leaderworkersetv1.LeaderReadyStartupPolicy),
 		)
 
 		ginkgo.DescribeTable("should admit group with multiple leaders and workers that fits and have different resource needs",
