@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package jobframework
+package webhook
 
 import (
 	"context"
@@ -27,7 +27,7 @@ import (
 type noopWebhook struct {
 }
 
-func setupNoopWebhook(mgr ctrl.Manager, apiType runtime.Object) error {
+func SetupNoopWebhook(mgr ctrl.Manager, apiType runtime.Object) error {
 	wh := &noopWebhook{}
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(apiType).
