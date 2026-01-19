@@ -75,7 +75,8 @@ workloads that are already running but have one or more Pods in a not-ready stat
 progress, leading to wasted resources. To prevent this, users can configure
 a timeout period they are willing to wait for a recovery Pod. If the
 `recoveryTimeout` expires, similar to the regular timeout, the workload is evicted and requeued.
-It has no default value, so it must be set explicitly.
+If not specified, it defaults to the value of `timeout`. Setting `recoveryTimeout: 0s` disables
+recovery timeout checking.
 
 The `blockAdmission` (`waitForPodsReady.blockAdmission`) is an optional parameter.
 When enabled, then the workloads are admitted sequentially to prevent deadlock

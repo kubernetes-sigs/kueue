@@ -933,12 +933,13 @@ Defaults to false.</p>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
 </td>
 <td>
-   <p>RecoveryTimeout defines an opt-in timeout, measured since the
+   <p>RecoveryTimeout defines a timeout, measured since the
 last transition to the PodsReady=false condition after a Workload is Admitted and running.
 Such a transition may happen when a Pod failed and the replacement Pod
 is awaited to be scheduled.
 After exceeding the timeout the corresponding job gets suspended again
-and requeued after the backoff delay.</p>
+and requeued after the backoff delay.
+Defaults to the value of timeout. Setting to &quot;0s&quot; disables recovery timeout checking.</p>
 </td>
 </tr>
 </tbody>
