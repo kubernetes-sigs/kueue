@@ -29,6 +29,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
+
+	"sigs.k8s.io/kueue/pkg/util/webhook"
 )
 
 const (
@@ -102,7 +104,7 @@ func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Mana
 				}
 			}
 		}
-		if err := setupNoopWebhook(mgr, cb.JobType); err != nil {
+		if err := webhook.SetupNoopWebhook(mgr, cb.JobType); err != nil {
 			return fmt.Errorf("%s: unable to create noop webhook: %w", fwkNamePrefix, err)
 		}
 		return nil
