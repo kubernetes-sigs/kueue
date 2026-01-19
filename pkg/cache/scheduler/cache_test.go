@@ -1309,50 +1309,6 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 		},
 		{
-			name: "UpdateWorkload; quota assigned -> quota unassigned",
-			operation: func(log logr.Logger, cache *Cache) error {
-				w := utiltestingapi.MakeWorkload("b", "").Obj()
-				if err := cache.UpdateWorkload(log, w); err != nil {
-					return errors.Join(errors.New("failed to update workload"), err)
-				}
-				return nil
-			},
-			wantResults: map[kueue.ClusterQueueReference]result{
-				"one": {
-					Workloads: sets.New[workload.Reference]("/a"),
-					UsedResources: resources.FlavorResourceQuantities{
-						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
-						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
-					},
-				},
-				"two": {
-					Workloads: sets.New[workload.Reference]("/c"),
-				},
-			},
-		},
-		{
-			name: "UpdateWorkload; quota not assigned -> quota still not assigned",
-			operation: func(log logr.Logger, cache *Cache) error {
-				w := utiltestingapi.MakeWorkload("d", "").Obj()
-				if err := cache.UpdateWorkload(log, w); err != nil {
-					return errors.Join(errors.New("failed to update workload"), err)
-				}
-				return nil
-			},
-			wantResults: map[kueue.ClusterQueueReference]result{
-				"one": {
-					Workloads: sets.New[workload.Reference]("/a", "/b"),
-					UsedResources: resources.FlavorResourceQuantities{
-						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
-						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
-					},
-				},
-				"two": {
-					Workloads: sets.New[workload.Reference]("/c"),
-				},
-			},
-		},
-		{
 			name: "AddOrUpdateWorkload; quota assigned -> quota unassigned",
 			operation: func(log logr.Logger, cache *Cache) error {
 				w := utiltestingapi.MakeWorkload("b", "").Obj()
@@ -1403,7 +1359,10 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					ClusterQueue:      "two",
 					PodSetAssignments: psAssignments,
 				}, now).Obj()
-				return cache.UpdateWorkload(log, latest)
+				if !cache.AddOrUpdateWorkload(log, latest) {
+					return errors.New("failed to update workload")
+				}
+				return nil
 			},
 			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
@@ -1428,9 +1387,12 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				latest := utiltestingapi.MakeWorkload("d", "").ReserveQuotaAt(&kueue.Admission{
 					ClusterQueue: "three",
 				}, now).Obj()
-				return cache.UpdateWorkload(log, latest)
+				if !cache.AddOrUpdateWorkload(log, latest) {
+					return errors.New("failed to update workload")
+				}
+				return nil
 			},
-			wantError: "cluster queue not found",
+			wantError: "failed to update workload",
 			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
 					Workloads: sets.New[workload.Reference]("/a", "/b"),
@@ -1450,7 +1412,10 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				latest := utiltestingapi.MakeWorkload("d", "").ReserveQuotaAt(&kueue.Admission{
 					ClusterQueue: "two",
 				}, now).Obj()
-				return cache.UpdateWorkload(log, latest)
+				if !cache.AddOrUpdateWorkload(log, latest) {
+					return errors.New("failed to update workload")
+				}
+				return nil
 			},
 			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
@@ -2932,7 +2897,10 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 					Type:   kueue.WorkloadPodsReady,
 					Status: metav1.ConditionTrue,
 				})
-				return cache.UpdateWorkload(log, newWl)
+				if !cache.AddOrUpdateWorkload(log, newWl) {
+					return errors.New("failed to update workload")
+				}
+				return nil
 			},
 			wantReady: true,
 		},
@@ -2955,7 +2923,10 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 					Type:   kueue.WorkloadPodsReady,
 					Status: metav1.ConditionFalse,
 				})
-				return cache.UpdateWorkload(log, newWl)
+				if !cache.AddOrUpdateWorkload(log, newWl) {
+					return errors.New("failed to update workload")
+				}
+				return nil
 			},
 			wantReady: false,
 		},
@@ -2982,7 +2953,10 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 					Type:   kueue.WorkloadPodsReady,
 					Status: metav1.ConditionTrue,
 				})
-				return cache.UpdateWorkload(log, newWl2)
+				if !cache.AddOrUpdateWorkload(log, newWl2) {
+					return errors.New("failed to update workload")
+				}
+				return nil
 			},
 			wantReady: true,
 		},
