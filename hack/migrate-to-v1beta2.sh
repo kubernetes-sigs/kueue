@@ -104,6 +104,7 @@ for kind in "${kinds[@]}"; do
 
   patched=0
   percent=0
+  last_percent=-1
 
   while read -r entry; do
     ns="${entry%/*}"
@@ -136,10 +137,21 @@ for kind in "${kinds[@]}"; do
     fi
 
     percent=$(( (patched * 100 + total / 2) / total ))
-    printf "  → Progress: %3d%% (%d/%d)\r" "${percent}" "${patched}" "${total}"
+    message=$(printf "  → Progress: %3d%% (%d/%d)" "$percent" "$patched" "$total")
+
+    if [[ -t 1 ]]; then
+      printf "%s\r" "${message}"
+    else
+      if [[ "$percent" -ne "$last_percent" ]]; then
+        printf "%s\n" "${message}"
+        last_percent=$percent
+      fi
+    fi
   done <<< "$filtered"
 
-  printf "  → Progress: %3d%% (%d/%d)\n" "${percent}" "${patched}" "${total}"
+  if [[ -t 1 ]]; then
+    printf "  → Progress: %3d%% (%d/%d)\n" "${percent}" "${patched}" "${total}"
+  fi
 
   if [ "$patched" -ne "$total" ]; then
     failures=$(( total - patched ))
