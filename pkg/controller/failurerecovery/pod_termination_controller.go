@@ -34,7 +34,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
@@ -212,7 +211,7 @@ func (r *TerminatingPodReconciler) SetupWithManager(mgr ctrl.Manager, cfg *confi
 		)).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      ptr.To(false),
-			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("Pod").GroupKind().String()],
+			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[corev1.SchemeGroupVersion.WithKind("Pod").GroupKind().String()],
 		}).
 		Complete(core.WithLeadingManager(mgr, r, &corev1.Pod{}, cfg))
 }
