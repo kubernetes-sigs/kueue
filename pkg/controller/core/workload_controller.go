@@ -180,22 +180,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	err := r.client.Get(ctx, req.NamespacedName, &wl)
 
 	if apierrors.IsNotFound(err) {
-		log.V(2).Info("Workload has been deleted; Cleaning up caches")
-		wlRef := workload.NewReference(req.Namespace, req.Name)
-
-		// Delete from cache unconditionally. Pending workloads may have been "assumed"
-		// by the scheduler, and leaving them blocks ClusterQueue finalizer removal.
-		// The operation is idempotent if the workload was never in the cache.
-		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlRef, func() {
-			if err := r.cache.DeleteWorkload(log, wlRef); err != nil {
-				log.Error(err, "Failed to delete workload from cache")
-			}
-		})
-
-		// The last cached state tells us whether the
-		// workload was in the queues and should be cleared from them.
-		r.queues.DeleteAndForgetWorkload(log, wlRef)
-
+		r.deleteWorkloadFromCaches(ctx, log, req.Namespace, req.Name)
 		return ctrl.Result{}, nil
 	}
 
@@ -571,6 +556,24 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *WorkloadReconciler) deleteWorkloadFromCaches(ctx context.Context, log logr.Logger, namespace, name string) {
+	log.V(2).Info("Workload has been deleted; Cleaning up caches")
+	wlRef := workload.NewReference(namespace, name)
+
+	// Delete from cache unconditionally. Pending workloads may have been "assumed"
+	// by the scheduler, and leaving them blocks ClusterQueue finalizer removal.
+	// The operation is idempotent if the workload was never in the cache.
+	r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlRef, func() {
+		if err := r.cache.DeleteWorkload(log, wlRef); err != nil {
+			log.Error(err, "Failed to delete workload from cache")
+		}
+	})
+
+	// The last cached state tells us whether the
+	// workload was in the queues and should be cleared from them.
+	r.queues.DeleteAndForgetWorkload(log, wlRef)
 }
 
 // isDisabledRequeuedByClusterQueueStopped returns true if the workload is unset requeued by cluster queue stopped.
