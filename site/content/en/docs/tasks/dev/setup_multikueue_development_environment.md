@@ -1,20 +1,34 @@
 ---
-title: "Setup MultiKueue with Topology-Aware Scheduling"
-date: 2025-11-17
+title: "Setup MultiKueue Development Environment"
+date: 2026-01-13
 weight: 5
 description: >
-  Configure MultiKueue with Topology-Aware Scheduling for local development and testing.
+  Configure MultiKueue for local development and testing.
 ---
 
 This tutorial explains how you can configure a manager cluster and worker clusters to run jobs with [Topology-Aware Scheduling (TAS)](/docs/tasks/run/leaderworkerset/#configure-topology-aware-scheduling) in a MultiKueue environment. We also outline the automated steps using Kind for local testing.
 
 Check the concepts section for a [MultiKueue overview](/docs/concepts/multikueue/) and [Topology-Aware Scheduling overview](/docs/concepts/topology_aware_scheduling/).
 
+## Setup MultiKueue with E2E Test Cluster
+
+The [e2e test development mode](/docs/contribution_guidelines/testing/#dev-mode-recommended) can be used to maintain a MultiKueue cluster setup and run end-to-end tests
+against it without recreating and tearing it down each time.
+
+For example:
+```sh
+E2E_MODE=dev make kind-image-build test-multikueue-e2e
+```
+
+For more information about the DEV mode, refer to the testing documentation.
+
+## Setup MultiKueue with TAS
+
 {{% alert title="Note" color="primary" %}}
 MultiKueue with Topology-Aware Scheduling is available since Kueue v0.15.0.
 {{% /alert %}}
 
-## Automated Setup
+### Automated Setup
 
 For a quick setup, download and run the setup script:
 
@@ -24,9 +38,11 @@ cd kueue/examples/multikueue/dev
 ./setup-kind-multikueue-tas.sh
 ```
 
+The script will set up a complete MultiKueue environment that is additionally configured with TAS.
+
 Alternatively, follow the manual steps below.
 
-## Step 1: Create Kind Clusters
+### Step 1: Create Kind Clusters
 
 Create three Kind clusters (manager and two workers):
 
@@ -82,7 +98,7 @@ kind get clusters
 # worker2
 ```
 
-## Step 2: Install Kueue on All Clusters
+### Step 2: Install Kueue on All Clusters
 
 ```bash
 KUEUE_VERSION=v0.15.0
@@ -95,7 +111,7 @@ for ctx in kind-manager kind-worker1 kind-worker2; do
 done
 ```
 
-## Step 3: Configure Manager for Kind
+### Step 3: Configure Manager for Kind
 
 Enable the feature gate for insecure kubeconfigs and configure integrations:
 
@@ -142,7 +158,7 @@ kubectl --context kind-manager rollout restart deployment/kueue-controller-manag
 kubectl --context kind-manager rollout status deployment/kueue-controller-manager -n kueue-system --timeout=180s
 ```
 
-## Step 4: Configure Worker Clusters
+### Step 4: Configure Worker Clusters
 
 Apply the worker configuration with TAS:
 
@@ -203,7 +219,7 @@ EOF
 done
 ```
 
-## Step 5: Configure Manager Cluster
+### Step 5: Configure Manager Cluster
 
 Create secrets and apply configuration:
 
@@ -218,7 +234,7 @@ kubectl --context kind-manager create secret generic worker2-secret -n kueue-sys
 kubectl --context kind-manager apply -f examples/multikueue/tas/manager-setup.yaml
 ```
 
-## Step 6: Validate the Setup
+### Step 6: Validate the Setup
 
 Verify that all components are active:
 
@@ -240,7 +256,7 @@ multikueuecluster.kueue.x-k8s.io/worker1   True        5m
 multikueuecluster.kueue.x-k8s.io/worker2   True        5m
 ```
 
-## Step 7: Submit a TAS Job
+### Step 7: Submit a TAS Job
 
 Submit a sample job that requires topology-aware scheduling:
 
@@ -258,7 +274,6 @@ NAME               QUEUE        RESERVED IN   ADMITTED   AGE
 tas-sample-job     user-queue   worker1       True       5s
 implicit-tas-job   user-queue   worker2       True       5s
 ```
-
 
 ## Cleanup
 

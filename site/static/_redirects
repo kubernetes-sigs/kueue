@@ -28,3 +28,5 @@
 /docs/tasks/run_kubeflow_jobs/run_pytorchjobs /docs/tasks/run/kubeflow/pytorchjobs 301
 /docs/tasks/run_kubeflow_jobs/run_tfjobs      /docs/tasks/run/kubeflow/tfjobs      301
 /docs/tasks/run_kubeflow_jobs/run_xgboostjobs /docs/tasks/run/kubeflow/xgboostjobs 301
+
+/docs/tasks/dev/setup_multikueue_tas /docs/tasks/dev/setup_multikueue_development_environment 301
