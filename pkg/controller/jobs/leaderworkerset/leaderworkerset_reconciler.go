@@ -106,7 +106,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return ctrl.Result{}, err
 	}
 
-	toCreate, toFinalize := r.filterWorkloads(lws, wlList.Items)
+	toCreate, toDelete := r.filterWorkloads(lws, wlList.Items)
 
 	eg, ctx := errgroup.WithContext(ctx)
 
@@ -117,8 +117,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	})
 
 	eg.Go(func() error {
-		return parallelize.Until(ctx, len(toFinalize), func(i int) error {
-			return r.removeOwnerReference(ctx, lws, toFinalize[i])
+		return parallelize.Until(ctx, len(toDelete), func(i int) error {
+			return r.removeWorkload(ctx, toDelete[i])
 		})
 	})
 
@@ -131,15 +131,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 }
 
 // filterWorkloads compares the desired state in a LeaderWorkerSet with existing workloads,
-// identifying workloads to create and those to finalize.
+// identifying workloads to create and those to delete.
 //
 // It takes a LeaderWorkerSet and a slice of existing Workload objects as input and returns:
 // 1. A slice of workload names that need to be created
-// 2. A slice of Workload pointers that need to be finalized
+// 2. A slice of Workload pointers that need to be deleted
 func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, existingWorkloads []kueue.Workload) ([]string, []*kueue.Workload) {
 	var (
-		toCreate   []string
-		toFinalize = utilslices.ToRefMap(existingWorkloads, func(e *kueue.Workload) string {
+		toCreate []string
+		toDelete = utilslices.ToRefMap(existingWorkloads, func(e *kueue.Workload) string {
 			return e.Name
 		})
 		replicas = ptr.Deref(lws.Spec.Replicas, 1)
@@ -147,14 +147,14 @@ func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, exi
 
 	for i := range replicas {
 		workloadName := GetWorkloadName(lws.UID, lws.Name, fmt.Sprint(i))
-		if _, ok := toFinalize[workloadName]; ok {
-			delete(toFinalize, workloadName)
+		if _, ok := toDelete[workloadName]; ok {
+			delete(toDelete, workloadName)
 		} else {
 			toCreate = append(toCreate, workloadName)
 		}
 	}
 
-	return toCreate, slices.Collect(maps.Values(toFinalize))
+	return toCreate, slices.Collect(maps.Values(toDelete))
 }
 
 func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, workloadName string) error {
@@ -249,12 +249,8 @@ func podSets(lws *leaderworkersetv1.LeaderWorkerSet) ([]kueue.PodSet, error) {
 	return podSets, nil
 }
 
-func (r *Reconciler) removeOwnerReference(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, wl *kueue.Workload) error {
-	err := controllerutil.RemoveOwnerReference(lws, wl, r.client.Scheme())
-	if err != nil {
-		return err
-	}
-	return r.client.Update(ctx, wl)
+func (r *Reconciler) removeWorkload(ctx context.Context, wl *kueue.Workload) error {
+	return r.client.Delete(ctx, wl)
 }
 
 var _ predicate.Predicate = (*Reconciler)(nil)
