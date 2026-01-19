@@ -173,14 +173,37 @@ func NewWorkloadReconciler(client client.Client, queues *qcache.Manager, cache *
 // +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceclaimtemplates,verbs=get;list;watch
 
 func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx).WithValues("namespace", req.Namespace, "name", req.Name)
+	log.V(2).Info("Reconcile Workload")
+
 	var wl kueue.Workload
-	if err := r.client.Get(ctx, req.NamespacedName, &wl); err != nil {
-		// we'll ignore not-found errors, since there is nothing to do.
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+	err := r.client.Get(ctx, req.NamespacedName, &wl)
+
+	if apierrors.IsNotFound(err) {
+		log.V(2).Info("Workload has been deleted; Cleaning up caches")
+		wlRef := workload.NewReference(req.Namespace, req.Name)
+
+		// Delete from cache unconditionally. Pending workloads may have been "assumed"
+		// by the scheduler, and leaving them blocks ClusterQueue finalizer removal.
+		// The operation is idempotent if the workload was never in the cache.
+		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlRef, func() {
+			if err := r.cache.DeleteWorkload(log, wlRef); err != nil {
+				log.Error(err, "Failed to delete workload from cache")
+			}
+		})
+
+		// The last cached state tells us whether the
+		// workload was in the queues and should be cleared from them.
+		r.queues.DeleteAndForgetWorkload(log, wlRef)
+
+		return ctrl.Result{}, nil
 	}
 
-	log := ctrl.LoggerFrom(ctx)
-	log.V(2).Info("Reconcile Workload")
+	if err != nil {
+		// Error other than NotFound signals an illegal state. Returning the error.
+		log.Error(err, "Failed to fetch workload from the client.")
+		return ctrl.Result{}, err
+	}
 
 	if len(wl.OwnerReferences) == 0 && !wl.DeletionTimestamp.IsZero() {
 		// manual deletion triggered by the user
@@ -417,7 +440,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	lq := kueue.LocalQueue{}
-	err := r.client.Get(ctx, types.NamespacedName{Namespace: wl.Namespace, Name: string(wl.Spec.QueueName)}, &lq)
+	err = r.client.Get(ctx, types.NamespacedName{Namespace: wl.Namespace, Name: string(wl.Spec.QueueName)}, &lq)
 	if client.IgnoreNotFound(err) != nil {
 		return ctrl.Result{}, err
 	}
@@ -836,29 +859,11 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 }
 
 func (r *WorkloadReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) bool {
-	defer r.notifyWatchers(e.Object, nil)
 	status := "unknown"
 	if !e.DeleteStateUnknown {
 		status = workload.Status(e.Object)
 	}
-	log := r.log.WithValues("workload", klog.KObj(e.Object), "queue", e.Object.Spec.QueueName, "status", status)
-	log.V(2).Info("Workload delete event")
-	ctx := ctrl.LoggerInto(context.Background(), log)
-	wlKey := workload.Key(e.Object)
-
-	// Delete from cache unconditionally. Pending workloads may have been "assumed"
-	// by the scheduler, and leaving them blocks ClusterQueue finalizer removal.
-	// The operation is idempotent if the workload was never in the cache.
-	r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() {
-		if err := r.cache.DeleteWorkload(log, wlKey); err != nil {
-			log.Error(err, "Failed to delete workload from cache")
-		}
-	})
-
-	// Even if the state is unknown, the last cached state tells us whether the
-	// workload was in the queues and should be cleared from them.
-	r.queues.DeleteAndForgetWorkload(log, wlKey)
-
+	r.log.WithValues("workload", klog.KObj(e.Object), "queue", e.Object.Spec.QueueName, "status", status).V(2).Info("Workload delete event")
 	return true
 }
 
@@ -1110,6 +1115,10 @@ func (h *resourceUpdatesHandler) Delete(ctx context.Context, e event.DeleteEvent
 	log := ctrl.LoggerFrom(ctx).WithValues("kind", e.Object.GetObjectKind())
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(5).Info("Delete event")
+
+	if wl, ok := e.Object.(*kueue.Workload); ok {
+		h.r.notifyWatchers(wl, nil)
+	}
 	h.handle(ctx, e.Object, q)
 }
 
