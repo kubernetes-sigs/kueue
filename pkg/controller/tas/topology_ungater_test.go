@@ -20,6 +20,7 @@ import (
 	"maps"
 	"slices"
 	"testing"
+	"time"
 
 	gocmp "github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -76,6 +77,7 @@ func TestReconcile(t *testing.T) {
 		NodeSelector map[string]string
 		Count        int32
 	}
+	now := time.Now().Truncate(time.Second)
 
 	mapToJSON := func(t *testing.T, m map[string]string) string {
 		json := jsoniter.Config{
