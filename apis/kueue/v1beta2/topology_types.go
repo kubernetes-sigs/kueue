@@ -78,6 +78,11 @@ const (
 	// only kept to support "reading" the label until 0.16.
 	TASLabel = "kueue.x-k8s.io/tas"
 
+	// PodIndexOffsetAnnotation is an annotation on the Pod's metadata
+	// belonging to a Workload. It indicates an offset which represents starting index number
+	// within the same replica.
+	PodIndexOffsetAnnotation = "kueue.x-k8s.io/pod-index-offset"
+
 	// PodGroupPodIndexLabel is a label set on the Pod's metadata belonging
 	// to a Pod group. It indicates the Pod's index within the group.
 	PodGroupPodIndexLabel = "kueue.x-k8s.io/pod-group-pod-index"
