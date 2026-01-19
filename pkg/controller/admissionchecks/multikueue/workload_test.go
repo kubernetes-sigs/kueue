@@ -59,6 +59,7 @@ var errFake = errors.New("fake error")
 
 func TestWlReconcile(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
+	epsilon := time.Millisecond
 	fakeClock := testingclock.NewFakeClock(now)
 
 	objCheckOpts := cmp.Options{
@@ -584,11 +585,13 @@ func TestWlReconcile(t *testing.T) {
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 					ClusterName("worker1").
-					EvictedAt(now).
+					EvictedAt(now.Add(-epsilon)).
 					Obj(),
 			},
 			managersJobs: []batchv1.Job{
-				*baseJobManagedByKueueBuilder.Clone().Obj(),
+				*baseJobManagedByKueueBuilder.Clone().
+					Active(1).
+					Obj(),
 			},
 			worker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
@@ -623,11 +626,13 @@ func TestWlReconcile(t *testing.T) {
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 					ClusterName("worker1").
-					EvictedAt(now).
+					EvictedAt(now.Add(-epsilon)).
 					Obj(),
 			},
 			wantManagersJobs: []batchv1.Job{
-				*baseJobManagedByKueueBuilder.Clone().Obj(),
+				*baseJobManagedByKueueBuilder.Clone().
+					Active(1).
+					Obj(),
 			},
 			wantWorker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -648,9 +653,7 @@ func TestWlReconcile(t *testing.T) {
 					Active(1).
 					Obj(),
 			},
-			wantWorker2Workloads: []kueue.Workload{
-				*baseWorkloadBuilder.DeepCopy(),
-			},
+			wantWorker2Workloads: nil,
 		},
 		"remote wl with reservation (withoutJobManagedBy)": {
 			features:     map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: false},
