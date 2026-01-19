@@ -20,6 +20,7 @@ import (
 	"maps"
 	"slices"
 	"testing"
+	"time"
 
 	gocmp "github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -37,6 +38,7 @@ import (
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -75,6 +77,7 @@ func TestReconcile(t *testing.T) {
 		NodeSelector map[string]string
 		Count        int32
 	}
+	now := time.Now().Truncate(time.Second)
 
 	mapToJSON := func(t *testing.T, m map[string]string) string {
 		json := jsoniter.Config{

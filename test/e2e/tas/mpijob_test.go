@@ -170,7 +170,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", func() {
 						ReplicaCount:  launcherReplicas,
 						RestartPolicy: corev1.RestartPolicyOnFailure,
 						Annotations: map[string]string{
-							kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultRackTopologyLevel,
+							kueue.PodSetPreferredTopologyAnnotation: testing.DefaultRackTopologyLevel,
 						},
 					},
 					testingmpijob.MPIJobReplicaSpecRequirement{
@@ -178,7 +178,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", func() {
 						ReplicaCount:  workerReplicas,
 						RestartPolicy: corev1.RestartPolicyOnFailure,
 						Annotations: map[string]string{
-							kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
+							kueue.PodSetPreferredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
 						},
 					},
 				).
@@ -252,7 +252,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", func() {
 							ReplicaCount:  launcherReplicas,
 							RestartPolicy: corev1.RestartPolicyOnFailure,
 							Annotations: map[string]string{
-								kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
+								kueue.PodSetRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
 								kueue.PodSetGroupName:                  "same-group",
 							},
 						},
@@ -261,7 +261,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", func() {
 							ReplicaCount:  workerReplicas,
 							RestartPolicy: corev1.RestartPolicyOnFailure,
 							Annotations: map[string]string{
-								kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
+								kueue.PodSetRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
 								kueue.PodSetGroupName:                  "same-group",
 							},
 						},

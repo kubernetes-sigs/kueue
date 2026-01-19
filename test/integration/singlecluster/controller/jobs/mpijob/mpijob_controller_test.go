@@ -1036,8 +1036,8 @@ var _ = ginkgo.Describe("MPIJob controller with TopologyAwareScheduling", ginkgo
 			Queue(localQueue.Name).
 			GenericLauncherAndWorker().
 			RunLauncherAsWorker(true).
-			PodAnnotation(kfmpi.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
-			PodAnnotation(kfmpi.MPIReplicaTypeWorker, kueue.PodSetPreferredTopologyAnnotation, utiltesting.DefaultRackTopologyLevel).
+			PodAnnotation(kfmpi.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
+			PodAnnotation(kfmpi.MPIReplicaTypeWorker, kueue.PodSetPreferredTopologyAnnotation, testing.DefaultRackTopologyLevel).
 			Request(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "100m").
 			Request(kfmpi.MPIReplicaTypeWorker, corev1.ResourceCPU, "100m").
 			Obj()
@@ -1069,7 +1069,7 @@ var _ = ginkgo.Describe("MPIJob controller with TopologyAwareScheduling", ginkgo
 						Name:  kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeLauncher)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required:      ptr.To(utiltesting.DefaultBlockTopologyLevel),
+							Required:      ptr.To(testing.DefaultBlockTopologyLevel),
 							PodIndexLabel: ptr.To(kfmpi.ReplicaIndexLabel),
 						},
 					},
@@ -1077,7 +1077,7 @@ var _ = ginkgo.Describe("MPIJob controller with TopologyAwareScheduling", ginkgo
 						Name:  kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeWorker)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Preferred:     ptr.To(utiltesting.DefaultRackTopologyLevel),
+							Preferred:     ptr.To(testing.DefaultRackTopologyLevel),
 							PodIndexLabel: ptr.To(kfmpi.ReplicaIndexLabel),
 						},
 					},
@@ -1096,16 +1096,16 @@ var _ = ginkgo.Describe("MPIJob controller with TopologyAwareScheduling", ginkgo
 				g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
 				g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(2))
 				g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
-					tas.V1Beta2From(&tas.TopologyAssignment{
-						Levels:  []string{utiltesting.DefaultBlockTopologyLevel, utiltesting.DefaultRackTopologyLevel},
-						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
-					}),
+					&kueue.TopologyAssignment{
+						Levels:  []string{testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel},
+						Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
+					},
 				))
 				g.Expect(wl.Status.Admission.PodSetAssignments[1].TopologyAssignment).Should(gomega.BeComparableTo(
-					tas.V1Beta2From(&tas.TopologyAssignment{
-						Levels:  []string{utiltesting.DefaultBlockTopologyLevel, utiltesting.DefaultRackTopologyLevel},
-						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
-					}),
+					&kueue.TopologyAssignment{
+						Levels:  []string{testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel},
+						Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
+					},
 				))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
