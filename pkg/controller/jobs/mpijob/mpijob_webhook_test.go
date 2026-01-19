@@ -318,17 +318,18 @@ func TestValidateCreate(t *testing.T) {
 
 func TestDefault(t *testing.T) {
 	testCases := []struct {
-		name                 string
-		mpiJob               *v2beta1.MPIJob
-		queues               []kueue.LocalQueue
-		clusterQueues        []kueue.ClusterQueue
-		admissionCheck       *kueue.AdmissionCheck
-		multiKueueEnabled    bool
-		localQueueDefaulting bool
-		defaultLqExist       bool
-		want                 *v2beta1.MPIJob
-		wantManagedBy        *string
-		wantErr              error
+		name                    string
+		mpiJob                  *v2beta1.MPIJob
+		queues                  []kueue.LocalQueue
+		clusterQueues           []kueue.ClusterQueue
+		admissionCheck          *kueue.AdmissionCheck
+		multiKueueEnabled       bool
+		localQueueDefaulting    bool
+		topologyAwareScheduling bool
+		defaultLqExist          bool
+		want                    *v2beta1.MPIJob
+		wantManagedBy           *string
+		wantErr                 error
 	}{
 		{
 			name: "TestDefault_MPIJobManagedBy_mpijobapi.MPIJobControllerName",
@@ -544,12 +545,223 @@ func TestDefault(t *testing.T) {
 			mpiJob:               testingutil.MakeMPIJob("job", "default").Obj(),
 			want:                 testingutil.MakeMPIJob("job", "default").Obj(),
 		},
+		{
+			name:                    "TAS enabled, RunLauncherAsWorker true with 2 replica specs",
+			topologyAwareScheduling: true,
+			mpiJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				RunLauncherAsWorker(true).
+				Obj(),
+			want: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				RunLauncherAsWorker(true).
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "1").
+				Obj(),
+		},
+		{
+			name:                    "TAS enabled, RunLauncherAsWorker false",
+			topologyAwareScheduling: true,
+			mpiJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				RunLauncherAsWorker(false).
+				Obj(),
+			want: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				RunLauncherAsWorker(false).
+				Obj(),
+		},
+		{
+			name:                    "TAS enabled, RunLauncherAsWorker nil",
+			topologyAwareScheduling: true,
+			mpiJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				Obj(),
+			want: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				Obj(),
+		},
+		{
+			name:                    "TAS disabled, RunLauncherAsWorker true",
+			topologyAwareScheduling: false,
+			mpiJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				RunLauncherAsWorker(true).
+				Obj(),
+			want: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				RunLauncherAsWorker(true).
+				Obj(),
+		},
+		{
+			name:                    "TAS enabled, RunLauncherAsWorker true, only Launcher replica",
+			topologyAwareScheduling: true,
+			mpiJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				GenericLauncher().
+				RunLauncherAsWorker(true).
+				Obj(),
+			want: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				GenericLauncher().
+				RunLauncherAsWorker(true).
+				Obj(),
+		},
+		{
+			name:                    "TAS enabled, RunLauncherAsWorker true, Worker has existing annotations",
+			topologyAwareScheduling: true,
+			mpiJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				RunLauncherAsWorker(true).
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, "existing-annotation", "value").
+				Obj(),
+			want: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				RunLauncherAsWorker(true).
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, "existing-annotation", "value").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "1").
+				Obj(),
+		},
+		{
+			name:                    "TAS enabled, RunLauncherAsWorker true, Launcher has PodSetGroupName annotation",
+			topologyAwareScheduling: true,
+			mpiJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				RunLauncherAsWorker(true).
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetGroupName, "group1").
+				Obj(),
+			want: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				RunLauncherAsWorker(true).
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetGroupName, "group1").
+				Obj(),
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.MultiKueue, tc.multiKueueEnabled)
 			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
 
 			ctx, log := utiltesting.ContextWithLog(t)
 
