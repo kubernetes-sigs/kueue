@@ -82,10 +82,15 @@ func TestReconciler(t *testing.T) {
 					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						*utiltestingapi.MakePodSet(leaderPodSetName, 1).
 							RestartPolicy("").
 							Image("pause").
-							Obj()).
+							Obj(),
+						*utiltestingapi.MakePodSet(workerPodSetName, 0).
+							RestartPolicy("").
+							Image("pause").
+							Obj(),
+					).
 					Priority(0).
 					Obj(),
 			},
@@ -465,10 +470,15 @@ func TestReconciler(t *testing.T) {
 					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						*utiltestingapi.MakePodSet(leaderPodSetName, 1).
 							RestartPolicy("").
 							Image("pause").
-							Obj()).
+							Obj(),
+						*utiltestingapi.MakePodSet(workerPodSetName, 0).
+							RestartPolicy("").
+							Image("pause").
+							Obj(),
+					).
 					WorkloadPriorityClassRef("high-priority").
 					Priority(5000).
 					Obj(),

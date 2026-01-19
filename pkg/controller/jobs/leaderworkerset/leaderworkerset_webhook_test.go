@@ -545,22 +545,6 @@ func TestValidateCreate(t *testing.T) {
 					Key("kueue.x-k8s.io/podset-group-name"), "may not be set when neither 'kueue.x-k8s.io/podset-preferred-topology' nor 'kueue.x-k8s.io/podset-required-topology' is specified"),
 			}.ToAggregate(),
 		},
-		"invalid PodSet grouping request - grouping requested without leader template": {
-			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
-				Queue("test-queue").
-				WorkerTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetGroupName:                   "groupname",
-							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
-						},
-					},
-				}).
-				Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/podset-group-name]"), "groupname", "can only define groups of exactly 2 pod sets, got: 1 pod set(s)"),
-			}.ToAggregate(),
-		},
 	}
 
 	for name, tc := range testCases {

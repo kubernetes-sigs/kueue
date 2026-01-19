@@ -116,15 +116,9 @@ var (
 	specPath                      = field.NewPath("spec")
 	leaderWorkerTemplatePath      = specPath.Child("leaderWorkerTemplate")
 	leaderTemplatePath            = leaderWorkerTemplatePath.Child("leaderTemplate")
-	leaderTemplateMetaPath        = leaderTemplatePath.Child("metadata")
 	workerTemplatePath            = leaderWorkerTemplatePath.Child("workerTemplate")
 	workerTemplateMetaPath        = workerTemplatePath.Child("metadata")
 	workerTemplateAnnotationsPath = workerTemplateMetaPath.Child("annotations")
-	podSetAnnotationsPathByName   = map[kueue.PodSetReference]*field.Path{
-		"leader": leaderTemplateMetaPath.Child("annotations"),
-		"worker": workerTemplateAnnotationsPath,
-		"main":   workerTemplateAnnotationsPath,
-	}
 )
 
 func (wh *Webhook) ValidateCreate(ctx context.Context, obj *leaderworkersetv1.LeaderWorkerSet) (warnings admission.Warnings, err error) {
@@ -214,26 +208,42 @@ func validateTopologyRequest(lws *LeaderWorkerSet) (field.ErrorList, error) {
 	lwsv1 := leaderworkersetv1.LeaderWorkerSet(*lws)
 	podSets, podSetsErr := podSets(&lwsv1)
 
-	defaultPodSetName := kueue.DefaultPodSetName
-
+	leaderTemplateMetaPath := workerTemplateMetaPath
+	leaderObjectMeta := lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta
 	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
-		defaultPodSetName = workerPodSetName
+		leaderTemplateMetaPath = leaderTemplatePath.Child("metadata")
+		leaderObjectMeta = lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta
 
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(leaderTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta)...)
-
-		if podSetsErr == nil {
-			leaderPodSet := podset.FindPodSetByName(podSets, leaderPodSetName)
-			allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(leaderTemplateMetaPath,
-				&lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta, leaderPodSet)...)
-		}
+		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(
+			leaderTemplateMetaPath,
+			&lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta,
+		)...)
 	}
 
-	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta)...)
+	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(
+		workerTemplateMetaPath,
+		&lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta,
+	)...)
 
 	if podSetsErr == nil {
-		workerPodSet := podset.FindPodSetByName(podSets, defaultPodSetName)
-		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(workerTemplateMetaPath,
-			&lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta, workerPodSet)...)
+		leaderPodSet := podset.FindPodSetByName(podSets, leaderPodSetName)
+		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(
+			leaderTemplateMetaPath,
+			&leaderObjectMeta,
+			leaderPodSet,
+		)...)
+
+		workerPodSet := podset.FindPodSetByName(podSets, workerPodSetName)
+		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(
+			workerTemplateMetaPath,
+			&lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta,
+			workerPodSet,
+		)...)
+
+		podSetAnnotationsPathByName := map[kueue.PodSetReference]*field.Path{
+			"leader": leaderTemplateMetaPath.Child("annotations"),
+			"worker": workerTemplateAnnotationsPath,
+		}
 		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, podSetAnnotationsPathByName)...)
 	}
 

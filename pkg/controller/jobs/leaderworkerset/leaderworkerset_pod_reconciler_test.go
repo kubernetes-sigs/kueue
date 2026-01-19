@@ -127,7 +127,7 @@ func TestPodReconciler(t *testing.T) {
 					PrebuiltWorkload(GetWorkloadName(types.UID(testUID), "lws", "0")).
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
-					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					Annotation(podconstants.RoleHashAnnotation, leaderPodSetName).
 					Obj(),
 			},
 		},
@@ -156,7 +156,7 @@ func TestPodReconciler(t *testing.T) {
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 					Annotation(leaderworkersetv1.LeaderPodNameAnnotationKey, "lws-0").
-					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					Annotation(podconstants.RoleHashAnnotation, workerPodSetName).
 					Obj(),
 			},
 		},
@@ -250,7 +250,7 @@ func TestPodReconciler(t *testing.T) {
 					PrebuiltWorkload(GetWorkloadName("origin-uid", "lws", "0")).
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
-					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					Annotation(podconstants.RoleHashAnnotation, leaderPodSetName).
 					Obj(),
 			},
 		},
