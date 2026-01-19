@@ -477,17 +477,8 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 						Namespace: ns.Name,
 					},
 				}
-				wlLookupKey2 := types.NamespacedName{Name: createdWorkload2.Name, Namespace: createdWorkload2.Namespace}
 				ginkgo.By("Check workload for group 2 is released", func() {
-					gomega.Eventually(func(g gomega.Gomega) {
-						err := k8sClient.Get(ctx, wlLookupKey2, createdWorkload2)
-						if client.IgnoreNotFound(err) != nil {
-							gomega.Expect(err).To(gomega.Succeed())
-						}
-						if err == nil {
-							g.Expect(createdWorkload2.OwnerReferences).To(gomega.BeEmpty())
-						}
-					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+					util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload2, false, util.LongTimeout)
 				})
 
 				ginkgo.By("Delete the LeaderWorkerSet", func() {
@@ -506,7 +497,6 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 
 				ginkgo.By("Check workloads are deleted", func() {
 					util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload1, false, util.LongTimeout)
-					util.ExpectObjectToBeDeleted(ctx, k8sClient, createdWorkload2, true)
 				})
 			},
 			ginkgo.Entry("LeaderCreatedStartupPolicy", leaderworkersetv1.LeaderCreatedStartupPolicy),
