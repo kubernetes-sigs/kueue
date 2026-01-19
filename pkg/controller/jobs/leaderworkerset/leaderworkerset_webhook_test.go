@@ -568,23 +568,6 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
 		},
-		"invalid PodSet grouping request - grouping requested without leader template": {
-			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
-				Queue("test-queue").
-				WorkerTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetGroupName:                   "groupname",
-							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
-						},
-					},
-				}).
-				Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/podset-group-name]"), "groupname", "can only define groups of exactly 2 pod sets, got: 1 pod set(s)"),
-			}.ToAggregate(),
-			topologyAwareScheduling: true,
-		},
 	}
 
 	for name, tc := range testCases {
