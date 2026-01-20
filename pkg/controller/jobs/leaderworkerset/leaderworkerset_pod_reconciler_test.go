@@ -104,10 +104,12 @@ func TestPodReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
-		"should set default values": {
+		// Leader pod doesn't have a leaderworkerset.sigs.k8s.io/leader-name annotation.
+		"should set default values (worker template, leader pod)": {
 			lws: leaderworkerset.MakeLeaderWorkerSet("lws", "ns").
 				UID(testUID).
 				Queue("queue").
+				WorkerTemplate(corev1.PodTemplateSpec{}).
 				Obj(),
 			pod: testingjobspod.MakePod("pod", "ns").
 				Label(leaderworkersetv1.SetNameLabelKey, "lws").
@@ -127,6 +129,96 @@ func TestPodReconciler(t *testing.T) {
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					Obj(),
+			},
+		},
+		// Worker pod has a leaderworkerset.sigs.k8s.io/leader-name annotation.
+		"should set default values (worker template, worker pod)": {
+			lws: leaderworkerset.MakeLeaderWorkerSet("lws", "ns").
+				UID(testUID).
+				Queue("queue").
+				WorkerTemplate(corev1.PodTemplateSpec{}).
+				Obj(),
+			pod: testingjobspod.MakePod("pod", "ns").
+				Label(leaderworkersetv1.SetNameLabelKey, "lws").
+				Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				Annotation(leaderworkersetv1.LeaderPodNameAnnotationKey, "lws-0").
+				Obj(),
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod", "ns").
+					Label(leaderworkersetv1.SetNameLabelKey, "lws").
+					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+					Queue("queue").
+					ManagedByKueueLabel().
+					Group(GetWorkloadName(types.UID(testUID), "lws", "0")).
+					GroupTotalCount("1").
+					PrebuiltWorkload(GetWorkloadName(types.UID(testUID), "lws", "0")).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+					Annotation(leaderworkersetv1.LeaderPodNameAnnotationKey, "lws-0").
+					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					Obj(),
+			},
+		},
+		// Leader pod doesn't have a leaderworkerset.sigs.k8s.io/leader-name annotation.
+		"should set default values (leader+worker template, leader pod)": {
+			lws: leaderworkerset.MakeLeaderWorkerSet("lws", "ns").
+				UID(testUID).
+				Queue("queue").
+				WorkerTemplate(corev1.PodTemplateSpec{}).
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Obj(),
+			pod: testingjobspod.MakePod("pod", "ns").
+				Label(leaderworkersetv1.SetNameLabelKey, "lws").
+				Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				Obj(),
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod", "ns").
+					Label(leaderworkersetv1.SetNameLabelKey, "lws").
+					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+					Queue("queue").
+					ManagedByKueueLabel().
+					Group(GetWorkloadName(types.UID(testUID), "lws", "0")).
+					GroupTotalCount("1").
+					PrebuiltWorkload(GetWorkloadName(types.UID(testUID), "lws", "0")).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+					Annotation(podconstants.RoleHashAnnotation, leaderPodSetName).
+					Obj(),
+			},
+		},
+		// Worker pod has a leaderworkerset.sigs.k8s.io/leader-name annotation.
+		"should set default values (leader+worker template, worker pod)": {
+			lws: leaderworkerset.MakeLeaderWorkerSet("lws", "ns").
+				UID(testUID).
+				Queue("queue").
+				WorkerTemplate(corev1.PodTemplateSpec{}).
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Obj(),
+			pod: testingjobspod.MakePod("pod", "ns").
+				Label(leaderworkersetv1.SetNameLabelKey, "lws").
+				Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				Annotation(leaderworkersetv1.LeaderPodNameAnnotationKey, "lws-0").
+				Obj(),
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod", "ns").
+					Label(leaderworkersetv1.SetNameLabelKey, "lws").
+					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+					Queue("queue").
+					ManagedByKueueLabel().
+					Group(GetWorkloadName(types.UID(testUID), "lws", "0")).
+					GroupTotalCount("1").
+					PrebuiltWorkload(GetWorkloadName(types.UID(testUID), "lws", "0")).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+					Annotation(leaderworkersetv1.LeaderPodNameAnnotationKey, "lws-0").
+					Annotation(podconstants.RoleHashAnnotation, workerPodSetName).
 					Obj(),
 			},
 		},
