@@ -25,15 +25,12 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/fields"
-	resourcehelpers "k8s.io/component-helpers/resource"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/resources"
-	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -88,15 +85,20 @@ type TASFlavorCache struct {
 
 	// usage maintains the usage per topology domain
 	usage map[utiltas.TopologyDomainID]resources.Requests
+
+	// nonTasUsageCache maintains the usage coming from non-TAS pods,
+	// e.g. static Pods or DaemonSet pods.
+	nonTasUsageCache *nonTasUsageCache
 }
 
 func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
 	flavorInfo flavorInformation) *TASFlavorCache {
 	return &TASFlavorCache{
-		client:   t.client,
-		topology: topologyInfo,
-		flavor:   flavorInfo,
-		usage:    make(map[utiltas.TopologyDomainID]resources.Requests),
+		client:           t.client,
+		topology:         topologyInfo,
+		flavor:           flavorInfo,
+		usage:            make(map[utiltas.TopologyDomainID]resources.Requests),
+		nonTasUsageCache: t.nonTasUsageCache,
 	}
 }
 
@@ -114,14 +116,7 @@ func (c *TASFlavorCache) snapshot(ctx context.Context) (*TASFlavorSnapshot, erro
 	if err != nil {
 		return nil, fmt.Errorf("failed to list nodes for TAS: %w", err)
 	}
-	podListOpts := &client.ListOptions{}
-	podListOpts.FieldSelector = fields.OneTermEqualSelector(indexer.TASKey, "false")
-	pods := corev1.PodList{}
-	err = c.client.List(ctx, &pods, podListOpts)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list non-TAS pods which are bound to nodes: %w", err)
-	}
-	return c.snapshotForNodes(log, nodes.Items, pods.Items), nil
+	return c.snapshotForNodes(log, nodes.Items), nil
 }
 
 func (c *TASFlavorCache) NodeLabels() map[string]string {
@@ -136,12 +131,12 @@ func (c *TASFlavorCache) TopologyLevels() []string {
 	return c.topology.Levels
 }
 
-func (c *TASFlavorCache) snapshotForNodes(log logr.Logger, nodes []corev1.Node, pods []corev1.Pod) *TASFlavorSnapshot {
+func (c *TASFlavorCache) snapshotForNodes(log logr.Logger, nodes []corev1.Node) *TASFlavorSnapshot {
 	c.RLock()
 	defer c.RUnlock()
 
 	log.V(3).Info("Constructing TAS snapshot", "nodeLabels", c.flavor.NodeLabels,
-		"levels", c.topology.Levels, "nodeCount", len(nodes), "podCount", len(pods))
+		"levels", c.topology.Levels, "nodeCount", len(nodes))
 	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, c.topology.Levels, c.flavor.Tolerations)
 	nodeToDomain := make(map[string]utiltas.TopologyDomainID)
 	for _, node := range nodes {
@@ -151,14 +146,8 @@ func (c *TASFlavorCache) snapshotForNodes(log logr.Logger, nodes []corev1.Node, 
 	for domainID, usage := range c.usage {
 		snapshot.addTASUsage(domainID, usage)
 	}
-	for _, pod := range pods {
-		// skip unscheduled or terminal pods as they don't use any capacity
-		if len(pod.Spec.NodeName) == 0 || utilpod.IsTerminated(&pod) {
-			continue
-		}
-		if domainID, ok := nodeToDomain[pod.Spec.NodeName]; ok {
-			requests := resourcehelpers.PodRequests(&pod, resourcehelpers.PodResourcesOptions{})
-			usage := resources.NewRequests(requests)
+	for nodeName, usage := range c.nonTasUsageCache.usagePerNode() {
+		if domainID, ok := nodeToDomain[nodeName]; ok {
 			snapshot.addNonTASUsage(domainID, usage)
 		}
 	}

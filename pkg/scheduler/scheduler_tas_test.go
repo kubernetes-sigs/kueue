@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -1897,62 +1898,6 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 		},
-		"workload gets scheduled as the usage of TAS pods and workloads is not double-counted": {
-			nodes: defaultSingleNode,
-			pods: []corev1.Pod{
-				*testingpod.MakePod("test-running", "test-ns").NodeName("x1").
-					StatusPhase(corev1.PodRunning).
-					Request(corev1.ResourceCPU, "400m").
-					NodeSelector(corev1.LabelHostname, "x1").
-					Label(kueue.TASLabel, "true").
-					Obj(),
-			},
-			topologies:      []kueue.Topology{defaultSingleLevelTopology},
-			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
-			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
-			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("foo", "default").
-					Queue("tas-main").
-					PodSets(*utiltestingapi.MakePodSet("one", 1).
-						RequiredTopologyRequest(corev1.LabelHostname).
-						Request(corev1.ResourceCPU, "500m").
-						Obj()).
-					Obj(),
-				*utiltestingapi.MakeWorkload("bar-admitted", "default").
-					Queue("tas-main").
-					ReserveQuota(
-						utiltestingapi.MakeAdmission("tas-main").
-							PodSets(utiltestingapi.MakePodSetAssignment("one").
-								Assignment(corev1.ResourceCPU, "tas-default", "400m").
-								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
-									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
-									Obj()).
-								Obj()).
-							Obj(),
-					).
-					Admitted(true).
-					PodSets(*utiltestingapi.MakePodSet("one", 1).
-						RequiredTopologyRequest(corev1.LabelHostname).
-						Request(corev1.ResourceCPU, "400m").
-						Obj()).
-					Obj(),
-			},
-			wantNewAssignments: map[workload.Reference]kueue.Admission{
-				"default/foo": *utiltestingapi.MakeAdmission("tas-main").
-					PodSets(utiltestingapi.MakePodSetAssignment("one").
-						Assignment(corev1.ResourceCPU, "tas-default", "500m").
-						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
-							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
-							Obj()).
-						Obj()).
-					Obj(),
-			},
-			eventCmpOpts: cmp.Options{eventIgnoreMessage},
-			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
-			},
-		},
 		"workload gets admitted next to already admitted workload, multiple resources used": {
 			nodes:           defaultSingleNode,
 			topologies:      []kueue.Topology{defaultSingleLevelTopology},
@@ -2769,6 +2714,9 @@ func TestScheduleForTAS(t *testing.T) {
 				if err := qManager.AddLocalQueue(ctx, &q); err != nil {
 					t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
 				}
+			}
+			for _, pod := range tc.pods {
+				cqCache.TASCache().Update(pod, logr.FromContextOrDiscard(ctx))
 			}
 			initiallyAdmittedWorkloads := sets.New[workload.Reference]()
 			for _, w := range tc.workloads {

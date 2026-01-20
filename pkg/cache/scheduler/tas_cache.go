@@ -21,6 +21,9 @@ import (
 	"slices"
 	"sync"
 
+	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -33,6 +36,8 @@ type tasCache struct {
 	flavors     map[kueue.ResourceFlavorReference]flavorInformation
 	topologies  map[kueue.TopologyReference]topologyInformation
 	flavorCache map[kueue.ResourceFlavorReference]*TASFlavorCache
+
+	nonTasUsageCache *nonTasUsageCache
 }
 
 func NewTASCache(client client.Client) tasCache {
@@ -41,6 +46,10 @@ func NewTASCache(client client.Client) tasCache {
 		flavors:     make(map[kueue.ResourceFlavorReference]flavorInformation),
 		topologies:  make(map[kueue.TopologyReference]topologyInformation),
 		flavorCache: make(map[kueue.ResourceFlavorReference]*TASFlavorCache),
+		nonTasUsageCache: &nonTasUsageCache{
+			podUsage: make(map[types.NamespacedName]podUsageValue),
+			lock:     sync.RWMutex{},
+		},
 	}
 }
 
@@ -107,4 +116,14 @@ func (t *tasCache) DeleteTopology(name kueue.TopologyReference) {
 			delete(t.flavorCache, flavor)
 		}
 	}
+}
+
+// Update may add a pod to the cache, or
+// delete a terminated pod.
+func (t *tasCache) Update(pod corev1.Pod, log logr.Logger) {
+	t.nonTasUsageCache.update(pod, log)
+}
+
+func (t *tasCache) DeletePodByKey(key client.ObjectKey) {
+	t.nonTasUsageCache.delete(key)
 }
