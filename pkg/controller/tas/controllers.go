@@ -17,6 +17,8 @@ limitations under the License.
 package tas
 
 import (
+	"time"
+
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -26,7 +28,25 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
-func SetupControllers(mgr ctrl.Manager, queues *qcache.Manager, cache *schdcache.Cache, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker) (string, error) {
+type SetupControllersOption func(*setupControllersOptions)
+
+type setupControllersOptions struct {
+	requeueBatchPeriod time.Duration
+}
+
+// WithRequeueBatchPeriod sets the batch period for requeue requests.
+func WithRequeueBatchPeriod(d time.Duration) SetupControllersOption {
+	return func(o *setupControllersOptions) {
+		o.requeueBatchPeriod = d
+	}
+}
+
+func SetupControllers(mgr ctrl.Manager, queues *qcache.Manager, cache *schdcache.Cache, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker, opts ...SetupControllersOption) (string, error) {
+	options := setupControllersOptions{}
+	for _, opt := range opts {
+		opt(&options)
+	}
+
 	recorder := mgr.GetEventRecorderFor(TASResourceFlavorController)
 	topologyRec := newTopologyReconciler(mgr.GetClient(), queues, cache, roleTracker)
 	if ctrlName, err := topologyRec.setupWithManager(mgr, cfg); err != nil {
@@ -46,7 +66,12 @@ func SetupControllers(mgr ctrl.Manager, queues *qcache.Manager, cache *schdcache
 			return ctrlName, err
 		}
 	}
-	nonTasUsageController := newNonTasUsageReconciler(mgr.GetClient(), cache)
+
+	var nonTasOpts []nonTasReconcilerOption
+	if options.requeueBatchPeriod > 0 {
+		nonTasOpts = append(nonTasOpts, withRequeueBatchPeriod(options.requeueBatchPeriod))
+	}
+	nonTasUsageController := newNonTasUsageReconciler(mgr.GetClient(), queues, cache, nonTasOpts...)
 	if ctrlName, err := nonTasUsageController.SetupWithManager(mgr); err != nil {
 		return ctrlName, err
 	}
