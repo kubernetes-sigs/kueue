@@ -19,7 +19,6 @@ package scheduler
 import (
 	"testing"
 
-	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -5987,7 +5986,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 			// TODO: remove after dropping the TAS profiles feature gates
 			for _, gate := range tc.enableFeatureGates {
 				features.SetFeatureGateDuringTest(t, gate, true)
@@ -6014,7 +6013,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				NodeLabels:   tc.nodeLabels,
 			}
 			for _, pod := range tc.pods {
-				tasCache.Update(pod, logr.FromContextOrDiscard(ctx))
+				tasCache.Update(&pod, log)
 			}
 			tasFlavorCache := tasCache.NewTASFlavorCache(topologyInformation, flavorInformation)
 
