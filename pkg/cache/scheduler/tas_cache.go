@@ -17,6 +17,7 @@ limitations under the License.
 package scheduler
 
 import (
+	"context"
 	"maps"
 	"slices"
 	"sync"
@@ -124,6 +125,71 @@ func (t *tasCache) Update(pod *corev1.Pod, log logr.Logger) {
 	t.nonTasUsageCache.update(pod, log)
 }
 
-func (t *tasCache) DeletePodByKey(key client.ObjectKey) {
-	t.nonTasUsageCache.delete(key)
+// DeletePodByKey removes a pod from the cache and returns the node it was on.
+func (t *tasCache) DeletePodByKey(key client.ObjectKey) string {
+	return t.nonTasUsageCache.delete(key)
+}
+
+// ActiveFlavors returns all TAS flavors that have an active cache.
+func (t *tasCache) ActiveFlavors() []kueue.ResourceFlavorReference {
+	t.RLock()
+	defer t.RUnlock()
+	result := make([]kueue.ResourceFlavorReference, 0, len(t.flavorCache))
+	for name := range t.flavorCache {
+		result = append(result, name)
+	}
+	return result
+}
+
+// FlavorsForNodes returns TAS flavors matching any of the given nodes.
+// Falls back to all active flavors if nodes can't be fetched.
+func (t *tasCache) FlavorsForNodes(ctx context.Context, nodeNames []string) []kueue.ResourceFlavorReference {
+	if len(nodeNames) == 0 {
+		return nil
+	}
+
+	nodeLabelsMap := make(map[string]map[string]string, len(nodeNames))
+	for _, nodeName := range nodeNames {
+		var node corev1.Node
+		if err := t.client.Get(ctx, types.NamespacedName{Name: nodeName}, &node); err != nil {
+			continue
+		}
+		nodeLabelsMap[nodeName] = node.Labels
+	}
+
+	t.RLock()
+	defer t.RUnlock()
+
+	if len(t.flavorCache) == 0 {
+		return nil
+	}
+
+	if len(nodeLabelsMap) == 0 {
+		result := make([]kueue.ResourceFlavorReference, 0, len(t.flavorCache))
+		for name := range t.flavorCache {
+			result = append(result, name)
+		}
+		return result
+	}
+
+	var result []kueue.ResourceFlavorReference
+	for name, flavorCache := range t.flavorCache {
+		for _, nodeLabels := range nodeLabelsMap {
+			if flavorMatchesNode(flavorCache.flavor.NodeLabels, nodeLabels) {
+				result = append(result, name)
+				break
+			}
+		}
+	}
+	return result
+}
+
+// flavorMatchesNode returns true if the node has all labels from the flavor.
+func flavorMatchesNode(flavorNodeLabels, nodeLabels map[string]string) bool {
+	for k, v := range flavorNodeLabels {
+		if nodeLabels[k] != v {
+			return false
+		}
+	}
+	return true
 }
