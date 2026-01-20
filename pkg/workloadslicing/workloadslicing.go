@@ -30,6 +30,7 @@ import (
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -146,7 +147,15 @@ func ScaledUp(workload *kueue.Workload) bool {
 // - *Workload, true, nil: when a compatible workload exists or a new slice is needed.
 // - nil, false, nil: when an incompatible workload exists and no update is performed.
 // - error: on failure to fetch, update, or deactivate a workload slice.
-func EnsureWorkloadSlices(ctx context.Context, clnt client.Client, clk clock.Clock, jobPodSets []kueue.PodSet, jobObject client.Object, jobObjectGVK schema.GroupVersionKind) (*kueue.Workload, bool, error) {
+func EnsureWorkloadSlices(
+	ctx context.Context,
+	clnt client.Client,
+	clk clock.Clock,
+	jobPodSets []kueue.PodSet,
+	jobObject client.Object,
+	jobObjectGVK schema.GroupVersionKind,
+	tracker *roletracker.RoleTracker,
+) (*kueue.Workload, bool, error) {
 	jobPodSetsCounts := workload.ExtractPodSetCounts(jobPodSets)
 
 	workloads, err := FindNotFinishedWorkloads(ctx, clnt, jobObject, jobObjectGVK)
@@ -212,7 +221,9 @@ func EnsureWorkloadSlices(ctx context.Context, clnt client.Client, clk clock.Clo
 			newWorkloadAdmittedAsReplacement
 		if shouldFinishOldSlice {
 			// Finish the old workload slice as out of sync.
-			if err := workload.Finish(ctx, clnt, &oldWorkload, kueue.WorkloadFinishedReasonOutOfSync, "The workload slice is out of sync with its parent job", clk); err != nil {
+			reason := kueue.WorkloadFinishedReasonOutOfSync
+			message := "The workload slice is out of sync with its parent job"
+			if err := workload.Finish(ctx, clnt, &oldWorkload, reason, message, clk, tracker); err != nil {
 				return nil, true, err
 			}
 		}
