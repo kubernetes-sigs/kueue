@@ -6,15 +6,15 @@ Changes since `v0.15.2`:
 
 ### Feature
 
-- CLI: Support "kwl" and "kueueworkload" as a shortname for Kueue Workloads. (#8469, @k8s-infra-cherrypick-robot)
+- CLI: Support "kwl" and "kueueworkload" as a shortname for Kueue Workloads. (#8469, @kannon92)
 
 ### Bug or Regression
 
-- Add lws editer and viewer roles to kustomize and helm (#8515, @k8s-infra-cherrypick-robot)
-- FailureRecovery: Fix Pod Termination Controller's MaxConcurrentReconciles (#8665, @k8s-infra-cherrypick-robot)
-- Fix ClusterQueue deletion getting stuck when pending workloads are deleted after being assumed by the scheduler. (#8548, @k8s-infra-cherrypick-robot)
+- Add lws editer and viewer roles to kustomize and helm (#8515, @kannon92)
+- FailureRecovery: Fix Pod Termination Controller's MaxConcurrentReconciles (#8665, @gabesaba)
+- Fix ClusterQueue deletion getting stuck when pending workloads are deleted after being assumed by the scheduler. (#8548, @sohankunkerkar)
 - Fix a bug that WorkloadPriorityClass value changes do not trigger Workload priority updates. (#8499, @ASverdlov)
-- HC: Avoid redundant requeuing of inadmissible workloads when multiple ClusterQueues in the same cohort hierarchy are processed. (#8510, @k8s-infra-cherrypick-robot)
+- HC: Avoid redundant requeuing of inadmissible workloads when multiple ClusterQueues in the same cohort hierarchy are processed. (#8510, @sohankunkerkar)
 - Integrations based on Pods: skip using finalizers on the Pods created and managed by integrations. 
   
   In particular we skip setting finalizers for Pods managed by the built in Serving Workloads  Deployments,
@@ -22,7 +22,7 @@ Changes since `v0.15.2`:
   
   This improves performance of suspending the workloads, and fixes occasional race conditions when a StatefulSet
   could get stuck when deactivating and re-activating in a short interval. (#8573, @mbobrovskyi)
-- JobFramework: Fixed a bug that allowed a deactivated workload to be activated. (#8438, @k8s-infra-cherrypick-robot)
+- JobFramework: Fixed a bug that allowed a deactivated workload to be activated. (#8438, @chengjoey)
 - LeaderWorkerSet: Fixed a bug that prevented deleting the workload when the LeaderWorkerSet was scaled down. (#8673, @mbobrovskyi)
 - MultiKueue now waits for WorkloadAdmitted (instead of QuotaReserved) before deleting workloads from non-selected worker clusters. To revert to the previous behavior, disable the `MultiKueueWaitForWorkloadAdmitted` feature gate. (#8600, @IrvingMg)
 - MultiKueue: Fix a bug that the priority change by mutating the `kueue.x-k8s.io/priority-class` label on the management cluster is not propagated to the worker clusters. (#8574, @mbobrovskyi)
@@ -36,9 +36,13 @@ Changes since `v0.15.2`:
 - TAS: Fix a bug that MPIJob with runLauncherAsWorker Pod indexes are not correctly evaluated during rank-based ordering assignments. (#8663, @tenzen-y)
 - TAS: Fixed an issue where workloads could remain in the second-pass scheduling queue (used for integration
   or TAS with ProvisioningRequests, and for TAS Node Hot Swap) even if they no longer require to be in the queue. (#8431, @skools-here)
-- TAS: fix TAS resource flavor controller to extract only scheduling-relevant node updates to prevent unnecessary reconciliation. (#8453, @k8s-infra-cherrypick-robot)
+- TAS: fix TAS resource flavor controller to extract only scheduling-relevant node updates to prevent unnecessary reconciliation. (#8453, @Ladicle)
 - TAS: significantly improves scheduling performance by replacing Pod listing with an event-driven
   cache for non-TAS Pods, thereby avoiding expensive DeepCopy operations during each scheduling cycle. (#8484, @gabesaba)
+
+### Uncategorized
+
+- TAS: Lower verbosity of expected missing pod index label logs. (#8702, @IrvingMg)
 
 ## v0.15.2
 
