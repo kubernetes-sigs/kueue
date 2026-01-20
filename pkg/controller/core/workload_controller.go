@@ -602,7 +602,10 @@ func getLocalQueue(wl *kueue.Workload) kueue.LocalQueueName {
 }
 
 func getClusterQueue(wl *kueue.Workload) kueue.ClusterQueueReference {
-	if wl == nil || wl.Status.Admission == nil {
+	if wl == nil {
+		return ""
+	}
+	if wl.Status.Admission == nil {
 		return ""
 	}
 	return wl.Status.Admission.ClusterQueue
