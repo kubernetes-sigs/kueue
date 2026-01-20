@@ -31,25 +31,22 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
-func newNonTasUsageReconciler(client client.Client, cache *schdcache.Cache, qcache *qcache.Manager) *NonTasUsageReconciler {
+func newNonTasUsageReconciler(k8sClient client.Client, cache *schdcache.Cache) *NonTasUsageReconciler {
 	return &NonTasUsageReconciler{
-		Client: client,
-		Cache:  cache,
-		QCache: qcache,
+		k8sClient: k8sClient,
+		cache:     cache,
 	}
 }
 
 // NonTasUsageReconciler monitors pods to update
 // the TAS cache with non-TAS usage.
 type NonTasUsageReconciler struct {
-	client.Client
-	Cache  *schdcache.Cache
-	QCache *qcache.Manager
+	k8sClient client.Client
+	cache     *schdcache.Cache
 }
 
 var _ reconcile.Reconciler = (*NonTasUsageReconciler)(nil)
@@ -61,17 +58,17 @@ func (r *NonTasUsageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	log := klog.FromContext(ctx).WithValues("pod", req.NamespacedName)
 	log.V(3).Info("Non-TAS usage cache reconciling")
 	var pod corev1.Pod
-	err := r.Get(ctx, req.NamespacedName, &pod)
+	err := r.k8sClient.Get(ctx, req.NamespacedName, &pod)
 	if err != nil {
 		if client.IgnoreNotFound(err) != nil {
 			return ctrl.Result{}, err
 		}
 		log.V(5).Info("Idempotently deleting not found pod")
-		r.Cache.TASCache().DeletePodByKey(req.NamespacedName)
+		r.cache.TASCache().DeletePodByKey(req.NamespacedName)
 		return ctrl.Result{}, nil
 	}
 
-	r.Cache.TASCache().Update(pod, log)
+	r.cache.TASCache().Update(&pod, log)
 	return ctrl.Result{}, nil
 }
 
