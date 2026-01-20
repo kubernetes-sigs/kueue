@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/scheduler"
+	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -60,6 +61,7 @@ func TestAPIs(t *testing.T) {
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
 		DepCRDPaths: []string{util.MpiOperatorCrds},
+		WebhookPath: util.WebhookPath,
 	}
 
 	cfg = fwk.Init()
@@ -72,55 +74,15 @@ var _ = ginkgo.AfterSuite(func() {
 
 func managerSetup(setupJobManager bool, opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
-		reconciler, err := mpijob.NewReconciler(
-			ctx,
-			mgr.GetClient(),
-			mgr.GetFieldIndexer(),
-			mgr.GetEventRecorderFor(constants.JobControllerName),
-			opts...)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = indexer.Setup(ctx, mgr.GetFieldIndexer())
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = mpijob.SetupIndexes(ctx, mgr.GetFieldIndexer())
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = reconciler.SetupWithManager(mgr)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = mpijob.SetupMPIJobWebhook(mgr, opts...)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		jobframework.EnableIntegration(mpijob.FrameworkName)
-
-		if setupJobManager {
-			jobReconciler, _ := job.NewReconciler(
-				ctx,
-				mgr.GetClient(),
-				mgr.GetFieldIndexer(),
-				mgr.GetEventRecorderFor(constants.JobControllerName),
-				opts...)
-			err = job.SetupIndexes(ctx, mgr.GetFieldIndexer())
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = jobReconciler.SetupWithManager(mgr)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = job.SetupWebhook(mgr, opts...)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
+		controllersSetup(ctx, mgr, setupJobManager, opts...)
 	}
 }
 
 func managerAndSchedulerSetup(setupTASControllers bool, opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
-		managerSetup(true, opts...)(ctx, mgr)
-
-		cCache := schdcache.New(mgr.GetClient())
-		queues := qcache.NewManager(mgr.GetClient(), cCache)
-
-		configuration := &config.Configuration{}
-		mgr.GetScheme().Default(configuration)
-
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
-		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
-
+		cCache, queues, configuration := controllersSetup(ctx, mgr, true, opts...)
 		if setupTASControllers {
-			failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, configuration)
+			failedCtrl, err := tas.SetupControllers(mgr, queues, cCache, configuration)
 			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "TAS controller", failedCtrl)
 
 			err = tasindexer.SetupIndexes(ctx, mgr.GetFieldIndexer())
@@ -128,7 +90,55 @@ func managerAndSchedulerSetup(setupTASControllers bool, opts ...jobframework.Opt
 		}
 
 		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName))
-		err = sched.Start(ctx)
+		err := sched.Start(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
+}
+
+func controllersSetup(
+	ctx context.Context, mgr manager.Manager, setupJobManager bool, opts ...jobframework.Option,
+) (*schdcache.Cache, *qcache.Manager, *config.Configuration) {
+	cCache := schdcache.New(mgr.GetClient())
+	queues := qcache.NewManager(mgr.GetClient(), cCache)
+	opts = append(opts, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
+
+	reconciler, err := mpijob.NewReconciler(
+		ctx,
+		mgr.GetClient(),
+		mgr.GetFieldIndexer(),
+		mgr.GetEventRecorderFor(constants.JobControllerName),
+		opts...)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	err = indexer.Setup(ctx, mgr.GetFieldIndexer())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	err = mpijob.SetupIndexes(ctx, mgr.GetFieldIndexer())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	err = reconciler.SetupWithManager(mgr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	err = mpijob.SetupMPIJobWebhook(mgr, opts...)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	jobframework.EnableIntegration(mpijob.FrameworkName)
+	configuration := &config.Configuration{}
+	mgr.GetScheme().Default(configuration)
+	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
+	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
+	failedWebhook, err := webhooks.Setup(mgr)
+	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
+
+	if setupJobManager {
+		jobReconciler, _ := job.NewReconciler(
+			ctx,
+			mgr.GetClient(),
+			mgr.GetFieldIndexer(),
+			mgr.GetEventRecorderFor(constants.JobControllerName),
+			opts...)
+		err = job.SetupIndexes(ctx, mgr.GetFieldIndexer())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = jobReconciler.SetupWithManager(mgr)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = job.SetupWebhook(mgr, opts...)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+
+	return cCache, queues, configuration
 }

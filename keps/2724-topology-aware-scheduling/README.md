@@ -13,11 +13,13 @@
     - [Story 4](#story-4)
     - [Story 5](#story-5)
     - [Story 6](#story-6)
+    - [Story 7](#story-7)
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
     - [Integration support](#integration-support)
       - [Job](#job)
       - [JobSet](#jobset)
       - [LeaderWorkerSet](#leaderworkerset)
+      - [MPIJob with runLauncherAsWorker](#mpijob-with-runlauncherasworker)
     - [Support for the &quot;auto&quot; mode](#support-for-the-auto-mode)
     - [PodSetAssignment is per lowest-topology level](#podsetassignment-is-per-lowest-topology-level)
     - [Provisioning request and required mode](#provisioning-request-and-required-mode)
@@ -181,6 +183,12 @@ within a "block", but each Job should also run within a "host" within that "bloc
 
 Similar to [Story 1](#story-1), but I want Leader and its Workers within a single replica
 in LeaderWorkerSet to run within a "rack".
+
+#### Story 7
+
+Similar to [Story 1](#story-1), but I want Leader and its Workers across multiple PodSets within a single Workload
+for MPIJob with runLauncherAsWorker (`.spec.runLauncherAsWorker`) which should be scheduled considering
+Pod index order.
 
 ### Notes/Constraints/Caveats (Optional)
 
@@ -466,6 +474,69 @@ spec:
 
 In this example there are 2 replicas with 2 workers and 1 leader each.
 Each group of leader and 2 workers should be placed in a rack.
+
+##### MPIJob with runLauncherAsWorker
+
+According to [Story 7](#story-7) we noticed that Kueue should properly handle MPIJob Pods
+indexes (`training.kubeflow.org/replica-index`) in case of MPIJob with runLauncherAsWorker mode.  
+Because Worker replica indexes occasionally start from `1` when runLauncherAsWorker MPIJob has 
+a separate replica spec for both roles (`Launcher` and `Worker`).
+
+To allow all Pods to be scheduled considering Pod indexes,
+we are adding a new `kueue.x-k8s.io/pod-index-offset` annotation.
+It specifies the starting index for the replica.
+
+**Example**:
+
+```yaml
+apiVersion: kubeflow.org/v2beta1
+kind: MPIJob
+metadata:
+  name: pi
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+spec:
+  slotsPerWorker: 1
+  runLauncherAsWorker: true  
+  mpiReplicaSpecs:
+    Launcher:
+      replicas: 1
+      template:
+        spec:
+          containers:
+          - image: mpioperator/mpi-pi:openmpi
+            name: mpi-launcher
+            securityContext:
+              runAsUser: 1000
+            command:
+            - mpirun
+            args:
+            - -n
+            - "2"
+            - /home/mpiuser/pi
+    Worker:
+      replicas: 2
+      template:
+        spec:
+          containers:
+          - image: mpioperator/mpi-pi:openmpi
+            name: mpi-worker
+            securityContext:
+              runAsUser: 1000
+            command:
+            - /usr/sbin/sshd
+            args:
+            - -De
+            - -f
+            - /home/mpiuser/.sshd_config
+```
+
+When the above MPIJob is submitted, Kueue MPIJob integration webhook adds
+`kueue.x-k8s.io/pod-index-offset: "1"` annotation to `.spec.mpiReplicas["Worker"].metadata.annotations` 
+because Worker pods will get 1-2 index annotation values in `training.kubeflow.org/replica-index`.
+
+On the other hands, `kueue.x-k8s.io/pod-index-offset` annotation is not added and offset management is delegated to the PodSet Group mechanism
+when `kueue.x-k8s.io/podset-group-name` is specified.
 
 #### Support for the "auto" mode
 
