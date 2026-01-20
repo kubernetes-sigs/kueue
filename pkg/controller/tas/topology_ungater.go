@@ -433,7 +433,11 @@ func readRanksIfAvailable(log logr.Logger,
 	}
 	result, err := readRanksForLabels(psa, pods, psReq, offset, maxRank)
 	if err != nil {
-		log.Error(err, "failed to read rank information from Pods")
+		if errors.Is(err, utilpod.ErrLabelNotFound) {
+			log.V(5).Info("pods missing index label for rank ordering", "error", err)
+		} else {
+			log.Error(err, "failed to read rank information from pods")
+		}
 		return nil, false
 	}
 	return result, true
