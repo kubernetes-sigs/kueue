@@ -24,20 +24,33 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 )
 
+const reconcilerErrorMessage = "Reconciler error"
+
 func TestErrorLogLevelOverridenZapCoreChangesErrorLevelOfReconcilerError(t *testing.T) {
 	core, observedLogs := observer.New(zapcore.WarnLevel)
 	logger := zap.New(NewErrorLogLevelOverridenCore(core))
 
-	logger.Error("Reconciler error")
+	logger.Error(reconcilerErrorMessage)
 
 	logs := observedLogs.TakeAll()
 
+	assertThereIsOnlyOneReconcilerErrorWithWarningLevel(t, logs)
+
+	childLogger := logger.With(zap.String("Some field", "Some value"))
+	childLogger.Error(reconcilerErrorMessage)
+
+	logs = observedLogs.TakeAll()
+
+	assertThereIsOnlyOneReconcilerErrorWithWarningLevel(t, logs)
+}
+
+func assertThereIsOnlyOneReconcilerErrorWithWarningLevel(t *testing.T, logs []observer.LoggedEntry) {
 	if len(logs) != 1 {
 		t.Errorf("Unexpected number of log entries %v, expected 1\n", len(logs))
 	}
 
 	log := logs[0]
-	if log.Message != "Reconciler error" || logs[0].Level != zapcore.WarnLevel {
+	if log.Message != reconcilerErrorMessage || logs[0].Level != zapcore.WarnLevel {
 		t.Errorf("Unexpected log entry %v\n", log)
 	}
 }
@@ -46,12 +59,15 @@ func TestErrorLogLevelOverridenZapCoreLeavesRestOfLogsIntact(t *testing.T) {
 	core, observedLogs := observer.New(zapcore.InfoLevel)
 	logger := zap.New(NewErrorLogLevelOverridenCore(core))
 
-	logger.Info("Reconciler error")
-	logger.Error("Some other error")
+	otherErrorMessage := "Some other error"
+	messageOfWarningLogWithField := "Some log with fields"
+
+	logger.Info(reconcilerErrorMessage)
+	logger.Error(otherErrorMessage)
 	fieldKey := "some field key"
 	fieldValue := "some field value"
 	someField := zap.String(fieldKey, fieldValue)
-	logger.Warn("Some log with fields", someField)
+	logger.Warn(messageOfWarningLogWithField, someField)
 
 	logs := observedLogs.TakeAll()
 
@@ -63,9 +79,9 @@ func TestErrorLogLevelOverridenZapCoreLeavesRestOfLogsIntact(t *testing.T) {
 		Message string
 		Level   zapcore.Level
 		Fields  []zap.Field
-	}{{"Reconciler error", zapcore.InfoLevel, nil},
-		{"Some other error", zapcore.ErrorLevel, nil},
-		{"Some log with fields", zapcore.WarnLevel, []zap.Field{someField}},
+	}{{reconcilerErrorMessage, zapcore.InfoLevel, nil},
+		{otherErrorMessage, zapcore.ErrorLevel, nil},
+		{messageOfWarningLogWithField, zapcore.WarnLevel, []zap.Field{someField}},
 	}
 
 	for i, expected := range expectedLogs {
