@@ -2025,8 +2025,7 @@ func TestReconcile(t *testing.T) {
 					Label(kftraining.JobRoleLabel, "launcher").
 					Label(kftraining.ReplicaIndexLabel, "0").
 					Label(constants.PodSetLabel, "launcher").
-					NodeSelector(tasBlockLabel, "b1").
-					NodeSelector(tasRackLabel, "r1").
+					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("w0", "ns").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -2034,8 +2033,7 @@ func TestReconcile(t *testing.T) {
 					Label(kftraining.JobRoleLabel, "worker").
 					Label(kftraining.ReplicaIndexLabel, "0").
 					Label(constants.PodSetLabel, "worker").
-					NodeSelector(tasBlockLabel, "b1").
-					NodeSelector(tasRackLabel, "r1").
+					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("w1", "ns").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -2043,8 +2041,7 @@ func TestReconcile(t *testing.T) {
 					Label(kftraining.JobRoleLabel, "worker").
 					Label(kftraining.ReplicaIndexLabel, "1").
 					Label(constants.PodSetLabel, "worker").
-					NodeSelector(tasBlockLabel, "b1").
-					NodeSelector(tasRackLabel, "r2").
+					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("w2", "ns").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -2052,33 +2049,10 @@ func TestReconcile(t *testing.T) {
 					Label(kftraining.JobRoleLabel, "worker").
 					Label(kftraining.ReplicaIndexLabel, "2").
 					Label(constants.PodSetLabel, "worker").
-					NodeSelector(tasBlockLabel, "b2").
-					NodeSelector(tasRackLabel, "r1").
+					TopologySchedulingGate().
 					Obj(),
 			},
-			wantCounts: []counts{
-				{
-					NodeSelector: map[string]string{
-						tasBlockLabel: "b1",
-						tasRackLabel:  "r1",
-					},
-					Count: 2,
-				},
-				{
-					NodeSelector: map[string]string{
-						tasBlockLabel: "b1",
-						tasRackLabel:  "r2",
-					},
-					Count: 1,
-				},
-				{
-					NodeSelector: map[string]string{
-						tasBlockLabel: "b2",
-						tasRackLabel:  "r1",
-					},
-					Count: 1,
-				},
-			},
+			wantErr: errParseOffsetAnnotation,
 		},
 		"ranks: support rank-based ordering for kubeflow - for all Pods": {
 			workloads: []kueue.Workload{
