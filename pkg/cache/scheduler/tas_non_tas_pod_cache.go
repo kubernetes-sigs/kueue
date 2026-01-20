@@ -43,21 +43,21 @@ type podUsageValue struct {
 
 // update may add a pod to the cache, or
 // delete a terminated pod.
-func (n *nonTasUsageCache) update(pod corev1.Pod, log logr.Logger) {
+func (n *nonTasUsageCache) update(pod *corev1.Pod, log logr.Logger) {
 	n.lock.Lock()
 	defer n.lock.Unlock()
 
 	// delete terminated pods as they no longer use any capacity.
-	if utilpod.IsTerminated(&pod) {
+	if utilpod.IsTerminated(pod) {
 		log.V(5).Info("Deleting terminated pod from the cache")
-		delete(n.podUsage, client.ObjectKeyFromObject(&pod))
+		delete(n.podUsage, client.ObjectKeyFromObject(pod))
 		return
 	}
 
 	log.V(5).Info("Adding non-TAS pod to the cache")
 	requests := resources.NewRequests(
-		resourcehelpers.PodRequests(&pod, resourcehelpers.PodResourcesOptions{}))
-	n.podUsage[client.ObjectKeyFromObject(&pod)] = podUsageValue{
+		resourcehelpers.PodRequests(pod, resourcehelpers.PodResourcesOptions{}))
+	n.podUsage[client.ObjectKeyFromObject(pod)] = podUsageValue{
 		node:  pod.Spec.NodeName,
 		usage: requests,
 	}
