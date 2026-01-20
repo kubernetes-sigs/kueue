@@ -109,7 +109,6 @@ func TestPodReconciler(t *testing.T) {
 			lws: leaderworkerset.MakeLeaderWorkerSet("lws", "ns").
 				UID(testUID).
 				Queue("queue").
-				WorkerTemplate(corev1.PodTemplateSpec{}).
 				Obj(),
 			pod: testingjobspod.MakePod("pod", "ns").
 				Label(leaderworkersetv1.SetNameLabelKey, "lws").
@@ -137,7 +136,6 @@ func TestPodReconciler(t *testing.T) {
 			lws: leaderworkerset.MakeLeaderWorkerSet("lws", "ns").
 				UID(testUID).
 				Queue("queue").
-				WorkerTemplate(corev1.PodTemplateSpec{}).
 				Obj(),
 			pod: testingjobspod.MakePod("pod", "ns").
 				Label(leaderworkersetv1.SetNameLabelKey, "lws").
@@ -167,7 +165,6 @@ func TestPodReconciler(t *testing.T) {
 			lws: leaderworkerset.MakeLeaderWorkerSet("lws", "ns").
 				UID(testUID).
 				Queue("queue").
-				WorkerTemplate(corev1.PodTemplateSpec{}).
 				LeaderTemplate(corev1.PodTemplateSpec{}).
 				Obj(),
 			pod: testingjobspod.MakePod("pod", "ns").
@@ -196,7 +193,6 @@ func TestPodReconciler(t *testing.T) {
 			lws: leaderworkerset.MakeLeaderWorkerSet("lws", "ns").
 				UID(testUID).
 				Queue("queue").
-				WorkerTemplate(corev1.PodTemplateSpec{}).
 				LeaderTemplate(corev1.PodTemplateSpec{}).
 				Obj(),
 			pod: testingjobspod.MakePod("pod", "ns").
