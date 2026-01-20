@@ -589,7 +589,7 @@ func (r *WorkloadReconciler) notifyWatchersOfDeletion(qCacheWl, schedCacheWl *ku
 	if qCacheWl != nil {
 		r.notifyWatchers(qCacheWl, nil)
 	}
-	if getLocalQueue(qCacheWl) != getLocalQueue(schedCacheWl) || getClusterQueue(qCacheWl) != getClusterQueue(schedCacheWl) {
+	if schedCacheWl != nil && (getLocalQueue(qCacheWl) != getLocalQueue(schedCacheWl) || getClusterQueue(qCacheWl) != getClusterQueue(schedCacheWl)) {
 		r.notifyWatchers(schedCacheWl, nil)
 	}
 }
@@ -602,10 +602,7 @@ func getLocalQueue(wl *kueue.Workload) kueue.LocalQueueName {
 }
 
 func getClusterQueue(wl *kueue.Workload) kueue.ClusterQueueReference {
-	if wl == nil {
-		return ""
-	}
-	if wl.Status.Admission == nil {
+	if wl == nil || wl.Status.Admission == nil {
 		return ""
 	}
 	return wl.Status.Admission.ClusterQueue
