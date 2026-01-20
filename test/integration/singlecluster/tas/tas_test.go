@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -43,6 +44,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -260,6 +262,219 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					},
 				}, util.IgnoreConditionTimestampsAndObservedGeneration))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.When("non-TAS pod exists", func() {
+		var (
+			nodes        []corev1.Node
+			tasFlavor    *kueue.ResourceFlavor
+			topology     *kueue.Topology
+			localQueue   *kueue.LocalQueue
+			clusterQueue *kueue.ClusterQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			nodes = []corev1.Node{
+				*testingnode.MakeNode("node1").
+					Label("node-group", "tas").
+					Label(testing.DefaultBlockTopologyLevel, "b1").
+					Label(testing.DefaultRackTopologyLevel, "r1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("3"),
+					}).
+					Ready().
+					Obj(),
+			}
+			util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+
+			topology = utiltestingapi.MakeDefaultTwoLevelTopology("default")
+			util.MustCreate(ctx, k8sClient, topology)
+
+			tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
+				NodeLabel("node-group", "tas").
+				TopologyName("default").Obj()
+			util.MustCreate(ctx, k8sClient, tasFlavor)
+
+			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "999").Obj()).
+				Obj()
+			util.MustCreate(ctx, k8sClient, clusterQueue)
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+
+			localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			util.MustCreate(ctx, k8sClient, localQueue)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+			for _, node := range nodes {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
+			}
+		})
+
+		ginkgo.It("non-TAS pod terminates, releasing capacity", func() {
+			var wl *kueue.Workload
+			var nonTasPod *corev1.Pod
+
+			ginkgo.By("create a non-TAS pod which consumes the node's capacity", func() {
+				nonTasPod = testingpod.MakePod("pod", ns.Name).
+					Request(corev1.ResourceCPU, "1").
+					NodeName("node1").
+					TerminationGracePeriod(0).
+					Obj()
+				util.MustCreate(ctx, k8sClient, nonTasPod)
+			})
+
+			ginkgo.By("create a workload which requires the node's capacity", func() {
+				wl = utiltestingapi.MakeWorkload("wl", ns.Name).
+					Queue("local-queue").
+					Request(corev1.ResourceCPU, "1").
+					Obj()
+				util.MustCreate(ctx, k8sClient, wl)
+
+				ginkgo.By("verify the workload is not admitted", func() {
+					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
+					util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+					gomega.Consistently(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+						g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
+					}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+				})
+			})
+
+			ginkgo.By("terminate the non-TAS pod", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(nonTasPod), nonTasPod)).To(gomega.Succeed())
+					util.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, nonTasPod)
+					g.Expect(k8sClient.Update(ctx, nonTasPod)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			// https://github.com/kubernetes-sigs/kueue/issues/8653
+			ginkgo.By("hack to requeue workload", func() {
+				cqs := sets.New[kueue.ClusterQueueReference]("cluster-queue")
+				qManager.QueueInadmissibleWorkloads(ctx, cqs)
+			})
+
+			ginkgo.By("expect TAS pod to admit", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+				util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
+			})
+		})
+
+		ginkgo.It("non-TAS pod is deleted, releasing capacity", func() {
+			var wl *kueue.Workload
+			var nonTasPod *corev1.Pod
+
+			ginkgo.By("creating a non-TAS pod which consumes the node's capacity", func() {
+				nonTasPod = testingpod.MakePod("pod", ns.Name).
+					Request(corev1.ResourceCPU, "1").
+					NodeName("node1").
+					TerminationGracePeriod(0).
+					Obj()
+				util.MustCreate(ctx, k8sClient, nonTasPod)
+			})
+
+			ginkgo.By("creating a workload which requires the node's capacity", func() {
+				wl = utiltestingapi.MakeWorkload("wl", ns.Name).
+					Queue("local-queue").
+					Request(corev1.ResourceCPU, "1").
+					Obj()
+				util.MustCreate(ctx, k8sClient, wl)
+			})
+
+			ginkgo.By("verify the workload is not admitted", func() {
+				util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
+				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("delete the non-TAS pod", func() {
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, nonTasPod, true, 60*time.Second)
+			})
+
+			// https://github.com/kubernetes-sigs/kueue/issues/8653
+			ginkgo.By("hack to requeue workload", func() {
+				cqs := sets.New[kueue.ClusterQueueReference]("cluster-queue")
+				qManager.QueueInadmissibleWorkloads(ctx, cqs)
+			})
+
+			ginkgo.By("expect TAS pod to admit", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+				util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
+			})
+		})
+
+		ginkgo.It("Non-TAS pod has no node assignment", func() {
+			var wl *kueue.Workload
+			var nonTasPod *corev1.Pod
+			ginkgo.By("creating a non-TAS pod without assignment", func() {
+				nonTasPod = testingpod.MakePod("pod", ns.Name).
+					Request(corev1.ResourceCPU, "1").
+					Obj()
+				util.MustCreate(ctx, k8sClient, nonTasPod)
+			})
+
+			ginkgo.By("creating a workload which requires the node's capacity", func() {
+				wl = utiltestingapi.MakeWorkload("wl", ns.Name).
+					Queue("local-queue").
+					Request(corev1.ResourceCPU, "1").
+					Obj()
+				util.MustCreate(ctx, k8sClient, wl)
+			})
+
+			ginkgo.By("expect TAS pod to admit", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+				util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
+			})
+		})
+
+		ginkgo.It("workload gets scheduled as the usage of TAS pods and workloads is not double-counted", func() {
+			var wl1, wl2 *kueue.Workload
+
+			ginkgo.By("create a workload which requires the node's capacity", func() {
+				wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
+					Queue("local-queue").
+					Request(corev1.ResourceCPU, "400m").
+					Obj()
+				util.MustCreate(ctx, k8sClient, wl1)
+			})
+
+			ginkgo.By("verify the first workload is admitted", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+			})
+
+			ginkgo.By("create a TAS pod belonging to the admitted workload", func() {
+				// We manually create the pod because job controllers don't run in integration tests.
+				// The pod must have a TAS annotation to be identified as such by the controller.
+				tasPod := testingpod.MakePod("tas-pod", ns.Name).
+					NodeName("node1").
+					StatusPhase(corev1.PodRunning).
+					Request(corev1.ResourceCPU, "400m").
+					Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+					Obj()
+				util.MustCreate(ctx, k8sClient, tasPod)
+			})
+
+			ginkgo.By("create another workload which requires the remaining node's capacity", func() {
+				wl2 = utiltestingapi.MakeWorkload("wl2", ns.Name).
+					Queue("local-queue").
+					Request(corev1.ResourceCPU, "500m").
+					Obj()
+				util.MustCreate(ctx, k8sClient, wl2)
+			})
+
+			ginkgo.By("expect second workload to admit", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl2)
+				util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 2)
+			})
 		})
 	})
 
