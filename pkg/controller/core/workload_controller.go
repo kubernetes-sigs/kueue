@@ -602,14 +602,10 @@ func getLocalQueue(wl *kueue.Workload) kueue.LocalQueueName {
 }
 
 func getClusterQueue(wl *kueue.Workload) kueue.ClusterQueueReference {
-	if wl == nil {
+	if wl == nil || wl.Status.Admission == nil {
 		return ""
 	}
-	admission := wl.Status.Admission
-	if admission == nil {
-		return ""
-	}
-	return admission.ClusterQueue
+	return wl.Status.Admission.ClusterQueue
 }
 
 // isDisabledRequeuedByClusterQueueStopped returns true if the workload is unset requeued by cluster queue stopped.
