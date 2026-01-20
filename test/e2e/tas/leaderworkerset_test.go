@@ -111,10 +111,47 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 						},
 					},
 				}).
+				LeaderTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
+						},
+					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:  "c",
+								Image: util.GetAgnHostImage(),
+								Args:  util.BehaviorWaitForDeletion,
+								Resources: corev1.ResourceRequirements{
+									Limits: map[corev1.ResourceName]resource.Quantity{
+										extraResource: resource.MustParse("1"),
+									},
+									Requests: map[corev1.ResourceName]resource.Quantity{
+										extraResource: resource.MustParse("1"),
+									},
+								},
+							},
+						},
+					},
+				}).
 				TerminationGracePeriod(1).
 				Obj()
 			ginkgo.By("Creating a LeaderWorkerSet", func() {
 				util.MustCreate(ctx, k8sClient, lws)
+			})
+
+			ginkgo.By("verify the webhook adds pod-index-offset annotation only to Worker Pods", func() {
+				createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
+					g.Expect(createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta.Annotations).NotTo(
+						gomega.HaveKey(kueue.PodIndexOffsetAnnotation),
+					)
+					g.Expect(createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta.Annotations).To(
+						gomega.HaveKeyWithValue(kueue.PodIndexOffsetAnnotation, "1"),
+					)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Waiting for replicas to be ready", func() {
@@ -234,6 +271,19 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 				Obj()
 			ginkgo.By("Creating a LeaderWorkerSet", func() {
 				util.MustCreate(ctx, k8sClient, lws)
+			})
+
+			ginkgo.By("verify that both leaders and workers do not have pod-index-offset annotation", func() {
+				createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
+					g.Expect(createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta.Annotations).NotTo(
+						gomega.HaveKey(kueue.PodIndexOffsetAnnotation),
+					)
+					g.Expect(createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta.Annotations).NotTo(
+						gomega.HaveKey(kueue.PodIndexOffsetAnnotation),
+					)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Waiting for replicas to be ready", func() {
