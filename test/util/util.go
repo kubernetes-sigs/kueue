@@ -1100,7 +1100,7 @@ func NewTestingLogger(writer io.Writer) logr.Logger {
 	zapcoreLevel := zapcore.Level(level)
 
 	var logsObserver zapcore.Core
-	logsObserver,  ObservedLogs = observer.New(zapcoreLevel)
+	logsObserver, ObservedLogs = observer.New(zapcoreLevel)
 
 	logsObserverWrapper := zaplog.WrapCore(func(core zapcore.Core) zapcore.Core {
 		return utillogging.NewErrorLogLevelOverridenCore(zapcore.NewTee(logsObserver, core))
@@ -1111,8 +1111,6 @@ func NewTestingLogger(writer io.Writer) logr.Logger {
 		o.ZapOpts = []zaplog.Option{zaplog.AddCaller(),
 			logsObserverWrapper}
 	}
-
-
 
 	return zap.New(
 		zap.WriteTo(writer),

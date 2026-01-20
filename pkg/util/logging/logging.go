@@ -37,8 +37,6 @@ func GetObjectReferences[T ObjectRefProvider](items []T) []klog.ObjectRef {
 	})
 }
 
-
-
 // zapcore.Core that overrides log level of
 // expected reconciler errors and emits them with
 // defined target level.
@@ -58,26 +56,23 @@ func (core ErrorLogLevelOverridenZapCore) Check(entry zapcore.Entry, checkedEntr
 
 func (core ErrorLogLevelOverridenZapCore) Write(entry zapcore.Entry, fields []zapcore.Field) error {
 	if entry.Level == zapcore.ErrorLevel && entry.Message == "Reconciler error" {
-			entry.Level = core.TargetLevel
-		}
-		return core.Core.Write(entry, fields)
+		entry.Level = core.TargetLevel
+	}
+	return core.Core.Write(entry, fields)
 }
-
 
 func (c ErrorLogLevelOverridenZapCore) With(fields []zapcore.Field) zapcore.Core {
 	wrappedClone := c.Core.With(fields)
 	clone := ErrorLogLevelOverridenZapCore{
-		Core: wrappedClone,
+		Core:        wrappedClone,
 		TargetLevel: c.TargetLevel,
 	}
 	return clone
 }
 
-
-
 func NewErrorLogLevelOverridenCore(core zapcore.Core) zapcore.Core {
 	return ErrorLogLevelOverridenZapCore{
-		Core: core,
+		Core:        core,
 		TargetLevel: zapcore.WarnLevel,
-		}
+	}
 }

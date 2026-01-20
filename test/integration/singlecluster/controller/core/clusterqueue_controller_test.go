@@ -1046,7 +1046,6 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-
 		})
 	})
 })
