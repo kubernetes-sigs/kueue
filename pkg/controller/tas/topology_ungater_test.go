@@ -1806,6 +1806,254 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"ranks: support rank-based ordering for kubeflow with valid offset annotation - for all Pods": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet("launcher", 1).
+							Request(corev1.ResourceCPU, "1").
+							PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+							PodSetGroup("mpijob-group").
+							Obj(),
+						*utiltestingapi.MakePodSet("worker", 3).
+							Request(corev1.ResourceCPU, "1").
+							PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+							PodSetGroup("mpijob-group").
+							Obj(),
+					).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment("launcher").
+									Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+									TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultTestLevels).
+										Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
+										Obj()).
+									Obj(),
+								utiltestingapi.MakePodSetAssignment("worker").
+									Assignment(corev1.ResourceCPU, "unit-test-flavor", "3").
+									Count(3).
+									TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultTestLevels).
+										Domains(
+											utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj(),
+											utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r2"}, 1).Obj(),
+											utiltestingapi.MakeTopologyDomainAssignment([]string{"b2", "r1"}, 1).Obj(),
+										).
+										Obj()).
+									Obj(),
+							).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("l0", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(kftraining.JobRoleLabel, "launcher").
+					Label(kftraining.ReplicaIndexLabel, "0").
+					Label(constants.PodSetLabel, "launcher").
+					TopologySchedulingGate().
+					Obj(),
+				*testingpod.MakePod("w1", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.PodIndexOffsetAnnotation, "1").
+					Label(kftraining.JobRoleLabel, "worker").
+					Label(kftraining.ReplicaIndexLabel, "1").
+					Label(constants.PodSetLabel, "worker").
+					TopologySchedulingGate().
+					Obj(),
+				*testingpod.MakePod("w2", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.PodIndexOffsetAnnotation, "1").
+					Label(kftraining.JobRoleLabel, "worker").
+					Label(kftraining.ReplicaIndexLabel, "2").
+					Label(constants.PodSetLabel, "worker").
+					TopologySchedulingGate().
+					Obj(),
+				*testingpod.MakePod("w3", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.PodIndexOffsetAnnotation, "1").
+					Label(kftraining.JobRoleLabel, "worker").
+					Label(kftraining.ReplicaIndexLabel, "3").
+					Label(constants.PodSetLabel, "worker").
+					TopologySchedulingGate().
+					Obj(),
+			},
+			cmpNS: true,
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("l0", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(kftraining.JobRoleLabel, "launcher").
+					Label(kftraining.ReplicaIndexLabel, "0").
+					Label(constants.PodSetLabel, "launcher").
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("w1", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.PodIndexOffsetAnnotation, "1").
+					Label(kftraining.JobRoleLabel, "worker").
+					Label(kftraining.ReplicaIndexLabel, "1").
+					Label(constants.PodSetLabel, "worker").
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("w2", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.PodIndexOffsetAnnotation, "1").
+					Label(kftraining.JobRoleLabel, "worker").
+					Label(kftraining.ReplicaIndexLabel, "2").
+					Label(constants.PodSetLabel, "worker").
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r2").
+					Obj(),
+				*testingpod.MakePod("w3", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.PodIndexOffsetAnnotation, "1").
+					Label(kftraining.JobRoleLabel, "worker").
+					Label(kftraining.ReplicaIndexLabel, "3").
+					Label(constants.PodSetLabel, "worker").
+					NodeSelector(tasBlockLabel, "b2").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+			},
+			wantCounts: []counts{
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b1",
+						tasRackLabel:  "r1",
+					},
+					Count: 2,
+				},
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b1",
+						tasRackLabel:  "r2",
+					},
+					Count: 1,
+				},
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b2",
+						tasRackLabel:  "r1",
+					},
+					Count: 1,
+				},
+			},
+		},
+		"ranks: support rank-based ordering for kubeflow with invalid offset annotation - for all Pods": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet("launcher", 1).
+							Request(corev1.ResourceCPU, "1").
+							PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+							PodSetGroup("mpijob-group").
+							Obj(),
+						*utiltestingapi.MakePodSet("worker", 3).
+							Request(corev1.ResourceCPU, "1").
+							PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+							PodSetGroup("mpijob-group").
+							Obj(),
+					).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment("launcher").
+									Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+									TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultTestLevels).
+										Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
+										Obj()).
+									Obj(),
+								utiltestingapi.MakePodSetAssignment("worker").
+									Assignment(corev1.ResourceCPU, "unit-test-flavor", "3").
+									Count(3).
+									TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultTestLevels).
+										Domains(
+											utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj(),
+											utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r2"}, 1).Obj(),
+											utiltestingapi.MakeTopologyDomainAssignment([]string{"b2", "r1"}, 1).Obj(),
+										).
+										Obj()).
+									Obj(),
+							).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("l0", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(kftraining.JobRoleLabel, "launcher").
+					Label(kftraining.ReplicaIndexLabel, "0").
+					Label(constants.PodSetLabel, "launcher").
+					TopologySchedulingGate().
+					Obj(),
+				*testingpod.MakePod("w0", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.PodIndexOffsetAnnotation, "invalid").
+					Label(kftraining.JobRoleLabel, "worker").
+					Label(kftraining.ReplicaIndexLabel, "0").
+					Label(constants.PodSetLabel, "worker").
+					TopologySchedulingGate().
+					Obj(),
+				*testingpod.MakePod("w1", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.PodIndexOffsetAnnotation, "invalid").
+					Label(kftraining.JobRoleLabel, "worker").
+					Label(kftraining.ReplicaIndexLabel, "1").
+					Label(constants.PodSetLabel, "worker").
+					TopologySchedulingGate().
+					Obj(),
+				*testingpod.MakePod("w2", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.PodIndexOffsetAnnotation, "invalid").
+					Label(kftraining.JobRoleLabel, "worker").
+					Label(kftraining.ReplicaIndexLabel, "2").
+					Label(constants.PodSetLabel, "worker").
+					TopologySchedulingGate().
+					Obj(),
+			},
+			cmpNS: true,
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("l0", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(kftraining.JobRoleLabel, "launcher").
+					Label(kftraining.ReplicaIndexLabel, "0").
+					Label(constants.PodSetLabel, "launcher").
+					TopologySchedulingGate().
+					Obj(),
+				*testingpod.MakePod("w0", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.PodIndexOffsetAnnotation, "invalid").
+					Label(kftraining.JobRoleLabel, "worker").
+					Label(kftraining.ReplicaIndexLabel, "0").
+					Label(constants.PodSetLabel, "worker").
+					TopologySchedulingGate().
+					Obj(),
+				*testingpod.MakePod("w1", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.PodIndexOffsetAnnotation, "invalid").
+					Label(kftraining.JobRoleLabel, "worker").
+					Label(kftraining.ReplicaIndexLabel, "1").
+					Label(constants.PodSetLabel, "worker").
+					TopologySchedulingGate().
+					Obj(),
+				*testingpod.MakePod("w2", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.PodIndexOffsetAnnotation, "invalid").
+					Label(kftraining.JobRoleLabel, "worker").
+					Label(kftraining.ReplicaIndexLabel, "2").
+					Label(constants.PodSetLabel, "worker").
+					TopologySchedulingGate().
+					Obj(),
+			},
+			wantErr: errParseOffsetAnnotation,
+		},
 		"ranks: support rank-based ordering for kubeflow - for all Pods": {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).

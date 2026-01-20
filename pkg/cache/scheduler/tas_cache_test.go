@@ -1732,6 +1732,38 @@ func TestFindTopologyAssignments(t *testing.T) {
 				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "cpu": 1`,
 			}},
 		},
+		"include usage from non-TAS pods; pod usage": {
+			// this test case ensures we are counting pods properly
+			// when aggregating non-tas pod usage by node.
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x3").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("running1", "test-ns").NodeName("x3").
+					StatusPhase(corev1.PodRunning).
+					Obj(),
+				*testingpod.MakePod("running2", "test-ns").NodeName("x3").
+					StatusPhase(corev1.PodRunning).
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Required: ptr.To(corev1.LabelHostname),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 0,
+				},
+				count:      9,
+				wantReason: `topology "default" allows to fit only 8 out of 9 pod(s)`,
+			}},
+		},
 		"include usage from running non-TAS pods, found free capacity on another node; BestFit": {
 			// there is not enough free capacity on the node x3 as the
 			// assignments lends on the free x5
@@ -5954,7 +5986,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 			// TODO: remove after dropping the TAS profiles feature gates
 			for _, gate := range tc.enableFeatureGates {
 				features.SetFeatureGateDuringTest(t, gate, true)
@@ -5979,6 +6011,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 			flavorInformation := flavorInformation{
 				TopologyName: "default",
 				NodeLabels:   tc.nodeLabels,
+			}
+			for _, pod := range tc.pods {
+				tasCache.Update(&pod, log)
 			}
 			tasFlavorCache := tasCache.NewTASFlavorCache(topologyInformation, flavorInformation)
 

@@ -115,7 +115,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return ctrl.Result{}, err
 	}
 
-	toCreate, toUpdate, toFinalize := r.filterWorkloads(lws, wlList.Items)
+	toCreate, toUpdate, toDelete := r.filterWorkloads(lws, wlList.Items)
 
 	eg, ctx := errgroup.WithContext(ctx)
 
@@ -132,8 +132,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	})
 
 	eg.Go(func() error {
-		return parallelize.Until(ctx, len(toFinalize), func(i int) error {
-			return r.removeOwnerReference(ctx, lws, toFinalize[i])
+		return parallelize.Until(ctx, len(toDelete), func(i int) error {
+			return r.client.Delete(ctx, toDelete[i])
 		})
 	})
 
@@ -146,17 +146,17 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 }
 
 // filterWorkloads compares the desired state of a LeaderWorkerSet with existing workloads,
-// determining which workloads need to be created, updated, or finalized.
+// determining which workloads need to be created, updated, or deleted.
 //
 // It accepts a LeaderWorkerSet and a slice of existing Workload objects as input and returns:
 // 1. A slice of workload names to be created
 // 2. A slice of workloads that may require updates
-// 3. A slice of Workload pointers to be finalized
+// 3. A slice of Workload pointers to be deleted
 func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, existingWorkloads []kueue.Workload) ([]string, []*kueue.Workload, []*kueue.Workload) {
 	var (
-		toCreate   []string
-		toUpdate   []*kueue.Workload
-		toFinalize = utilslices.ToRefMap(existingWorkloads, func(e *kueue.Workload) string {
+		toCreate []string
+		toUpdate []*kueue.Workload
+		toDelete = utilslices.ToRefMap(existingWorkloads, func(e *kueue.Workload) string {
 			return e.Name
 		})
 		replicas = ptr.Deref(lws.Spec.Replicas, 1)
@@ -164,15 +164,15 @@ func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, exi
 
 	for i := range replicas {
 		workloadName := GetWorkloadName(lws.UID, lws.Name, fmt.Sprint(i))
-		if wl, ok := toFinalize[workloadName]; ok {
+		if wl, ok := toDelete[workloadName]; ok {
 			toUpdate = append(toUpdate, wl)
-			delete(toFinalize, workloadName)
+			delete(toDelete, workloadName)
 		} else {
 			toCreate = append(toCreate, workloadName)
 		}
 	}
 
-	return toCreate, toUpdate, slices.Collect(maps.Values(toFinalize))
+	return toCreate, toUpdate, slices.Collect(maps.Values(toDelete))
 }
 
 func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, workloadName string) error {
@@ -209,66 +209,60 @@ func (r *Reconciler) constructWorkload(lws *leaderworkersetv1.LeaderWorkerSet, w
 	return createdWorkload, nil
 }
 
-func newPodSet(name kueue.PodSetReference, count int32, template *corev1.PodTemplateSpec) kueue.PodSet {
-	podSet := kueue.PodSet{
+func newPodSet(name kueue.PodSetReference, count int32, template *corev1.PodTemplateSpec, podIndexLabel *string) (*kueue.PodSet, error) {
+	podSet := &kueue.PodSet{
 		Name:  name,
 		Count: count,
 		Template: corev1.PodTemplateSpec{
 			Spec: *template.Spec.DeepCopy(),
 		},
 	}
-	jobframework.SanitizePodSet(&podSet)
-	return podSet
-}
-
-func podSets(lws *leaderworkersetv1.LeaderWorkerSet) ([]kueue.PodSet, error) {
-	podSets := make([]kueue.PodSet, 0, 2)
-
-	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
-		podSet := newPodSet(leaderPodSetName, 1, lws.Spec.LeaderWorkerTemplate.LeaderTemplate)
-		if features.Enabled(features.TopologyAwareScheduling) {
-			topologyRequest, err := jobframework.NewPodSetTopologyRequest(
-				&lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta).Build()
-			if err != nil {
-				return nil, err
-			}
-			podSet.TopologyRequest = topologyRequest
-		}
-		podSets = append(podSets, podSet)
-	}
-
-	defaultPodSetName := kueue.DefaultPodSetName
-	if len(podSets) > 0 {
-		defaultPodSetName = workerPodSetName
-	}
-
-	defaultPodSetCount := ptr.Deref(lws.Spec.LeaderWorkerTemplate.Size, 1)
-	if len(podSets) > 0 {
-		defaultPodSetCount--
-	}
-
-	podSet := newPodSet(defaultPodSetName, defaultPodSetCount, &lws.Spec.LeaderWorkerTemplate.WorkerTemplate)
+	jobframework.SanitizePodSet(podSet)
 	if features.Enabled(features.TopologyAwareScheduling) {
-		topologyRequest, err := jobframework.NewPodSetTopologyRequest(
-			&lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta).PodIndexLabel(
-			ptr.To(leaderworkersetv1.WorkerIndexLabelKey)).Build()
+		builder := jobframework.NewPodSetTopologyRequest(template.ObjectMeta.DeepCopy())
+		if podIndexLabel != nil {
+			builder.PodIndexLabel(ptr.To(leaderworkersetv1.WorkerIndexLabelKey))
+		}
+		topologyRequest, err := builder.Build()
 		if err != nil {
 			return nil, err
 		}
 		podSet.TopologyRequest = topologyRequest
 	}
-
-	podSets = append(podSets, podSet)
-
-	return podSets, nil
+	return podSet, nil
 }
 
-func (r *Reconciler) removeOwnerReference(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, wl *kueue.Workload) error {
-	err := controllerutil.RemoveOwnerReference(lws, wl, r.client.Scheme())
-	if err != nil {
-		return err
+func podSets(lws *leaderworkersetv1.LeaderWorkerSet) ([]kueue.PodSet, error) {
+	podSets := make([]kueue.PodSet, 0, 2)
+
+	defaultPodSetName := kueue.DefaultPodSetName
+	defaultPodSetCount := ptr.Deref(lws.Spec.LeaderWorkerTemplate.Size, 1)
+
+	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
+		defaultPodSetName = workerPodSetName
+		defaultPodSetCount--
+
+		leaderPodSet, err := newPodSet(leaderPodSetName, 1, lws.Spec.LeaderWorkerTemplate.LeaderTemplate, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		podSets = append(podSets, *leaderPodSet)
 	}
-	return r.client.Update(ctx, wl)
+
+	workerPodSet, err := newPodSet(
+		defaultPodSetName,
+		defaultPodSetCount,
+		&lws.Spec.LeaderWorkerTemplate.WorkerTemplate,
+		ptr.To(leaderworkersetv1.WorkerIndexLabelKey),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	podSets = append(podSets, *workerPodSet)
+
+	return podSets, nil
 }
 
 var _ predicate.Predicate = (*Reconciler)(nil)

@@ -56,7 +56,8 @@ import (
 )
 
 var (
-	errPendingUngateOps = errors.New("pending ungate operations")
+	errPendingUngateOps      = errors.New("pending ungate operations")
+	errParseOffsetAnnotation = errors.New("failed to parse offset annotation")
 )
 
 type topologyUngater struct {
@@ -222,6 +223,22 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 			if err != nil {
 				log.Error(err, "failed to list Pods for PodSet", "podset", psa.Name, "count", psa.Count)
 				return reconcile.Result{}, err
+			}
+			if len(pods) > 0 {
+				// Assume that same replica all Pods has the same offset value.
+				offsetVal, found := pods[0].Annotations[kueue.PodIndexOffsetAnnotation]
+				if found {
+					var offset int
+					if offset, err = strconv.Atoi(offsetVal); err != nil {
+						log.Error(err, errParseOffsetAnnotation.Error(),
+							kueue.PodIndexOffsetAnnotation, offsetVal,
+							"pod", klog.KObj(pods[0]),
+						)
+						return reconcile.Result{}, errors.Join(err, errParseOffsetAnnotation)
+					}
+					rankOffsets[psa.Name] += int32(offset)
+					maxRank[psa.Name] += int32(offset)
+				}
 			}
 			gatedPodsToDomains := assignGatedPodsToDomains(log, &psa, pods, psNameToTopologyRequest[psa.Name], rankOffsets[psa.Name], maxRank[psa.Name])
 			if len(gatedPodsToDomains) > 0 {
@@ -416,7 +433,11 @@ func readRanksIfAvailable(log logr.Logger,
 	}
 	result, err := readRanksForLabels(psa, pods, psReq, offset, maxRank)
 	if err != nil {
-		log.Error(err, "failed to read rank information from Pods")
+		if errors.Is(err, utilpod.ErrLabelNotFound) {
+			log.V(5).Info("pods missing index label for rank ordering", "error", err)
+		} else {
+			log.Error(err, "failed to read rank information from pods")
+		}
 		return nil, false
 	}
 	return result, true
