@@ -40,10 +40,6 @@ Changes since `v0.15.2`:
 - TAS: significantly improves scheduling performance by replacing Pod listing with an event-driven
   cache for non-TAS Pods, thereby avoiding expensive DeepCopy operations during each scheduling cycle. (#8484, @gabesaba)
 
-### Uncategorized
-
-- TAS: Lower verbosity of expected missing pod index label logs. (#8702, @IrvingMg)
-
 ## v0.15.2
 
 Changes since `v0.15.1`:
