@@ -850,8 +850,6 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 				}, util.IgnoreConditionTimestampsAndObservedGeneration))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
-
-
 	})
 
 	ginkgo.When("ReclaimablePods feature gate is off and clusterQueue usage status is reconciled", func() {

@@ -1103,25 +1103,22 @@ func NewTestingLogger(writer io.Writer) logr.Logger {
 	logsObserver,  ObservedLogs = observer.New(zapcoreLevel)
 
 	logsObserverWrapper := zaplog.WrapCore(func(core zapcore.Core) zapcore.Core {
-			return zapcore.NewTee(logsObserver, core)
-		}	)
+		return utillogging.NewErrorLogLevelOverridenCore(zapcore.NewTee(logsObserver, core))
+	})
 
 	opts := func(o *zap.Options) {
 		o.TimeEncoder = zapcore.RFC3339NanoTimeEncoder
 		o.ZapOpts = []zaplog.Option{zaplog.AddCaller(),
 			logsObserverWrapper}
 	}
-	encoderOpt := func(o *zap.Options) {
-		o.Encoder = utillogging.DefaultErrorLogLevelOverridesEncoder(o)
-	}
+
 
 
 	return zap.New(
 		zap.WriteTo(writer),
 		zap.UseDevMode(true),
 		zap.Level(zapcoreLevel),
-		opts,
-	encoderOpt)
+		opts)
 }
 
 // WaitForNextSecondAfterCreation wait time between the start of the next second

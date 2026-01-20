@@ -117,9 +117,6 @@ func init() {
 	)
 }
 
-
-
-
 func main() {
 	var configFile string
 	flag.StringVar(&configFile, "config", "",
@@ -129,17 +126,18 @@ func main() {
 	var featureGates string
 	flag.StringVar(&featureGates, "feature-gates", "", "A set of key=value pairs that describe feature gates for alpha/experimental features.")
 
+	errorLevelOverrideWrapper := zaplog.WrapCore(func(core zapcore.Core) zapcore.Core {
+			return utillogging.NewErrorLogLevelOverridenCore(core)
+		}	)
 
 	zapOptions := zap.Options{
 		TimeEncoder: zapcore.RFC3339NanoTimeEncoder,
-		ZapOpts:     []zaplog.Option{zaplog.AddCaller()},
+		ZapOpts:     []zaplog.Option{zaplog.AddCaller(), errorLevelOverrideWrapper},
 	}
 	zapOptions.BindFlags(flag.CommandLine)
 	flag.Parse()
-	opts := zap.UseFlagOptions(&zapOptions)
 
-	zapOptions.Encoder = utillogging.DefaultErrorLogLevelOverridesEncoder(&zapOptions)
-	logger := zap.New(opts)
+	logger := zap.New(zap.UseFlagOptions(&zapOptions))
 	ctrl.SetLogger(logger)
 
 	options, cfg, err := apply(configFile)
@@ -334,8 +332,6 @@ func main() {
 		os.Exit(1)
 	}
 }
-
-
 
 func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configuration) error {
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
