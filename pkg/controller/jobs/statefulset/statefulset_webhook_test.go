@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -69,7 +70,6 @@ func TestDefault(t *testing.T) {
 				Replicas(10).
 				PodTemplateManagedByKueue().
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(10).
 				PodTemplateSpecPodGroupFastAdmissionAnnotation().
 				PodTemplateSpecPodGroupServingAnnotation().
@@ -88,7 +88,6 @@ func TestDefault(t *testing.T) {
 				PodTemplateSpecQueue("test-queue").
 				PodTemplateManagedByKueue().
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(10).
 				PodTemplateSpecPodGroupFastAdmissionAnnotation().
 				PodTemplateSpecPodGroupServingAnnotation().
@@ -110,7 +109,6 @@ func TestDefault(t *testing.T) {
 				PodTemplateManagedByKueue().
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				PodTemplateSpecLabel(constants.WorkloadPriorityClassLabel, "test").
-				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(10).
 				PodTemplateSpecPodGroupFastAdmissionAnnotation().
 				PodTemplateSpecPodGroupServingAnnotation().
@@ -125,7 +123,6 @@ func TestDefault(t *testing.T) {
 			want: testingstatefulset.MakeStatefulSet("test-pod", "").
 				Queue("test-queue").
 				PodTemplateManagedByKueue().
-				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(1).
 				PodTemplateSpecQueue("test-queue").
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
@@ -143,7 +140,6 @@ func TestDefault(t *testing.T) {
 				PodTemplateSpecQueue("default").
 				PodTemplateManagedByKueue().
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(1).
 				PodTemplateSpecPodGroupFastAdmissionAnnotation().
 				PodTemplateSpecPodGroupServingAnnotation().
@@ -159,7 +155,6 @@ func TestDefault(t *testing.T) {
 				PodTemplateSpecQueue("test-queue").
 				PodTemplateManagedByKueue().
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(1).
 				PodTemplateSpecPodGroupFastAdmissionAnnotation().
 				PodTemplateSpecPodGroupServingAnnotation().
@@ -782,13 +777,15 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		"scale up from zero blocked by existing workload": {
 			objs: []runtime.Object{
-				utiltestingapi.MakeWorkload(GetWorkloadName("test-statefulset"), "test-ns").Obj(),
+				utiltestingapi.MakeWorkload(GetWorkloadName(types.UID("test-uid"), "test-statefulset"), "test-ns").Obj(),
 			},
 			oldObj: testingstatefulset.MakeStatefulSet("test-statefulset", "test-ns").
+				UID("test-uid").
 				Queue("test-queue").
 				Replicas(0).
 				Obj(),
 			newObj: testingstatefulset.MakeStatefulSet("test-statefulset", "test-ns").
+				UID("test-uid").
 				Queue("test-queue").
 				Replicas(3).
 				Obj(),

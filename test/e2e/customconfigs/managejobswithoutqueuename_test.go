@@ -676,7 +676,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 				util.MustCreate(ctx, k8sClient, sts)
 			})
 
-			wlKey := types.NamespacedName{Name: statefulset.GetWorkloadName(sts.Name), Namespace: ns.Name}
+			wlKey := types.NamespacedName{Name: statefulset.GetWorkloadName(sts.UID, sts.Name), Namespace: ns.Name}
 			createdWorkload := &kueue.Workload{}
 
 			ginkgo.By("check that workload is created and not admitted", func() {

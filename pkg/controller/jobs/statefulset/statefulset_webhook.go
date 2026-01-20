@@ -24,6 +24,7 @@ import (
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -80,7 +81,8 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 			ss.Spec.Template.Labels = make(map[string]string, 4)
 		}
 		ss.Spec.Template.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
-		ss.Spec.Template.Labels[podconstants.GroupNameLabel] = GetWorkloadName(ss.Name)
+		// GroupNameLabel will be set by the reconciler after StatefulSet creation
+		// when UID is available, using prebuilt workload pattern.
 		if queueName := jobframework.QueueNameForObject(ss.Object()); queueName != "" {
 			ss.Spec.Template.Labels[controllerconstants.QueueLabel] = string(queueName)
 		}
@@ -180,7 +182,7 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 				allErrs = append(allErrs, field.Forbidden(replicasPath, "scaling down is still in progress"))
 			} else {
 				// Block if workload is still being deleted
-				workloadName := GetWorkloadName(oldStatefulSet.GetName())
+				workloadName := GetWorkloadName(oldStatefulSet.GetUID(), oldStatefulSet.GetName())
 				wlKey := client.ObjectKey{Namespace: oldStatefulSet.GetNamespace(), Name: workloadName}
 				var wl kueue.Workload
 				err := wh.client.Get(ctx, wlKey, &wl)
@@ -200,7 +202,6 @@ func (wh *Webhook) ValidateDelete(context.Context, runtime.Object) (warnings adm
 	return nil, nil
 }
 
-func GetWorkloadName(statefulSetName string) string {
-	// Passing empty UID as it is not available before object creation
-	return jobframework.GetWorkloadNameForOwnerWithGVK(statefulSetName, "", gvk)
+func GetWorkloadName(uid types.UID, statefulSetName string) string {
+	return jobframework.GetWorkloadNameForOwnerWithGVK(statefulSetName, uid, gvk)
 }

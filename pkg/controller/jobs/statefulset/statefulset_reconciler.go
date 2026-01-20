@@ -41,8 +41,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -73,13 +76,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile StatefulSet")
 
-	podList := &corev1.PodList{}
-	if err := r.client.List(ctx, podList, client.InNamespace(req.Namespace), client.MatchingLabels{
-		podcontroller.GroupNameLabel: GetWorkloadName(req.Name),
-	}); err != nil {
-		return ctrl.Result{}, err
-	}
-
 	sts := &appsv1.StatefulSet{}
 	err := r.client.Get(ctx, req.NamespacedName, sts)
 	if client.IgnoreNotFound(err) != nil {
@@ -90,10 +86,36 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		sts = nil
 	}
 
+	var workloadName string
+	if sts != nil {
+		workloadName = GetWorkloadName(sts.UID, sts.Name)
+	}
+
+	podList := &corev1.PodList{}
+	if err := r.client.List(ctx, podList, client.InNamespace(req.Namespace), client.MatchingLabels{
+		constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
+	}); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	var stsPods []corev1.Pod
+	for _, p := range podList.Items {
+		if owner := metav1.GetControllerOf(&p); owner != nil && owner.APIVersion == gvk.GroupVersion().String() &&
+			owner.Kind == gvk.Kind && owner.Name == req.Name {
+			stsPods = append(stsPods, p)
+		}
+	}
+
+	if sts != nil {
+		if err := r.ensurePodsLabels(ctx, workloadName, stsPods); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
 	eg, ctx := errgroup.WithContext(ctx)
 
 	eg.Go(func() error {
-		return r.finalizePods(ctx, sts, podList.Items)
+		return r.finalizePods(ctx, sts, stsPods)
 	})
 
 	eg.Go(func() error {
@@ -117,7 +139,7 @@ func (r *Reconciler) finalizePod(ctx context.Context, sts *appsv1.StatefulSet, p
 			log.V(3).Info(
 				"Finalizing pod in group",
 				"pod", klog.KObj(pod),
-				"group", pod.Labels[podcontroller.GroupNameLabel],
+				"group", pod.Labels[podconstants.GroupNameLabel],
 			)
 			return true, nil
 		}
@@ -128,13 +150,13 @@ func (r *Reconciler) finalizePod(ctx context.Context, sts *appsv1.StatefulSet, p
 func ungateAndFinalize(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
 	var updated bool
 
-	if shouldUngate(sts, pod) && utilpod.Ungate(pod, podcontroller.SchedulingGateName) {
+	if shouldUngate(sts, pod) && utilpod.Ungate(pod, podconstants.SchedulingGateName) {
 		updated = true
 	}
 
 	// TODO (#8571): As discussed in https://github.com/kubernetes-sigs/kueue/issues/8571,
 	// this check should be removed in v0.20.
-	if shouldFinalize(sts, pod) && controllerutil.RemoveFinalizer(pod, podcontroller.PodFinalizer) {
+	if shouldFinalize(sts, pod) && controllerutil.RemoveFinalizer(pod, podconstants.PodFinalizer) {
 		updated = true
 	}
 
@@ -155,10 +177,14 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		return nil
 	}
 
+	workloadName := GetWorkloadName(sts.UID, sts.Name)
 	wl := &kueue.Workload{}
-	err := r.client.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: GetWorkloadName(sts.Name)}, wl)
+	err := r.client.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: workloadName}, wl)
 	if err != nil {
-		return client.IgnoreNotFound(err)
+		if client.IgnoreNotFound(err) != nil {
+			return err
+		}
+		return r.createPrebuiltWorkload(ctx, sts, workloadName)
 	}
 
 	hasOwnerReference, err := controllerutil.HasOwnerReference(wl.OwnerReferences, sts, r.client.Scheme())
@@ -185,6 +211,66 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 
 	err = r.client.Update(ctx, wl)
 	return err
+}
+
+func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, sts *appsv1.StatefulSet, workloadName string) error {
+	createdWorkload, err := r.constructWorkload(sts, workloadName)
+	if err != nil {
+		return err
+	}
+
+	err = jobframework.PrepareWorkloadPriority(ctx, r.client, sts, createdWorkload, nil)
+	if err != nil {
+		return err
+	}
+
+	err = r.client.Create(ctx, createdWorkload)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *Reconciler) constructWorkload(sts *appsv1.StatefulSet, workloadName string) (*kueue.Workload, error) {
+	podSets := []kueue.PodSet{
+		{
+			Name:  kueue.DefaultPodSetName,
+			Count: ptr.Deref(sts.Spec.Replicas, 1),
+			Template: corev1.PodTemplateSpec{
+				Spec: *sts.Spec.Template.Spec.DeepCopy(),
+			},
+		},
+	}
+	for i := range podSets {
+		jobframework.SanitizePodSet(&podSets[i])
+	}
+	createdWorkload := podcontroller.NewGroupWorkload(workloadName, sts, podSets, nil)
+	if err := controllerutil.SetOwnerReference(sts, createdWorkload, r.client.Scheme()); err != nil {
+		return nil, err
+	}
+	return createdWorkload, nil
+}
+
+func (r *Reconciler) ensurePodsLabels(ctx context.Context, wlName string, pods []corev1.Pod) error {
+	return parallelize.Until(ctx, len(pods), func(i int) error {
+		pod := &pods[i]
+		return client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
+			updated := false
+			if pod.Labels == nil {
+				pod.Labels = make(map[string]string)
+			}
+			if pod.Labels[podconstants.GroupNameLabel] != wlName {
+				pod.Labels[podconstants.GroupNameLabel] = wlName
+				updated = true
+			}
+			if pod.Labels[controllerconstants.PrebuiltWorkloadLabel] != wlName {
+				pod.Labels[controllerconstants.PrebuiltWorkloadLabel] = wlName
+				updated = true
+			}
+			return updated, nil
+		}))
+	})
 }
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -268,7 +354,7 @@ func (h *podHandler) Delete(context.Context, event.DeleteEvent, workqueue.TypedR
 
 func (h *podHandler) handle(obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	pod, isPod := obj.(*corev1.Pod)
-	if !isPod || pod.Annotations[podcontroller.SuspendedByParentAnnotation] != FrameworkName {
+	if !isPod || pod.Annotations[podconstants.SuspendedByParentAnnotation] != FrameworkName {
 		return
 	}
 	if controllerRef := metav1.GetControllerOf(pod); controllerRef != nil {
