@@ -1,3 +1,41 @@
+## v0.14.8
+
+Changes since `v0.14.7`:
+
+## Changes by Kind
+
+### Deprecation
+
+- LWS: disable testing the mutating of the `kueue.x-k8s.io/workloadpriorityclass` label as the functionality is broken on
+  Kueue 0.14 with Kubernetes 1.35+. 
+  
+  it you are using this functionality please migrate to use Kueue 0.15+. (#8541, @mimowo)
+
+### Feature
+
+- CLI: Support "kwl" and "kueueworkload" as a shortname for Kueue Workloads. (#8473, @kannon92)
+
+### Bug or Regression
+
+- Add lws editer and viewer roles to kustomize and helm (#8554, @kannon92)
+- Fix ClusterQueue deletion getting stuck when pending workloads are deleted after being assumed by the scheduler (#8552, @sohankunkerkar)
+- HC: Avoid redundant requeuing of inadmissible workloads when multiple ClusterQueues in the same cohort hierarchy are processed. (#8512, @sohankunkerkar)
+- Integrations based on Pods: skip using finalizers on the Pods created and managed by integrations. 
+  
+  In particular we skip setting finalizers for Pods managed by the built in Serving Workloads  Deployments,
+  StatefulSets, and LeaderWorkerSets.
+  
+  This improves performance of suspending the workloads, and fixes occasional race conditions when a StatefulSet
+  could get stuck when deactivating and re-activating in a short interval. (#8568, @mbobrovskyi)
+- JobFramework: Fixed a bug that allowed a deactivated workload to be activated. (#8445, @chengjoey)
+- Kubeflow TrainJob v2: fix the bug to prevent duplicate pod template overrides when starting the Job is retried. (#8488, @j-skiba)
+- MultiKueue now waits for WorkloadAdmitted (instead of QuotaReserved) before deleting workloads from non-selected worker clusters. To revert to the previous behavior, disable the `MultiKueueWaitForWorkloadAdmitted` feature gate. (#8601, @IrvingMg)
+- MultiKueue: fix the eviction when initiated by the manager cluster (due to eg. Preemption or WairForPodsReady timeout). (#8403, @mbobrovskyi)
+- ProvisioningRequest: Fixed a bug that prevented events from being updated when the AdmissionCheck state changed. (#8405, @mbobrovskyi)
+- TAS: Fixed an issue where workloads could remain in the second-pass scheduling queue (used for integration
+  or TAS with ProvisioningRequests, and for TAS Node Hot Swap) even if they no longer require to be in the queue. (#8431, @skools-here)
+- TAS: fix TAS resource flavor controller to extract only scheduling-relevant node updates to prevent unnecessary reconciliation. (#8454, @Ladicle)
+
 ## v0.14.7
 
 Changes since `v0.14.6`:
