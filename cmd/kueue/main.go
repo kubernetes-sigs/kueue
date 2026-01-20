@@ -75,6 +75,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	"sigs.k8s.io/kueue/pkg/util/cert"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
+	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/useragent"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
@@ -116,6 +117,9 @@ func init() {
 	)
 }
 
+
+
+
 func main() {
 	var configFile string
 	flag.StringVar(&configFile, "config", "",
@@ -125,13 +129,18 @@ func main() {
 	var featureGates string
 	flag.StringVar(&featureGates, "feature-gates", "", "A set of key=value pairs that describe feature gates for alpha/experimental features.")
 
-	opts := zap.Options{
+
+	zapOptions := zap.Options{
 		TimeEncoder: zapcore.RFC3339NanoTimeEncoder,
 		ZapOpts:     []zaplog.Option{zaplog.AddCaller()},
 	}
-	opts.BindFlags(flag.CommandLine)
+	zapOptions.BindFlags(flag.CommandLine)
 	flag.Parse()
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	opts := zap.UseFlagOptions(&zapOptions)
+
+	zapOptions.Encoder = utillogging.DefaultErrorLogLevelOverridesEncoder(&zapOptions)
+	logger := zap.New(opts)
+	ctrl.SetLogger(logger)
 
 	options, cfg, err := apply(configFile)
 	if err != nil {
@@ -325,6 +334,8 @@ func main() {
 		os.Exit(1)
 	}
 }
+
+
 
 func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configuration) error {
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())

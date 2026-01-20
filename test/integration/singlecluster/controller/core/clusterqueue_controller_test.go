@@ -19,6 +19,7 @@ package core
 import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"go.uber.org/zap/zapcore"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -849,6 +850,8 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 				}, util.IgnoreConditionTimestampsAndObservedGeneration))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
+
+
 	})
 
 	ginkgo.When("ReclaimablePods feature gate is off and clusterQueue usage status is reconciled", func() {
@@ -1033,6 +1036,19 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 
 			ginkgo.By("Delete clusterQueue")
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		})
+
+		ginkgo.It("Should log reconciler errors with log level smaller than error", func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				reconcileLogs := util.ObservedLogs.FilterMessage("Reconciler error")
+				g.Expect(reconcileLogs.All()).ShouldNot(gomega.BeEmpty(), "There should be some reconcilation log entry")
+				g.Expect(reconcileLogs.FilterLevelExact(zapcore.ErrorLevel).All()).Should(gomega.BeEmpty(), "Log level should not be error")
+
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+
 		})
 	})
 })
