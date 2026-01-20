@@ -586,34 +586,30 @@ func (r *WorkloadReconciler) deleteWorkloadFromCaches(ctx context.Context, log l
 }
 
 func (r *WorkloadReconciler) notifyWatchersOfDeletion(qCacheWl, schedCacheWl *kueue.Workload) {
-	if qCacheWl == nil && schedCacheWl == nil {
-		return
-	}
-	if qCacheWl != nil && schedCacheWl == nil {
+	if qCacheWl != nil {
 		r.notifyWatchers(qCacheWl, nil)
-		return
 	}
-	if qCacheWl == nil && schedCacheWl != nil {
+	if getLocalQueue(qCacheWl) != getLocalQueue(schedCacheWl) || getClusterQueue(qCacheWl) != getClusterQueue(schedCacheWl) {
 		r.notifyWatchers(schedCacheWl, nil)
-		return
 	}
+}
 
-	r.notifyWatchers(qCacheWl, nil)
-	if qCacheWl.Spec.QueueName != schedCacheWl.Spec.QueueName {
-		r.notifyWatchers(schedCacheWl, nil)
-		return
+func getLocalQueue(wl *kueue.Workload) kueue.LocalQueueName {
+	if wl == nil {
+		return ""
 	}
+	return wl.Spec.QueueName
+}
 
-	var qCacheCQ, schedCaceCQ *kueue.ClusterQueueReference = nil, nil
-	if workload.HasQuotaReservation(qCacheWl) {
-		qCacheCQ = &qCacheWl.Status.Admission.ClusterQueue
+func getClusterQueue(wl *kueue.Workload) kueue.ClusterQueueReference {
+	if wl == nil {
+		return ""
 	}
-	if workload.HasQuotaReservation(schedCacheWl) {
-		schedCaceCQ = &schedCacheWl.Status.Admission.ClusterQueue
+	admission := wl.Status.Admission
+	if admission == nil {
+		return ""
 	}
-	if schedCaceCQ != nil && *schedCaceCQ != *qCacheCQ {
-		r.notifyWatchers(nil, schedCacheWl)
-	}
+	return admission.ClusterQueue
 }
 
 // isDisabledRequeuedByClusterQueueStopped returns true if the workload is unset requeued by cluster queue stopped.
