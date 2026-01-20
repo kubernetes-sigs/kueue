@@ -209,56 +209,58 @@ func (r *Reconciler) constructWorkload(lws *leaderworkersetv1.LeaderWorkerSet, w
 	return createdWorkload, nil
 }
 
-func newPodSet(name kueue.PodSetReference, count int32, template *corev1.PodTemplateSpec) kueue.PodSet {
-	podSet := kueue.PodSet{
+func newPodSet(name kueue.PodSetReference, count int32, template *corev1.PodTemplateSpec, podIndexLabel *string) (*kueue.PodSet, error) {
+	podSet := &kueue.PodSet{
 		Name:  name,
 		Count: count,
 		Template: corev1.PodTemplateSpec{
 			Spec: *template.Spec.DeepCopy(),
 		},
 	}
-	jobframework.SanitizePodSet(&podSet)
-	return podSet
-}
-
-func podSets(lws *leaderworkersetv1.LeaderWorkerSet) ([]kueue.PodSet, error) {
-	podSets := make([]kueue.PodSet, 0, 2)
-
-	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
-		podSet := newPodSet(leaderPodSetName, 1, lws.Spec.LeaderWorkerTemplate.LeaderTemplate)
-		if features.Enabled(features.TopologyAwareScheduling) {
-			topologyRequest, err := jobframework.NewPodSetTopologyRequest(
-				&lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta).Build()
-			if err != nil {
-				return nil, err
-			}
-			podSet.TopologyRequest = topologyRequest
-		}
-		podSets = append(podSets, podSet)
-	}
-
-	defaultPodSetName := kueue.DefaultPodSetName
-	if len(podSets) > 0 {
-		defaultPodSetName = workerPodSetName
-	}
-
-	defaultPodSetCount := ptr.Deref(lws.Spec.LeaderWorkerTemplate.Size, 1)
-	if len(podSets) > 0 {
-		defaultPodSetCount--
-	}
-
-	podSet := newPodSet(defaultPodSetName, defaultPodSetCount, &lws.Spec.LeaderWorkerTemplate.WorkerTemplate)
+	jobframework.SanitizePodSet(podSet)
 	if features.Enabled(features.TopologyAwareScheduling) {
-		topologyRequest, err := jobframework.NewPodSetTopologyRequest(
-			&lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta).PodIndexLabel(
-			ptr.To(leaderworkersetv1.WorkerIndexLabelKey)).Build()
+		builder := jobframework.NewPodSetTopologyRequest(template.ObjectMeta.DeepCopy())
+		if podIndexLabel != nil {
+			builder.PodIndexLabel(ptr.To(leaderworkersetv1.WorkerIndexLabelKey))
+		}
+		topologyRequest, err := builder.Build()
 		if err != nil {
 			return nil, err
 		}
 		podSet.TopologyRequest = topologyRequest
 	}
+	return podSet, nil
+}
 
-	podSets = append(podSets, podSet)
+func podSets(lws *leaderworkersetv1.LeaderWorkerSet) ([]kueue.PodSet, error) {
+	podSets := make([]kueue.PodSet, 0, 2)
+
+	defaultPodSetName := kueue.DefaultPodSetName
+	defaultPodSetCount := ptr.Deref(lws.Spec.LeaderWorkerTemplate.Size, 1)
+
+	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
+		defaultPodSetName = workerPodSetName
+		defaultPodSetCount--
+
+		leaderPodSet, err := newPodSet(leaderPodSetName, 1, lws.Spec.LeaderWorkerTemplate.LeaderTemplate, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		podSets = append(podSets, *leaderPodSet)
+	}
+
+	workerPodSet, err := newPodSet(
+		defaultPodSetName,
+		defaultPodSetCount,
+		&lws.Spec.LeaderWorkerTemplate.WorkerTemplate,
+		ptr.To(leaderworkersetv1.WorkerIndexLabelKey),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	podSets = append(podSets, *workerPodSet)
 
 	return podSets, nil
 }
