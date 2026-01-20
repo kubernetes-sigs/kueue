@@ -30,31 +30,32 @@ import (
 func (h *Handlers) ClusterQueuesWebSocketHandler() gin.HandlerFunc {
 	return h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
 		return h.fetchClusterQueues(ctx)
-	})
+	}, ClusterQueuesGVK())
 }
 
 // ClusterQueueDetailsWebSocketHandler streams details for a specific cluster queue
 func (h *Handlers) ClusterQueueDetailsWebSocketHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterQueueName := c.Param("cluster_queue_name")
+
 		h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
 			return h.fetchClusterQueueDetails(ctx, clusterQueueName)
-		})(c)
+		}, ClusterQueuesGVK())(c)
 	}
 }
 
 // Fetch all cluster queues
 func (h *Handlers) fetchClusterQueues(ctx context.Context) ([]map[string]any, error) {
 	// Fetch the list of ClusterQueue objects
-	l := &kueueapi.ClusterQueueList{}
-	err := h.client.List(ctx, l)
+	cql := &kueueapi.ClusterQueueList{}
+	err := h.client.List(ctx, cql)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching cluster queues: %v", err)
 	}
 
 	// Process the ClusterQueue objects
 	var result []map[string]any
-	for _, item := range l.Items {
+	for _, item := range cql.Items {
 		// Extract relevant fields
 		name := item.GetName()
 

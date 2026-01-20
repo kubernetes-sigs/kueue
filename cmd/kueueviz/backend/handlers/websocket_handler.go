@@ -21,10 +21,13 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/tools/cache"
 )
 
 // WebSocket upgrader
@@ -34,8 +37,9 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-// GenericWebSocketHandler creates a WebSocket endpoint with periodic data updates
-func (h *Handlers) GenericWebSocketHandler(dataFetcher func(ctx context.Context) (any, error)) gin.HandlerFunc {
+// GenericWebSocketHandler creates a WebSocket endpoint with informer-based real-time updates
+// Accepts one or more GroupVersionKinds to watch for changes
+func (h *Handlers) GenericWebSocketHandler(dataFetcher func(ctx context.Context) (any, error), gvks ...schema.GroupVersionKind) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		startTime := time.Now()
 		slog.Debug("WebSocket handler started")
@@ -50,82 +54,124 @@ func (h *Handlers) GenericWebSocketHandler(dataFetcher func(ctx context.Context)
 		defer conn.Close()
 		slog.Debug("WebSocket connection established took %v", "duration", time.Since(connStart))
 
-		// Fetch the initial data to send it immediately
-		fetchStart := time.Now()
-		data, err := dataFetcher(c.Request.Context())
+		ctx, cancel := context.WithCancel(c.Request.Context())
+		defer cancel()
+
+		// Send initial data
+		if err := h.sendData(ctx, conn, dataFetcher); err != nil {
+			slog.Error("Error sending initial data: %v", "error", err)
+			return
+		}
+
+		// Use informer-based updates for real-time streaming
+		h.handleInformerUpdates(ctx, conn, dataFetcher, gvks...)
+
+		slog.Debug("WebSocket handler completed, total time: %v", "duration", time.Since(startTime))
+	}
+}
+
+// sendData fetches and sends data through the WebSocket connection
+func (h *Handlers) sendData(ctx context.Context, conn *websocket.Conn, dataFetcher func(ctx context.Context) (any, error)) error {
+	fetchStart := time.Now()
+	data, err := dataFetcher(ctx)
+	if err != nil {
+		return err
+	}
+	slog.Debug("Data fetched took %v", "duration", time.Since(fetchStart))
+
+	marshalStart := time.Now()
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	slog.Debug("Data marshaled into JSON took %v", "duration", time.Since(marshalStart))
+
+	if err := conn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		return err
+	}
+
+	writeStart := time.Now()
+	err = conn.WriteMessage(websocket.TextMessage, jsonData)
+	if err != nil {
+		return err
+	}
+	slog.Debug("Message sent to client took %v", "duration", time.Since(writeStart))
+
+	return nil
+}
+
+// handleInformerUpdates uses Kubernetes informers to stream real-time changes
+// Supports watching multiple resource types by registering handlers for all provided GVKs
+func (h *Handlers) handleInformerUpdates(ctx context.Context, conn *websocket.Conn, dataFetcher func(ctx context.Context) (any, error), gvks ...schema.GroupVersionKind) {
+	// Channel to signal when data needs to be sent
+	updateChan := make(chan struct{}, 1)
+	var updateMu sync.Mutex
+
+	// Helper to trigger update (non-blocking)
+	triggerUpdate := func() {
+		updateMu.Lock()
+		defer updateMu.Unlock()
+		select {
+		case updateChan <- struct{}{}:
+		default:
+			// Channel already has a pending update
+		}
+	}
+
+	// Track all registrations for cleanup
+	var registrations []cache.ResourceEventHandlerRegistration
+	defer func() {
+		for i, reg := range registrations {
+			if i < len(gvks) && gvks[i] != (schema.GroupVersionKind{}) {
+				informer, err := h.client.GetInformerForKind(ctx, gvks[i])
+				if err == nil {
+					if err := informer.RemoveEventHandler(reg); err != nil {
+						slog.Error("Error removing event handler: %v", "error", err)
+					}
+				}
+			}
+		}
+	}()
+
+	// Register event handlers for all provided GVKs
+	for _, gvk := range gvks {
+		informer, err := h.client.GetInformerForKind(ctx, gvk)
 		if err != nil {
-			slog.Error("Error fetching data %v", "error", err)
-			return
+			slog.Error("Error getting informer for %v: %v", "gvk", gvk, "error", err)
+			continue
 		}
-		slog.Debug("Data fetched took %v", "duration", time.Since(fetchStart))
 
-		// Marshal the fetched data into JSON
-		marshalStart := time.Now()
-		jsonData, err := json.Marshal(data)
+		registration, err := informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+			AddFunc: func(obj any) {
+				slog.Debug("Informer: object added", "gvk", gvk)
+				triggerUpdate()
+			},
+			UpdateFunc: func(oldObj, newObj any) {
+				slog.Debug("Informer: object updated", "gvk", gvk)
+				triggerUpdate()
+			},
+			DeleteFunc: func(obj any) {
+				slog.Debug("Informer: object deleted", "gvk", gvk)
+				triggerUpdate()
+			},
+		})
 		if err != nil {
-			slog.Error("Error marshaling data : %v", "error", err)
+			slog.Error("Error adding event handler for %v: %v", "gvk", gvk, "error", err)
+			continue
+		}
+		registrations = append(registrations, registration)
+	}
+
+	// Handle updates from the informers
+	for {
+		select {
+		case <-ctx.Done():
 			return
-		}
-		slog.Debug("Data marshaled into JSON at took %v", "duration", time.Since(marshalStart))
-
-		// Set write deadline to avoid blocking indefinitely
-		if err := conn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
-			slog.Error("Error setting write deadline: %v", "error", err)
-			return
-		}
-
-		// Send the initial data to the WebSocket client immediately
-		writeStart := time.Now()
-		err = conn.WriteMessage(websocket.TextMessage, jsonData)
-		if err != nil {
-			slog.Error("Error writing message : %v", "error", err)
-			// If writing fails, break the loop and close the connection
-			return
-		}
-		slog.Debug("Initial message sent to client took %v", "duration", time.Since(writeStart))
-
-		// Start a ticker for periodic updates (every 5 seconds)
-		// TODO use SharedInformers and TTL to only send updates if they happen
-		ticker := time.NewTicker(5 * time.Second)
-		defer ticker.Stop()
-
-		// Continue sending updates every 5 seconds
-		for range ticker.C {
-			// Fetch the latest data
-			fetchStart := time.Now()
-			data, err := dataFetcher(c.Request.Context())
-			if err != nil {
-				slog.Error("Error fetching data %v", "error", err)
-				continue
+		case <-updateChan:
+			if err := h.sendData(ctx, conn, dataFetcher); err != nil {
+				slog.Error("Error sending update: %v", "error", err)
+				return
 			}
-			slog.Debug("Data fetched at  took %v", "duration", time.Since(fetchStart))
-
-			// Marshal the fetched data into JSON
-			marshalStart := time.Now()
-			jsonData, err := json.Marshal(data)
-			if err != nil {
-				slog.Error("Error marshaling data at %v", "error", err)
-				continue
-			}
-			slog.Debug("Data marshaled into JSON took %v", "duration", time.Since(marshalStart))
-
-			// Set write deadline to avoid blocking indefinitely
-			if err := conn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
-				slog.Error("Error writing deadline to client: %v", "error", err)
-				continue
-			}
-
-			// Send the JSON data to the WebSocket client
-			writeStart := time.Now()
-			err = conn.WriteMessage(websocket.TextMessage, jsonData)
-			if err != nil {
-				slog.Error("Error writing message: ", "error", err)
-				// If writing fails, break the loop and close the connection
-				break
-			}
-			slog.Debug("Message sent to client  took %v", "duration", time.Since(writeStart))
 		}
-
-		slog.Debug("WebSocket handler completed  total time: %v", "duration", time.Since(startTime))
 	}
 }
