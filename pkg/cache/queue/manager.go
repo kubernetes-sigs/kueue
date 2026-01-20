@@ -742,6 +742,36 @@ func (m *Manager) Heads(ctx context.Context) []workload.Info {
 	}
 }
 
+func (m *Manager) GetWorkloadFromCache(wlKey workload.Reference) *kueue.Workload {
+	m.RLock()
+	defer m.RUnlock()
+
+	lqRef, ok := m.workloadAssignedQueues[wlKey]
+	if !ok {
+		return nil
+	}
+
+	lq := m.localQueues[lqRef]
+	if lq == nil {
+		return nil
+	}
+
+	if wlInfo, ok := lq.items[wlKey]; ok {
+		return wlInfo.Obj
+	}
+
+	cq := m.hm.ClusterQueue(lq.ClusterQueue)
+	if cq == nil {
+		return nil
+	}
+
+	if wlInfo := cq.heap.GetByKey(wlKey); wlInfo != nil {
+		return wlInfo.Obj
+	}
+
+	return nil
+}
+
 func (m *Manager) heads() []workload.Info {
 	workloads := m.secondPassQueue.takeAllReady()
 	for cqName, cq := range m.hm.ClusterQueues() {

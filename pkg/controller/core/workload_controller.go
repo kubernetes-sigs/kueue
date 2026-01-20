@@ -562,6 +562,10 @@ func (r *WorkloadReconciler) deleteWorkloadFromCaches(ctx context.Context, log l
 	log.V(2).Info("Workload has been deleted; Cleaning up caches")
 	wlRef := workload.NewReference(namespace, name)
 
+	// Retrieve the cached workload info before purging the data from the caches.
+	wlInQueuesCache := r.queues.GetWorkloadFromCache(wlRef)
+	wlInSchedulerCache := r.cache.GetWorkloadFromCache(wlRef)
+
 	// Delete from cache unconditionally. Pending workloads may have been "assumed"
 	// by the scheduler, and leaving them blocks ClusterQueue finalizer removal.
 	// The operation is idempotent if the workload was never in the cache.
@@ -571,9 +575,45 @@ func (r *WorkloadReconciler) deleteWorkloadFromCaches(ctx context.Context, log l
 		}
 	})
 
-	// The last cached state tells us whether the
-	// workload was in the queues and should be cleared from them.
+	// Clear the workload form the queues.
+	// No operations will be performed if the wl has already been purged.
 	r.queues.DeleteAndForgetWorkload(log, wlRef)
+
+	// Notify watchers of deletion of the workload only if necessary
+	// (the workload was present in either cache
+	// or the cached data was pointing to different queues).
+	r.notifyWatchersOfDeletion(wlInQueuesCache, wlInSchedulerCache)
+}
+
+func (r *WorkloadReconciler) notifyWatchersOfDeletion(qCacheWl, schedCacheWl *kueue.Workload) {
+	if qCacheWl == nil && schedCacheWl == nil {
+		return
+	}
+	if qCacheWl != nil && schedCacheWl == nil {
+		r.notifyWatchers(qCacheWl, nil)
+		return
+	}
+	if qCacheWl == nil && schedCacheWl != nil {
+		r.notifyWatchers(schedCacheWl, nil)
+		return
+	}
+
+	r.notifyWatchers(qCacheWl, nil)
+	if qCacheWl.Spec.QueueName != schedCacheWl.Spec.QueueName {
+		r.notifyWatchers(schedCacheWl, nil)
+		return
+	}
+
+	var qCacheCQ, schedCaceCQ *kueue.ClusterQueueReference = nil, nil
+	if workload.HasQuotaReservation(qCacheWl) {
+		qCacheCQ = &qCacheWl.Status.Admission.ClusterQueue
+	}
+	if workload.HasQuotaReservation(schedCacheWl) {
+		schedCaceCQ = &schedCacheWl.Status.Admission.ClusterQueue
+	}
+	if schedCaceCQ != nil && *schedCaceCQ != *qCacheCQ {
+		r.notifyWatchers(nil, schedCacheWl)
+	}
 }
 
 // isDisabledRequeuedByClusterQueueStopped returns true if the workload is unset requeued by cluster queue stopped.
@@ -1114,10 +1154,6 @@ func (h *resourceUpdatesHandler) Delete(ctx context.Context, e event.DeleteEvent
 	log := ctrl.LoggerFrom(ctx).WithValues("kind", e.Object.GetObjectKind())
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(5).Info("Delete event")
-
-	if wl, ok := e.Object.(*kueue.Workload); ok {
-		h.r.notifyWatchers(wl, nil)
-	}
 	h.handle(ctx, e.Object, q)
 }
 

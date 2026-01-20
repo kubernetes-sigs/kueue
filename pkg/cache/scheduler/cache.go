@@ -612,6 +612,23 @@ func (c *Cache) addOrUpdateWorkloadWithoutLock(log logr.Logger, wl *kueue.Worklo
 	return true, nil
 }
 
+func (c *Cache) GetWorkloadFromCache(wlKey workload.Reference) *kueue.Workload {
+	c.RLock()
+	defer c.RUnlock()
+
+	cqRef, ok := c.workloadAssignedQueues[wlKey]
+	if !ok {
+		return nil
+	}
+
+	cq := c.hm.ClusterQueue(cqRef)
+	if cq == nil {
+		return nil
+	}
+
+	return cq.Workloads[wlKey].Obj
+}
+
 func (c *Cache) deleteFromQueueIfPresent(log logr.Logger, wlKey workload.Reference, cqName kueue.ClusterQueueReference) {
 	if cq := c.hm.ClusterQueue(cqName); cq != nil {
 		cq.deleteWorkload(log, wlKey)
