@@ -120,7 +120,7 @@ func (t *tasCache) DeleteTopology(name kueue.TopologyReference) {
 
 // Update may add a pod to the cache, or
 // delete a terminated pod.
-func (t *tasCache) Update(pod corev1.Pod, log logr.Logger) {
+func (t *tasCache) Update(pod *corev1.Pod, log logr.Logger) {
 	t.nonTasUsageCache.update(pod, log)
 }
 

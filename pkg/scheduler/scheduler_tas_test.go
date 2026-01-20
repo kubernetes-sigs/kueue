@@ -23,7 +23,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -2716,7 +2715,7 @@ func TestScheduleForTAS(t *testing.T) {
 				}
 			}
 			for _, pod := range tc.pods {
-				cqCache.TASCache().Update(pod, logr.FromContextOrDiscard(ctx))
+				cqCache.TASCache().Update(&pod, log)
 			}
 			initiallyAdmittedWorkloads := sets.New[workload.Reference]()
 			for _, w := range tc.workloads {
