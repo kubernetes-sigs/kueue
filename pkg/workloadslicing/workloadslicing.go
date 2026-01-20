@@ -91,26 +91,6 @@ func ReplacementForKey(wl *kueue.Workload) *workload.Reference {
 	return &ref
 }
 
-// Finish updates the status of a workload slice by applying the "Finished" condition
-// Finish updates the status of a workload slice by applying the "Finished" condition.
-// The function checks if the "Finished" condition is already applied, and if so, does nothing (NOOP).
-// If the "Finished" condition is not present, it applies the condition with the provided `reason` and `message`.
-//
-// This function performs the following:
-// 1. It checks if the "Finished" condition is already applied. If true, it returns immediately, doing nothing.
-// 2. If the "Finished" condition is not set, it patches the workload slice's status to add the "Finished" condition.
-// 3. If the patch fails, it returns an error.
-func Finish(ctx context.Context, clnt client.Client, clk clock.Clock, workloadSlice *kueue.Workload, reason, message string) error {
-	// NOOP if the workload already has "Finished" condition (irrespective of reason and message values).
-	if workload.IsFinished(workloadSlice) {
-		return nil
-	}
-	if err := workload.Finish(ctx, clnt, workloadSlice, reason, message, clk); err != nil {
-		return fmt.Errorf("failed to patch workload slice status: %w", err)
-	}
-	return nil
-}
-
 // FindNotFinishedWorkloads returns a sorted list of workloads "owned by" the provided job object/gvk combination and
 // without "Finished" condition with status = "True".
 func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject client.Object, jobObjectGVK schema.GroupVersionKind) ([]kueue.Workload, error) {
@@ -232,7 +212,7 @@ func EnsureWorkloadSlices(ctx context.Context, clnt client.Client, clk clock.Clo
 			newWorkloadAdmittedAsReplacement
 		if shouldFinishOldSlice {
 			// Finish the old workload slice as out of sync.
-			if err := Finish(ctx, clnt, clk, &oldWorkload, kueue.WorkloadFinishedReasonOutOfSync, "The workload slice is out of sync with its parent job"); err != nil {
+			if err := workload.Finish(ctx, clnt, &oldWorkload, kueue.WorkloadFinishedReasonOutOfSync, "The workload slice is out of sync with its parent job", clk); err != nil {
 				return nil, true, err
 			}
 		}
