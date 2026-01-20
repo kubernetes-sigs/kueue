@@ -580,7 +580,7 @@ func (r *WorkloadReconciler) deleteWorkloadFromCaches(ctx context.Context, log l
 	r.queues.DeleteAndForgetWorkload(log, wlRef)
 
 	// Notify watchers of deletion of the workload only if necessary
-	// (the workload was present in either cache
+	// (i.e. the workload was present in either cache
 	// or the cached data was pointing to different queues).
 	r.notifyWatchersOfDeletion(wlInQueuesCache, wlInSchedulerCache)
 }
