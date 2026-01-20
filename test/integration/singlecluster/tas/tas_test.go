@@ -292,7 +292,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Consistently(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 						g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
-					}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+					}, util.ShortConsistentDuration, util.Interval).Should(gomega.Succeed())
 				})
 			})
 
@@ -342,7 +342,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
-				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+				}, util.ShortConsistentDuration, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("delete the non-TAS pod", func() {
@@ -424,6 +424,59 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl2)
 				util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 2)
 			})
+		})
+
+		ginkgo.It("non-TAS pod terminating; capacity not released", func() {
+			var wl *kueue.Workload
+			var nonTasPod *corev1.Pod
+
+			ginkgo.By("create a non-TAS pod which consumes the node's capacity", func() {
+				nonTasPod = testingpod.MakePod("pod", ns.Name).
+					Request(corev1.ResourceCPU, "1").
+					NodeName("node1").
+					StatusPhase(corev1.PodRunning).
+					Finalizer("kueue.sigs.k8s.io/test-finalizer").
+					Obj()
+				util.MustCreate(ctx, k8sClient, nonTasPod)
+			})
+
+			ginkgo.By("create a workload which requires the node's capacity", func() {
+				wl = utiltestingapi.MakeWorkload("wl", ns.Name).
+					Queue("local-queue").
+					Request(corev1.ResourceCPU, "1").
+					Obj()
+				util.MustCreate(ctx, k8sClient, wl)
+
+				ginkgo.By("verify the workload is not admitted", func() {
+					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
+					util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+					gomega.Consistently(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+						g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
+					}, util.ShortConsistentDuration, util.Interval).Should(gomega.Succeed())
+				})
+			})
+
+			ginkgo.By("delete the non-TAS pod", func() {
+				gomega.Expect(k8sClient.Delete(ctx, nonTasPod)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("verify the non-TAS pod has deletionTimestamp", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(nonTasPod), nonTasPod)).To(gomega.Succeed())
+					g.Expect(nonTasPod.DeletionTimestamp).NotTo(gomega.BeNil())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verify that the TAS-workload doesn't admit", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
+				}, util.ShortConsistentDuration, util.Interval).Should(gomega.Succeed())
+			})
+			// note to future developer: this non-TAS pod doesn't delete properly after ns clean-up,
+			// so it will keep taking node1's capacity.
+			// need to debug this before writing future tests.
 		})
 	})
 
