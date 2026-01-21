@@ -173,7 +173,7 @@ func NewWorkloadReconciler(client client.Client, queues *qcache.Manager, cache *
 // +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceclaimtemplates,verbs=get;list;watch
 
 func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := ctrl.LoggerFrom(ctx).WithValues("namespace", req.Namespace, "name", req.Name)
+	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Workload")
 
 	var wl kueue.Workload
