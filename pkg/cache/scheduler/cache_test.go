@@ -3767,7 +3767,6 @@ func TestGetWorkloadFromCache(t *testing.T) {
 	lqToDelete := utiltestingapi.MakeLocalQueue("deleted-lq", "").ClusterQueue("deleted-cq").Obj()
 	queues := []*kueue.LocalQueue{
 		utiltestingapi.MakeLocalQueue("lq", "").ClusterQueue("cq").Obj(),
-		utiltestingapi.MakeLocalQueue("lq-with-deleted-cq", "").ClusterQueue("deleted-cq").Obj(),
 		lqToDelete,
 	}
 
