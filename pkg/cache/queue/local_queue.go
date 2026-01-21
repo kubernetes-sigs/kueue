@@ -28,6 +28,8 @@ type LocalQueue struct {
 	ClusterQueue kueue.ClusterQueueReference
 
 	items map[workload.Reference]*workload.Info
+
+	finishedWorkloads int
 }
 
 func newLocalQueue(q *kueue.LocalQueue) *LocalQueue {

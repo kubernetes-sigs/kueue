@@ -855,6 +855,7 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ObjectRetentionPolicies, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
 			flavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
 			gomega.Expect(k8sClient.Create(ctx, flavor)).Should(gomega.Succeed())
@@ -862,6 +863,7 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavorOnDemand).
 					Resource(corev1.ResourceCPU, "1").Obj()).
 				Obj()
+			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 			localQueue = utiltestingapi.MakeLocalQueue("q", ns.Name).ClusterQueue("cq").Obj()
 			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
 		})
@@ -909,6 +911,9 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 					return k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWorkload)
 				}, util.Timeout, util.Interval).ShouldNot(gomega.Succeed())
 			})
+
+			util.ExpectFinishedWorkloadsMetric(clusterQueue, 0)
+			util.ExpectLQFinishedWorkloadsMetric(localQueue, 0)
 		})
 	})
 
@@ -944,6 +949,7 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ObjectRetentionPolicies, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
 			flavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
 			gomega.Expect(k8sClient.Create(ctx, flavor)).Should(gomega.Succeed())
@@ -951,6 +957,7 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavorOnDemand).
 					Resource(corev1.ResourceCPU, "1").Obj()).
 				Obj()
+			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 			localQueue = utiltestingapi.MakeLocalQueue("q", ns.Name).ClusterQueue("cq").Obj()
 			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
 		})
@@ -979,6 +986,9 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 			})
 
+			util.ExpectFinishedWorkloadsMetric(clusterQueue, 0)
+			util.ExpectLQFinishedWorkloadsMetric(localQueue, 0)
+
 			ginkgo.By("marking workload as finished", func() {
 				gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWorkload)).To(gomega.Succeed())
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -998,6 +1008,9 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWorkload)).To(gomega.Succeed())
 				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
+
+			util.ExpectFinishedWorkloadsMetric(clusterQueue, 1)
+			util.ExpectLQFinishedWorkloadsMetric(localQueue, 1)
 		})
 	})
 })

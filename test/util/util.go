@@ -636,6 +636,26 @@ func ExpectPendingWorkloadsMetric(cq *kueue.ClusterQueue, active, inadmissible i
 	}
 }
 
+func ExpectFinishedWorkloadsMetric(cq *kueue.ClusterQueue, count int) {
+	ginkgo.GinkgoHelper()
+	metric := metrics.FinishedWorkloads.WithLabelValues(cq.Name, roletracker.RoleStandalone)
+	gomega.Eventually(func(g gomega.Gomega) {
+		v, err := testutil.GetGaugeMetricValue(metric)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(int(v)).Should(gomega.Equal(count))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func ExpectLQFinishedWorkloadsMetric(lq *kueue.LocalQueue, count int) {
+	ginkgo.GinkgoHelper()
+	metric := metrics.LocalQueueFinishedWorkloads.WithLabelValues(lq.Name, lq.Namespace, roletracker.RoleStandalone)
+	gomega.Eventually(func(g gomega.Gomega) {
+		v, err := testutil.GetGaugeMetricValue(metric)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(int(v)).Should(gomega.Equal(count))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
 func ExpectReservingActiveWorkloadsMetric(cq *kueue.ClusterQueue, value int) {
 	metric := metrics.ReservingActiveWorkloads.WithLabelValues(cq.Name, roletracker.RoleStandalone)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
