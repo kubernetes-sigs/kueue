@@ -180,7 +180,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	err := r.client.Get(ctx, req.NamespacedName, &wl)
 
 	if apierrors.IsNotFound(err) {
-		r.deleteWorkloadFromCaches(ctx, log, req.Namespace, req.Name)
+		r.deleteWorkloadFromCaches(ctx, req.Namespace, req.Name)
 		return ctrl.Result{}, nil
 	}
 
@@ -558,9 +558,10 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	return ctrl.Result{}, nil
 }
 
-func (r *WorkloadReconciler) deleteWorkloadFromCaches(ctx context.Context, log logr.Logger, namespace, name string) {
-	log.V(3).Info("Workload has been deleted; Cleaning up caches")
+func (r *WorkloadReconciler) deleteWorkloadFromCaches(ctx context.Context, namespace, name string) {
+	log := ctrl.LoggerFrom(ctx)
 	wlRef := workload.NewReference(namespace, name)
+	log.V(3).Info("Workload has been deleted; Cleaning up caches")
 
 	// Retrieve the cached workload info before purging the data from the caches.
 	wlInQueuesCache := r.queues.GetWorkloadFromCache(wlRef)
@@ -589,23 +590,9 @@ func (r *WorkloadReconciler) notifyWatchersOfDeletion(qCacheWl, schedCacheWl *ku
 	if qCacheWl != nil {
 		r.notifyWatchers(qCacheWl, nil)
 	}
-	if schedCacheWl != nil && (getLocalQueue(qCacheWl) != getLocalQueue(schedCacheWl) || getClusterQueue(qCacheWl) != getClusterQueue(schedCacheWl)) {
+	if schedCacheWl != nil && workload.GetLocalQueue(qCacheWl) != workload.GetLocalQueue(schedCacheWl) {
 		r.notifyWatchers(schedCacheWl, nil)
 	}
-}
-
-func getLocalQueue(wl *kueue.Workload) kueue.LocalQueueName {
-	if wl == nil {
-		return ""
-	}
-	return wl.Spec.QueueName
-}
-
-func getClusterQueue(wl *kueue.Workload) kueue.ClusterQueueReference {
-	if wl == nil || wl.Status.Admission == nil {
-		return ""
-	}
-	return wl.Status.Admission.ClusterQueue
 }
 
 // isDisabledRequeuedByClusterQueueStopped returns true if the workload is unset requeued by cluster queue stopped.
