@@ -78,6 +78,13 @@ const (
 	// WorkloadSliceReplacementFor is the annotation key set on a new workload slice to indicate
 	// the key of the workload slice it is intended to replace (i.e., the "old" slice being preempted).
 	WorkloadSliceReplacementFor = "kueue.x-k8s.io/workload-slice-replacement-for"
+
+	// ScaleRequestAnnotation is set on worker cluster workloads to request
+	// scaling (up or down) from the manager cluster. The value is a JSON-encoded
+	// map of pod set names to requested counts (e.g., {"worker": 5}).
+	// This is used in MultiKueue to communicate autoscaling needs from worker
+	// clusters back to the manager cluster.
+	ScaleRequestAnnotation = "kueue.x-k8s.io/scale-request"
 )
 
 // ReplacementForKey returns a value for workload "WorkloadSliceReplacementFor" annotation
