@@ -18,6 +18,7 @@ package rayjob
 
 import (
 	"context"
+
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -64,12 +65,6 @@ var _ admission.CustomDefaulter = &RayJobWebhook{}
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
 func (w *RayJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
-	job := fromObject(obj)
-	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
-	if job.Spec.Suspend {
-		log.V(5).Info("Change RayJob Suspend to false", "jobName", job.Name, "jobNamespace", job.Namespace)
-		job.Spec.Suspend = false
-	}
 	return nil
 }
 
