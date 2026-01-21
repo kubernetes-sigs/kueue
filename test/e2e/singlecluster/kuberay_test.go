@@ -176,8 +176,6 @@ var _ = ginkgo.Describe("Kuberay", func() {
 					fmt.Printf("\nError getting RayJob: %v\n", err)
 				} else {
 					fmt.Printf("\nRayJob (Full YAML):\n")
-					// Remove managedFields for cleaner output
-					createdRayJob.ManagedFields = nil
 					fullYAML, err := yaml.Marshal(createdRayJob)
 					if err != nil {
 						fmt.Printf("Error marshaling RayJob to YAML: %v\n", err)
@@ -193,8 +191,6 @@ var _ = ginkgo.Describe("Kuberay", func() {
 				} else if len(rayClusterList.Items) > 0 {
 					for idx, cluster := range rayClusterList.Items {
 						fmt.Printf("\nRayCluster #%d (%s) (Full YAML):\n", idx+1, cluster.Name)
-						// Remove managedFields for cleaner output
-						cluster.ManagedFields = nil
 						fullYAML, err := yaml.Marshal(&cluster)
 						if err != nil {
 							fmt.Printf("Error marshaling RayCluster to YAML: %v\n", err)
