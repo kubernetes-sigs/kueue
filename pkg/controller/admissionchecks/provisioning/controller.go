@@ -567,6 +567,9 @@ func (c *Controller) syncCheckStates(
 						checkState.Message = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed).Message
 					}
 				case isCapacityRevoked(pr):
+					if workloadslicing.IsElasticWorkload(wl) {
+						continue
+					}
 					if workload.IsActive(wl) && !workload.IsFinished(wl) {
 						// We mark the admission check as rejected to trigger workload deactivation.
 						// This is needed to prevent replacement pods being stuck in the pending phase indefinitely
