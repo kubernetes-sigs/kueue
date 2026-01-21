@@ -137,6 +137,132 @@ var _ = ginkgo.Describe("Kuberay", func() {
 			gomega.Expect(k8sClient.Create(ctx, rayJob)).Should(gomega.Succeed())
 		})
 
+		ginkgo.By("Monitoring workloads and pods for 2 minutes", func() {
+			startTime := time.Now()
+			duration := 2 * time.Minute
+			ticker := time.NewTicker(10 * time.Second)
+			defer ticker.Stop()
+
+			iteration := 0
+			for {
+				iteration++
+				fmt.Printf("\n=== Iteration %d (%.0fs elapsed) ===\n", iteration, time.Since(startTime).Seconds())
+
+				// List all workloads in the namespace
+				workloadList := &kueue.WorkloadList{}
+				if err := k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name)); err != nil {
+					fmt.Printf("Error listing workloads: %v\n", err)
+				} else {
+					fmt.Printf("Workloads (%d):\n", len(workloadList.Items))
+					for _, wl := range workloadList.Items {
+						fmt.Printf("  - %s (Admitted: %v, Finished: %v)\n", wl.Name, workload.IsAdmitted(&wl), workload.IsFinished(&wl))
+					}
+				}
+
+				// List all pods in the namespace
+				podList := &corev1.PodList{}
+				if err := k8sClient.List(ctx, podList, client.InNamespace(ns.Name)); err != nil {
+					fmt.Printf("Error listing pods: %v\n", err)
+				} else {
+					fmt.Printf("Pods (%d):\n", len(podList.Items))
+					for _, pod := range podList.Items {
+						fmt.Printf("  - %s (Phase: %s, Ready: %v)\n", pod.Name, pod.Status.Phase, isPodReady(&pod))
+					}
+				}
+
+				// Get RayJob and print full YAML
+				createdRayJob := &rayv1.RayJob{}
+				if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(rayJob), createdRayJob); err != nil {
+					fmt.Printf("\nError getting RayJob: %v\n", err)
+				} else {
+					fmt.Printf("\nRayJob (Full YAML):\n")
+					// Remove managedFields for cleaner output
+					createdRayJob.ManagedFields = nil
+					fullYAML, err := yaml.Marshal(createdRayJob)
+					if err != nil {
+						fmt.Printf("Error marshaling RayJob to YAML: %v\n", err)
+					} else {
+						fmt.Printf("%s\n", string(fullYAML))
+					}
+				}
+
+				// Get RayCluster and print full YAML
+				rayClusterList := &rayv1.RayClusterList{}
+				if err := k8sClient.List(ctx, rayClusterList, client.InNamespace(ns.Name)); err != nil {
+					fmt.Printf("Error listing RayClusters: %v\n", err)
+				} else if len(rayClusterList.Items) > 0 {
+					for idx, cluster := range rayClusterList.Items {
+						fmt.Printf("\nRayCluster #%d (%s) (Full YAML):\n", idx+1, cluster.Name)
+						// Remove managedFields for cleaner output
+						cluster.ManagedFields = nil
+						fullYAML, err := yaml.Marshal(&cluster)
+						if err != nil {
+							fmt.Printf("Error marshaling RayCluster to YAML: %v\n", err)
+						} else {
+							fmt.Printf("%s\n", string(fullYAML))
+						}
+					}
+				} else {
+					fmt.Printf("\nNo RayClusters found\n")
+				}
+
+				if time.Since(startTime) >= duration {
+					break
+				}
+
+				select {
+				case <-ticker.C:
+					// Continue to next iteration
+				case <-time.After(duration - time.Since(startTime)):
+					// Timeout reached
+					break
+				}
+			}
+
+			fmt.Printf("\n=== Monitoring complete ===\n")
+		})
+
+		ginkgo.By("Getting kueue controller manager pod logs", func() {
+			// Create a Kubernetes clientset from the config
+			clientset, err := kubernetes.NewForConfig(cfg)
+			if err != nil {
+				fmt.Printf("Error creating Kubernetes clientset: %v\n", err)
+				return
+			}
+
+			// Find kueue controller manager pod
+			podList := &corev1.PodList{}
+			listOpts := []client.ListOption{
+				client.InNamespace("kueue-system"),
+				client.MatchingLabels{"control-plane": "controller-manager"},
+			}
+
+			if err := k8sClient.List(ctx, podList, listOpts...); err != nil {
+				fmt.Printf("Error listing kueue controller manager pods: %v\n", err)
+				return
+			}
+
+			if len(podList.Items) == 0 {
+				fmt.Printf("No kueue controller manager pods found\n")
+				return
+			}
+
+			// Get logs from the first controller manager pod
+			pod := podList.Items[0]
+			fmt.Printf("\n=== Kueue Controller Manager Logs (Pod: %s) ===\n", pod.Name)
+
+			// Use the clientset to get logs
+			req := clientset.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{})
+			logs, err := req.DoRaw(ctx)
+			if err != nil {
+				fmt.Printf("Error getting pod logs: %v\n", err)
+				return
+			}
+
+			fmt.Printf("%s\n", string(logs))
+			fmt.Printf("=== End of logs ===\n")
+		})
+
 		ginkgo.By("Checking one workload is created and admitted", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				workloadList := &kueue.WorkloadList{}
