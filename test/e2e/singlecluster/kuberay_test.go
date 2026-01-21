@@ -294,12 +294,12 @@ print([ray.get(my_task.remote(i, 1)) for i in range(16)])`,
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("Waiting for 2 workloads", func() {
-			// 2 workloads: one for the ray cluster, another for the submitter job created by the ray job
+		ginkgo.By("Waiting for 1 workloads", func() {
+			// 1 workload for the ray cluster
 			gomega.Eventually(func(g gomega.Gomega) {
 				workloadList := &kueue.WorkloadList{}
 				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				g.Expect(workloadList.Items).To(gomega.HaveLen(2), "Expected exactly 2 workloads")
+				g.Expect(workloadList.Items).To(gomega.HaveLen(1), "Expected exactly 1 workload")
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -320,12 +320,12 @@ print([ray.get(my_task.remote(i, 1)) for i in range(16)])`,
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("Waiting for 3 workloads due to scaling up creating another workload", func() {
-			// 3 workloads now, after scaling up, a new workload will be created for the new resource request
+		ginkgo.By("Waiting for 2 workloads due to scaling up creating another workload", func() {
+			// 2 workloads now, after scaling up, a new workload will be created for the new resource request
 			gomega.Eventually(func(g gomega.Gomega) {
 				workloadList := &kueue.WorkloadList{}
 				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				g.Expect(workloadList.Items).To(gomega.HaveLen(3), "Expected exactly 3 workloads")
+				g.Expect(workloadList.Items).To(gomega.HaveLen(2), "Expected exactly 3 workloads")
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
