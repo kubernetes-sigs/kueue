@@ -4090,6 +4090,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 
 	ginkgo.It("Should mark old pending workload-slice evicted by scheduler as finished", func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 
 		ginkgo.By("create low priority class")
 		lowPriorityClass := utiltestingapi.MakeWorkloadPriorityClass("low").PriorityValue(int32(priorityValue)).Obj()
@@ -4182,6 +4183,11 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 
 		util.ExpectEvictedWorkloadsOnceTotalMetric(clusterQueue.Name, kueue.WorkloadEvictedByPreemption, "", lowPriorityClass.Name, 1)
 		util.ExpectEvictedWorkloadsOnceTotalMetric(clusterQueue.Name, kueue.WorkloadEvictedByPreemption, "", highPriorityClass.Name, 0)
+
+		util.ExpectFinishedWorkloadsTotalMetric(clusterQueue, lowPriorityClass.Name, 1)
+		util.ExpectLQFinishedWorkloadsTotalMetric(localQueue, lowPriorityClass.Name, 1)
+		util.ExpectFinishedWorkloadsTotalMetric(clusterQueue, highPriorityClass.Name, 0)
+		util.ExpectLQFinishedWorkloadsTotalMetric(localQueue, highPriorityClass.Name, 0)
 	})
 })
 
