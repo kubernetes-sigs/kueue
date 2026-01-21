@@ -277,7 +277,7 @@ var _ = ginkgo.Describe("Job controller RayCluster for workloads when only jobs 
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
-	ginkgo.It("Should not suspend a cluster even if the parent's workload does not exist or is not admitted, since RayCluster is treated as top level and will not check ancestor", func() {
+	ginkgo.It("Should suspend a cluster if the parent's workload does not exist or is not admitted", func() {
 		ginkgo.By("Creating the parent job which has a queue name")
 		parentJob := testingrayjob.MakeJob("parent-job", ns.Name).
 			Queue("test").
@@ -296,7 +296,7 @@ var _ = ginkgo.Describe("Job controller RayCluster for workloads when only jobs 
 		ginkgo.By("checking that the child cluster is suspended")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, childClusterKey, childCluster)).Should(gomega.Succeed())
-			g.Expect(childCluster.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+			g.Expect(childCluster.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 })
