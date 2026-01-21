@@ -34,7 +34,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
-	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingleaderworkerset "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
@@ -44,14 +43,12 @@ func TestDefault(t *testing.T) {
 	testCases := map[string]struct {
 		lws                        *leaderworkersetv1.LeaderWorkerSet
 		manageJobsWithoutQueueName bool
-		localQueueDefaulting       bool
 		defaultLqExist             bool
 		enableIntegrations         []string
 		want                       *leaderworkersetv1.LeaderWorkerSet
 	}{
 		"LeaderWorkerSet with WorkloadPriorityClass": {
-			localQueueDefaulting: true,
-			defaultLqExist:       true,
+			defaultLqExist: true,
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
 				WorkloadPriorityClass("high-priority").
@@ -69,8 +66,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"LocalQueueDefaulting enabled, default lq is created, job doesn't have queue label": {
-			localQueueDefaulting: true,
-			defaultLqExist:       true,
+			defaultLqExist: true,
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
 				Obj(),
@@ -84,8 +80,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"LocalQueueDefaulting enabled, default lq is created, job has queue label": {
-			localQueueDefaulting: true,
-			defaultLqExist:       true,
+			defaultLqExist: true,
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
 				Queue("test-queue").
@@ -100,8 +95,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"LocalQueueDefaulting enabled, default lq isn't created, job doesn't have queue label": {
-			localQueueDefaulting: true,
-			defaultLqExist:       false,
+			defaultLqExist: false,
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
 				Obj(),
@@ -113,7 +107,6 @@ func TestDefault(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
 			t.Cleanup(jobframework.EnableIntegrationsForTest(t, tc.enableIntegrations...))
 			ctx, _ := utiltesting.ContextWithLog(t)
 
@@ -146,11 +139,10 @@ func TestDefault(t *testing.T) {
 
 func TestValidateCreate(t *testing.T) {
 	testCases := map[string]struct {
-		integrations            []string
-		lws                     *leaderworkersetv1.LeaderWorkerSet
-		wantErr                 error
-		wantWarns               admission.Warnings
-		topologyAwareScheduling bool
+		integrations []string
+		lws          *leaderworkersetv1.LeaderWorkerSet
+		wantErr      error
+		wantWarns    admission.Warnings
 	}{
 		"without queue": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -194,7 +186,6 @@ func TestValidateCreate(t *testing.T) {
 					},
 				}).
 				Obj(),
-			topologyAwareScheduling: true,
 		},
 		"invalid topology request": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -227,7 +218,6 @@ func TestValidateCreate(t *testing.T) {
 					Field: "spec.leaderWorkerTemplate.workerTemplate.metadata.annotations",
 				},
 			}.ToAggregate(),
-			topologyAwareScheduling: true,
 		},
 		"invalid slice topology request - slice size larger than number of podsets": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -258,7 +248,6 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations").
 					Key("kueue.x-k8s.io/podset-slice-size"), "20", "must not be greater than pod set count 3"),
 			}.ToAggregate(),
-			topologyAwareScheduling: true,
 		},
 		"invalid slice topology request - slice size provided without slice topology": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -285,7 +274,6 @@ func TestValidateCreate(t *testing.T) {
 				field.Forbidden(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations").
 					Key("kueue.x-k8s.io/podset-slice-size"), "may not set when 'kueue.x-k8s.io/podset-slice-required-topology' is not specified"),
 			}.ToAggregate(),
-			topologyAwareScheduling: true,
 		},
 		"invalid slice topology request - slice topology requested without slice size": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -312,7 +300,6 @@ func TestValidateCreate(t *testing.T) {
 				field.Required(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations").
 					Key("kueue.x-k8s.io/podset-slice-size"), "must be set when 'kueue.x-k8s.io/podset-slice-required-topology' is specified"),
 			}.ToAggregate(),
-			topologyAwareScheduling: true,
 		},
 		"invalid slice topology request - grouping requested together with slicing": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -349,7 +336,6 @@ func TestValidateCreate(t *testing.T) {
 				field.Forbidden(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations").
 					Key("kueue.x-k8s.io/podset-group-name"), "may not be set when 'kueue.x-k8s.io/podset-slice-required-topology' is specified"),
 			}.ToAggregate(),
-			topologyAwareScheduling: true,
 		},
 		"valid PodSet group name request": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -371,8 +357,7 @@ func TestValidateCreate(t *testing.T) {
 					},
 				}).
 				Obj(),
-			wantErr:                 nil,
-			topologyAwareScheduling: true,
+			wantErr: nil,
 		},
 		"invalid PodSet group name request - value is a number": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -400,7 +385,6 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations").
 					Key("kueue.x-k8s.io/podset-group-name"), "1234", "must not be a number"),
 			}.ToAggregate(),
-			topologyAwareScheduling: true,
 		},
 		"invalid PodSet grouping request - group specified only in leader": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -418,7 +402,6 @@ func TestValidateCreate(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations[kueue.x-k8s.io/podset-group-name]"), "groupname", "can only define groups of exactly 2 pod sets, got: 1 pod set(s)"),
 			}.ToAggregate(),
-			topologyAwareScheduling: true,
 		},
 		"invalid PodSet grouping request - group specified only in worker": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -436,7 +419,6 @@ func TestValidateCreate(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/podset-group-name]"), "groupname", "can only define groups of exactly 2 pod sets, got: 1 pod set(s)"),
 			}.ToAggregate(),
-			topologyAwareScheduling: true,
 		},
 		"invalid PodSet grouping request - group name does not match": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -462,7 +444,6 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations[kueue.x-k8s.io/podset-group-name]"), "groupname1", "can only define groups of exactly 2 pod sets, got: 1 pod set(s)"),
 				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/podset-group-name]"), "groupname2", "can only define groups of exactly 2 pod sets, got: 1 pod set(s)"),
 			}.ToAggregate(),
-			topologyAwareScheduling: true,
 		},
 		"invalid PodSet grouping request - required topology request does not match": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -488,7 +469,6 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.leaderWorkerTemplate.workerTemplate.metadata.annotations' in group 'groupname'"),
 				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations' in group 'groupname'"),
 			}.ToAggregate(),
-			topologyAwareScheduling: true,
 		},
 		"invalid PodSet grouping request - preferred topology request does not match": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -514,7 +494,6 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.leaderWorkerTemplate.workerTemplate.metadata.annotations' in group 'groupname'"),
 				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations' in group 'groupname'"),
 			}.ToAggregate(),
-			topologyAwareScheduling: true,
 		},
 		"invalid PodSet grouping request - different topology annotations within group": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -540,7 +519,6 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.leaderWorkerTemplate.workerTemplate.metadata.annotations' in group 'groupname'"),
 				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations' in group 'groupname'"),
 			}.ToAggregate(),
-			topologyAwareScheduling: true,
 		},
 		"invalid PodSet grouping request - neither preferred nor required topology is requested": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -566,7 +544,6 @@ func TestValidateCreate(t *testing.T) {
 				field.Forbidden(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations").
 					Key("kueue.x-k8s.io/podset-group-name"), "may not be set when neither 'kueue.x-k8s.io/podset-preferred-topology' nor 'kueue.x-k8s.io/podset-required-topology' is specified"),
 			}.ToAggregate(),
-			topologyAwareScheduling: true,
 		},
 		"invalid PodSet grouping request - grouping requested without leader template": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -583,14 +560,12 @@ func TestValidateCreate(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/podset-group-name]"), "groupname", "can only define groups of exactly 2 pod sets, got: 1 pod set(s)"),
 			}.ToAggregate(),
-			topologyAwareScheduling: true,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			t.Cleanup(jobframework.EnableIntegrationsForTest(t, "pod"))
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
 			for _, integration := range tc.integrations {
 				jobframework.EnableIntegrationsForTest(t, integration)
 			}
@@ -611,11 +586,10 @@ func TestValidateCreate(t *testing.T) {
 
 func TestValidateUpdate(t *testing.T) {
 	testCases := map[string]struct {
-		integrations            []string
-		oldObj                  *leaderworkersetv1.LeaderWorkerSet
-		newObj                  *leaderworkersetv1.LeaderWorkerSet
-		wantErr                 error
-		topologyAwareScheduling bool
+		integrations []string
+		oldObj       *leaderworkersetv1.LeaderWorkerSet
+		newObj       *leaderworkersetv1.LeaderWorkerSet
+		wantErr      error
 	}{
 		"no changes": {
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -1082,7 +1056,6 @@ func TestValidateUpdate(t *testing.T) {
 				}).
 				Queue("test-queue").
 				Obj(),
-			topologyAwareScheduling: true,
 		},
 		"set invalid topology request": {
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -1119,14 +1092,11 @@ func TestValidateUpdate(t *testing.T) {
 					Field: "spec.leaderWorkerTemplate.workerTemplate.metadata.annotations",
 				},
 			}.ToAggregate(),
-			topologyAwareScheduling: true,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
-
 			for _, integration := range tc.integrations {
 				jobframework.EnableIntegrationsForTest(t, integration)
 			}

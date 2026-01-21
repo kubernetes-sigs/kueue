@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -55,17 +56,20 @@ var (
 
 func TestReconciler(t *testing.T) {
 	cases := map[string]struct {
-		labelKeysToCopy               []string
-		leaderWorkerSet               *leaderworkersetv1.LeaderWorkerSet
-		workloads                     []kueue.Workload
-		workloadPriorityClasses       []kueue.WorkloadPriorityClass
-		wantLeaderWorkerSet           *leaderworkersetv1.LeaderWorkerSet
-		wantWorkloads                 []kueue.Workload
-		wantEvents                    []utiltesting.EventRecord
-		wantErr                       error
-		enableTopologyAwareScheduling bool
+		features                map[featuregate.Feature]bool
+		labelKeysToCopy         []string
+		leaderWorkerSet         *leaderworkersetv1.LeaderWorkerSet
+		workloads               []kueue.Workload
+		workloadPriorityClasses []kueue.WorkloadPriorityClass
+		wantLeaderWorkerSet     *leaderworkersetv1.LeaderWorkerSet
+		wantWorkloads           []kueue.Workload
+		wantEvents              []utiltesting.EventRecord
+		wantErr                 error
 	}{
 		"should create prebuilt workload": {
+			features: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: false,
+			},
 			leaderWorkerSet:     leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testUID).Obj(),
 			wantLeaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testUID).Obj(),
 			wantWorkloads: []kueue.Workload{
@@ -93,9 +97,11 @@ func TestReconciler(t *testing.T) {
 					),
 				},
 			},
-			enableTopologyAwareScheduling: false,
 		},
 		"should create prebuilt workload with leader template": {
+			features: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: false,
+			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				UID(testUID).
 				Size(3).
@@ -148,9 +154,11 @@ func TestReconciler(t *testing.T) {
 					),
 				},
 			},
-			enableTopologyAwareScheduling: false,
 		},
 		"should create prebuilt workloads with leader template": {
+			features: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: false,
+			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				UID(testUID).
 				Replicas(2).
@@ -231,7 +239,6 @@ func TestReconciler(t *testing.T) {
 					),
 				},
 			},
-			enableTopologyAwareScheduling: false,
 		},
 		"should create prebuilt workload with required topology annotation": {
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
@@ -323,9 +330,11 @@ func TestReconciler(t *testing.T) {
 					),
 				},
 			},
-			enableTopologyAwareScheduling: true,
 		},
 		"should create prebuilt workload without required topology annotation is TAS is disabled": {
+			features: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: false,
+			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				UID(testUID).
 				Size(3).
@@ -412,9 +421,11 @@ func TestReconciler(t *testing.T) {
 					),
 				},
 			},
-			enableTopologyAwareScheduling: false,
 		},
 		"should create prebuilt workload with workload priority": {
+			features: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: false,
+			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				WorkloadPriorityClass("high-priority").
 				UID(testUID).
@@ -452,9 +463,11 @@ func TestReconciler(t *testing.T) {
 					),
 				},
 			},
-			enableTopologyAwareScheduling: false,
 		},
 		"should delete LeaderWorkerSet ownerReference from the redundant prebuilt workload": {
+			features: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: false,
+			},
 			leaderWorkerSet:     leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testUID).Obj(),
 			wantLeaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testUID).Obj(),
 			workloads: []kueue.Workload{
@@ -500,7 +513,9 @@ func TestReconciler(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
+			for feature, enable := range tc.features {
+				features.SetFeatureGateDuringTest(t, feature, enable)
+			}
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder(leaderworkersetv1.AddToScheme)
 			indexer := utiltesting.AsIndexer(clientBuilder)
