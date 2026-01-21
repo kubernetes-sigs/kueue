@@ -22,6 +22,7 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -174,6 +175,14 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 })
 
 var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	type podsReadyTestSpec struct {
+		beforeJobStatus *rayv1.RayJobStatus
+		beforeCondition *metav1.Condition
+		jobStatus       rayv1.RayJobStatus
+		suspended       bool
+		wantCondition   *metav1.Condition
+	}
+
 	var defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
 
 	ginkgo.BeforeAll(func() {
