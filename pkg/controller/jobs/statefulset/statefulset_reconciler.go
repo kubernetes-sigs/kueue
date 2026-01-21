@@ -238,7 +238,7 @@ func (r *Reconciler) handle(obj client.Object) bool {
 	ctrl.LoggerInto(ctx, log)
 
 	// Handle only statefulset managed by kueue.
-	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, sts, r.client, r.manageJobsWithoutQueueName, r.managedJobsNamespaceSelector, true)
+	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, sts, r.client, r.manageJobsWithoutQueueName, r.managedJobsNamespaceSelector)
 	if err != nil {
 		log.Error(err, "Failed to determine if the StatefulSet should be managed by Kueue")
 	}
