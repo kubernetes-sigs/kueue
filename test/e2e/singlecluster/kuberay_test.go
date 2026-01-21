@@ -17,7 +17,9 @@ limitations under the License.
 package e2e
 
 import (
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -26,8 +28,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/yaml"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
@@ -52,6 +56,16 @@ var _ = ginkgo.Describe("Kuberay", func() {
 		cq *kueue.ClusterQueue
 		lq *kueue.LocalQueue
 	)
+
+	// isPodReady checks if all containers in a pod are ready
+	isPodReady := func(pod *corev1.Pod) bool {
+		for _, cond := range pod.Status.Conditions {
+			if cond.Type == corev1.PodReady {
+				return cond.Status == corev1.ConditionTrue
+			}
+		}
+		return false
+	}
 
 	// getRunningWorkerPodNames returns the names of running pods that have "workers" in their name
 	getRunningWorkerPodNames := func(podList *corev1.PodList) []string {
