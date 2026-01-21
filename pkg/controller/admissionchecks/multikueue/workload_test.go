@@ -59,7 +59,6 @@ var errFake = errors.New("fake error")
 
 func TestWlReconcile(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
-	epsilon := time.Millisecond
 	fakeClock := testingclock.NewFakeClock(now)
 
 	objCheckOpts := cmp.Options{
@@ -585,13 +584,11 @@ func TestWlReconcile(t *testing.T) {
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 					ClusterName("worker1").
-					EvictedAt(now.Add(-epsilon)).
+					EvictedAt(now).
 					Obj(),
 			},
 			managersJobs: []batchv1.Job{
-				*baseJobManagedByKueueBuilder.Clone().
-					Active(1).
-					Obj(),
+				*baseJobManagedByKueueBuilder.Clone().Active(1).Obj(),
 			},
 			worker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
@@ -626,7 +623,7 @@ func TestWlReconcile(t *testing.T) {
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 					ClusterName("worker1").
-					EvictedAt(now.Add(-epsilon)).
+					EvictedAt(now).
 					Obj(),
 			},
 			wantManagersJobs: []batchv1.Job{
