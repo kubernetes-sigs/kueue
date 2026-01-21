@@ -19,19 +19,23 @@ package rayjob
 import (
 	"context"
 	"fmt"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 )
@@ -118,7 +122,18 @@ func (j *RayJob) PodLabelSelector() string {
 	return ""
 }
 
-func (j *RayJob) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, error) {
+// isRayClusterHeadPodReady checks if the RayCluster has the HeadPodReady condition set to True
+func isRayClusterHeadPodReady(rc *rayv1.RayCluster) bool {
+	for _, condition := range rc.Status.Conditions {
+		if condition.Type == string(rayv1.HeadPodReady) && condition.Status == metav1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
+// buildPodSetsFromRayJobSpec builds PodSets from RayJob's RayClusterSpec
+func (j *RayJob) buildPodSetsFromRayJobSpec() ([]kueue.PodSet, error) {
 	podSets := make([]kueue.PodSet, 0)
 
 	// head
@@ -183,6 +198,71 @@ func (j *RayJob) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, 
 	}
 
 	return podSets, nil
+}
+
+func (j *RayJob) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	// If RayClusterName is set in status, try to fetch the RayCluster and get PodSets from it
+	if j.Status.RayClusterName != "" {
+		var rayClusterObj rayv1.RayCluster
+		err := c.Get(ctx, types.NamespacedName{
+			Namespace: j.Namespace,
+			Name:      j.Status.RayClusterName,
+		}, &rayClusterObj)
+		if err != nil {
+			// Check if the error is a NotFound error
+			if apierrors.IsNotFound(err) {
+				log.Info("RayCluster does not exist, falling back to RayJob spec",
+					"rayCluster", j.Status.RayClusterName)
+			} else {
+				log.Error(err, "Failed to get RayCluster, falling back to RayJob spec",
+					"rayCluster", j.Status.RayClusterName)
+			}
+		} else {
+			// Check if HeadPodReady condition is True
+			if isRayClusterHeadPodReady(&rayClusterObj) {
+				// Convert to raycluster.RayCluster and get PodSets
+				rc := (*raycluster.RayCluster)(&rayClusterObj)
+				podSets, err := rc.PodSets(ctx, c)
+				if err != nil {
+					// Log error and fall back to RayJob spec
+					log.Error(err, "Failed to get PodSets from RayCluster, falling back to RayJob spec",
+						"rayCluster", j.Status.RayClusterName)
+				} else {
+					// submitter Job
+					if j.Spec.SubmissionMode == rayv1.K8sJobMode {
+						submitterJobPodSet := kueue.PodSet{
+							Name:     submitterJobPodSetName,
+							Count:    1,
+							Template: *getSubmitterTemplate(j),
+						}
+
+						// Create the TopologyRequest for the Submitter Job PodSet, based on the annotations
+						// in rayJob.Spec.SubmitterPodTemplate, which can be specified by the user.
+						if features.Enabled(features.TopologyAwareScheduling) {
+							topologyRequest, err := jobframework.NewPodSetTopologyRequest(&submitterJobPodSet.Template.ObjectMeta).Build()
+							if err != nil {
+								return nil, err
+							}
+							submitterJobPodSet.TopologyRequest = topologyRequest
+						}
+						podSets = append(podSets, submitterJobPodSet)
+					}
+					log.V(2).Info("Return RayJob PodSets from RayCluster",
+						"rayJob", j.Name,
+						"rayCluster", j.Status.RayClusterName)
+					return podSets, nil
+				}
+			} else {
+				log.V(2).Info("RayCluster HeadPodReady condition not met, using RayJob spec",
+					"rayCluster", j.Status.RayClusterName)
+			}
+		}
+	}
+
+	// Fall back to building PodSets from RayJob spec
+	return j.buildPodSetsFromRayJobSpec()
 }
 
 func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
