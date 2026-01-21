@@ -31,6 +31,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
+	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
@@ -123,20 +124,16 @@ var _ = ginkgo.Describe("Kuberay", func() {
 			gomega.Expect(k8sClient.Create(ctx, rayJob)).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("Checking one workload is created and admitted", func() {
+		wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(rayJob.Name, rayJob.UID), Namespace: ns.Name}
+		createdWorkload := &kueue.Workload{}
+		ginkgo.By("Checking workload is created", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				workloadList := &kueue.WorkloadList{}
-				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				g.Expect(workloadList.Items).To(gomega.HaveLen(1), "Expected one workload in namespace")
-				hasAdmittedWorkload := false
-				for _, wl := range workloadList.Items {
-					if workload.IsAdmitted(&wl) {
-						hasAdmittedWorkload = true
-						break
-					}
-				}
-				g.Expect(hasAdmittedWorkload).To(gomega.BeTrue(), "Expected admitted workload")
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Checking workload is admitted", func() {
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createdWorkload)
 		})
 
 		ginkgo.By("Waiting for the RayJob cluster become ready", func() {
