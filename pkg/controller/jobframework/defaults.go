@@ -36,12 +36,7 @@ import (
 
 func ApplyDefaultForSuspend(ctx context.Context, job GenericJob, k8sClient client.Client,
 	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector labels.Selector) error {
-	return ApplyDefaultForSuspendWithCheckAncestor(ctx, job, k8sClient, manageJobsWithoutQueueName, managedJobsNamespaceSelector, true)
-}
-
-func ApplyDefaultForSuspendWithCheckAncestor(ctx context.Context, job GenericJob, k8sClient client.Client,
-	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector labels.Selector, checkAncestor bool) error {
-	suspend, err := WorkloadShouldBeSuspended(ctx, job.Object(), k8sClient, manageJobsWithoutQueueName, managedJobsNamespaceSelector, checkAncestor)
+	suspend, err := WorkloadShouldBeSuspended(ctx, job.Object(), k8sClient, manageJobsWithoutQueueName, managedJobsNamespaceSelector)
 	if err != nil {
 		return err
 	}
@@ -53,13 +48,11 @@ func ApplyDefaultForSuspendWithCheckAncestor(ctx context.Context, job GenericJob
 
 // WorkloadShouldBeSuspended determines whether jobObj should be default suspended on creation
 func WorkloadShouldBeSuspended(ctx context.Context, jobObj client.Object, k8sClient client.Client,
-	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector labels.Selector, checkAncestor bool) (bool, error) {
-	if checkAncestor {
-		// Do not default suspend a job whose ancestor is already managed by Kueue
-		ancestorJob, err := FindAncestorJobManagedByKueue(ctx, k8sClient, jobObj, manageJobsWithoutQueueName)
-		if err != nil || ancestorJob != nil {
-			return false, err
-		}
+	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector labels.Selector) (bool, error) {
+	// Do not default suspend a job whose ancestor is already managed by Kueue
+	ancestorJob, err := FindAncestorJobManagedByKueue(ctx, k8sClient, jobObj, manageJobsWithoutQueueName)
+	if err != nil || ancestorJob != nil {
+		return false, err
 	}
 
 	// Jobs with queue names whose parents are not managed by Kueue are default suspended
