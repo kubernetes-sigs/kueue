@@ -594,7 +594,7 @@ func TestWlReconcile(t *testing.T) {
 				*baseJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					Active(1).
+					Active(0).
 					Obj(),
 			},
 			worker1Workloads: []kueue.Workload{
@@ -604,7 +604,7 @@ func TestWlReconcile(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadDeactivationTarget,
 						Status:  metav1.ConditionTrue,
-						Reason:  kueue.WorkloadEvictedOnManagerCluster,
+						Reason:  "DeactivatedDueToEvictedOnManagerCluster",
 						Message: "Evicted on manager: Evicted by test",
 					}).
 					Obj(),
@@ -647,7 +647,7 @@ func TestWlReconcile(t *testing.T) {
 				*baseJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					Active(1).
+					Active(0).
 					Obj(),
 			},
 			wantWorker2Workloads: nil,
