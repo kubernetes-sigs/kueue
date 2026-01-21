@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -221,9 +222,11 @@ func (j *Job) IsTopLevel() bool {
 		return false
 	}
 
-	// This is job created by RayJob, treat it as top level, since Kueue will not manage RayJob
-	// see https://github.com/kubernetes-sigs/kueue/issues/8201
-	return true
+	// This is job created by RayJob, check it with following logic:
+	// if it is not elastic job, meaning RayJob not enabled autoscaling, treat it as managed by RayJob, return false.
+	// if it is elastic job, meaning RayJob enabled autoscaling, treat it as top level (not managed by RayJob), return true.
+	// See discussion in https://github.com/kubernetes-sigs/kueue/pull/8082
+	return j.Annotations[workloadslicing.EnabledAnnotationKey] == workloadslicing.EnabledAnnotationValue
 }
 
 func (j *Job) PodLabelSelector() string {

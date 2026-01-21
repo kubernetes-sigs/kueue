@@ -21,6 +21,7 @@ import (
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -60,6 +61,11 @@ func isRaySubmitterJobWithAutoScaling(ctx context.Context, jobObj client.Object,
 	rayJob, ok := parentObj.(*rayv1.RayJob)
 	if !ok {
 		log.V(5).Info("Owner object cannot be converted to RayJob", "ownerKind", owner.Kind, "ownerName", owner.Name)
+		return false, nil, nil
+	}
+
+	if rayJob.Spec.RayClusterSpec == nil ||
+		!ptr.Deref(rayJob.Spec.RayClusterSpec.EnableInTreeAutoscaling, false) {
 		return false, nil, nil
 	}
 

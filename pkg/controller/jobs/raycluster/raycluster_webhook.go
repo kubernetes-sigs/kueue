@@ -88,7 +88,7 @@ func (w *RayClusterWebhook) Default(ctx context.Context, obj runtime.Object) err
 	log := ctrl.LoggerFrom(ctx).WithName("raycluster-webhook")
 	log.V(10).Info("Applying defaults")
 	jobframework.ApplyDefaultLocalQueue(job.Object(), w.queues.DefaultLocalQueueExist)
-	if err := applyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
+	if err := jobframework.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
 	jobframework.ApplyDefaultForManagedBy(job, w.queues, w.cache, log)
@@ -256,42 +256,4 @@ func (w *RayClusterWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj r
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *RayClusterWebhook) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
 	return nil, nil
-}
-
-func applyDefaultForSuspend(ctx context.Context, job jobframework.GenericJob, k8sClient client.Client,
-	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector labels.Selector) error {
-	suspend, err := workloadShouldBeSuspended(ctx, job.Object(), k8sClient, manageJobsWithoutQueueName, managedJobsNamespaceSelector)
-	if err != nil {
-		return err
-	}
-	if suspend && !job.IsSuspended() {
-		job.Suspend()
-	}
-	return nil
-}
-
-func workloadShouldBeSuspended(ctx context.Context, jobObj client.Object, k8sClient client.Client,
-	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector labels.Selector) (bool, error) {
-	// Jobs with queue names whose parents are not managed by Kueue are default suspended
-	if jobframework.QueueNameForObject(jobObj) != "" {
-		return true, nil
-	}
-
-	// Logic for managing jobs without queue names.
-	if manageJobsWithoutQueueName {
-		if managedJobsNamespaceSelector != nil {
-			// Default suspend the job if the namespace selector matches
-			ns := corev1.Namespace{}
-			err := k8sClient.Get(ctx, client.ObjectKey{Name: jobObj.GetNamespace()}, &ns)
-			if err != nil {
-				return false, fmt.Errorf("failed to get namespace: %w", err)
-			}
-			return managedJobsNamespaceSelector.Matches(labels.Set(ns.GetLabels())), nil
-		} else {
-			// Namespace filtering is disabled; unconditionally default suspend
-			return true, nil
-		}
-	}
-
-	return false, nil
 }
