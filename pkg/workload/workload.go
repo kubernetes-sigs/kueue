@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	resourcehelpers "k8s.io/component-helpers/resource"
@@ -82,6 +83,36 @@ type Reference string
 
 func NewReference(namespace, name string) Reference {
 	return Reference(namespace + "/" + name)
+}
+
+// GetWorkloadFromReference retrieves a kueue.Workload object given its workload.Reference.
+// It parses the reference string into a namespaced name and then uses the provided client.Client
+// to fetch the Workload object from the Kubernetes API.
+func GetWorkloadFromReference(ctx context.Context, c client.Client, ref Reference) (*kueue.Workload, error) {
+	// 1. Parse the workload.Reference string to extract namespace and name.
+	// The format is expected to be "<namespace>/<name>".
+	parts := strings.SplitN(string(ref), "/", 2)
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid workload reference format: %q. Expected format: <namespace>/<name>", ref)
+	}
+	namespace := parts[0]
+	name := parts[1]
+
+	// 2. Create a NamespacedName object, which is required by client.Client.Get().
+	namespacedName := types.NamespacedName{
+		Namespace: namespace,
+		Name:      name,
+	}
+
+	// 3. Initialize a new Workload object and use the client to fetch it.
+	workload := &kueue.Workload{}
+	if err := c.Get(ctx, namespacedName, workload); err != nil {
+		// Return the original error, allowing the caller to handle specific errors
+		// like "NotFound" using k8s.io/apimachinery/pkg/api/errors.IsNotFound(err).
+		return nil, fmt.Errorf("failed to get workload %q (%s/%s): %w", ref, namespace, name, err)
+	}
+
+	return workload, nil
 }
 
 func Status(w *kueue.Workload) string {

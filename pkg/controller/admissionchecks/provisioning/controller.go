@@ -53,6 +53,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 const (
@@ -281,6 +282,18 @@ func (c *Controller) syncOwnedProvisionRequest(
 			mergedPodSets, err := mergePodSets(wl, &prc.Spec)
 			if err != nil {
 				return err
+			}
+
+			if oldWorkloadName := workloadslicing.ReplacementForKey(wl); oldWorkloadName != nil {
+				oldWorkload, err := workload.GetWorkloadFromReference(ctx, c.client, *oldWorkloadName)
+				if err != nil {
+					return err
+				}
+				oldMergedPodSets, err := mergePodSets(oldWorkload, &prc.Spec)
+				if err != nil {
+					return err
+				}
+				mergedPodSets = calculateProvisioningDelta(mergedPodSets, oldMergedPodSets)
 			}
 
 			for _, mergedPodSet := range mergedPodSets {
@@ -849,6 +862,27 @@ type MergedPodSet struct {
 	PodSet           *kueue.PodSet
 	PodSetAssignment *kueue.PodSetAssignment
 	Count            int32
+}
+
+func calculateProvisioningDelta(newSets, oldSets []MergedPodSet) []MergedPodSet {
+	var result []MergedPodSet
+	oldSetsMap := make(map[kueue.PodSetReference]MergedPodSet, len(oldSets))
+	for _, ps := range oldSets {
+		oldSetsMap[ps.Name] = ps
+	}
+
+	for _, newPs := range newSets {
+		if oldPs, found := oldSetsMap[newPs.Name]; !found {
+			// Case 1: Entirely new pod set, add it as is.
+			result = append(result, newPs)
+			// Case 2: Pod set exists in oldSets.
+		} else if newPs.Count > oldPs.Count {
+			deltaPs := newPs
+			deltaPs.Count = newPs.Count - oldPs.Count
+			result = append(result, deltaPs)
+		}
+	}
+	return result
 }
 
 func mergePodSets(

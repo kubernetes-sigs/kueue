@@ -1885,3 +1885,162 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 		})
 	}
 }
+
+func TestCalculateProvisioningDelta(t *testing.T) {
+	basePodSet := &kueue.PodSet{
+		Name:  "main",
+		Count: 2,
+		Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Name: "c",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("1"),
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	workerPodSet := &kueue.PodSet{
+		Name:  "worker",
+		Count: 3,
+		Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Name: "c",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceMemory: resource.MustParse("100Mi"),
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	cases := map[string]struct {
+		newSets []MergedPodSet
+		oldSets []MergedPodSet
+		want    []MergedPodSet
+	}{
+		"new pod set": {
+			newSets: []MergedPodSet{
+				{
+					Name: "main",
+
+					PodSet: basePodSet,
+					Count:  2,
+				},
+			},
+			oldSets: []MergedPodSet{},
+			want: []MergedPodSet{
+				{
+					Name:   "main",
+					PodSet: basePodSet,
+					Count:  2,
+				},
+			},
+		},
+		"no changes": {
+			newSets: []MergedPodSet{
+				{
+					Name:   "main",
+					PodSet: basePodSet,
+					Count:  2,
+				},
+			},
+			oldSets: []MergedPodSet{
+				{
+					Name:   "main",
+					PodSet: basePodSet,
+					Count:  2,
+				},
+			},
+			want: nil,
+		},
+		"count increased": {
+			newSets: []MergedPodSet{
+				{
+					Name:   "main",
+					PodSet: basePodSet,
+					Count:  3,
+				},
+			},
+			oldSets: []MergedPodSet{
+				{
+					Name:   "main",
+					PodSet: basePodSet,
+					Count:  2,
+				},
+			},
+			want: []MergedPodSet{
+				{
+					Name:   "main",
+					PodSet: basePodSet,
+					Count:  1,
+				},
+			},
+		},
+		"count decreased": {
+			newSets: []MergedPodSet{
+				{
+					Name:   "main",
+					PodSet: basePodSet,
+					Count:  1,
+				},
+			},
+			oldSets: []MergedPodSet{
+				{
+					Name:   "main",
+					PodSet: basePodSet,
+					Count:  2,
+				},
+			},
+			want: nil,
+		},
+		"multiple pod sets: one changed, one new, one same": {
+			newSets: []MergedPodSet{
+				{
+					Name:   "main",
+					PodSet: basePodSet,
+					Count:  2,
+				},
+				{
+					Name:   "worker",
+					PodSet: workerPodSet,
+					Count:  3,
+				},
+			},
+			oldSets: []MergedPodSet{
+				{
+					Name:   "main",
+					PodSet: basePodSet,
+					Count:  2,
+				},
+			},
+			want: []MergedPodSet{
+				{
+					Name:   "worker",
+					PodSet: workerPodSet,
+					Count:  3,
+				},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := calculateProvisioningDelta(tc.newSets, tc.oldSets)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("unexpected delta (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
