@@ -1041,11 +1041,9 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				reconcileLogs := util.ObservedLogs.FilterMessage("Reconciler error")
-				g.Expect(reconcileLogs.All()).ShouldNot(gomega.BeEmpty(), "There should be some reconcilation log entry")
+				g.Expect(reconcileLogs.All()).ShouldNot(gomega.BeEmpty(), "There should be some reconciliation log entry")
 				g.Expect(reconcileLogs.FilterLevelExact(zapcore.ErrorLevel).All()).Should(gomega.BeEmpty(), "Log level should not be error")
-
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
 		})
 	})
 })

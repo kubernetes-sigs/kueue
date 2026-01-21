@@ -126,9 +126,7 @@ func main() {
 	var featureGates string
 	flag.StringVar(&featureGates, "feature-gates", "", "A set of key=value pairs that describe feature gates for alpha/experimental features.")
 
-	errorLevelOverrideWrapper := zaplog.WrapCore(func(core zapcore.Core) zapcore.Core {
-		return utillogging.NewErrorLogLevelOverridenCore(core)
-	})
+	errorLevelOverrideWrapper := zaplog.WrapCore(utillogging.NewErrorLogLevelOverridenCore)
 
 	zapOptions := zap.Options{
 		TimeEncoder: zapcore.RFC3339NanoTimeEncoder,

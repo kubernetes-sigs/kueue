@@ -48,7 +48,7 @@ type ErrorLogLevelOverridenZapCore struct {
 }
 
 func (core ErrorLogLevelOverridenZapCore) Check(entry zapcore.Entry, checkedEntries *zapcore.CheckedEntry) *zapcore.CheckedEntry {
-	if core.Core.Enabled(entry.Level) {
+	if core.Enabled(entry.Level) {
 		return checkedEntries.AddCore(entry, core)
 	}
 	return checkedEntries

@@ -96,5 +96,4 @@ func TestErrorLogLevelOverridenZapCoreLeavesRestOfLogsIntact(t *testing.T) {
 	if retrievedVal := logWithFieldContext[fieldKey]; retrievedVal != fieldValue {
 		t.Errorf("Unexpected field value %v, expected %v\n", retrievedVal, fieldValue)
 	}
-
 }
