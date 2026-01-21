@@ -1418,13 +1418,22 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 	return nil
 }
 
-func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, msg string, clock clock.Clock) error {
+func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, msg string, clock clock.Clock, tracker *roletracker.RoleTracker) error {
 	if IsFinished(wl) {
 		return nil
 	}
-	return PatchAdmissionStatus(ctx, c, wl, clock, func(wl *kueue.Workload) (bool, error) {
+	err := PatchAdmissionStatus(ctx, c, wl, clock, func(wl *kueue.Workload) (bool, error) {
 		return SetFinishedCondition(wl, clock.Now(), reason, msg), nil
 	})
+	if err != nil {
+		return err
+	}
+	priorityClassName := PriorityClassName(wl)
+	metrics.FinishedWorkload(ptr.Deref(wl.Status.Admission, kueue.Admission{}).ClusterQueue, priorityClassName, tracker)
+	if features.Enabled(features.LocalQueueMetrics) {
+		metrics.LocalQueueFinishedWorkload(metrics.LQRefFromWorkload(wl), priorityClassName, tracker)
+	}
+	return nil
 }
 
 func PriorityClassName(wl *kueue.Workload) string {
