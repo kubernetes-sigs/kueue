@@ -1426,6 +1426,9 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 }
 
 func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, msg string, clock clock.Clock) error {
+	if IsFinished(wl) {
+		return nil
+	}
 	return PatchAdmissionStatus(ctx, c, wl, clock, func(wl *kueue.Workload) (bool, error) {
 		return SetFinishedCondition(wl, clock.Now(), reason, msg), nil
 	})
