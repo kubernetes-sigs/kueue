@@ -559,7 +559,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 }
 
 func (r *WorkloadReconciler) deleteWorkloadFromCaches(ctx context.Context, log logr.Logger, namespace, name string) {
-	log.V(2).Info("Workload has been deleted; Cleaning up caches")
+	log.V(3).Info("Workload has been deleted; Cleaning up caches")
 	wlRef := workload.NewReference(namespace, name)
 
 	// Retrieve the cached workload info before purging the data from the caches.
