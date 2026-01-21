@@ -1756,6 +1756,10 @@ func TestGetWorkloadFromCache(t *testing.T) {
 			wl:     nil,
 			wantWl: nil,
 		},
+		"missing local queue": {
+			wl:     utiltestingapi.MakeWorkload("a", "").Queue("deleted-lq").Obj(),
+			wantWl: nil,
+		},
 	}
 
 	for name, tc := range cases {
@@ -1790,7 +1794,7 @@ func TestGetWorkloadFromCache(t *testing.T) {
 			manager.DeleteLocalQueue(log, lqToDelete)
 
 			gotWl := manager.GetWorkloadFromCache(wlRef)
-			if diff := cmp.Diff(tc.wantWl, gotWl, ignoreTypeMeta); diff != "" {
+			if diff := cmp.Diff(tc.wantWl, gotWl); diff != "" {
 				t.Errorf("GetWorkloadFromCache returned wrong workload (-want,+got):\n%s", diff)
 			}
 		})

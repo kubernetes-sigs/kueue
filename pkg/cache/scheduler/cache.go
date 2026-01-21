@@ -626,7 +626,12 @@ func (c *Cache) GetWorkloadFromCache(wlKey workload.Reference) *kueue.Workload {
 		return nil
 	}
 
-	return cq.Workloads[wlKey].Obj
+	wlInfo, ok := cq.Workloads[wlKey]
+	if !ok {
+		return nil
+	}
+
+	return wlInfo.Obj
 }
 
 func (c *Cache) deleteFromQueueIfPresent(log logr.Logger, wlKey workload.Reference, cqName kueue.ClusterQueueReference) {
