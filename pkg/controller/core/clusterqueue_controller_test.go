@@ -222,7 +222,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			}
 			r := &ClusterQueueReconciler{
 				client:   cl,
-				log:      log,
+				logName:  "cluster-queue-reconciler",
 				cache:    cqCache,
 				qManager: qManager,
 			}
