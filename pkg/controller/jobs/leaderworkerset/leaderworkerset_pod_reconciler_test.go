@@ -28,7 +28,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
@@ -127,7 +126,7 @@ func TestPodReconciler(t *testing.T) {
 					PrebuiltWorkload(GetWorkloadName(types.UID(testUID), "lws", "0")).
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
-					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					Annotation(podconstants.RoleHashAnnotation, leaderPodSetName).
 					Obj(),
 			},
 		},
@@ -156,7 +155,7 @@ func TestPodReconciler(t *testing.T) {
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 					Annotation(leaderworkersetv1.LeaderPodNameAnnotationKey, "lws-0").
-					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					Annotation(podconstants.RoleHashAnnotation, workerPodSetName).
 					Obj(),
 			},
 		},
