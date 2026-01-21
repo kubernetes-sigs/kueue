@@ -34,13 +34,14 @@ import (
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 )
 
-type DefaultOption struct {
-	IgnoreAncestor bool
+func ApplyDefaultForSuspend(ctx context.Context, job GenericJob, k8sClient client.Client,
+	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector labels.Selector) error {
+	return ApplyDefaultForSuspendWithCheckAncestor(ctx, job, k8sClient, manageJobsWithoutQueueName, managedJobsNamespaceSelector, true)
 }
 
-func ApplyDefaultForSuspend(ctx context.Context, job GenericJob, k8sClient client.Client,
-	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector labels.Selector, options ...DefaultOption) error {
-	suspend, err := WorkloadShouldBeSuspended(ctx, job.Object(), k8sClient, manageJobsWithoutQueueName, managedJobsNamespaceSelector, options...)
+func ApplyDefaultForSuspendWithCheckAncestor(ctx context.Context, job GenericJob, k8sClient client.Client,
+	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector labels.Selector, checkAncestor bool) error {
+	suspend, err := WorkloadShouldBeSuspended(ctx, job.Object(), k8sClient, manageJobsWithoutQueueName, managedJobsNamespaceSelector, checkAncestor)
 	if err != nil {
 		return err
 	}
@@ -52,14 +53,8 @@ func ApplyDefaultForSuspend(ctx context.Context, job GenericJob, k8sClient clien
 
 // WorkloadShouldBeSuspended determines whether jobObj should be default suspended on creation
 func WorkloadShouldBeSuspended(ctx context.Context, jobObj client.Object, k8sClient client.Client,
-	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector labels.Selector, options ...DefaultOption) (bool, error) {
-	ignoreAncestor := false
-	for _, option := range options {
-		if option.IgnoreAncestor {
-			ignoreAncestor = true
-		}
-	}
-	if !ignoreAncestor {
+	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector labels.Selector, checkAncestor bool) (bool, error) {
+	if checkAncestor {
 		// Do not default suspend a job whose ancestor is already managed by Kueue
 		ancestorJob, err := FindAncestorJobManagedByKueue(ctx, k8sClient, jobObj, manageJobsWithoutQueueName)
 		if err != nil || ancestorJob != nil {
