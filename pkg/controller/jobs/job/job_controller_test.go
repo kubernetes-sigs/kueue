@@ -4150,7 +4150,7 @@ func TestJobIsTopLevel(t *testing.T) {
 			},
 			want: false,
 		},
-		"job owned by RayJob but not elastic should return true": {
+		"job owned by RayJob but not elastic should return false": {
 			job: &Job{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-job",
@@ -4169,9 +4169,9 @@ func TestJobIsTopLevel(t *testing.T) {
 				},
 				Spec: batchv1.JobSpec{},
 			},
-			want: true,
+			want: false,
 		},
-		"job owned by RayJob with incorrect elastic annotation value should return true": {
+		"job owned by RayJob with incorrect elastic annotation value should return false": {
 			job: &Job{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-job",
@@ -4193,7 +4193,7 @@ func TestJobIsTopLevel(t *testing.T) {
 				},
 				Spec: batchv1.JobSpec{},
 			},
-			want: true,
+			want: false,
 		},
 		"job owned by RayJob with elastic annotation should return true": {
 			job: &Job{
