@@ -90,6 +90,7 @@ func (w *RayJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		log.V(5).Info("Update RayJob Suspend to false", "jobName", job.Name, "jobNamespace", job.Namespace)
 		job.Spec.Suspend = false
 	}
+	jobframework.ApplyDefaultForManagedBy(job, w.queues, w.cache, log)
 	return nil
 }
 
