@@ -115,7 +115,7 @@ func (j *AppWrapper) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
-func (j *AppWrapper) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
+func (j *AppWrapper) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, error) {
 	log := ctrl.LoggerFrom(ctx)
 	podSpecTemplates, awPodSets, err := awutils.GetComponentPodSpecs((*awv1beta2.AppWrapper)(j))
 	if err != nil {

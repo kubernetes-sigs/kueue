@@ -232,17 +232,17 @@ func getRuntimeSpec(ctx context.Context, trainJob *kftrainer.TrainJob) (*kftrain
 	}
 }
 
-func podSets(ctx context.Context, t *TrainJob) ([]kueue.PodSet, error) {
+func podSets(ctx context.Context, c client.Client, t *TrainJob) ([]kueue.PodSet, error) {
 	jobset, err := getChildJobSet(ctx, t)
 	if err != nil {
 		return nil, err
 	}
 
-	return (*workloadjobset.JobSet)(jobset).PodSets(ctx)
+	return (*workloadjobset.JobSet)(jobset).PodSets(ctx, c)
 }
 
-func (t *TrainJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
-	podsets, err := podSets(ctx, t)
+func (t *TrainJob) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, error) {
+	podsets, err := podSets(ctx, c, t)
 	if err != nil {
 		return nil, err
 	}

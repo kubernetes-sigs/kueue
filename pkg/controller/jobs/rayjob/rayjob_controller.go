@@ -118,7 +118,7 @@ func (j *RayJob) PodLabelSelector() string {
 	return ""
 }
 
-func (j *RayJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
+func (j *RayJob) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, error) {
 	podSets := make([]kueue.PodSet, 0)
 
 	// head
