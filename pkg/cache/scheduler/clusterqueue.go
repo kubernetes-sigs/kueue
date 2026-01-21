@@ -479,13 +479,6 @@ func (c *clusterQueue) reportActiveWorkloads() {
 	metrics.ReservingActiveWorkloads.WithLabelValues(string(c.Name), role).Set(float64(len(c.Workloads)))
 }
 
-func (q *LocalQueue) reportActiveWorkloads(tracker *roletracker.RoleTracker) {
-	role := roletracker.GetRole(tracker)
-	namespace, name := queue.MustParseLocalQueueReference(q.key)
-	metrics.LocalQueueAdmittedActiveWorkloads.WithLabelValues(string(name), namespace, role).Set(float64(q.admittedWorkloads))
-	metrics.LocalQueueReservingActiveWorkloads.WithLabelValues(string(name), namespace, role).Set(float64(q.reservingWorkloads))
-}
-
 // updateWorkloadUsage updates the usage of the ClusterQueue for the workload
 // and the number of admitted workloads for local queues.
 func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, op usageOp) {
@@ -607,14 +600,6 @@ func (c *clusterQueue) flavorInUse(flavor kueue.ResourceFlavorReference) bool {
 		}
 	}
 	return false
-}
-
-func (q *LocalQueue) resetFlavorsAndResources(cqUsage resources.FlavorResourceQuantities, cqAdmittedUsage resources.FlavorResourceQuantities) {
-	// Clean up removed flavors or resources.
-	q.Lock()
-	defer q.Unlock()
-	q.totalReserved = resetUsage(q.totalReserved, cqUsage)
-	q.admittedUsage = resetUsage(q.admittedUsage, cqAdmittedUsage)
 }
 
 func resetUsage(lqUsage resources.FlavorResourceQuantities, cqUsage resources.FlavorResourceQuantities) resources.FlavorResourceQuantities {
