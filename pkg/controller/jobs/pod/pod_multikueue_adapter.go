@@ -100,18 +100,18 @@ func (*multiKueueAdapter) GetEmptyList() client.ObjectList {
 	return &corev1.PodList{}
 }
 
-func (*multiKueueAdapter) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
+func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedName, error) {
 	pod, isPod := o.(*corev1.Pod)
 	if !isPod {
-		return types.NamespacedName{}, errors.New("not a pod")
+		return nil, errors.New("not a pod")
 	}
 
 	prebuiltWl, hasPrebuiltWorkload := pod.Labels[constants.PrebuiltWorkloadLabel]
 	if !hasPrebuiltWorkload {
-		return types.NamespacedName{}, fmt.Errorf("no prebuilt workload found for pod: %s", klog.KObj(pod))
+		return nil, fmt.Errorf("no prebuilt workload found for pod: %s", klog.KObj(pod))
 	}
 
-	return types.NamespacedName{Name: prebuiltWl, Namespace: pod.Namespace}, nil
+	return []types.NamespacedName{{Name: prebuiltWl, Namespace: pod.Namespace}}, nil
 }
 
 // isPodAPartOfGroup checks if a pod belongs to a group by verifying the presence of a group name label.

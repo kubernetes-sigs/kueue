@@ -255,8 +255,18 @@ type MultiKueueAdapter interface {
 type MultiKueueWatcher interface {
 	// GetEmptyList returns an empty list of objects
 	GetEmptyList() client.ObjectList
-	// WorkloadKeyFor returns the key of the workload of interest
+	// WorkloadKeysFor returns the keys of the workloads of interest
 	// - the object name for workloads
-	// - the prebuilt workload for job types
-	WorkloadKeyFor(runtime.Object) (types.NamespacedName, error)
+	// - the prebuilt workload(s) for job types
+	WorkloadKeysFor(runtime.Object) ([]types.NamespacedName, error)
+}
+
+// MultiKueueMultiWorkloadAdapter is an optional interface for MultiKueue adapters
+// whose jobs create multiple workloads (e.g., LeaderWorkerSet creates one workload per replica).
+type MultiKueueMultiWorkloadAdapter interface {
+	// GetExpectedWorkloadCount returns the number of workloads the job creates.
+	GetExpectedWorkloadCount(ctx context.Context, c client.Client, key types.NamespacedName) (int, error)
+	// GetWorkloadIndex extracts the numeric index from the workload for ordering.
+	// Returns -1 if the index cannot be determined.
+	GetWorkloadIndex(wl *kueue.Workload) int
 }
