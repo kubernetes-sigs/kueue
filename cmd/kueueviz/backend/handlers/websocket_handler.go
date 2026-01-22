@@ -19,7 +19,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
-	log "log/slog"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -38,39 +38,39 @@ var upgrader = websocket.Upgrader{
 func (h *Handlers) GenericWebSocketHandler(dataFetcher func(ctx context.Context) (any, error)) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		startTime := time.Now()
-		log.Debug("WebSocket handler started")
+		slog.Debug("WebSocket handler started")
 
 		// Upgrade the HTTP connection to a WebSocket connection
 		connStart := time.Now()
 		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 		if err != nil {
-			log.Debug("Failed to upgrade to WebSocket: %v", "error", err)
+			slog.Debug("Failed to upgrade to WebSocket: %v", "error", err)
 			return
 		}
 		defer conn.Close()
-		log.Debug("WebSocket connection established took %v", "duration", time.Since(connStart))
+		slog.Debug("WebSocket connection established took %v", "duration", time.Since(connStart))
 
 		// Fetch the initial data to send it immediately
 		fetchStart := time.Now()
 		data, err := dataFetcher(c.Request.Context())
 		if err != nil {
-			log.Error("Error fetching data %v", "error", err)
+			slog.Error("Error fetching data %v", "error", err)
 			return
 		}
-		log.Debug("Data fetched took %v", "duration", time.Since(fetchStart))
+		slog.Debug("Data fetched took %v", "duration", time.Since(fetchStart))
 
 		// Marshal the fetched data into JSON
 		marshalStart := time.Now()
 		jsonData, err := json.Marshal(data)
 		if err != nil {
-			log.Error("Error marshaling data : %v", "error", err)
+			slog.Error("Error marshaling data : %v", "error", err)
 			return
 		}
-		log.Debug("Data marshaled into JSON at took %v", "duration", time.Since(marshalStart))
+		slog.Debug("Data marshaled into JSON at took %v", "duration", time.Since(marshalStart))
 
 		// Set write deadline to avoid blocking indefinitely
 		if err := conn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
-			log.Error("Error setting write deadline: %v", "error", err)
+			slog.Error("Error setting write deadline: %v", "error", err)
 			return
 		}
 
@@ -78,11 +78,11 @@ func (h *Handlers) GenericWebSocketHandler(dataFetcher func(ctx context.Context)
 		writeStart := time.Now()
 		err = conn.WriteMessage(websocket.TextMessage, jsonData)
 		if err != nil {
-			log.Error("Error writing message : %v", "error", err)
+			slog.Error("Error writing message : %v", "error", err)
 			// If writing fails, break the loop and close the connection
 			return
 		}
-		log.Debug("Initial message sent to client took %v", "duration", time.Since(writeStart))
+		slog.Debug("Initial message sent to client took %v", "duration", time.Since(writeStart))
 
 		// Start a ticker for periodic updates (every 5 seconds)
 		// TODO use SharedInformers and TTL to only send updates if they happen
@@ -95,23 +95,23 @@ func (h *Handlers) GenericWebSocketHandler(dataFetcher func(ctx context.Context)
 			fetchStart := time.Now()
 			data, err := dataFetcher(c.Request.Context())
 			if err != nil {
-				log.Error("Error fetching data %v", "error", err)
+				slog.Error("Error fetching data %v", "error", err)
 				continue
 			}
-			log.Debug("Data fetched at  took %v", "duration", time.Since(fetchStart))
+			slog.Debug("Data fetched at  took %v", "duration", time.Since(fetchStart))
 
 			// Marshal the fetched data into JSON
 			marshalStart := time.Now()
 			jsonData, err := json.Marshal(data)
 			if err != nil {
-				log.Error("Error marshaling data at %v", "error", err)
+				slog.Error("Error marshaling data at %v", "error", err)
 				continue
 			}
-			log.Debug("Data marshaled into JSON took %v", "duration", time.Since(marshalStart))
+			slog.Debug("Data marshaled into JSON took %v", "duration", time.Since(marshalStart))
 
 			// Set write deadline to avoid blocking indefinitely
 			if err := conn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
-				log.Error("Error writing deadline to client: %v", "error", err)
+				slog.Error("Error writing deadline to client: %v", "error", err)
 				continue
 			}
 
@@ -119,13 +119,13 @@ func (h *Handlers) GenericWebSocketHandler(dataFetcher func(ctx context.Context)
 			writeStart := time.Now()
 			err = conn.WriteMessage(websocket.TextMessage, jsonData)
 			if err != nil {
-				log.Error("Error writing message: ", "error", err)
+				slog.Error("Error writing message: ", "error", err)
 				// If writing fails, break the loop and close the connection
 				break
 			}
-			log.Debug("Message sent to client  took %v", "duration", time.Since(writeStart))
+			slog.Debug("Message sent to client  took %v", "duration", time.Since(writeStart))
 		}
 
-		log.Debug("WebSocket handler completed  total time: %v", "duration", time.Since(startTime))
+		slog.Debug("WebSocket handler completed  total time: %v", "duration", time.Since(startTime))
 	}
 }
