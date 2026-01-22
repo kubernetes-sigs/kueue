@@ -1717,6 +1717,15 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 
 	_, usePrebuiltWorkload := PrebuiltWorkloadFor(job)
 	if usePrebuiltWorkload {
+		// For elastic jobs in MultiKueue, the prebuilt workload might be transitioning
+		// during scale-up (old slice deleted, new slice being synced via SyncJob).
+		// Don't stop the job - just wait for the new workload to be synced.
+		if workloadSliceEnabled(job) {
+			log.V(2).Info("Elastic job with prebuilt workload label has no workload object, waiting for workload sync",
+				"job", klog.KObj(object))
+			return nil
+		}
+
 		// Stop the job if not already suspended
 		if stopErr := r.stopJob(ctx, job, nil, StopReasonNoMatchingWorkload, "missing workload"); stopErr != nil {
 			return stopErr
