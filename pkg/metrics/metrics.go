@@ -164,6 +164,26 @@ The label 'result' can have the following values:
 
 	// +metricsdoc:group=clusterqueue
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",priority_class="the priority class name",replica_role="one of `leader`, `follower`, or `standalone`"
+	FinishedWorkloadsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: constants.KueueName,
+			Name:      "finished_workloads_total",
+			Help:      "The total number of finished workloads per 'cluster_queue'",
+		}, []string{"cluster_queue", "priority_class", "replica_role"},
+	)
+
+	// +metricsdoc:group=localqueue
+	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",priority_class="the priority class name",replica_role="one of `leader`, `follower`, or `standalone`"
+	LocalQueueFinishedWorkloadsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: constants.KueueName,
+			Name:      "local_queue_finished_workloads_total",
+			Help:      "The total number of finished workloads per 'local_queue'",
+		}, []string{"name", "namespace", "priority_class", "replica_role"},
+	)
+
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",priority_class="the priority class name",replica_role="one of `leader`, `follower`, or `standalone`"
 	QuotaReservedWaitTime = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
@@ -604,6 +624,16 @@ func LocalQueueQuotaReservedWorkload(lq LocalQueueReference, priorityClass strin
 	LocalQueueQuotaReservedWaitTime.WithLabelValues(string(lq.Name), lq.Namespace, priorityClass, role).Observe(waitTime.Seconds())
 }
 
+func FinishedWorkload(cqName kueue.ClusterQueueReference, priorityClass string, tracker *roletracker.RoleTracker) {
+	role := roletracker.GetRole(tracker)
+	FinishedWorkloadsTotal.WithLabelValues(string(cqName), priorityClass, role).Inc()
+}
+
+func LocalQueueFinishedWorkload(lq LocalQueueReference, priorityClass string, tracker *roletracker.RoleTracker) {
+	role := roletracker.GetRole(tracker)
+	LocalQueueFinishedWorkloadsTotal.WithLabelValues(string(lq.Name), lq.Namespace, priorityClass, role).Inc()
+}
+
 func AdmittedWorkload(cqName kueue.ClusterQueueReference, priorityClass string, waitTime time.Duration, tracker *roletracker.RoleTracker) {
 	role := roletracker.GetRole(tracker)
 	AdmittedWorkloadsTotal.WithLabelValues(string(cqName), priorityClass, role).Inc()
@@ -684,6 +714,7 @@ func ClearClusterQueueMetrics(cqName string) {
 	PendingWorkloads.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	QuotaReservedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	QuotaReservedWaitTime.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
+	FinishedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	PodsReadyToEvictedTimeSeconds.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	AdmittedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	AdmissionWaitTime.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
@@ -699,6 +730,7 @@ func ClearLocalQueueMetrics(lq LocalQueueReference) {
 	LocalQueuePendingWorkloads.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
 	LocalQueueQuotaReservedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
 	LocalQueueQuotaReservedWaitTime.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
+	LocalQueueFinishedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
 	LocalQueueAdmittedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
 	LocalQueueAdmissionWaitTime.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
 	LocalQueueAdmissionChecksWaitTime.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
@@ -852,6 +884,7 @@ func Register() {
 		AdmittedActiveWorkloads,
 		QuotaReservedWorkloadsTotal,
 		QuotaReservedWaitTime,
+		FinishedWorkloadsTotal,
 		PodsReadyToEvictedTimeSeconds,
 		AdmittedWorkloadsTotal,
 		EvictedWorkloadsTotal,
@@ -881,6 +914,7 @@ func RegisterLQMetrics() {
 		LocalQueueReservingActiveWorkloads,
 		LocalQueueAdmittedActiveWorkloads,
 		LocalQueueQuotaReservedWorkloadsTotal,
+		LocalQueueFinishedWorkloadsTotal,
 		LocalQueueQuotaReservedWaitTime,
 		LocalQueueAdmittedWorkloadsTotal,
 		LocalQueueAdmissionWaitTime,

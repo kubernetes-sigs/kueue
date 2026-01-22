@@ -51,7 +51,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
@@ -761,6 +760,16 @@ func ExpectQuotaReservedWaitTimeMetric(cq *kueue.ClusterQueue, priorityClass str
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
+func ExpectFinishedWorkloadsTotalMetric(cq *kueue.ClusterQueue, priorityClass string, v int) {
+	metric := metrics.FinishedWorkloadsTotal.WithLabelValues(cq.Name, priorityClass, roletracker.RoleStandalone)
+	expectCounterMetric(metric, v)
+}
+
+func ExpectLQFinishedWorkloadsTotalMetric(lq *kueue.LocalQueue, priorityClass string, value int) {
+	metric := metrics.LocalQueueFinishedWorkloadsTotal.WithLabelValues(lq.Name, lq.Namespace, priorityClass, roletracker.RoleStandalone)
+	expectCounterMetric(metric, value)
+}
+
 func expectCounterMetric(metric prometheus.Counter, count int) {
 	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
 		v, err := testutil.GetCounterMetricValue(metric)
@@ -1044,41 +1053,6 @@ func ExpectWorkloadsFinalizedOrGone(ctx context.Context, k8sClient client.Client
 			g.Expect(createdWorkload.Finalizers).Should(gomega.BeEmpty(), "Expected workload to be finalized")
 		}, Timeout, Interval).Should(gomega.Succeed())
 	}
-}
-
-func ExpectEventsForObjects(eventWatcher watch.Interface, objs sets.Set[types.NamespacedName], filter func(*corev1.Event) bool) {
-	ExpectEventsForObjectsWithTimeout(eventWatcher, objs, filter, Timeout)
-}
-
-func ExpectEventsForObjectsWithTimeout(eventWatcher watch.Interface, objs sets.Set[types.NamespacedName], filter func(*corev1.Event) bool, timeout time.Duration) {
-	gotObjs := sets.New[types.NamespacedName]()
-	timeoutCh := time.After(timeout)
-readCh:
-	for !gotObjs.Equal(objs) {
-		select {
-		case evt, ok := <-eventWatcher.ResultChan():
-			gomega.ExpectWithOffset(1, ok).To(gomega.BeTrue())
-			event, ok := evt.Object.(*corev1.Event)
-			gomega.ExpectWithOffset(1, ok).To(gomega.BeTrue())
-			if filter(event) {
-				objKey := types.NamespacedName{Namespace: event.InvolvedObject.Namespace, Name: event.InvolvedObject.Name}
-				gotObjs.Insert(objKey)
-			}
-		case <-timeoutCh:
-			break readCh
-		}
-	}
-	gomega.ExpectWithOffset(1, gotObjs).To(gomega.Equal(objs))
-}
-
-// ExpectEventAppeared asserts that an event matching Reason/Type/Message has been emitted.
-func ExpectEventAppeared(ctx context.Context, k8sClient client.Client, event corev1.Event) {
-	ginkgo.GinkgoHelper()
-	gomega.Eventually(func(g gomega.Gomega) {
-		ok, err := utiltesting.HasEventAppeared(ctx, k8sClient, event)
-		g.Expect(err).NotTo(gomega.HaveOccurred())
-		g.Expect(ok).Should(gomega.BeTrue())
-	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 func ExpectPreemptedCondition(ctx context.Context, k8sClient client.Client, reason string, status metav1.ConditionStatus, preemptedWl, preempteeWl *kueue.Workload, preemteeWorkloadUID, preempteeJobUID, preemptorPath, preempteePath string) {
