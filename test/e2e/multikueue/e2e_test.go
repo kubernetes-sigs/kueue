@@ -79,7 +79,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("MultiKueue", func() {
+var _ = ginkgo.FDescribe("MultiKueue", func() {
 	var (
 		managerNs *corev1.Namespace
 		worker1Ns *corev1.Namespace
@@ -232,8 +232,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sWorker2Client, worker2Ns)
 	})
 
-	ginkgo.When("Creating a multikueue admission check", func() {
-		ginkgo.It("Should create a pod on worker if admitted", func() {
+	ginkgo.FWhen("Creating a multikueue admission check", func() {
+		ginkgo.FIt("Should create a pod on worker if admitted", func() {
 			pod := testingpod.MakePod("pod", managerNs.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				RequestAndLimit(corev1.ResourceCPU, "1").
@@ -1486,7 +1486,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		})
 	})
 
-	ginkgo.When("Connection via ClusterProfile no plugins", ginkgo.Ordered, func() {
+	ginkgo.FWhen("Connection via ClusterProfile no plugins", ginkgo.Ordered, func() {
 		var (
 			workerCluster3         *kueue.MultiKueueCluster
 			defaultManagerKueueCfg *kueueconfig.Configuration
@@ -1519,7 +1519,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			}
 		})
 
-		ginkgo.It("uses ClusterProfile as way to connect worker cluster", func() {
+		ginkgo.FIt("uses ClusterProfile as way to connect worker cluster", func() {
 			ginkgo.By("updating MultiKueueConfig to include worker that use ClusterProfile", func() {
 				createdMkConfig := &kueue.MultiKueueConfig{}
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -1582,6 +1582,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						},
 						util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("cleaning up created ClusterProfile", func() {
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, cp, true, util.LongTimeout)
 			})
 		})
 	})

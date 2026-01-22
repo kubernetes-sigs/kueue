@@ -50,6 +50,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
@@ -387,6 +388,26 @@ func RestartKueueController(ctx context.Context, k8sClient client.Client, kindCl
 	waitForDeploymentWithOnlyAvailableReplicas(ctx, k8sClient, kcmKey)
 	WaitForLeaderElection(ctx, k8sClient, restartStartTime)
 	waitForWebhookEndpointsReady(ctx, k8sClient)
+
+	// DEBUG
+	services := &corev1.ServiceList{}
+	gomega.Expect(k8sClient.List(ctx, services,
+		client.InNamespace(kueueNS),
+	)).To(gomega.Succeed())
+
+	endpointSlices := &discoveryv1.EndpointSliceList{}
+	gomega.Expect(k8sClient.List(ctx, endpointSlices,
+		client.InNamespace(kueueNS),
+		client.MatchingLabels{discoveryv1.LabelServiceName: "kueue-webhook-service"},
+	)).To(gomega.Succeed())
+
+	for _, svc := range services.Items {
+		ginkgo.GinkgoLogr.Info("Service status", "service", klog.KObj(&svc), "status", svc.Status)
+	}
+
+	for _, eps := range endpointSlices.Items {
+		ginkgo.GinkgoLogr.Info("EndpointSlice status", "endpointslice", klog.KObj(&eps), "endpoints", eps.Endpoints)
+	}
 }
 
 func isPodReady(pod *corev1.Pod) bool {
@@ -444,7 +465,9 @@ func waitForDeploymentWithOnlyAvailableReplicas(ctx context.Context, k8sClient c
 	ginkgo.By(fmt.Sprintf("Waiting for deployment to have only available replicas: %q", key))
 	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, key, deployment)).To(gomega.Succeed())
+		ginkgo.GinkgoLogr.Info("replicas info:", "spec replicas", deployment.Spec.Replicas, "status replicas", deployment.Status.Replicas, "availableReplicas", deployment.Status.AvailableReplicas)
 		g.Expect(deployment.Status.Replicas).To(gomega.Equal(deployment.Status.AvailableReplicas))
+		g.Expect(ptr.Deref(deployment.Spec.Replicas, 0)).To(gomega.Equal(deployment.Status.AvailableReplicas))
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 	ginkgo.GinkgoLogr.Info("Deployment has only available replicas in the cluster", "deployment", key, "waitingTime", time.Since(waitForAvailableStart))
 }
