@@ -945,7 +945,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		// Check if there's a scale-up request from a worker cluster (via MultiKueue).
 		// This happens when the worker cluster detects autoscaling and reports the
 		// requested pod counts back to the manager.
-		if scaleUpWl, err := r.processScaleRequest(ctx, job, object, podSets); err != nil {
+		if scaleUpWl, err := r.processScaleRequest(ctx, job, object); err != nil {
 			return nil, err
 		} else if scaleUpWl != nil {
 			return scaleUpWl, nil
@@ -1234,7 +1234,7 @@ func (r *JobReconciler) reportScaleRequest(ctx context.Context, wl *kueue.Worklo
 // - (*Workload, nil): if a scale request was processed
 // - (nil, nil): if no scale request is pending
 // - (nil, error): if processing failed
-func (r *JobReconciler) processScaleRequest(ctx context.Context, job GenericJob, object client.Object, jobPodSets []kueue.PodSet) (*kueue.Workload, error) {
+func (r *JobReconciler) processScaleRequest(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Find existing workloads for this job
