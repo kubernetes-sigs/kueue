@@ -177,16 +177,11 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	log.V(2).Info("Reconcile Workload")
 
 	var wl kueue.Workload
-	err := r.client.Get(ctx, req.NamespacedName, &wl)
-
-	if apierrors.IsNotFound(err) {
+	if err := r.client.Get(ctx, req.NamespacedName, &wl); apierrors.IsNotFound(err) {
 		r.deleteWorkloadFromCaches(ctx, req.Namespace, req.Name)
 		return ctrl.Result{}, nil
-	}
-
-	if err != nil {
-		// Error other than NotFound signals an illegal state. Returning the error.
-		log.Error(err, "Failed to fetch workload from the client.")
+	} else if err != nil {
+		log.Error(err, "Failed to fetch workload")
 		return ctrl.Result{}, err
 	}
 
@@ -425,7 +420,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	lq := kueue.LocalQueue{}
-	err = r.client.Get(ctx, types.NamespacedName{Namespace: wl.Namespace, Name: string(wl.Spec.QueueName)}, &lq)
+	err := r.client.Get(ctx, types.NamespacedName{Namespace: wl.Namespace, Name: string(wl.Spec.QueueName)}, &lq)
 	if client.IgnoreNotFound(err) != nil {
 		return ctrl.Result{}, err
 	}
@@ -561,11 +556,13 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 func (r *WorkloadReconciler) deleteWorkloadFromCaches(ctx context.Context, namespace, name string) {
 	log := ctrl.LoggerFrom(ctx)
 	wlRef := workload.NewReference(namespace, name)
-	log.V(3).Info("Workload has been deleted; Cleaning up caches")
+	log.V(3).Info("Workload deleted; removing from cache")
 
 	// Retrieve the cached workload info before purging the data from the caches.
+	// Ensure watchers are notified after the updates are performed.
 	wlInQueuesCache := r.queues.GetWorkloadFromCache(wlRef)
 	wlInSchedulerCache := r.cache.GetWorkloadFromCache(wlRef)
+	defer r.notifyWatchersOfDeletion(wlInQueuesCache, wlInSchedulerCache)
 
 	// Delete from cache unconditionally. Pending workloads may have been "assumed"
 	// by the scheduler, and leaving them blocks ClusterQueue finalizer removal.
@@ -579,11 +576,6 @@ func (r *WorkloadReconciler) deleteWorkloadFromCaches(ctx context.Context, names
 	// Clear the workload form the queues.
 	// No operations will be performed if the wl has already been purged.
 	r.queues.DeleteAndForgetWorkload(log, wlRef)
-
-	// Notify watchers of deletion of the workload only if necessary
-	// (i.e. the workload was present in either cache
-	// or the cached data was pointing to different queues).
-	r.notifyWatchersOfDeletion(wlInQueuesCache, wlInSchedulerCache)
 }
 
 func (r *WorkloadReconciler) notifyWatchersOfDeletion(qCacheWl, schedCacheWl *kueue.Workload) {
