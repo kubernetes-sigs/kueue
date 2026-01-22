@@ -39,6 +39,6 @@ filters:
       - test-approvers
 
   # Any directory depth: Makefile-test.mk
-  "Makefile-test\\.mk$":
+  "Makefile-(verify|test)\\.mk$":
     approvers:
       - test-approvers
