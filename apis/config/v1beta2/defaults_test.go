@@ -96,6 +96,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 	}
 
 	podsReadyTimeoutOverwrite := metav1.Duration{Duration: time.Minute}
+	customTimeout := metav1.Duration{Duration: 5 * time.Minute}
 
 	testCases := map[string]struct {
 		original *Configuration
@@ -354,7 +355,38 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			want: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
 					BlockAdmission:  ptr.To(false),
-					RecoveryTimeout: nil,
+					RecoveryTimeout: &metav1.Duration{},
+					RequeuingStrategy: &RequeuingStrategy{
+						Timestamp:          ptr.To(EvictionTimestamp),
+						BackoffBaseSeconds: ptr.To[int32](DefaultRequeuingBackoffBaseSeconds),
+						BackoffMaxSeconds:  ptr.To[int32](DefaultRequeuingBackoffMaxSeconds),
+					},
+				},
+				Namespace:         ptr.To(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+				ClientConnection:             defaultClientConnection,
+				Integrations:                 defaultIntegrations,
+				MultiKueue:                   defaultMultiKueue,
+				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+			},
+		},
+		"defaulting waitForPodsReady recoveryTimeout to timeout": {
+			original: &Configuration{
+				WaitForPodsReady: &WaitForPodsReady{
+					Timeout: customTimeout,
+				},
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+			},
+			want: &Configuration{
+				WaitForPodsReady: &WaitForPodsReady{
+					Timeout:         customTimeout,
+					BlockAdmission:  ptr.To(false),
+					RecoveryTimeout: &customTimeout,
 					RequeuingStrategy: &RequeuingStrategy{
 						Timestamp:          ptr.To(EvictionTimestamp),
 						BackoffBaseSeconds: ptr.To[int32](DefaultRequeuingBackoffBaseSeconds),
@@ -396,6 +428,38 @@ func TestSetDefaults_Configuration(t *testing.T) {
 						Timestamp:          ptr.To(CreationTimestamp),
 						BackoffBaseSeconds: ptr.To[int32](63),
 						BackoffMaxSeconds:  ptr.To[int32](1800),
+					},
+				},
+				Namespace:         ptr.To(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+				ClientConnection:             defaultClientConnection,
+				Integrations:                 defaultIntegrations,
+				MultiKueue:                   defaultMultiKueue,
+				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+			},
+		},
+		"disabling waitForPodsReady recoveryTimeout with zero value": {
+			original: &Configuration{
+				WaitForPodsReady: &WaitForPodsReady{
+					Timeout:         customTimeout,
+					RecoveryTimeout: &metav1.Duration{Duration: 0},
+				},
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+			},
+			want: &Configuration{
+				WaitForPodsReady: &WaitForPodsReady{
+					Timeout:         customTimeout,
+					BlockAdmission:  ptr.To(false),
+					RecoveryTimeout: &metav1.Duration{Duration: 0},
+					RequeuingStrategy: &RequeuingStrategy{
+						Timestamp:          ptr.To(EvictionTimestamp),
+						BackoffBaseSeconds: ptr.To[int32](DefaultRequeuingBackoffBaseSeconds),
+						BackoffMaxSeconds:  ptr.To[int32](DefaultRequeuingBackoffMaxSeconds),
 					},
 				},
 				Namespace:         ptr.To(DefaultNamespace),

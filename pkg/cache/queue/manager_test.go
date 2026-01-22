@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/funcr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -72,8 +73,15 @@ func TestAddLocalQueueOrphans(t *testing.T) {
 	if diff := cmp.Diff(sets.New[workload.Reference]("earth/a", "earth/c"), workloadNames); diff != "" {
 		t.Errorf("Unexpected items in queue foo (-want,+got):\n%s", diff)
 	}
-	assignedWorkloads := manager.assignedWorkloads
-	if diff := cmp.Diff(map[workload.Reference]queue.LocalQueueReference{"earth/a": "earth/foo", "earth/c": "earth/foo"}, assignedWorkloads); diff != "" {
+	assignedWorkloads := manager.workloadAssignedQueues
+	expectedWorkloads := map[workload.Reference]queue.LocalQueueReference{
+		"earth/a": "earth/foo",
+		"earth/c": "earth/foo",
+		"earth/d": "earth/foo",
+		"earth/e": "earth/foo",
+		"earth/f": "earth/foo",
+	}
+	if diff := cmp.Diff(expectedWorkloads, assignedWorkloads); diff != "" {
 		t.Errorf("Unexpected assigned workloads (-want,+got):\n%s", diff)
 	}
 }
@@ -246,7 +254,7 @@ func TestRequeueWorkloadsCohortCycle(t *testing.T) {
 	if err := cl.Create(ctx, wl); err != nil {
 		t.Fatalf("Failed adding workload to client: %v", err)
 	}
-	if diff := cmp.Diff(map[workload.Reference]queue.LocalQueueReference{}, manager.assignedWorkloads); diff != "" {
+	if diff := cmp.Diff(map[workload.Reference]queue.LocalQueueReference{}, manager.workloadAssignedQueues); diff != "" {
 		t.Errorf("Expected no workloads to be assigned (-want,+got):\n%s", diff)
 	}
 	// This test will pass with the removal of this line.
@@ -258,8 +266,130 @@ func TestRequeueWorkloadsCohortCycle(t *testing.T) {
 	if manager.requeueWorkloadsCohort(ctx, manager.hm.Cohort("cohort-a")) {
 		t.Fatal("Expected moveWorkloadsCohort to return false")
 	}
-	if diff := cmp.Diff(expectedAssigned, manager.assignedWorkloads); diff != "" {
+	if diff := cmp.Diff(expectedAssigned, manager.workloadAssignedQueues); diff != "" {
 		t.Errorf("Unexpected assigned workloads (-want,+got):\n%s", diff)
+	}
+}
+
+func TestQueueInadmissibleWorkloads(t *testing.T) {
+	now := time.Now()
+	cases := map[string]struct {
+		cohorts                   []*kueue.Cohort
+		clusterQueues             []*kueue.ClusterQueue
+		localQueues               []*kueue.LocalQueue
+		workloads                 []*kueue.Workload
+		cqNames                   sets.Set[kueue.ClusterQueueReference]
+		wantInadmissible          map[kueue.ClusterQueueReference][]workload.Reference
+		wantActive                map[kueue.ClusterQueueReference][]workload.Reference
+		wantMoveWorkloadsLogCount int
+	}{
+		"deduplication with shared root": {
+			// Tree structure:
+			//   root
+			//   ├── child1
+			//   │   └── cq1
+			//   └── child2
+			//       └── cq2
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("child1").Parent("root").Obj(),
+				utiltestingapi.MakeCohort("child2").Parent("root").Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq1").Cohort("child1").Obj(),
+				utiltestingapi.MakeClusterQueue("cq2").Cohort("child2").Obj(),
+			},
+			localQueues: []*kueue.LocalQueue{
+				utiltestingapi.MakeLocalQueue("foo", defaultNamespace).ClusterQueue("cq1").Obj(),
+				utiltestingapi.MakeLocalQueue("bar", defaultNamespace).ClusterQueue("cq2").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("a", defaultNamespace).Queue("foo").Creation(now).Obj(),
+				utiltestingapi.MakeWorkload("b", defaultNamespace).Queue("bar").Creation(now.Add(time.Second)).Obj(),
+			},
+			cqNames:          sets.New[kueue.ClusterQueueReference]("cq1", "cq2"),
+			wantInadmissible: nil,
+			wantActive: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq1": {"default/a"},
+				"cq2": {"default/b"},
+			},
+			// Verify deduplication: although cq1 and cq2 share the same root, the
+			// "Attempting to move workloads" log should appear only once.
+			wantMoveWorkloadsLogCount: 1,
+		},
+		"cohort cycle": {
+			// cohort-a -> cohort-b -> cohort-c -> cohort-a
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj(),
+				utiltestingapi.MakeCohort("cohort-b").Parent("cohort-c").Obj(),
+				utiltestingapi.MakeCohort("cohort-c").Parent("cohort-a").Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq1").Cohort("cohort-a").Obj(),
+			},
+			localQueues: []*kueue.LocalQueue{
+				utiltestingapi.MakeLocalQueue("foo", defaultNamespace).ClusterQueue("cq1").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("a", defaultNamespace).Queue("foo").Creation(now).Obj(),
+			},
+			cqNames: sets.New[kueue.ClusterQueueReference]("cq1"),
+			wantInadmissible: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq1": {"default/a"},
+			},
+			wantActive: nil,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			var moveWorkloadsLogCount int
+			logger := funcr.New(func(prefix, args string) {
+				if strings.Contains(args, "Attempting to move workloads") {
+					moveWorkloadsLogCount++
+				}
+			}, funcr.Options{Verbosity: 2})
+			ctx := logr.NewContext(context.Background(), logger)
+
+			cl := utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace))
+			manager := NewManager(cl, nil)
+
+			for _, cohort := range tc.cohorts {
+				manager.AddOrUpdateCohort(ctx, cohort)
+			}
+			for _, cq := range tc.clusterQueues {
+				if err := manager.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
+				}
+				manager.getClusterQueue(kueue.ClusterQueueReference(cq.Name)).popCycle++
+			}
+			for _, lq := range tc.localQueues {
+				if err := manager.AddLocalQueue(ctx, lq); err != nil {
+					t.Fatalf("Failed adding queue %s: %v", lq.Name, err)
+				}
+			}
+			for _, wl := range tc.workloads {
+				if err := cl.Create(ctx, wl); err != nil {
+					t.Fatalf("Failed adding workload to client: %v", err)
+				}
+				manager.RequeueWorkload(ctx, workload.NewInfo(wl), RequeueReasonGeneric)
+			}
+
+			// Reset the counter before testing. Setup operations also trigger the log.
+			moveWorkloadsLogCount = 0
+
+			manager.QueueInadmissibleWorkloads(ctx, tc.cqNames)
+
+			if diff := cmp.Diff(tc.wantInadmissible, manager.DumpInadmissible()); diff != "" {
+				t.Errorf("Unexpected inadmissible workloads (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantActive, manager.Dump(), cmpDump...); diff != "" {
+				t.Errorf("Unexpected active workloads (-want +got):\n%s", diff)
+			}
+			if moveWorkloadsLogCount != tc.wantMoveWorkloadsLogCount {
+				t.Errorf("Expected %d 'Attempting to move workloads' log call(s), got %d", tc.wantMoveWorkloadsLogCount, moveWorkloadsLogCount)
+			}
+		})
 	}
 }
 
@@ -508,11 +638,112 @@ func TestAddWorkload(t *testing.T) {
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Errorf("Unexpected AddWorkload returned error (-want,+got):\n%s", diff)
 			}
-			if diff := cmp.Diff(tc.wantAssigned, manager.assignedWorkloads); diff != "" {
+			if diff := cmp.Diff(tc.wantAssigned, manager.workloadAssignedQueues); diff != "" {
 				t.Errorf("Unexpected assigned workloads (-want,+got):\n%s", diff)
 			}
 		})
 	}
+}
+
+func TestDeleteWorkload(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	manager := NewManager(utiltesting.NewFakeClient(), nil)
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
+	}
+	queues := []*kueue.LocalQueue{
+		utiltestingapi.MakeLocalQueue("foo", "earth").ClusterQueue("cq").Obj(),
+		utiltestingapi.MakeLocalQueue("bar", "mars").Obj(),
+	}
+	for _, q := range queues {
+		if err := manager.AddLocalQueue(ctx, q); err != nil {
+			t.Fatalf("Failed adding queue %s: %v", q.Name, err)
+		}
+	}
+	t.Run("workload deleted but not forgotten", func(t *testing.T) {
+		wl1 := utiltestingapi.MakeWorkload("wl1", "earth").
+			Queue("foo").Obj()
+		wl2 := utiltestingapi.MakeWorkload("wl2", "earth").
+			Queue("foo").Obj()
+
+		for _, wl := range []*kueue.Workload{wl1, wl2} {
+			if err := manager.AddOrUpdateWorkload(log, wl); err != nil {
+				t.Fatalf("Failed adding workload %s: %v", wl.Name, err)
+			}
+		}
+
+		manager.DeleteWorkload(log, workload.Key(wl1))
+
+		q := manager.localQueues[queue.Key(queues[0])]
+		if diff := cmp.Diff(map[workload.Reference]*workload.Info{
+			workload.Key(wl2): workload.NewInfo(wl2),
+		}, q.items); diff != "" {
+			t.Errorf("Unexpected workloads found in local queue (-want,+got):\n%s", diff)
+		}
+
+		cq := manager.hm.ClusterQueue(q.ClusterQueue)
+		if diff := cmp.Diff(1, cq.PendingTotal()); diff != "" {
+			t.Errorf("Unexpected number of pending workloads in cluster queue (-want,+got):\n%s", diff)
+		}
+
+		if diff := cmp.Diff(map[workload.Reference]queue.LocalQueueReference{
+			"earth/wl1": "earth/foo",
+			"earth/wl2": "earth/foo",
+		}, manager.workloadAssignedQueues); diff != "" {
+			t.Errorf("Unexpected assigned workloads (-want,+got):\n%s", diff)
+		}
+	})
+}
+
+func TestDeleteAndForgetWorkload(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	manager := NewManager(utiltesting.NewFakeClient(), nil)
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
+	}
+	queues := []*kueue.LocalQueue{
+		utiltestingapi.MakeLocalQueue("foo", "earth").ClusterQueue("cq").Obj(),
+		utiltestingapi.MakeLocalQueue("bar", "mars").Obj(),
+	}
+	for _, q := range queues {
+		if err := manager.AddLocalQueue(ctx, q); err != nil {
+			t.Fatalf("Failed adding queue %s: %v", q.Name, err)
+		}
+	}
+	t.Run("workload fully deleted and forgotten", func(t *testing.T) {
+		wl1 := utiltestingapi.MakeWorkload("wl1", "earth").
+			Queue("foo").Obj()
+		wl2 := utiltestingapi.MakeWorkload("wl2", "earth").
+			Queue("foo").Obj()
+
+		for _, wl := range []*kueue.Workload{wl1, wl2} {
+			if err := manager.AddOrUpdateWorkload(log, wl); err != nil {
+				t.Fatalf("Failed adding workload %s: %v", wl.Name, err)
+			}
+		}
+
+		manager.DeleteAndForgetWorkload(log, workload.Key(wl1))
+
+		q := manager.localQueues[queue.Key(queues[0])]
+		if diff := cmp.Diff(map[workload.Reference]*workload.Info{
+			workload.Key(wl2): workload.NewInfo(wl2),
+		}, q.items); diff != "" {
+			t.Errorf("Unexpected workloads found in local queue (-want,+got):\n%s", diff)
+		}
+
+		cq := manager.hm.ClusterQueue(q.ClusterQueue)
+		if diff := cmp.Diff(1, cq.PendingTotal()); diff != "" {
+			t.Errorf("Unexpected number of pending workloads in cluster queue (-want,+got):\n%s", diff)
+		}
+
+		if diff := cmp.Diff(map[workload.Reference]queue.LocalQueueReference{
+			"earth/wl2": "earth/foo",
+		}, manager.workloadAssignedQueues); diff != "" {
+			t.Errorf("Unexpected assigned workloads (-want,+got):\n%s", diff)
+		}
+	})
 }
 
 func TestStatus(t *testing.T) {
@@ -865,7 +1096,7 @@ func TestUpdateWorkload(t *testing.T) {
 			for _, w := range tc.workloads {
 				_ = manager.AddOrUpdateWorkload(log, w)
 			}
-			if diff := cmp.Diff(tc.assigned, manager.assignedWorkloads); diff != "" {
+			if diff := cmp.Diff(tc.assigned, manager.workloadAssignedQueues); diff != "" {
 				t.Errorf("Unexpected initial state of assigned workloads (-want,+got):\n%s", diff)
 			}
 			wl := tc.workloads[0].DeepCopy()
@@ -907,7 +1138,7 @@ func TestUpdateWorkload(t *testing.T) {
 			if diff := cmp.Diff(tc.wantQueueMembers, queueMembers); diff != "" {
 				t.Errorf("Elements present in wrong queues (-want,+got):\n%s", diff)
 			}
-			if diff := cmp.Diff(tc.wantAssigned, manager.assignedWorkloads); diff != "" {
+			if diff := cmp.Diff(tc.wantAssigned, manager.workloadAssignedQueues); diff != "" {
 				t.Errorf("Unexpected assigned workloads (-want,+got):\n%s", diff)
 			}
 		})
@@ -928,18 +1159,16 @@ func TestHeads(t *testing.T) {
 		utiltestingapi.MakeLocalQueue("baz", "").ClusterQueue("pending-bazCq").Obj(),
 	}
 	tests := []struct {
-		name                    string
-		workloads               []*kueue.Workload
-		wantAssignedBeforeHeads map[workload.Reference]queue.LocalQueueReference
-		wantWorkloads           sets.Set[string]
-		wantAssignedAfterHeads  map[workload.Reference]queue.LocalQueueReference
+		name          string
+		workloads     []*kueue.Workload
+		wantAssigned  map[workload.Reference]queue.LocalQueueReference
+		wantWorkloads sets.Set[string]
 	}{
 		{
-			name:                    "empty clusterQueues",
-			workloads:               []*kueue.Workload{},
-			wantAssignedBeforeHeads: map[workload.Reference]queue.LocalQueueReference{},
-			wantWorkloads:           sets.Set[string]{},
-			wantAssignedAfterHeads:  map[workload.Reference]queue.LocalQueueReference{},
+			name:          "empty clusterQueues",
+			workloads:     []*kueue.Workload{},
+			wantAssigned:  map[workload.Reference]queue.LocalQueueReference{},
+			wantWorkloads: sets.Set[string]{},
 		},
 		{
 			name: "active clusterQueues",
@@ -947,12 +1176,11 @@ func TestHeads(t *testing.T) {
 				utiltestingapi.MakeWorkload("a", "").Creation(now).Queue("foo").Obj(),
 				utiltestingapi.MakeWorkload("b", "").Creation(now).Queue("bar").Obj(),
 			},
-			wantAssignedBeforeHeads: map[workload.Reference]queue.LocalQueueReference{
+			wantAssigned: map[workload.Reference]queue.LocalQueueReference{
 				"/a": "/foo",
 				"/b": "/bar",
 			},
-			wantWorkloads:          sets.New("a", "b"),
-			wantAssignedAfterHeads: map[workload.Reference]queue.LocalQueueReference{},
+			wantWorkloads: sets.New("a", "b"),
 		},
 		{
 			name: "active clusterQueues with multiple workloads",
@@ -961,14 +1189,12 @@ func TestHeads(t *testing.T) {
 				utiltestingapi.MakeWorkload("a2", "").Creation(now.Add(time.Hour)).Queue("foo").Obj(),
 				utiltestingapi.MakeWorkload("b", "").Creation(now).Queue("bar").Obj(),
 			},
-			wantAssignedBeforeHeads: map[workload.Reference]queue.LocalQueueReference{
+			wantAssigned: map[workload.Reference]queue.LocalQueueReference{
 				"/a1": "/foo",
 				"/a2": "/foo",
 				"/b":  "/bar",
 			},
 			wantWorkloads: sets.New("a1", "b"),
-			wantAssignedAfterHeads: map[workload.Reference]queue.LocalQueueReference{
-				"/a2": "/foo"},
 		},
 		{
 			name: "inactive clusterQueues",
@@ -977,15 +1203,12 @@ func TestHeads(t *testing.T) {
 				utiltestingapi.MakeWorkload("b", "").Creation(now).Queue("bar").Obj(),
 				utiltestingapi.MakeWorkload("c", "").Creation(now.Add(time.Hour)).Queue("baz").Obj(),
 			},
-			wantAssignedBeforeHeads: map[workload.Reference]queue.LocalQueueReference{
+			wantAssigned: map[workload.Reference]queue.LocalQueueReference{
 				"/a": "/foo",
 				"/b": "/bar",
 				"/c": "/baz",
 			},
 			wantWorkloads: sets.New("a", "b"),
-			wantAssignedAfterHeads: map[workload.Reference]queue.LocalQueueReference{
-				"/c": "/baz",
-			},
 		},
 	}
 	for _, tc := range tests {
@@ -1013,7 +1236,7 @@ func TestHeads(t *testing.T) {
 				}
 			}
 
-			if diff := cmp.Diff(tc.wantAssignedBeforeHeads, manager.assignedWorkloads); diff != "" {
+			if diff := cmp.Diff(tc.wantAssigned, manager.workloadAssignedQueues); diff != "" {
 				t.Errorf("Unexpected assigned workloads before heads retrieved (-want,+got):\n%s", diff)
 			}
 
@@ -1026,7 +1249,7 @@ func TestHeads(t *testing.T) {
 				t.Errorf("GetHeads returned wrong heads (-want,+got):\n%s", diff)
 			}
 
-			if diff := cmp.Diff(tc.wantAssignedAfterHeads, manager.assignedWorkloads); diff != "" {
+			if diff := cmp.Diff(tc.wantAssigned, manager.workloadAssignedQueues); diff != "" {
 				t.Errorf("Unexpected assigned workloads after heads retrieved (-want,+got):\n%s", diff)
 			}
 		})
@@ -1386,6 +1609,7 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			RequiredTopologyRequest(corev1.LabelHostname).
 			Request(corev1.ResourceCPU, "1").
 			Obj())
+
 	baseWorkloadNeedingSecondPass := baseWorkloadBuilder.Clone().
 		ReserveQuotaAt(
 			utiltestingapi.MakeAdmission("tas-main").
@@ -1395,22 +1619,26 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 						DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
 						Obj(),
 				).
-				Obj(), now,
+				Obj(),
+			now,
 		).
 		AdmissionCheck(kueue.AdmissionCheckState{
 			Name:  "prov-check",
 			State: kueue.CheckStateReady,
 		})
+
 	baseWorkloadNotNeedingSecondPass := baseWorkloadBuilder.Clone()
 
 	cases := map[string]struct {
 		workloads []*kueue.Workload
-		deleted   sets.Set[workload.Reference]
+		update    func(*kueue.Workload)
 		passTime  time.Duration
 		wantReady sets.Set[workload.Reference]
 	}{
 		"single queued workload checked immediately": {
-			workloads: []*kueue.Workload{baseWorkloadNeedingSecondPass.Obj()},
+			workloads: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.Obj(),
+			},
 		},
 		"single queued workload checked after 1s": {
 			workloads: []*kueue.Workload{
@@ -1420,43 +1648,57 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			passTime:  time.Second,
 			wantReady: sets.New(workload.Key(baseWorkloadNeedingSecondPass.Obj())),
 		},
-		"single queued workload deleted in the meanwhile": {
+		"workload stops needing second pass after being queued": {
 			workloads: []*kueue.Workload{
 				baseWorkloadNeedingSecondPass.DeepCopy(),
-				baseWorkloadNotNeedingSecondPass.DeepCopy(),
 			},
-			deleted:  sets.New(workload.Key(baseWorkloadNeedingSecondPass.Obj())),
-			passTime: time.Second,
+			update: func(wl *kueue.Workload) {
+				wl.Status.Admission = nil
+			},
+			passTime:  time.Second,
+			wantReady: nil,
 		},
-		"two queued workloads, one deleted in the meanwhile": {
+		"two queued workloads, one updated to no longer need second pass": {
 			workloads: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.Clone().Name("first").Obj(),
 				baseWorkloadNeedingSecondPass.Clone().Name("second").Obj(),
 			},
-			deleted:   sets.New(workload.Key(baseWorkloadNeedingSecondPass.Obj())),
+			update: func(wl *kueue.Workload) {
+				wl.Status.Admission = nil
+			},
 			passTime:  time.Second,
 			wantReady: sets.New(workload.NewReference("default", "second")),
 		},
 	}
+
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
+
 			fakeClock := testingclock.NewFakeClock(now)
-			opts := []Option{
+			manager := NewManager(
+				utiltesting.NewFakeClient(),
+				nil,
 				WithClock(fakeClock),
-			}
-			manager := NewManager(utiltesting.NewFakeClient(), nil, opts...)
+			)
 
 			for _, wl := range tc.workloads {
 				manager.QueueSecondPassIfNeeded(ctx, wl, 0)
 			}
-			for _, wl := range tc.deleted.UnsortedList() {
-				manager.secondPassQueue.deleteByKey(wl)
+
+			if tc.update != nil {
+				wl := tc.workloads[0]
+				tc.update(wl)
+				manager.QueueSecondPassIfNeeded(ctx, wl, 1)
 			}
+
 			fakeClock.Step(tc.passTime)
+
 			gotReady := sets.New[workload.Reference]()
 			for _, wlInfo := range manager.secondPassQueue.takeAllReady() {
 				gotReady.Insert(workload.Key(wlInfo.Obj))
 			}
+
 			if diff := cmp.Diff(tc.wantReady, gotReady); diff != "" {
 				t.Errorf("Unexpected ready workloads returned (-want,+got):\n%s", diff)
 			}

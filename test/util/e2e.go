@@ -44,8 +44,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/klog/v2"
 	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -61,7 +64,6 @@ import (
 	kueueclientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	visibilityv1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 const (
@@ -269,6 +271,10 @@ func waitForDeploymentAvailability(ctx context.Context, k8sClient client.Client,
 	ginkgo.By(fmt.Sprintf("Waiting for availability of deployment: %q", key))
 	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, key, deployment)).To(gomega.Succeed())
+		g.Expect(deployment.Status.ObservedGeneration).To(gomega.Equal(deployment.Generation))
+		g.Expect(deployment.Status.Replicas).To(gomega.Equal(*deployment.Spec.Replicas))
+		g.Expect(deployment.Status.UpdatedReplicas).To(gomega.Equal(*deployment.Spec.Replicas))
+		g.Expect(deployment.Status.AvailableReplicas).To(gomega.Equal(*deployment.Spec.Replicas))
 		g.Expect(deployment.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
 			appsv1.DeploymentCondition{Type: appsv1.DeploymentAvailable, Status: corev1.ConditionTrue},
 			cmpopts.IgnoreFields(appsv1.DeploymentCondition{}, "Reason", "Message", "LastUpdateTime", "LastTransitionTime")),
@@ -346,6 +352,12 @@ func WaitForKubeRayOperatorAvailability(ctx context.Context, k8sClient client.Cl
 	verifyNoControllerRestarts(ctx, k8sClient, kroKey)
 }
 
+func WaitForKubeFlowTrainnerControllerManagerAvailability(ctx context.Context, k8sClient client.Client) {
+	kftoKey := types.NamespacedName{Namespace: "kubeflow-system", Name: "kubeflow-trainer-controller-manager"}
+	waitForDeploymentAvailability(ctx, k8sClient, kftoKey)
+	verifyNoControllerRestarts(ctx, k8sClient, kftoKey)
+}
+
 func GetKueueConfiguration(ctx context.Context, k8sClient client.Client) *configapi.Configuration {
 	var kueueCfg configapi.Configuration
 	kueueNS := GetKueueNamespace()
@@ -357,7 +369,7 @@ func GetKueueConfiguration(ctx context.Context, k8sClient client.Client) *config
 	return &kueueCfg
 }
 
-func ApplyKueueConfiguration(ctx context.Context, k8sClient client.Client, kueueCfg *configapi.Configuration) {
+func applyKueueConfiguration(ctx context.Context, k8sClient client.Client, kueueCfg *configapi.Configuration) {
 	configMap := &corev1.ConfigMap{}
 	kueueNS := GetKueueNamespace()
 	kcmKey := types.NamespacedName{Namespace: kueueNS, Name: "kueue-manager-config"}
@@ -540,6 +552,12 @@ func GetKuberayTestImage() string {
 	return kuberayTestImage
 }
 
+func GetClusterProfilePluginImage() string {
+	clusterProfilePluginImage, found := os.LookupEnv("CLUSTERPROFILE_PLUGIN_IMAGE")
+	gomega.Expect(found).To(gomega.BeTrue())
+	return clusterProfilePluginImage
+}
+
 func CreateNamespaceWithLog(ctx context.Context, k8sClient client.Client, nsName string) *corev1.Namespace {
 	ginkgo.GinkgoHelper()
 	return CreateNamespaceFromObjectWithLog(ctx, k8sClient, utiltesting.MakeNamespace(nsName))
@@ -574,7 +592,7 @@ func ExpectMetricsToBeAvailable(ctx context.Context, cfg *rest.Config, restClien
 		metricsOutput, err := GetKueueMetrics(ctx, cfg, restClient, curlPodName, curlContainerName)
 		g.Expect(err).NotTo(gomega.HaveOccurred())
 		g.Expect(metricsOutput).Should(utiltesting.ContainMetrics(metrics))
-	}, Timeout).Should(gomega.Succeed())
+	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 
 func ExpectMetricsNotToBeAvailable(ctx context.Context, cfg *rest.Config, restClient *rest.RESTClient, curlPodName, curlContainerName string, metrics [][]string) {
@@ -583,7 +601,7 @@ func ExpectMetricsNotToBeAvailable(ctx context.Context, cfg *rest.Config, restCl
 		metricsOutput, err := GetKueueMetrics(ctx, cfg, restClient, curlPodName, curlContainerName)
 		g.Expect(err).NotTo(gomega.HaveOccurred())
 		g.Expect(metricsOutput).Should(utiltesting.ExcludeMetrics(metrics))
-	}, Timeout).Should(gomega.Succeed())
+	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 
 func WaitForPodRunning(ctx context.Context, k8sClient client.Client, pod *corev1.Pod) {
@@ -595,15 +613,33 @@ func WaitForPodRunning(ctx context.Context, k8sClient client.Client, pod *corev1
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 
-func UpdateKueueConfiguration(ctx context.Context, k8sClient client.Client, config *configapi.Configuration, kindClusterName string, applyChanges func(cfg *configapi.Configuration)) {
-	configurationUpdate := time.Now()
+func UpdateKueueConfiguration(ctx context.Context, k8sClient client.Client, config *configapi.Configuration, kindClusterName string, applyChanges ...func(cfg *configapi.Configuration)) {
+	startTime := time.Now()
 	config = config.DeepCopy()
-	applyChanges(config)
-	ApplyKueueConfiguration(ctx, k8sClient, config)
+	for _, applyChange := range applyChanges {
+		applyChange(config)
+	}
+	applyKueueConfiguration(ctx, k8sClient, config)
 	RestartKueueController(ctx, k8sClient, kindClusterName)
-	ginkgo.GinkgoLogr.Info("Kueue configuration updated", "took", time.Since(configurationUpdate))
+	ginkgo.GinkgoLogr.Info("Kueue configuration updated", "took", time.Since(startTime))
 }
 
-func BaseSSAWorkload(w *kueue.Workload) *kueue.Workload {
-	return workload.BaseSSAWorkload(w, true)
+func GetClusterServerAddress(clusterName string) string {
+	return "https://" + clusterName + "-control-plane:6443"
+}
+
+func GetAuthInfoFromKubeConfig(kubeConfig []byte) *clientcmdapi.AuthInfo {
+	ginkgo.GinkgoHelper()
+	cfg, err := clientcmd.Load(kubeConfig)
+	gomega.Expect(err).To(gomega.Succeed())
+	return cfg.AuthInfos[cfg.Contexts[cfg.CurrentContext].AuthInfo]
+}
+
+func GetKubernetesVersion(cfg *rest.Config) string {
+	ginkgo.GinkgoHelper()
+	discoveryClient := discovery.NewDiscoveryClientForConfigOrDie(cfg)
+	ver, err := discoveryClient.ServerVersion()
+
+	gomega.Expect(err).To(gomega.Succeed())
+	return ver.String()
 }

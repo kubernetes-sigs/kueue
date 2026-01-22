@@ -69,6 +69,16 @@ The dispatching flow works as follows:
    - The manager performs a final status sync.
    - It then deletes the corresponding objects from the worker cluster.
 
+{{< feature-state state="beta" for_version="v0.16" >}}
+
+{{% alert title="Note" color="primary" %}}
+By default, Workloads are only deleted from non-selected worker clusters after a Workload is
+fully admitted (quota reserved AND all admission checks satisfied). This allows parallel
+ProvisioningRequests across worker clusters. To revert to the previous behavior where Workloads
+are deleted immediately upon quota reservation, disable the `MultiKueueWaitForWorkloadAdmitted`
+feature gate.
+{{% /alert %}}
+
 ## Workload Dispatching
 
 {{% alert title="Note" color="primary" %}}
@@ -125,6 +135,7 @@ MultiKueue supports a wide variety of workloads. You can learn how to:
 - [Dispatch a Kueue managed MPIJob](docs/tasks/run/multikueue/mpijob).
 - [Dispatch a Kueue managed AppWrapper](docs/tasks/run/multikueue/appwrapper).
 - [Dispatch a Kueue managed plain Pod](docs/tasks/run/multikueue/plain_pods).
+- [Dispatch a Kueue managed StatefulSet](docs/tasks/run/multikueue/statefulset).
 - [Dispatch a Kueue managed External Framework Job](docs/tasks/run/multikueue/external-frameworks.md)
 
 ## Submitting Jobs

@@ -58,6 +58,7 @@ updates:
       - "/hack/cypress"
       - "/hack/depcheck"
       - "/hack/shellcheck"
+      - "/hack/multikueue/secretreader"
     schedule:
       interval: "weekly"
     labels:

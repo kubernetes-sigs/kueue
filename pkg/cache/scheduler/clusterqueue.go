@@ -222,7 +222,9 @@ func (c *clusterQueue) updateQueueStatus(log logr.Logger) {
 		c.isTASViolated() ||
 		// one multikueue admission check is allowed
 		len(c.multiKueueAdmissionChecks) > 1 ||
-		len(c.perFlavorMultiKueueAdmissionChecks) > 0 {
+		len(c.perFlavorMultiKueueAdmissionChecks) > 0 ||
+		// provisioning requests should not be used on manager cluster with multikueue
+		(len(c.multiKueueAdmissionChecks) > 0 && len(c.provisioningAdmissionChecks) > 0) {
 		status = pending
 	}
 	if c.Status == terminating {
@@ -276,6 +278,12 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 		if len(c.perFlavorMultiKueueAdmissionChecks) > 0 {
 			reasons = append(reasons, kueue.ClusterQueueActiveReasonMultiKueueAdmissionCheckAppliedPerFlavor)
 			messages = append(messages, fmt.Sprintf("Cannot specify MultiKueue AdmissionCheck per flavor, found: %s", stringsutils.Join(c.perFlavorMultiKueueAdmissionChecks, ",")))
+		}
+
+		if len(c.multiKueueAdmissionChecks) > 0 && len(c.provisioningAdmissionChecks) > 0 {
+			reasons = append(reasons, kueue.ClusterQueueActiveReasonMultiKueueWithProvisioningRequest)
+			messages = append(messages, fmt.Sprintf("Cannot use both MultiKueue and ProvisioningRequest AdmissionChecks together, found: %s, %s",
+				stringsutils.Join(c.multiKueueAdmissionChecks, ","), stringsutils.Join(c.provisioningAdmissionChecks, ",")))
 		}
 
 		if features.Enabled(features.TopologyAwareScheduling) && len(c.tasFlavors) > 0 {
@@ -432,7 +440,7 @@ func (c *clusterQueue) updateWithAdmissionChecks(log logr.Logger, checks map[kue
 func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, w *kueue.Workload) {
 	k := workload.Key(w)
 	if _, exist := c.Workloads[k]; exist {
-		c.deleteWorkload(log, w)
+		c.deleteWorkload(log, k)
 	}
 	wi := workload.NewInfo(w, c.workloadInfoOptions...)
 	c.Workloads[k] = wi
@@ -443,26 +451,25 @@ func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, w *kueue.Workload) {
 	c.reportActiveWorkloads()
 }
 
-func (c *clusterQueue) forgetWorkload(log logr.Logger, w *kueue.Workload) {
-	c.deleteWorkload(log, w)
-	delete(c.workloadsNotAccountedForTAS, workload.Key(w))
+func (c *clusterQueue) forgetWorkload(log logr.Logger, wlKey workload.Reference) {
+	c.deleteWorkload(log, wlKey)
+	delete(c.workloadsNotAccountedForTAS, wlKey)
 }
 
-func (c *clusterQueue) deleteWorkload(log logr.Logger, w *kueue.Workload) {
-	k := workload.Key(w)
-	wi, exist := c.Workloads[k]
+func (c *clusterQueue) deleteWorkload(log logr.Logger, wlKey workload.Reference) {
+	wi, exist := c.Workloads[wlKey]
 	if !exist {
 		return
 	}
 	c.updateWorkloadUsage(log, wi, subtract)
-	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {
-		c.WorkloadsNotReady.Delete(k)
+	if c.podsReadyTracking {
+		c.WorkloadsNotReady.Delete(wlKey)
 	}
 	// we only increase the AllocatableResourceGeneration cause the add of workload won't make more
 	// workloads fit in ClusterQueue.
 	c.AllocatableResourceGeneration++
 
-	delete(c.Workloads, k)
+	delete(c.Workloads, wlKey)
 	c.reportActiveWorkloads()
 }
 
@@ -470,13 +477,6 @@ func (c *clusterQueue) reportActiveWorkloads() {
 	role := roletracker.GetRole(c.roleTracker)
 	metrics.AdmittedActiveWorkloads.WithLabelValues(string(c.Name), role).Set(float64(c.admittedWorkloadsCount))
 	metrics.ReservingActiveWorkloads.WithLabelValues(string(c.Name), role).Set(float64(len(c.Workloads)))
-}
-
-func (q *LocalQueue) reportActiveWorkloads(tracker *roletracker.RoleTracker) {
-	role := roletracker.GetRole(tracker)
-	namespace, name := queue.MustParseLocalQueueReference(q.key)
-	metrics.LocalQueueAdmittedActiveWorkloads.WithLabelValues(string(name), namespace, role).Set(float64(q.admittedWorkloads))
-	metrics.LocalQueueReservingActiveWorkloads.WithLabelValues(string(name), namespace, role).Set(float64(q.reservingWorkloads))
 }
 
 // updateWorkloadUsage updates the usage of the ClusterQueue for the workload
@@ -600,14 +600,6 @@ func (c *clusterQueue) flavorInUse(flavor kueue.ResourceFlavorReference) bool {
 		}
 	}
 	return false
-}
-
-func (q *LocalQueue) resetFlavorsAndResources(cqUsage resources.FlavorResourceQuantities, cqAdmittedUsage resources.FlavorResourceQuantities) {
-	// Clean up removed flavors or resources.
-	q.Lock()
-	defer q.Unlock()
-	q.totalReserved = resetUsage(q.totalReserved, cqUsage)
-	q.admittedUsage = resetUsage(q.admittedUsage, cqAdmittedUsage)
 }
 
 func resetUsage(lqUsage resources.FlavorResourceQuantities, cqUsage resources.FlavorResourceQuantities) resources.FlavorResourceQuantities {

@@ -19,9 +19,15 @@ package v1beta2
 
 // AdmissionCheckSpecApplyConfiguration represents a declarative configuration of the AdmissionCheckSpec type for use
 // with apply.
+//
+// AdmissionCheckSpec defines the desired state of AdmissionCheck
 type AdmissionCheckSpecApplyConfiguration struct {
-	ControllerName *string                                              `json:"controllerName,omitempty"`
-	Parameters     *AdmissionCheckParametersReferenceApplyConfiguration `json:"parameters,omitempty"`
+	// controllerName identifies the controller that processes the AdmissionCheck,
+	// not necessarily a Kubernetes Pod or Deployment name. Cannot be empty.
+	ControllerName *string `json:"controllerName,omitempty"`
+	// parameters identifies a configuration with additional parameters for the
+	// check.
+	Parameters *AdmissionCheckParametersReferenceApplyConfiguration `json:"parameters,omitempty"`
 }
 
 // AdmissionCheckSpecApplyConfiguration constructs a declarative configuration of the AdmissionCheckSpec type for use with

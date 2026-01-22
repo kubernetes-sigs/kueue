@@ -32,22 +32,22 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("JAX integration", func() {
-	const (
-		resourceFlavorName = "jax-rf"
-		clusterQueueName   = "jax-cq"
-		localQueueName     = "jax-lq"
-	)
-
+var _ = ginkgo.Describe("JAX integration", ginkgo.Label("area:singlecluster", "feature:jaxjob"), func() {
 	var (
-		ns *corev1.Namespace
-		rf *kueue.ResourceFlavor
-		cq *kueue.ClusterQueue
-		lq *kueue.LocalQueue
+		ns                 *corev1.Namespace
+		rf                 *kueue.ResourceFlavor
+		cq                 *kueue.ClusterQueue
+		lq                 *kueue.LocalQueue
+		resourceFlavorName string
+		clusterQueueName   string
+		localQueueName     string
 	)
 
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jax-e2e-")
+		resourceFlavorName = "jax-rf-" + ns.Name
+		clusterQueueName = "jax-cq-" + ns.Name
+		localQueueName = "jax-lq-" + ns.Name
 
 		rf = utiltestingapi.MakeResourceFlavor(resourceFlavorName).Obj()
 		util.MustCreate(ctx, k8sClient, rf)

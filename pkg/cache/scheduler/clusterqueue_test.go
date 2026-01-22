@@ -346,6 +346,28 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantMessage: `Can't admit new workloads: Cannot use multiple MultiKueue AdmissionChecks on the same ClusterQueue, found: check1,check3.`,
 		},
 		{
+			name:     "Active clusterQueue with both MultiKueue and ProvisioningRequest ACs",
+			cq:       cqWithAC,
+			cqStatus: active,
+			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
+				"check1": {
+					Active:     true,
+					Controller: kueue.MultiKueueControllerName,
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+				"check3": {
+					Active:     true,
+					Controller: kueue.ProvisioningRequestControllerName,
+				},
+			},
+			wantStatus:  pending,
+			wantReason:  kueue.ClusterQueueActiveReasonMultiKueueWithProvisioningRequest,
+			wantMessage: `Can't admit new workloads: Cannot use both MultiKueue and ProvisioningRequest AdmissionChecks together, found: check1, check3.`,
+		},
+		{
 			name:     "Terminating clusterQueue updated with valid AC list",
 			cq:       cqWithAC,
 			cqStatus: terminating,

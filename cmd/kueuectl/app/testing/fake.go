@@ -54,7 +54,7 @@ func NewTestClientGetter() *TestClientGetter {
 	return &TestClientGetter{
 		ClientGetter:   clientgetter.New(configFlags),
 		kueueClientset: kueuefake.NewSimpleClientset(),
-		k8sClientset:   k8sfake.NewSimpleClientset(),
+		k8sClientset:   k8sfake.NewClientset(),
 		configFlags:    configFlags,
 	}
 }

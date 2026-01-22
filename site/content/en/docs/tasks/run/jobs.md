@@ -72,7 +72,7 @@ Internally, Kueue will create a corresponding [Workload](/docs/concepts/workload
 for this Job with a matching name.
 
 ```shell
-kubectl -n default get workloads
+kubectl -n default get workloads.kueue.x-k8s.io
 ```
 
 The output will be similar to the following:
@@ -119,7 +119,7 @@ When the ClusterQueue has enough quota to run the Workload, it will admit
 the Workload. To see if the Workload was admitted, run the following command:
 
 ```shell
-kubectl -n default get workloads
+kubectl -n default get workloads.kueue.x-k8s.io
 ```
 
 The output is similar to the following:

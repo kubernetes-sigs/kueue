@@ -25,10 +25,14 @@ import (
 
 // ProvisioningRequestConfigApplyConfiguration represents a declarative configuration of the ProvisioningRequestConfig type for use
 // with apply.
+//
+// ProvisioningRequestConfig is the Schema for the provisioningrequestconfig API
 type ProvisioningRequestConfigApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration    `json:",inline"`
+	v1.TypeMetaApplyConfiguration `json:",inline"`
+	// metadata is the standard object metadata.
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Spec                             *ProvisioningRequestConfigSpecApplyConfiguration `json:"spec,omitempty"`
+	// spec is the specification of the ProvisioningRequestConfig.
+	Spec *ProvisioningRequestConfigSpecApplyConfiguration `json:"spec,omitempty"`
 }
 
 // ProvisioningRequestConfig constructs a declarative configuration of the ProvisioningRequestConfig type for use with
@@ -40,6 +44,7 @@ func ProvisioningRequestConfig(name string) *ProvisioningRequestConfigApplyConfi
 	b.WithAPIVersion("kueue.x-k8s.io/v1beta1")
 	return b
 }
+
 func (b ProvisioningRequestConfigApplyConfiguration) IsApplyConfiguration() {}
 
 // WithKind sets the Kind field in the declarative configuration to the given value

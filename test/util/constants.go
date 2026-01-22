@@ -42,10 +42,11 @@ const (
 	// Taken into account that after the certificates are ready, all Kueue's components
 	// need started and the time it takes for a change in ready probe response triggers
 	// a change in the deployment status.
-	StartUpTimeout     = 5 * time.Minute
-	ConsistentDuration = time.Second
-	ShortInterval      = 10 * time.Millisecond
-	Interval           = time.Millisecond * 250
+	StartUpTimeout          = 5 * time.Minute
+	ShortConsistentDuration = 10 * time.Millisecond
+	ConsistentDuration      = 1 * time.Second
+	ShortInterval           = 10 * time.Millisecond
+	Interval                = time.Millisecond * 250
 )
 
 var (

@@ -23,18 +23,59 @@ import (
 
 // WorkloadStatusApplyConfiguration represents a declarative configuration of the WorkloadStatus type for use
 // with apply.
+//
+// WorkloadStatus defines the observed state of Workload
 type WorkloadStatusApplyConfiguration struct {
-	Conditions                           []v1.ConditionApplyConfiguration        `json:"conditions,omitempty"`
-	Admission                            *AdmissionApplyConfiguration            `json:"admission,omitempty"`
-	RequeueState                         *RequeueStateApplyConfiguration         `json:"requeueState,omitempty"`
-	ReclaimablePods                      []ReclaimablePodApplyConfiguration      `json:"reclaimablePods,omitempty"`
-	AdmissionChecks                      []AdmissionCheckStateApplyConfiguration `json:"admissionChecks,omitempty"`
-	ResourceRequests                     []PodSetRequestApplyConfiguration       `json:"resourceRequests,omitempty"`
-	AccumulatedPastExexcutionTimeSeconds *int32                                  `json:"accumulatedPastExexcutionTimeSeconds,omitempty"`
-	SchedulingStats                      *SchedulingStatsApplyConfiguration      `json:"schedulingStats,omitempty"`
-	NominatedClusterNames                []string                                `json:"nominatedClusterNames,omitempty"`
-	ClusterName                          *string                                 `json:"clusterName,omitempty"`
-	UnhealthyNodes                       []UnhealthyNodeApplyConfiguration       `json:"unhealthyNodes,omitempty"`
+	// conditions hold the latest available observations of the Workload
+	// current state.
+	//
+	// The type of the condition could be:
+	//
+	// - Admitted: the Workload was admitted through a ClusterQueue.
+	// - Finished: the associated workload finished running (failed or succeeded).
+	// - PodsReady: at least `.spec.podSets[*].count` Pods are ready or have
+	// succeeded.
+	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
+	// admission holds the parameters of the admission of the workload by a
+	// ClusterQueue. admission can be set back to null, but its fields cannot be
+	// changed once set.
+	Admission *AdmissionApplyConfiguration `json:"admission,omitempty"`
+	// requeueState holds the re-queue state
+	// when a workload meets Eviction with PodsReadyTimeout reason.
+	RequeueState *RequeueStateApplyConfiguration `json:"requeueState,omitempty"`
+	// reclaimablePods keeps track of the number pods within a podset for which
+	// the resource reservation is no longer needed.
+	ReclaimablePods []ReclaimablePodApplyConfiguration `json:"reclaimablePods,omitempty"`
+	// admissionChecks list all the admission checks required by the workload and the current status
+	AdmissionChecks []AdmissionCheckStateApplyConfiguration `json:"admissionChecks,omitempty"`
+	// resourceRequests provides a detailed view of the resources that were
+	// requested by a non-admitted workload when it was considered for admission.
+	// If admission is non-null, resourceRequests will be empty because
+	// admission.resourceUsage contains the detailed information.
+	ResourceRequests []PodSetRequestApplyConfiguration `json:"resourceRequests,omitempty"`
+	// accumulatedPastExexcutionTimeSeconds holds the total time, in seconds, the workload spent
+	// in Admitted state, in the previous `Admit` - `Evict` cycles.
+	AccumulatedPastExexcutionTimeSeconds *int32 `json:"accumulatedPastExexcutionTimeSeconds,omitempty"`
+	// schedulingStats tracks scheduling statistics
+	SchedulingStats *SchedulingStatsApplyConfiguration `json:"schedulingStats,omitempty"`
+	// nominatedClusterNames specifies the list of cluster names that have been nominated for scheduling.
+	// This field is mutually exclusive with the `.status.clusterName` field, and is reset when
+	// `status.clusterName` is set.
+	// This field is optional.
+	NominatedClusterNames []string `json:"nominatedClusterNames,omitempty"`
+	// clusterName is the name of the cluster where the workload is currently assigned.
+	//
+	// With ElasticJobs, this field may also indicate the cluster where the original (old) workload
+	// was assigned, providing placement context for new scaled-up workloads. This supports
+	// affinity or propagation policies across workload slices.
+	//
+	// This field is reset after the Workload is evicted.
+	ClusterName *string `json:"clusterName,omitempty"`
+	// unhealthyNodes holds the failed nodes running at least one pod of this workload
+	// when Topology-Aware Scheduling is used. This field should not be set by the users.
+	// It indicates Kueue's scheduler is searching for replacements of the failed nodes.
+	// Requires enabling the TASFailedNodeReplacement feature gate.
+	UnhealthyNodes []UnhealthyNodeApplyConfiguration `json:"unhealthyNodes,omitempty"`
 }
 
 // WorkloadStatusApplyConfiguration constructs a declarative configuration of the WorkloadStatus type for use with

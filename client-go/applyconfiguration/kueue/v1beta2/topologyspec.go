@@ -19,7 +19,10 @@ package v1beta2
 
 // TopologySpecApplyConfiguration represents a declarative configuration of the TopologySpec type for use
 // with apply.
+//
+// TopologySpec defines the desired state of Topology
 type TopologySpecApplyConfiguration struct {
+	// levels define the levels of topology.
 	Levels []TopologyLevelApplyConfiguration `json:"levels,omitempty"`
 }
 

@@ -213,6 +213,24 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/6757
 	// Enabled failure recovery of pods stuck in terminating state.
 	FailureRecoveryPolicy featuregate.Feature = "FailureRecoveryPolicy"
+
+	// owner: @mbobrovskyi
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/5298
+	// Enabled skip adding finalizers for serving workloads.
+	SkipFinalizersForPodsSuspendedByParent featuregate.Feature = "SkipFinalizersForPodsSuspendedByParent"
+
+	// owner: @IrvingMg
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/8585
+	// Enable waiting for WorkloadAdmitted before cleaning up non-selected worker workloads.
+	MultiKueueWaitForWorkloadAdmitted featuregate.Feature = "MultiKueueWaitForWorkloadAdmitted"
+
+	// owner: @mszadkow
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/8302
+	// Redo admission on eviction in worker cluster.
+	MultiKueueRedoAdmissionOnEvictionInWorker featuregate.Feature = "MultiKueueRedoAdmissionOnEvictionInWorker"
 )
 
 func init() {
@@ -324,7 +342,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	ReclaimablePods: {
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
-	// PropagateBatchJobLabelsToWorkload is anabled from 0.13.10 and 0.14.5.
+	// PropagateBatchJobLabelsToWorkload is enabled from 0.13.10 and 0.14.5.
 	PropagateBatchJobLabelsToWorkload: {
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
@@ -333,6 +351,16 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	FailureRecoveryPolicy: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	SkipFinalizersForPodsSuspendedByParent: {
+		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
+	},
+
+	MultiKueueWaitForWorkloadAdmitted: {
+		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
+	},
+	MultiKueueRedoAdmissionOnEvictionInWorker: {
+		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
 	},
 }
 

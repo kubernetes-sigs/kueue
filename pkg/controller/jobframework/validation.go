@@ -44,7 +44,6 @@ import (
 )
 
 var (
-	annotationsPath               = field.NewPath("metadata", "annotations")
 	labelsPath                    = field.NewPath("metadata", "labels")
 	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
 	maxExecTimeLabelPath          = labelsPath.Key(constants.MaxExecTimeSecondsLabel)
@@ -92,16 +91,6 @@ func validateCreateForPrebuiltWorkload(job GenericJob) field.ErrorList {
 		gvk := job.GVK().String()
 		if !supportedPrebuiltWlJobGVKs.Has(gvk) {
 			allErrs = append(allErrs, field.Forbidden(labelsPath.Key(constants.PrebuiltWorkloadLabel), fmt.Sprintf("Is not supported for %q", gvk)))
-		}
-	}
-	return allErrs
-}
-
-func ValidateAnnotationAsCRDName(obj client.Object, crdNameAnnotation string) field.ErrorList {
-	var allErrs field.ErrorList
-	if value, exists := obj.GetAnnotations()[crdNameAnnotation]; exists {
-		if errs := validation.IsDNS1123Subdomain(value); len(errs) > 0 {
-			allErrs = append(allErrs, field.Invalid(annotationsPath.Key(crdNameAnnotation), value, strings.Join(errs, ",")))
 		}
 	}
 	return allErrs
@@ -165,11 +154,13 @@ func validatedUpdateForEnabledWorkloadSlice(oldJob, newJob GenericJob) field.Err
 }
 
 func ValidateUpdateForWorkloadPriorityClassName(isSuspended bool, oldObj, newObj client.Object) field.ErrorList {
+	// Cannot ADD a priority class to a NON-suspended (running) workload && wpc is empty
 	if !isSuspended && IsWorkloadPriorityClassNameEmpty(oldObj) {
 		if !IsWorkloadPriorityClassNameEmpty(newObj) {
 			return field.ErrorList{field.Invalid(workloadPriorityClassNamePath, WorkloadPriorityClassName(newObj), "WorkloadPriorityClass cannot be added to a non-suspended workload")}
 		}
 	}
+	// Cannot REMOVE a priority class from a workload (regardless of suspended/running)
 	if IsWorkloadPriorityClassNameEmpty(newObj) {
 		if !IsWorkloadPriorityClassNameEmpty(oldObj) {
 			return field.ErrorList{field.Invalid(workloadPriorityClassNamePath, WorkloadPriorityClassName(newObj), "WorkloadPriorityClass cannot be removed from a workload")}

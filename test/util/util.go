@@ -35,6 +35,7 @@ import (
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"github.com/onsi/gomega/format"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	"github.com/prometheus/client_golang/prometheus"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
@@ -50,7 +51,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
@@ -77,6 +77,11 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
+func init() {
+	// Use large MaxLength to make sure the diff contains relevant output
+	format.MaxLength = 500000
+}
+
 var SetupLogger = sync.OnceFunc(func() {
 	ctrl.SetLogger(NewTestingLogger(ginkgo.GinkgoWriter))
 })
@@ -96,7 +101,7 @@ func DeleteObject[PtrT objAsPtr[T], T any](ctx context.Context, c client.Client,
 }
 
 func ExpectObjectToBeDeleted[PtrT objAsPtr[T], T any](ctx context.Context, k8sClient client.Client, o PtrT, deleteNow bool) {
-	expectObjectToBeDeletedWithTimeout(ctx, k8sClient, o, deleteNow, Timeout)
+	expectObjectToBeDeletedWithTimeout(ctx, k8sClient, o, deleteNow, LongTimeout)
 }
 
 func ExpectObjectToBeDeletedWithTimeout[PtrT objAsPtr[T], T any](ctx context.Context, k8sClient client.Client, o PtrT, deleteNow bool, timeout time.Duration) {
@@ -134,6 +139,9 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 		return err
 	}
 	if err := DeleteAllTrainingRuntimesInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
+	if err := DeleteAllMPIJobsInNamespace(ctx, c, ns); err != nil {
 		return err
 	}
 	if err := c.DeleteAllOf(ctx, &appsv1.StatefulSet{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
@@ -344,7 +352,13 @@ func filterWorkloads(ctx context.Context, k8sClient client.Client, filter func(*
 
 func ExpectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
 	ginkgo.GinkgoHelper()
-	wlKeys := uniqueKeys(workloadKeys(wls))
+	wlKeys := workloadKeys(wls)
+	ExpectWorkloadsToBePendingByKeys(ctx, k8sClient, wlKeys...)
+}
+
+func ExpectWorkloadsToBePendingByKeys(ctx context.Context, k8sClient client.Client, wlKeys ...client.ObjectKey) {
+	ginkgo.GinkgoHelper()
+	wlKeys = uniqueKeys(wlKeys)
 	wl := &kueue.Workload{}
 	gomega.Eventually(func(g gomega.Gomega) {
 		pending := make([]client.ObjectKey, 0, len(wlKeys))
@@ -375,7 +389,13 @@ func admittedWorkloadKeys(ctx context.Context, k8sClient client.Client, wlKeys [
 
 func ExpectWorkloadsToBeAdmitted(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
 	ginkgo.GinkgoHelper()
-	wlKeys := uniqueKeys(workloadKeys(wls))
+	wlKeys := workloadKeys(wls)
+	ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlKeys...)
+}
+
+func ExpectWorkloadsToBeAdmittedByKeys(ctx context.Context, k8sClient client.Client, wlKeys ...client.ObjectKey) {
+	ginkgo.GinkgoHelper()
+	wlKeys = uniqueKeys(wlKeys)
 	gomega.Eventually(func(g gomega.Gomega) {
 		admitted, err := admittedWorkloadKeys(ctx, k8sClient, wlKeys)
 		g.Expect(err).NotTo(gomega.HaveOccurred())
@@ -478,7 +498,13 @@ func ExpectWorkloadToHaveRequeueState(ctx context.Context, k8sClient client.Clie
 
 func ExpectWorkloadsToBePreempted(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
 	ginkgo.GinkgoHelper()
-	wlKeys := uniqueKeys(workloadKeys(wls))
+	wlKeys := workloadKeys(wls)
+	ExpectWorkloadsToBePreemptedByKeys(ctx, k8sClient, wlKeys...)
+}
+
+func ExpectWorkloadsToBePreemptedByKeys(ctx context.Context, k8sClient client.Client, wlKeys ...client.ObjectKey) {
+	ginkgo.GinkgoHelper()
+	wlKeys = uniqueKeys(wlKeys)
 	wl := &kueue.Workload{}
 	gomega.Eventually(func(g gomega.Gomega) {
 		preempted := make([]client.ObjectKey, 0, len(wlKeys))
@@ -732,6 +758,16 @@ func ExpectQuotaReservedWaitTimeMetric(cq *kueue.ClusterQueue, priorityClass str
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(int(v)).Should(gomega.Equal(count))
 	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func ExpectFinishedWorkloadsTotalMetric(cq *kueue.ClusterQueue, priorityClass string, v int) {
+	metric := metrics.FinishedWorkloadsTotal.WithLabelValues(cq.Name, priorityClass, roletracker.RoleStandalone)
+	expectCounterMetric(metric, v)
+}
+
+func ExpectLQFinishedWorkloadsTotalMetric(lq *kueue.LocalQueue, priorityClass string, value int) {
+	metric := metrics.LocalQueueFinishedWorkloadsTotal.WithLabelValues(lq.Name, lq.Namespace, priorityClass, roletracker.RoleStandalone)
+	expectCounterMetric(metric, value)
 }
 
 func expectCounterMetric(metric prometheus.Counter, count int) {
@@ -1019,27 +1055,6 @@ func ExpectWorkloadsFinalizedOrGone(ctx context.Context, k8sClient client.Client
 	}
 }
 
-func ExpectEventsForObjects(eventWatcher watch.Interface, objs sets.Set[types.NamespacedName], filter func(*corev1.Event) bool) {
-	gotObjs := sets.New[types.NamespacedName]()
-	timeoutCh := time.After(Timeout)
-readCh:
-	for !gotObjs.Equal(objs) {
-		select {
-		case evt, ok := <-eventWatcher.ResultChan():
-			gomega.ExpectWithOffset(1, ok).To(gomega.BeTrue())
-			event, ok := evt.Object.(*corev1.Event)
-			gomega.ExpectWithOffset(1, ok).To(gomega.BeTrue())
-			if filter(event) {
-				objKey := types.NamespacedName{Namespace: event.InvolvedObject.Namespace, Name: event.InvolvedObject.Name}
-				gotObjs.Insert(objKey)
-			}
-		case <-timeoutCh:
-			break readCh
-		}
-	}
-	gomega.ExpectWithOffset(1, gotObjs).To(gomega.Equal(objs))
-}
-
 func ExpectPreemptedCondition(ctx context.Context, k8sClient client.Client, reason string, status metav1.ConditionStatus, preemptedWl, preempteeWl *kueue.Workload, preemteeWorkloadUID, preempteeJobUID, preemptorPath, preempteePath string) {
 	conditionCmpOpts := cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "ObservedGeneration")
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
@@ -1109,7 +1124,7 @@ func ExpectJobUnsuspended(ctx context.Context, c client.Client, key types.Namesp
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(c.Get(ctx, key, job)).To(gomega.Succeed())
 		g.Expect(job.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
-	}, Timeout, Interval).Should(gomega.Succeed())
+	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 
 func ExpectJobUnsuspendedWithNodeSelectors(ctx context.Context, c client.Client, key types.NamespacedName, nodeSelector map[string]string) {
@@ -1119,7 +1134,7 @@ func ExpectJobUnsuspendedWithNodeSelectors(ctx context.Context, c client.Client,
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(c.Get(ctx, key, job)).To(gomega.Succeed())
 		g.Expect(job.Spec.Template.Spec.NodeSelector).Should(gomega.Equal(nodeSelector))
-	}, Timeout, Interval).Should(gomega.Succeed())
+	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 
 func ExpectRayClusterUnsuspended(ctx context.Context, c client.Client, key types.NamespacedName) {
@@ -1399,7 +1414,7 @@ func ExpectJobToBeRunning(ctx context.Context, c client.Client, job *batchv1.Job
 		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
 		g.Expect(createdJob.Status.StartTime).NotTo(gomega.BeNil())
 		g.Expect(createdJob.Status.CompletionTime).To(gomega.BeNil())
-	}, Timeout, Interval).Should(gomega.Succeed())
+	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 
 func ExpectJobToBeCompleted(ctx context.Context, c client.Client, job *batchv1.Job) {

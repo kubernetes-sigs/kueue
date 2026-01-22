@@ -23,10 +23,24 @@ import (
 
 // LocalQueueSpecApplyConfiguration represents a declarative configuration of the LocalQueueSpec type for use
 // with apply.
+//
+// LocalQueueSpec defines the desired state of LocalQueue
 type LocalQueueSpecApplyConfiguration struct {
+	// clusterQueue is a reference to a clusterQueue that backs this localQueue.
 	ClusterQueue *kueuev1beta2.ClusterQueueReference `json:"clusterQueue,omitempty"`
-	StopPolicy   *kueuev1beta2.StopPolicy            `json:"stopPolicy,omitempty"`
-	FairSharing  *FairSharingApplyConfiguration      `json:"fairSharing,omitempty"`
+	// stopPolicy - if set to a value different from None, the LocalQueue is considered Inactive,
+	// no new reservation being made.
+	//
+	// Depending on its value, its associated workloads will:
+	//
+	// - None - Workloads are admitted
+	// - HoldAndDrain - Admitted workloads are evicted and Reserving workloads will cancel the reservation.
+	// - Hold - Admitted workloads will run to completion and Reserving workloads will cancel the reservation.
+	StopPolicy *kueuev1beta2.StopPolicy `json:"stopPolicy,omitempty"`
+	// fairSharing defines the properties of the LocalQueue when
+	// participating in AdmissionFairSharing.  The values are only relevant
+	// if AdmissionFairSharing is enabled in the Kueue configuration.
+	FairSharing *FairSharingApplyConfiguration `json:"fairSharing,omitempty"`
 }
 
 // LocalQueueSpecApplyConfiguration constructs a declarative configuration of the LocalQueueSpec type for use with

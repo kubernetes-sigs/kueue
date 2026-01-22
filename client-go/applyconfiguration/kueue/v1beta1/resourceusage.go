@@ -25,8 +25,13 @@ import (
 // ResourceUsageApplyConfiguration represents a declarative configuration of the ResourceUsage type for use
 // with apply.
 type ResourceUsageApplyConfiguration struct {
-	Name     *v1.ResourceName   `json:"name,omitempty"`
-	Total    *resource.Quantity `json:"total,omitempty"`
+	// name of the resource
+	Name *v1.ResourceName `json:"name,omitempty"`
+	// total is the total quantity of used quota, including the amount borrowed
+	// from the cohort.
+	Total *resource.Quantity `json:"total,omitempty"`
+	// borrowed is quantity of quota that is borrowed from the cohort. In other
+	// words, it's the used quota that is over the nominalQuota.
 	Borrowed *resource.Quantity `json:"borrowed,omitempty"`
 }
 

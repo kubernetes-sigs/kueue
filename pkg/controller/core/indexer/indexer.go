@@ -41,6 +41,7 @@ const (
 	WorkloadRuntimeClassKey    = "spec.runtimeClass"
 	OwnerReferenceUID          = "metadata.ownerReferences.uid"
 	WorkloadAdmissionCheckKey  = "status.admissionChecks"
+	WorkloadPriorityClassKey   = "spec.priorityClassRef"
 
 	// OwnerReferenceGroupKindFmt defines the format string used to construct a field path
 	// for indexing or matching against a specific owner Group and Kind in a Kubernetes object's metadata.
@@ -177,6 +178,18 @@ func IndexWorkloadAdmissionCheck(obj client.Object) []string {
 	})
 }
 
+func IndexWorkloadPriorityClass(obj client.Object) []string {
+	wl, ok := obj.(*kueue.Workload)
+	if !ok || wl.Spec.PriorityClassRef == nil {
+		return nil
+	}
+	if wl.Spec.PriorityClassRef.Kind != kueue.WorkloadPriorityClassKind ||
+		wl.Spec.PriorityClassRef.Group != kueue.WorkloadPriorityClassGroup {
+		return nil
+	}
+	return []string{wl.Spec.PriorityClassRef.Name}
+}
+
 // Setup sets the index with the given fields for core apis.
 func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadQueueKey, IndexWorkloadQueue); err != nil {
@@ -193,6 +206,9 @@ func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 	}
 	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadAdmissionCheckKey, IndexWorkloadAdmissionCheck); err != nil {
 		return fmt.Errorf("setting index on admissionCheck for Workload: %w", err)
+	}
+	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadPriorityClassKey, IndexWorkloadPriorityClass); err != nil {
+		return fmt.Errorf("setting index on priorityClass for Workload: %w", err)
 	}
 	if err := indexer.IndexField(ctx, &kueue.LocalQueue{}, QueueClusterQueueKey, IndexQueueClusterQueue); err != nil {
 		return fmt.Errorf("setting index on clusterQueue for localQueue: %w", err)

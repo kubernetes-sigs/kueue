@@ -20,7 +20,9 @@ package v1beta2
 // ClusterSourceApplyConfiguration represents a declarative configuration of the ClusterSource type for use
 // with apply.
 type ClusterSourceApplyConfiguration struct {
-	KubeConfig        *KubeConfigApplyConfiguration              `json:"kubeConfig,omitempty"`
+	// kubeConfig is information on how to connect to the cluster.
+	KubeConfig *KubeConfigApplyConfiguration `json:"kubeConfig,omitempty"`
+	// clusterProfileRef is the reference to the ClusterProfile object used to connect to the cluster.
 	ClusterProfileRef *ClusterProfileReferenceApplyConfiguration `json:"clusterProfileRef,omitempty"`
 }
 

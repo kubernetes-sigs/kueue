@@ -25,11 +25,19 @@ import (
 
 // WorkloadPriorityClassApplyConfiguration represents a declarative configuration of the WorkloadPriorityClass type for use
 // with apply.
+//
+// WorkloadPriorityClass is the Schema for the workloadPriorityClass API
 type WorkloadPriorityClassApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration    `json:",inline"`
+	v1.TypeMetaApplyConfiguration `json:",inline"`
+	// metadata is the metadata of the WorkloadPriorityClass.
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Value                            *int32  `json:"value,omitempty"`
-	Description                      *string `json:"description,omitempty"`
+	// value represents the integer value of this workloadPriorityClass. This is the actual priority that workloads
+	// receive when jobs have the name of this class in their workloadPriorityClass label.
+	// Changing the value of workloadPriorityClass doesn't affect the priority of workloads that were already created.
+	Value *int32 `json:"value,omitempty"`
+	// description is an arbitrary string that usually provides guidelines on
+	// when this workloadPriorityClass should be used.
+	Description *string `json:"description,omitempty"`
 }
 
 // WorkloadPriorityClass constructs a declarative configuration of the WorkloadPriorityClass type for use with
@@ -41,6 +49,7 @@ func WorkloadPriorityClass(name string) *WorkloadPriorityClassApplyConfiguration
 	b.WithAPIVersion("kueue.x-k8s.io/v1beta1")
 	return b
 }
+
 func (b WorkloadPriorityClassApplyConfiguration) IsApplyConfiguration() {}
 
 // WithKind sets the Kind field in the declarative configuration to the given value

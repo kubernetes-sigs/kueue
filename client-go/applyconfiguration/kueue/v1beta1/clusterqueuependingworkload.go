@@ -19,8 +19,13 @@ package v1beta1
 
 // ClusterQueuePendingWorkloadApplyConfiguration represents a declarative configuration of the ClusterQueuePendingWorkload type for use
 // with apply.
+//
+// ClusterQueuePendingWorkload contains the information identifying a pending workload
+// in the cluster queue.
 type ClusterQueuePendingWorkloadApplyConfiguration struct {
-	Name      *string `json:"name,omitempty"`
+	// name indicates the name of the pending workload.
+	Name *string `json:"name,omitempty"`
+	// namespace indicates the name of the pending workload.
 	Namespace *string `json:"namespace,omitempty"`
 }
 

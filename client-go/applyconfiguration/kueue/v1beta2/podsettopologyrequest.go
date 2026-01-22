@@ -19,16 +19,49 @@ package v1beta2
 
 // PodSetTopologyRequestApplyConfiguration represents a declarative configuration of the PodSetTopologyRequest type for use
 // with apply.
+//
+// PodSetTopologyRequest defines the topology request for a PodSet.
 type PodSetTopologyRequestApplyConfiguration struct {
-	Required                    *string `json:"required,omitempty"`
-	Preferred                   *string `json:"preferred,omitempty"`
-	Unconstrained               *bool   `json:"unconstrained,omitempty"`
-	PodIndexLabel               *string `json:"podIndexLabel,omitempty"`
-	SubGroupIndexLabel          *string `json:"subGroupIndexLabel,omitempty"`
-	SubGroupCount               *int32  `json:"subGroupCount,omitempty"`
-	PodSetGroupName             *string `json:"podSetGroupName,omitempty"`
+	// required indicates the topology level required by the PodSet, as
+	// indicated by the `kueue.x-k8s.io/podset-required-topology` PodSet
+	// annotation.
+	// This is limited to 63 characters.
+	Required *string `json:"required,omitempty"`
+	// preferred indicates the topology level preferred by the PodSet, as
+	// indicated by the `kueue.x-k8s.io/podset-preferred-topology` PodSet
+	// annotation.
+	// This is limited to 63 characters.
+	Preferred *string `json:"preferred,omitempty"`
+	// unconstrained indicates that Kueue has the freedom to schedule the PodSet within
+	// the entire available capacity, without constraints on the compactness of the placement.
+	// This is indicated by the `kueue.x-k8s.io/podset-unconstrained-topology` PodSet annotation.
+	Unconstrained *bool `json:"unconstrained,omitempty"`
+	// podIndexLabel indicates the name of the label indexing the pods.
+	// For example, in the context of
+	// - kubernetes job this is: kubernetes.io/job-completion-index
+	// - JobSet: kubernetes.io/job-completion-index (inherited from Job)
+	// - Kubeflow: training.kubeflow.org/replica-index
+	// This is limited to 317 characters.
+	PodIndexLabel *string `json:"podIndexLabel,omitempty"`
+	// subGroupIndexLabel indicates the name of the label indexing the instances of replicated Jobs (groups)
+	// within a PodSet. For example, in the context of JobSet this is jobset.sigs.k8s.io/job-index.
+	// This is limited to 317 characters.
+	SubGroupIndexLabel *string `json:"subGroupIndexLabel,omitempty"`
+	// subGroupCount indicates the count of replicated Jobs (groups) within a PodSet.
+	// For example, in the context of JobSet this value is read from jobset.sigs.k8s.io/replicatedjob-replicas.
+	SubGroupCount *int32 `json:"subGroupCount,omitempty"`
+	// podSetGroupName indicates the name of the group of PodSets to which this PodSet belongs to.
+	// PodSets with the same `PodSetGroupName` should be assigned the same ResourceFlavor
+	PodSetGroupName *string `json:"podSetGroupName,omitempty"`
+	// podSetSliceRequiredTopology indicates the topology level required by the PodSet slice, as
+	// indicated by the `kueue.x-k8s.io/podset-slice-required-topology` annotation.
+	//
+	// This is limited to 63
 	PodSetSliceRequiredTopology *string `json:"podSetSliceRequiredTopology,omitempty"`
-	PodSetSliceSize             *int32  `json:"podSetSliceSize,omitempty"`
+	// podSetSliceSize indicates the size of a subgroup of pods in a PodSet for which
+	// Kueue finds a requested topology domain on a level defined
+	// in `kueue.x-k8s.io/podset-slice-required-topology` annotation.
+	PodSetSliceSize *int32 `json:"podSetSliceSize,omitempty"`
 }
 
 // PodSetTopologyRequestApplyConfiguration constructs a declarative configuration of the PodSetTopologyRequest type for use with

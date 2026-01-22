@@ -46,11 +46,10 @@ import (
 )
 
 var (
-	ErrCohortNotFound           = errors.New("cohort not found")
-	ErrCohortHasCycle           = errors.New("cohort has a cycle")
-	ErrCqNotFound               = errors.New("cluster queue not found")
-	errQNotFound                = errors.New("queue not found")
-	errWorkloadNotQuotaReserved = errors.New("workload does not have quota reservation by a ClusterQueue")
+	ErrCohortNotFound = errors.New("cohort not found")
+	ErrCohortHasCycle = errors.New("cohort has a cycle")
+	ErrCqNotFound     = errors.New("cluster queue not found")
+	errQNotFound      = errors.New("queue not found")
 )
 
 const (
@@ -109,13 +108,14 @@ type Cache struct {
 	podsReadyCond sync.Cond
 
 	client               client.Client
-	assumedWorkloads     map[workload.Reference]kueue.ClusterQueueReference
 	resourceFlavors      map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	podsReadyTracking    bool
 	admissionChecks      map[kueue.AdmissionCheckReference]AdmissionCheck
 	workloadInfoOptions  []workload.InfoOption
 	fairSharingEnabled   bool
 	admissionFairSharing *config.AdmissionFairSharing
+	// Tracks Workload's ClusterQueue assignment throughout its presence in the cache, which is when they reserve quota (`QuotaReserved=True`).
+	workloadAssignedQueues map[workload.Reference]kueue.ClusterQueueReference
 
 	hm hierarchy.Manager[*clusterQueue, *cohort]
 
@@ -126,12 +126,12 @@ type Cache struct {
 
 func New(client client.Client, options ...Option) *Cache {
 	cache := &Cache{
-		client:           client,
-		assumedWorkloads: make(map[workload.Reference]kueue.ClusterQueueReference),
-		resourceFlavors:  make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
-		admissionChecks:  make(map[kueue.AdmissionCheckReference]AdmissionCheck),
-		hm:               hierarchy.NewManager(newCohort),
-		tasCache:         NewTASCache(client),
+		client:                 client,
+		resourceFlavors:        make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
+		admissionChecks:        make(map[kueue.AdmissionCheckReference]AdmissionCheck),
+		workloadAssignedQueues: make(map[workload.Reference]kueue.ClusterQueueReference),
+		hm:                     hierarchy.NewManager(newCohort),
+		tasCache:               NewTASCache(client),
 	}
 	for _, option := range options {
 		option(cache)
@@ -428,7 +428,10 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 		if !workload.HasQuotaReservation(&w) || workload.IsFinished(&w) {
 			continue
 		}
-		c.addOrUpdateWorkload(log, &workloads.Items[i])
+		if _, err := c.addOrUpdateWorkloadWithoutLock(log, &workloads.Items[i]); err != nil {
+			log.Error(err, "Workload found to be matching the ClusterQueue but failed to be added to it")
+			return err
+		}
 	}
 
 	return nil
@@ -571,134 +574,85 @@ func (c *Cache) UpdateLocalQueue(oldQ, newQ *kueue.LocalQueue) error {
 func (c *Cache) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload) bool {
 	c.Lock()
 	defer c.Unlock()
-	return c.addOrUpdateWorkload(log, w)
+	updated, err := c.addOrUpdateWorkloadWithoutLock(log, w)
+	if err != nil {
+		log.Error(err, "Updating workload in cache")
+	}
+	return updated
 }
 
-func (c *Cache) addOrUpdateWorkload(log logr.Logger, w *kueue.Workload) bool {
-	if !workload.HasQuotaReservation(w) {
-		return false
+func (c *Cache) addOrUpdateWorkloadWithoutLock(log logr.Logger, wl *kueue.Workload) (bool, error) {
+	wlKey := workload.Key(wl)
+	assignedCqName, assigned := c.workloadAssignedQueues[wlKey]
+
+	if !workload.HasQuotaReservation(wl) {
+		if assigned {
+			c.deleteFromQueueIfPresent(log, wlKey, assignedCqName)
+			delete(c.workloadAssignedQueues, wlKey)
+		}
+		return false, nil
 	}
 
-	clusterQueue := c.hm.ClusterQueue(w.Status.Admission.ClusterQueue)
-	if clusterQueue == nil {
-		return false
+	cq := c.hm.ClusterQueue(wl.Status.Admission.ClusterQueue)
+	if cq == nil {
+		return false, ErrCqNotFound
 	}
 
-	c.cleanupAssumedState(log, w)
+	if assigned && assignedCqName != cq.Name {
+		c.deleteFromQueueIfPresent(log, wlKey, assignedCqName)
+	}
 
 	if c.podsReadyTracking {
 		c.podsReadyCond.Broadcast()
 	}
-	clusterQueue.addOrUpdateWorkload(log, w)
-	return true
+
+	c.workloadAssignedQueues[wlKey] = cq.Name
+	cq.addOrUpdateWorkload(log, wl)
+
+	return true, nil
 }
 
-func (c *Cache) UpdateWorkload(log logr.Logger, oldWl, newWl *kueue.Workload) error {
+func (c *Cache) deleteFromQueueIfPresent(log logr.Logger, wlKey workload.Reference, cqName kueue.ClusterQueueReference) {
+	if cq := c.hm.ClusterQueue(cqName); cq != nil {
+		cq.deleteWorkload(log, wlKey)
+	}
+}
+
+func (c *Cache) DeleteWorkload(log logr.Logger, wlKey workload.Reference) error {
 	c.Lock()
 	defer c.Unlock()
-	if workload.HasQuotaReservation(oldWl) {
-		cq := c.hm.ClusterQueue(oldWl.Status.Admission.ClusterQueue)
-		if cq == nil {
-			return errors.New("old ClusterQueue doesn't exist")
-		}
-		cq.deleteWorkload(log, oldWl)
-	}
-	c.cleanupAssumedState(log, oldWl)
 
-	if !workload.HasQuotaReservation(newWl) {
+	cqName, assigned := c.workloadAssignedQueues[wlKey]
+	if !assigned {
 		return nil
 	}
-	cq := c.hm.ClusterQueue(newWl.Status.Admission.ClusterQueue)
-	if cq == nil {
-		return errors.New("new ClusterQueue doesn't exist")
-	}
-	if c.podsReadyTracking {
-		c.podsReadyCond.Broadcast()
-	}
-	cq.addOrUpdateWorkload(log, newWl)
-	return nil
-}
 
-func (c *Cache) DeleteWorkload(log logr.Logger, w *kueue.Workload) error {
-	c.Lock()
-	defer c.Unlock()
-
-	cq := c.clusterQueueForWorkload(w)
+	cq := c.hm.ClusterQueue(cqName)
 	if cq == nil {
 		return ErrCqNotFound
 	}
 
-	c.cleanupAssumedState(log, w)
+	cq.forgetWorkload(log, wlKey)
+	delete(c.workloadAssignedQueues, wlKey)
 
-	cq.forgetWorkload(log, w)
 	if c.podsReadyTracking {
 		c.podsReadyCond.Broadcast()
 	}
+
 	return nil
 }
 
-func (c *Cache) IsAssumedOrAdmittedWorkload(w workload.Info) bool {
+func (c *Cache) IsAdded(w workload.Info) bool {
 	c.RLock()
 	defer c.RUnlock()
 
 	k := workload.Key(w.Obj)
-	if _, assumed := c.assumedWorkloads[k]; assumed {
-		return true
-	}
 	if cq := c.hm.ClusterQueue(w.ClusterQueue); cq != nil {
 		if _, admitted := cq.Workloads[k]; admitted {
 			return true
 		}
 	}
 	return false
-}
-
-func (c *Cache) AssumeWorkload(log logr.Logger, w *kueue.Workload) error {
-	c.Lock()
-	defer c.Unlock()
-
-	if !workload.HasQuotaReservation(w) {
-		return errWorkloadNotQuotaReserved
-	}
-
-	k := workload.Key(w)
-	assumedCq, assumed := c.assumedWorkloads[k]
-	if assumed {
-		return fmt.Errorf("the workload is already assumed to ClusterQueue %q", assumedCq)
-	}
-
-	cq := c.hm.ClusterQueue(w.Status.Admission.ClusterQueue)
-	if cq == nil {
-		return ErrCqNotFound
-	}
-
-	cq.addOrUpdateWorkload(log, w)
-	c.assumedWorkloads[k] = w.Status.Admission.ClusterQueue
-	return nil
-}
-
-func (c *Cache) ForgetWorkload(log logr.Logger, w *kueue.Workload) error {
-	c.Lock()
-	defer c.Unlock()
-
-	if _, assumed := c.assumedWorkloads[workload.Key(w)]; !assumed {
-		return errors.New("the workload is not assumed")
-	}
-	c.cleanupAssumedState(log, w)
-
-	if !workload.HasQuotaReservation(w) {
-		return errWorkloadNotQuotaReserved
-	}
-
-	cq := c.hm.ClusterQueue(w.Status.Admission.ClusterQueue)
-	if cq == nil {
-		return ErrCqNotFound
-	}
-	cq.forgetWorkload(log, w)
-	if c.podsReadyTracking {
-		c.podsReadyCond.Broadcast()
-	}
-	return nil
 }
 
 type ClusterQueueUsageStats struct {
@@ -873,34 +827,6 @@ func filterLocalQueueUsage(orig resources.FlavorResourceQuantities, resourceGrou
 		}
 	}
 	return qFlvUsages
-}
-
-func (c *Cache) cleanupAssumedState(log logr.Logger, w *kueue.Workload) {
-	k := workload.Key(w)
-	assumedCQName, assumed := c.assumedWorkloads[k]
-	if assumed {
-		// If the workload's assigned ClusterQueue is different from the assumed
-		// one, then we should also clean up the assumed one.
-		if workload.HasQuotaReservation(w) && assumedCQName != w.Status.Admission.ClusterQueue {
-			if assumedCQ := c.hm.ClusterQueue(assumedCQName); assumedCQ != nil {
-				assumedCQ.deleteWorkload(log, w)
-			}
-		}
-		delete(c.assumedWorkloads, k)
-	}
-}
-
-func (c *Cache) clusterQueueForWorkload(w *kueue.Workload) *clusterQueue {
-	if workload.HasQuotaReservation(w) {
-		return c.hm.ClusterQueue(w.Status.Admission.ClusterQueue)
-	}
-	wKey := workload.Key(w)
-	for _, cq := range c.hm.ClusterQueues() {
-		if cq.Workloads[wKey] != nil {
-			return cq
-		}
-	}
-	return nil
 }
 
 func (c *Cache) ClusterQueuesUsingFlavor(flavor kueue.ResourceFlavorReference) []kueue.ClusterQueueReference {

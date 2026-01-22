@@ -25,10 +25,41 @@ import (
 // ResourceQuotaApplyConfiguration represents a declarative configuration of the ResourceQuota type for use
 // with apply.
 type ResourceQuotaApplyConfiguration struct {
-	Name           *v1.ResourceName   `json:"name,omitempty"`
-	NominalQuota   *resource.Quantity `json:"nominalQuota,omitempty"`
+	// name of this resource.
+	Name *v1.ResourceName `json:"name,omitempty"`
+	// nominalQuota is the quantity of this resource that is available for
+	// Workloads admitted by this ClusterQueue at a point in time.
+	// The nominalQuota must be non-negative.
+	// nominalQuota should represent the resources in the cluster available for
+	// running jobs (after discounting resources consumed by system components
+	// and pods not managed by kueue). In an autoscaled cluster, nominalQuota
+	// should account for resources that can be provided by a component such as
+	// Kubernetes cluster-autoscaler.
+	//
+	// If the ClusterQueue belongs to a cohort, the sum of the quotas for each
+	// (flavor, resource) combination defines the maximum quantity that can be
+	// allocated by a ClusterQueue in the cohort.
+	NominalQuota *resource.Quantity `json:"nominalQuota,omitempty"`
+	// borrowingLimit is the maximum amount of quota for the [flavor, resource]
+	// combination that this ClusterQueue is allowed to borrow from the unused
+	// quota of other ClusterQueues in the same cohort.
+	// In total, at a given time, Workloads in a ClusterQueue can consume a
+	// quantity of quota equal to nominalQuota+borrowingLimit, assuming the other
+	// ClusterQueues in the cohort have enough unused quota.
+	// If null, it means that there is no borrowing limit.
+	// If not null, it must be non-negative.
+	// borrowingLimit must be null if spec.cohort is empty.
 	BorrowingLimit *resource.Quantity `json:"borrowingLimit,omitempty"`
-	LendingLimit   *resource.Quantity `json:"lendingLimit,omitempty"`
+	// lendingLimit is the maximum amount of unused quota for the [flavor, resource]
+	// combination that this ClusterQueue can lend to other ClusterQueues in the same cohort.
+	// In total, at a given time, ClusterQueue reserves for its exclusive use
+	// a quantity of quota equals to nominalQuota - lendingLimit.
+	// If null, it means that there is no lending limit, meaning that
+	// all the nominalQuota can be borrowed by other clusterQueues in the cohort.
+	// If not null, it must be non-negative.
+	// lendingLimit must be null if spec.cohort is empty.
+	// This field is in beta stage and is enabled by default.
+	LendingLimit *resource.Quantity `json:"lendingLimit,omitempty"`
 }
 
 // ResourceQuotaApplyConfiguration constructs a declarative configuration of the ResourceQuota type for use with

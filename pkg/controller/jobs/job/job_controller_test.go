@@ -2094,6 +2094,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
+					AdmittedAt(true, now).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check1",
 						State: kueue.CheckStateReady,
@@ -2119,24 +2120,11 @@ func TestReconciler(t *testing.T) {
 						},
 					}).
 					Condition(metav1.Condition{
-						Type:    kueue.WorkloadQuotaReserved,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadFinished,
-						Message: `Workload has finished`,
-					}).
-					Condition(metav1.Condition{
-						Type:    kueue.WorkloadAdmitted,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadFinished,
-						Message: `Workload has finished`,
-					}).
-					Condition(metav1.Condition{
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
 						Reason:  "FailedToStart",
 						Message: `in admission check "check2": invalid admission check PodSetUpdate: conflict for labels: conflict for key=ac-key, value1=ac-value1, value2=ac-value2`,
 					}).
-					PastAdmittedTime(0).
 					Obj(),
 			},
 		},
@@ -2177,6 +2165,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
+					AdmittedAt(true, now).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check1",
 						State: kueue.CheckStateReady,
@@ -2202,24 +2191,11 @@ func TestReconciler(t *testing.T) {
 						},
 					}).
 					Condition(metav1.Condition{
-						Type:    kueue.WorkloadQuotaReserved,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadFinished,
-						Message: `Workload has finished`,
-					}).
-					Condition(metav1.Condition{
-						Type:    kueue.WorkloadAdmitted,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadFinished,
-						Message: `Workload has finished`,
-					}).
-					Condition(metav1.Condition{
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
 						Reason:  "FailedToStart",
 						Message: `in admission check "check2": invalid admission check PodSetUpdate: conflict for annotations: conflict for key=ac-key, value1=ac-value1, value2=ac-value2`,
 					}).
-					PastAdmittedTime(0).
 					Obj(),
 			},
 		},
@@ -2260,6 +2236,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
+					AdmittedAt(true, now).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check1",
 						State: kueue.CheckStateReady,
@@ -2285,24 +2262,11 @@ func TestReconciler(t *testing.T) {
 						},
 					}).
 					Condition(metav1.Condition{
-						Type:    kueue.WorkloadQuotaReserved,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadFinished,
-						Message: `Workload has finished`,
-					}).
-					Condition(metav1.Condition{
-						Type:    kueue.WorkloadAdmitted,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadFinished,
-						Message: `Workload has finished`,
-					}).
-					Condition(metav1.Condition{
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
 						Reason:  "FailedToStart",
 						Message: `in admission check "check2": invalid admission check PodSetUpdate: conflict for nodeSelector: conflict for key=ac-key, value1=ac-value1, value2=ac-value2`,
 					}).
-					PastAdmittedTime(0).
 					Obj(),
 			},
 		},
@@ -2333,6 +2297,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
+					AdmittedAt(true, now).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check",
 						State: kueue.CheckStateReady,
@@ -2346,24 +2311,11 @@ func TestReconciler(t *testing.T) {
 						},
 					}).
 					Condition(metav1.Condition{
-						Type:    kueue.WorkloadQuotaReserved,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadFinished,
-						Message: `Workload has finished`,
-					}).
-					Condition(metav1.Condition{
-						Type:    kueue.WorkloadAdmitted,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadFinished,
-						Message: `Workload has finished`,
-					}).
-					Condition(metav1.Condition{
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
 						Reason:  "FailedToStart",
 						Message: `invalid admission check PodSetUpdate: conflict for nodeSelector: conflict for key=provisioning, value1=spot, value2=on-demand`,
 					}).
-					PastAdmittedTime(0).
 					Obj(),
 			},
 		},
@@ -3155,20 +3107,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Condition(metav1.Condition{
-						Type:               kueue.WorkloadQuotaReserved,
-						Status:             metav1.ConditionFalse,
-						Reason:             kueue.WorkloadFinished,
-						Message:            `Workload has finished`,
-						ObservedGeneration: 1,
-					}).
-					Condition(metav1.Condition{
-						Type:               kueue.WorkloadAdmitted,
-						Status:             metav1.ConditionFalse,
-						Reason:             kueue.WorkloadFinished,
-						Message:            `Workload has finished`,
-						ObservedGeneration: 1,
-					}).
+					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadFinished,
 						Status:             metav1.ConditionTrue,
@@ -3177,7 +3116,6 @@ func TestReconciler(t *testing.T) {
 						ObservedGeneration: 1,
 					}).
 					Generation(1).
-					PastAdmittedTime(0).
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -3511,12 +3449,6 @@ func TestReconciler(t *testing.T) {
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
-					Condition(metav1.Condition{
-						Type:    kueue.WorkloadQuotaReserved,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadFinished,
-						Message: `Workload has finished`,
-					}).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,

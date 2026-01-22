@@ -95,6 +95,7 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	cfg.WaitForPodsReady = cmp.Or(cfg.WaitForPodsReady, &WaitForPodsReady{Enable: false})
 	if cfg.WaitForPodsReady.Enable {
 		cfg.WaitForPodsReady.Timeout = cmp.Or(cfg.WaitForPodsReady.Timeout, &metav1.Duration{Duration: defaultPodsReadyTimeout})
+		cfg.WaitForPodsReady.RecoveryTimeout = cmp.Or(cfg.WaitForPodsReady.RecoveryTimeout, cfg.WaitForPodsReady.Timeout)
 		cfg.WaitForPodsReady.BlockAdmission = cmp.Or(cfg.WaitForPodsReady.BlockAdmission, &cfg.WaitForPodsReady.Enable)
 		cfg.WaitForPodsReady.RequeuingStrategy = cmp.Or(cfg.WaitForPodsReady.RequeuingStrategy, &RequeuingStrategy{})
 		cfg.WaitForPodsReady.RequeuingStrategy.Timestamp = cmp.Or(cfg.WaitForPodsReady.RequeuingStrategy.Timestamp, ptr.To(EvictionTimestamp))

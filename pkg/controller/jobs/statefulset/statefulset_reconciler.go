@@ -132,6 +132,8 @@ func ungateAndFinalize(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
 		updated = true
 	}
 
+	// TODO (#8571): As discussed in https://github.com/kubernetes-sigs/kueue/issues/8571,
+	// this check should be removed in v0.20.
 	if shouldFinalize(sts, pod) && controllerutil.RemoveFinalizer(pod, podcontroller.PodFinalizer) {
 		updated = true
 	}
@@ -145,7 +147,7 @@ func shouldUngate(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
 }
 
 func shouldFinalize(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
-	return shouldUngate(sts, pod) || utilpod.IsTerminated(pod)
+	return shouldUngate(sts, pod) || utilpod.IsTerminated(pod) || pod.DeletionTimestamp != nil
 }
 
 func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.StatefulSet) error {

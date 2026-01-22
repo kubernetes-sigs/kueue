@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.20.0
   name: clusterqueues.kueue.x-k8s.io
 spec:
   group: kueue.x-k8s.io
@@ -200,7 +200,7 @@ spec:
                     default: TryNextFlavor
                     description: |-
                       whenCanPreempt determines whether a workload should try the next flavor
-                      before borrowing in current flavor. The possible values are:
+                      before preempting in current flavor. The possible values are:
 
                       - `MayStopSearch`: stop the search for candidate flavors if workload fits or requires
                         preemption to fit.
@@ -986,7 +986,7 @@ spec:
                     default: TryNextFlavor
                     description: |-
                       whenCanPreempt determines whether a workload should try the next flavor
-                      before borrowing in current flavor. The possible values are:
+                      before preempting in current flavor. The possible values are:
 
                       - `MayStopSearch`: stop the search for candidate flavors if workload fits or requires
                         preemption to fit.

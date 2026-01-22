@@ -50,7 +50,7 @@ var (
 	wlLong    = templates.LongDesc(`Lists Workloads that match the provided criteria.`)
 	wlExample = templates.Examples(`
 		# List Workload 
-  		kueuectl list workload
+  		kueuectl list kueueworkload
 	`)
 )
 
@@ -100,7 +100,7 @@ func NewWorkloadCmd(clientGetter clientgetter.ClientGetter, streams genericioopt
 		Use: "workload [--clusterqueue CLUSTER_QUEUE_NAME] [--localqueue LOCAL_QUEUE_NAME] [--status STATUS] [--selector key1=value1] [--field-selector key1=value1] [--all-namespaces] [--for TYPE[.API-GROUP]/NAME]",
 		// To do not add "[flags]" suffix on the end of usage line
 		DisableFlagsInUseLine: true,
-		Aliases:               []string{"wl"},
+		Aliases:               []string{"kwl", "kueueworkload", "kueueworkloads"},
 		Short:                 "List Workload",
 		Long:                  wlLong,
 		Example:               wlExample,

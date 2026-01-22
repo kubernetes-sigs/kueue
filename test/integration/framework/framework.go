@@ -87,8 +87,9 @@ func (f *Framework) Init() *rest.Config {
 	ginkgo.By("bootstrapping test environment", func() {
 		baseCrdPath := filepath.Join(util.ProjectBaseDir, "config", "components", "crd", "_output")
 		f.testEnv = &envtest.Environment{
-			CRDDirectoryPaths:     append(f.DepCRDPaths, baseCrdPath),
-			ErrorIfCRDPathMissing: true,
+			CRDDirectoryPaths:       append(f.DepCRDPaths, baseCrdPath),
+			ErrorIfCRDPathMissing:   true,
+			ControlPlaneStopTimeout: 90 * time.Second,
 		}
 		var err error
 		f.testEnv.Scheme = scheme.Scheme
@@ -257,7 +258,7 @@ var (
 	//  curl https://storage.googleapis.com/kubernetes-jenkins/pr-logs/pull/kubernetes-sigs_kueue/3054/pull-kueue-test-integration-main/1836045641336229888/artifacts/integration-top.yaml \
 	// | yq '.[] | select(.name != "") | .f.duration = .duration | .f.name = .name | .f.suite=.suite | .f | [] + .' | yq '.[0:30]' -oc
 	//
-	// taking the item which run for more then 5 sec
+	// taking the item which run for more than 5 sec
 	SlowSpec = ginkgo.Label("slow")
 
 	// RedundantSpec label used to decorate test specs that largely cover generic code covered by other specs also. (eg. Kubeflow jobs)

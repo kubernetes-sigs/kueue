@@ -48,6 +48,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	"sigs.k8s.io/kueue/pkg/util/priority"
 	utilptr "sigs.k8s.io/kueue/pkg/util/ptr"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/resource"
@@ -1417,15 +1418,22 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 	return nil
 }
 
-func setFinish(wl *kueue.Workload, reason, msg string, now time.Time) bool {
-	updated := SetFinishedCondition(wl, now, reason, msg)
-	return UnsetQuotaReservationWithCondition(wl, kueue.WorkloadFinished, "Workload has finished", now) || updated
-}
-
-func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, msg string, clock clock.Clock) error {
-	return PatchAdmissionStatus(ctx, c, wl, clock, func(wl *kueue.Workload) (bool, error) {
-		return setFinish(wl, reason, msg, clock.Now()), nil
+func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, msg string, clock clock.Clock, tracker *roletracker.RoleTracker) error {
+	if IsFinished(wl) {
+		return nil
+	}
+	err := PatchAdmissionStatus(ctx, c, wl, clock, func(wl *kueue.Workload) (bool, error) {
+		return SetFinishedCondition(wl, clock.Now(), reason, msg), nil
 	})
+	if err != nil {
+		return err
+	}
+	priorityClassName := PriorityClassName(wl)
+	metrics.FinishedWorkload(ptr.Deref(wl.Status.Admission, kueue.Admission{}).ClusterQueue, priorityClassName, tracker)
+	if features.Enabled(features.LocalQueueMetrics) {
+		metrics.LocalQueueFinishedWorkload(metrics.LQRefFromWorkload(wl), priorityClassName, tracker)
+	}
+	return nil
 }
 
 func PriorityClassName(wl *kueue.Workload) string {
@@ -1439,6 +1447,16 @@ func IsWorkloadPriorityClass(wl *kueue.Workload) bool {
 	return wl.Spec.PriorityClassRef != nil &&
 		wl.Spec.PriorityClassRef.Kind == kueue.WorkloadPriorityClassKind &&
 		wl.Spec.PriorityClassRef.Group == kueue.WorkloadPriorityClassGroup
+}
+
+func IsPodPriorityClass(wl *kueue.Workload) bool {
+	return wl.Spec.PriorityClassRef != nil &&
+		wl.Spec.PriorityClassRef.Kind == kueue.PodPriorityClassKind &&
+		wl.Spec.PriorityClassRef.Group == kueue.PodPriorityClassGroup
+}
+
+func HasNoPriority(wl *kueue.Workload) bool {
+	return wl.Spec.PriorityClassRef == nil
 }
 
 func prepareForEviction(w *kueue.Workload, now time.Time, reason, message string) {
@@ -1544,4 +1562,18 @@ func ReasonWithCause(reason, underlyingCause string) string {
 // it returns an empty string.
 func ClusterName(wl *kueue.Workload) string {
 	return ptr.Deref(wl.Status.ClusterName, "")
+}
+
+func PriorityChanged(old, new *kueue.Workload) bool {
+	// Updates to Pod Priority are not supported.
+	if IsPodPriorityClass(old) || !IsWorkloadPriorityClass(new) {
+		return false
+	}
+	// Check if priority class reference changed.
+	if PriorityClassName(new) != "" &&
+		PriorityClassName(old) != PriorityClassName(new) {
+		return true
+	}
+	// Check if priority value changed (for WorkloadPriorityClass value updates).
+	return priority.Priority(old) != priority.Priority(new)
 }

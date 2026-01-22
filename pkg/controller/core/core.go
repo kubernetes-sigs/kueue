@@ -46,6 +46,10 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 	if err := acRec.SetupWithManager(mgr, cfg); err != nil {
 		return "AdmissionCheck", err
 	}
+	wpcRec := NewWorkloadPriorityClassReconciler(mgr.GetClient(), roleTracker)
+	if err := wpcRec.SetupWithManager(mgr, cfg); err != nil {
+		return "WorkloadPriorityClass", err
+	}
 	qRec := NewLocalQueueReconciler(mgr.GetClient(), qManager, cc,
 		WithAdmissionFairSharingConfig(cfg.AdmissionFairSharing),
 		WithRoleTracker(roleTracker))
@@ -106,7 +110,7 @@ func waitForPodsReady(cfg *configapi.WaitForPodsReady) *waitForPodsReadyConfig {
 	result := waitForPodsReadyConfig{
 		timeout: cfg.Timeout.Duration,
 	}
-	if cfg.RecoveryTimeout != nil {
+	if cfg.RecoveryTimeout != nil && cfg.RecoveryTimeout.Duration > 0 {
 		result.recoveryTimeout = &cfg.RecoveryTimeout.Duration
 	}
 	if cfg.RequeuingStrategy != nil {

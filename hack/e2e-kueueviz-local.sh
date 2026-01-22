@@ -25,6 +25,7 @@ source "${SOURCE_DIR}/e2e-common.sh"
 cleanup() {
   echo "Cleaning up kueueviz processes"
   kill $BACKEND_PID $FRONTEND_PID
+  cluster_collect_artifacts "$KIND_CLUSTER_NAME" ""
   cluster_cleanup "$KIND_CLUSTER_NAME" ""
 }
 
@@ -63,7 +64,7 @@ if [ "$E2E_RUN_ONLY_ENV" = "true" ]; then
     echo "Skipping cleanup for backend, frontend, and kind cluster."
     echo -e "\nBackend cleanup:\n  kill $BACKEND_PID"
     echo -e "\nFrontend cleanup:\n  kill $FRONTEND_PID"
-    echo -e "\nKind cluster cleanup:\n  kind delete cluster --name $KIND_CLUSTER_NAME"
+    echo -e "\nKind cluster cleanup:\n  kind delete clusters $KIND_CLUSTER_NAME"
   fi
   exit 0
 fi

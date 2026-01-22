@@ -1,6 +1,6 @@
 {
   "name": "kueueviz-frontend",
-  "version": "0.15.2",
+  "version": "0.15.3",
   "private": true,
   "description": "Frontend dashboard for visualizing Kueue status",
   "main": "src/index.jsx",
@@ -22,7 +22,7 @@
     "react": "^19.2.1",
     "react-ace": "^14.0.1",
     "react-dom": "^19.2.1",
-    "react-router-dom": "^7.9.6",
+    "react-router-dom": "^7.12.0",
     "react-toastify": "^11.0.5",
     "serve": "^14.2.5"
   },

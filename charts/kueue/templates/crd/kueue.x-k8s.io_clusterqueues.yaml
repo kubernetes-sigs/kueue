@@ -25,7 +25,7 @@ metadata:
     {{- if .Values.enableCertManager }}
     cert-manager.io/inject-ca-from: '{{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert'
     {{- end }}
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.20.0
   name: clusterqueues.kueue.x-k8s.io
 spec:
   conversion:
@@ -229,7 +229,7 @@ spec:
                       default: TryNextFlavor
                       description: |-
                         whenCanPreempt determines whether a workload should try the next flavor
-                        before borrowing in current flavor. The possible values are:
+                        before preempting in current flavor. The possible values are:
 
                         - `MayStopSearch`: stop the search for candidate flavors if workload fits or requires
                           preemption to fit.
@@ -995,7 +995,7 @@ spec:
                       default: TryNextFlavor
                       description: |-
                         whenCanPreempt determines whether a workload should try the next flavor
-                        before borrowing in current flavor. The possible values are:
+                        before preempting in current flavor. The possible values are:
 
                         - `MayStopSearch`: stop the search for candidate flavors if workload fits or requires
                           preemption to fit.
