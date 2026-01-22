@@ -50,7 +50,7 @@ const (
 	customResourceOne = "example.org/res1"
 )
 
-var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", "area:admissionchecks", "feature:provisioning"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", "area:admissionchecks", "feature:provisioning"), func() {
 	var (
 		resourceGPU    corev1.ResourceName = "example.com/gpu"
 		flavorOnDemand                     = "on-demand"
@@ -1523,7 +1523,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 	})
 })
 
-var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller:provisioning", "area:admissionchecks", "feature:provisioning"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller:provisioning", "area:admissionchecks", "feature:provisioning"), func() {
 	var (
 		ns             *corev1.Namespace
 		wl1Key         types.NamespacedName
