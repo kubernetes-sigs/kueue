@@ -271,7 +271,7 @@ var _ = ginkgo.Describe("Admission Fair Sharing", ginkgo.Ordered, ginkgo.Continu
 				util.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(job2))
 			})
 
-			ginkgo.By("Verifying cq1 has one workload preempted", func() {
+			ginkgo.By("Verifying cq1 has one workload admitted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq1), cq1)).Should(gomega.Succeed())
 					g.Expect(cq1.Status.AdmittedWorkloads).Should(gomega.Equal(int32(1)))
