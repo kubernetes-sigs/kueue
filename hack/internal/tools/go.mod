@@ -36,7 +36,7 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 	gotest.tools/gotestsum v1.13.0
 	helm.sh/helm/v4 v4.1.0
-	k8s.io/code-generator v0.35.0
+	k8s.io/code-generator v0.35.0 // Used not only as code-generator but also for compatibility_lifecycle (feature-gates docs) tool versioning.
 	sigs.k8s.io/cluster-inventory-api v0.0.0-20251124125836-445319b6307a
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20250407161039-6ad5c1dd4418
 	sigs.k8s.io/controller-tools v0.20.0

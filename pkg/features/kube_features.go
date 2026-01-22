@@ -248,7 +248,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.4"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.5"), Default: true, PreRelease: featuregate.Beta},
 	},
-
 	FlavorFungibility: {
 		{Version: version.MustParse("0.5"), Default: true, PreRelease: featuregate.Beta},
 	},
