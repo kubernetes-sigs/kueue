@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 
 	"github.com/go-logr/logr"
 	"golang.org/x/sync/errgroup"
@@ -39,6 +40,7 @@ import (
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
@@ -53,6 +55,11 @@ const (
 	leaderPodSetName = "leader"
 	workerPodSetName = "worker"
 )
+
+type workloadToCreate struct {
+	name  string
+	index int
+}
 
 type Reconciler struct {
 	client                       client.Client
@@ -100,6 +107,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 // +kubebuilder:rbac:groups=leaderworkerset.x-k8s.io,resources=leaderworkersets,verbs=get;list;watch
+// +kubebuilder:rbac:groups=leaderworkerset.x-k8s.io,resources=leaderworkersets/status,verbs=get;patch;update
 
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	lws := &leaderworkersetv1.LeaderWorkerSet{}
@@ -125,7 +133,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 
 	eg.Go(func() error {
 		return parallelize.Until(ctx, len(toCreate), func(i int) error {
-			return r.createPrebuiltWorkload(ctx, lws, toCreate[i])
+			return r.createPrebuiltWorkload(ctx, lws, toCreate[i].name, toCreate[i].index)
 		})
 	})
 
@@ -153,15 +161,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 // determining which workloads need to be created, updated, or deleted.
 //
 // It accepts a LeaderWorkerSet and a slice of existing Workload objects as input and returns:
-// 1. A slice of workload names to be created
+// 1. A slice of workloads to be created (with name and index)
 // 2. A slice of workloads that may require updates
 // 3. A slice of Workload pointers to be deleted
 //
 // During rolling updates with maxSurge, status.Replicas may temporarily exceed spec.Replicas.
 // This function ensures workloads exist for all groups including surge replicas.
-func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, existingWorkloads []kueue.Workload) ([]string, []*kueue.Workload, []*kueue.Workload) {
+func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, existingWorkloads []kueue.Workload) ([]workloadToCreate, []*kueue.Workload, []*kueue.Workload) {
 	var (
-		toCreate []string
+		toCreate []workloadToCreate
 		toUpdate []*kueue.Workload
 		toDelete = utilslices.ToRefMap(existingWorkloads, func(e *kueue.Workload) string {
 			return e.Name
@@ -173,21 +181,24 @@ func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, exi
 		replicas = lws.Status.Replicas
 	}
 
+	_, isMultiKueueRemote := lws.Labels[kueue.MultiKueueOriginLabel]
+
+	ownerUID := GetOwnerUID(lws)
 	for i := range replicas {
-		workloadName := GetWorkloadName(lws.UID, lws.Name, fmt.Sprint(i))
+		workloadName := GetWorkloadName(ownerUID, lws.Name, fmt.Sprint(i))
 		if wl, ok := toDelete[workloadName]; ok {
 			toUpdate = append(toUpdate, wl)
 			delete(toDelete, workloadName)
-		} else {
-			toCreate = append(toCreate, workloadName)
+		} else if !isMultiKueueRemote {
+			toCreate = append(toCreate, workloadToCreate{name: workloadName, index: int(i)})
 		}
 	}
 
 	return toCreate, toUpdate, slices.Collect(maps.Values(toDelete))
 }
 
-func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, workloadName string) error {
-	createdWorkload, err := r.constructWorkload(lws, workloadName)
+func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, workloadName string, index int) error {
+	createdWorkload, err := r.constructWorkload(lws, workloadName, index)
 	if err != nil {
 		return err
 	}
@@ -208,12 +219,22 @@ func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, lws *leaderwork
 	return nil
 }
 
-func (r *Reconciler) constructWorkload(lws *leaderworkersetv1.LeaderWorkerSet, workloadName string) (*kueue.Workload, error) {
+func (r *Reconciler) constructWorkload(lws *leaderworkersetv1.LeaderWorkerSet, workloadName string, index int) (*kueue.Workload, error) {
 	podSets, err := podSets(lws)
 	if err != nil {
 		return nil, err
 	}
 	createdWorkload := podcontroller.NewGroupWorkload(workloadName, lws, podSets, r.labelKeysToCopy)
+
+	// Add job owner annotations for reliable MultiKueue adapter lookup.
+	// These annotations persist even after Kubernetes GC removes owner references.
+	if createdWorkload.Annotations == nil {
+		createdWorkload.Annotations = make(map[string]string)
+	}
+	createdWorkload.Annotations[constants.JobOwnerGVKAnnotation] = gvk.String()
+	createdWorkload.Annotations[constants.JobOwnerNameAnnotation] = lws.Name
+	createdWorkload.Annotations[constants.ComponentWorkloadIndexAnnotation] = strconv.Itoa(index)
+
 	if err := controllerutil.SetOwnerReference(lws, createdWorkload, r.client.Scheme()); err != nil {
 		return nil, err
 	}

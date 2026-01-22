@@ -226,6 +226,34 @@ func TestPodReconciler(t *testing.T) {
 				KueueFinalizer().
 				Obj(),
 		},
+		"should set default values using origin UID in MultiKueue scenario": {
+			lws: leaderworkerset.MakeLeaderWorkerSet("lws", "ns").
+				UID("worker-uid").
+				Queue("queue").
+				Label(kueue.MultiKueueOriginLabel, "origin1").
+				Annotation(kueue.MultiKueueOriginUIDAnnotation, "origin-uid").
+				Obj(),
+			pod: testingjobspod.MakePod("pod", "ns").
+				Label(leaderworkersetv1.SetNameLabelKey, "lws").
+				Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				Obj(),
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod", "ns").
+					Label(leaderworkersetv1.SetNameLabelKey, "lws").
+					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+					Queue("queue").
+					ManagedByKueueLabel().
+					Group(GetWorkloadName("origin-uid", "lws", "0")).
+					GroupTotalCount("1").
+					PrebuiltWorkload(GetWorkloadName("origin-uid", "lws", "0")).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					Obj(),
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

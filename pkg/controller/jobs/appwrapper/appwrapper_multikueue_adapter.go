@@ -110,16 +110,16 @@ func (*multiKueueAdapter) GetEmptyList() client.ObjectList {
 	return &awv1beta2.AppWrapperList{}
 }
 
-func (*multiKueueAdapter) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
+func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedName, error) {
 	aw, ok := o.(*awv1beta2.AppWrapper)
 	if !ok {
-		return types.NamespacedName{}, errors.New("not an appwrapper")
+		return nil, errors.New("not an appwrapper")
 	}
 
 	prebuiltWl, hasPrebuiltWorkload := aw.Labels[constants.PrebuiltWorkloadLabel]
 	if !hasPrebuiltWorkload {
-		return types.NamespacedName{}, fmt.Errorf("no prebuilt workload found for appwrapper: %s", klog.KObj(aw))
+		return nil, fmt.Errorf("no prebuilt workload found for appwrapper: %s", klog.KObj(aw))
 	}
 
-	return types.NamespacedName{Name: prebuiltWl, Namespace: aw.Namespace}, nil
+	return []types.NamespacedName{{Name: prebuiltWl, Namespace: aw.Namespace}}, nil
 }

@@ -190,16 +190,16 @@ func (*multiKueueAdapter) GetEmptyList() client.ObjectList {
 	return &batchv1.JobList{}
 }
 
-func (*multiKueueAdapter) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
+func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedName, error) {
 	job, isJob := o.(*batchv1.Job)
 	if !isJob {
-		return types.NamespacedName{}, errors.New("not a job")
+		return nil, errors.New("not a job")
 	}
 
 	prebuiltWl, hasPrebuiltWorkload := job.Labels[constants.PrebuiltWorkloadLabel]
 	if !hasPrebuiltWorkload {
-		return types.NamespacedName{}, fmt.Errorf("no prebuilt workload found for job: %s", klog.KObj(job))
+		return nil, fmt.Errorf("no prebuilt workload found for job: %s", klog.KObj(job))
 	}
 
-	return types.NamespacedName{Name: prebuiltWl, Namespace: job.Namespace}, nil
+	return []types.NamespacedName{{Name: prebuiltWl, Namespace: job.Namespace}}, nil
 }
