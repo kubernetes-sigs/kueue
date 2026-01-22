@@ -440,8 +440,8 @@ sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.33.0 h1:qPrZsv1cwQiFe
 sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.33.0/go.mod h1:Ve9uj1L+deCXFrPOk1LpFXqTg7LCFzFso6PA48q/XZw=
 sigs.k8s.io/cluster-inventory-api v0.0.0-20251028164203-2e3fabb46733 h1:l90ANqblqFrE4L2QLLk+9iPjfmaLRvOFL51l/fgwUgg=
 sigs.k8s.io/cluster-inventory-api v0.0.0-20251028164203-2e3fabb46733/go.mod h1:guwenlZ9iIfYlNxn7ExCfugOLTh6wjjRX3adC36YCmQ=
-sigs.k8s.io/controller-runtime v0.22.4 h1:GEjV7KV3TY8e+tJ2LCTxUTanW4z/FmNB7l327UfMq9A=
-sigs.k8s.io/controller-runtime v0.22.4/go.mod h1:+QX1XUpTXN4mLoblf4tqr5CQcyHPAki2HLXqQMY6vh8=
+sigs.k8s.io/controller-runtime v0.23.0 h1:Ubi7klJWiwEWqDY+odSVZiFA0aDSevOCXpa38yCSYu8=
+sigs.k8s.io/controller-runtime v0.23.0/go.mod h1:DBOIr9NsprUqCZ1ZhsuJ0wAnQSIxY/C6VjZbmLgw0j0=
 sigs.k8s.io/dra-example-driver v0.2.1 h1:AlIuA8eBHdTQvtpvQs54YqVVhMv1McjXFyYwHzA939I=
 sigs.k8s.io/dra-example-driver v0.2.1/go.mod h1:npmkwsxuKS/B/BBZqvL7PjfJE/Gw04dee7g/1xvJ67k=
 sigs.k8s.io/gateway-api v1.4.0 h1:ZwlNM6zOHq0h3WUX2gfByPs2yAEsy/EenYJB78jpQfQ=
