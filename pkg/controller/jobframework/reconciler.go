@@ -407,9 +407,12 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				log.Error(err, "couldn't get an ancestor job workload")
 				return ctrl.Result{}, err
 			} else if len(ancestorWorkloads) == 0 || !hasAdmittedWorkload(ancestorWorkloads) {
-				// suspend job if it is not workload slice enabled
+				// suspend job if neither the job nor its ancestor has workload slice enabled
 				// if workload slice enabled, we use scheduler gate thus not need to suspend
-				if !workloadSliceEnabled(job) {
+				// Note: For child jobs (e.g., RayJob submitter), the elastic-job annotation is on
+				// the ancestor (RayJob), not on the child job itself, so we need to check both.
+				ancestorHasWorkloadSlicing := ancestorJob != nil && workloadslicing.Enabled(ancestorJob)
+				if !workloadSliceEnabled(job) && !ancestorHasWorkloadSlicing {
 					if err := clientutil.Patch(ctx, r.client, object, func() (bool, error) {
 						job.Suspend()
 						return true, nil
