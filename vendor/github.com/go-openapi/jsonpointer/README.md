@@ -8,8 +8,7 @@
 [![Release][release-badge]][release-url] [![Go Report Card][gocard-badge]][gocard-url] [![CodeFactor Grade][codefactor-badge]][codefactor-url] [![License][license-badge]][license-url]
 <!-- Badges: documentation & support -->
 <!-- Badges: others & stats -->
-<!-- Slack badge disabled until I am able to restore a valid link to the chat -->
-[![GoDoc][godoc-badge]][godoc-url] <!-- [![Slack Channel][slack-badge]][slack-url] -->[![go version][goversion-badge]][goversion-url] ![Top language][top-badge] ![Commits since latest release][commits-badge]
+[![GoDoc][godoc-badge]][godoc-url] [![Slack Channel][slack-logo]![slack-badge]][slack-url] [![go version][goversion-badge]][goversion-url] ![Top language][top-badge] ![Commits since latest release][commits-badge]
 
 ---
 
@@ -104,6 +103,15 @@ using the special trailing character "-" is not implemented.
 * [Maintainers documentation](docs/MAINTAINERS.md)
 * [Code style](docs/STYLE.md)
 
+## Cutting a new release
+
+Maintainers can cut a new release by either:
+
+* running [this workflow](https://github.com/go-openapi/jsonpointer/actions/workflows/bump-release.yml)
+* or pushing a semver tag
+  * signed tags are preferred
+  * The tag message is prepended to release notes
+
 <!-- Badges: status  -->
 [test-badge]: https://github.com/go-openapi/jsonpointer/actions/workflows/go-test.yml/badge.svg
 [test-url]: https://github.com/go-openapi/jsonpointer/actions/workflows/go-test.yml
@@ -114,8 +122,10 @@ using the special trailing character "-" is not implemented.
 [codeql-badge]: https://github.com/go-openapi/jsonpointer/actions/workflows/codeql.yml/badge.svg
 [codeql-url]: https://github.com/go-openapi/jsonpointer/actions/workflows/codeql.yml
 <!-- Badges: release & docker images  -->
-[release-badge]: https://badge.fury.io/go/github.com%2Fgo-openapi%2Fjsonpointer.svg
-[release-url]: https://badge.fury.io/go/github.com%2Fgo-openapi%2Fjsonpointer
+[release-badge]: https://badge.fury.io/gh/go-openapi%2Fjsonpointer.svg
+[release-url]: https://badge.fury.io/gh/go-openapi%2Fjsonpointer
+[gomod-badge]: https://badge.fury.io/go/github.com%2Fgo-openapi%2Fjsonpointer.svg
+[gomod-url]: https://badge.fury.io/go/github.com%2Fgo-openapi%2Fjsonpointer
 <!-- Badges: code quality  -->
 [gocard-badge]: https://goreportcard.com/badge/github.com/go-openapi/jsonpointer
 [gocard-url]: https://goreportcard.com/report/github.com/go-openapi/jsonpointer
@@ -126,8 +136,9 @@ using the special trailing character "-" is not implemented.
 [doc-url]: https://goswagger.io/go-openapi
 [godoc-badge]: https://pkg.go.dev/badge/github.com/go-openapi/jsonpointer
 [godoc-url]: http://pkg.go.dev/github.com/go-openapi/jsonpointer
-[slack-badge]: https://slackin.goswagger.io/badge.svg
-[slack-url]: https://slackin.goswagger.io
+[slack-logo]: https://a.slack-edge.com/e6a93c1/img/icons/favicon-32.png
+[slack-badge]: https://img.shields.io/badge/slack-blue?link=https%3A%2F%2Fgoswagger.slack.com%2Farchives%2FC04R30YM
+[slack-url]: https://goswagger.slack.com/archives/C04R30YMU
 <!-- Badges: license & compliance -->
 [license-badge]: http://img.shields.io/badge/license-Apache%20v2-orange.svg
 [license-url]: https://github.com/go-openapi/jsonpointer/?tab=Apache-2.0-1-ov-file#readme
