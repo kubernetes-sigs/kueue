@@ -11,12 +11,12 @@ description: >
 Kueue 支持管理[单个 Pod](#running-a-single-pod-admitted-by-kueue)
 或[一组 Pod](#running-a-group-of-pods-to-be-admitted-together)。
 
-本指南适用于对 Kueue 有基本了解的[批处理用户](/zh-CN/docs/tasks#batch-user)。更多信息请参见 [Kueue 概述](/zh-CN/docs/overview)。
+本指南适用于对 Kueue 有基本了解的[批处理用户](/zh-cn/docs/tasks#batch-user)。更多信息请参见 [Kueue 概述](/zh-cn/docs/overview)。
 
 ## 开始之前
 
 1. 默认情况下，`pod` 集成未启用。
-   学习如何[使用自定义管理器配置安装 Kueue](/zh-CN/docs/installation/#install-a-custom-configured-released-version)
+   学习如何[使用自定义管理器配置安装 Kueue](/zh-cn/docs/installation/#install-a-custom-configured-released-version)
    并启用 `pod` 集成。
 
    为了允许 Kubernetes 系统 Pod 成功调度，您必须限制 `pod` 集成的范围。
@@ -63,7 +63,7 @@ Kueue 支持管理[单个 Pod](#running-a-single-pod-admitted-by-kueue)
      values: [ kube-system, kueue-system ]
    ```
    
-   当您[通过 Helm 安装 Kueue](/zh-CN/docs/installation/#install-via-helm) 时，Webhook
+   当您[通过 Helm 安装 Kueue](/zh-cn/docs/installation/#install-via-helm) 时，Webhook
    命名空间选择器将匹配 `values.yaml` 中的 `managedJobsNamespaceSelector`。
 
    确保 namespaceSelector 永远不匹配 kueue 命名空间，否则
@@ -72,7 +72,7 @@ Kueue 支持管理[单个 Pod](#running-a-single-pod-admitted-by-kueue)
 3. 属于 Kueue 管理的其他 API 资源的 Pod 被排除在 `pod` 集成的队列之外。
    例如，由 `batch/v1.Job` 管理的 Pod 不会被 `pod` 集成管理。
 
-4. 查看[管理集群配额](/zh-CN/docs/tasks/manage/administer_cluster_quotas)了解初始 Kueue 设置的详细信息。
+4. 查看[管理集群配额](/zh-cn/docs/tasks/manage/administer_cluster_quotas)了解初始 Kueue 设置的详细信息。
 
 ## 运行由 Kueue 准入的单个 Pod
 
@@ -80,7 +80,7 @@ Kueue 支持管理[单个 Pod](#running-a-single-pod-admitted-by-kueue)
 
 ### a. 队列选择
 
-目标[本地队列](/zh-CN/docs/concepts/local_queue)应在 Pod 配置的 `metadata.labels` 部分中指定。
+目标[本地队列](/zh-cn/docs/concepts/local_queue)应在 Pod 配置的 `metadata.labels` 部分中指定。
 
 ```yaml
 metadata:
@@ -146,7 +146,7 @@ Kueue 仅提供运行 Pod 组所需的最小功能，
 
 {{% alert title="注意" color="primary" %}}
 我们建议使用 Kubernetes Job API 或类似的 CRD，如
-JobSet、MPIJob、RayJob（更多信息请参见[这里](/zh-CN/docs/tasks/#batch-user)）。
+JobSet、MPIJob、RayJob（更多信息请参见[这里](/zh-cn/docs/tasks/#batch-user)）。
 {{% /alert %}}
 
 ### 终止

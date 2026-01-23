@@ -8,7 +8,7 @@ description: 运行 MultiKueue 调度的 Kubeflow Job。
 
 ## 开始之前 {#before-you-begin}
 
-请查阅 [MultiKueue 安装指南](/zh-CN/docs/tasks/manage/setup_multikueue)了解如何正确设置 MultiKueue 集群。
+请查阅 [MultiKueue 安装指南](/zh-cn/docs/tasks/manage/setup_multikueue)了解如何正确设置 MultiKueue 集群。
 
 为方便安装和使用，建议使用 Kueue v0.11.0 和 Kubeflow Trainer v1.9.0 以上版本。
 
@@ -25,7 +25,7 @@ kubectl apply -k "github.com/kubeflow/trainer.git/manifests/base/crds?ref=v1.9.0
 
 ## MultiKueue 集成 {#multikueue-integration}
 
-完成设置后，你可以通过运行其中一个 Kubeflow Job（如 PyTorchJob [`sample-pytorchjob.yaml`](/zh-CN/docs/tasks/run/kubeflow/pytorchjobs/#sample-pytorchjob)）进行测试。
+完成设置后，你可以通过运行其中一个 Kubeflow Job（如 PyTorchJob [`sample-pytorchjob.yaml`](/zh-cn/docs/tasks/run/kubeflow/pytorchjobs/#sample-pytorchjob)）进行测试。
 
 {{% alert title="注意" color="primary" %}}
 注意：Kueue 会在管理集群上的所有 Kubeflow Job 默认设置 `spec.runPolicy.managedBy` 字段为 `kueue.x-k8s.io/multikueue`。
