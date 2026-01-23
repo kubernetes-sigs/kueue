@@ -25,6 +25,7 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -172,6 +173,16 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 			snap.UpdateCohortEdge(cohort.Name, cohort.Parent().Name)
 		}
 	}
+	log := ctrl.LoggerFrom(ctx)
+	cqNames := c.hm.ClusterQueues()
+	for _, cq := range cqNames {
+		if !cq.Active() || (cq.HasParent() && hierarchy.HasCycle(cq.Parent())) {
+			snap.InactiveClusterQueueSets.Insert(cq.Name)
+			continue
+		}
+		// ensure all workloads are accounted for TAS before building TAS snapshots
+		cq.ensureTASIsSynced(log)
+	}
 	tasSnapshots := make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot)
 	if features.Enabled(features.TopologyAwareScheduling) {
 		for flavor, cache := range c.tasCache.Clone() {
@@ -183,9 +194,8 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 			}
 		}
 	}
-	for _, cq := range c.hm.ClusterQueues() {
-		if !cq.Active() || (cq.HasParent() && hierarchy.HasCycle(cq.Parent())) {
-			snap.InactiveClusterQueueSets.Insert(cq.Name)
+	for _, cq := range cqNames {
+		if snap.InactiveClusterQueueSets.Has(cq.Name) {
 			continue
 		}
 		cqSnapshot, err := c.snapshotClusterQueue(ctx, cq, opts.afsEntryPenalties, opts.afsConsumedResources)

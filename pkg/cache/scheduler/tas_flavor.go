@@ -86,6 +86,10 @@ type TASFlavorCache struct {
 	// usage maintains the usage per topology domain
 	usage map[utiltas.TopologyDomainID]resources.Requests
 
+	// wlUsage tracks the usage coming from workloads, so that we can make the
+	// usage removal indempotent - skip if it was not added.
+	wlUsage map[workload.Reference][]workload.TopologyDomainRequests
+
 	// nonTasUsageCache maintains the usage coming from non-TAS pods,
 	// e.g. static Pods or DaemonSet pods.
 	nonTasUsageCache *nonTasUsageCache
@@ -98,6 +102,7 @@ func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
 		topology:         topologyInfo,
 		flavor:           flavorInfo,
 		usage:            make(map[utiltas.TopologyDomainID]resources.Requests),
+		wlUsage:          make(map[workload.Reference][]workload.TopologyDomainRequests),
 		nonTasUsageCache: t.nonTasUsageCache,
 	}
 }
@@ -154,12 +159,18 @@ func (c *TASFlavorCache) snapshotForNodes(log logr.Logger, nodes []corev1.Node) 
 	return snapshot
 }
 
-func (c *TASFlavorCache) addUsage(topologyRequests []workload.TopologyDomainRequests) {
+func (c *TASFlavorCache) addUsage(key workload.Reference, topologyRequests []workload.TopologyDomainRequests) {
+	c.wlUsage[key] = slices.Clone(topologyRequests)
 	c.updateUsage(topologyRequests, add)
 }
 
-func (c *TASFlavorCache) removeUsage(topologyRequests []workload.TopologyDomainRequests) {
-	c.updateUsage(topologyRequests, subtract)
+func (c *TASFlavorCache) removeUsage(key workload.Reference) {
+	value, found := c.wlUsage[key]
+	if !found {
+		return
+	}
+	c.updateUsage(value, subtract)
+	delete(c.wlUsage, key)
 }
 
 func (c *TASFlavorCache) updateUsage(topologyRequests []workload.TopologyDomainRequests, op usageOp) {
