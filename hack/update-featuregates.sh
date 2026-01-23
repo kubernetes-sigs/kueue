@@ -35,7 +35,8 @@ if [[ -z "${K8S_REPO_REF}" ]]; then
   K8S_REPO_REF="$(echo "${CODEGEN_VERSION}" | sed -E 's/^v0\./v1./')"
 fi
 K8S_CACHE_DIR="${BIN_DIR}/.cache/compatibility_lifecycle/kubernetes-${K8S_REPO_REF}"
-REFERENCE_DIR="${REPO_ROOT}/test/compatibility_lifecycle/reference"
+COMPATIBILITY_LIFECYCLE_DIR="${REPO_ROOT}/test/compatibility_lifecycle"
+REFERENCE_DIR="${COMPATIBILITY_LIFECYCLE_DIR}/reference"
 REFERENCE_FILE="${REFERENCE_DIR}/versioned_feature_list.yaml"
 SITE_DATA_DIR="${REPO_ROOT}/site/data/featuregates"
 SITE_DATA_FILE="${SITE_DATA_DIR}/versioned_feature_list.yaml"
@@ -60,7 +61,7 @@ if [[ "${need_build}" == "true" ]]; then
 
   # Build the command from the pinned Kubernetes checkout.
   pushd "${K8S_CACHE_DIR}" >/dev/null
-  go build -o "${COMPAT_LIFECYCLE_BIN}" ./test/compatibility_lifecycle
+  go build -o "${COMPAT_LIFECYCLE_BIN}" "${COMPATIBILITY_LIFECYCLE_DIR}"
   popd >/dev/null
 
   echo -n "${K8S_REPO_REF}" > "${COMPAT_LIFECYCLE_BIN_STAMP}"
