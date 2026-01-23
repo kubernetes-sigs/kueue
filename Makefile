@@ -289,7 +289,7 @@ undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/confi
 
 .PHONY: site-server
 site-server: hugo
-	(cd site; $(HUGO) server)
+	(cd site; $(HUGO) server $(HUGO_SERVER_ARGS))
 
 ##@ Release
 .PHONY: clean-artifacts

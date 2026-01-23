@@ -124,7 +124,20 @@ genref: ## Download genref locally if necessary.
 
 .PHONY: hugo
 hugo: ## Download hugo locally if necessary.
+ifeq ($(shell uname -s),Linux)
+	@if [ ! -f $(HUGO) ]; then \
+		mkdir -p $(BIN_DIR); \
+		HUGO_VERSION_NUM=$$(echo $(HUGO_VERSION) | sed 's/^v//'); \
+		ARCH=$$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/'); \
+		TARBALL="hugo_extended_$${HUGO_VERSION_NUM}_linux-$${ARCH}.tar.gz"; \
+		URL="https://github.com/gohugoio/hugo/releases/download/$(HUGO_VERSION)/$${TARBALL}"; \
+		echo "Downloading Hugo $(HUGO_VERSION) for linux-$${ARCH}..."; \
+		curl -fsSL "$${URL}" | tar -xz -C $(BIN_DIR) hugo; \
+		chmod +x $(HUGO); \
+	fi
+else
 	@GOBIN=$(BIN_DIR) CGO_ENABLED=1 $(GO_CMD) install -tags extended github.com/gohugoio/hugo@$(HUGO_VERSION)
+endif
 
 .PHONY: mdtoc
 mdtoc: ## Download mdtoc locally if necessary.
