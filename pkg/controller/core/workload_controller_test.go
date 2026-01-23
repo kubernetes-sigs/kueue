@@ -2734,3 +2734,189 @@ func TestReconcile(t *testing.T) {
 		}
 	}
 }
+
+type notification struct {
+	Cq kueue.ClusterQueueReference
+	Lq kueue.LocalQueueName
+}
+
+type workloadUpdateWatcherMock struct {
+	qManager              *qcache.Manager
+	notificationsRecorded []notification
+	testErrors            []error
+}
+
+func mockWorkloadUpdateWatcher(qManager *qcache.Manager) *workloadUpdateWatcherMock {
+	return &workloadUpdateWatcherMock{
+		qManager:              qManager,
+		notificationsRecorded: []notification{},
+		testErrors:            []error{},
+	}
+}
+
+func (w *workloadUpdateWatcherMock) NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload) {
+	if oldWl == nil && newWl == nil {
+		w.testErrors = append(w.testErrors, fmt.Errorf("Both workloads were nil"))
+		return
+	}
+
+	if newWl != nil {
+		w.testErrors = append(w.testErrors, fmt.Errorf("Illegal new workload in delete request: want nil, got %v", newWl))
+		return
+	}
+
+	n := notification{
+		Lq: oldWl.Spec.QueueName,
+	}
+	if oldWl.Status.Admission != nil {
+		n.Cq = oldWl.Status.Admission.ClusterQueue
+	} else if cq, ok := w.qManager.ClusterQueueForWorkload(oldWl); ok {
+		n.Cq = cq
+	}
+
+	w.notificationsRecorded = append(w.notificationsRecorded, n)
+}
+
+func TestWorkloadDeletion(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+
+	wlName := "wl"
+	wlNs := "ns"
+	pendingWl := utiltestingapi.MakeWorkload(wlName, wlNs).Queue("lq1").Obj()
+	admittedWl := utiltestingapi.MakeWorkload(wlName, wlNs).Queue("lq1").ReserveQuotaAt(&kueue.Admission{
+		ClusterQueue: "cq1",
+	}, now).Condition(metav1.Condition{
+		Type:   kueue.WorkloadPodsReady,
+		Status: metav1.ConditionFalse,
+	}).Obj()
+	admittedWlWithDifferentQueues := utiltestingapi.MakeWorkload(wlName, wlNs).Queue("lq2").ReserveQuotaAt(&kueue.Admission{
+		ClusterQueue: "cq2",
+	}, now).Condition(metav1.Condition{
+		Type:   kueue.WorkloadPodsReady,
+		Status: metav1.ConditionFalse,
+	}).Obj()
+
+	clusterQueues := []*kueue.ClusterQueue{
+		utiltestingapi.MakeClusterQueue("cq1").Obj(),
+		utiltestingapi.MakeClusterQueue("cq2").Obj(),
+		utiltestingapi.MakeClusterQueue("cq3").Obj(),
+	}
+
+	localQueues := []*kueue.LocalQueue{
+		utiltestingapi.MakeLocalQueue("lq1", wlNs).ClusterQueue("cq1").Obj(),
+		utiltestingapi.MakeLocalQueue("lq2", wlNs).ClusterQueue("cq2").Obj(),
+		utiltestingapi.MakeLocalQueue("lq3", wlNs).ClusterQueue("cq3").Obj(),
+	}
+
+	cases := map[string]struct {
+		wlInQueueCache    *kueue.Workload
+		wlInSchedCache    *kueue.Workload
+		wantNotifications []notification
+	}{
+		"no workloads in either cache": {
+			wlInQueueCache:    nil,
+			wlInSchedCache:    nil,
+			wantNotifications: []notification{},
+		},
+		"workload only in queue cache (doesn't have admissions)": {
+			wlInQueueCache: pendingWl,
+			wlInSchedCache: nil,
+			wantNotifications: []notification{{
+				Cq: "cq1",
+				Lq: "lq1",
+			}},
+		},
+		"workload only in scheduler cache": {
+			wlInQueueCache: nil,
+			wlInSchedCache: admittedWl,
+			wantNotifications: []notification{{
+				Cq: "cq1",
+				Lq: "lq1",
+			}},
+		},
+		"workload present in both caches with same local queue": {
+			wlInQueueCache: pendingWl,
+			wlInSchedCache: admittedWl,
+			wantNotifications: []notification{
+				{
+					Cq: "cq1",
+					Lq: "lq1",
+				},
+			},
+		},
+		"workload present with different queues in each cache": {
+			wlInQueueCache: pendingWl,
+			wlInSchedCache: admittedWlWithDifferentQueues,
+			wantNotifications: []notification{
+				{
+					Cq: "cq2",
+					Lq: "lq2",
+				},
+				{
+					Cq: "cq1",
+					Lq: "lq1",
+				},
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+
+			cl := clientBuilder.Build()
+			recorder := &utiltesting.EventRecorder{}
+			cqCache := schdcache.New(cl)
+			qManager := qcache.NewManager(cl, cqCache)
+
+			mockWatcher := mockWorkloadUpdateWatcher(qManager)
+
+			reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder)
+			reconciler.watchers = []WorkloadUpdateWatcher{mockWatcher}
+
+			ctxWithLogger, log := utiltesting.ContextWithLog(t)
+			ctx, ctxCancel := context.WithCancel(ctxWithLogger)
+			defer ctxCancel()
+
+			for _, cq := range clusterQueues {
+				cqCopy := cq.DeepCopy()
+				cqCache.AddClusterQueue(ctx, cqCopy)
+				qManager.AddClusterQueue(ctx, cqCopy)
+			}
+			for _, lq := range localQueues {
+				lqCopy := lq.DeepCopy()
+				cqCache.AddLocalQueue(lqCopy)
+				qManager.AddLocalQueue(ctx, lqCopy)
+			}
+
+			// Add additional workloads to create noise in the caches.
+			qManager.AddOrUpdateWorkload(log, utiltestingapi.MakeWorkload("other-wl", "other-ns").Queue("lq3").Obj())
+			cqCache.AddOrUpdateWorkload(
+				log,
+				utiltestingapi.MakeWorkload("other-wl", "other-ns").Queue("lq3").ReserveQuotaAt(&kueue.Admission{
+					ClusterQueue: "cq3",
+				}, now).Condition(metav1.Condition{
+					Type:   kueue.WorkloadPodsReady,
+					Status: metav1.ConditionFalse,
+				}).Obj(),
+			)
+
+			if tc.wlInQueueCache != nil {
+				qManager.AddOrUpdateWorkload(log, tc.wlInQueueCache.DeepCopy())
+			}
+			if tc.wlInSchedCache != nil {
+				cqCache.AddOrUpdateWorkload(log, tc.wlInSchedCache.DeepCopy())
+			}
+
+			reconciler.deleteWorkloadFromCaches(ctx, wlNs, wlName)
+
+			if testError := stderrors.Join(mockWatcher.testErrors...); testError != nil {
+				t.Error(testError)
+			}
+
+			if diff := cmp.Diff(tc.wantNotifications, mockWatcher.notificationsRecorded); diff != "" {
+				t.Errorf("Incorrect notifications recorded (-want,+got):\n%s", diff)
+			}
+		})
+	}
+
+}
