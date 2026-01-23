@@ -29,10 +29,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -669,49 +667,6 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	if workloadSliceEnabled(job) {
 		// Start workload-slice schedule-gated pods (if any).
 		log.V(3).Info("Job running with admitted workload slice, start pods.")
-		// If object is RayJob, get its RayCluster, start RayCluster pods since the pods are owned by the RayCluster
-		rayJobGVK := schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayJob"}
-		if job.GVK() == rayJobGVK {
-			// Use unstructured client to avoid compile-time dependency on RayJob/RayCluster CRs
-			rayJobUnstructured := &unstructured.Unstructured{}
-			rayJobUnstructured.SetGroupVersionKind(rayJobGVK)
-			if err := r.client.Get(ctx, types.NamespacedName{
-				Namespace: object.GetNamespace(),
-				Name:      object.GetName(),
-			}, rayJobUnstructured); err != nil {
-				log.Error(err, "Failed to get RayJob as unstructured")
-				return ctrl.Result{}, err
-			}
-
-			// Get RayClusterName from RayJob.Status.RayClusterName
-			rayClusterName, found, err := unstructured.NestedString(rayJobUnstructured.Object, "status", "rayClusterName")
-			if err != nil {
-				log.Error(err, "Failed to get rayClusterName from RayJob status")
-				return ctrl.Result{}, err
-			}
-
-			if found && rayClusterName != "" {
-				// Get the RayCluster object
-				rayClusterGVK := schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayCluster"}
-				rayClusterUnstructured := &unstructured.Unstructured{}
-				rayClusterUnstructured.SetGroupVersionKind(rayClusterGVK)
-				if err := r.client.Get(ctx, types.NamespacedName{
-					Namespace: object.GetNamespace(),
-					Name:      rayClusterName,
-				}, rayClusterUnstructured); err != nil {
-					log.Error(err, "Failed to get RayCluster as unstructured", "rayCluster", rayClusterName)
-					// Fall back to starting only RayJob pods if RayCluster is not found
-				} else {
-					// Start RayCluster pods first
-					log.V(3).Info("Starting RayCluster pods", "rayCluster", rayClusterName)
-					if err := workloadslicing.StartWorkloadSlicePods(ctx, r.client, rayClusterUnstructured); err != nil {
-						log.Error(err, "Failed to start RayCluster pods", "rayCluster", rayClusterName)
-						return ctrl.Result{}, err
-					}
-				}
-			}
-		}
-		// Start RayJob (or other job type) pods
 		return ctrl.Result{}, workloadslicing.StartWorkloadSlicePods(ctx, r.client, object)
 	}
 
