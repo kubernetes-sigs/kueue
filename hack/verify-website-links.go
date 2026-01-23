@@ -48,22 +48,22 @@ type serverProcess struct {
 	exitErr  chan error
 }
 
+var (
+	portFlag   = flag.Int("port", 0, "port to run the Hugo server on (0 = auto-pick a free port)")
+	threads    = flag.Int("threads", 20, "linkchecker threads")
+	timeoutSec = flag.Int("timeout", 5, "linkchecker per-request timeout in seconds")
+	// Default FALSE (more reliable for CI; avoids rate-limits / flaky external sites)
+	checkExt = flag.Bool("check-extern", false, "check external links (default: false)")
+	waitFor  = flag.Duration("wait", 5*time.Minute, "max time to wait for the server to become reachable")
+	lcTotal  = flag.Duration("linkchecker-total-timeout", 25*time.Minute, "total time allowed for linkchecker")
+)
+
 func main() {
+	flag.Parse()
 	os.Exit(run())
 }
 
 func run() int {
-	var (
-		portFlag   = flag.Int("port", 0, "port to run the Hugo server on (0 = auto-pick a free port)")
-		threads    = flag.Int("threads", 20, "linkchecker threads")
-		timeoutSec = flag.Int("timeout", 5, "linkchecker per-request timeout in seconds")
-		// Default FALSE (more reliable for CI; avoids rate-limits / flaky external sites)
-		checkExt = flag.Bool("check-extern", false, "check external links (default: false)")
-		waitFor  = flag.Duration("wait", 5*time.Minute, "max time to wait for the server to become reachable")
-		lcTotal  = flag.Duration("linkchecker-total-timeout", 25*time.Minute, "total time allowed for linkchecker")
-	)
-	flag.Parse()
-
 	root, err := repoRoot()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ERROR:", err)
@@ -610,11 +610,4 @@ func runLinkChecker(ctx context.Context, tmpDir string, port, threads, timeoutSe
 func exists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
-}
-
-func must(err error) {
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "ERROR:", err)
-		panic(err)
-	}
 }
