@@ -21,7 +21,7 @@ The page is intended for a [batch administrator](/docs/tasks#batch-administrator
 
 - Kubernetes 集群正在运行。
 - kubectl 命令行工具与你的集群通信。
-- [Kueue 已安装](/zh-CN/docs/installation)。
+- [Kueue 已安装](/zh-cn/docs/installation)。
 
 本页面假设你已经熟悉 [Kubernetes 中的 RBAC](https://kubernetes.io/zh-cn/docs/reference/access-authn-authz/rbac/)。
 
