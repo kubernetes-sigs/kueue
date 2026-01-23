@@ -467,9 +467,6 @@ func waitForHTTPOrExit(ctx context.Context, url string, server *serverProcess) e
 	}
 }
 
-// linkCheckerVenvDir holds the path to venv if we created one
-var linkCheckerVenvDir string
-
 func ensureLinkChecker(tmpDir string) (string, error) {
 	// Check if linkchecker is already available
 	if lcPath, err := exec.LookPath("linkchecker"); err == nil {
@@ -514,7 +511,6 @@ func ensureLinkChecker(tmpDir string) (string, error) {
 
 	// Create venv in temp directory
 	venvDir := filepath.Join(tmpDir, "linkchecker-venv")
-	linkCheckerVenvDir = venvDir
 
 	cmd := exec.Command(pythonPath, "-m", "venv", venvDir)
 	cmd.Stdout = os.Stdout
