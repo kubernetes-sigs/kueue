@@ -258,6 +258,14 @@ before exposing it to public.</p>
 registered within this manager.</p>
 </td>
 </tr>
+<tr><td><code>tls</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-TLSOptions"><code>TLSOptions</code></a>
+</td>
+<td>
+   <p>TLS contains TLS security settings for all Kueue API servers
+(webhooks, metrics, and visibility).</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -928,6 +936,45 @@ This is intended to be a map with Input as the key (enforced by validation code)
 <td>
    <p>DeviceClassMappings defines mappings from device classes to logical resources
 for Dynamic Resource Allocation support.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `TLSOptions`     {#config-kueue-x-k8s-io-v1beta1-TLSOptions}
+    
+
+**Appears in:**
+
+- [ControllerManager](#config-kueue-x-k8s-io-v1beta1-ControllerManager)
+
+
+<p>TLSOptions defines TLS security settings for Kueue servers</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>minVersion</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>minVersion is the minimum TLS version supported.
+Values are from tls package constants (https://golang.org/pkg/crypto/tls/#pkg-constants).
+This field is only valid when TLSOptions is set to true.
+The default would be to not set this value and inherit golang settings.</p>
+</td>
+</tr>
+<tr><td><code>cipherSuites</code><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>cipherSuites is the list of allowed cipher suites for the server.
+Note that TLS 1.3 ciphersuites are not configurable.
+Values are from tls package constants (https://golang.org/pkg/crypto/tls/#pkg-constants).
+The default would be to not set this value and inherit golang settings.</p>
 </td>
 </tr>
 </tbody>

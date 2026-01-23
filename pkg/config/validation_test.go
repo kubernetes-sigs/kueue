@@ -879,6 +879,86 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"valid TLS with TLS 1.2 and cipher suites": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ControllerManager: configapi.ControllerManager{
+					TLS: &configapi.TLSOptions{
+						MinVersion: "VersionTLS12",
+						CipherSuites: []string{
+							"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+						},
+					},
+				},
+			},
+		},
+		"valid TLS with TLS 1.3 and no cipher suites": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ControllerManager: configapi.ControllerManager{
+					TLS: &configapi.TLSOptions{
+						MinVersion: "VersionTLS13",
+					},
+				},
+			},
+		},
+		"invalid TLS with TLS 1.3 and cipher suites": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ControllerManager: configapi.ControllerManager{
+					TLS: &configapi.TLSOptions{
+						MinVersion: "VersionTLS13",
+						CipherSuites: []string{
+							"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "tls.cipherSuites",
+				},
+			},
+		},
+		"invalid TLS and valid cipher suites": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ControllerManager: configapi.ControllerManager{
+					TLS: &configapi.TLSOptions{
+						MinVersion: "DUMMY",
+						CipherSuites: []string{
+							"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "tls",
+				},
+			},
+		},
+		"invalid TLS and invalid cipher suites": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ControllerManager: configapi.ControllerManager{
+					TLS: &configapi.TLSOptions{
+						MinVersion: "DUMMY",
+						CipherSuites: []string{
+							"DUMMY",
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "tls",
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
