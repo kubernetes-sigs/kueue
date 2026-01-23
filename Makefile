@@ -146,7 +146,7 @@ update-helm: manifests yq yaml-processor
 	$(BIN_DIR)/yaml-processor -zap-log-level=$(YAML_PROCESSOR_LOG_LEVEL) hack/processing-plan.yaml
 
 .PHONY: generate
-generate: gomod-download generate-mocks generate-apiref generate-code generate-kueuectl-docs generate-helm-docs generate-metrics-tables
+generate: gomod-download generate-mocks generate-apiref generate-code generate-kueuectl-docs generate-helm-docs generate-metrics-tables generate-featuregates
 
 .PHONY: generate-code
 generate-code: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations and client-go libraries.
@@ -445,6 +445,12 @@ kueuectl:
 .PHONY: generate-apiref
 generate-apiref: genref
 	cd $(PROJECT_DIR)/hack/genref/ && $(GENREF) -o $(PROJECT_DIR)/site/content/en/docs/reference
+
+##@ Documentation
+
+.PHONY: generate-featuregates
+generate-featuregates: ## Regenerate feature-gate YAML and site data.
+	$(PROJECT_DIR)/hack/update-featuregates.sh
 
 .PHONY: generate-kueuectl-docs
 generate-kueuectl-docs: kueuectl-docs
