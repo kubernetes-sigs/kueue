@@ -21,7 +21,6 @@ import (
 
 	kftrainerapi "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -53,8 +52,7 @@ func SetupTrainJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		cache:                        options.Cache,
 	}
 	obj := &kftrainerapi.TrainJob{}
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(obj).
+	return ctrl.NewWebhookManagedBy(mgr, obj).
 		WithDefaulter(wh).
 		WithValidator(wh).
 		WithLogConstructor(jobframework.WebhookLogConstructor(fromObject(obj).GVK(), options.RoleTracker)).
@@ -63,10 +61,10 @@ func SetupTrainJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 
 // +kubebuilder:webhook:path=/mutate-trainer-kubeflow-org-v1alpha1-trainjob,mutating=true,failurePolicy=fail,sideEffects=None,groups=trainer.kubeflow.org,resources=trainjobs,verbs=create,versions=v1alpha1,name=mtrainjob.kb.io,admissionReviewVersions=v1
 
-var _ admission.CustomDefaulter = &TrainJobWebhook{}
+var _ admission.Defaulter[*kftrainerapi.TrainJob] = &TrainJobWebhook{}
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
-func (w *TrainJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
+func (w *TrainJobWebhook) Default(ctx context.Context, obj *kftrainerapi.TrainJob) error {
 	trainJob := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("trainjob-webhook")
 	log.V(5).Info("Applying defaults")
@@ -91,10 +89,10 @@ func (w *TrainJobWebhook) Default(ctx context.Context, obj runtime.Object) error
 
 // +kubebuilder:webhook:path=/validate-trainer-kubeflow-org-v1alpha1-trainjob,mutating=false,failurePolicy=fail,sideEffects=None,groups=trainer.kubeflow.org,resources=trainjobs,verbs=create;update,versions=v1alpha1,name=vtrainjob.kb.io,admissionReviewVersions=v1
 
-var _ admission.CustomValidator = &TrainJobWebhook{}
+var _ admission.Validator[*kftrainerapi.TrainJob] = &TrainJobWebhook{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *TrainJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+func (w *TrainJobWebhook) ValidateCreate(ctx context.Context, obj *kftrainerapi.TrainJob) (admission.Warnings, error) {
 	trainjob := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("trainjob-webhook")
 	log.Info("Validating create")
@@ -106,7 +104,7 @@ func (w *TrainJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *TrainJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
+func (w *TrainJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *kftrainerapi.TrainJob) (admission.Warnings, error) {
 	oldTrainJob := fromObject(oldObj)
 	newTrainJob := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("trainjob-webhook")
@@ -163,6 +161,6 @@ func (w *TrainJobWebhook) validateTopologyRequest(ctx context.Context, trainJob 
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *TrainJobWebhook) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
+func (w *TrainJobWebhook) ValidateDelete(_ context.Context, _ *kftrainerapi.TrainJob) (admission.Warnings, error) {
 	return nil, nil
 }

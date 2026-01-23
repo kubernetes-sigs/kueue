@@ -501,6 +501,7 @@ func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, 
 				},
 			},
 		}
+		//nolint:staticcheck //SA1019: client.Apply is deprecated
 		if err := c.Status().Patch(ctx, pCopy, client.Apply, client.FieldOwner(constants.KueueName)); err != nil && !apierrors.IsNotFound(err) {
 			return stoppedNow, err
 		}
