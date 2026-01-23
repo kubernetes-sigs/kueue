@@ -427,7 +427,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				if annotations == nil {
 					annotations = make(map[string]string)
 				}
-				annotations[constants.TriggerReconcileAnnotation] = strconv.FormatInt(time.Now().UnixNano(), 10)
+				annotations[constants.TriggerReconcileAnnotation] = fmt.Sprintf("%d", time.Now().UnixNano())
 				ancestorJob.SetAnnotations(annotations)
 				return true, nil
 			}); err != nil {
