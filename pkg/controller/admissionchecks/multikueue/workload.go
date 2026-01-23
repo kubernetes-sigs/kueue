@@ -50,7 +50,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
-	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -318,41 +317,6 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		((group.IsFinished() && workloadslicing.IsReplaced(group.local.Status)) ||
 			(!group.IsFinished() && !workload.HasQuotaReservation(group.local) && workloadslicing.ScaledUp(group.local))) {
 		return reconcile.Result{}, nil
-	}
-
-	// 1.5. For elastic workloads, check for scale requests from worker clusters.
-	// When a worker cluster detects autoscaling, it annotates its workload with the
-	// requested pod set counts. We propagate this to the manager workload so that
-	// the manager's job reconciler can create a new workload slice (scale-up) or update existing (scale-down).
-	if group.IsElasticWorkload() && workload.HasQuotaReservation(group.local) {
-		for remote, remWl := range group.remotes {
-			if remWl == nil {
-				continue
-			}
-
-			scaleRequest := remWl.Annotations[workloadslicing.ScaleRequestAnnotation]
-			if scaleRequest != "" {
-				log.V(2).Info("Scale request detected from worker cluster",
-					"workerCluster", remote,
-					"localWorkload", klog.KObj(group.local),
-					"request", scaleRequest)
-
-				// Propagate scale request to manager workload
-				if err := w.propagateScaleRequest(ctx, group.local, scaleRequest); err != nil {
-					log.Error(err, "Failed to propagate scale request to manager workload")
-					return reconcile.Result{}, err
-				}
-
-				// Clear the request from worker workload to avoid re-processing
-				if err := w.clearScaleRequest(ctx, group.remoteClients[remote].client, remWl); err != nil {
-					log.Error(err, "Failed to clear scale request from worker workload")
-					// Continue anyway - the request was propagated
-				}
-
-				// Requeue to let manager process the scale request
-				return reconcile.Result{Requeue: true}, nil
-			}
-		}
 	}
 
 	// 2. Delete all remote workloads when the local workload is finished or has no quota reservation.
@@ -798,41 +762,6 @@ func updateDelayedTopologyRequest(local, remote *kueue.Workload) {
 			localPSA.DelayedTopologyRequest = ptr.To(kueue.DelayedTopologyRequestStateReady)
 		}
 	}
-}
-
-// propagateScaleRequest copies the scale request annotation from a worker
-// cluster workload to the manager (local) workload. This allows the manager's
-// job reconciler to handle the scaling (create new workload slice for scale-up,
-// or update existing workload for scale-down).
-//
-// Note: We use clientutil.Patch instead of workload.PatchStatus because annotations
-// are in object metadata, not in the status subresource. PatchStatus only patches
-// the status subresource and would not persist the annotation.
-func (w *wlReconciler) propagateScaleRequest(ctx context.Context, managerWl *kueue.Workload, request string) error {
-	// Check if the same request is already pending
-	if managerWl.Annotations[workloadslicing.ScaleRequestAnnotation] == request {
-		return nil
-	}
-
-	return clientutil.Patch(ctx, w.client, managerWl, func() (bool, error) {
-		if managerWl.Annotations == nil {
-			managerWl.Annotations = make(map[string]string)
-		}
-		managerWl.Annotations[workloadslicing.ScaleRequestAnnotation] = request
-		return true, nil
-	})
-}
-
-// clearScaleRequest removes the scale request annotation from a worker
-// cluster workload after it has been propagated to the manager.
-func (w *wlReconciler) clearScaleRequest(ctx context.Context, remoteClient client.Client, wl *kueue.Workload) error {
-	if wl.Annotations == nil || wl.Annotations[workloadslicing.ScaleRequestAnnotation] == "" {
-		return nil
-	}
-
-	patch := client.MergeFrom(wl.DeepCopy())
-	delete(wl.Annotations, workloadslicing.ScaleRequestAnnotation)
-	return remoteClient.Patch(ctx, wl, patch)
 }
 
 func cloneForCreate(orig *kueue.Workload, origin string) *kueue.Workload {

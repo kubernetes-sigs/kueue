@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -35,7 +34,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
-	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 type multiKueueAdapter struct{}
@@ -43,8 +41,6 @@ type multiKueueAdapter struct{}
 var _ jobframework.MultiKueueAdapter = (*multiKueueAdapter)(nil)
 
 func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
-	log := ctrl.LoggerFrom(ctx)
-
 	localJob := rayv1.RayJob{}
 	err := localClient.Get(ctx, key, &localJob)
 	if err != nil {
@@ -57,28 +53,8 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 		return err
 	}
 
-	// if the remote exists, sync status and update prebuilt label if needed
+	// if the remote exists, just copy the status
 	if err == nil {
-		// For elastic jobs, the prebuilt-workload-name label may need to be updated
-		// when a new workload slice is created (scale-up scenario).
-		currentPrebuiltLabel := remoteJob.Labels[constants.PrebuiltWorkloadLabel]
-		if currentPrebuiltLabel != workloadName && workloadslicing.Enabled(&localJob) {
-			log.V(2).Info("Updating prebuilt-workload-name label for elastic job",
-				"job", klog.KObj(&remoteJob),
-				"oldWorkload", currentPrebuiltLabel,
-				"newWorkload", workloadName)
-
-			if err := clientutil.Patch(ctx, remoteClient, &remoteJob, func() (bool, error) {
-				if remoteJob.Labels == nil {
-					remoteJob.Labels = make(map[string]string)
-				}
-				remoteJob.Labels[constants.PrebuiltWorkloadLabel] = workloadName
-				return true, nil
-			}); err != nil {
-				return fmt.Errorf("failed to update prebuilt-workload-name label: %w", err)
-			}
-		}
-
 		return clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
 			localJob.Status = remoteJob.Status
 			return true, nil
