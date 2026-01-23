@@ -18,10 +18,12 @@ package visibility
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"net"
 	"strings"
 
+	"github.com/spf13/pflag"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -112,6 +114,13 @@ func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, en
 	o.Admission.DisablePlugins = disabledPlugins
 	if err := o.SecureServing.MaybeDefaultWithSelfSignedCerts("localhost", nil, []net.IP{net.ParseIP("127.0.0.1")}); err != nil {
 		return fmt.Errorf("error creating self-signed certificates: %v", err)
+	}
+	o.AddFlags(pflag.CommandLine)
+	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
+	pflag.Parse()
+	if kubeconfigPath := o.CoreAPI.CoreAPIKubeconfigPath; kubeconfigPath != "" {
+		o.Authentication.RemoteKubeConfigFile = kubeconfigPath
+		o.Authorization.RemoteKubeConfigFile = kubeconfigPath
 	}
 	return o.ApplyTo(config)
 }
