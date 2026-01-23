@@ -23,12 +23,10 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -55,8 +53,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		queues:                       options.Queues,
 	}
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(&appsv1.StatefulSet{}).
+	return ctrl.NewWebhookManagedBy(mgr, &appsv1.StatefulSet{}).
 		WithDefaulter(wh).
 		WithValidator(wh).
 		WithLogConstructor(roletracker.WebhookLogConstructor(options.RoleTracker)).
@@ -65,14 +62,9 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 
 // +kubebuilder:webhook:path=/mutate-apps-v1-statefulset,mutating=true,failurePolicy=fail,sideEffects=None,groups="apps",resources=statefulsets,verbs=create;update,versions=v1,name=mstatefulset.kb.io,admissionReviewVersions=v1
 
-var _ webhook.CustomDefaulter = &Webhook{}
+var _ admission.Defaulter[*appsv1.StatefulSet] = &Webhook{}
 
-func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
-	stsObj, ok := obj.(*appsv1.StatefulSet)
-	if !ok {
-		return nil
-	}
-
+func (wh *Webhook) Default(ctx context.Context, stsObj *appsv1.StatefulSet) error {
 	log := ctrl.LoggerFrom(ctx).WithName("statefulset-webhook")
 
 	if frameworkName, managed := managedByAnotherFramework(stsObj); managed {
@@ -80,7 +72,7 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 		return nil
 	}
 
-	ss := fromObject(obj)
+	ss := fromObject(stsObj)
 
 	log.V(5).Info("Propagating queue-name")
 
@@ -117,14 +109,9 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 
 // +kubebuilder:webhook:path=/validate-apps-v1-statefulset,mutating=false,failurePolicy=fail,sideEffects=None,groups="apps",resources=statefulsets,verbs=create;update,versions=v1,name=vstatefulset.kb.io,admissionReviewVersions=v1
 
-var _ webhook.CustomValidator = &Webhook{}
+var _ admission.Validator[*appsv1.StatefulSet] = &Webhook{}
 
-func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
-	stsObj, ok := obj.(*appsv1.StatefulSet)
-	if !ok {
-		return nil, nil
-	}
-
+func (wh *Webhook) ValidateCreate(ctx context.Context, stsObj *appsv1.StatefulSet) (warnings admission.Warnings, err error) {
 	log := ctrl.LoggerFrom(ctx).WithName("statefulset-webhook")
 
 	if frameworkName, managed := managedByAnotherFramework(stsObj); managed {
@@ -134,7 +121,7 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warn
 
 	log.V(5).Info("Validating create")
 
-	sts := fromObject(obj)
+	sts := fromObject(stsObj)
 
 	allErrs := jobframework.ValidateQueueName(sts.Object())
 
@@ -151,12 +138,7 @@ var (
 	podSpecPath                = specTemplatePath.Child("spec")
 )
 
-func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
-	newSTSObj, ok := newObj.(*appsv1.StatefulSet)
-	if !ok {
-		return nil, nil
-	}
-
+func (wh *Webhook) ValidateUpdate(ctx context.Context, oldSTSObj, newSTSObj *appsv1.StatefulSet) (warnings admission.Warnings, err error) {
 	log := ctrl.LoggerFrom(ctx).WithName("statefulset-webhook")
 
 	if frameworkName, managed := managedByAnotherFramework(newSTSObj); managed {
@@ -164,8 +146,8 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 		return nil, nil
 	}
 
-	oldStatefulSet := fromObject(oldObj)
-	newStatefulSet := fromObject(newObj)
+	oldStatefulSet := fromObject(oldSTSObj)
+	newStatefulSet := fromObject(newSTSObj)
 
 	log.V(5).Info("Validating update")
 
@@ -232,7 +214,7 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	return warnings, allErrs.ToAggregate()
 }
 
-func (wh *Webhook) ValidateDelete(context.Context, runtime.Object) (warnings admission.Warnings, err error) {
+func (wh *Webhook) ValidateDelete(_ context.Context, _ *appsv1.StatefulSet) (warnings admission.Warnings, err error) {
 	return nil, nil
 }
 

@@ -24,12 +24,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	apimachineryvalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/validation"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -45,8 +43,7 @@ const (
 type ClusterQueueWebhook struct{}
 
 func setupWebhookForClusterQueue(mgr ctrl.Manager, roleTracker *roletracker.RoleTracker) error {
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(&kueue.ClusterQueue{}).
+	return ctrl.NewWebhookManagedBy(mgr, &kueue.ClusterQueue{}).
 		WithDefaulter(&ClusterQueueWebhook{}).
 		WithValidator(&ClusterQueueWebhook{}).
 		WithLogConstructor(roletracker.WebhookLogConstructor(roleTracker)).
@@ -55,11 +52,10 @@ func setupWebhookForClusterQueue(mgr ctrl.Manager, roleTracker *roletracker.Role
 
 // +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1beta2-clusterqueue,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=clusterqueues,verbs=create,versions=v1beta2,name=mclusterqueue.kb.io,admissionReviewVersions=v1
 
-var _ webhook.CustomDefaulter = &ClusterQueueWebhook{}
+var _ admission.Defaulter[*kueue.ClusterQueue] = &ClusterQueueWebhook{}
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
-func (w *ClusterQueueWebhook) Default(ctx context.Context, obj runtime.Object) error {
-	cq := obj.(*kueue.ClusterQueue)
+func (w *ClusterQueueWebhook) Default(ctx context.Context, cq *kueue.ClusterQueue) error {
 	log := ctrl.LoggerFrom(ctx).WithName("clusterqueue-webhook")
 	log.V(5).Info("Applying defaults")
 	if !controllerutil.ContainsFinalizer(cq, kueue.ResourceInUseFinalizerName) {
@@ -70,11 +66,10 @@ func (w *ClusterQueueWebhook) Default(ctx context.Context, obj runtime.Object) e
 
 // +kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1beta2-clusterqueue,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=clusterqueues,verbs=create;update,versions=v1beta2,name=vclusterqueue.kb.io,admissionReviewVersions=v1
 
-var _ webhook.CustomValidator = &ClusterQueueWebhook{}
+var _ admission.Validator[*kueue.ClusterQueue] = &ClusterQueueWebhook{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *ClusterQueueWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	cq := obj.(*kueue.ClusterQueue)
+func (w *ClusterQueueWebhook) ValidateCreate(ctx context.Context, cq *kueue.ClusterQueue) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("clusterqueue-webhook")
 	log.V(5).Info("Validating create")
 	allErrs := ValidateClusterQueue(cq)
@@ -82,9 +77,7 @@ func (w *ClusterQueueWebhook) ValidateCreate(ctx context.Context, obj runtime.Ob
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *ClusterQueueWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
-	newCQ := newObj.(*kueue.ClusterQueue)
-
+func (w *ClusterQueueWebhook) ValidateUpdate(ctx context.Context, _, newCQ *kueue.ClusterQueue) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("clusterqueue-webhook")
 	log.V(5).Info("Validating update")
 	allErrs := ValidateClusterQueueUpdate(newCQ)
@@ -92,7 +85,7 @@ func (w *ClusterQueueWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *ClusterQueueWebhook) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
+func (w *ClusterQueueWebhook) ValidateDelete(_ context.Context, _ *kueue.ClusterQueue) (admission.Warnings, error) {
 	return nil, nil
 }
 

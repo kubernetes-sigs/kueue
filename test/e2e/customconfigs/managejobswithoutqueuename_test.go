@@ -17,6 +17,8 @@ limitations under the License.
 package customconfigse2e
 
 import (
+	"slices"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
@@ -26,7 +28,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
-	"k8s.io/utils/strings/slices"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/jobset/api/jobset/v1alpha2"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
@@ -984,8 +985,8 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName without JobSet integration",
 	ginkgo.BeforeAll(func() {
 		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
 			cfg.ManageJobsWithoutQueueName = true
-			cfg.Integrations.Frameworks = slices.Filter(nil, cfg.Integrations.Frameworks, func(framework string) bool {
-				return framework != jobset.FrameworkName
+			cfg.Integrations.Frameworks = slices.DeleteFunc(cfg.Integrations.Frameworks, func(framework string) bool {
+				return framework == jobset.FrameworkName
 			})
 		})
 	})

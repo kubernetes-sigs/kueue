@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob"
@@ -36,12 +37,15 @@ var (
 	FrameworkName = "kubeflow.org/jaxjob"
 
 	SetupJAXJobWebhook = jobframework.BaseWebhookFactory(
-		NewJob(),
-		func(o runtime.Object) jobframework.GenericJob {
+		&kftraining.JAXJob{},
+		func(o *kftraining.JAXJob) jobframework.GenericJob {
 			return fromObject(o)
 		},
 	)
 )
+
+var _ admission.Defaulter[*kftraining.JAXJob] = &jobframework.BaseWebhook[*kftraining.JAXJob]{}
+var _ admission.Validator[*kftraining.JAXJob] = &jobframework.BaseWebhook[*kftraining.JAXJob]{}
 
 // +kubebuilder:webhook:path=/mutate-kubeflow-org-v1-jaxjob,mutating=true,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=jaxjobs,verbs=create,versions=v1,name=mjaxjob.kb.io,admissionReviewVersions=v1
 // +kubebuilder:webhook:path=/validate-kubeflow-org-v1-jaxjob,mutating=false,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=jaxjobs,verbs=create;update,versions=v1,name=vjaxjob.kb.io,admissionReviewVersions=v1

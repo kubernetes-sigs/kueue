@@ -23,12 +23,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
@@ -57,8 +55,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		queues:                       options.Queues,
 	}
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(&leaderworkersetv1.LeaderWorkerSet{}).
+	return ctrl.NewWebhookManagedBy(mgr, &leaderworkersetv1.LeaderWorkerSet{}).
 		WithDefaulter(wh).
 		WithValidator(wh).
 		WithLogConstructor(roletracker.WebhookLogConstructor(options.RoleTracker)).
@@ -67,14 +64,14 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 
 // +kubebuilder:webhook:path=/mutate-leaderworkerset-x-k8s-io-v1-leaderworkerset,mutating=true,failurePolicy=fail,sideEffects=None,groups="leaderworkerset.x-k8s.io",resources=leaderworkersets,verbs=create;update,versions=v1,name=mleaderworkerset.kb.io,admissionReviewVersions=v1
 
-var _ webhook.CustomDefaulter = &Webhook{}
+var _ admission.Defaulter[*leaderworkersetv1.LeaderWorkerSet] = &Webhook{}
 
-func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
+func (wh *Webhook) Default(ctx context.Context, obj *leaderworkersetv1.LeaderWorkerSet) error {
 	lws := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("leaderworkerset-webhook")
 	log.V(5).Info("Applying defaults")
 
-	jobframework.ApplyDefaultLocalQueue(lws.Object(), wh.queues.DefaultLocalQueueExist)
+	jobframework.ApplyDefaultLocalQueue(obj, wh.queues.DefaultLocalQueueExist)
 	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, lws.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
 	if err != nil {
 		return err
@@ -106,7 +103,7 @@ func (wh *Webhook) podTemplateSpecDefault(lws *LeaderWorkerSet, podTemplateSpec 
 
 // +kubebuilder:webhook:path=/validate-leaderworkerset-x-k8s-io-v1-leaderworkerset,mutating=false,failurePolicy=fail,sideEffects=None,groups="leaderworkerset.x-k8s.io",resources=leaderworkersets,verbs=create;update,versions=v1,name=vleaderworkerset.kb.io,admissionReviewVersions=v1
 
-var _ webhook.CustomValidator = &Webhook{}
+var _ admission.Validator[*leaderworkersetv1.LeaderWorkerSet] = &Webhook{}
 
 var (
 	labelsPath                    = field.NewPath("metadata", "labels")
@@ -125,7 +122,7 @@ var (
 	}
 )
 
-func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
+func (wh *Webhook) ValidateCreate(ctx context.Context, obj *leaderworkersetv1.LeaderWorkerSet) (warnings admission.Warnings, err error) {
 	lws := fromObject(obj)
 
 	log := ctrl.LoggerFrom(ctx).WithName("leaderworkerset-webhook")
@@ -139,7 +136,7 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warn
 	return nil, validationErrs.ToAggregate()
 }
 
-func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
+func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *leaderworkersetv1.LeaderWorkerSet) (warnings admission.Warnings, err error) {
 	oldLeaderWorkerSet := fromObject(oldObj)
 	newLeaderWorkerSet := fromObject(newObj)
 
@@ -152,16 +149,16 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	}
 
 	allErrs = append(allErrs, apivalidation.ValidateImmutableField(
-		jobframework.QueueNameForObject(newLeaderWorkerSet.Object()),
-		jobframework.QueueNameForObject(oldLeaderWorkerSet.Object()),
+		jobframework.QueueNameForObject(newObj),
+		jobframework.QueueNameForObject(oldObj),
 		queueNameLabelPath,
 	)...)
 
 	isSuspended := oldLeaderWorkerSet.Status.ReadyReplicas == 0
 	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
 		isSuspended,
-		oldLeaderWorkerSet.Object(),
-		newLeaderWorkerSet.Object(),
+		oldObj,
+		newObj,
 	)...)
 
 	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, newLeaderWorkerSet.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
@@ -184,7 +181,7 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	return warnings, allErrs.ToAggregate()
 }
 
-func (wh *Webhook) ValidateDelete(context.Context, runtime.Object) (warnings admission.Warnings, err error) {
+func (wh *Webhook) ValidateDelete(_ context.Context, _ *leaderworkersetv1.LeaderWorkerSet) (warnings admission.Warnings, err error) {
 	return nil, nil
 }
 

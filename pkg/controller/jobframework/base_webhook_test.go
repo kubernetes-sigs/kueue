@@ -24,7 +24,6 @@ import (
 	"go.uber.org/mock/gomock"
 	batchv1 "k8s.io/api/batch/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -175,10 +174,10 @@ func TestBaseWebhookDefault(t *testing.T) {
 				Return(features.Enabled(features.MultiKueue) && (tc.job.Spec.ManagedBy == nil || *tc.job.Spec.ManagedBy == batchv1.JobControllerName)).
 				AnyTimes()
 
-			w := &jobframework.BaseWebhook{
+			w := &jobframework.BaseWebhook[*mockJob]{
 				ManageJobsWithoutQueueName: tc.manageJobsWithoutQueueName,
-				FromObject: func(object runtime.Object) jobframework.GenericJob {
-					return object.(*mockJob)
+				FromObject: func(object *mockJob) jobframework.GenericJob {
+					return object
 				},
 				Queues: queueManager,
 				Cache:  cqCache,
@@ -251,9 +250,9 @@ func TestValidateOnCreate(t *testing.T) {
 			job.MockGenericJob.EXPECT().Object().Return(tc.job).AnyTimes()
 			job.MockJobWithCustomValidation.EXPECT().ValidateOnCreate(gomock.Any()).Return(tc.customValidationFailure, tc.customValidationError).AnyTimes()
 
-			w := &jobframework.BaseWebhook{
-				FromObject: func(object runtime.Object) jobframework.GenericJob {
-					return object.(*mockJob)
+			w := &jobframework.BaseWebhook[*mockJob]{
+				FromObject: func(object *mockJob) jobframework.GenericJob {
+					return object
 				},
 			}
 
@@ -339,9 +338,9 @@ func TestValidateOnUpdate(t *testing.T) {
 				return mj
 			}
 
-			w := &jobframework.BaseWebhook{
-				FromObject: func(object runtime.Object) jobframework.GenericJob {
-					return object.(*mockJob)
+			w := &jobframework.BaseWebhook[*mockJob]{
+				FromObject: func(object *mockJob) jobframework.GenericJob {
+					return object
 				},
 			}
 
