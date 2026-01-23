@@ -153,8 +153,7 @@ func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clust
 		tasCache:            &c.tasCache,
 		AdmissionScope:      cq.Spec.AdmissionScope,
 
-		workloadsNotAccountedForTAS: sets.New[workload.Reference](),
-		roleTracker:                 c.roleTracker,
+		roleTracker: c.roleTracker,
 	}
 	c.hm.AddClusterQueue(cqImpl)
 	c.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.CohortName)
