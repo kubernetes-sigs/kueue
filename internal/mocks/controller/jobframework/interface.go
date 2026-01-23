@@ -119,18 +119,18 @@ func (mr *MockGenericJobMockRecorder) Object() *gomock.Call {
 }
 
 // PodSets mocks base method.
-func (m *MockGenericJob) PodSets(ctx context.Context, c client.Client) ([]v1beta2.PodSet, error) {
+func (m *MockGenericJob) PodSets(ctx context.Context) ([]v1beta2.PodSet, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PodSets", ctx, c)
+	ret := m.ctrl.Call(m, "PodSets", ctx)
 	ret0, _ := ret[0].([]v1beta2.PodSet)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // PodSets indicates an expected call of PodSets.
-func (mr *MockGenericJobMockRecorder) PodSets(ctx, c any) *gomock.Call {
+func (mr *MockGenericJobMockRecorder) PodSets(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PodSets", reflect.TypeOf((*MockGenericJob)(nil).PodSets), ctx, c)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PodSets", reflect.TypeOf((*MockGenericJob)(nil).PodSets), ctx)
 }
 
 // PodsReady mocks base method.

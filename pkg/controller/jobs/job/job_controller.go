@@ -247,7 +247,7 @@ func cleanLabels(pt *corev1.PodTemplateSpec) *corev1.PodTemplateSpec {
 	return pt
 }
 
-func (j *Job) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, error) {
+func (j *Job) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	podSet := kueue.PodSet{
 		Name:     kueue.DefaultPodSetName,
 		Template: *cleanLabels(j.Spec.Template.DeepCopy()),

@@ -228,7 +228,7 @@ func (w *JobWebhook) validateTopologyRequest(ctx context.Context, job *Job) (fie
 		return validationErrs, nil
 	}
 
-	podSets, err := jobframework.JobPodSets(ctx, w.client, job)
+	podSets, err := jobframework.JobPodSets(ctx, job)
 	if err != nil {
 		return nil, err
 	}

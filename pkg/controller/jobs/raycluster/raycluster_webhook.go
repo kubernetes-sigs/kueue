@@ -197,7 +197,7 @@ func validateElasticJob(job *rayv1.RayCluster) field.ErrorList {
 func (w *RayClusterWebhook) validateTopologyRequest(ctx context.Context, rayJob *RayCluster) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 
-	podSets, podSetsErr := jobframework.JobPodSets(ctx, w.client, rayJob)
+	podSets, podSetsErr := jobframework.JobPodSets(ctx, rayJob)
 
 	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(headGroupMetaPath, &rayJob.Spec.HeadGroupSpec.Template.ObjectMeta)...)
 

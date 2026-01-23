@@ -109,7 +109,7 @@ func (j *MPIJob) PodLabelSelector() string {
 	return fmt.Sprintf("%s=%s,%s=%s", kfmpi.JobNameLabel, j.Name, kfmpi.OperatorNameLabel, kfmpi.OperatorName)
 }
 
-func (j *MPIJob) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, error) {
+func (j *MPIJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	replicaTypes := orderedReplicaTypes(&j.Spec)
 	podSets := make([]kueue.PodSet, len(replicaTypes))
 	for index, mpiReplicaType := range replicaTypes {

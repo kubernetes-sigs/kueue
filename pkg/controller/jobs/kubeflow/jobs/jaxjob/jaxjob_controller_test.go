@@ -166,7 +166,7 @@ func TestPodSets(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, gate, true)
 			}
 			ctx, _ := utiltesting.ContextWithLog(t)
-			gotPodSets, err := fromObject(tc.job).PodSets(ctx, nil)
+			gotPodSets, err := fromObject(tc.job).PodSets(ctx)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}

@@ -99,7 +99,7 @@ func (j *KubeflowJob) Finished(ctx context.Context) (message string, success, fi
 	return "", true, false
 }
 
-func (j *KubeflowJob) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, error) {
+func (j *KubeflowJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	replicaTypes := j.OrderedReplicaTypes()
 	podSets := make([]kueue.PodSet, len(replicaTypes))
 	for index, replicaType := range replicaTypes {
@@ -187,7 +187,7 @@ func (j *KubeflowJob) ValidateOnCreate(ctx context.Context) (field.ErrorList, er
 		return nil, nil
 	}
 
-	podSets, podSetsErr := jobframework.JobPodSets(ctx, nil, j)
+	podSets, podSetsErr := jobframework.JobPodSets(ctx, j)
 
 	var allErrs field.ErrorList
 	replicaTypes := j.OrderedReplicaTypes()

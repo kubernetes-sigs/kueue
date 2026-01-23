@@ -146,7 +146,7 @@ func (w *TrainJobWebhook) validateCreate(ctx context.Context, trainjob *TrainJob
 func (w *TrainJobWebhook) validateTopologyRequest(ctx context.Context, trainJob *TrainJob) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 
-	podSets, podSetsErr := podSets(ctx, w.client, trainJob)
+	podSets, podSetsErr := podSets(ctx, trainJob)
 	for _, p := range podSets {
 		jobPath := field.NewPath("job").Key(string(p.Name))
 		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(jobPath, &p.Template.ObjectMeta)...)
