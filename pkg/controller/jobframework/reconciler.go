@@ -400,11 +400,10 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	if !isTopLevelJob {
 		_, _, finished := job.Finished(ctx)
 		if !finished && !job.IsSuspended() {
-			// TODO find out which workload for the ancestor job is currently used and use that workload
-			if ancestorWorkloads, err := r.getWorkloadsForObject(ctx, ancestorJob); err != nil {
+			if ancestorWorkload, err := r.getWorkloadForObject(ctx, ancestorJob); err != nil {
 				log.Error(err, "couldn't get an ancestor job workload")
 				return ctrl.Result{}, err
-			} else if len(ancestorWorkloads) == 0 || !hasAdmittedWorkload(ancestorWorkloads) {
+			} else if ancestorWorkload == nil || !workload.IsAdmitted(ancestorWorkload) {
 				if err := clientutil.Patch(ctx, r.client, object, func() (bool, error) {
 					job.Suspend()
 					return true, nil
@@ -778,7 +777,7 @@ func (r *JobReconciler) recordAdmissionCheckUpdate(wl *kueue.Workload, job Gener
 }
 
 // getWorkloadForObject returns the Workload associated with the given job.
-func (r *JobReconciler) getWorkloadsForObject(ctx context.Context, jobObj client.Object) ([]kueue.Workload, error) {
+func (r *JobReconciler) getWorkloadForObject(ctx context.Context, jobObj client.Object) (*kueue.Workload, error) {
 	wls := kueue.WorkloadList{}
 	if err := r.client.List(ctx, &wls, client.InNamespace(jobObj.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(jobObj.GetUID())}); client.IgnoreNotFound(err) != nil {
 		return nil, err
@@ -797,16 +796,7 @@ func (r *JobReconciler) getWorkloadsForObject(ctx context.Context, jobObj client
 		)
 	}
 
-	return wls.Items, nil
-}
-
-func hasAdmittedWorkload(workloads []kueue.Workload) bool {
-	for _, wl := range workloads {
-		if workload.IsAdmitted(&wl) {
-			return true
-		}
-	}
-	return false
+	return &wls.Items[0], nil
 }
 
 // FindAncestorJobManagedByKueue traverses controllerRefs to find the top-level ancestor Job managed by Kueue.
