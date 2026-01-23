@@ -60,7 +60,7 @@ already above the nominal quota. The algorithms are:
   - Preemption while borrowing is enabled for the workload's ClusterQueue
   - All candidates for preemption belong to the same ClusterQueue as the preempting Workload
 
-  In the above scenarios, a workload can only be considered for preemption, in favor a workload from another ClusterQueue, 
+  In the above scenarios, a workload can only be considered for preemption, in favor of a workload from another ClusterQueue, 
   if it belongs to a ClusterQueue which is running over its nominal quota. 
   ClusterQueues in a cohort borrow resources in a first-come first-served fashion.
   
