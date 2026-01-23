@@ -561,8 +561,13 @@ func (r *WorkloadReconciler) deleteWorkloadFromCaches(ctx context.Context, names
 	// Retrieve the cached workload info before purging the data from the caches.
 	// Ensure watchers are notified after the updates are performed.
 	wlInQueuesCache := r.queues.GetWorkloadFromCache(wlRef)
-	wlInSchedulerCache := r.cache.GetWorkloadFromCache(wlRef)
-	defer r.notifyWatchersOfDeletion(wlInQueuesCache, wlInSchedulerCache)
+	defer r.notifyWatchers(wlInQueuesCache, nil)
+
+	// If workload cached by scheduler points to a different queue:
+	// notify watchers to ensure all identified queues remain up-to-date.
+	if wlInSchedulerCache := r.cache.GetWorkloadFromCache(wlRef); workload.GetLocalQueue(wlInSchedulerCache) != workload.GetLocalQueue(wlInQueuesCache) {
+		defer r.notifyWatchers(wlInSchedulerCache, nil)
+	}
 
 	// Delete from cache unconditionally. Pending workloads may have been "assumed"
 	// by the scheduler, and leaving them blocks ClusterQueue finalizer removal.
@@ -576,15 +581,6 @@ func (r *WorkloadReconciler) deleteWorkloadFromCaches(ctx context.Context, names
 	// Clear the workload form the queues.
 	// No operations will be performed if the wl has already been purged.
 	r.queues.DeleteAndForgetWorkload(log, wlRef)
-}
-
-func (r *WorkloadReconciler) notifyWatchersOfDeletion(qCacheWl, schedCacheWl *kueue.Workload) {
-	if qCacheWl != nil {
-		r.notifyWatchers(qCacheWl, nil)
-	}
-	if schedCacheWl != nil && workload.GetLocalQueue(qCacheWl) != workload.GetLocalQueue(schedCacheWl) {
-		r.notifyWatchers(schedCacheWl, nil)
-	}
 }
 
 // isDisabledRequeuedByClusterQueueStopped returns true if the workload is unset requeued by cluster queue stopped.
@@ -1032,6 +1028,9 @@ func (r *WorkloadReconciler) updateAfsConsumedUsage(log logr.Logger, wl *kueue.W
 }
 
 func (r *WorkloadReconciler) notifyWatchers(oldWl, newWl *kueue.Workload) {
+	if oldWl == nil && newWl == nil {
+		return
+	}
 	for _, w := range r.watchers {
 		w.NotifyWorkloadUpdate(oldWl, newWl)
 	}
