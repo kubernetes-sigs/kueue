@@ -49,10 +49,14 @@ type serverProcess struct {
 }
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	var (
 		portFlag   = flag.Int("port", 0, "port to run the Hugo server on (0 = auto-pick a free port)")
-		threads    = flag.Int("threads", 10, "linkchecker threads")
-		timeoutSec = flag.Int("timeout", 20, "linkchecker per-request timeout in seconds")
+		threads    = flag.Int("threads", 20, "linkchecker threads")
+		timeoutSec = flag.Int("timeout", 5, "linkchecker per-request timeout in seconds")
 		// Default FALSE (more reliable for CI; avoids rate-limits / flaky external sites)
 		checkExt = flag.Bool("check-extern", false, "check external links (default: false)")
 		waitFor  = flag.Duration("wait", 5*time.Minute, "max time to wait for the server to become reachable")
@@ -61,30 +65,48 @@ func main() {
 	flag.Parse()
 
 	root, err := repoRoot()
-	must(err)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ERROR:", err)
+		return 1
+	}
 
 	// Keep Hugo caches/resources out of the repo so `make verify` doesn't see untracked files.
 	tmp, err := os.MkdirTemp("", "kueue-website-links-*")
-	must(err)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ERROR:", err)
+		return 1
+	}
 	defer func() { _ = os.RemoveAll(tmp) }()
 
 	// Ensure Node.js is available (required for PostCSS)
 	pathEnv, err := ensureNodeJS(tmp)
-	must(err)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ERROR:", err)
+		return 1
+	}
 
 	// Install npm dependencies
-	must(runNpmCI(root, pathEnv))
+	if err := runNpmCI(root, pathEnv); err != nil {
+		fmt.Fprintln(os.Stderr, "ERROR:", err)
+		return 1
+	}
 
 	port := *portFlag
 	if port == 0 {
 		// Auto-pick a free port (will avoid conflicts automatically)
 		port, err = pickFreePort()
-		must(err)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "ERROR:", err)
+			return 1
+		}
 	} else if !isPortFree(port) {
 		// User specified a port - check if it's free, otherwise pick a new one
 		fmt.Printf("==> Port %d is busy, picking a free port instead\n", port)
 		port, err = pickFreePort()
-		must(err)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "ERROR:", err)
+			return 1
+		}
 	}
 	baseURL := fmt.Sprintf("http://localhost:%d/", port)
 
@@ -103,7 +125,10 @@ func main() {
 	fmt.Printf("    HUGO_SERVER_ARGS=%q\n", hugoServerArgs)
 
 	server, err := startSiteServer(root, tmp, hugoServerArgs, pathEnv)
-	must(err)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ERROR:", err)
+		return 1
+	}
 	defer server.stop()
 
 	fmt.Printf("==> Waiting for %s to be reachable (timeout: %s)\n", baseURL, *waitFor)
@@ -131,7 +156,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "HINT: PostCSS is not installed. Run 'npm ci' in the site/ directory.")
 		}
 
-		os.Exit(1)
+		return 1
 	}
 
 	fmt.Println("==> Running linkchecker")
@@ -140,9 +165,10 @@ func main() {
 
 	exitCode := runLinkChecker(lcCtx, tmp, port, *threads, *timeoutSec, *checkExt)
 	if exitCode != 0 {
-		os.Exit(exitCode)
+		return exitCode
 	}
 	fmt.Println("==> OK: linkchecker passed")
+	return 0
 }
 
 // nodeBinDir holds the path to installed Node.js binaries (set by ensureNodeJS)
