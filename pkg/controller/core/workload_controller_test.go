@@ -48,6 +48,7 @@ import (
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -2915,6 +2916,14 @@ func TestWorkloadDeletion(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantNotifications, mockWatcher.notificationsRecorded); diff != "" {
 				t.Errorf("Incorrect notifications recorded (-want,+got):\n%s", diff)
+			}
+
+			wlRef := workload.NewReference(wlNs, wlName)
+			if qManager.GetWorkloadFromCache(wlRef) != nil {
+				t.Error("Workload still present in the queue cache")
+			}
+			if cqCache.GetWorkloadFromCache(wlRef) != nil {
+				t.Error("Workload still present in the scheduler cache")
 			}
 		})
 	}
