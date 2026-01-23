@@ -47,8 +47,4 @@ const (
 	// of the PodSet of the admitted Workload corresponding to the PodTemplate.
 	// The label is set when starting the Job, and removed on stopping the Job.
 	PodSetLabel = "kueue.x-k8s.io/podset"
-
-	// TriggerReconcileAnnotation is an annotation that can be added or updated on a job
-	// to trigger reconciliation. The value should be the current time in nanoseconds.
-	TriggerReconcileAnnotation = "kueue.x-k8s.io/trigger-reconcile"
 )
