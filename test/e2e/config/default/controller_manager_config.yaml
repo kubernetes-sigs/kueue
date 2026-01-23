@@ -37,4 +37,3 @@ integrations:
   - "leaderworkerset.x-k8s.io/leaderworkerset"
 featureGates:
   LocalQueueMetrics: true
-  ElasticJobsViaWorkloadSlices: true
