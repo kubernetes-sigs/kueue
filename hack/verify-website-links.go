@@ -138,7 +138,7 @@ func main() {
 	lcCtx, lcCancel := context.WithTimeout(context.Background(), *lcTotal)
 	defer lcCancel()
 
-	exitCode := runLinkChecker(lcCtx, port, *threads, *timeoutSec, *checkExt)
+	exitCode := runLinkChecker(lcCtx, tmp, port, *threads, *timeoutSec, *checkExt)
 	if exitCode != 0 {
 		os.Exit(exitCode)
 	}
@@ -467,55 +467,82 @@ func waitForHTTPOrExit(ctx context.Context, url string, server *serverProcess) e
 	}
 }
 
-func ensureLinkChecker() (string, error) {
+// linkCheckerVenvDir holds the path to venv if we created one
+var linkCheckerVenvDir string
+
+func ensureLinkChecker(tmpDir string) (string, error) {
 	// Check if linkchecker is already available
 	if lcPath, err := exec.LookPath("linkchecker"); err == nil {
 		fmt.Println("==> linkchecker is available")
 		return lcPath, nil
 	}
 
-	fmt.Println("==> linkchecker not found, installing via pip...")
+	fmt.Println("==> linkchecker not found, installing...")
 
-	// Try pip3 first, then pip
-	var pipCmd string
-	if _, err := exec.LookPath("pip3"); err == nil {
-		pipCmd = "pip3"
-	} else if _, err := exec.LookPath("pip"); err == nil {
-		pipCmd = "pip"
-	} else {
-		return "", errors.New("neither pip3 nor pip found in PATH")
+	// Try pipx first (recommended for CLI tools on modern systems)
+	if pipxPath, err := exec.LookPath("pipx"); err == nil {
+		fmt.Println("    Using pipx to install linkchecker...")
+		cmd := exec.Command(pipxPath, "install", "linkchecker")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err == nil {
+			// pipx installs to ~/.local/bin by default
+			home, _ := os.UserHomeDir()
+			lcPath := filepath.Join(home, ".local/bin/linkchecker")
+			if exists(lcPath) {
+				fmt.Println("    linkchecker installed successfully via pipx")
+				return lcPath, nil
+			}
+			// Also check if it's now in PATH
+			if lcPath, err := exec.LookPath("linkchecker"); err == nil {
+				fmt.Println("    linkchecker installed successfully via pipx")
+				return lcPath, nil
+			}
+		}
+		// pipx failed, fall through to venv method
+		fmt.Println("    pipx install failed, trying venv method...")
 	}
 
-	cmd := exec.Command(pipCmd, "install", "--quiet", "linkchecker")
+	// Create a virtual environment and install linkchecker there
+	fmt.Println("    Creating virtual environment for linkchecker...")
+
+	// Find python3
+	pythonPath, err := exec.LookPath("python3")
+	if err != nil {
+		return "", errors.New("python3 not found in PATH")
+	}
+
+	// Create venv in temp directory
+	venvDir := filepath.Join(tmpDir, "linkchecker-venv")
+	linkCheckerVenvDir = venvDir
+
+	cmd := exec.Command(pythonPath, "-m", "venv", venvDir)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("failed to install linkchecker: %w", err)
+		return "", fmt.Errorf("failed to create venv: %w", err)
 	}
 
-	// Find linkchecker again after installation
-	lcPath, err := exec.LookPath("linkchecker")
-	if err != nil {
-		// It might be installed in user's local bin, try common locations
-		home, _ := os.UserHomeDir()
-		possiblePaths := []string{
-			"/usr/local/bin/linkchecker",
-			filepath.Join(home, ".local/bin/linkchecker"),
-		}
-		for _, p := range possiblePaths {
-			if exists(p) {
-				return p, nil
-			}
-		}
-		return "", errors.New("linkchecker installed but not found in PATH")
+	// Install linkchecker in the venv
+	venvPip := filepath.Join(venvDir, "bin/pip")
+	cmd = exec.Command(venvPip, "install", "--quiet", "linkchecker")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("failed to install linkchecker in venv: %w", err)
 	}
 
-	fmt.Println("    linkchecker installed successfully")
+	lcPath := filepath.Join(venvDir, "bin/linkchecker")
+	if !exists(lcPath) {
+		return "", errors.New("linkchecker not found in venv after installation")
+	}
+
+	fmt.Println("    linkchecker installed successfully in venv")
 	return lcPath, nil
 }
 
-func runLinkChecker(ctx context.Context, port, threads, timeoutSec int, checkExtern bool) int {
-	lcPath, err := ensureLinkChecker()
+func runLinkChecker(ctx context.Context, tmpDir string, port, threads, timeoutSec int, checkExtern bool) int {
+	lcPath, err := ensureLinkChecker(tmpDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
 		return 1
