@@ -405,18 +405,14 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				log.Error(err, "couldn't get an ancestor job workload")
 				return ctrl.Result{}, err
 			} else if len(ancestorWorkloads) == 0 || !hasAdmittedWorkload(ancestorWorkloads) {
-				// suspend job if it is not workload slice enabled
-				// if workload slice enabled, we use scheduler gate thus not need to suspend
-				if !workloadSliceEnabled(job) {
-					if err := clientutil.Patch(ctx, r.client, object, func() (bool, error) {
-						job.Suspend()
-						return true, nil
-					}); err != nil {
-						log.Error(err, "suspending child job failed")
-						return ctrl.Result{}, err
-					}
-					r.record.Event(object, corev1.EventTypeNormal, ReasonSuspended, "Kueue managed child job suspended")
+				if err := clientutil.Patch(ctx, r.client, object, func() (bool, error) {
+					job.Suspend()
+					return true, nil
+				}); err != nil {
+					log.Error(err, "suspending child job failed")
+					return ctrl.Result{}, err
 				}
+				r.record.Event(object, corev1.EventTypeNormal, ReasonSuspended, "Kueue managed child job suspended")
 			}
 		}
 		if ancestorJob != nil {
