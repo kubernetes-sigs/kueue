@@ -19,7 +19,7 @@ package middleware
 import (
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/url"
 	"strings"
 	"time"
@@ -71,16 +71,16 @@ func ConfigureCORS() (cors.Config, error) {
 			if cleanOrigin, valid := validateOrigin(origin); valid {
 				allowedOrigins = append(allowedOrigins, cleanOrigin)
 			} else {
-				log.Printf("Warning: Invalid origin '%s' rejected", origin)
+				slog.Warn("Invalid origin rejected", "origin", origin)
 			}
 		}
 	} else {
 		// Default development origins (only in development mode)
 		if gin.Mode() != gin.ReleaseMode {
 			allowedOrigins = append(allowedOrigins, "*")
-			log.Println("KUEUEVIZ_ALLOWED_ORIGINS not set, using default development origins")
+			slog.Info("KUEUEVIZ_ALLOWED_ORIGINS not set, using default development origins")
 		} else {
-			log.Println("Production mode: KUEUEVIZ_ALLOWED_ORIGINS must be explicitly set")
+			slog.Warn("Production mode: KUEUEVIZ_ALLOWED_ORIGINS must be explicitly set")
 		}
 	}
 
@@ -89,17 +89,17 @@ func ConfigureCORS() (cors.Config, error) {
 	config.AllowHeaders = []string{"Origin", "Content-Length", "Content-Type", "Authorization"}
 
 	if gin.Mode() == gin.ReleaseMode {
-		log.Println("Running in production mode, applying security settings")
+		slog.Info("Running in production mode, applying security settings")
 		config.AllowCredentials = false
 		config.MaxAge = 12 * time.Hour
 
-		log.Printf("CORS allowed origins: %v", config.AllowOrigins)
+		slog.Info("CORS allowed origins", "origins", config.AllowOrigins)
 
 		if len(allowedOrigins) == 0 {
 			return config, errors.New("production mode requires valid CORS origins to be configured")
 		}
 	} else {
-		log.Println("Running in development mode")
+		slog.Info("Running in development mode")
 		config.AllowCredentials = true
 		config.MaxAge = 5 * time.Minute
 	}
