@@ -72,6 +72,7 @@ want to manage only specific resources would be more appropriate and simpler to 
 - Removing or deprecating the existing `excludeResourcePrefixes` field
 - Automatically detecting which resources should be managed
 - Modifying workload admission logic beyond resource filtering
+- Impact on TAS calculation for resources placement
 
 ## Proposal
 
@@ -110,23 +111,17 @@ important resources from quota management.
 
 ### API Changes
 
-Add a new field to the Kueue `Configuration`:
+Add a new field to the Kueue `Resources`:
 
 ```go
-type Configuration struct {
+type Resources struct {
     // ...
-    // ExcludeResourcePrefixes defines resource prefixes that will be excluded
-    // from quota management. Resources matching any of these prefixes won't
-    // be counted toward quota.
-    // Cannot be used together with IncludeResourcePrefixes.
-    ExcludeResourcePrefixes []string `json:"excludeResourcePrefixes,omitempty"`
-
+    //
     // IncludeResourcePrefixes defines resource prefixes that will be included
     // in quota management. When set, only resources matching one of these
     // prefixes will be counted toward quota. Resources not matching any prefix
     // will be ignored.
     // Cannot be used together with ExcludeResourcePrefixes.
-    // +optional
     IncludeResourcePrefixes []string `json:"includeResourcePrefixes,omitempty"`
 }
 ```
@@ -142,7 +137,7 @@ The resource filtering logic will be modified to:
    - Pod resources not matching any prefix are ignored from quota calculations
 
 2. If `includeResourcePrefixes` is set and empty:
-    - Pod resources are ignored from quota calculations
+    - All pod resources are use for quota calculations
 
 3. If `includeResourcePrefixes` and `excludeResourcePrefixes` are set:
    - Reject the configuration during validation (mutually exclusive)
