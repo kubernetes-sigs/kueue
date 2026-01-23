@@ -23,10 +23,6 @@
   - [Configuration](#configuration)
   - [MultiKueue Dispatcher API](#multikueue-dispatcher-api)
     - [Workload Synchronization](#workload-synchronization)
-  - [Dynamic Scaling Support for Autoscaling Jobs](#dynamic-scaling-support-for-autoscaling-jobs)
-    - [Scale-Request Annotation](#scale-request-annotation)
-    - [Scale-Up Flow](#scale-up-flow)
-    - [Scale-Down Flow](#scale-down-flow)
   - [Cluster Role sharing](#cluster-role-sharing)
   - [Follow ups ideas](#follow-ups-ideas)
   - [Test Plan](#test-plan)
@@ -471,53 +467,6 @@ type MultiKueue struct {
   DispatcherName *string `json:"dispatcherName,omitempty"`
 }
 ```
-
-### Dynamic Scaling Support for Autoscaling Jobs
-
-Jobs with autoscaling capabilities (such as RayJob with Ray autoscaler) require special handling in MultiKueue to propagate scaling decisions from worker clusters back to the manager cluster. This is achieved through a scale-request annotation mechanism.
-
-#### Scale-Request Annotation
-
-When a job's pod counts change due to autoscaling on a worker cluster, Kueue detects the mismatch between the job's current replica counts and the associated workload's pod set counts. Instead of creating a new workload directly (which would cause issues in a MultiKueue setup), the worker cluster sets a `kueue.x-k8s.io/scale-request` annotation on the workload containing the requested pod set counts in JSON format (e.g., `{"small-group": 5}`).
-
-#### Scale-Up Flow
-
-When autoscaling triggers a scale-up (e.g., from 1 to 5 workers):
-
-1. **Worker Cluster Detection**: The job controller (e.g., RayJob) updates the job spec to request more replicas. Kueue's Job Reconciler detects that the job's pod counts exceed the workload's pod set counts.
-
-2. **Scale Request Annotation**: Rather than creating a new workload, the worker cluster sets the `scale-request` annotation on the existing workload with the new requested counts.
-
-3. **MultiKueue Propagation**: The MultiKueue Workload Controller detects the annotation on the worker workload, copies it to the corresponding manager workload, and clears the annotation from the worker workload.
-
-4. **Manager Cluster Processing**: The manager cluster's Job Reconciler processes the scale request by:
-   - Creating a new workload slice with the updated pod set counts
-   - Setting the `WorkloadSliceReplacementFor` annotation to link to the old workload
-   - Clearing the scale-request annotation from the old workload
-
-5. **Scheduler Admission**: The scheduler admits the new workload slice (reserving additional quota).
-
-6. **Old Workload Completion**: The old workload slice is finished with reason "WorkloadSliceReplaced".
-
-7. **Sync to Worker**: MultiKueue syncs the new workload to the worker cluster and updates the job's `prebuilt-workload-name` label to reference the new workload.
-
-8. **Job Execution**: The worker cluster job now matches the new workload, pods are ungated and scheduled, and the job runs with the increased replica count.
-
-#### Scale-Down Flow
-
-When autoscaling triggers a scale-down (e.g., from 5 to 3 workers):
-
-1. **Worker Cluster Detection**: The job controller updates the job spec to reduce replicas. Kueue detects that the job's pod counts are fewer than the workload's pod set counts.
-
-2. **Scale Request Annotation**: The worker cluster sets the `scale-request` annotation with the reduced counts.
-
-3. **MultiKueue Propagation**: Same as scale-up, the annotation is propagated to the manager workload.
-
-4. **Manager Cluster Processing**: For scale-down, the manager cluster updates the existing workload in place (no new slice is created) by applying the new pod set counts directly to the workload and clearing the scale-request annotation.
-
-5. **Sync to Worker**: MultiKueue syncs the updated workload to the worker cluster. The job and workload now have matching counts, and excess pods are terminated.
-
-This asymmetric handling (new slice for scale-up, in-place update for scale-down) ensures that scale-up operations go through the scheduler for quota admission while scale-down operations release quota immediately without requiring re-scheduling.
 
 ### Cluster Role sharing
 
