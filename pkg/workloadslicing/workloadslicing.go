@@ -111,6 +111,17 @@ func Finish(ctx context.Context, clnt client.Client, clk clock.Clock, workloadSl
 	return nil
 }
 
+// SliceName returns the workload slice name for the given workload.
+// This is the original workload name in the slice chain, used to identify pods
+// across workload slice replacements. If the workload has the WorkloadSliceNameAnnotation,
+// that value is returned; otherwise the workload's own name is returned.
+func SliceName(wl *kueue.Workload) string {
+	if sliceName, found := wl.Annotations[kueue.WorkloadSliceNameAnnotation]; found {
+		return sliceName
+	}
+	return wl.Name
+}
+
 // FindNotFinishedWorkloads returns a sorted list of workloads "owned by" the provided job object/gvk combination and
 // without "Finished" condition with status = "True".
 func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject client.Object, jobObjectGVK schema.GroupVersionKind) ([]kueue.Workload, error) {
@@ -260,24 +271,40 @@ func EnsureWorkloadSlices(ctx context.Context, clnt client.Client, clk clock.Clo
 	}
 }
 
-// StartWorkloadSlicePods identifies pods associated with the provided parent object
+// StartWorkloadSlicePods identifies pods associated with the provided workload
 // that are gated by the ElasticJobSchedulingGate scheduling gate and removes this gate,
 // allowing them to be considered for scheduling.
 //
 // This function performs the following steps:
-// 1. Lists all pods in the same namespace with an OwnerReference UID matching the parent object.
-// 2. For each pod, removes the ElasticJobSchedulingGate scheduling gate if present.
+//  1. Lists all pods in the same namespace with the WorkloadSliceNameAnnotation matching
+//     the workload slice name, falling back to OwnerReference UID for backwards compatibility.
+//  2. For each pod, removes the ElasticJobSchedulingGate scheduling gate if present.
 //
 // Returns:
 // - An error if any of the operations fail; otherwise, nil.
-func StartWorkloadSlicePods(ctx context.Context, clnt client.Client, object client.Object) error {
+func StartWorkloadSlicePods(ctx context.Context, clnt client.Client, wl *kueue.Workload) error {
 	log := ctrl.LoggerFrom(ctx)
 	list := &corev1.PodList{}
-	if err := clnt.List(ctx, list, client.InNamespace(object.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(object.GetUID())}); err != nil {
-		return fmt.Errorf("failed to list job pods: %w", err)
+	sliceName := SliceName(wl)
+
+	// First try annotation-based lookup (supports JobSet and other workloads where pods
+	// are not immediate children of the job).
+	if err := clnt.List(ctx, list, client.InNamespace(wl.Namespace), client.MatchingFields{indexer.WorkloadSliceNameKey: sliceName}); err != nil {
+		return fmt.Errorf("failed to list workload slice pods: %w", err)
 	}
+
+	// Fallback to owner reference lookup for backwards compatibility with pods created
+	// before the annotation was introduced.
+	if len(list.Items) == 0 && len(wl.OwnerReferences) > 0 {
+		ownerUID := string(wl.OwnerReferences[0].UID)
+		log.V(4).Info("No pods found with annotation, falling back to owner reference lookup", "ownerUID", ownerUID)
+		if err := clnt.List(ctx, list, client.InNamespace(wl.Namespace), client.MatchingFields{indexer.OwnerReferenceUID: ownerUID}); err != nil {
+			return fmt.Errorf("failed to list job pods by owner reference: %w", err)
+		}
+	}
+
 	for i := range list.Items {
-		log.V(4).Info("Patching pod to remove elastic job scheduling gate", "podName", list.Items[i].Name)
+		log.V(4).Info("Patching pod to remove elastic job scheduling gate", "podName", list.Items[i].Name, "workloadSliceName", sliceName)
 		if err := clientutil.Patch(ctx, clnt, &list.Items[i], func() (bool, error) {
 			return pod.Ungate(&list.Items[i], kueue.ElasticJobSchedulingGate), nil
 		}); err != nil {
