@@ -321,12 +321,12 @@ print([ray.get(my_task.remote(i, 1)) for i in range(16)])`,
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("Waiting for at least 2 total workloads due to scaling up creating another workload", func() {
-			// Use >= 2 since finished slices from intermediate scaling decisions are retained.
+		ginkgo.By("Waiting for 2 workloads due to scaling up creating another workload", func() {
+			// 2 workloads now, after scaling up, a new workload will be created for the new resource request
 			gomega.Eventually(func(g gomega.Gomega) {
 				workloadList := &kueue.WorkloadList{}
 				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				g.Expect(len(workloadList.Items)).To(gomega.BeNumerically(">=", 2), "Expected at least 2 workloads")
+				g.Expect(workloadList.Items).To(gomega.HaveLen(2), "Expected exactly 3 workloads")
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
