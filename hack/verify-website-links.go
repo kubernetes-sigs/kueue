@@ -467,10 +467,57 @@ func waitForHTTPOrExit(ctx context.Context, url string, server *serverProcess) e
 	}
 }
 
-func runLinkChecker(ctx context.Context, port, threads, timeoutSec int, checkExtern bool) int {
+func ensureLinkChecker() (string, error) {
+	// Check if linkchecker is already available
+	if lcPath, err := exec.LookPath("linkchecker"); err == nil {
+		fmt.Println("==> linkchecker is available")
+		return lcPath, nil
+	}
+
+	fmt.Println("==> linkchecker not found, installing via pip...")
+
+	// Try pip3 first, then pip
+	var pipCmd string
+	if _, err := exec.LookPath("pip3"); err == nil {
+		pipCmd = "pip3"
+	} else if _, err := exec.LookPath("pip"); err == nil {
+		pipCmd = "pip"
+	} else {
+		return "", errors.New("neither pip3 nor pip found in PATH")
+	}
+
+	cmd := exec.Command(pipCmd, "install", "--quiet", "linkchecker")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("failed to install linkchecker: %w", err)
+	}
+
+	// Find linkchecker again after installation
 	lcPath, err := exec.LookPath("linkchecker")
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ERROR: linkchecker not found in PATH (pip install linkchecker)")
+		// It might be installed in user's local bin, try common locations
+		home, _ := os.UserHomeDir()
+		possiblePaths := []string{
+			"/usr/local/bin/linkchecker",
+			filepath.Join(home, ".local/bin/linkchecker"),
+		}
+		for _, p := range possiblePaths {
+			if exists(p) {
+				return p, nil
+			}
+		}
+		return "", errors.New("linkchecker installed but not found in PATH")
+	}
+
+	fmt.Println("    linkchecker installed successfully")
+	return lcPath, nil
+}
+
+func runLinkChecker(ctx context.Context, port, threads, timeoutSec int, checkExtern bool) int {
+	lcPath, err := ensureLinkChecker()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
 		return 1
 	}
 
