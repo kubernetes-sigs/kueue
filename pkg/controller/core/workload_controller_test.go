@@ -2757,12 +2757,14 @@ func mockWorkloadUpdateWatcher(qManager *qcache.Manager) *workloadUpdateWatcherM
 
 func (w *workloadUpdateWatcherMock) NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload) {
 	if oldWl == nil && newWl == nil {
-		w.testErrors = append(w.testErrors, fmt.Errorf("Both workloads were nil"))
+		err := stderrors.New("Both workloads were nil")
+		w.testErrors = append(w.testErrors, err)
 		return
 	}
 
 	if newWl != nil {
-		w.testErrors = append(w.testErrors, fmt.Errorf("Illegal new workload in delete request: want nil, got %v", newWl))
+		err := fmt.Errorf("Illegal new workload in delete request: want nil, got %v", newWl)
+		w.testErrors = append(w.testErrors, err)
 		return
 	}
 
@@ -2940,5 +2942,4 @@ func TestWorkloadDeletion(t *testing.T) {
 			}
 		})
 	}
-
 }
