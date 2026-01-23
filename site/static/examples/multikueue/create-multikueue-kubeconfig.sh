@@ -45,8 +45,6 @@ rules:
   - get
   - list
   - watch
-  - update
-  - watch
 - apiGroups:
   - batch
   resources:
@@ -89,8 +87,6 @@ rules:
   - get
   - list
   - watch
-  - update
-  - watch
 - apiGroups:
   - jobset.x-k8s.io
   resources:
@@ -106,8 +102,6 @@ rules:
   - delete
   - get
   - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - kueue.x-k8s.io
@@ -127,8 +121,6 @@ rules:
   - get
   - list
   - watch
-  - update
-  - watch
 - apiGroups:
   - kubeflow.org
   resources:
@@ -144,8 +136,6 @@ rules:
   - delete
   - get
   - list
-  - watch
-  - update
   - watch
 - apiGroups:
   - kubeflow.org
@@ -163,8 +153,6 @@ rules:
   - get
   - list
   - watch
-  - update
-  - watch
 - apiGroups:
   - kubeflow.org
   resources:
@@ -180,8 +168,6 @@ rules:
   - delete
   - get
   - list
-  - watch
-  - update
   - watch
 - apiGroups:
   - kubeflow.org
@@ -199,8 +185,6 @@ rules:
   - get
   - list
   - watch
-  - update
-  - watch
 - apiGroups:
   - kubeflow.org
   resources:
@@ -216,8 +200,6 @@ rules:
   - delete
   - get
   - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - ray.io
@@ -235,8 +217,6 @@ rules:
   - get
   - list
   - watch
-  - update
-  - watch
 - apiGroups:
   - ray.io
   resources:
@@ -252,8 +232,6 @@ rules:
   - delete
   - get
   - list
-  - watch
-  - update
   - watch
 - apiGroups:
   - workload.codeflare.dev
