@@ -50,7 +50,7 @@ type AdmissionCheckUpdateWatcher interface {
 
 // AdmissionCheckReconciler reconciles a AdmissionCheck object
 type AdmissionCheckReconciler struct {
-	log         logr.Logger
+	logName     string
 	qManager    *qcache.Manager
 	client      client.Client
 	cache       *schdcache.Cache
@@ -69,13 +69,17 @@ func NewAdmissionCheckReconciler(
 	roleTracker *roletracker.RoleTracker,
 ) *AdmissionCheckReconciler {
 	return &AdmissionCheckReconciler{
-		log:         roletracker.WithReplicaRole(ctrl.Log.WithName("admissioncheck-reconciler"), roleTracker),
+		logName:     "admissioncheck-reconciler",
 		qManager:    qMgr,
 		client:      client,
 		cache:       cache,
 		cqUpdateCh:  make(chan event.GenericEvent, updateChBuffer),
 		roleTracker: roleTracker,
 	}
+}
+
+func (r *AdmissionCheckReconciler) logger() logr.Logger {
+	return roletracker.WithReplicaRole(ctrl.Log.WithName(r.logName), r.roleTracker)
 }
 
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks,verbs=get;list;watch;create;update;patch;delete
@@ -131,8 +135,9 @@ func (r *AdmissionCheckReconciler) AddUpdateWatchers(watchers ...AdmissionCheckU
 
 func (r *AdmissionCheckReconciler) Create(e event.TypedCreateEvent[*kueue.AdmissionCheck]) bool {
 	defer r.notifyWatchers(nil, e.Object)
-	r.log.WithValues("admissionCheck", klog.KObj(e.Object)).V(5).Info("Create event")
-	if cqNames := r.cache.AddOrUpdateAdmissionCheck(r.log, e.Object); len(cqNames) > 0 {
+	log := r.logger()
+	log.WithValues("admissionCheck", klog.KObj(e.Object)).V(5).Info("Create event")
+	if cqNames := r.cache.AddOrUpdateAdmissionCheck(log, e.Object); len(cqNames) > 0 {
 		r.qManager.QueueInadmissibleWorkloads(context.Background(), cqNames)
 	}
 	return true
@@ -140,11 +145,12 @@ func (r *AdmissionCheckReconciler) Create(e event.TypedCreateEvent[*kueue.Admiss
 
 func (r *AdmissionCheckReconciler) Update(e event.TypedUpdateEvent[*kueue.AdmissionCheck]) bool {
 	defer r.notifyWatchers(e.ObjectOld, e.ObjectNew)
-	r.log.WithValues("admissionCheck", klog.KObj(e.ObjectNew)).V(5).Info("Update event")
+	log := r.logger()
+	log.WithValues("admissionCheck", klog.KObj(e.ObjectNew)).V(5).Info("Update event")
 	if !e.ObjectNew.DeletionTimestamp.IsZero() {
 		return true
 	}
-	if cqNames := r.cache.AddOrUpdateAdmissionCheck(r.log, e.ObjectNew); len(cqNames) > 0 {
+	if cqNames := r.cache.AddOrUpdateAdmissionCheck(log, e.ObjectNew); len(cqNames) > 0 {
 		r.qManager.QueueInadmissibleWorkloads(context.Background(), cqNames)
 	}
 	return false
@@ -152,21 +158,22 @@ func (r *AdmissionCheckReconciler) Update(e event.TypedUpdateEvent[*kueue.Admiss
 
 func (r *AdmissionCheckReconciler) Delete(e event.TypedDeleteEvent[*kueue.AdmissionCheck]) bool {
 	defer r.notifyWatchers(e.Object, nil)
-	r.log.WithValues("admissionCheck", klog.KObj(e.Object)).V(5).Info("Delete event")
+	log := r.logger()
+	log.WithValues("admissionCheck", klog.KObj(e.Object)).V(5).Info("Delete event")
 
-	if cqNames := r.cache.DeleteAdmissionCheck(r.log, e.Object); len(cqNames) > 0 {
+	if cqNames := r.cache.DeleteAdmissionCheck(log, e.Object); len(cqNames) > 0 {
 		r.qManager.QueueInadmissibleWorkloads(context.Background(), cqNames)
 	}
 	return true
 }
 
 func (r *AdmissionCheckReconciler) Generic(e event.TypedGenericEvent[*kueue.AdmissionCheck]) bool {
-	r.log.WithValues("admissionCheck", klog.KObj(e.Object)).V(5).Info("AdmissionCheck Generic event")
+	r.logger().WithValues("admissionCheck", klog.KObj(e.Object)).V(5).Info("AdmissionCheck Generic event")
 	return true
 }
 
 func (r *AdmissionCheckReconciler) NotifyClusterQueueUpdate(oldCq *kueue.ClusterQueue, newCq *kueue.ClusterQueue) {
-	log := r.log.WithValues("oldClusterQueue", klog.KObj(oldCq), "newClusterQueue", klog.KObj(newCq))
+	log := r.logger().WithValues("oldClusterQueue", klog.KObj(oldCq), "newClusterQueue", klog.KObj(newCq))
 	log.V(5).Info("Cluster queue notification")
 
 	// Helper to extract admission check names from strategy

@@ -49,7 +49,7 @@ type ResourceFlavorUpdateWatcher interface {
 
 // ResourceFlavorReconciler reconciles a ResourceFlavor object
 type ResourceFlavorReconciler struct {
-	log         logr.Logger
+	logName     string
 	qManager    *qcache.Manager
 	cache       *schdcache.Cache
 	client      client.Client
@@ -68,13 +68,17 @@ func NewResourceFlavorReconciler(
 	roleTracker *roletracker.RoleTracker,
 ) *ResourceFlavorReconciler {
 	return &ResourceFlavorReconciler{
-		log:         roletracker.WithReplicaRole(ctrl.Log.WithName("resourceflavor-reconciler"), roleTracker),
+		logName:     "resourceflavor-reconciler",
 		cache:       cache,
 		client:      client,
 		qManager:    qMgr,
 		cqUpdateCh:  make(chan event.GenericEvent, updateChBuffer),
 		roleTracker: roleTracker,
 	}
+}
+
+func (r *ResourceFlavorReconciler) logger() logr.Logger {
+	return roletracker.WithReplicaRole(ctrl.Log.WithName(r.logName), r.roleTracker)
 }
 
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch;update;delete
@@ -133,12 +137,12 @@ func (r *ResourceFlavorReconciler) notifyWatchers(oldRF, newRF *kueue.ResourceFl
 func (r *ResourceFlavorReconciler) Create(e event.TypedCreateEvent[*kueue.ResourceFlavor]) bool {
 	defer r.notifyWatchers(nil, e.Object)
 
-	log := r.log.WithValues("resourceFlavor", klog.KObj(e.Object))
+	log := r.logger().WithValues("resourceFlavor", klog.KObj(e.Object))
 	log.V(2).Info("ResourceFlavor create event")
 
 	// As long as one clusterQueue becomes active,
 	// we should inform clusterQueue controller to broadcast the event.
-	if cqNames := r.cache.AddOrUpdateResourceFlavor(r.log, e.Object.DeepCopy()); len(cqNames) > 0 {
+	if cqNames := r.cache.AddOrUpdateResourceFlavor(log, e.Object.DeepCopy()); len(cqNames) > 0 {
 		r.qManager.QueueInadmissibleWorkloads(context.Background(), cqNames)
 		// If at least one CQ becomes active, then those CQs should now get evaluated by the scheduler;
 		// note that the workloads in those CQs are not necessarily "inadmissible", and hence we trigger a
@@ -151,10 +155,10 @@ func (r *ResourceFlavorReconciler) Create(e event.TypedCreateEvent[*kueue.Resour
 func (r *ResourceFlavorReconciler) Delete(e event.TypedDeleteEvent[*kueue.ResourceFlavor]) bool {
 	defer r.notifyWatchers(e.Object, nil)
 
-	log := r.log.WithValues("resourceFlavor", klog.KObj(e.Object))
+	log := r.logger().WithValues("resourceFlavor", klog.KObj(e.Object))
 	log.V(2).Info("ResourceFlavor delete event")
 
-	if cqNames := r.cache.DeleteResourceFlavor(r.log, e.Object); len(cqNames) > 0 {
+	if cqNames := r.cache.DeleteResourceFlavor(log, e.Object); len(cqNames) > 0 {
 		r.qManager.QueueInadmissibleWorkloads(context.Background(), cqNames)
 	}
 	return false
@@ -163,21 +167,21 @@ func (r *ResourceFlavorReconciler) Delete(e event.TypedDeleteEvent[*kueue.Resour
 func (r *ResourceFlavorReconciler) Update(e event.TypedUpdateEvent[*kueue.ResourceFlavor]) bool {
 	defer r.notifyWatchers(e.ObjectOld, e.ObjectNew)
 
-	log := r.log.WithValues("resourceFlavor", klog.KObj(e.ObjectNew))
+	log := r.logger().WithValues("resourceFlavor", klog.KObj(e.ObjectNew))
 	log.V(2).Info("ResourceFlavor update event")
 
 	if !e.ObjectNew.DeletionTimestamp.IsZero() {
 		return true
 	}
 
-	if cqNames := r.cache.AddOrUpdateResourceFlavor(r.log, e.ObjectNew.DeepCopy()); len(cqNames) > 0 {
+	if cqNames := r.cache.AddOrUpdateResourceFlavor(log, e.ObjectNew.DeepCopy()); len(cqNames) > 0 {
 		r.qManager.QueueInadmissibleWorkloads(context.Background(), cqNames)
 	}
 	return false
 }
 
 func (r *ResourceFlavorReconciler) Generic(e event.TypedGenericEvent[*kueue.ResourceFlavor]) bool {
-	r.log.V(3).Info("Got ResourceFlavor generic event", "resourceFlavor", klog.KObj(e.Object))
+	r.logger().V(3).Info("Got ResourceFlavor generic event", "resourceFlavor", klog.KObj(e.Object))
 	return true
 }
 

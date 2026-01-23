@@ -61,7 +61,7 @@ var (
 
 type Reconciler struct {
 	client                       client.Client
-	log                          logr.Logger
+	logName                      string
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
 	roleTracker                  *roletracker.RoleTracker
@@ -204,11 +204,15 @@ func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexe
 
 	return &Reconciler{
 		client:                       client,
-		log:                          roletracker.WithReplicaRole(ctrl.Log.WithName("statefulset-reconciler"), options.RoleTracker),
+		logName:                      "statefulset-reconciler",
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		roleTracker:                  options.RoleTracker,
 	}, nil
+}
+
+func (r *Reconciler) logger() logr.Logger {
+	return roletracker.WithReplicaRole(ctrl.Log.WithName(r.logName), r.roleTracker)
 }
 
 var _ predicate.Predicate = (*Reconciler)(nil)
@@ -236,7 +240,7 @@ func (r *Reconciler) handle(obj client.Object) bool {
 	}
 
 	ctx := context.Background()
-	log := r.log.WithValues("statefulset", klog.KObj(sts))
+	log := r.logger().WithValues("statefulset", klog.KObj(sts))
 	ctrl.LoggerInto(ctx, log)
 
 	// Handle only statefulset managed by kueue.

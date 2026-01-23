@@ -63,7 +63,7 @@ const (
 type nodeFailureReconciler struct {
 	client      client.Client
 	clock       clock.Clock
-	log         logr.Logger
+	logName     string
 	recorder    record.EventRecorder
 	roleTracker *roletracker.RoleTracker
 }
@@ -135,7 +135,7 @@ func (r *nodeFailureReconciler) Update(e event.TypedUpdateEvent[*corev1.Node]) b
 	newReady := utiltas.IsNodeStatusConditionTrue(e.ObjectNew.Status.Conditions, corev1.NodeReady)
 	oldReady := utiltas.IsNodeStatusConditionTrue(e.ObjectOld.Status.Conditions, corev1.NodeReady)
 	if oldReady != newReady {
-		r.log.V(4).Info("Node Ready status changed, triggering reconcile", "node", klog.KObj(e.ObjectNew), "oldReady", oldReady, "newReady", newReady)
+		r.logger().V(4).Info("Node Ready status changed, triggering reconcile", "node", klog.KObj(e.ObjectNew), "oldReady", oldReady, "newReady", newReady)
 		return true
 	}
 	return false
@@ -152,11 +152,15 @@ func (r *nodeFailureReconciler) Delete(e event.TypedDeleteEvent[*corev1.Node]) b
 func newNodeFailureReconciler(client client.Client, recorder record.EventRecorder, roleTracker *roletracker.RoleTracker) *nodeFailureReconciler {
 	return &nodeFailureReconciler{
 		client:      client,
-		log:         roletracker.WithReplicaRole(ctrl.Log.WithName(TASNodeFailureController), roleTracker),
+		logName:     TASNodeFailureController,
 		clock:       clock.RealClock{},
 		recorder:    recorder,
 		roleTracker: roleTracker,
 	}
+}
+
+func (r *nodeFailureReconciler) logger() logr.Logger {
+	return roletracker.WithReplicaRole(ctrl.Log.WithName(r.logName), r.roleTracker)
 }
 
 func (r *nodeFailureReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) (string, error) {

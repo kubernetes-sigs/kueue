@@ -100,7 +100,7 @@ var defaultLQOptions = LocalQueueReconcilerOptions{
 // LocalQueueReconciler reconciles a LocalQueue object
 type LocalQueueReconciler struct {
 	client            client.Client
-	log               logr.Logger
+	logName           string
 	queues            *qcache.Manager
 	cache             *schdcache.Cache
 	wlUpdateCh        chan event.GenericEvent
@@ -123,7 +123,7 @@ func NewLocalQueueReconciler(
 		opt(&options)
 	}
 	return &LocalQueueReconciler{
-		log:               roletracker.WithReplicaRole(ctrl.Log.WithName("localqueue-reconciler"), options.roleTracker),
+		logName:           "localqueue-reconciler",
 		queues:            queues,
 		cache:             cache,
 		client:            client,
@@ -132,6 +132,10 @@ func NewLocalQueueReconciler(
 		clock:             options.clock,
 		roleTracker:       options.roleTracker,
 	}
+}
+
+func (r *LocalQueueReconciler) logger() logr.Logger {
+	return roletracker.WithReplicaRole(ctrl.Log.WithName(r.logName), r.roleTracker)
 }
 
 func (r *LocalQueueReconciler) NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload) {
@@ -207,7 +211,7 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 }
 
 func (r *LocalQueueReconciler) Create(e event.TypedCreateEvent[*kueue.LocalQueue]) bool {
-	log := r.log.WithValues("localQueue", klog.KObj(e.Object))
+	log := r.logger().WithValues("localQueue", klog.KObj(e.Object))
 	log.V(2).Info("LocalQueue create event")
 
 	if ptr.Deref(e.Object.Spec.StopPolicy, kueue.None) == kueue.None {
@@ -238,7 +242,7 @@ func (r *LocalQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.LocalQueue
 		r.queues.AfsEntryPenalties.Delete(lqKey)
 	}
 
-	log := r.log.WithValues("localQueue", klog.KObj(e.Object))
+	log := r.logger().WithValues("localQueue", klog.KObj(e.Object))
 	log.V(2).Info("LocalQueue delete event")
 	r.queues.DeleteLocalQueue(log, e.Object)
 	r.cache.DeleteLocalQueue(e.Object)
@@ -246,7 +250,7 @@ func (r *LocalQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.LocalQueue
 }
 
 func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue]) bool {
-	log := r.log.WithValues("localQueue", klog.KObj(e.ObjectNew))
+	log := r.logger().WithValues("localQueue", klog.KObj(e.ObjectNew))
 	log.V(2).Info("Queue update event")
 
 	if features.Enabled(features.LocalQueueMetrics) {
@@ -318,17 +322,18 @@ func (r *LocalQueueReconciler) getCurrentUsageForLocalQueue(cqName kueue.Cluster
 }
 
 func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *kueue.LocalQueue) error {
+	log := r.logger()
 	lqKey := utilqueue.Key(lq)
 	halfLifeTime := r.admissionFSConfig.UsageHalfLifeTime.Seconds()
 	now := r.clock.Now()
 
 	if halfLifeTime == 0 {
 		if err := r.updateAdmissionFsStatus(ctx, lq, corev1.ResourceList{}, now); err != nil {
-			r.log.V(2).Info("Failed to reset LocalQueue status", "namespace", lq.Namespace, "name", lq.Name, "error", err)
+			log.V(2).Info("Failed to reset LocalQueue status", "namespace", lq.Namespace, "name", lq.Name, "error", err)
 			return err
 		}
 		r.queues.AfsConsumedResources.Set(lqKey, corev1.ResourceList{}, now)
-		r.log.V(2).Info("Reset AFS consumed resources cache", "namespace", lq.Namespace, "name", lq.Name)
+		log.V(2).Info("Reset AFS consumed resources cache", "namespace", lq.Namespace, "name", lq.Name)
 		return nil
 	}
 
@@ -345,11 +350,11 @@ func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *k
 	newConsumed := afs.CalculateDecayedConsumed(oldUsage, newUsage, elapsed, halfLifeTime)
 
 	if err := r.updateAdmissionFsStatus(ctx, lq, newConsumed, now); err != nil {
-		r.log.V(2).Info("Failed to update LocalQueue status", "namespace", lq.Namespace, "name", lq.Name, "error", err)
+		log.V(2).Info("Failed to update LocalQueue status", "namespace", lq.Namespace, "name", lq.Name, "error", err)
 		return err
 	}
 	r.queues.AfsConsumedResources.Set(lqKey, newConsumed, now)
-	r.log.V(2).Info("Updated AFS consumed resources cache", "namespace", lq.Namespace, "name", lq.Name, "consumedResources", newConsumed)
+	log.V(2).Info("Updated AFS consumed resources cache", "namespace", lq.Namespace, "name", lq.Name, "consumedResources", newConsumed)
 	return nil
 }
 
@@ -385,7 +390,7 @@ func updateLocalQueueResourceMetrics(queue *kueue.LocalQueue, tracker *roletrack
 }
 
 func (r *LocalQueueReconciler) Generic(e event.TypedGenericEvent[*kueue.LocalQueue]) bool {
-	r.log.V(2).Info("LocalQueue generic event", "localQueue", klog.KObj(e.Object))
+	r.logger().V(2).Info("LocalQueue generic event", "localQueue", klog.KObj(e.Object))
 	return true
 }
 
@@ -504,6 +509,7 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 	conditionStatus metav1.ConditionStatus,
 	reason, msg string,
 ) error {
+	log := r.logger()
 	oldStatus := queue.Status.DeepCopy()
 	var (
 		pendingWls int32
@@ -512,13 +518,13 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 	if ptr.Deref(queue.Spec.StopPolicy, kueue.None) == kueue.None {
 		pendingWls, err = r.queues.PendingWorkloads(queue)
 		if err != nil {
-			r.log.Error(err, failedUpdateLqStatusMsg)
+			log.Error(err, failedUpdateLqStatusMsg)
 			return err
 		}
 	}
 	stats, err := r.cache.LocalQueueUsage(queue)
 	if err != nil {
-		r.log.Error(err, failedUpdateLqStatusMsg)
+		log.Error(err, failedUpdateLqStatusMsg)
 		return err
 	}
 	queue.Status.PendingWorkloads = pendingWls

@@ -46,7 +46,7 @@ import (
 )
 
 type rfReconciler struct {
-	log         logr.Logger
+	logName     string
 	queues      *qcache.Manager
 	cache       *schdcache.Cache
 	client      client.Client
@@ -63,13 +63,17 @@ var _ predicate.TypedPredicate[*kueue.ResourceFlavor] = (*rfReconciler)(nil)
 
 func newRfReconciler(c client.Client, queues *qcache.Manager, cache *schdcache.Cache, recorder record.EventRecorder, roleTracker *roletracker.RoleTracker) *rfReconciler {
 	return &rfReconciler{
-		log:         roletracker.WithReplicaRole(ctrl.Log.WithName(TASResourceFlavorController), roleTracker),
+		logName:     TASResourceFlavorController,
 		client:      c,
 		queues:      queues,
 		cache:       cache,
 		recorder:    recorder,
 		roleTracker: roleTracker,
 	}
+}
+
+func (r *rfReconciler) logger() logr.Logger {
+	return roletracker.WithReplicaRole(ctrl.Log.WithName(r.logName), r.roleTracker)
 }
 
 func (r *rfReconciler) setupWithManager(mgr ctrl.Manager, cache *schdcache.Cache, cfg *configapi.Configuration) (string, error) {
@@ -172,7 +176,7 @@ func (r *rfReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 
 func (r *rfReconciler) Create(event event.TypedCreateEvent[*kueue.ResourceFlavor]) bool {
 	if event.Object.Spec.TopologyName != nil {
-		log := r.log.WithValues("flavor", event.Object.Name)
+		log := r.logger().WithValues("flavor", event.Object.Name)
 		log.V(2).Info("Topology TAS ResourceFlavor event")
 
 		r.cache.AddOrUpdateResourceFlavor(log, event.Object)

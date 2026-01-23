@@ -120,7 +120,6 @@ func WithAdmissionFairSharing(value *config.AdmissionFairSharing) Option {
 func WithWorkloadRoleTracker(value *roletracker.RoleTracker) Option {
 	return func(r *WorkloadReconciler) {
 		r.roleTracker = value
-		r.log = roletracker.WithReplicaRole(r.log, value)
 	}
 }
 
@@ -130,7 +129,7 @@ type WorkloadUpdateWatcher interface {
 
 // WorkloadReconciler reconciles a Workload object
 type WorkloadReconciler struct {
-	log                 logr.Logger
+	logName             string
 	queues              *qcache.Manager
 	cache               *schdcache.Cache
 	client              client.Client
@@ -149,7 +148,7 @@ var _ predicate.TypedPredicate[*kueue.Workload] = (*WorkloadReconciler)(nil)
 
 func NewWorkloadReconciler(client client.Client, queues *qcache.Manager, cache *schdcache.Cache, recorder record.EventRecorder, options ...Option) *WorkloadReconciler {
 	r := &WorkloadReconciler{
-		log:                 ctrl.Log.WithName("workload-reconciler"),
+		logName:             "workload-reconciler",
 		client:              client,
 		queues:              queues,
 		cache:               cache,
@@ -161,6 +160,10 @@ func NewWorkloadReconciler(client client.Client, queues *qcache.Manager, cache *
 		option(r)
 	}
 	return r
+}
+
+func (r *WorkloadReconciler) logger() logr.Logger {
+	return roletracker.WithReplicaRole(ctrl.Log.WithName(r.logName), r.roleTracker)
 }
 
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
@@ -804,7 +807,7 @@ func (r *WorkloadReconciler) triggerDeactivation(ctx context.Context, wl *kueue.
 func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) bool {
 	defer r.notifyWatchers(nil, e.Object)
 	status := workload.Status(e.Object)
-	log := r.log.WithValues("workload", klog.KObj(e.Object), "queue", e.Object.Spec.QueueName, "status", status)
+	log := r.logger().WithValues("workload", klog.KObj(e.Object), "queue", e.Object.Spec.QueueName, "status", status)
 	log.V(2).Info("Workload create event")
 
 	if status == workload.StatusFinished {
@@ -841,7 +844,7 @@ func (r *WorkloadReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) b
 	if !e.DeleteStateUnknown {
 		status = workload.Status(e.Object)
 	}
-	log := r.log.WithValues("workload", klog.KObj(e.Object), "queue", e.Object.Spec.QueueName, "status", status)
+	log := r.logger().WithValues("workload", klog.KObj(e.Object), "queue", e.Object.Spec.QueueName, "status", status)
 	log.V(2).Info("Workload delete event")
 	ctx := ctrl.LoggerInto(context.Background(), log)
 	wlKey := workload.Key(e.Object)
@@ -866,7 +869,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	defer r.notifyWatchers(e.ObjectOld, e.ObjectNew)
 
 	status := workload.Status(e.ObjectNew)
-	log := r.log.WithValues("workload", klog.KObj(e.ObjectNew), "queue", e.ObjectNew.Spec.QueueName, "status", status)
+	log := r.logger().WithValues("workload", klog.KObj(e.ObjectNew), "queue", e.ObjectNew.Spec.QueueName, "status", status)
 	ctx := ctrl.LoggerInto(context.Background(), log)
 	active := workload.IsActive(e.ObjectNew)
 
@@ -980,7 +983,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 }
 
 func (r *WorkloadReconciler) Generic(e event.TypedGenericEvent[*kueue.Workload]) bool {
-	r.log.V(3).Info("Ignore Workload generic event", "workload", klog.KObj(e.Object))
+	r.logger().V(3).Info("Ignore Workload generic event", "workload", klog.KObj(e.Object))
 	return false
 }
 

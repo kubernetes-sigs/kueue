@@ -56,7 +56,7 @@ const (
 
 type Reconciler struct {
 	client                       client.Client
-	log                          logr.Logger
+	logName                      string
 	record                       record.EventRecorder
 	labelKeysToCopy              []string
 	manageJobsWithoutQueueName   bool
@@ -71,13 +71,17 @@ func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexe
 
 	return &Reconciler{
 		client:                       client,
-		log:                          roletracker.WithReplicaRole(ctrl.Log.WithName("leaderworkerset-reconciler"), options.RoleTracker),
+		logName:                      "leaderworkerset-reconciler",
 		record:                       eventRecorder,
 		labelKeysToCopy:              options.LabelKeysToCopy,
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		roleTracker:                  options.RoleTracker,
 	}, nil
+}
+
+func (r *Reconciler) logger() logr.Logger {
+	return roletracker.WithReplicaRole(ctrl.Log.WithName(r.logName), r.roleTracker)
 }
 
 var _ jobframework.JobReconcilerInterface = (*Reconciler)(nil)
@@ -290,7 +294,7 @@ func (r *Reconciler) handle(obj client.Object) bool {
 	}
 
 	ctx := context.Background()
-	log := r.log.WithValues("leaderworkerset", klog.KObj(lws))
+	log := r.logger().WithValues("leaderworkerset", klog.KObj(lws))
 	ctrl.LoggerInto(ctx, log)
 
 	// Handle only leaderworkerset managed by kueue.
