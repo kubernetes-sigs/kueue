@@ -87,8 +87,13 @@ type clusterQueue struct {
 
 	tasCache *tasCache
 
-	workloadsNotAccountedForTAS sets.Set[workload.Reference]
-	AdmissionScope              *kueue.AdmissionScope
+	// isTASSynced determines if the TAS cached is synced, ie: initialized,
+	// and all TAS Workloads are accounted in the cache. The distintion between
+	// initialized and synced is introduced to make sure all pre-existing
+	// TAS Workloads are accounted again when TAS cache becomes initialized.
+	isTASSynced bool
+
+	AdmissionScope *kueue.AdmissionScope
 
 	roleTracker *roletracker.RoleTracker
 }
@@ -200,20 +205,7 @@ func (c *clusterQueue) updateQuotasAndResourceGroups(in []kueue.ResourceGroup) b
 }
 
 func (c *clusterQueue) updateQueueStatus(log logr.Logger) {
-	if features.Enabled(features.TopologyAwareScheduling) &&
-		len(c.tasFlavors) > 0 &&
-		len(c.workloadsNotAccountedForTAS) > 0 &&
-		c.isTASSynced() {
-		log.V(2).Info("Delayed accounting for TAS usage for workloads", "count", len(c.workloadsNotAccountedForTAS))
-		// There are some workloads which are not accounted yet for TAS.
-		// We re-add them as not the tasCache is initialized (synced).
-		for k, w := range c.Workloads {
-			if c.workloadsNotAccountedForTAS.Has(k) {
-				c.addOrUpdateWorkload(log, w.Obj)
-				c.workloadsNotAccountedForTAS.Delete(k)
-			}
-		}
-	}
+	c.ensureTASIsSynced(log)
 	status := active
 	if c.isStopped ||
 		len(c.missingFlavors) > 0 ||
@@ -237,7 +229,29 @@ func (c *clusterQueue) updateQueueStatus(log logr.Logger) {
 	}
 }
 
-func (c *clusterQueue) isTASSynced() bool {
+// ensureTASIsSynced makes sure all TAS workloads are accounted (TAS cache is synced),
+// if TAS cache is initialized.
+func (c *clusterQueue) ensureTASIsSynced(log logr.Logger) {
+	if !features.Enabled(features.TopologyAwareScheduling) || len(c.tasFlavors) == 0 {
+		return
+	}
+	if !c.isTASInitialized() {
+		c.isTASSynced = false
+		return
+	}
+	if c.isTASSynced {
+		return
+	}
+	log.V(2).Info("Syncing TAS usage initilized TAS cache", "workloads", len(c.Workloads))
+	for _, w := range c.Workloads {
+		c.addOrUpdateWorkload(log, w.Obj)
+	}
+	c.isTASSynced = true
+}
+
+// isTASInitialized determines if the TAS cache for a specific flavor is initiatilzed, ie.
+// the ResourceFlavor and the referenced Topology exist.
+func (c *clusterQueue) isTASInitialized() bool {
 	for tasFlavor := range c.tasFlavors {
 		if c.tasCache.Get(tasFlavor) == nil {
 			return false
@@ -312,7 +326,7 @@ func (c *clusterQueue) isTASViolated() bool {
 	if c.hasMultiKueueAdmissionCheck() {
 		return false
 	}
-	if !c.isTASSynced() {
+	if !c.isTASInitialized() {
 		return true
 	}
 	return false
@@ -453,7 +467,6 @@ func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, w *kueue.Workload) {
 
 func (c *clusterQueue) forgetWorkload(log logr.Logger, wlKey workload.Reference) {
 	c.deleteWorkload(log, wlKey)
-	delete(c.workloadsNotAccountedForTAS, wlKey)
 }
 
 func (c *clusterQueue) deleteWorkload(log logr.Logger, wlKey workload.Reference) {
@@ -517,10 +530,9 @@ func (c *clusterQueue) updateWorkloadTASUsage(log logr.Logger, wi *workload.Info
 	}
 	key := workload.Key(wi.Obj)
 	log = log.WithValues("workload", key)
-	if !c.isTASSynced() {
-		log.V(2).Info("Delaying accounting of the TAS usage, because TAS cache is not synced yet")
+	if !c.isTASInitialized() {
+		log.V(2).Info("Delaying accounting of the TAS usage, because TAS cache is not initialized yet")
 		// TAS cache is not synced yet so we defer accounting for TAS usage.
-		c.workloadsNotAccountedForTAS.Insert(key)
 		return
 	}
 	for tasFlavor, tasUsage := range wi.TASUsage() {
@@ -529,19 +541,11 @@ func (c *clusterQueue) updateWorkloadTASUsage(log logr.Logger, wi *workload.Info
 		case tasFlvCache == nil:
 			log.V(2).Info("TAS flavor used by workload not found in cache", "tasFlavor", tasFlavor)
 		case op == add:
-			tasFlvCache.addUsage(tasUsage)
+			tasFlvCache.addUsage(key, tasUsage)
 		case op == subtract:
-			// If the workload is not accounted for TAS, we haven't called
-			// addUsage on startup, and so we don't subtract the capacity now.
-			if c.workloadsNotAccountedForTAS.Has(key) {
-				log.V(2).Info("Skip subtracting TAS usage because we've never accounted for it")
-			} else {
-				tasFlvCache.removeUsage(tasUsage)
-			}
+			tasFlvCache.removeUsage(key)
 		}
 	}
-	// We just accounted for TAS usage so drop it from the set.
-	c.workloadsNotAccountedForTAS.Delete(key)
 }
 
 func updateFlavorUsage(newUsage resources.FlavorResourceQuantities, oldUsage resources.FlavorResourceQuantities, op usageOp) {

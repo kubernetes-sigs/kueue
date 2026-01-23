@@ -1045,6 +1045,134 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				}
 			})
 
+			ginkgo.It("should respect TAS usage from workload admitted before Topology re-creation", func() {
+				var wl1, wl2 *kueue.Workload
+				ginkgo.By("creating a workload which can fit", func() {
+					wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
+						PodSets(*utiltestingapi.MakePodSet("worker", 1).
+							RequiredTopologyRequest(corev1.LabelHostname).
+							NodeSelector(map[string]string{
+								corev1.LabelHostname: "x1",
+							}).Obj()).
+						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
+					util.MustCreate(ctx, k8sClient, wl1)
+				})
+
+				ginkgo.By("verify the workload is admitted", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+					util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
+				})
+
+				ginkgo.By("trigger topology deletion", func() {
+					gomega.Expect(util.DeleteObject(ctx, k8sClient, topology)).To(gomega.Succeed())
+				})
+
+				ginkgo.By("remove topology finalizers to allow deletion", func() {
+					var updatedTopology kueue.Topology
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(topology), &updatedTopology)).To(gomega.Succeed())
+						updatedTopology.Finalizers = nil
+						g.Expect(k8sClient.Update(ctx, &updatedTopology)).To(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("wait for the topology to be fully deleted", func() {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, false)
+				})
+
+				ginkgo.By("recreate the topology", func() {
+					topology = utiltestingapi.MakeDefaultThreeLevelTopology("default")
+					util.MustCreate(ctx, k8sClient, topology)
+				})
+
+				ginkgo.By("creating second workload which is blocked by the previous would", func() {
+					wl2 = utiltestingapi.MakeWorkload("wl2", ns.Name).
+						PodSets(*utiltestingapi.MakePodSet("worker", 1).
+							RequiredTopologyRequest(corev1.LabelHostname).
+							NodeSelector(map[string]string{
+								corev1.LabelHostname: "x1",
+							}).Obj()).
+						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
+					util.MustCreate(ctx, k8sClient, wl2)
+				})
+
+				ginkgo.By("verify the wl2 has not been admitted", func() {
+					util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
+					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
+					gomega.Consistently(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), wl2)).To(gomega.Succeed())
+						g.Expect(workload.IsAdmitted(wl2)).To(gomega.BeFalse())
+					}, util.ShortConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+				})
+			})
+
+			ginkgo.It("should correctly account for TAS usage when workloads admitted before Topology re-creation are deleted", func() {
+				var wl1, wl2 *kueue.Workload
+				ginkgo.By("creating a workload which can fit", func() {
+					wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
+						PodSets(*utiltestingapi.MakePodSet("worker", 1).
+							RequiredTopologyRequest(corev1.LabelHostname).
+							NodeSelector(map[string]string{
+								corev1.LabelHostname: "x1",
+							}).Obj()).
+						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
+					util.MustCreate(ctx, k8sClient, wl1)
+				})
+
+				ginkgo.By("verify the workload is admitted", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+					util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
+				})
+
+				ginkgo.By("trigger topology deletion", func() {
+					gomega.Expect(util.DeleteObject(ctx, k8sClient, topology)).To(gomega.Succeed())
+				})
+
+				ginkgo.By("remove topology finalizers to allow deletion", func() {
+					var updatedTopology kueue.Topology
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(topology), &updatedTopology)).To(gomega.Succeed())
+						updatedTopology.Finalizers = nil
+						g.Expect(k8sClient.Update(ctx, &updatedTopology)).To(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("wait for the topology to be fully deleted", func() {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, false)
+				})
+
+				ginkgo.By("recreate the topology", func() {
+					topology = utiltestingapi.MakeDefaultThreeLevelTopology("default")
+					util.MustCreate(ctx, k8sClient, topology)
+				})
+
+				ginkgo.By("finish the first workload", func() {
+					util.FinishWorkloads(ctx, k8sClient, wl1)
+				})
+
+				ginkgo.By("creating second workload which cannot fit", func() {
+					wl2 = utiltestingapi.MakeWorkload("wl2", ns.Name).
+						PodSets(*utiltestingapi.MakePodSet("worker", 2).
+							RequiredTopologyRequest(corev1.LabelHostname).
+							NodeSelector(map[string]string{
+								corev1.LabelHostname: "x1",
+							}).Obj()).
+						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
+					util.MustCreate(ctx, k8sClient, wl2)
+				})
+
+				ginkgo.By("verify the wl2 has not been admitted", func() {
+					util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
+					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 0)
+					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
+					gomega.Consistently(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), wl2)).To(gomega.Succeed())
+						g.Expect(workload.IsAdmitted(wl2)).To(gomega.BeFalse())
+					}, util.ShortConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+				})
+			})
+
 			ginkgo.It("should not admit workload which does not fit to the required topology domain", func() {
 				ginkgo.By("creating a workload which requires rack, but does not fit in any", func() {
 					wl1 := utiltestingapi.MakeWorkload("wl1-inadmissible", ns.Name).
