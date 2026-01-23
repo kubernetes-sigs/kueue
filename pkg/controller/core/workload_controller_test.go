@@ -2783,6 +2783,7 @@ func TestWorkloadDeletion(t *testing.T) {
 
 	wlName := "wl"
 	wlNs := "ns"
+
 	pendingWl := utiltestingapi.MakeWorkload(wlName, wlNs).Queue("lq1").Obj()
 	admittedWl := utiltestingapi.MakeWorkload(wlName, wlNs).Queue("lq1").ReserveQuotaAt(&kueue.Admission{
 		ClusterQueue: "cq1",
@@ -2790,8 +2791,17 @@ func TestWorkloadDeletion(t *testing.T) {
 		Type:   kueue.WorkloadPodsReady,
 		Status: metav1.ConditionFalse,
 	}).Obj()
+
 	admittedWlWithDifferentQueues := utiltestingapi.MakeWorkload(wlName, wlNs).Queue("lq2").ReserveQuotaAt(&kueue.Admission{
 		ClusterQueue: "cq2",
+	}, now).Condition(metav1.Condition{
+		Type:   kueue.WorkloadPodsReady,
+		Status: metav1.ConditionFalse,
+	}).Obj()
+
+	noiseWlPending := utiltestingapi.MakeWorkload("other-wl", "other-ns").Queue("lq3").Obj()
+	noiseWlAdmitted := utiltestingapi.MakeWorkload("other-wl", "other-ns").Queue("lq3").ReserveQuotaAt(&kueue.Admission{
+		ClusterQueue: "cq3",
 	}, now).Condition(metav1.Condition{
 		Type:   kueue.WorkloadPodsReady,
 		Status: metav1.ConditionFalse,
@@ -2806,7 +2816,7 @@ func TestWorkloadDeletion(t *testing.T) {
 	localQueues := []*kueue.LocalQueue{
 		utiltestingapi.MakeLocalQueue("lq1", wlNs).ClusterQueue("cq1").Obj(),
 		utiltestingapi.MakeLocalQueue("lq2", wlNs).ClusterQueue("cq2").Obj(),
-		utiltestingapi.MakeLocalQueue("lq3", wlNs).ClusterQueue("cq3").Obj(),
+		utiltestingapi.MakeLocalQueue("lq3", "other-ns").ClusterQueue("cq3").Obj(),
 	}
 
 	cases := map[string]struct {
@@ -2880,32 +2890,35 @@ func TestWorkloadDeletion(t *testing.T) {
 
 			for _, cq := range clusterQueues {
 				cqCopy := cq.DeepCopy()
-				cqCache.AddClusterQueue(ctx, cqCopy)
-				qManager.AddClusterQueue(ctx, cqCopy)
+				if err := stderrors.Join(cqCache.AddClusterQueue(ctx, cqCopy), qManager.AddClusterQueue(ctx, cqCopy)); err != nil {
+					t.Errorf("couldn't add the cluster queue: %v", err)
+				}
 			}
 			for _, lq := range localQueues {
 				lqCopy := lq.DeepCopy()
-				cqCache.AddLocalQueue(lqCopy)
-				qManager.AddLocalQueue(ctx, lqCopy)
+				if err := stderrors.Join(cqCache.AddLocalQueue(lqCopy), qManager.AddLocalQueue(ctx, lqCopy)); err != nil {
+					t.Errorf("couldn't add the local queue: %v", err)
+				}
 			}
 
-			// Add additional workloads to create noise in the caches.
-			qManager.AddOrUpdateWorkload(log, utiltestingapi.MakeWorkload("other-wl", "other-ns").Queue("lq3").Obj())
-			cqCache.AddOrUpdateWorkload(
-				log,
-				utiltestingapi.MakeWorkload("other-wl", "other-ns").Queue("lq3").ReserveQuotaAt(&kueue.Admission{
-					ClusterQueue: "cq3",
-				}, now).Condition(metav1.Condition{
-					Type:   kueue.WorkloadPodsReady,
-					Status: metav1.ConditionFalse,
-				}).Obj(),
-			)
-
+			addToQueueCache := []*kueue.Workload{noiseWlPending}
 			if tc.wlInQueueCache != nil {
-				qManager.AddOrUpdateWorkload(log, tc.wlInQueueCache.DeepCopy())
+				addToQueueCache = append(addToQueueCache, tc.wlInQueueCache)
 			}
+			for _, wl := range addToQueueCache {
+				if err := qManager.AddOrUpdateWorkload(log, wl.DeepCopy()); err != nil {
+					t.Errorf("couldn't add workload to queue cache: %v", err)
+				}
+			}
+
+			addToSchedCache := []*kueue.Workload{noiseWlAdmitted}
 			if tc.wlInSchedCache != nil {
-				cqCache.AddOrUpdateWorkload(log, tc.wlInSchedCache.DeepCopy())
+				addToSchedCache = append(addToSchedCache, tc.wlInSchedCache)
+			}
+			for _, wl := range addToSchedCache {
+				if !cqCache.AddOrUpdateWorkload(log, wl.DeepCopy()) {
+					t.Errorf("couldn't add workload to scheduler cache: %v", wl)
+				}
 			}
 
 			reconciler.deleteWorkloadFromCaches(ctx, wlNs, wlName)
