@@ -214,7 +214,8 @@ func ensureNodeJS(tmpDir string) (string, error) {
 
 	fmt.Printf("    Downloading %s\n", url)
 
-	resp, err := http.Get(url)
+	client := &http.Client{Timeout: 5 * time.Minute}
+	resp, err := client.Get(url)
 	if err != nil {
 		return "", fmt.Errorf("failed to download Node.js: %w", err)
 	}
@@ -254,7 +255,16 @@ func extractTarGz(r io.Reader, destDir string) error {
 			return err
 		}
 
-		target := filepath.Join(destDir, header.Name)
+		// Sanitize the path to prevent path traversal attacks
+		cleanName := filepath.Clean(header.Name)
+		if strings.HasPrefix(cleanName, "..") || filepath.IsAbs(cleanName) {
+			return fmt.Errorf("tar entry %q attempts path traversal", header.Name)
+		}
+		target := filepath.Join(destDir, cleanName)
+		// Double-check that the resolved path is within destDir
+		if !strings.HasPrefix(target, filepath.Clean(destDir)+string(os.PathSeparator)) {
+			return fmt.Errorf("tar entry %q escapes destination directory", header.Name)
+		}
 
 		switch header.Typeflag {
 		case tar.TypeDir:
@@ -598,7 +608,8 @@ func runLinkChecker(ctx context.Context, tmpDir string, port, threads, timeoutSe
 			fmt.Fprintf(os.Stderr, "ERROR: linkchecker timed out: %v\n", ctx.Err())
 			return 1
 		}
-		if ee, ok := err.(*exec.ExitError); ok {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
 			return ee.ExitCode()
 		}
 		fmt.Fprintf(os.Stderr, "ERROR: failed to run linkchecker: %v\n", err)
