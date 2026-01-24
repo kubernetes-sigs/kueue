@@ -90,6 +90,12 @@ const (
 	// PodSetGroupName is an annotation indicating the name of the group of PodSets. PodSet Group
 	// is a unit flavor assignment and topology domain fitting.
 	PodSetGroupName = "kueue.x-k8s.io/podset-group-name"
+
+	// WorkloadSliceNameAnnotation identifies the original workload name in a slice chain.
+	// It is set on every Workload created in the chain of the workloads, as well as on the Pods
+	// associated with that Workload.
+	// This annotation is alpha-level for the ElasticJobsViaWorkloadSlices feature gate.
+	WorkloadSliceNameAnnotation = "kueue.x-k8s.io/workload-slice-name"
 )
 
 // TopologySpec defines the desired state of Topology

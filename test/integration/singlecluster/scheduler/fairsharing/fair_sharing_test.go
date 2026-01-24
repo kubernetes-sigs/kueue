@@ -40,7 +40,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func() {
 	var (
 		defaultFlavor *kueue.ResourceFlavor
 		flavor1       *kueue.ResourceFlavor
@@ -85,7 +85,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), ginkgo
 		return createWorkloadWithPriority(queue, cpuRequests, 0)
 	}
 
-	ginkgo.BeforeAll(func() {
+	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(
 			&config.AdmissionFairSharing{
 				UsageHalfLifeTime: metav1.Duration{
@@ -96,13 +96,6 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), ginkgo
 				},
 			},
 		))
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
-	ginkgo.BeforeEach(func() {
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		util.MustCreate(ctx, k8sClient, defaultFlavor)
 		flavor1 = utiltestingapi.MakeResourceFlavor("flavor1").Obj()
@@ -130,6 +123,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), ginkgo
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor1, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor2, true)
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("Preemption is disabled", func() {
@@ -1200,7 +1194,7 @@ func expectCohortWeightedShare(cohortName string, weightedShare float64) {
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 }
 
-var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "feature:admissionfairsharing"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "feature:admissionfairsharing"), func() {
 	var (
 		defaultFlavor *kueue.ResourceFlavor
 		ns            *corev1.Namespace
@@ -1225,7 +1219,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 		return createWorkloadWithPriority(queue, cpuRequests, 0)
 	}
 
-	ginkgo.BeforeAll(func() {
+	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(
 			&config.AdmissionFairSharing{
 				UsageHalfLifeTime: metav1.Duration{
@@ -1236,13 +1230,6 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 				},
 			},
 		))
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
-	ginkgo.BeforeEach(func() {
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		util.MustCreate(ctx, k8sClient, defaultFlavor)
 
@@ -1264,6 +1251,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
 		}
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("Using AdmissionFairSharing at Cohort level", func() {
@@ -1361,7 +1349,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 	})
 })
 
-var _ = ginkgo.Describe("Scheduler with AdmissionFairSharing = nil", ginkgo.Label("feature:fairsharing"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Scheduler with AdmissionFairSharing = nil", ginkgo.Label("feature:fairsharing"), func() {
 	var (
 		defaultFlavor *kueue.ResourceFlavor
 		ns            *corev1.Namespace
@@ -1386,15 +1374,8 @@ var _ = ginkgo.Describe("Scheduler with AdmissionFairSharing = nil", ginkgo.Labe
 		return createWorkloadWithPriority(queue, cpuRequests, 0)
 	}
 
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(nil))
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
 	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(nil))
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		util.MustCreate(ctx, k8sClient, defaultFlavor)
 
@@ -1416,6 +1397,7 @@ var _ = ginkgo.Describe("Scheduler with AdmissionFairSharing = nil", ginkgo.Labe
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
 		}
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("Using AdmissionFairSharing at Cohort level", func() {
