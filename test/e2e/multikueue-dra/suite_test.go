@@ -14,7 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package mke2e
+// Note: AfterSuite is intentionally omitted. With parallel ginkgo processes
+// (-procs=2), each process runs AfterSuite independently. If one process
+// finishes early and deletes secrets, the other process's tests fail with
+// "Secret not found".
+package mkdra
 
 import (
 	"cmp"
@@ -26,6 +30,8 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	appsv1 "k8s.io/api/apps/v1"
+	"k8s.io/apimachinery/pkg/types"
 	versionutil "k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
@@ -36,38 +42,49 @@ import (
 )
 
 var (
-	managerK8SVersion  *versionutil.Version
 	managerClusterName string
 	worker1ClusterName string
 	worker2ClusterName string
-	kueueNS            = util.GetKueueNamespace()
 
-	k8sManagerClient client.Client
-	k8sWorker1Client client.Client
-	k8sWorker2Client client.Client
-	ctx              context.Context
+	k8sManagerClient client.WithWatch
+	k8sWorker1Client client.WithWatch
+	k8sWorker2Client client.WithWatch
 
 	managerCfg *rest.Config
 	worker1Cfg *rest.Config
 	worker2Cfg *rest.Config
 
-	worker1KConfig []byte
-	worker2KConfig []byte
-
 	managerRestClient *rest.RESTClient
 	worker1RestClient *rest.RESTClient
 	worker2RestClient *rest.RESTClient
+
+	managerK8SVersion *versionutil.Version
+
+	ctx context.Context
 )
 
+var kueueNS = util.GetKueueNamespace()
+
 func TestAPIs(t *testing.T) {
-	suiteName := "End To End MultiKueue Suite"
+	suiteName := "End To End MultiKueue DRA Suite"
 	if ver, found := os.LookupEnv("E2E_KIND_VERSION"); found {
 		suiteName = fmt.Sprintf("%s: %s", suiteName, ver)
 	}
 	gomega.RegisterFailHandler(ginkgo.Fail)
-	ginkgo.RunSpecs(t,
-		suiteName,
-	)
+	ginkgo.RunSpecs(t, suiteName)
+}
+
+func waitForDRAExampleDriverAvailability(ctx context.Context, k8sClient client.Client, clusterName string) {
+	dsKey := types.NamespacedName{Namespace: "dra-example-driver", Name: "dra-example-driver-kubeletplugin"}
+	daemonset := &appsv1.DaemonSet{}
+	waitForAvailableStart := time.Now()
+	ginkgo.By(fmt.Sprintf("Waiting for availability of daemonset %q on cluster %s", dsKey, clusterName))
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, dsKey, daemonset)).To(gomega.Succeed())
+		g.Expect(daemonset.Status.DesiredNumberScheduled).To(gomega.BeNumerically(">", 0))
+		g.Expect(daemonset.Status.DesiredNumberScheduled).To(gomega.Equal(daemonset.Status.NumberAvailable))
+	}, util.StartUpTimeout, util.Interval).Should(gomega.Succeed())
+	ginkgo.GinkgoLogr.Info("DaemonSet is available in the cluster", "daemonset", dsKey, "cluster", clusterName, "waitingTime", time.Since(waitForAvailableStart))
 }
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -91,54 +108,32 @@ var _ = ginkgo.BeforeSuite(func() {
 
 	ctx = ginkgo.GinkgoT().Context()
 
-	worker1KConfig, err = util.KubeconfigForMultiKueueSA(ctx, k8sWorker1Client, worker1Cfg, kueueNS, "mksa", worker1ClusterName, util.DefaultMultiKueueRules())
+	// Use MinimalMultiKueueRules for DRA tests - only Jobs, Workloads, Pods
+	worker1KConfig, err := util.KubeconfigForMultiKueueSA(ctx, k8sWorker1Client, worker1Cfg, kueueNS, "mksa", worker1ClusterName, util.MinimalMultiKueueRules())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(util.MakeMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue1", worker1KConfig)).To(gomega.Succeed())
-	ginkgo.DeferCleanup(func() {
-		gomega.Expect(util.CleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue1")).To(gomega.Succeed())
-		gomega.Expect(util.CleanKubeconfigForMultiKueueSA(ctx, k8sWorker1Client, kueueNS, "mksa")).To(gomega.Succeed())
-	})
 
-	worker2KConfig, err = util.KubeconfigForMultiKueueSA(ctx, k8sWorker2Client, worker2Cfg, kueueNS, "mksa", worker2ClusterName, util.DefaultMultiKueueRules())
+	worker2KConfig, err := util.KubeconfigForMultiKueueSA(ctx, k8sWorker2Client, worker2Cfg, kueueNS, "mksa", worker2ClusterName, util.MinimalMultiKueueRules())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(util.MakeMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue2", worker2KConfig)).To(gomega.Succeed())
-	ginkgo.DeferCleanup(func() {
-		gomega.Expect(util.CleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue2")).To(gomega.Succeed())
-		gomega.Expect(util.CleanKubeconfigForMultiKueueSA(ctx, k8sWorker2Client, kueueNS, "mksa")).To(gomega.Succeed())
-	})
 
 	waitForAvailableStart := time.Now()
+
+	// Wait for Kueue availability on all clusters
 	util.WaitForKueueAvailability(ctx, k8sManagerClient)
 	util.WaitForKueueAvailability(ctx, k8sWorker1Client)
 	util.WaitForKueueAvailability(ctx, k8sWorker2Client)
 
-	util.WaitForJobSetAvailability(ctx, k8sManagerClient)
-	util.WaitForJobSetAvailability(ctx, k8sWorker1Client)
-	util.WaitForJobSetAvailability(ctx, k8sWorker2Client)
-
-	util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sManagerClient)
-	util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sWorker1Client)
-	util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sWorker2Client)
-
-	util.WaitForKubeFlowMPIOperatorAvailability(ctx, k8sWorker1Client)
-	util.WaitForKubeFlowMPIOperatorAvailability(ctx, k8sWorker2Client)
-
-	util.WaitForAppWrapperAvailability(ctx, k8sManagerClient)
-	util.WaitForAppWrapperAvailability(ctx, k8sWorker1Client)
-	util.WaitForAppWrapperAvailability(ctx, k8sWorker2Client)
-
-	util.WaitForKubeRayOperatorAvailability(ctx, k8sManagerClient)
-	util.WaitForKubeRayOperatorAvailability(ctx, k8sWorker1Client)
-	util.WaitForKubeRayOperatorAvailability(ctx, k8sWorker2Client)
-
-	util.WaitForLeaderWorkerSetAvailability(ctx, k8sManagerClient)
-	util.WaitForLeaderWorkerSetAvailability(ctx, k8sWorker1Client)
-	util.WaitForLeaderWorkerSetAvailability(ctx, k8sWorker2Client)
+	// Wait for DRA example driver availability on all clusters
+	waitForDRAExampleDriverAvailability(ctx, k8sManagerClient, managerClusterName)
+	waitForDRAExampleDriverAvailability(ctx, k8sWorker1Client, worker1ClusterName)
+	waitForDRAExampleDriverAvailability(ctx, k8sWorker2Client, worker2ClusterName)
 
 	ginkgo.GinkgoLogr.Info(
-		"Kueue and all required operators are available in all the clusters",
+		"Kueue and DRA example driver are available in all clusters",
 		"waitingTime", time.Since(waitForAvailableStart),
 	)
+
 	discoveryClient, err := discovery.NewDiscoveryClientForConfig(managerCfg)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	managerK8SVersion, err = kubeversion.FetchServerVersion(discoveryClient)

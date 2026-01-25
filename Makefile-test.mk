@@ -120,6 +120,16 @@ test-multikueue-integration: compile-crd-manifests gomod-download envtest ginkgo
 	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS_MULTIKUEUE) --race --junit-report=multikueue-junit.xml --json-report=multikueue-integration.json $(INTEGRATION_OUTPUT_OPTIONS) --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET_MULTIKUEUE)
 	$(BIN_DIR)/ginkgo-top -i $(ARTIFACTS)/multikueue-integration.json > $(ARTIFACTS)/multikueue-integration-top.yaml
 
+SINGLECLUSTER-E2E_TARGETS := $(addprefix run-test-e2e-singlecluster-,$(E2E_KIND_VERSION:kindest/node:v%=%))
+
+# DRA e2e tests require k8s 1.34+
+DRA_MIN_K8S_VERSION := 1.34
+ifeq ($(shell printf '%s\n' "$(E2E_K8S_VERSION)" "$(DRA_MIN_K8S_VERSION)" | sort -V | head -n1),$(DRA_MIN_K8S_VERSION))
+MULTIKUEUE-DRA-E2E_TARGETS := $(addprefix run-test-e2e-multikueue-dra-,$(E2E_KIND_VERSION:kindest/node:v%=%))
+else
+MULTIKUEUE-DRA-E2E_TARGETS :=
+endif
+
 ## Label Taxonomy:
 ##   Features: appwrapper,certs,deployment,job,fairsharing,jaxjob,jobset,kuberay,kueuectl,leaderworkerset,metrics,pod,pytorchjob,statefulset,tas,trainjob,visibility,e2e_v1beta1
 ##
@@ -129,7 +139,7 @@ test-multikueue-integration: compile-crd-manifests gomod-download envtest ginkgo
 ##   Run only jobset and trainjob tests: GINKGO_ARGS="--label-filter=feature:jobset,feature:trainjob" make test-e2e
 test-e2e: E2E_NPROCS := 2
 .PHONY: test-e2e
-test-e2e: setup-e2e-env kueuectl kind-ray-project-mini-image-build run-test-e2e-singlecluster-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e: setup-e2e-env kueuectl kind-ray-project-mini-image-build $(SINGLECLUSTER-E2E_TARGETS) $(MULTIKUEUE-DRA-E2E_TARGETS)
 
 .PHONY: test-e2e-helm
 test-e2e-helm: E2E_USE_HELM=true
@@ -171,6 +181,9 @@ test-e2e-certmanager-upgrade: setup-e2e-env run-test-e2e-certmanager-upgrade-$(E
 
 .PHONY: test-e2e-dra
 test-e2e-dra: setup-e2e-env run-test-e2e-dra-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+.PHONY: test-e2e-multikueue-dra
+test-e2e-multikueue-dra: setup-e2e-env run-test-e2e-multikueue-dra-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 run-test-e2e-singlecluster-%: K8S_VERSION = $(@:run-test-e2e-singlecluster-%=%)
 run-test-e2e-singlecluster-%:
@@ -297,6 +310,20 @@ run-test-e2e-dra-%:
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		./hack/e2e-test.sh
+
+run-test-e2e-multikueue-dra-%: K8S_VERSION = $(@:run-test-e2e-multikueue-dra-%=%)
+run-test-e2e-multikueue-dra-%:
+	@echo Running multikueue DRA e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
+		E2E_MODE=$(E2E_MODE) \
+		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
+		JOBSET_VERSION=$(JOBSET_VERSION) \
+		DRA_EXAMPLE_DRIVER_VERSION=$(DRA_EXAMPLE_DRIVER_VERSION) \
+		E2E_TARGET_FOLDER="multikueue-dra" \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
+		./hack/multikueue-e2e-test.sh
 
 # Run e2e tests against k/k main (latest CI build) with WAS enabled
 K8S_MAIN_NODE_IMAGE ?= k8s-main:latest
