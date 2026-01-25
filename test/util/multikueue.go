@@ -29,6 +29,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -112,7 +113,7 @@ func KubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig 
 		Rules:      rules,
 	}
 	err := c.Create(ctx, cr)
-	if err != nil {
+	if err != nil && !apierrors.IsAlreadyExists(err) {
 		return nil, err
 	}
 
@@ -124,7 +125,7 @@ func KubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig 
 		},
 	}
 	err = c.Create(ctx, sa)
-	if err != nil {
+	if err != nil && !apierrors.IsAlreadyExists(err) {
 		return nil, err
 	}
 
@@ -144,7 +145,7 @@ func KubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig 
 		},
 	}
 	err = c.Create(ctx, crb)
-	if err != nil {
+	if err != nil && !apierrors.IsAlreadyExists(err) {
 		return nil, err
 	}
 
@@ -209,7 +210,11 @@ func CleanKubeconfigForMultiKueueSA(ctx context.Context, c client.Client, ns str
 
 func MakeMultiKueueSecret(ctx context.Context, c client.Client, namespace string, name string, kubeconfig []byte) error {
 	secret := utiltesting.MakeSecret(name, namespace).Data("kubeconfig", kubeconfig).Obj()
-	return c.Create(ctx, secret)
+	err := c.Create(ctx, secret)
+	if err != nil && !apierrors.IsAlreadyExists(err) {
+		return err
+	}
+	return nil
 }
 
 func CleanMultiKueueSecret(ctx context.Context, c client.Client, namespace string, name string) error {
