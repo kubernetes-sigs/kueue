@@ -137,6 +137,11 @@ type ControllerManager struct {
 	// registered within this manager.
 	// +optional
 	Controller *ControllerConfigurationSpec `json:"controller,omitempty"`
+
+	// TLS contains TLS security settings for all Kueue API servers
+	// (webhooks, metrics, and visibility).
+	// +optional
+	TLS *TLSOptions `json:"tls,omitempty"`
 }
 
 // ControllerWebhook defines the webhook server for the controller.
@@ -369,6 +374,23 @@ type InternalCertManagement struct {
 	// WebhookSecretName is the name of the Secret used to store CA and server certs.
 	// Defaults to kueue-webhook-server-cert.
 	WebhookSecretName *string `json:"webhookSecretName,omitempty"`
+}
+
+// TLSOptions defines TLS security settings for Kueue servers
+type TLSOptions struct {
+	// minVersion is the minimum TLS version supported.
+	// Values are from tls package constants (https://golang.org/pkg/crypto/tls/#pkg-constants).
+	// This field is only valid when TLSOptions is set to true.
+	// The default would be to not set this value and inherit golang settings.
+	// +optional
+	MinVersion string `json:"minVersion,omitempty"`
+
+	// cipherSuites is the list of allowed cipher suites for the server.
+	// Note that TLS 1.3 ciphersuites are not configurable.
+	// Values are from tls package constants (https://golang.org/pkg/crypto/tls/#pkg-constants).
+	// The default would be to not set this value and inherit golang settings.
+	// +optional
+	CipherSuites []string `json:"cipherSuites,omitempty"`
 }
 
 // ClusterProfile defines configuration for using the ClusterProfile API in MultiKueue.

@@ -38,6 +38,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/tlsconfig"
 )
 
 var (
@@ -82,21 +84,6 @@ func addTo(o *ctrl.Options, cfg *configapi.Configuration) {
 
 	if o.LivenessEndpointName == "" && cfg.Health.LivenessEndpointName != "" {
 		o.LivenessEndpointName = cfg.Health.LivenessEndpointName
-	}
-
-	if o.WebhookServer == nil && cfg.Webhook.Port != nil {
-		wo := webhook.Options{}
-		if cfg.Webhook.Port != nil {
-			wo.Port = *cfg.Webhook.Port
-		}
-		if cfg.Webhook.Host != "" {
-			wo.Host = cfg.Webhook.Host
-		}
-
-		if cfg.Webhook.CertDir != "" {
-			wo.CertDir = cfg.Webhook.CertDir
-		}
-		o.WebhookServer = webhook.NewServer(wo)
 	}
 
 	if cfg.Controller != nil {
@@ -166,6 +153,36 @@ func addLeaderElectionTo(o *ctrl.Options, cfg *configapi.Configuration) {
 		// When the manager is terminated, the leader manager voluntarily steps down
 		// from the leader role as soon as possible.
 		o.LeaderElectionReleaseOnCancel = true
+	}
+}
+
+// AddWebhookSettingsTo is used to add settings to the webhook
+// This is separated to a exported function as we need to call this function after the feature gates are parsed.
+func AddWebhookSettingsTo(o *ctrl.Options, cfg *configapi.Configuration) {
+	if o.WebhookServer == nil && cfg.Webhook.Port != nil {
+		wo := webhook.Options{}
+		if cfg.Webhook.Port != nil {
+			wo.Port = *cfg.Webhook.Port
+		}
+		if cfg.Webhook.Host != "" {
+			wo.Host = cfg.Webhook.Host
+		}
+
+		if cfg.Webhook.CertDir != "" {
+			wo.CertDir = cfg.Webhook.CertDir
+		}
+
+		// Apply TLS configuration if provided
+		if features.Enabled(features.TLSOptions) {
+			if cfg.TLS != nil {
+				tlsOpts, err := tlsconfig.ParseTLSOptions(cfg.TLS)
+				if err == nil {
+					tlsOpts := tlsconfig.BuildTLSOptions(tlsOpts)
+					wo.TLSOpts = append(wo.TLSOpts, tlsOpts...)
+				}
+			}
+		}
+		o.WebhookServer = webhook.NewServer(wo)
 	}
 }
 

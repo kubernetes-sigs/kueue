@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -53,7 +54,7 @@ func createK8sClient(ctx context.Context) (dynamic.Interface, manager.Manager, e
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to load in-cluster config: %v", err)
 		}
-		fmt.Println("Using in-cluster configuration")
+		slog.Info("Using in-cluster configuration")
 	} else {
 		// Fall back to using KUBECONFIG or default kubeconfig path
 		kubeconfig := os.Getenv("KUBECONFIG")
@@ -65,7 +66,7 @@ func createK8sClient(ctx context.Context) (dynamic.Interface, manager.Manager, e
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to load kubeconfig from %s: %v", kubeconfig, err)
 		}
-		fmt.Printf("Using kubeconfig: %s\n", kubeconfig)
+		slog.Info("Using kubeconfig", "path", kubeconfig)
 	}
 
 	// Create the dynamic client

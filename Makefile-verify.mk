@@ -32,7 +32,7 @@ gomod-verify: ## Verify go.mod / go.sum are tidy and unchanged.
 
 .PHONY: ci-lint
 ci-lint: golangci-lint ## Run golangci-lint across all Go modules.
-	find . -path ./site -prune -false -o -name go.mod -exec dirname {} \; | xargs -I {} sh -c 'cd "{}" && $(GOLANGCI_LINT) run $(GOLANGCI_LINT_FIX) --timeout 15m0s --config "$(PROJECT_DIR)/.golangci.yaml"'
+	find . \( -path ./site -o -path ./bin -o -path ./vendor \) -prune -false -o -name go.mod -exec dirname {} \; | xargs -I {} sh -c 'cd "{}" && $(GOLANGCI_LINT) run $(GOLANGCI_LINT_FIX) --timeout 15m0s --config "$(PROJECT_DIR)/.golangci.yaml"'
 
 .PHONY: lint-fix
 lint-fix: GOLANGCI_LINT_FIX=--fix
@@ -48,7 +48,7 @@ lint-api-fix: lint-api ## Fix API linting issues where possible.
 
 .PHONY: fmt-verify
 fmt-verify: ## Verify Go code formatting (no changes allowed).
-	@out=`$(GO_FMT) -w -l -d $$(find . -name '*.go' | grep -v /vendor/)`; \
+	@out=`$(GO_FMT) -w -l -d $$(find . \( -path ./vendor -o -path ./bin \) -prune -false -o -name '*.go' -print)`; \
 	if [ -n "$$out" ]; then \
 	    echo "$$out"; \
 	    exit 1; \

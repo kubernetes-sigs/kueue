@@ -231,6 +231,12 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/8302
 	// Redo admission on eviction in worker cluster.
 	MultiKueueRedoAdmissionOnEvictionInWorker featuregate.Feature = "MultiKueueRedoAdmissionOnEvictionInWorker"
+
+	// owner: @kannon92
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/8190
+	// Enables TLSOptions for TLS MinVersion and CipherSuites for kueue servers
+	TLSOptions featuregate.Feature = "TLSOptions"
 )
 
 func init() {
@@ -248,7 +254,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.4"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.5"), Default: true, PreRelease: featuregate.Beta},
 	},
-
 	FlavorFungibility: {
 		{Version: version.MustParse("0.5"), Default: true, PreRelease: featuregate.Beta},
 	},
@@ -355,11 +360,13 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	SkipFinalizersForPodsSuspendedByParent: {
 		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
 	},
-
 	MultiKueueWaitForWorkloadAdmitted: {
 		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
 	},
 	MultiKueueRedoAdmissionOnEvictionInWorker: {
+		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
+	},
+	TLSOptions: {
 		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
 	},
 }

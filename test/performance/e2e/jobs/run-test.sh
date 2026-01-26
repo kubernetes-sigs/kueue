@@ -37,7 +37,7 @@ if [[ "$USE_KUEUE" == true ]]; then
     # objects from the file. 
     # The yq expression below splits produced manifest into 3 files and then moves 
     # to temporary $PROMETHEUS_MANIFEST_PATH
-    kubectl kustomize ../../config/prometheus | yq -s '.kind' -o yaml
+    kubectl kustomize ../../../../config/prometheus | yq -s '.kind' -o yaml
     mv Role.yml "$PROMETHEUS_MANIFEST_PATH/prometheus-kueue-role.yaml"
     mv RoleBinding.yml "$PROMETHEUS_MANIFEST_PATH/prometheus-kueue-role-binding.yaml"
     mv ServiceMonitor.yml "$PROMETHEUS_MANIFEST_PATH/prometheus-kueue-service-monitor.yaml"

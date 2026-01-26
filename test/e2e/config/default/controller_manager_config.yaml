@@ -38,3 +38,13 @@ integrations:
 featureGates:
   LocalQueueMetrics: true
   ElasticJobsViaWorkloadSlices: true
+tls:
+  minVersion: "VersionTLS12"
+  # this is the default ciphersuite for golang 1.25
+  cipherSuites:
+    - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+    - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+    - TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256
+    - TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
+    - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+    - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384

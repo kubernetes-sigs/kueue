@@ -49,7 +49,7 @@ const (
 )
 
 type topologyReconciler struct {
-	log              logr.Logger
+	logName          string
 	client           client.Client
 	queues           *qcache.Manager
 	cache            *schdcache.Cache
@@ -62,13 +62,17 @@ var _ predicate.TypedPredicate[*kueue.Topology] = (*topologyReconciler)(nil)
 
 func newTopologyReconciler(c client.Client, queues *qcache.Manager, cache *schdcache.Cache, roleTracker *roletracker.RoleTracker) *topologyReconciler {
 	return &topologyReconciler{
-		log:              roletracker.WithReplicaRole(ctrl.Log.WithName(TASTopologyController), roleTracker),
+		logName:          TASTopologyController,
 		client:           c,
 		queues:           queues,
 		cache:            cache,
 		topologyUpdateCh: make(chan event.GenericEvent, updateChBuffer),
 		roleTracker:      roleTracker,
 	}
+}
+
+func (r *topologyReconciler) logger() logr.Logger {
+	return roletracker.WithReplicaRole(ctrl.Log.WithName(r.logName), r.roleTracker)
 }
 
 func (r *topologyReconciler) setupWithManager(mgr ctrl.Manager, cfg *configapi.Configuration) (string, error) {
@@ -135,7 +139,7 @@ func (r *topologyReconciler) Generic(event.TypedGenericEvent[*kueue.Topology]) b
 }
 
 func (r *topologyReconciler) Create(e event.TypedCreateEvent[*kueue.Topology]) bool {
-	log := r.log.WithValues("topology", klog.KObj(e.Object))
+	log := r.logger().WithValues("topology", klog.KObj(e.Object))
 	log.V(2).Info("Topology create event")
 
 	defer r.queues.NotifyTopologyUpdateWatchers(nil, e.Object)
@@ -148,7 +152,7 @@ func (r *topologyReconciler) Update(event.TypedUpdateEvent[*kueue.Topology]) boo
 }
 
 func (r *topologyReconciler) Delete(e event.TypedDeleteEvent[*kueue.Topology]) bool {
-	log := r.log.WithValues("topology", klog.KObj(e.Object))
+	log := r.logger().WithValues("topology", klog.KObj(e.Object))
 	log.V(2).Info("Topology delete event")
 
 	defer r.queues.NotifyTopologyUpdateWatchers(e.Object, nil)
