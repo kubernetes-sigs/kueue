@@ -17,12 +17,15 @@ limitations under the License.
 package e2e
 
 import (
+	"strconv"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
@@ -691,6 +694,132 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			ginkgo.By("Check workload is deleted", func() {
 				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload1, false, util.LongTimeout)
 				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload2, false, util.LongTimeout)
+			})
+		})
+
+		ginkgo.It("Rolling update with maxSurge creates workloads for surge pods and completes successfully", func() {
+			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws-rollout", ns.Name).
+				Image(util.GetAgnHostImageOld(), util.BehaviorWaitForDeletion).
+				Size(1).
+				Replicas(4).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				Queue(lq.Name).
+				LeaderTemplate(corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:  "c",
+								Args:  util.BehaviorWaitForDeletion,
+								Image: util.GetAgnHostImageOld(),
+								Resources: corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU: resource.MustParse("200m"),
+									},
+									Limits: corev1.ResourceList{
+										corev1.ResourceCPU: resource.MustParse("200m"),
+									},
+								},
+							},
+						},
+						NodeSelector: map[string]string{},
+					},
+				}).
+				TerminationGracePeriod(1).
+				Obj()
+
+			lws.Spec.RolloutStrategy = leaderworkersetv1.RolloutStrategy{
+				Type: leaderworkersetv1.RollingUpdateStrategyType,
+				RollingUpdateConfiguration: &leaderworkersetv1.RollingUpdateConfiguration{
+					MaxUnavailable: intstr.FromInt(2),
+					MaxSurge:       intstr.FromInt(2),
+				},
+			}
+
+			ginkgo.By("Create LeaderWorkerSet with rolling update strategy", func() {
+				util.MustCreate(ctx, k8sClient, lws)
+			})
+
+			createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
+
+			ginkgo.By("Wait for initial 4 replicas to be ready", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
+					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(4)))
+					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verify workloads exist for initial 4 groups", func() {
+				for i := range 4 {
+					wl := &kueue.Workload{}
+					wlKey := types.NamespacedName{
+						Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, strconv.Itoa(i)),
+						Namespace: ns.Name,
+					}
+					gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				}
+			})
+
+			ginkgo.By("Trigger rolling update by changing image", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
+					createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Image = util.GetAgnHostImage()
+					g.Expect(k8sClient.Update(ctx, createdLeaderWorkerSet)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Wait for surge pods to be created (maxSurge=2)", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					pods := &corev1.PodList{}
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name),
+						client.MatchingLabels{leaderworkersetv1.SetNameLabelKey: lws.Name})).To(gomega.Succeed())
+					g.Expect(pods.Items).To(gomega.HaveLen(6))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verify workloads are created for all pods including surge pods", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					pods := &corev1.PodList{}
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name),
+						client.MatchingLabels{leaderworkersetv1.SetNameLabelKey: lws.Name})).To(gomega.Succeed())
+
+					groupIndices := make(map[string]bool)
+					for _, pod := range pods.Items {
+						if groupIndex, ok := pod.Labels[leaderworkersetv1.GroupIndexLabelKey]; ok {
+							groupIndices[groupIndex] = true
+						}
+					}
+
+					for groupIndex := range groupIndices {
+						wl := &kueue.Workload{}
+						wlKey := types.NamespacedName{
+							Name:      leaderworkerset.GetWorkloadName(createdLeaderWorkerSet.UID, lws.Name, groupIndex),
+							Namespace: ns.Name,
+						}
+						g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+					}
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verify rolling update completes successfully with 4 pods running", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
+					g.Expect(createdLeaderWorkerSet.Status.UpdatedReplicas).To(gomega.Equal(int32(4)))
+					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(4)))
+					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
+
+					pods := &corev1.PodList{}
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name),
+						client.MatchingLabels{leaderworkersetv1.SetNameLabelKey: lws.Name})).To(gomega.Succeed())
+
+					for _, pod := range pods.Items {
+						g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
+					}
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Delete the LeaderWorkerSet", func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, lws, true)
 			})
 		})
 	})
