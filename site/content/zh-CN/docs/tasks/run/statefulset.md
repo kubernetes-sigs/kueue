@@ -11,12 +11,12 @@ description: 将 StatefulSet 作为 Kueue 管理的工作负载运行。
 我们演示了如何支持基于 [Plain Pod Group](https://kueue.sigs.k8s.io/docs/tasks/run/plain_pods/)
 集成来调度 StatefulSet，其中 StatefulSet 被表示为一个独立的负载。
 
-本指南适用于[服务用户](/zh-CN/docs/tasks#serving-user)他们具有基本的 Kueue 理解。
-更多信息，请参见 [Kueue 概览](/zh-CN/docs/overview)。
+本指南适用于[服务用户](/zh-cn/docs/tasks#serving-user)他们具有基本的 Kueue 理解。
+更多信息，请参见 [Kueue 概览](/zh-cn/docs/overview)。
 
 ## 开始之前 {#before-you-begin}
 
-1. 学习如何[安装 Kueue 并配置自定义管理器版本](/zh-CN/docs/installation/#install-a-custom-configured-released-version)。
+1. 学习如何[安装 Kueue 并配置自定义管理器版本](/zh-cn/docs/installation/#install-a-custom-configured-released-version)。
 
 2. 确保你启用了 v1/statefulset 集成，例如：
    ```yaml
@@ -27,10 +27,10 @@ description: 将 StatefulSet 作为 Kueue 管理的工作负载运行。
       - "pod" # required by statefulset
       - "statefulset"
    ```
-   同时，请参见[运行 Plain Pod](/zh-CN/docs/tasks/run/plain_pods/#before-you-begin)
+   同时，请参见[运行 Plain Pod](/zh-cn/docs/tasks/run/plain_pods/#before-you-begin)
    了解如何启用和配置 `pod` 集成。
 
-3. 检查[管理集群配额](/zh-CN/docs/tasks/manage/administer_cluster_quotas)了解初始 Kueue 设置的详细信息。
+3. 检查[管理集群配额](/zh-cn/docs/tasks/manage/administer_cluster_quotas)了解初始 Kueue 设置的详细信息。
 
 ## 运行被 Kueue 调度的 StatefulSet {#running-a-statefulset-admitted-by-kueue}
 
@@ -38,7 +38,7 @@ description: 将 StatefulSet 作为 Kueue 管理的工作负载运行。
 
 ### a. 队列选择 {#a-queue-selection}
 
-目标[本地队列](/zh-CN/docs/concepts/local_queue)应在 StatefulSet 配置的 `metadata.labels` 部分指定。
+目标[本地队列](/zh-cn/docs/concepts/local_queue)应在 StatefulSet 配置的 `metadata.labels` 部分指定。
 
 ```yaml
 metadata:

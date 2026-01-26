@@ -27,9 +27,12 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -159,11 +162,27 @@ func run() int {
 		return 1
 	}
 
+	// Start URL normalizing proxy to handle case-sensitive language paths.
+	// Hugo lowercases language paths (e.g., /zh-CN/ becomes /zh-cn/) regardless
+	// of the disablePathToLower setting. The proxy rewrites URLs so that links
+	// using /zh-CN/ are normalized to /zh-cn/ before reaching Hugo.
+	fmt.Println("==> Starting URL normalizing proxy")
+	proxy, proxyPort, err := startURLNormalizingProxy(port)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ERROR:", err)
+		return 1
+	}
+	defer proxy.stop()
+
+	proxyURL := fmt.Sprintf("http://localhost:%d/", proxyPort)
+	fmt.Printf("    Proxy listening on %s (forwarding to Hugo on port %d)\n", proxyURL, port)
+
 	fmt.Println("==> Running linkchecker")
 	lcCtx, lcCancel := context.WithTimeout(context.Background(), *lcTotal)
 	defer lcCancel()
 
-	exitCode := runLinkChecker(lcCtx, tmp, port, *threads, *timeoutSec, *checkExt)
+	// Point linkchecker at the proxy instead of Hugo directly
+	exitCode := runLinkChecker(lcCtx, tmp, proxyPort, *threads, *timeoutSec, *checkExt)
 	if exitCode != 0 {
 		return exitCode
 	}
@@ -621,4 +640,75 @@ func runLinkChecker(ctx context.Context, tmpDir string, port, threads, timeoutSe
 func exists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// urlNormalizingProxy is a reverse proxy that normalizes URL paths.
+// It rewrites case-sensitive language codes (e.g., /zh-CN/) to lowercase
+// (e.g., /zh-cn/) to match Hugo's URL generation behavior.
+type urlNormalizingProxy struct {
+	proxy  *httputil.ReverseProxy
+	server *http.Server
+}
+
+// urlPathNormalizers defines URL path rewriting rules.
+// Hugo lowercases language paths regardless of disablePathToLower setting,
+// so we need to normalize URLs that use uppercase language codes.
+var urlPathNormalizers = []struct {
+	pattern     *regexp.Regexp
+	replacement string
+}{
+	// Normalize zh-CN to zh-cn (Hugo lowercases language paths)
+	{regexp.MustCompile(`^/zh-CN/`), "/zh-cn/"},
+}
+
+// startURLNormalizingProxy creates a reverse proxy that normalizes URL paths
+// before forwarding requests to the Hugo server.
+func startURLNormalizingProxy(hugoPort int) (*urlNormalizingProxy, int, error) {
+	proxyPort, err := pickFreePort()
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to pick port for proxy: %w", err)
+	}
+
+	target, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", hugoPort))
+	proxy := httputil.NewSingleHostReverseProxy(target)
+
+	// Customize the Director to normalize URL paths
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		// Normalize the URL path
+		for _, normalizer := range urlPathNormalizers {
+			if normalizer.pattern.MatchString(req.URL.Path) {
+				req.URL.Path = normalizer.pattern.ReplaceAllString(req.URL.Path, normalizer.replacement)
+				break
+			}
+		}
+	}
+
+	server := &http.Server{
+		Addr:    fmt.Sprintf("127.0.0.1:%d", proxyPort),
+		Handler: proxy,
+	}
+
+	unp := &urlNormalizingProxy{
+		proxy:  proxy,
+		server: server,
+	}
+
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			fmt.Fprintf(os.Stderr, "proxy server error: %v\n", err)
+		}
+	}()
+
+	return unp, proxyPort, nil
+}
+
+func (p *urlNormalizingProxy) stop() {
+	if p == nil || p.server == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = p.server.Shutdown(ctx)
 }

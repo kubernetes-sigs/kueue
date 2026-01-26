@@ -8,18 +8,18 @@ description: >
 
 本指南解释了如何使用 `VisibilityOnDemand` 特性在 Grafana 中监控待处理的工作负载。
 
-本文的受众是[批处理管理员](/zh-CN/docs/tasks#batch-administrator)，
-用于 ClusterQueue 可见性，以及[批处理用户](/zh-CN/docs/tasks#batch-user)用于 LocalQueue 可见性。
+本文的受众是[批处理管理员](/zh-cn/docs/tasks#batch-administrator)，
+用于 ClusterQueue 可见性，以及[批处理用户](/zh-cn/docs/tasks#batch-user)用于 LocalQueue 可见性。
 
 ## 开始之前
 
 确保满足以下条件：
 
 - 正在运行一个 Kubernetes 集群。
-- 已安装 [Kueue](/zh-CN/docs/installation)
+- 已安装 [Kueue](/zh-cn/docs/installation)
 - 已安装 [Kube-prometheus operator](https://github.com/prometheus-operator/kube-prometheus/blob/main/README.md#quickstart)
   版本 v0.15.0 或更新版本。
-- 已启用 [VisibilityOnDemand](/zh-CN/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/#monitor-pending-workloads-on-demand) 特性。
+- 已启用 [VisibilityOnDemand](/zh-cn/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/#monitor-pending-workloads-on-demand) 特性。
 
 ## 配置 Grafana 监控待处理工作负载   {#setting-up-grafana-for-pending-workloads}
 
