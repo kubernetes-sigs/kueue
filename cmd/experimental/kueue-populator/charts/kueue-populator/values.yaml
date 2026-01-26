@@ -4,7 +4,7 @@ kueuePopulator:
     # -- Populator's image repository
     repository: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-populator
     # -- Populator's image tag
-    tag: main
+    tag: release-0.16
     # -- Populator's image pullPolicy.
     # This should be set to 'IfNotPresent' for released version
     pullPolicy: Always
