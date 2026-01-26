@@ -89,6 +89,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		For(obj).
 		WithMutationHandler(admission.WithCustomDefaulter(mgr.GetScheme(), obj, wh)).
 		WithValidator(wh).
+		WithRoleTracker(options.RoleTracker).
 		Complete()
 }
 
@@ -103,6 +104,10 @@ func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	log.V(5).Info("Applying defaults")
 
 	jobframework.ApplyDefaultLocalQueue(job.Object(), w.queues.DefaultLocalQueueExist)
+	if err := copyRaySubmitterJobMetadata(ctx, job.Object(), w.client); err != nil {
+		return err
+	}
+
 	if err := jobframework.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}

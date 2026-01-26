@@ -20,7 +20,6 @@ else
 endif
 
 GO_CMD ?= go
-GO_FMT ?= gofmt
 # Use go.mod go version as a single source of truth of GO version.
 GO_VERSION := $(shell awk '/^go /{print $$2}' go.mod|head -n1)
 
@@ -49,6 +48,8 @@ IMAGE_TAG_KUEUE_POPULATOR := $(IMAGE_REPO_KUEUE_POPULATOR):$(GIT_TAG)
 
 RAY_VERSION := 2.41.0
 RAYMINI_VERSION ?= 0.0.1
+
+CLUSTERPROFILE_PLUGIN_IMAGE_VERSION ?= 0.0.1
 
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 BIN_DIR ?= $(PROJECT_DIR)/bin
@@ -89,7 +90,7 @@ LD_FLAGS += -X '$(version_pkg).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.15.3
+RELEASE_VERSION=v0.16.0
 RELEASE_BRANCH=main
 # Application version for Helm and npm (strips leading 'v' from RELEASE_VERSION)
 APP_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)
@@ -118,6 +119,10 @@ include Makefile-deps.mk
 
 include Makefile-test.mk
 
+include Makefile-kueue-populator.mk
+
+include Makefile-verify.mk
+
 ##@ Development
 
 .PHONY: manifests
@@ -141,7 +146,7 @@ update-helm: manifests yq yaml-processor
 	$(BIN_DIR)/yaml-processor -zap-log-level=$(YAML_PROCESSOR_LOG_LEVEL) hack/processing-plan.yaml
 
 .PHONY: generate
-generate: gomod-download generate-mocks generate-apiref generate-code generate-kueuectl-docs generate-helm-docs generate-metrics-tables
+generate: gomod-download generate-mocks generate-apiref generate-code generate-kueuectl-docs generate-helm-docs generate-metrics-tables generate-featuregates
 
 .PHONY: generate-code
 generate-code: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations and client-go libraries.
@@ -158,19 +163,6 @@ generate-mocks: mockgen ## Generate mockgen mocks
 fmt: ## Run go fmt against code.
 	$(GO_CMD) fmt ./...
 
-.PHONY: fmt-verify
-fmt-verify:
-	@out=`$(GO_FMT) -w -l -d $$(find . -name '*.go' | grep -v /vendor/)`; \
-	if [ -n "$$out" ]; then \
-	    echo "$$out"; \
-	    exit 1; \
-	fi
-
-.PHONY: gomod-verify
-gomod-verify:
-	$(GO_CMD) mod tidy
-	git --no-pager diff --exit-code go.mod go.sum
-
 .PHONY: gomod-download
 gomod-download:
 	$(GO_CMD) mod download
@@ -179,97 +171,17 @@ gomod-download:
 toc-update: mdtoc
 	./hack/update-toc.sh
 
-.PHONY: toc-verify
-toc-verify: mdtoc
-	./hack/verify-toc.sh
-
 .PHONY: helm-lint
 helm-lint: helm ## Run Helm chart lint test.
 	${HELM} lint charts/kueue
-
-.PHONY: helm-verify
-helm-verify: helm helm-lint ## run helm template and detect any rendering failures
-# test default values
-	$(HELM) template charts/kueue > /dev/null
-# test nondefault options (kueueviz, prometheus, certmanager)
-	$(HELM) template charts/kueue --set enableKueueViz=true --set enableCertManager=true --set enablePrometheus=true > /dev/null
-# test added managedJobsNamespaceSelector option
-	$(HELM) template charts/kueue --set managerConfig.controllerManagerConfigYaml="managedJobsNamespaceSelector:\n  matchExpressions:\n    - key: kubernetes.io/metadata.name\n      operator: In\n      values: [ kube-system ]" > /dev/null
-# test priorityClassName option
-	$(HELM) template charts/kueue --set controllerManager.manager.priorityClassName="system-cluster-critical" > /dev/null
-# test controllerManager nodeSelector and tolerations
-	$(HELM) template charts/kueue --set controllerManager.nodeSelector.nodetype=infra --set 'controllerManager.tolerations[0].key=node-role.kubernetes.io/master' --set 'controllerManager.tolerations[0].operator=Exists' --set 'controllerManager.tolerations[0].effect=NoSchedule' > /dev/null
-# test kueueViz backend nodeSelector and tolerations
-	$(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.backend.nodeSelector.nodetype=infra --set 'kueueViz.backend.tolerations[0].key=node-role.kubernetes.io/master' --set 'kueueViz.backend.tolerations[0].operator=Exists' --set 'kueueViz.backend.tolerations[0].effect=NoSchedule' > /dev/null
-# test kueueViz frontend nodeSelector and tolerations
-	$(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.frontend.nodeSelector.nodetype=infra --set 'kueueViz.frontend.tolerations[0].key=node-role.kubernetes.io/master' --set 'kueueViz.frontend.tolerations[0].operator=Exists' --set 'kueueViz.frontend.tolerations[0].effect=NoSchedule' > /dev/null
-# test kueueViz priorityClassName options for backend
-	$(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.backend.priorityClassName="system-cluster-critical" > /dev/null
-# test kueueViz priorityClassName options for frontend
-	$(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.backend.priorityClassName="system-cluster-critical" > /dev/null
-
-.PHONY: i18n-verify
-i18n-verify: ## Verify all localized docs are in sync with English version. Usage: make i18n-verify [TARGET_LANG=zh-CN]
-	@if [ -n "$(TARGET_LANG)" ]; then \
-		if [ ! -d "$(PROJECT_DIR)/site/content/$(TARGET_LANG)/docs" ]; then \
-			echo "Error: $(PROJECT_DIR)/site/content/$(TARGET_LANG)/docs does not exist"; \
-			exit 1; \
-		fi; \
-		echo "Checking $(TARGET_LANG) docs sync status..."; \
-		$(PROJECT_DIR)/site/scripts/lsync.sh "$(PROJECT_DIR)/site/content/$(TARGET_LANG)/docs/"; \
-	else \
-		for lang_dir in $(PROJECT_DIR)/site/content/*/; do \
-			lang_code=$$(basename "$$lang_dir"); \
-			if [ "$$lang_code" != "en" ] && [ -d "$$lang_dir/docs" ]; then \
-				echo "Checking $$lang_code docs sync status..."; \
-				$(PROJECT_DIR)/site/scripts/lsync.sh "$(PROJECT_DIR)/site/content/$$lang_code/docs/"; \
-			fi; \
-		done; \
-	fi
-
-# test
-.PHONY: helm-unit-test
-helm-unit-test: helm
-	$(HELM) unittest charts/kueue --strict --debug
 
 .PHONY: vet
 vet: ## Run go vet against code.
 	$(GO_CMD) vet ./...
 
-.PHONY: ci-lint
-ci-lint: golangci-lint
-	find . -path ./site -prune -false -o -name go.mod -exec dirname {} \; | xargs -I {} sh -c 'cd "{}" && $(GOLANGCI_LINT) run $(GOLANGCI_LINT_FIX) --timeout 15m0s --config "$(PROJECT_DIR)/.golangci.yaml"'
-
-.PHONY: lint-fix
-lint-fix: GOLANGCI_LINT_FIX=--fix
-lint-fix: ci-lint
-
-.PHONY: lint-api
-lint-api: golangci-lint-kal
-	$(GOLANGCI_LINT_KAL) run -v --config $(PROJECT_DIR)/.golangci-kal.yml ${GOLANGCI_LINT_FIX}
-
-.PHONY: lint-api-fix
-lint-api-fix: GOLANGCI_LINT_FIX=--fix
-lint-api-fix: lint-api
-
-.PHONY: shell-lint
-shell-lint: ## Run shell linting.
-	$(PROJECT_DIR)/hack/shellcheck/verify.sh
-
 .PHONY: sync-hugo-version
 sync-hugo-version:
 	$(SED) -r 's/(.*(HUGO_VERSION).*)/  HUGO_VERSION = "$(subst v,,$(HUGO_VERSION))"/g' -i netlify.toml
-
-PATHS_TO_VERIFY := config/components apis charts/kueue client-go site/ netlify.toml
-.PHONY: verify
-verify: gomod-verify ci-lint lint-api fmt-verify shell-lint toc-verify manifests generate update-helm helm-verify helm-unit-test prepare-release-branch sync-hugo-version npm-depcheck
-	git --no-pager diff --exit-code $(PATHS_TO_VERIFY)
-	if git ls-files --exclude-standard --others $(PATHS_TO_VERIFY) | grep -q . ; then exit 1; fi
-
-.PHONY: npm-depcheck
-npm-depcheck:
-	$(PROJECT_DIR)/hack/depcheck/verify.sh $(PROJECT_DIR)/cmd/kueueviz/frontend
-	$(PROJECT_DIR)/hack/depcheck/verify.sh $(PROJECT_DIR)/test/e2e/kueueviz
 
 ##@ Build
 
@@ -430,23 +342,6 @@ update-security-insights: yq
 	$(YQ) e '.distribution-points[0] = "https://github.com/kubernetes-sigs/kueue/releases/download/$(GIT_TAG)/manifests.yaml"' -i SECURITY-INSIGHTS.yaml
 	$(YQ) e '.dependencies.sbom[0].sbom-file = "https://github.com/kubernetes-sigs/kueue/releases/download/$(GIT_TAG)/kueue-$(GIT_TAG).spdx.json"' -i SECURITY-INSIGHTS.yaml
 
-##@ Kueue Populator
-
-.PHONY: kueue-populator-test
-kueue-populator-test: ## Run unit tests for kueue-populator.
-	$(MAKE) -C cmd/experimental/kueue-populator test
-
-.PHONY: kueue-populator-test-integration
-kueue-populator-test-integration: ## Run integration tests for kueue-populator.
-	$(MAKE) -C cmd/experimental/kueue-populator test-integration
-
-.PHONY: kueue-populator-test-e2e
-kueue-populator-test-e2e: ## Run e2e tests for kueue-populator.
-	$(MAKE) -C cmd/experimental/kueue-populator test-e2e
-
-.PHONY: kueue-populator-verify
-kueue-populator-verify: ## Run all verification tests for kueue-populator.
-	$(MAKE) -C cmd/experimental/kueue-populator verify
 
 ##@ Debug
 
@@ -551,6 +446,12 @@ kueuectl:
 generate-apiref: genref
 	cd $(PROJECT_DIR)/hack/genref/ && $(GENREF) -o $(PROJECT_DIR)/site/content/en/docs/reference
 
+##@ Documentation
+
+.PHONY: generate-featuregates
+generate-featuregates: ## Regenerate feature-gate YAML and site data.
+	$(PROJECT_DIR)/hack/update-featuregates.sh
+
 .PHONY: generate-kueuectl-docs
 generate-kueuectl-docs: kueuectl-docs
 	rm -Rf $(PROJECT_DIR)/site/content/en/docs/reference/kubectl-kueue/commands/kueuectl*
@@ -583,3 +484,19 @@ ray-project-mini-image-build:
 kind-ray-project-mini-image-build: PLATFORMS=$(HOST_IMAGE_PLATFORM)
 kind-ray-project-mini-image-build: PUSH=--load
 kind-ray-project-mini-image-build: ray-project-mini-image-build
+
+# Build the secretreader-plugin image
+.PHONY: secretreader-plugin-image-build
+secretreader-plugin-image-build:
+	$(IMAGE_BUILD_CMD) \
+		-t $(IMAGE_REGISTRY)/secretreader-plugin:$(CLUSTERPROFILE_PLUGIN_IMAGE_VERSION) \
+		--platform=$(PLATFORMS) \
+		--build-arg PLUGIN_VERSION=$(CLUSTERPROFILE_VERSION) \
+		$(PUSH) \
+		-f hack/multikueue/secretreader/Dockerfile ./ \
+
+# The step is required for local e2e test run
+.PHONY: kind-secretreader-plugin-image-build
+kind-secretreader-plugin-image-build: PLATFORMS=$(HOST_IMAGE_PLATFORM)
+kind-secretreader-plugin-image-build: PUSH=--load
+kind-secretreader-plugin-image-build: secretreader-plugin-image-build

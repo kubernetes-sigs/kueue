@@ -20,9 +20,13 @@ package v1beta2
 // TopologyAssignmentSliceApplyConfiguration represents a declarative configuration of the TopologyAssignmentSlice type for use
 // with apply.
 type TopologyAssignmentSliceApplyConfiguration struct {
-	DomainCount    *int32                                                 `json:"domainCount,omitempty"`
+	// domainCount is the number of domains covered by this slice.
+	DomainCount *int32 `json:"domainCount,omitempty"`
+	// valuesPerLevel has one entry for each of the Levels specified in the TopologyAssignment.
+	// The entry corresponding to a particular level specifies the placement of pods at that level.
 	ValuesPerLevel []TopologyAssignmentSliceLevelValuesApplyConfiguration `json:"valuesPerLevel,omitempty"`
-	PodCounts      *TopologyAssignmentSlicePodCountsApplyConfiguration    `json:"podCounts,omitempty"`
+	// podCounts specifies the number of pods allocated per each domain.
+	PodCounts *TopologyAssignmentSlicePodCountsApplyConfiguration `json:"podCounts,omitempty"`
 }
 
 // TopologyAssignmentSliceApplyConfiguration constructs a declarative configuration of the TopologyAssignmentSlice type for use with

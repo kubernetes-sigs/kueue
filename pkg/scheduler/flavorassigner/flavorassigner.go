@@ -184,8 +184,12 @@ func (a *Assignment) TotalRequestsFor(wl *workload.Info) resources.FlavorResourc
 		ps = *ps.ScaledTo(newCount)
 
 		for res, q := range ps.Requests {
-			flv := a.PodSets[i].Flavors[res].Name
-			usage[resources.FlavorResource{Flavor: flv, Resource: res}] += q
+			flv := a.PodSets[i].Flavors[res]
+			if flv == nil {
+				// Resource has no flavor assigned (e.g., zero-quantity request for resource not in CQ).
+				continue
+			}
+			usage[resources.FlavorResource{Flavor: flv.Name, Resource: res}] += q
 		}
 	}
 	return usage
@@ -282,13 +286,16 @@ type ResourceAssignment map[corev1.ResourceName]*FlavorAssignment
 
 func (psa *PodSetAssignment) toAPI() kueue.PodSetAssignment {
 	flavors := make(map[corev1.ResourceName]kueue.ResourceFlavorReference, len(psa.Flavors))
+	// Only include resources with assigned flavors (filters out zero-quantity requests for undefined resources).
+	resourceUsage := make(corev1.ResourceList, len(psa.Flavors))
 	for res, flvAssignment := range psa.Flavors {
 		flavors[res] = flvAssignment.Name
+		resourceUsage[res] = psa.Requests[res]
 	}
 	return kueue.PodSetAssignment{
 		Name:                   psa.Name,
 		Flavors:                flavors,
-		ResourceUsage:          psa.Requests,
+		ResourceUsage:          resourceUsage,
 		Count:                  ptr.To(psa.Count),
 		TopologyAssignment:     tas.V1Beta2From(psa.TopologyAssignment),
 		DelayedTopologyRequest: psa.DelayedTopologyRequest,
@@ -404,16 +411,6 @@ func isPreferred(a, b granularMode, fungibilityConfig kueue.FlavorFungibility) b
 		}
 	}
 
-	// BorrowingOverPreemption preference
-	if !features.Enabled(features.FlavorFungibilityImplicitPreferenceDefault) {
-		return borrowingOverPreemption()
-	}
-
-	// PreemptionOverBorrowing preference
-	if fungibilityConfig.WhenCanBorrow == kueue.TryNextFlavor {
-		return preemptionOverBorrowing()
-	}
-	// BorrowingOverPreemption preference
 	return borrowingOverPreemption()
 }
 
@@ -427,6 +424,21 @@ func fromPreemptionPossibility(preemptionPossibility preemptioncommon.Preemption
 		return reclaim
 	}
 	panic(fmt.Sprintf("illegal PreemptionPossibility: %d", preemptionPossibility))
+}
+
+func (mode preemptionMode) preemptionPossibility() *preemptioncommon.PreemptionPossibility {
+	switch mode {
+	case noPreemptionCandidates:
+		return ptr.To(preemptioncommon.NoCandidates)
+	case preempt:
+		return ptr.To(preemptioncommon.Preempt)
+	case reclaim:
+		return ptr.To(preemptioncommon.Reclaim)
+	case fit, noFit:
+		return nil
+	default:
+		panic(fmt.Sprintf("illegal preemptionMode: %d", mode))
+	}
 }
 
 func (mode preemptionMode) flavorAssignmentMode() FlavorAssignmentMode {
@@ -598,7 +610,11 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 			}
 		}
 		var groupStatus Status
-		for resName := range requests {
+		for resName, quantity := range requests {
+			// Skip zero-quantity requests for resources not defined in the ClusterQueue.
+			if quantity == 0 && a.cq.RGByResource(resName) == nil {
+				continue
+			}
 			if _, found := groupFlavors[resName]; found {
 				// This resource got assigned the same flavor as its resource group.
 				// No need to compute again.
@@ -795,7 +811,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 			}
 		}
 
-		consideredFlavors.AddRepresentativeModeFlavorAttempt(fName, representativeMode.preemptionMode.flavorAssignmentMode(), maxBorrow, flavorQuotaReasons)
+		consideredFlavors.AddRepresentativeModeFlavorAttempt(fName, representativeMode.preemptionMode, maxBorrow, flavorQuotaReasons)
 
 		if features.Enabled(features.FlavorFungibility) {
 			if !shouldTryNextFlavor(representativeMode, a.cq.FlavorFungibility) {
@@ -858,9 +874,9 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 			}
 		}
 		podSpec := podSets[psIdx].Template.Spec
-		taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(flavor.Spec.NodeTaints, append(podSpec.Tolerations, flavor.Spec.Tolerations...), func(t *corev1.Taint) bool {
+		taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(log, flavor.Spec.NodeTaints, append(podSpec.Tolerations, flavor.Spec.Tolerations...), func(t *corev1.Taint) bool {
 			return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
-		})
+		}, true)
 		if untolerated {
 			status.appendf("untolerated taint %s in flavor %s", taint, flavorName)
 			return false, nil

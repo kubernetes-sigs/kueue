@@ -95,6 +95,6 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: podOnHealthyNode.Name, Namespace: podOnHealthyNode.Namespace}, podOnHealthyNode)).
 				To(gomega.Succeed())
 			g.Expect(podOnHealthyNode.Status.Phase).Should(gomega.Equal(corev1.PodPending))
-		}, forcefulTerminationCheckTimeout, util.Interval).Should(gomega.Succeed())
+		}, forcefulTerminationCheckTimeout, util.ShortInterval).Should(gomega.Succeed())
 	})
 })

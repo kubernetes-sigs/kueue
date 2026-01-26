@@ -49,7 +49,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	ginkgo.When("the external RayJob adapter is enabled", func() {
 		var (
 			managerNs *corev1.Namespace
@@ -84,10 +84,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				configuration := &config.Configuration{}
 				mgr.GetScheme().Default(configuration)
 
-				failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
+				failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil)
 				gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
-				failedWebhook, err := webhooks.Setup(mgr)
+				failedWebhook, err := webhooks.Setup(mgr, nil)
 				gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 				// Set up RayJob webhook (but not MultiKueue integration)
@@ -135,7 +135,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-				_, err = dispatcher.SetupControllers(mgr, configuration)
+				_, err = dispatcher.SetupControllers(mgr, configuration, nil)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			})
 		})
@@ -155,26 +155,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			w2Kubeconfig, err := worker2TestCluster.kubeConfigBytes()
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			managerMultiKueueSecret1 = &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "multikueue1",
-					Namespace: managersConfigNamespace.Name,
-				},
-				Data: map[string][]byte{
-					kueue.MultiKueueConfigSecretKey: w1Kubeconfig,
-				},
-			}
+			managerMultiKueueSecret1 = utiltesting.MakeSecret("multikueue1", managersConfigNamespace.Name).Data(kueue.MultiKueueConfigSecretKey, w1Kubeconfig).Obj()
 			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueSecret1)
 
-			managerMultiKueueSecret2 = &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "multikueue2",
-					Namespace: managersConfigNamespace.Name,
-				},
-				Data: map[string][]byte{
-					kueue.MultiKueueConfigSecretKey: w2Kubeconfig,
-				},
-			}
+			managerMultiKueueSecret2 = utiltesting.MakeSecret("multikueue2", managersConfigNamespace.Name).Data(kueue.MultiKueueConfigSecretKey, w2Kubeconfig).Obj()
 			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueSecret2)
 
 			workerCluster1 = utiltestingapi.MakeMultiKueueCluster("worker1").KubeConfig(kueue.SecretLocationType, managerMultiKueueSecret1.Name).Obj()
@@ -190,40 +174,25 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				ControllerName(kueue.MultiKueueControllerName).
 				Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", managerMultiKueueConfig.Name).
 				Obj()
-			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC)
-
-			ginkgo.By("wait for check active", func() {
-				updatedAc := kueue.AdmissionCheck{}
-				acKey := client.ObjectKeyFromObject(multiKueueAC)
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, acKey, &updatedAc)).To(gomega.Succeed())
-					g.Expect(updatedAc.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.AdmissionCheckActive))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
+			util.CreateAdmissionChecksAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC)
 
 			managerCq = utiltestingapi.MakeClusterQueue("q1").
 				AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAC.Name)).
 				Obj()
-			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerCq)
-			util.ExpectClusterQueuesToBeActive(managerTestCluster.ctx, managerTestCluster.client, managerCq)
+			util.CreateClusterQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, managerCq)
 
 			managerLq = utiltestingapi.MakeLocalQueue(managerCq.Name, managerNs.Name).ClusterQueue(managerCq.Name).Obj()
-			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerLq)
-			util.ExpectLocalQueuesToBeActive(managerTestCluster.ctx, managerTestCluster.client, managerLq)
+			util.CreateLocalQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, managerLq)
 
 			worker1Cq = utiltestingapi.MakeClusterQueue("q1").Obj()
-			util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq)
-			util.ExpectClusterQueuesToBeActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq)
+			util.CreateClusterQueuesAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq)
 			worker1Lq = utiltestingapi.MakeLocalQueue(worker1Cq.Name, worker1Ns.Name).ClusterQueue(worker1Cq.Name).Obj()
-			util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, worker1Lq)
-			util.ExpectLocalQueuesToBeActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1Lq)
+			util.CreateLocalQueuesAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1Lq)
 
 			worker2Cq = utiltestingapi.MakeClusterQueue("q1").Obj()
-			util.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, worker2Cq)
-			util.ExpectClusterQueuesToBeActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2Cq)
+			util.CreateClusterQueuesAndWaitForActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2Cq)
 			worker2Lq = utiltestingapi.MakeLocalQueue(worker2Cq.Name, worker2Ns.Name).ClusterQueue(worker2Cq.Name).Obj()
-			util.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, worker2Lq)
-			util.ExpectLocalQueuesToBeActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2Lq)
+			util.CreateLocalQueuesAndWaitForActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2Lq)
 		})
 
 		ginkgo.AfterEach(func() {

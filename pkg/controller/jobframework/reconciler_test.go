@@ -130,7 +130,10 @@ func TestReconcileGenericJob(t *testing.T) {
 			podSets: basePodSets,
 			wantWorkloads: []kueue.Workload{
 				*baseWl.Clone().Name("job-test-job-3991b").
-					Annotations(map[string]string{workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue}).
+					Annotations(map[string]string{
+						workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
+						kueue.WorkloadSliceNameAnnotation:    "job-test-job-3991b",
+					}).
 					Obj(),
 			},
 		},
@@ -148,6 +151,58 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWl.Clone().Name("job-test-job-1").ResourceVersion("2").Obj(),
+			},
+		},
+		"update workload to match job preserves active=true": {
+			req: baseReq,
+			job: baseJob.Clone().
+				Obj(),
+			podSets: basePodSets,
+			objs: []client.Object{
+				baseWl.Clone().Name("job-test-job-1").
+					PodSets(*utiltestingapi.MakePodSet("old", 2).Obj()).
+					Active(true).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().Name("job-test-job-1").ResourceVersion("2").Active(true).Obj(),
+			},
+		},
+		"update workload to match job preserves active=false": {
+			req: baseReq,
+			job: baseJob.Clone().
+				Obj(),
+			podSets: basePodSets,
+			objs: []client.Object{
+				baseWl.Clone().Name("job-test-job-1").
+					PodSets(*utiltestingapi.MakePodSet("old", 2).Obj()).
+					Active(false).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().Name("job-test-job-1").ResourceVersion("2").Active(false).Obj(),
+			},
+		},
+		"update workload to match job with changed parallelism preserves active=false": {
+			req: baseReq,
+			job: baseJob.Clone().
+				Parallelism(5).
+				Obj(),
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("main", 5).Obj(),
+			},
+			objs: []client.Object{
+				baseWl.Clone().Name("job-test-job-1").
+					PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+					Active(false).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().Name("job-test-job-1").
+					ResourceVersion("2").
+					PodSets(*utiltestingapi.MakePodSet("main", 5).Obj()).
+					Active(false).
+					Obj(),
 			},
 		},
 	}

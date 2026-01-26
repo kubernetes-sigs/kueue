@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Label("area:singlecluster", "feature:kueuectl"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns *corev1.Namespace
 		cq *kueue.ClusterQueue
@@ -38,8 +38,8 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 
-		cq = utiltestingapi.MakeClusterQueue("e2e-cq").Obj()
-		util.MustCreate(ctx, k8sClient, cq)
+		cq = utiltestingapi.MakeClusterQueue("e2e-cq-" + ns.Name).Obj()
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 	})
 
 	ginkgo.AfterEach(func() {

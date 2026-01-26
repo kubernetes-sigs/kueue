@@ -144,6 +144,11 @@ type ControllerManager struct {
 	// registered within this manager.
 	// +optional
 	Controller *ControllerConfigurationSpec `json:"controller,omitempty"`
+
+	// TLS contains TLS security settings for all Kueue API servers
+	// (webhooks, metrics, and visibility).
+	// +optional
+	TLS *TLSOptions `json:"tls,omitempty"`
 }
 
 // ControllerWebhook defines the webhook server for the controller.
@@ -243,13 +248,13 @@ type WaitForPodsReady struct {
 	// +optional
 	RequeuingStrategy *RequeuingStrategy `json:"requeuingStrategy,omitempty"`
 
-	// RecoveryTimeout defines an opt-in timeout, measured since the
+	// RecoveryTimeout defines a timeout, measured since the
 	// last transition to the PodsReady=false condition after a Workload is Admitted and running.
 	// Such a transition may happen when a Pod failed and the replacement Pod
 	// is awaited to be scheduled.
 	// After exceeding the timeout the corresponding job gets suspended again
 	// and requeued after the backoff delay. The timeout is enforced only if waitForPodsReady.enable=true.
-	// If not set, there is no timeout.
+	// Defaults to the value of timeout. Setting to "0s" disables recovery timeout checking.
 	// +optional
 	RecoveryTimeout *metav1.Duration `json:"recoveryTimeout,omitempty"`
 }
@@ -379,6 +384,23 @@ type InternalCertManagement struct {
 	WebhookSecretName *string `json:"webhookSecretName,omitempty"`
 }
 
+// TLSOptions defines TLS security settings for Kueue servers
+type TLSOptions struct {
+	// minVersion is the minimum TLS version supported.
+	// Values are from tls package constants (https://golang.org/pkg/crypto/tls/#pkg-constants).
+	// This field is only valid when TLSOptions is set to true.
+	// The default would be to not set this value and inherit golang settings.
+	// +optional
+	MinVersion string `json:"minVersion,omitempty"`
+
+	// cipherSuites is the list of allowed cipher suites for the server.
+	// Note that TLS 1.3 ciphersuites are not configurable.
+	// Values are from tls package constants (https://golang.org/pkg/crypto/tls/#pkg-constants).
+	// The default would be to not set this value and inherit golang settings.
+	// +optional
+	CipherSuites []string `json:"cipherSuites,omitempty"`
+}
+
 type ClientConnection struct {
 	// QPS controls the number of queries per second allowed for K8S api server
 	// connection.
@@ -486,6 +508,13 @@ type ResourceTransformation struct {
 	// Strategy specifies if the input resource should be replaced or retained.
 	// Defaults to Retain
 	Strategy *ResourceTransformationStrategy `json:"strategy,omitempty"`
+
+	// MultiplyBy indicates the resource name requested by a workload, if
+	// specified.
+	// The requested amount of the resource is used to multiply the requested
+	// amount of the resource indicated by the "input" field.
+	// +optional
+	MultiplyBy corev1.ResourceName `json:"multiplyBy,omitempty"`
 
 	// Outputs specifies the output resources and quantities per unit of input resource.
 	// An empty Outputs combined with a `Replace` Strategy causes the Input resource to be ignored by Kueue.

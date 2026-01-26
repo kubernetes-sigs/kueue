@@ -41,6 +41,7 @@ import (
 	podworkload "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/features"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
+	"sigs.k8s.io/kueue/pkg/util/tlsconfig"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 )
 
@@ -62,6 +63,7 @@ var (
 	dynamicResourceAllocationPath                = field.NewPath("resources", "deviceClassMappings")
 	objectRetentionPoliciesPath                  = field.NewPath("objectRetentionPolicies")
 	objectRetentionPoliciesWorkloadsPath         = objectRetentionPoliciesPath.Child("workloads")
+	tlsPath                                      = field.NewPath("tls")
 )
 
 func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorList {
@@ -76,6 +78,7 @@ func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorLis
 	allErrs = append(allErrs, validateDeviceClassMappings(c)...)
 	allErrs = append(allErrs, validateManagedJobsNamespaceSelector(c)...)
 	allErrs = append(allErrs, validateObjectRetentionPolicies(c)...)
+	allErrs = append(allErrs, validateTLS(c)...)
 	return allErrs
 }
 
@@ -525,6 +528,29 @@ func validateObjectRetentionPolicies(c *configapi.Configuration) field.ErrorList
 	if rr.Workloads.AfterDeactivatedByKueue != nil && rr.Workloads.AfterDeactivatedByKueue.Duration < 0 {
 		allErrs = append(allErrs, field.Invalid(objectRetentionPoliciesWorkloadsPath.Child("afterDeactivatedByKueue"),
 			c.ObjectRetentionPolicies.Workloads.AfterDeactivatedByKueue.Duration.String(), apimachineryvalidation.IsNegativeErrorMsg))
+	}
+	return allErrs
+}
+
+func validateTLS(c *configapi.Configuration) field.ErrorList {
+	var allErrs field.ErrorList
+	if c.TLS == nil {
+		return allErrs
+	}
+
+	// Validate unparsed values first, then parse.
+	// This provides clearer error messages for invalid input.
+	_, err := tlsconfig.ParseTLSOptions(c.TLS)
+	if err != nil {
+		allErrs = append(allErrs, field.Invalid(tlsPath.Root(), c.TLS, err.Error()))
+		return allErrs
+	}
+
+	// TLS 1.3 cipher suites are not configurable in Go's crypto/tls package.
+	// When TLS 1.3 is set as the minimum version, cipher suites must not be specified.
+	if c.TLS.MinVersion == "VersionTLS13" && len(c.TLS.CipherSuites) > 0 {
+		allErrs = append(allErrs, field.Invalid(tlsPath.Child("cipherSuites"),
+			c.TLS.CipherSuites, "may not be specified when `minVersion` is 'VersionTLS13'"))
 	}
 	return allErrs
 }

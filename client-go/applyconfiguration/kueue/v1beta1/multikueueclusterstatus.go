@@ -24,6 +24,8 @@ import (
 // MultiKueueClusterStatusApplyConfiguration represents a declarative configuration of the MultiKueueClusterStatus type for use
 // with apply.
 type MultiKueueClusterStatusApplyConfiguration struct {
+	// conditions hold the latest available observations of the MultiKueueCluster
+	// current state.
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
 }
 

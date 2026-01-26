@@ -42,10 +42,11 @@ const (
 	// Taken into account that after the certificates are ready, all Kueue's components
 	// need started and the time it takes for a change in ready probe response triggers
 	// a change in the deployment status.
-	StartUpTimeout     = 5 * time.Minute
-	ConsistentDuration = time.Second
-	ShortInterval      = 10 * time.Millisecond
-	Interval           = time.Millisecond * 250
+	StartUpTimeout          = 5 * time.Minute
+	ShortConsistentDuration = 10 * time.Millisecond
+	ConsistentDuration      = 1 * time.Second
+	ShortInterval           = 10 * time.Millisecond
+	Interval                = time.Millisecond * 250
 )
 
 var (
@@ -58,16 +59,17 @@ var (
 )
 
 var (
-	AutoscalerCrds           = filepath.Join(GetProjectBaseDir(), "dep-crds", "cluster-autoscaler")
-	JobsetCrds               = filepath.Join(GetProjectBaseDir(), "dep-crds", "jobset-operator")
-	TrainingOperatorCrds     = filepath.Join(GetProjectBaseDir(), "dep-crds", "training-operator-crds")
-	KfTrainerCrds            = filepath.Join(GetProjectBaseDir(), "dep-crds", "kf-trainer-crds")
-	KfTrainerClusterRuntimes = filepath.Join(GetProjectBaseDir(), "dep-crds", "kf-trainer-runtimes")
-	MpiOperatorCrds          = filepath.Join(GetProjectBaseDir(), "dep-crds", "mpi-operator")
-	AppWrapperCrds           = filepath.Join(GetProjectBaseDir(), "dep-crds", "appwrapper-crds")
-	RayOperatorCrds          = filepath.Join(GetProjectBaseDir(), "dep-crds", "ray-operator-crds")
-	WebhookPath              = filepath.Join(GetProjectBaseDir(), "config", "components", "webhook")
-	ClusterProfileCrds       = filepath.Join(GetProjectBaseDir(), "dep-crds", "clusterprofile")
+	ProjectBaseDir           = getProjectBaseDir()
+	AutoscalerCrds           = filepath.Join(ProjectBaseDir, "dep-crds", "cluster-autoscaler")
+	JobsetCrds               = filepath.Join(ProjectBaseDir, "dep-crds", "jobset-operator")
+	TrainingOperatorCrds     = filepath.Join(ProjectBaseDir, "dep-crds", "training-operator-crds")
+	KfTrainerCrds            = filepath.Join(ProjectBaseDir, "dep-crds", "kf-trainer-crds")
+	KfTrainerClusterRuntimes = filepath.Join(ProjectBaseDir, "dep-crds", "kf-trainer-runtimes")
+	MpiOperatorCrds          = filepath.Join(ProjectBaseDir, "dep-crds", "mpi-operator")
+	AppWrapperCrds           = filepath.Join(ProjectBaseDir, "dep-crds", "appwrapper-crds")
+	RayOperatorCrds          = filepath.Join(ProjectBaseDir, "dep-crds", "ray-operator-crds")
+	WebhookPath              = filepath.Join(ProjectBaseDir, "config", "components", "webhook")
+	ClusterProfileCrds       = filepath.Join(ProjectBaseDir, "dep-crds", "clusterprofile")
 )
 
 var (

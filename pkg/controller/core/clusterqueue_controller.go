@@ -51,6 +51,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/resource"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -62,7 +63,7 @@ type ClusterQueueUpdateWatcher interface {
 // ClusterQueueReconciler reconciles a ClusterQueue object
 type ClusterQueueReconciler struct {
 	client                client.Client
-	log                   logr.Logger
+	logName               string
 	qManager              *qcache.Manager
 	cache                 *schdcache.Cache
 	nonCQObjectUpdateCh   chan event.TypedGenericEvent[iter.Seq[kueue.ClusterQueueReference]]
@@ -70,6 +71,7 @@ type ClusterQueueReconciler struct {
 	reportResourceMetrics bool
 	fairSharingEnabled    bool
 	clock                 clock.Clock
+	roleTracker           *roletracker.RoleTracker
 }
 
 var _ reconcile.Reconciler = (*ClusterQueueReconciler)(nil)
@@ -80,6 +82,7 @@ type ClusterQueueReconcilerOptions struct {
 	ReportResourceMetrics bool
 	FairSharingEnabled    bool
 	clock                 clock.Clock
+	roleTracker           *roletracker.RoleTracker
 }
 
 // ClusterQueueReconcilerOption configures the reconciler.
@@ -103,6 +106,12 @@ func WithFairSharing(enabled bool) ClusterQueueReconcilerOption {
 	}
 }
 
+func WithClusterQueueRoleTracker(tracker *roletracker.RoleTracker) ClusterQueueReconcilerOption {
+	return func(o *ClusterQueueReconcilerOptions) {
+		o.roleTracker = tracker
+	}
+}
+
 var defaultCQOptions = ClusterQueueReconcilerOptions{
 	clock: realClock,
 }
@@ -119,7 +128,7 @@ func NewClusterQueueReconciler(
 	}
 	return &ClusterQueueReconciler{
 		client:                client,
-		log:                   ctrl.Log.WithName("cluster-queue-reconciler"),
+		logName:               "cluster-queue-reconciler",
 		qManager:              qMgr,
 		cache:                 cache,
 		nonCQObjectUpdateCh:   make(chan event.TypedGenericEvent[iter.Seq[kueue.ClusterQueueReference]], updateChBuffer),
@@ -127,7 +136,12 @@ func NewClusterQueueReconciler(
 		reportResourceMetrics: options.ReportResourceMetrics,
 		fairSharingEnabled:    options.FairSharingEnabled,
 		clock:                 options.clock,
+		roleTracker:           options.roleTracker,
 	}
+}
+
+func (r *ClusterQueueReconciler) logger() logr.Logger {
+	return roletracker.WithReplicaRole(ctrl.Log.WithName(r.logName), r.roleTracker)
 }
 
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
@@ -288,7 +302,7 @@ func (r *ClusterQueueReconciler) NotifyAdmissionCheckUpdate(oldAc, newAc *kueue.
 func (r *ClusterQueueReconciler) Create(e event.TypedCreateEvent[*kueue.ClusterQueue]) bool {
 	defer r.notifyWatchers(nil, e.Object)
 
-	log := r.log.WithValues("clusterQueue", klog.KObj(e.Object))
+	log := r.logger().WithValues("clusterQueue", klog.KObj(e.Object))
 	log.V(2).Info("ClusterQueue create event")
 	ctx := ctrl.LoggerInto(context.Background(), log)
 	if err := r.cache.AddClusterQueue(ctx, e.Object); err != nil {
@@ -300,7 +314,7 @@ func (r *ClusterQueueReconciler) Create(e event.TypedCreateEvent[*kueue.ClusterQ
 	}
 
 	if r.reportResourceMetrics {
-		recordResourceMetrics(e.Object)
+		recordResourceMetrics(e.Object, r.roleTracker)
 	}
 
 	return true
@@ -309,18 +323,19 @@ func (r *ClusterQueueReconciler) Create(e event.TypedCreateEvent[*kueue.ClusterQ
 func (r *ClusterQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.ClusterQueue]) bool {
 	defer r.notifyWatchers(e.Object, nil)
 
-	r.log.V(2).Info("ClusterQueue delete event", "clusterQueue", klog.KObj(e.Object))
+	log := r.logger()
+	log.V(2).Info("ClusterQueue delete event", "clusterQueue", klog.KObj(e.Object))
 	r.cache.DeleteClusterQueue(e.Object)
 	r.qManager.DeleteClusterQueue(e.Object)
 
 	metrics.ClearClusterQueueResourceMetrics(e.Object.Name)
-	r.log.V(2).Info("Cleared resource metrics for deleted ClusterQueue.", "clusterQueue", klog.KObj(e.Object))
+	log.V(2).Info("Cleared resource metrics for deleted ClusterQueue.", "clusterQueue", klog.KObj(e.Object))
 
 	return true
 }
 
 func (r *ClusterQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.ClusterQueue]) bool {
-	log := r.log.WithValues("clusterQueue", klog.KObj(e.ObjectNew))
+	log := r.logger().WithValues("clusterQueue", klog.KObj(e.ObjectNew))
 	log.V(2).Info("ClusterQueue update event")
 
 	if !e.ObjectNew.DeletionTimestamp.IsZero() {
@@ -329,7 +344,7 @@ func (r *ClusterQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.ClusterQ
 	defer r.notifyWatchers(e.ObjectOld, e.ObjectNew)
 	specUpdated := !equality.Semantic.DeepEqual(e.ObjectOld.Spec, e.ObjectNew.Spec)
 
-	if err := r.cache.UpdateClusterQueue(r.log, e.ObjectNew); err != nil {
+	if err := r.cache.UpdateClusterQueue(log, e.ObjectNew); err != nil {
 		log.Error(err, "Failed to update clusterQueue in cache")
 	}
 	if err := r.qManager.UpdateClusterQueue(context.Background(), e.ObjectNew, specUpdated); err != nil {
@@ -337,17 +352,17 @@ func (r *ClusterQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.ClusterQ
 	}
 
 	if r.reportResourceMetrics {
-		updateResourceMetrics(e.ObjectOld, e.ObjectNew)
+		updateResourceMetrics(e.ObjectOld, e.ObjectNew, r.roleTracker)
 	}
 	return true
 }
 
 func (r *ClusterQueueReconciler) Generic(e event.TypedGenericEvent[*kueue.ClusterQueue]) bool {
-	r.log.V(3).Info("Got ClusterQueue generic event", "clusterQueue", klog.KObj(e.Object))
+	r.logger().V(3).Info("Got ClusterQueue generic event", "clusterQueue", klog.KObj(e.Object))
 	return true
 }
 
-func recordResourceMetrics(cq *kueue.ClusterQueue) {
+func recordResourceMetrics(cq *kueue.ClusterQueue, tracker *roletracker.RoleTracker) {
 	for rgi := range cq.Spec.ResourceGroups {
 		rg := &cq.Spec.ResourceGroups[rgi]
 		for fqi := range rg.Flavors {
@@ -357,7 +372,7 @@ func recordResourceMetrics(cq *kueue.ClusterQueue) {
 				nominal := resource.QuantityToFloat(&r.NominalQuota)
 				borrow := resource.QuantityToFloat(r.BorrowingLimit)
 				lend := resource.QuantityToFloat(r.LendingLimit)
-				metrics.ReportClusterQueueQuotas(cq.Spec.CohortName, cq.Name, string(fq.Name), string(r.Name), nominal, borrow, lend)
+				metrics.ReportClusterQueueQuotas(cq.Spec.CohortName, cq.Name, string(fq.Name), string(r.Name), nominal, borrow, lend, tracker)
 			}
 		}
 	}
@@ -366,7 +381,7 @@ func recordResourceMetrics(cq *kueue.ClusterQueue) {
 		fr := &cq.Status.FlavorsReservation[fri]
 		for ri := range fr.Resources {
 			r := &fr.Resources[ri]
-			metrics.ReportClusterQueueResourceReservations(cq.Spec.CohortName, cq.Name, string(fr.Name), string(r.Name), resource.QuantityToFloat(&r.Total))
+			metrics.ReportClusterQueueResourceReservations(cq.Spec.CohortName, cq.Name, string(fr.Name), string(r.Name), resource.QuantityToFloat(&r.Total), tracker)
 		}
 	}
 
@@ -374,12 +389,12 @@ func recordResourceMetrics(cq *kueue.ClusterQueue) {
 		fu := &cq.Status.FlavorsUsage[fui]
 		for ri := range fu.Resources {
 			r := &fu.Resources[ri]
-			metrics.ReportClusterQueueResourceUsage(cq.Spec.CohortName, cq.Name, string(fu.Name), string(r.Name), resource.QuantityToFloat(&r.Total))
+			metrics.ReportClusterQueueResourceUsage(cq.Spec.CohortName, cq.Name, string(fu.Name), string(r.Name), resource.QuantityToFloat(&r.Total), tracker)
 		}
 	}
 }
 
-func updateResourceMetrics(oldCq, newCq *kueue.ClusterQueue) {
+func updateResourceMetrics(oldCq, newCq *kueue.ClusterQueue, tracker *roletracker.RoleTracker) {
 	// if the cohort changed, drop all the old metrics
 	if oldCq.Spec.CohortName != newCq.Spec.CohortName {
 		metrics.ClearClusterQueueResourceMetrics(oldCq.Name)
@@ -387,7 +402,7 @@ func updateResourceMetrics(oldCq, newCq *kueue.ClusterQueue) {
 		// selective remove
 		clearOldResourceQuotas(oldCq, newCq)
 	}
-	recordResourceMetrics(newCq)
+	recordResourceMetrics(newCq, tracker)
 }
 
 func clearOldResourceQuotas(oldCq, newCq *kueue.ClusterQueue) {
@@ -524,6 +539,7 @@ func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.
 		WithOptions(controller.Options{
 			NeedLeaderElection:      ptr.To(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("ClusterQueue").GroupKind().String()],
+			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "clusterqueue-reconciler"),
 		}).
 		Watches(&corev1.Namespace{}, &nsHandler).
 		WatchesRawSource(source.Channel(r.nonCQObjectUpdateCh, &nonCQObjectHandler{})).
@@ -536,15 +552,16 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 	conditionStatus metav1.ConditionStatus,
 	reason, msg string,
 ) error {
+	log := r.logger()
 	oldStatus := cq.Status.DeepCopy()
 	pendingWorkloads, err := r.qManager.Pending(cq)
 	if err != nil {
-		r.log.Error(err, "Failed getting pending workloads from queue manager")
+		log.Error(err, "Failed getting pending workloads from queue manager")
 		return err
 	}
 	stats, err := r.cache.Usage(cq)
 	if err != nil {
-		r.log.Error(err, "Failed getting usage from cache")
+		log.Error(err, "Failed getting usage from cache")
 		// This is likely because the cluster queue was recently removed,
 		// but we didn't process that event yet.
 		return err
@@ -567,7 +584,7 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 			if weightedShare == math.Inf(1) {
 				weightedShare = math.NaN()
 			}
-			metrics.ReportClusterQueueWeightedShare(cq.Name, string(cq.Spec.CohortName), weightedShare)
+			metrics.ReportClusterQueueWeightedShare(cq.Name, string(cq.Spec.CohortName), weightedShare, r.roleTracker)
 		}
 		if cq.Status.FairSharing == nil {
 			cq.Status.FairSharing = &kueue.FairSharingStatus{}

@@ -37,10 +37,11 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload", "area:core"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns                           *corev1.Namespace
 		updatedQueueWorkload         kueue.Workload
@@ -371,14 +372,12 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
 					g.Expect(workload.IsActive(updatedWl)).To(gomega.BeFalse())
-					ok, err := utiltesting.HasEventAppeared(ctx, k8sClient, corev1.Event{
-						Reason:  "AdmissionCheckRejected",
-						Type:    corev1.EventTypeWarning,
-						Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: %s", "check1", "check rejected"),
-					})
-					g.Expect(err).NotTo(gomega.HaveOccurred())
-					g.Expect(ok).To(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectEventAppeared(ctx, k8sClient, corev1.Event{
+					Reason:  "AdmissionCheckRejected",
+					Type:    corev1.EventTypeWarning,
+					Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: %s", "check1", "check rejected"),
+				})
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
@@ -452,14 +451,12 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
 					g.Expect(workload.IsActive(updatedWl)).To(gomega.BeFalse())
-					ok, err := utiltesting.HasEventAppeared(ctx, k8sClient, corev1.Event{
-						Reason:  "AdmissionCheckRejected",
-						Type:    corev1.EventTypeWarning,
-						Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: %s", "check1", "check rejected"),
-					})
-					g.Expect(err).NotTo(gomega.HaveOccurred())
-					g.Expect(ok).To(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectEventAppeared(ctx, k8sClient, corev1.Event{
+					Reason:  "AdmissionCheckRejected",
+					Type:    corev1.EventTypeWarning,
+					Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: %s", "check1", "check rejected"),
+				})
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
@@ -472,7 +469,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 		})
 	})
 
-	ginkgo.When("changing the priority value of PriorityClass doesn't affect the priority of the workload", func() {
+	ginkgo.When("changing the priority value of PriorityClass changes the priority of the workload", func() {
 		ginkgo.BeforeEach(func() {
 			workloadPriorityClass = utiltestingapi.MakeWorkloadPriorityClass("workload-priority-class").PriorityValue(200).Obj()
 			util.MustCreate(ctx, k8sClient, workloadPriorityClass)
@@ -504,13 +501,15 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workloadPriorityClass), updatedWorkloadPriorityClass)).To(gomega.Succeed())
 				g.Expect(updatedWorkloadPriorityClass.Value).Should(gomega.Equal(updatedPriority))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&updatedQueueWorkload), &finalQueueWorkload)).To(gomega.Succeed())
-			gomega.Expect(finalQueueWorkload.Spec.Priority).To(gomega.Equal(&initialPriority))
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&updatedQueueWorkload), &finalQueueWorkload)).To(gomega.Succeed())
+				g.Expect(finalQueueWorkload.Spec.Priority).To(gomega.Equal(&updatedPriority))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 
 	ginkgo.When("the workload has a maximum execution time set", func() {
-		ginkgo.It("should deactivate the workload when the time expires", func() {
+		ginkgo.It("should deactivate the workload when the time expires", framework.SlowSpec, func() {
 			// due time rounding in conditions, the workload will stay admitted
 			// for a time between maxExecutionTime - 1s and maxExecutionTime
 			maxExecTime := 2 * time.Second
@@ -547,7 +546,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
-		ginkgo.It("should deactivate the workload when the time expires with multiple admissions", func() {
+		ginkgo.It("should deactivate the workload when the time expires with multiple admissions", framework.SlowSpec, func() {
 			// due time rounding in conditions, the workload will stay admitted
 			// for a time between maxExecutionTime - 1s and maxExecutionTime
 			maxExecTime := 30 * time.Second
@@ -621,12 +620,25 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo
 		wl           *kueue.Workload
 	)
 
-	ginkgo.BeforeAll(func() {
+	startManager := func() {
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
+	}
+
+	stopManager := func() {
+		fwk.StopManager(ctx)
+	}
+
+	restartManager := func() {
+		stopManager()
+		startManager()
+	}
+
+	ginkgo.BeforeAll(func() {
+		startManager()
 	})
 
 	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
+		stopManager()
 	})
 
 	ginkgo.When("workload's runtime class is changed", func() {
@@ -657,7 +669,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, runtimeClass, true)
 		})
 
-		ginkgo.It("should not temporarily admit an inactive workload", func() {
+		ginkgo.It("should not temporarily admit an inactive workload after changing the runtime class", framework.SlowSpec, func() {
 			ginkgo.By("creating an inactive workload", func() {
 				wl = utiltestingapi.MakeWorkload("wl1", ns.Name).
 					Queue(kueue.LocalQueueName(localQueue.Name)).
@@ -685,7 +697,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("checking no 'quota reseved' event appearing for the workload", func() {
+			ginkgo.By("checking no 'quota reserved' event appearing for the workload", func() {
 				gomega.Consistently(func(g gomega.Gomega) {
 					found, err := utiltesting.HasMatchingEventAppeared(ctx, k8sClient, func(e *corev1.Event) bool {
 						return e.Reason == "QuotaReserved" &&
@@ -696,7 +708,115 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo
 					})
 					g.Expect(err).NotTo(gomega.HaveOccurred())
 					g.Expect(found).To(gomega.BeTrue())
-				}, util.ShortTimeout, util.Interval).ShouldNot(gomega.Succeed())
+				}, util.ConsistentDuration, util.ShortInterval).ShouldNot(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should not temporarily admit a finished workload after changing the runtime class", framework.SlowSpec, func() {
+			wl = utiltestingapi.MakeWorkload("wl1", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "1").
+				RuntimeClass(runtimeClassName).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			wlKey := client.ObjectKeyFromObject(wl)
+
+			ginkgo.By("creating a workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("waiting for admission", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			})
+
+			ginkgo.By("finishing the workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+					g.Expect(workload.Finish(ctx, k8sClient, wl, "ByTest", "By test", util.RealClock, nil)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("waiting for finish", func() {
+				util.ExpectWorkloadToFinish(ctx, k8sClient, wlKey)
+			})
+
+			ginkgo.By("changing the runtime class", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					runtimeClassKey := client.ObjectKeyFromObject(runtimeClass)
+					g.Expect(k8sClient.Get(ctx, runtimeClassKey, runtimeClass)).To(gomega.Succeed())
+					if runtimeClass.ObjectMeta.Annotations == nil {
+						runtimeClass.ObjectMeta.Annotations = map[string]string{}
+					}
+					runtimeClass.ObjectMeta.Annotations["foo"] = "bar"
+					g.Expect(k8sClient.Update(ctx, runtimeClass)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("checking no 'quota reserved' event appearing for the workload", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					count, err := utiltesting.HasMatchingEventAppearedTimes(ctx, k8sClient, func(e *corev1.Event) bool {
+						return e.Reason == "QuotaReserved" &&
+							e.Type == corev1.EventTypeNormal &&
+							e.InvolvedObject.Kind == "Workload" &&
+							e.InvolvedObject.Name == wl.Name &&
+							e.InvolvedObject.Namespace == wl.Namespace
+					})
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(count).To(gomega.Equal(1))
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should not temporarily admit a finished workload on restart manager", framework.SlowSpec, func() {
+			wl = utiltestingapi.MakeWorkload("wl1", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "1").
+				RuntimeClass(runtimeClassName).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			wlKey := client.ObjectKeyFromObject(wl)
+
+			ginkgo.By("creating a workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("waiting for admission", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			})
+
+			ginkgo.By("finishing the workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+					g.Expect(workload.Finish(ctx, k8sClient, wl, "ByTest", "By test", util.RealClock, nil)).To(gomega.Succeed(), nil)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("waiting for finish", func() {
+				util.ExpectWorkloadToFinish(ctx, k8sClient, wlKey)
+			})
+
+			ginkgo.By("restarting the manager", func() {
+				restartManager()
+			})
+
+			ginkgo.By("checking no 'quota reserved' event appearing for the workload", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					count, err := utiltesting.HasMatchingEventAppearedTimes(ctx, k8sClient, func(e *corev1.Event) bool {
+						return e.Reason == "QuotaReserved" &&
+							e.Type == corev1.EventTypeNormal &&
+							e.InvolvedObject.Kind == "Workload" &&
+							e.InvolvedObject.Name == wl.Name &&
+							e.InvolvedObject.Namespace == wl.Namespace
+					})
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(count).To(gomega.Equal(1))
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 		})
 	})
@@ -735,6 +855,7 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ObjectRetentionPolicies, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
 			flavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
 			gomega.Expect(k8sClient.Create(ctx, flavor)).Should(gomega.Succeed())
@@ -742,6 +863,7 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavorOnDemand).
 					Resource(corev1.ResourceCPU, "1").Obj()).
 				Obj()
+			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 			localQueue = utiltestingapi.MakeLocalQueue("q", ns.Name).ClusterQueue("cq").Obj()
 			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
 		})
@@ -752,7 +874,7 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
 		})
 
-		ginkgo.It("should delete the workload after retention period elapses", func() {
+		ginkgo.It("should delete the workload after retention period elapses", framework.SlowSpec, func() {
 			var (
 				wl    *kueue.Workload
 				wlKey client.ObjectKey
@@ -789,6 +911,9 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 					return k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWorkload)
 				}, util.Timeout, util.Interval).ShouldNot(gomega.Succeed())
 			})
+
+			util.ExpectFinishedWorkloadsGaugeMetric(clusterQueue, 0)
+			util.ExpectLQFinishedWorkloadsGaugeMetric(localQueue, 0)
 		})
 	})
 
@@ -824,6 +949,7 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ObjectRetentionPolicies, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
 			flavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
 			gomega.Expect(k8sClient.Create(ctx, flavor)).Should(gomega.Succeed())
@@ -831,6 +957,7 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavorOnDemand).
 					Resource(corev1.ResourceCPU, "1").Obj()).
 				Obj()
+			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 			localQueue = utiltestingapi.MakeLocalQueue("q", ns.Name).ClusterQueue("cq").Obj()
 			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
 		})
@@ -841,7 +968,7 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
 		})
 
-		ginkgo.It("should not delete the workload before retention period elapses", func() {
+		ginkgo.It("should not delete the workload before retention period elapses", framework.SlowSpec, func() {
 			var (
 				wl    *kueue.Workload
 				wlKey client.ObjectKey
@@ -859,6 +986,9 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 			})
 
+			util.ExpectFinishedWorkloadsGaugeMetric(clusterQueue, 0)
+			util.ExpectLQFinishedWorkloadsGaugeMetric(localQueue, 0)
+
 			ginkgo.By("marking workload as finished", func() {
 				gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWorkload)).To(gomega.Succeed())
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -874,10 +1004,13 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 			})
 
 			ginkgo.By("workload should not be deleted before the retention period", func() {
-				gomega.Consistently(func() error {
-					return k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWorkload)
-				}, util.ShortTimeout, util.Interval).Should(gomega.Succeed())
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWorkload)).To(gomega.Succeed())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
+
+			util.ExpectFinishedWorkloadsGaugeMetric(clusterQueue, 1)
+			util.ExpectLQFinishedWorkloadsGaugeMetric(localQueue, 1)
 		})
 	})
 })

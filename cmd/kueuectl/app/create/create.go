@@ -21,7 +21,8 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/kubectl/pkg/util/templates"
 
-	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/flags"
 )
 
 var (
@@ -31,14 +32,14 @@ var (
 	`)
 )
 
-func NewCreateCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
+func NewCreateCmd(clientGetter clientgetter.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "create",
 		Short:   "Create a resource",
 		Example: createExample,
 	}
 
-	util.AddDryRunFlag(cmd)
+	flags.AddDryRunFlag(cmd)
 
 	cmd.AddCommand(NewLocalQueueCmd(clientGetter, streams))
 	cmd.AddCommand(NewClusterQueueCmd(clientGetter, streams))

@@ -26,7 +26,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -42,8 +41,6 @@ type multiKueueAdapter struct{}
 var _ jobframework.MultiKueueAdapter = (*multiKueueAdapter)(nil)
 
 func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
-	log := ctrl.LoggerFrom(ctx)
-
 	localJob := jobset.JobSet{}
 	err := localClient.Get(ctx, key, &localJob)
 	if err != nil {
@@ -58,12 +55,6 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 	// if the remote exists, just copy the status
 	if err == nil {
-		if fromObject(&localJob).IsSuspended() {
-			// Ensure the job is unsuspended before updating its status; otherwise, it will fail when patching the spec.
-			log.V(2).Info("Skipping the sync since the local job is still suspended")
-			return nil
-		}
-
 		return clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
 			localJob.Status = remoteJob.Status
 			return true, nil
@@ -90,15 +81,9 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
 	job := jobset.JobSet{}
-	err := remoteClient.Get(ctx, key, &job)
-	if err != nil {
-		return client.IgnoreNotFound(err)
-	}
+	job.SetName(key.Name)
+	job.SetNamespace(key.Namespace)
 	return client.IgnoreNotFound(remoteClient.Delete(ctx, &job))
-}
-
-func (b *multiKueueAdapter) KeepAdmissionCheckPending() bool {
-	return false
 }
 
 func (b *multiKueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {

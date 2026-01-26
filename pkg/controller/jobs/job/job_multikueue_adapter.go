@@ -22,7 +22,6 @@ import (
 	"fmt"
 
 	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -64,7 +63,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	// the remote job exists
 	if err == nil {
 		if features.Enabled(features.MultiKueueBatchJobWithManagedBy) {
-			if fromObject(&localJob).IsSuspended() {
+			if fromObject(&localJob).IsSuspended() && !fromObject(&localJob).IsActive() {
 				// Ensure the job is unsuspended before updating its status; otherwise, it will fail when patching the spec.
 				log.V(2).Info("Skipping the sync since the local job is still suspended")
 				return nil
@@ -74,14 +73,8 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 				return true, nil
 			})
 		}
-		remoteFinished := false
-		for _, c := range remoteJob.Status.Conditions {
-			if (c.Type == batchv1.JobComplete || c.Type == batchv1.JobFailed) && c.Status == corev1.ConditionTrue {
-				remoteFinished = true
-				break
-			}
-		}
-		if remoteFinished {
+
+		if _, _, remoteFinished := fromObject(&remoteJob).Finished(ctx); remoteFinished {
 			return clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
 				localJob.Status = remoteJob.Status
 				return true, nil
@@ -165,15 +158,9 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
 	job := batchv1.Job{}
-	err := remoteClient.Get(ctx, key, &job)
-	if err != nil {
-		return client.IgnoreNotFound(err)
-	}
+	job.SetName(key.Name)
+	job.SetNamespace(key.Namespace)
 	return client.IgnoreNotFound(remoteClient.Delete(ctx, &job, client.PropagationPolicy(metav1.DeletePropagationBackground)))
-}
-
-func (b *multiKueueAdapter) KeepAdmissionCheckPending() bool {
-	return !features.Enabled(features.MultiKueueBatchJobWithManagedBy)
 }
 
 func (b *multiKueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {

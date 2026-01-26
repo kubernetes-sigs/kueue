@@ -18,6 +18,7 @@ package e2e
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -31,6 +32,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -39,15 +41,17 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Pod groups", func() {
+var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "feature:pod"), func() {
 	var (
-		ns         *corev1.Namespace
-		onDemandRF *kueue.ResourceFlavor
+		ns             *corev1.Namespace
+		onDemandRF     *kueue.ResourceFlavor
+		flavorOnDemand string
 	)
 
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-e2e-")
-		onDemandRF = utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel("instance-type", "on-demand").Obj()
+		flavorOnDemand = "on-demand-" + ns.Name
+		onDemandRF = utiltestingapi.MakeResourceFlavor(flavorOnDemand).NodeLabel("instance-type", "on-demand").Obj()
 		util.MustCreate(ctx, k8sClient, onDemandRF)
 	})
 	ginkgo.AfterEach(func() {
@@ -58,24 +62,25 @@ var _ = ginkgo.Describe("Pod groups", func() {
 
 	ginkgo.When("Single CQ", func() {
 		var (
-			cq *kueue.ClusterQueue
-			lq *kueue.LocalQueue
+			cq               *kueue.ClusterQueue
+			lq               *kueue.LocalQueue
+			clusterQueueName string
 		)
 
 		ginkgo.BeforeEach(func() {
-			cq = utiltestingapi.MakeClusterQueue("cq").
+			clusterQueueName = "cq-" + ns.Name
+			cq = utiltestingapi.MakeClusterQueue(clusterQueueName).
 				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
+					*utiltestingapi.MakeFlavorQuotas(flavorOnDemand).Resource(corev1.ResourceCPU, "5").Obj(),
 				).
 				Preemption(kueue.ClusterQueuePreemption{
 					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 				}).
 				Obj()
-			util.MustCreate(ctx, k8sClient, cq)
-			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
 			lq = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
-			util.MustCreate(ctx, k8sClient, lq)
-			util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteAllPodsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -264,9 +269,9 @@ var _ = ginkgo.Describe("Pod groups", func() {
 					util.MustCreate(ctx, k8sClient, excess)
 				})
 				ginkgo.By("Use events to observe the excess pods are getting stopped", func() {
-					util.ExpectEventsForObjects(eventWatcher, excessPods, func(e *corev1.Event) bool {
-						return e.InvolvedObject.Namespace == ns.Name && e.Reason == "ExcessPodDeleted"
-					})
+					util.ExpectEventsForObjectsWithTimeout(eventWatcher, excessPods, func(e *corev1.Event) bool {
+						return e.InvolvedObject.Namespace == ns.Name && e.Reason == pod.ReasonExcessPodDeleted
+					}, util.LongTimeout)
 				})
 				ginkgo.By("Verify the excess pod is deleted", func() {
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, excess, false)
@@ -423,7 +428,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				eventWatcher.Stop()
 			})
 
-			highPriorityClass := utiltesting.MakePriorityClass("high").PriorityValue(100).Obj()
+			highPriorityClass := utiltesting.MakePriorityClass("high-" + ns.Name).PriorityValue(100).Obj()
 			util.MustCreate(ctx, k8sClient, highPriorityClass)
 			ginkgo.DeferCleanup(func() {
 				gomega.Expect(k8sClient.Delete(ctx, highPriorityClass)).To(gomega.Succeed())
@@ -457,7 +462,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			highPriorityGroup := podtesting.MakePod("high-priority-group", ns.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Queue(lq.Name).
-				PriorityClass("high").
+				PriorityClass(highPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				TerminationGracePeriod(1).
 				MakeGroup(2)
@@ -483,9 +488,9 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			})
 
 			ginkgo.By("Use events to observe the default-priority pods are getting preempted", func() {
-				util.ExpectEventsForObjects(eventWatcher, defaultGroupPods, func(e *corev1.Event) bool {
-					return e.InvolvedObject.Namespace == ns.Name && e.Reason == "Stopped"
-				})
+				util.ExpectEventsForObjectsWithTimeout(eventWatcher, defaultGroupPods, func(e *corev1.Event) bool {
+					return e.InvolvedObject.Namespace == ns.Name && e.Reason == jobframework.ReasonStopped && strings.Contains(e.Message, "Preempted")
+				}, util.LongTimeout)
 			})
 
 			ginkgo.By("Wait for default-priority pods to fail", func() {

@@ -22,27 +22,27 @@ import (
 	"k8s.io/kubectl/pkg/util/templates"
 	"k8s.io/utils/ptr"
 
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/options"
-	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
 var (
 	wlLong    = templates.LongDesc(`Resumes the Workload, allowing its admission according to regular ClusterQueue rules.`)
 	wlExample = templates.Examples(`
 		# Resume the workload 
-  		kueuectl resume workload my-workload
+  		kueuectl resume kueueworkload my-workload
 	`)
 )
 
-func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
+func NewWorkloadCmd(clientGetter clientgetter.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
 	o := options.NewUpdateWorkloadActivationOptions(streams, "resumed", true)
 
 	cmd := &cobra.Command{
 		Use: "workload NAME [--namespace NAMESPACE] [--dry-run STRATEGY]",
 		// To do not add "[flags]" suffix on the end of usage line
 		DisableFlagsInUseLine: true,
-		Aliases:               []string{"wl"},
+		Aliases:               []string{"kwl", "kueueworkload", "kueueworkloads"},
 		Short:                 "Resume the Workload",
 		Long:                  wlLong,
 		Example:               wlExample,

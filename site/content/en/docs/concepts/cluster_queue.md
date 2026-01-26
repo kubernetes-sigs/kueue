@@ -525,15 +525,6 @@ assignments are compared by setting `.spec.flavorFungibility.preference`:
 - `PreemptionOverBorrowing` reverses the tie-breaker to prefer reclaiming quota over borrowing:
   (`Fit`, `NoBorrow`) → (`Preempt`, `NoBorrow`) → (`Fit`, `Borrow`) → (`Preempt`, `Borrow`).
 
-{{% alert title="Note" color="primary" %}}
-The feature gate `FlavorFungibilityImplicitPreferenceDefault` is scheduled for removal in v0.15.
-
-Do not rely on this feature gate;
-instead configure flavor selection preference using the ClusterQueue field `spec.flavorFungibility.preference`
-(see [FlavorFungibility](/docs/concepts/cluster_queue/#flavorfungibility) for details).
-{{% /alert %}}
-
-
 ## StopPolicy
 
 StopPolicy allows a cluster administrator to temporary stop the admission of workloads within a ClusterQueue by setting its value in the [spec](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-ClusterQueueSpec) like:

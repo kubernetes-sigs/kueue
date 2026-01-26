@@ -98,15 +98,7 @@ func setReconnectState(rc *remoteClient, a uint) *remoteClient {
 }
 
 func makeTestSecret(name string, kubeconfig string) corev1.Secret {
-	return corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: TestNamespace,
-		},
-		Data: map[string][]byte{
-			kueue.MultiKueueConfigSecretKey: []byte(kubeconfig),
-		},
-	}
+	return *utiltesting.MakeSecret(name, TestNamespace).Data(kueue.MultiKueueConfigSecretKey, []byte(kubeconfig)).Obj()
 }
 
 type testClusterProfileCreds struct {
@@ -609,7 +601,7 @@ func TestUpdateConfig(t *testing.T) {
 					Generation(1).
 					Obj(),
 			},
-			wantErr: fmt.Errorf("failed to load client config, reason: BadClusterProfile, error: %w", errors.New(`clusterprofiles.multicluster.x-k8s.io "worker1" not found`)),
+			wantErr: nil,
 		},
 		"cluster profile feature gate disabled": {
 			reconcileFor: "worker1",
@@ -671,7 +663,7 @@ func TestUpdateConfig(t *testing.T) {
 			c := builder.Build()
 
 			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
-			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, tc.cpCreds)
+			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, tc.cpCreds, nil)
 
 			reconciler.rootContext = ctx
 

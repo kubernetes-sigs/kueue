@@ -77,13 +77,6 @@ const (
 	// to put them on closely located nodes (e.g. within the same rack or block).
 	TopologyAwareScheduling featuregate.Feature = "TopologyAwareScheduling"
 
-	// owner: @dgrove-oss
-	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2937-resource-transformer
-	//
-	// Enable applying configurable resource transformations when computing
-	// the resource requests of a Workload
-	ConfigurableResourceTransformations featuregate.Feature = "ConfigurableResourceTransformations"
-
 	// owner: @kpostoffice
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/1833-metrics-for-local-queue
 	//
@@ -158,14 +151,6 @@ const (
 	ManagedJobsNamespaceSelectorAlwaysRespected featuregate.Feature = "ManagedJobsNamespaceSelectorAlwaysRespected"
 
 	// owner: @pajakd
-	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/582-preempt-based-on-flavor-order
-	//
-	// In flavor fungibility, the preference whether to preempt or borrow is inferred from flavor fungibility policy.
-	//
-	// Deprecated: planned to be removed in v0.16.
-	FlavorFungibilityImplicitPreferenceDefault featuregate.Feature = "FlavorFungibilityImplicitPreferenceDefault"
-
-	// owner: @pajakd
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	//
 	// Use balanced placement algorithm in TAS. This feature gate is going to be replaced by an API
@@ -228,6 +213,30 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/6757
 	// Enabled failure recovery of pods stuck in terminating state.
 	FailureRecoveryPolicy featuregate.Feature = "FailureRecoveryPolicy"
+
+	// owner: @mbobrovskyi
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/5298
+	// Enabled skip adding finalizers for serving workloads.
+	SkipFinalizersForPodsSuspendedByParent featuregate.Feature = "SkipFinalizersForPodsSuspendedByParent"
+
+	// owner: @IrvingMg
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/8585
+	// Enable waiting for WorkloadAdmitted before cleaning up non-selected worker workloads.
+	MultiKueueWaitForWorkloadAdmitted featuregate.Feature = "MultiKueueWaitForWorkloadAdmitted"
+
+	// owner: @mszadkow
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/8302
+	// Redo admission on eviction in worker cluster.
+	MultiKueueRedoAdmissionOnEvictionInWorker featuregate.Feature = "MultiKueueRedoAdmissionOnEvictionInWorker"
+
+	// owner: @kannon92
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/8190
+	// Enables TLSOptions for TLS MinVersion and CipherSuites for kueue servers
+	TLSOptions featuregate.Feature = "TLSOptions"
 )
 
 func init() {
@@ -245,7 +254,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.4"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.5"), Default: true, PreRelease: featuregate.Beta},
 	},
-
 	FlavorFungibility: {
 		{Version: version.MustParse("0.5"), Default: true, PreRelease: featuregate.Beta},
 	},
@@ -271,11 +279,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	TopologyAwareScheduling: {
 		{Version: version.MustParse("0.9"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.Beta},
-	},
-	ConfigurableResourceTransformations: {
-		{Version: version.MustParse("0.9"), Default: false, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("0.10"), Default: true, PreRelease: featuregate.Beta},
-		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.16
 	},
 	LocalQueueMetrics: {
 		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
@@ -322,10 +325,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
-	FlavorFungibilityImplicitPreferenceDefault: {
-		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Deprecated}, // remove in 0.16
-	},
 	TASBalancedPlacement: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
@@ -348,7 +347,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	ReclaimablePods: {
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
-	// PropagateBatchJobLabelsToWorkload is anabled from 0.13.10 and 0.14.5.
+	// PropagateBatchJobLabelsToWorkload is enabled from 0.13.10 and 0.14.5.
 	PropagateBatchJobLabelsToWorkload: {
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
@@ -357,6 +356,18 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	FailureRecoveryPolicy: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	SkipFinalizersForPodsSuspendedByParent: {
+		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
+	},
+	MultiKueueWaitForWorkloadAdmitted: {
+		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
+	},
+	MultiKueueRedoAdmissionOnEvictionInWorker: {
+		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
+	},
+	TLSOptions: {
+		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
 	},
 }
 

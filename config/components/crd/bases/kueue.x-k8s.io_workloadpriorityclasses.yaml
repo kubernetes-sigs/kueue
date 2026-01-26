@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.20.0
   name: workloadpriorityclasses.kueue.x-k8s.io
 spec:
   group: kueue.x-k8s.io
@@ -19,6 +19,8 @@ spec:
       jsonPath: .value
       name: Value
       type: integer
+    deprecated: true
+    deprecationWarning: This version is deprecated. Use v1beta2 instead.
     name: v1beta1
     schema:
       openAPIV3Schema:
@@ -58,7 +60,7 @@ spec:
         - value
         type: object
     served: true
-    storage: true
+    storage: false
     subresources: {}
   - additionalPrinterColumns:
     - description: Value of workloadPriorityClass's Priority
@@ -106,5 +108,5 @@ spec:
         - value
         type: object
     served: true
-    storage: false
+    storage: true
     subresources: {}

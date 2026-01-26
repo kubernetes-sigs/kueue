@@ -143,22 +143,36 @@ func ResourceQuantityString(name corev1.ResourceName, v int64) string {
 }
 
 func (r Requests) CountIn(capacity Requests) int32 {
-	var result *int32
+	count, _ := r.CountInWithLimitingResource(capacity)
+	return count
+}
+
+// CountInWithLimitingResource returns how many times the request fits into capacity
+// and the resource that is most constraining (i.e., gave the minimum count).
+// When multiple resources have the same count, ties are broken alphabetically
+// by resource name for determinism.
+func (r Requests) CountInWithLimitingResource(capacity Requests) (int32, corev1.ResourceName) {
+	var (
+		result           *int32
+		limitingResource corev1.ResourceName
+	)
 	for rName, rValue := range r {
-		capacity, found := capacity[rName]
+		cap, found := capacity[rName]
 		if !found && rValue != 0 {
-			return 0
+			return 0, rName
 		}
 		// find the minimum count matching all the resource quota.
 		var count int32
 		if rValue == 0 {
 			count = int32(math.MaxInt32)
 		} else {
-			count = int32(capacity / rValue)
+			count = int32(cap / rValue)
 		}
-		if result == nil || count < *result {
+		// Tie-break between CPU and memory counts to ensure deterministic results.
+		if result == nil || count < *result || (count == *result && rName < limitingResource) {
 			result = ptr.To(count)
+			limitingResource = rName
 		}
 	}
-	return ptr.Deref(result, 0)
+	return ptr.Deref(result, 0), limitingResource
 }

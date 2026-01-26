@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Kueue Certs", func() {
+var _ = ginkgo.Describe("Kueue Certs", ginkgo.Label("area:singlecluster", "feature:certs"), ginkgo.Serial, func() {
 	var (
 		ns             *corev1.Namespace
 		onDemandFlavor *kueue.ResourceFlavor
@@ -48,27 +48,21 @@ var _ = ginkgo.Describe("Kueue Certs", func() {
 
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-certs-")
-		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").
+		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand-"+ns.Name).
 			NodeLabel("instance-type", "on-demand").Obj()
 		util.MustCreate(ctx, k8sClient, onDemandFlavor)
-		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue-" + ns.Name).
 			ResourceGroup(
-				*utiltestingapi.MakeFlavorQuotas("on-demand").
+				*utiltestingapi.MakeFlavorQuotas(onDemandFlavor.Name).
 					Resource(corev1.ResourceCPU, "1").
 					Resource(corev1.ResourceMemory, "1Gi").
 					Obj(),
 			).
 			Obj()
-		util.MustCreate(ctx, k8sClient, clusterQueue)
-		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
-		localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
-		util.MustCreate(ctx, k8sClient, localQueue)
-		gomega.Eventually(func(g gomega.Gomega) {
-			// await for the LQ to be active using LongTimeout
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), localQueue)).To(gomega.Succeed())
-			g.Expect(localQueue.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.LocalQueueActive))
-		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -142,13 +136,11 @@ var _ = ginkgo.Describe("Kueue Certs", func() {
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("revert the LocalQueue change", func() {
+		ginkgo.By("verify the LocalQueue status is updated", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), localQueue)).To(gomega.Succeed())
-				g.Expect(localQueue.Spec.StopPolicy).Should(gomega.Equal(ptr.To(kueue.Hold)))
-				localQueue.Spec.StopPolicy = ptr.To(kueue.None)
-				g.Expect(k8sClient.Update(ctx, localQueue)).Should(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				g.Expect(localQueue.Status.Conditions).To(utiltesting.HaveConditionStatusFalse(kueue.LocalQueueActive))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -170,7 +162,7 @@ var _ = ginkgo.Describe("Kueue Certs", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, key, deployment)).To(gomega.Succeed())
 				g.Expect(deployment.Status.Replicas).To(gomega.Equal(int32(0)))
-				g.Expect(deployment.Status.TerminatingReplicas).To(gomega.BeNil())
+				g.Expect(ptr.Deref(deployment.Status.TerminatingReplicas, 0)).To(gomega.Equal(int32(0)))
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -238,12 +230,10 @@ var _ = ginkgo.Describe("Kueue Certs", func() {
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("revert the change to LocalQueue", func() {
+		ginkgo.By("verify the LocalQueue status is updated", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), localQueue)).To(gomega.Succeed())
-				g.Expect(localQueue.Spec.StopPolicy).Should(gomega.BeEquivalentTo(ptr.To(kueue.Hold)))
-				localQueue.Spec.StopPolicy = ptr.To(kueue.None)
-				g.Expect(k8sClient.Update(ctx, localQueue)).Should(gomega.Succeed())
+				g.Expect(localQueue.Status.Conditions).To(utiltesting.HaveConditionStatusFalse(kueue.LocalQueueActive))
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})

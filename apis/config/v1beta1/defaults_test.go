@@ -367,7 +367,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable:          true,
 					BlockAdmission:  ptr.To(true),
 					Timeout:         &podsReadyTimeout,
-					RecoveryTimeout: nil,
+					RecoveryTimeout: &podsReadyTimeout,
 					RequeuingStrategy: &RequeuingStrategy{
 						Timestamp:          ptr.To(EvictionTimestamp),
 						BackoffBaseSeconds: ptr.To[int32](DefaultRequeuingBackoffBaseSeconds),

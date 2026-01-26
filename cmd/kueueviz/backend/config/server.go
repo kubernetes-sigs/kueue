@@ -18,7 +18,7 @@ package config
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -47,9 +47,9 @@ func NewServerConfig() *ServerConfig {
 func SetupPprof() {
 	if gin.Mode() != gin.ReleaseMode {
 		go func() {
-			log.Println("Starting pprof server on localhost:6060")
+			slog.Info("Starting pprof server on localhost:6060")
 			if err := http.ListenAndServe("localhost:6060", nil); err != nil {
-				log.Printf("Error starting pprof server: %v", err)
+				slog.Error("Error starting pprof server", "error", err)
 			}
 		}()
 	}

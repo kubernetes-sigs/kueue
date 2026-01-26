@@ -24,8 +24,10 @@ import (
 // ClusterQueuePendingWorkloadsStatusApplyConfiguration represents a declarative configuration of the ClusterQueuePendingWorkloadsStatus type for use
 // with apply.
 type ClusterQueuePendingWorkloadsStatusApplyConfiguration struct {
-	Head           []ClusterQueuePendingWorkloadApplyConfiguration `json:"clusterQueuePendingWorkload,omitempty"`
-	LastChangeTime *v1.Time                                        `json:"lastChangeTime,omitempty"`
+	// clusterQueuePendingWorkload contains the list of top pending workloads.
+	Head []ClusterQueuePendingWorkloadApplyConfiguration `json:"clusterQueuePendingWorkload,omitempty"`
+	// lastChangeTime indicates the time of the last change of the structure.
+	LastChangeTime *v1.Time `json:"lastChangeTime,omitempty"`
 }
 
 // ClusterQueuePendingWorkloadsStatusApplyConfiguration constructs a declarative configuration of the ClusterQueuePendingWorkloadsStatus type for use with

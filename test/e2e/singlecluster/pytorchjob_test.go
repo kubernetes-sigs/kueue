@@ -32,22 +32,22 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("PyTorch integration", func() {
-	const (
-		resourceFlavorName = "pytorch-rf"
-		clusterQueueName   = "pytorch-cq"
-		localQueueName     = "pytorch-lq"
-	)
-
+var _ = ginkgo.Describe("PyTorch integration", ginkgo.Label("area:singlecluster", "feature:pytorchjob"), func() {
 	var (
-		ns *corev1.Namespace
-		rf *kueue.ResourceFlavor
-		cq *kueue.ClusterQueue
-		lq *kueue.LocalQueue
+		ns                 *corev1.Namespace
+		rf                 *kueue.ResourceFlavor
+		cq                 *kueue.ClusterQueue
+		lq                 *kueue.LocalQueue
+		resourceFlavorName string
+		clusterQueueName   string
+		localQueueName     string
 	)
 
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pytorch-e2e-")
+		resourceFlavorName = "pytorch-rf-" + ns.Name
+		clusterQueueName = "pytorch-cq-" + ns.Name
+		localQueueName = "pytorch-lq-" + ns.Name
 
 		rf = utiltestingapi.MakeResourceFlavor(resourceFlavorName).Obj()
 		util.MustCreate(ctx, k8sClient, rf)
@@ -63,10 +63,10 @@ var _ = ginkgo.Describe("PyTorch integration", func() {
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 			}).
 			Obj()
-		util.MustCreate(ctx, k8sClient, cq)
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 
 		lq = utiltestingapi.MakeLocalQueue(localQueueName, ns.Name).ClusterQueue(cq.Name).Obj()
-		util.MustCreate(ctx, k8sClient, lq)
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteAllPyTorchJobsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())

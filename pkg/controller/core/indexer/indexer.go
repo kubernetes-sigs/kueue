@@ -41,6 +41,10 @@ const (
 	WorkloadRuntimeClassKey    = "spec.runtimeClass"
 	OwnerReferenceUID          = "metadata.ownerReferences.uid"
 	WorkloadAdmissionCheckKey  = "status.admissionChecks"
+	WorkloadPriorityClassKey   = "spec.priorityClassRef"
+	// WorkloadSliceNameKey is an index for pods by their workload slice name annotation.
+	// Used to find pods belonging to an elastic workload slice chain.
+	WorkloadSliceNameKey = "metadata.workloadSliceName"
 
 	// OwnerReferenceGroupKindFmt defines the format string used to construct a field path
 	// for indexing or matching against a specific owner Group and Kind in a Kubernetes object's metadata.
@@ -167,6 +171,19 @@ func IndexOwnerUID(obj client.Object) []string {
 	return slices.Map(obj.GetOwnerReferences(), func(o *metav1.OwnerReference) string { return string(o.UID) })
 }
 
+// IndexPodWorkloadSliceName indexes pods by their workload slice name annotation.
+func IndexPodWorkloadSliceName(obj client.Object) []string {
+	pod, ok := obj.(*corev1.Pod)
+	if !ok {
+		return nil
+	}
+	value, found := pod.Annotations[kueue.WorkloadSliceNameAnnotation]
+	if !found {
+		return nil
+	}
+	return []string{value}
+}
+
 func IndexWorkloadAdmissionCheck(obj client.Object) []string {
 	wl, ok := obj.(*kueue.Workload)
 	if !ok || len(wl.Status.AdmissionChecks) == 0 {
@@ -175,6 +192,18 @@ func IndexWorkloadAdmissionCheck(obj client.Object) []string {
 	return slices.Map(wl.Status.AdmissionChecks, func(checkState *kueue.AdmissionCheckState) string {
 		return string(checkState.Name)
 	})
+}
+
+func IndexWorkloadPriorityClass(obj client.Object) []string {
+	wl, ok := obj.(*kueue.Workload)
+	if !ok || wl.Spec.PriorityClassRef == nil {
+		return nil
+	}
+	if wl.Spec.PriorityClassRef.Kind != kueue.WorkloadPriorityClassKind ||
+		wl.Spec.PriorityClassRef.Group != kueue.WorkloadPriorityClassGroup {
+		return nil
+	}
+	return []string{wl.Spec.PriorityClassRef.Name}
 }
 
 // Setup sets the index with the given fields for core apis.
@@ -194,6 +223,9 @@ func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadAdmissionCheckKey, IndexWorkloadAdmissionCheck); err != nil {
 		return fmt.Errorf("setting index on admissionCheck for Workload: %w", err)
 	}
+	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadPriorityClassKey, IndexWorkloadPriorityClass); err != nil {
+		return fmt.Errorf("setting index on priorityClass for Workload: %w", err)
+	}
 	if err := indexer.IndexField(ctx, &kueue.LocalQueue{}, QueueClusterQueueKey, IndexQueueClusterQueue); err != nil {
 		return fmt.Errorf("setting index on clusterQueue for localQueue: %w", err)
 	}
@@ -203,11 +235,17 @@ func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &kueue.Workload{}, OwnerReferenceUID, IndexOwnerUID); err != nil {
 		return fmt.Errorf("setting index on ownerReferences.uid for Workload: %w", err)
 	}
-	// Add pod index to be able to list pods for elastic-jobs, needed to remove scheduling gate on
-	// admitted workload slices.
+	// Add pod indexes to be able to list pods for elastic-jobs, needed to remove scheduling gate on
+	// admitted workload slices. Uses workload slice name annotation to support JobSet and other
+	// workloads where pods are not immediate children of the job.
 	if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		if err := indexer.IndexField(ctx, &corev1.Pod{}, WorkloadSliceNameKey, IndexPodWorkloadSliceName); err != nil {
+			return fmt.Errorf("setting index on workloadSliceName for Pod: %w", err)
+		}
+		// OwnerReferenceUID index for Pod is for backwards compatibility only.
+		// TODO(sohankunkerkar): remove in 0.18
 		if err := indexer.IndexField(ctx, &corev1.Pod{}, OwnerReferenceUID, IndexOwnerUID); err != nil {
-			return err
+			return fmt.Errorf("setting index on ownerReferences.uid for Pod: %w", err)
 		}
 	}
 	return nil

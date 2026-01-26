@@ -30,7 +30,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -46,7 +45,7 @@ const (
 	flavorCPUArchB = "arch-b"
 )
 
-var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clusterqueue", "area:core"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns               *corev1.Namespace
 		emptyUsedFlavors = []kueue.FlavorUsage{
@@ -513,8 +512,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Mark two workers as reclaimable", func() {
-				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: "workers", Count: 2}})).To(gomega.Succeed())
-
+				util.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: "workers", Count: 2}})
 				util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 				util.ExpectLQReservingActiveWorkloadsMetric(localQueue, 1)
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -552,8 +550,8 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			})
 
 			ginkgo.By("Mark all workers and a driver as reclaimable", func() {
-				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: "workers", Count: 5}, {Name: "driver", Count: 1}})).To(gomega.Succeed())
-
+				reclaimablePods := []kueue.ReclaimablePod{{Name: "workers", Count: 5}, {Name: "driver", Count: 1}}
+				util.UpdateReclaimablePods(ctx, k8sClient, wl, reclaimablePods)
 				util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 				util.ExpectLQReservingActiveWorkloadsMetric(localQueue, 1)
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -637,7 +635,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, check2, true)
 		})
 
-		ginkgo.It("Should update status conditions when flavors are created", func() {
+		ginkgo.It("Should update status conditions when flavors are created", framework.SlowSpec, func() {
 			check1 = utiltestingapi.MakeAdmissionCheck("check1").ControllerName("ac-controller").Obj()
 			util.MustCreate(ctx, k8sClient, check1)
 			util.SetAdmissionCheckActive(ctx, k8sClient, check1, metav1.ConditionTrue)
@@ -694,7 +692,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("Should update status conditions when admission checks are created", func() {
+		ginkgo.It("Should update status conditions when admission checks are created", framework.SlowSpec, func() {
 			cpuArchAFlavor = utiltestingapi.MakeResourceFlavor(flavorCPUArchA).Obj()
 			util.MustCreate(ctx, k8sClient, cpuArchAFlavor)
 
@@ -940,7 +938,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			})
 
 			ginkgo.By("Marking two workers as reclaimable", func() {
-				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: "workers", Count: 2}})).To(gomega.Succeed())
+				util.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: "workers", Count: 2}})
 			})
 
 			ginkgo.By("Validating CQ status hasn't changed", func() {
@@ -1023,7 +1021,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			util.ExpectLQByStatusMetric(lq, metav1.ConditionFalse)
 		})
 
-		ginkgo.It("Should delete the cluster without waiting for reserving only workloads to finish", func() {
+		ginkgo.It("Should delete the cluster without waiting for reserving only workloads to finish", framework.SlowSpec, func() {
 			util.SetAdmissionCheckActive(ctx, k8sClient, check, metav1.ConditionTrue)
 			util.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusActive)
 			util.ExpectLQByStatusMetric(lq, metav1.ConditionTrue)

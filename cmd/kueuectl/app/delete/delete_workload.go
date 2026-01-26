@@ -37,14 +37,16 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	kueuev1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta2"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
-	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/dryrun"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/flags"
 )
 
 var (
 	wlExample = templates.Examples(`  
 		# Delete the Workload
-  		kueuectl delete workload my-workload
+  		kueuectl delete kueueworkload my-workload
 	`)
 	wlLong = templates.LongDesc(`
 		If the Workload has associated Jobs, the command will prompt for deletion approval
@@ -63,7 +65,7 @@ type WorkloadOptions struct {
 	Confirmed     bool
 	DeleteAll     bool
 
-	DryRunStrategy util.DryRunStrategy
+	DryRunStrategy dryrun.Strategy
 
 	Client        kueuev1beta2.KueueV1beta2Interface
 	DynamicClient dynamic.Interface
@@ -81,13 +83,13 @@ func NewWorkloadOptions(streams genericiooptions.IOStreams) *WorkloadOptions {
 	}
 }
 
-func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
+func NewWorkloadCmd(clientGetter clientgetter.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
 	o := NewWorkloadOptions(streams)
 
 	cmd := &cobra.Command{
 		Use:                   "workload NAME [--yes] [--all] [--dry-run STRATEGY]",
 		DisableFlagsInUseLine: true,
-		Aliases:               []string{"wl"},
+		Aliases:               []string{"kwl", "kueueworkload", "kueueworkloads"},
 		Short:                 "Delete the given Workload and its corresponding Job",
 		Long:                  wlLong,
 		Example:               wlExample,
@@ -107,14 +109,14 @@ func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOS
 	cmd.Flags().BoolVarP(&o.Confirmed, "yes", "y", false, "Automatic yes to the prompt for deleting the Workload.")
 	cmd.Flags().BoolVar(&o.DeleteAll, "all", false, "Delete all Workloads, in the specified namespace.")
 
-	util.AddAllNamespacesFlagVar(cmd, &o.AllNamespaces)
-	util.AddDryRunFlag(cmd)
+	flags.AddAllNamespacesFlagVar(cmd, &o.AllNamespaces)
+	flags.AddDryRunFlag(cmd)
 
 	return cmd
 }
 
 // Complete completes all the required options
-func (o *WorkloadOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Command, args []string) error {
+func (o *WorkloadOptions) Complete(clientGetter clientgetter.ClientGetter, cmd *cobra.Command, args []string) error {
 	o.Names = args
 
 	if !o.DeleteAll && len(o.Names) == 0 {
@@ -136,12 +138,12 @@ func (o *WorkloadOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Co
 		return err
 	}
 
-	o.DryRunStrategy, err = util.GetDryRunStrategy(cmd)
+	o.DryRunStrategy, err = dryrun.GetStrategy(cmd)
 	if err != nil {
 		return err
 	}
 
-	err = util.PrintFlagsWithDryRunStrategy(o.PrintFlags, o.DryRunStrategy)
+	err = dryrun.PrintFlagsWithStrategy(o.PrintFlags, o.DryRunStrategy)
 	if err != nil {
 		return err
 	}
@@ -212,7 +214,7 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 		return err
 	}
 
-	if o.DryRunStrategy == util.DryRunNone && !o.Confirmed && haveAssociatedResources {
+	if o.DryRunStrategy == dryrun.None && !o.Confirmed && haveAssociatedResources {
 		var confirmationMessage string
 		if o.DeleteAll {
 			confirmationMessage = "This operation will also delete the jobs associated with these workloads.\n"
@@ -345,12 +347,12 @@ func (o *WorkloadOptions) deleteWorkloads(ctx context.Context, workloadNameResou
 	for wl, nrs := range workloadNameResources {
 		deleteOptions := metav1.DeleteOptions{}
 
-		if o.DryRunStrategy == util.DryRunServer {
+		if o.DryRunStrategy == dryrun.Server {
 			deleteOptions.DryRun = []string{metav1.DryRunAll}
 		}
 
 		for _, nr := range nrs {
-			if o.DryRunStrategy != util.DryRunClient {
+			if o.DryRunStrategy != dryrun.Client {
 				if err := o.DynamicClient.Resource(nr.GroupVersionResource).Namespace(wl.Namespace).
 					Delete(ctx, nr.Name, deleteOptions); client.IgnoreNotFound(err) != nil {
 					return err
@@ -361,7 +363,7 @@ func (o *WorkloadOptions) deleteWorkloads(ctx context.Context, workloadNameResou
 
 		// Remove workload only if we don't have corresponding Job(s).
 		if len(nrs) == 0 {
-			if o.DryRunStrategy != util.DryRunClient {
+			if o.DryRunStrategy != dryrun.Client {
 				if err := o.Client.Workloads(wl.Namespace).Delete(ctx, wl.Name, deleteOptions); client.IgnoreNotFound(err) != nil {
 					return err
 				}

@@ -29,10 +29,15 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apiextensionsfake "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	resourcev1 "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/client-go/rest"
+	clienttesting "k8s.io/client-go/testing"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	"k8s.io/utils/ptr"
@@ -45,6 +50,8 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	"sigs.k8s.io/kueue/pkg/features"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
@@ -76,12 +83,6 @@ func defaultControlOptions(namespace string) ctrl.Options {
 		LeaseDuration:                 ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
 		RenewDeadline:                 ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
 		RetryPeriod:                   ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
-		WebhookServer: &webhook.DefaultServer{
-			Options: webhook.Options{
-				Port:    configapi.DefaultWebhookPort,
-				CertDir: configapi.DefaultWebhookCertDir,
-			},
-		},
 	}
 }
 
@@ -378,6 +379,7 @@ objectRetentionPolicies:
 		cmpopts.IgnoreUnexported(ctrlcache.Options{}),
 		cmpopts.IgnoreUnexported(net.ListenConfig{}),
 		cmpopts.IgnoreFields(ctrl.Options{}, "Scheme", "Logger"),
+		cmpopts.IgnoreFields(webhook.Options{}, "TLSOpts"),
 	}
 
 	// Ignore the controller manager section since it's side effect is checked against
@@ -432,26 +434,7 @@ objectRetentionPolicies:
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 			},
-			wantOptions: ctrl.Options{
-				Cache:                  defaultControlCacheOptions(configapi.DefaultNamespace),
-				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
-				Metrics: metricsserver.Options{
-					BindAddress: configapi.DefaultMetricsBindAddress,
-				},
-				LeaderElection:                true,
-				LeaderElectionID:              configapi.DefaultLeaderElectionID,
-				LeaderElectionResourceLock:    resourcelock.LeasesResourceLock,
-				LeaderElectionReleaseOnCancel: true,
-				LeaseDuration:                 ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
-				RenewDeadline:                 ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
-				RetryPeriod:                   ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
-				WebhookServer: &webhook.DefaultServer{
-					Options: webhook.Options{
-						Port:    configapi.DefaultWebhookPort,
-						CertDir: configapi.DefaultWebhookCertDir,
-					},
-				},
-			},
+			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
 		{
 			name:       "empty config",
@@ -536,12 +519,6 @@ objectRetentionPolicies:
 				LeaseDuration:                 ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
 				RenewDeadline:                 ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
 				RetryPeriod:                   ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
-				WebhookServer: &webhook.DefaultServer{
-					Options: webhook.Options{
-						Port:    9444,
-						CertDir: configapi.DefaultWebhookCertDir,
-					},
-				},
 			},
 		},
 		{
@@ -615,12 +592,6 @@ objectRetentionPolicies:
 				RenewDeadline:                 ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
 				RetryPeriod:                   ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
 				LeaderElection:                false,
-				WebhookServer: &webhook.DefaultServer{
-					Options: webhook.Options{
-						Port:    configapi.DefaultWebhookPort,
-						CertDir: configapi.DefaultWebhookCertDir,
-					},
-				},
 			},
 		},
 		{
@@ -650,26 +621,7 @@ objectRetentionPolicies:
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 			},
-			wantOptions: ctrl.Options{
-				Cache:                  defaultControlCacheOptions(configapi.DefaultNamespace),
-				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
-				Metrics: metricsserver.Options{
-					BindAddress: configapi.DefaultMetricsBindAddress,
-				},
-				LeaderElection:                true,
-				LeaderElectionID:              configapi.DefaultLeaderElectionID,
-				LeaderElectionResourceLock:    resourcelock.LeasesResourceLock,
-				LeaderElectionReleaseOnCancel: true,
-				LeaseDuration:                 ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
-				RenewDeadline:                 ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
-				RetryPeriod:                   ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
-				WebhookServer: &webhook.DefaultServer{
-					Options: webhook.Options{
-						Port:    configapi.DefaultWebhookPort,
-						CertDir: configapi.DefaultWebhookCertDir,
-					},
-				},
-			},
+			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
 		{
 			name:       "clientConnection config",
@@ -734,13 +686,6 @@ objectRetentionPolicies:
 					},
 					CacheSyncTimeout: 3,
 				},
-				WebhookServer: &webhook.DefaultServer{
-					Options: webhook.Options{
-						Port:    configapi.DefaultWebhookPort,
-						Host:    "host",
-						CertDir: "certDir",
-					},
-				},
 			},
 		},
 		{
@@ -764,26 +709,7 @@ objectRetentionPolicies:
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 			},
-			wantOptions: ctrl.Options{
-				Cache:                  defaultControlCacheOptions(configapi.DefaultNamespace),
-				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
-				Metrics: metricsserver.Options{
-					BindAddress: configapi.DefaultMetricsBindAddress,
-				},
-				LeaderElection:                true,
-				LeaderElectionID:              configapi.DefaultLeaderElectionID,
-				LeaderElectionResourceLock:    resourcelock.LeasesResourceLock,
-				LeaderElectionReleaseOnCancel: true,
-				LeaseDuration:                 ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
-				RenewDeadline:                 ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
-				RetryPeriod:                   ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
-				WebhookServer: &webhook.DefaultServer{
-					Options: webhook.Options{
-						Port:    configapi.DefaultWebhookPort,
-						CertDir: configapi.DefaultWebhookCertDir,
-					},
-				},
-			},
+			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
 
 		{
@@ -926,6 +852,289 @@ objectRetentionPolicies:
 	}
 }
 
+func TestTLSOptionsFeatureGate(t *testing.T) {
+	testScheme := runtime.NewScheme()
+	err := configapi.AddToScheme(testScheme)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tmpDir := t.TempDir()
+
+	tlsConfigWithCipherSuites := filepath.Join(tmpDir, "tls-with-ciphers.yaml")
+	if err := os.WriteFile(tlsConfigWithCipherSuites, []byte(`apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+namespace: kueue-system
+tls:
+  minVersion: VersionTLS12
+  cipherSuites:
+    - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+    - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+webhook:
+  port: 9443
+`), os.FileMode(0600)); err != nil {
+		t.Fatal(err)
+	}
+
+	tlsConfigTLS13 := filepath.Join(tmpDir, "tls13.yaml")
+	if err := os.WriteFile(tlsConfigTLS13, []byte(`apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+namespace: kueue-system
+tls:
+  minVersion: VersionTLS13
+webhook:
+  port: 9443
+`), os.FileMode(0600)); err != nil {
+		t.Fatal(err)
+	}
+
+	testcases := []struct {
+		name              string
+		configFile        string
+		featureGateValue  bool
+		wantConfiguration configapi.Configuration
+		verifyTLSApplied  bool
+	}{
+		{
+			name:             "TLS config applied when feature gate enabled",
+			configFile:       tlsConfigWithCipherSuites,
+			featureGateValue: true,
+			wantConfiguration: configapi.Configuration{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: configapi.GroupVersion.String(),
+					Kind:       "Configuration",
+				},
+				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				ManageJobsWithoutQueueName: false,
+				InternalCertManagement: &configapi.InternalCertManagement{
+					Enable:             ptr.To(true),
+					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
+					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
+				},
+				ClientConnection: &configapi.ClientConnection{
+					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
+					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
+				},
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{job.FrameworkName},
+				},
+				MultiKueue: &configapi.MultiKueue{
+					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
+					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
+					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
+					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+				},
+				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
+					MatchExpressions: []metav1.LabelSelectorRequirement{
+						{
+							Key:      corev1.LabelMetadataName,
+							Operator: metav1.LabelSelectorOpNotIn,
+							Values:   []string{"kube-system", "kueue-system"},
+						},
+					},
+				},
+				ControllerManager: configapi.ControllerManager{
+					TLS: &configapi.TLSOptions{
+						MinVersion: "VersionTLS12",
+						CipherSuites: []string{
+							"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+							"TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+						},
+					},
+				},
+			},
+			verifyTLSApplied: true,
+		},
+		{
+			name:             "TLS config NOT applied when feature gate disabled",
+			configFile:       tlsConfigWithCipherSuites,
+			featureGateValue: false,
+			wantConfiguration: configapi.Configuration{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: configapi.GroupVersion.String(),
+					Kind:       "Configuration",
+				},
+				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				ManageJobsWithoutQueueName: false,
+				InternalCertManagement: &configapi.InternalCertManagement{
+					Enable:             ptr.To(true),
+					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
+					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
+				},
+				ClientConnection: &configapi.ClientConnection{
+					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
+					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
+				},
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{job.FrameworkName},
+				},
+				MultiKueue: &configapi.MultiKueue{
+					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
+					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
+					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
+					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+				},
+				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
+					MatchExpressions: []metav1.LabelSelectorRequirement{
+						{
+							Key:      corev1.LabelMetadataName,
+							Operator: metav1.LabelSelectorOpNotIn,
+							Values:   []string{"kube-system", "kueue-system"},
+						},
+					},
+				},
+				ControllerManager: configapi.ControllerManager{
+					TLS: &configapi.TLSOptions{
+						MinVersion: "VersionTLS12",
+						CipherSuites: []string{
+							"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+							"TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+						},
+					},
+				},
+			},
+			verifyTLSApplied: false,
+		},
+		{
+			name:             "TLS 1.3 config applied when feature gate enabled",
+			configFile:       tlsConfigTLS13,
+			featureGateValue: true,
+			wantConfiguration: configapi.Configuration{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: configapi.GroupVersion.String(),
+					Kind:       "Configuration",
+				},
+				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				ManageJobsWithoutQueueName: false,
+				InternalCertManagement: &configapi.InternalCertManagement{
+					Enable:             ptr.To(true),
+					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
+					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
+				},
+				ClientConnection: &configapi.ClientConnection{
+					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
+					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
+				},
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{job.FrameworkName},
+				},
+				MultiKueue: &configapi.MultiKueue{
+					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
+					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
+					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
+					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+				},
+				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
+					MatchExpressions: []metav1.LabelSelectorRequirement{
+						{
+							Key:      corev1.LabelMetadataName,
+							Operator: metav1.LabelSelectorOpNotIn,
+							Values:   []string{"kube-system", "kueue-system"},
+						},
+					},
+				},
+				ControllerManager: configapi.ControllerManager{
+					TLS: &configapi.TLSOptions{
+						MinVersion: "VersionTLS13",
+					},
+				},
+			},
+			verifyTLSApplied: true,
+		},
+		{
+			name:             "TLS 1.3 config NOT applied when feature gate disabled",
+			configFile:       tlsConfigTLS13,
+			featureGateValue: false,
+			wantConfiguration: configapi.Configuration{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: configapi.GroupVersion.String(),
+					Kind:       "Configuration",
+				},
+				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				ManageJobsWithoutQueueName: false,
+				InternalCertManagement: &configapi.InternalCertManagement{
+					Enable:             ptr.To(true),
+					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
+					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
+				},
+				ClientConnection: &configapi.ClientConnection{
+					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
+					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
+				},
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{job.FrameworkName},
+				},
+				MultiKueue: &configapi.MultiKueue{
+					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
+					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
+					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
+					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+				},
+				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
+					MatchExpressions: []metav1.LabelSelectorRequirement{
+						{
+							Key:      corev1.LabelMetadataName,
+							Operator: metav1.LabelSelectorOpNotIn,
+							Values:   []string{"kube-system", "kueue-system"},
+						},
+					},
+				},
+				ControllerManager: configapi.ControllerManager{
+					TLS: &configapi.TLSOptions{
+						MinVersion: "VersionTLS13",
+					},
+				},
+			},
+			verifyTLSApplied: false,
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Set the feature gate for this test
+			features.SetFeatureGateDuringTest(t, features.TLSOptions, tc.featureGateValue)
+
+			options, cfg, err := Load(testScheme, tc.configFile)
+			if err != nil {
+				t.Fatalf("Unexpected error loading config: %v", err)
+			}
+
+			// Call AddWebhookSettingsTo to configure webhook server with TLS options
+			AddWebhookSettingsTo(&options, &cfg)
+
+			// Compare the loaded configuration
+			configCmpOpts := cmp.Options{
+				cmpopts.IgnoreFields(configapi.Configuration{}, "ControllerManager"),
+			}
+			if diff := cmp.Diff(tc.wantConfiguration, cfg, configCmpOpts...); diff != "" {
+				t.Errorf("Unexpected config (-want +got):\n%s", diff)
+			}
+
+			// Verify webhook server was created
+			if options.WebhookServer == nil {
+				t.Fatal("Expected WebhookServer to be created, but it was nil")
+			}
+
+			// Verify TLS options application based on feature gate
+			defaultServer, ok := options.WebhookServer.(*webhook.DefaultServer)
+			if !ok {
+				t.Fatalf("Expected WebhookServer to be *webhook.DefaultServer, got %T", options.WebhookServer)
+			}
+
+			// Check if TLSOpts are applied or not based on feature gate
+			if tc.verifyTLSApplied {
+				if len(defaultServer.Options.TLSOpts) == 0 {
+					t.Error("Expected TLSOpts to be applied when feature gate is enabled, but got none")
+				}
+			} else {
+				if len(defaultServer.Options.TLSOpts) > 0 {
+					t.Errorf("Expected TLSOpts NOT to be applied when feature gate is disabled, but got %d options", len(defaultServer.Options.TLSOpts))
+				}
+			}
+		})
+	}
+}
+
 func TestEncode(t *testing.T) {
 	testScheme := runtime.NewScheme()
 	err := configapi.AddToScheme(testScheme)
@@ -1050,6 +1259,119 @@ func TestWaitForPodsReadyIsEnabled(t *testing.T) {
 			got := waitforpodsready.Enabled(tc.cfg.WaitForPodsReady)
 			if tc.want != got {
 				t.Errorf("Unexpected result from waitforpodsready.Enabled()\nwant:\n%v\ngot:%v\n", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestConfigureClusterProfileCacheWithClient(t *testing.T) {
+	multiclusterCRD := &apiextensionsv1.CustomResourceDefinition{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "clusterprofiles.multicluster.x-k8s.io",
+		},
+	}
+
+	testCases := map[string]struct {
+		crdPresent       bool
+		failedGetCRD     bool
+		wantError        bool
+		wantOptionsCache func(string) ctrlcache.Options
+	}{
+		"clusterProfile CRD not present": {
+			wantOptionsCache: defaultControlCacheOptions,
+		},
+		"clusterProfile cache added to ByObject": {
+			crdPresent: true,
+			wantOptionsCache: func(namespace string) ctrlcache.Options {
+				cOpts := defaultControlOptions(namespace)
+				cOpts.Cache.ByObject[objectKeyClusterProfile] = ctrlcache.ByObject{
+					Namespaces: map[string]ctrlcache.Config{
+						namespace: {},
+					},
+				}
+				return cOpts.Cache
+			},
+		},
+		"error failed loading the ClusterProfile CRD": {
+			crdPresent:   true,
+			failedGetCRD: true,
+			wantError:    true,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			opts := &ctrl.Options{
+				Cache: defaultControlCacheOptions(configapi.DefaultNamespace),
+			}
+			cfg := &configapi.Configuration{
+				Namespace: ptr.To(configapi.DefaultNamespace),
+			}
+
+			var objects []runtime.Object
+			if tc.crdPresent {
+				objects = append(objects, multiclusterCRD)
+			}
+
+			fake := apiextensionsfake.NewClientset(objects...)
+			fake.PrependReactor("get", "customresourcedefinitions", func(action clienttesting.Action) (handled bool, ret runtime.Object, err error) {
+				getAction := action.(clienttesting.GetAction)
+				if getAction.GetName() == multiclusterCRD.Name && tc.failedGetCRD {
+					return true, nil, apierrors.NewBadRequest("testing error getting CRD")
+				}
+				return false, nil, nil
+			})
+
+			err := configureClusterProfileCacheWithClient(ctx, log, opts, fake, *cfg)
+			if tc.wantError {
+				if err == nil {
+					t.Error("Expected error but got none")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error:%s", err)
+				}
+				if diff := cmp.Diff(tc.wantOptionsCache(configapi.DefaultNamespace), opts.Cache); diff != "" {
+					t.Errorf("Unexpected options cache (-want +got):\n%s", diff)
+				}
+			}
+		})
+	}
+}
+
+func TestConfigureClusterProfileCache(t *testing.T) {
+	testCases := map[string]struct {
+		kubeConfig *rest.Config
+	}{
+		"error creating CRD client with empty kubeConfig": {
+			kubeConfig: &rest.Config{},
+		},
+		"error creating CRD client with invalid kubeConfig": {
+			kubeConfig: &rest.Config{Host: "http://invalid-host"},
+		},
+		"valid kubeConfig but no clusterProfile CRD": {
+			kubeConfig: &rest.Config{
+				Host:        "https://127.0.0.1:6443",
+				BearerToken: "fake-token",
+				TLSClientConfig: rest.TLSClientConfig{
+					Insecure: true,
+				},
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			opts := &ctrl.Options{
+				Cache: ctrlcache.Options{},
+			}
+			cfg := configapi.Configuration{Namespace: ptr.To(configapi.DefaultNamespace)}
+			err := ConfigureClusterProfileCache(ctx, log, opts, tc.kubeConfig, cfg)
+
+			if err == nil {
+				t.Error("Expected error but got none")
 			}
 		})
 	}

@@ -47,6 +47,7 @@ import (
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -61,7 +62,7 @@ var (
 	}
 )
 
-var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	ginkgo.When("manageJobsWithoutQueueName is disabled", func() {
 		var defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(corev1.LabelArchStable, "arm64").Obj()
 		var clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
@@ -134,7 +135,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		})
 
 		ginkgo.When("Using single pod", func() {
-			ginkgo.It("Should reconcile the single pod with the queue name", func() {
+			ginkgo.It("Should reconcile the single pod with the queue name", framework.SlowSpec, func() {
 				pod := testingpod.MakePod(podName, ns.Name).
 					Queue("test-queue").
 					Annotation("provreq.kueue.x-k8s.io/ValidUntilSeconds", "0").
@@ -329,7 +330,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					ginkgo.By("checking that pod is stopped when workload is evicted")
 
 					gomega.Expect(
-						workload.UpdateStatus(ctx, k8sClient, createdWorkload, kueue.WorkloadEvicted, metav1.ConditionTrue,
+						workload.SetConditionAndUpdate(ctx, k8sClient, createdWorkload, kueue.WorkloadEvicted, metav1.ConditionTrue,
 							kueue.WorkloadEvictedByPreemption, "By test", "evict", util.RealClock),
 					).Should(gomega.Succeed())
 					util.FinishEvictionForWorkloads(ctx, k8sClient, createdWorkload)
@@ -542,7 +543,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				})
 			})
 
-			ginkgo.It("Should ungate pod with prebuilt workload", func() {
+			ginkgo.It("Should ungate pod with prebuilt workload", framework.SlowSpec, func() {
 				const (
 					workloadName = "test-workload"
 				)
@@ -767,7 +768,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				})
 			})
 
-			ginkgo.It("Should keep the running pod group with the queue name if workload is evicted", func() {
+			ginkgo.It("Should keep the running pod group with the queue name if workload is evicted", framework.SlowSpec, func() {
 				ginkgo.By("Creating pods with queue name")
 				pod1 := testingpod.MakePod("test-pod1", ns.Name).
 					Group("test-group").
@@ -929,7 +930,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				})
 			})
 
-			ginkgo.It("Should keep the existing workload for pod replacement", func() {
+			ginkgo.It("Should keep the existing workload for pod replacement", framework.SlowSpec, func() {
 				ginkgo.By("Creating a single pod with queue and group names")
 
 				pod := testingpod.MakePod("test-pod", ns.Name).
@@ -1071,7 +1072,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.It("Should finish the group if one Pod has the `retriable-in-group: false` annotation", func() {
+			ginkgo.It("Should finish the group if one Pod has the `retriable-in-group: false` annotation", framework.SlowSpec, func() {
 				ginkgo.By("Creating pods with queue name")
 				pod1 := testingpod.MakePod("test-pod1", ns.Name).
 					Group("test-group").
@@ -1184,7 +1185,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				})
 			})
 
-			ginkgo.It("Should finalize and delete excess pods", func() {
+			ginkgo.It("Should finalize and delete excess pods", framework.SlowSpec, func() {
 				ginkgo.By("Creating pods with queue name")
 				pod1 := testingpod.MakePod("test-pod1", ns.Name).
 					Group("test-group").
@@ -1505,7 +1506,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				})
 			})
 
-			ginkgo.It("Should ungate pod after Succeeded phase when serving workload is enabled", func() {
+			ginkgo.It("Should ungate pod after Succeeded phase when serving workload is enabled", framework.SlowSpec, func() {
 				ginkgo.By("Creating pods with queue name")
 				pod1 := testingpod.MakePod("test-pod1", ns.Name).
 					Group("test-group").
@@ -1607,7 +1608,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				})
 			})
 
-			ginkgo.It("Should ungate pods with prebuilt workload", func() {
+			ginkgo.It("Should ungate pods with prebuilt workload", framework.SlowSpec, func() {
 				const (
 					workloadName = "test-workload"
 				)
@@ -1721,7 +1722,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 	})
 })
 
-var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Label("job:pod", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns                  *corev1.Namespace
 		spotUntaintedFlavor *kueue.ResourceFlavor
@@ -1965,7 +1966,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Orde
 	})
 })
 
-var _ = ginkgo.Describe("Pod controller interacting with Workload controller when waitForPodsReady enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Pod controller interacting with Workload controller when waitForPodsReady enabled", ginkgo.Label("job:pod", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns *corev1.Namespace
 		fl *kueue.ResourceFlavor
@@ -2030,7 +2031,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 	})
 
 	ginkgo.When("pod group not ready", func() {
-		ginkgo.It("should deactivate and evict workload due exceeding backoffLimitCount", func() {
+		ginkgo.It("should deactivate and evict workload due exceeding backoffLimitCount", framework.SlowSpec, func() {
 			podGroupName := "pod-group"
 			pod := testingpod.MakePod("pod", ns.Name).
 				Group(podGroupName).
@@ -2165,7 +2166,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 	})
 })
 
-var _ = ginkgo.Describe("Pod controller with TopologyAwareScheduling", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Pod controller with TopologyAwareScheduling", ginkgo.Label("job:pod", "area:jobs", "feature:tas"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	const (
 		nodeGroupLabel = "node-group"
 		tasBlockLabel  = "cloud.com/topology-block"
@@ -2246,7 +2247,7 @@ var _ = ginkgo.Describe("Pod controller with TopologyAwareScheduling", ginkgo.Or
 		}
 	})
 
-	ginkgo.It("should admit workload which fits in a required topology domain (single pod)", func() {
+	ginkgo.It("should admit workload which fits in a required topology domain (single pod)", framework.SlowSpec, func() {
 		pod := testingpod.MakePod("pod", ns.Name).
 			Queue(localQueue.Name).
 			Annotation(kueue.PodSetRequiredTopologyAnnotation, tasBlockLabel).
@@ -2350,7 +2351,7 @@ var _ = ginkgo.Describe("Pod controller with TopologyAwareScheduling", ginkgo.Or
 	})
 })
 
-var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", ginkgo.Label("job:pod", "area:jobs", "feature:tas"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	const (
 		nodeGroupLabel = "node-group"
 	)
@@ -2455,7 +2456,7 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
 		}
 	})
-	ginkgo.It("should immediately replace a failed node when pods are terminating after node failure", func() {
+	ginkgo.It("should immediately replace a failed node when pods are terminating after node failure", framework.SlowSpec, func() {
 		podGroupName := "pod-group"
 		var nodeName string
 		podgroup := testingpod.MakePod(podGroupName, ns.Name).
@@ -2539,7 +2540,7 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 			}, util.Timeout, util.Interval).ShouldNot(gomega.Equal(nodeName))
 		})
 	})
-	ginkgo.It("should immediately replace a failed node when pods are terminating before node failure", func() {
+	ginkgo.It("should immediately replace a failed node when pods are terminating before node failure", framework.SlowSpec, func() {
 		podGroupName := "pod-group"
 		var nodeName string
 		podgroup := testingpod.MakePod(podGroupName, ns.Name).

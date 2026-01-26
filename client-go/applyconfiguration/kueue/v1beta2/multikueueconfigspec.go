@@ -19,7 +19,10 @@ package v1beta2
 
 // MultiKueueConfigSpecApplyConfiguration represents a declarative configuration of the MultiKueueConfigSpec type for use
 // with apply.
+//
+// MultiKueueConfigSpec defines the desired state of MultiKueueConfig
 type MultiKueueConfigSpecApplyConfiguration struct {
+	// clusters is a list of MultiKueueClusters names where the workloads from the ClusterQueue should be distributed.
 	Clusters []string `json:"clusters,omitempty"`
 }
 

@@ -63,6 +63,7 @@ func SetupJobSetWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		For(obj).
 		WithMutationHandler(admission.WithCustomDefaulter(mgr.GetScheme(), obj, wh)).
 		WithValidator(wh).
+		WithRoleTracker(options.RoleTracker).
 		Complete()
 }
 

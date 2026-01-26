@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.20.0
   name: admissionchecks.kueue.x-k8s.io
 spec:
   group: kueue.x-k8s.io
@@ -14,7 +14,9 @@ spec:
     singular: admissioncheck
   scope: Cluster
   versions:
-  - name: v1beta1
+  - deprecated: true
+    deprecationWarning: This version is deprecated. Use v1beta2 instead.
+    name: v1beta1
     schema:
       openAPIV3Schema:
         description: AdmissionCheck is the Schema for the admissionchecks API
@@ -153,7 +155,7 @@ spec:
             type: object
         type: object
     served: true
-    storage: true
+    storage: false
     subresources:
       status: {}
   - name: v1beta2
@@ -292,6 +294,6 @@ spec:
             type: object
         type: object
     served: true
-    storage: false
+    storage: true
     subresources:
       status: {}

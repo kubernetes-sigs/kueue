@@ -22,6 +22,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -36,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/scheduler"
+	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -46,6 +48,8 @@ var (
 	k8sClient client.Client
 	ctx       context.Context
 	fwk       *framework.Framework
+	// Cleanup after https://github.com/kubernetes-sigs/kueue/issues/8653
+	qManager *qcache.Manager
 )
 
 func TestAPIs(t *testing.T) {
@@ -75,8 +79,11 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	failedWebhook, err := webhooks.Setup(mgr)
+	failedWebhook, err := webhooks.Setup(mgr, nil)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
+
+	err = webhook.SetupNoopWebhook(mgr, &corev1.Pod{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	controllersCfg := &config.Configuration{}
 	mgr.GetScheme().Default(controllersCfg)
@@ -84,11 +91,12 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	cacheOptions := []schdcache.Option{}
 	cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 	queues := qcache.NewManager(mgr.GetClient(), cCache)
+	qManager = queues
 
-	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg)
+	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "Core controller", failedCtrl)
 
-	failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, controllersCfg)
+	failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, controllersCfg, nil)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "TAS controller", failedCtrl)
 
 	err = tasindexer.SetupIndexes(ctx, mgr.GetFieldIndexer())
@@ -99,7 +107,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 
 	reconciler, err := provisioning.NewController(
 		mgr.GetClient(),
-		mgr.GetEventRecorderFor("kueue-provisioning-request-controller"))
+		mgr.GetEventRecorderFor("kueue-provisioning-request-controller"), nil)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = reconciler.SetupWithManager(mgr)

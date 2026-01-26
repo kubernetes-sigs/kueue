@@ -24,8 +24,21 @@ import (
 // ResourceGroupApplyConfiguration represents a declarative configuration of the ResourceGroup type for use
 // with apply.
 type ResourceGroupApplyConfiguration struct {
-	CoveredResources []v1.ResourceName                `json:"coveredResources,omitempty"`
-	Flavors          []FlavorQuotasApplyConfiguration `json:"flavors,omitempty"`
+	// coveredResources is the list of resources covered by the flavors in this
+	// group.
+	// Examples: cpu, memory, vendor.com/gpu.
+	// The list cannot be empty and it can contain up to 64 resources. With a total
+	// of up to 256 covered resources across all resource groups in the ClusterQueue.
+	CoveredResources []v1.ResourceName `json:"coveredResources,omitempty"`
+	// flavors is the list of flavors that provide the resources of this group.
+	// Typically, different flavors represent different hardware models
+	// (e.g., gpu models, cpu architectures) or pricing models (on-demand vs spot
+	// cpus).
+	// Each flavor MUST list all the resources listed for this group in the same
+	// order as the .resources field.
+	// The list cannot be empty and it can contain up to 64 flavors, with a max of
+	// 256 total flavors across all resource groups in the ClusterQueue.
+	Flavors []FlavorQuotasApplyConfiguration `json:"flavors,omitempty"`
 }
 
 // ResourceGroupApplyConfiguration constructs a declarative configuration of the ResourceGroup type for use with

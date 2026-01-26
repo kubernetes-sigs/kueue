@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"golang.org/x/sync/errgroup"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,19 +30,23 @@ import (
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
 const (
@@ -56,43 +61,47 @@ var (
 
 type Reconciler struct {
 	client                       client.Client
-	log                          logr.Logger
+	logName                      string
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
+	roleTracker                  *roletracker.RoleTracker
 }
+
+const controllerName = "statefulset"
 
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile StatefulSet")
 
-	err := r.fetchAndFinalizePods(ctx, req)
-	return ctrl.Result{}, err
-}
-
-func (r *Reconciler) fetchAndFinalizePods(ctx context.Context, req reconcile.Request) error {
 	podList := &corev1.PodList{}
 	if err := r.client.List(ctx, podList, client.InNamespace(req.Namespace), client.MatchingLabels{
 		podcontroller.GroupNameLabel: GetWorkloadName(req.Name),
 	}); err != nil {
-		return err
-	}
-
-	// If no Pods are found, there's nothing to do.
-	if len(podList.Items) == 0 {
-		return nil
+		return ctrl.Result{}, err
 	}
 
 	sts := &appsv1.StatefulSet{}
 	err := r.client.Get(ctx, req.NamespacedName, sts)
 	if client.IgnoreNotFound(err) != nil {
-		return err
+		return ctrl.Result{}, err
 	}
 
 	if err != nil {
 		sts = nil
 	}
 
-	return r.finalizePods(ctx, sts, podList.Items)
+	eg, ctx := errgroup.WithContext(ctx)
+
+	eg.Go(func() error {
+		return r.finalizePods(ctx, sts, podList.Items)
+	})
+
+	eg.Go(func() error {
+		return r.reconcileWorkload(ctx, sts)
+	})
+
+	err = eg.Wait()
+	return ctrl.Result{}, err
 }
 
 func (r *Reconciler) finalizePods(ctx context.Context, sts *appsv1.StatefulSet, pods []corev1.Pod) error {
@@ -123,6 +132,8 @@ func ungateAndFinalize(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
 		updated = true
 	}
 
+	// TODO (#8571): As discussed in https://github.com/kubernetes-sigs/kueue/issues/8571,
+	// this check should be removed in v0.20.
 	if shouldFinalize(sts, pod) && controllerutil.RemoveFinalizer(pod, podcontroller.PodFinalizer) {
 		updated = true
 	}
@@ -136,7 +147,44 @@ func shouldUngate(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
 }
 
 func shouldFinalize(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
-	return shouldUngate(sts, pod) || utilpod.IsTerminated(pod)
+	return shouldUngate(sts, pod) || utilpod.IsTerminated(pod) || pod.DeletionTimestamp != nil
+}
+
+func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.StatefulSet) error {
+	if sts == nil {
+		return nil
+	}
+
+	wl := &kueue.Workload{}
+	err := r.client.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: GetWorkloadName(sts.Name)}, wl)
+	if err != nil {
+		return client.IgnoreNotFound(err)
+	}
+
+	hasOwnerReference, err := controllerutil.HasOwnerReference(wl.OwnerReferences, sts, r.client.Scheme())
+	if err != nil {
+		return err
+	}
+
+	var (
+		shouldUpdate = false
+		replicas     = ptr.Deref(sts.Spec.Replicas, 1)
+	)
+
+	switch {
+	case hasOwnerReference && replicas == 0:
+		shouldUpdate = true
+		err = controllerutil.RemoveOwnerReference(sts, wl, r.client.Scheme())
+	case !hasOwnerReference && replicas > 0:
+		shouldUpdate = true
+		err = controllerutil.SetOwnerReference(sts, wl, r.client.Scheme())
+	}
+	if err != nil || !shouldUpdate {
+		return err
+	}
+
+	err = r.client.Update(ctx, wl)
+	return err
 }
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -145,6 +193,9 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&appsv1.StatefulSet{}).
 		WithEventFilter(r).
 		Watches(&corev1.Pod{}, &podHandler{}).
+		WithOptions(controller.Options{
+			LogConstructor: roletracker.NewLogConstructor(r.roleTracker, controllerName),
+		}).
 		Complete(r)
 }
 
@@ -153,10 +204,15 @@ func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexe
 
 	return &Reconciler{
 		client:                       client,
-		log:                          ctrl.Log.WithName("statefulset-reconciler"),
+		logName:                      "statefulset-reconciler",
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
+		roleTracker:                  options.RoleTracker,
 	}, nil
+}
+
+func (r *Reconciler) logger() logr.Logger {
+	return roletracker.WithReplicaRole(ctrl.Log.WithName(r.logName), r.roleTracker)
 }
 
 var _ predicate.Predicate = (*Reconciler)(nil)
@@ -184,7 +240,7 @@ func (r *Reconciler) handle(obj client.Object) bool {
 	}
 
 	ctx := context.Background()
-	log := r.log.WithValues("statefulset", klog.KObj(sts))
+	log := r.logger().WithValues("statefulset", klog.KObj(sts))
 	ctrl.LoggerInto(ctx, log)
 
 	// Handle only statefulset managed by kueue.

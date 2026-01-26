@@ -55,7 +55,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 	baseWorkload := utiltestingapi.MakeWorkload(wlName, nsName).
 		Finalizers(kueue.ResourceInUseFinalizerName).
 		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-		ReserveQuota(
+		ReserveQuotaAt(
 			utiltestingapi.MakeAdmission("cq").
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
@@ -63,9 +63,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 						Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{nodeName}, 1).Obj()).
 						Obj()).
 					Obj()).
-				Obj(),
+				Obj(), testStartTime,
 		).
-		Admitted(true).
+		AdmittedAt(true, testStartTime).
 		Obj()
 
 	workloadWithUnhealthyNode := baseWorkload.DeepCopy()
@@ -73,7 +73,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 	workloadWithTwoNodes := utiltestingapi.MakeWorkload(wlName, nsName).
 		Finalizers(kueue.ResourceInUseFinalizerName).
 		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
-		ReserveQuota(
+		ReserveQuotaAt(
 			utiltestingapi.MakeAdmission("cq").
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
@@ -85,9 +85,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 						).
 						Obj()).
 					Obj()).
-				Obj(),
+				Obj(), testStartTime,
 		).
-		Admitted(true).
+		AdmittedAt(true, testStartTime).
 		Obj()
 
 	now := metav1.NewTime(fakeClock.Now())
@@ -289,7 +289,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			}
 			cl := clientBuilder.Build()
 			recorder := &utiltesting.EventRecorder{}
-			r := newNodeFailureReconciler(cl, recorder)
+			r := newNodeFailureReconciler(cl, recorder, nil)
 			r.clock = fakeClock
 
 			var result reconcile.Result

@@ -34,11 +34,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
 )
 
@@ -58,11 +58,13 @@ type TerminatingPodReconciler struct {
 	clock                          clock.Clock
 	forcefulTerminationGracePeriod time.Duration
 	recorder                       record.EventRecorder
+	roleTracker                    *roletracker.RoleTracker
 }
 
 type TerminatingPodReconcilerOptions struct {
 	clock                          clock.Clock
 	forcefulTerminationGracePeriod time.Duration
+	roleTracker                    *roletracker.RoleTracker
 }
 
 type TerminatingPodReconcilerOption func(*TerminatingPodReconcilerOptions)
@@ -76,6 +78,13 @@ func WithClock(c clock.Clock) TerminatingPodReconcilerOption {
 func WithForcefulTerminationGracePeriod(t time.Duration) TerminatingPodReconcilerOption {
 	return func(o *TerminatingPodReconcilerOptions) {
 		o.forcefulTerminationGracePeriod = t
+	}
+}
+
+// WithRoleTracker sets the roleTracker for HA logging.
+func WithRoleTracker(tracker *roletracker.RoleTracker) TerminatingPodReconcilerOption {
+	return func(o *TerminatingPodReconcilerOptions) {
+		o.roleTracker = tracker
 	}
 }
 
@@ -99,6 +108,7 @@ func NewTerminatingPodReconciler(
 		clock:                          options.clock,
 		forcefulTerminationGracePeriod: options.forcefulTerminationGracePeriod,
 		recorder:                       recorder,
+		roleTracker:                    options.roleTracker,
 	}
 }
 
@@ -201,8 +211,10 @@ func podEligibleForTermination(p *corev1.Pod) bool {
 	return true
 }
 
+const ControllerName = "failure-recovery-pod-termination-controller"
+
 func (r *TerminatingPodReconciler) SetupWithManager(mgr ctrl.Manager, cfg *configapi.Configuration) (string, error) {
-	return "failure-recovery-pod-termination-controller", ctrl.NewControllerManagedBy(mgr).
+	return ControllerName, ctrl.NewControllerManagedBy(mgr).
 		Named("pod_termination_controller").
 		WatchesRawSource(source.TypedKind(
 			mgr.GetCache(),
@@ -212,7 +224,8 @@ func (r *TerminatingPodReconciler) SetupWithManager(mgr ctrl.Manager, cfg *confi
 		)).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      ptr.To(false),
-			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("Pod").GroupKind().String()],
+			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[corev1.SchemeGroupVersion.WithKind("Pod").GroupKind().String()],
 		}).
+		WithLogConstructor(roletracker.NewLogConstructor(r.roleTracker, ControllerName)).
 		Complete(core.WithLeadingManager(mgr, r, &corev1.Pod{}, cfg))
 }

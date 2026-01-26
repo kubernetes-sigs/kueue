@@ -50,6 +50,7 @@ const (
 )
 
 func TestLocalQueueReconcile(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
 	clock := testingclock.NewFakeClock(time.Now().Truncate(time.Second))
 	cases := map[string]struct {
 		clusterQueue             *kueue.ClusterQueue
@@ -146,7 +147,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				Resources: corev1.ResourceList{
 					corev1.ResourceCPU: resource.MustParse("8"),
 				},
-				LastUpdate: clock.Now().Add(-5 * time.Minute),
+				LastUpdate: now.Add(-5 * time.Minute),
 			},
 			wantLocalQueue: utiltestingapi.MakeLocalQueue("test-queue", "default").
 				ClusterQueue("cq").
@@ -207,7 +208,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 					Queue("lq").
 					Request(corev1.ResourceCPU, "4").
 					SimpleReserveQuota("cq", "rf", clock.Now()).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			afsConfig: &config.AdmissionFairSharing{
@@ -256,19 +257,19 @@ func TestLocalQueueReconcile(t *testing.T) {
 					Queue("lq").
 					Request(corev1.ResourceCPU, "2").
 					SimpleReserveQuota("cq", "rf-1", clock.Now()).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-2", "default").
 					Queue("lq").
 					Request(corev1.ResourceCPU, "2").
 					SimpleReserveQuota("cq", "rf-2", clock.Now()).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-3", "default").
 					Queue("lq").
 					Request("GPU", "4").
 					SimpleReserveQuota("cq", "rf-3", clock.Now()).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			afsConfig: &config.AdmissionFairSharing{
@@ -315,7 +316,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 					Queue("lq").
 					Request(corev1.ResourceCPU, "4").
 					SimpleReserveQuota("cq", "rf", clock.Now()).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			afsConfig: &config.AdmissionFairSharing{
@@ -399,7 +400,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 					Queue("lq").
 					Request("GPU", "4").
 					SimpleReserveQuota("cq", "rf", clock.Now()).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			afsConfig: &config.AdmissionFairSharing{
@@ -442,7 +443,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 					Queue("lq").
 					Request("GPU", "4").
 					SimpleReserveQuota("cq", "rf", clock.Now()).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			afsConfig: &config.AdmissionFairSharing{
@@ -542,7 +543,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 					Queue("lq").
 					Request(corev1.ResourceCPU, "4").
 					SimpleReserveQuota("cq", "rf", clock.Now()).
-					Admitted(true).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq", "default").

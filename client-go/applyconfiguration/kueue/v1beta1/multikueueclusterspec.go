@@ -20,7 +20,12 @@ package v1beta1
 // MultiKueueClusterSpecApplyConfiguration represents a declarative configuration of the MultiKueueClusterSpec type for use
 // with apply.
 type MultiKueueClusterSpecApplyConfiguration struct {
-	KubeConfig        *KubeConfigApplyConfiguration              `json:"kubeConfig,omitempty"`
+	// kubeConfig is information on how to connect to the cluster.
+	KubeConfig *KubeConfigApplyConfiguration `json:"kubeConfig,omitempty"`
+	// clusterProfileRef is the reference to the ClusterProfile object used to connect to the cluster.
+	//
+	// This is only used to prevent data loss when converting between v1beta2 and v1beta1.
+	// It has no effect in v1beta1.
 	ClusterProfileRef *ClusterProfileReferenceApplyConfiguration `json:"clusterProfileRef,omitempty"`
 }
 

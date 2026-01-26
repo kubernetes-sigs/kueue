@@ -26,6 +26,7 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -39,14 +40,22 @@ import (
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
 type PodReconciler struct {
-	client client.Client
+	client      client.Client
+	roleTracker *roletracker.RoleTracker
 }
 
-func NewPodReconciler(_ context.Context, client client.Client, _ client.FieldIndexer, _ record.EventRecorder, _ ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
-	return &PodReconciler{client: client}, nil
+const podControllerName = "leaderworkerset_pod"
+
+func NewPodReconciler(_ context.Context, client client.Client, _ client.FieldIndexer, _ record.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
+	options := jobframework.ProcessOptions(opts...)
+	return &PodReconciler{
+		client:      client,
+		roleTracker: options.RoleTracker,
+	}, nil
 }
 
 var _ jobframework.JobReconcilerInterface = (*PodReconciler)(nil)
@@ -55,8 +64,11 @@ func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	ctrl.Log.V(3).Info("Setting up Pod reconciler for LeaderWorkerSet")
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.Pod{}).
-		Named("leaderworkerset_pod").
+		Named(podControllerName).
 		WithEventFilter(r).
+		WithOptions(controller.Options{
+			LogConstructor: roletracker.NewLogConstructor(r.roleTracker, podControllerName),
+		}).
 		Complete(r)
 }
 
@@ -71,7 +83,9 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile LeaderWorkerSet Pod")
 
-	if utilpod.IsTerminated(pod) {
+	// TODO (#8571): As discussed in https://github.com/kubernetes-sigs/kueue/issues/8571,
+	// this check should be removed in v0.20.
+	if utilpod.IsTerminated(pod) || pod.DeletionTimestamp != nil {
 		err = client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
 			removed := controllerutil.RemoveFinalizer(pod, podconstants.PodFinalizer)
 			if removed {

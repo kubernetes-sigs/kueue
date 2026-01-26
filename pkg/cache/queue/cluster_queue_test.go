@@ -221,13 +221,13 @@ func Test_Delete(t *testing.T) {
 	if cq.PendingTotal() != 2 {
 		t.Error("ClusterQueue should have two workload")
 	}
-	cq.Delete(log, wl1)
+	cq.Delete(log, workload.Key(wl1))
 	if cq.PendingTotal() != 1 {
 		t.Error("ClusterQueue should have only one workload")
 	}
 	// Change workload item, ClusterQueue.Delete should only care about the namespace and name.
 	wl2.Spec = kueue.WorkloadSpec{QueueName: "default"}
-	cq.Delete(log, wl2)
+	cq.Delete(log, workload.Key(wl2))
 	if cq.PendingTotal() != 0 {
 		t.Error("ClusterQueue should have be empty")
 	}
@@ -256,11 +256,11 @@ func Test_AddFromLocalQueue(t *testing.T) {
 		},
 	}
 	cq.PushOrUpdate(workload.NewInfo(wl))
-	if added := cq.AddFromLocalQueue(queue); added {
+	if added := cq.AddFromLocalQueue(queue, nil); added {
 		t.Error("expected workload not to be added")
 	}
-	cq.Delete(log, wl)
-	if added := cq.AddFromLocalQueue(queue); !added {
+	cq.Delete(log, workload.Key(wl))
+	if added := cq.AddFromLocalQueue(queue, nil); !added {
 		t.Error("workload should be added to the ClusterQueue")
 	}
 }
@@ -285,7 +285,7 @@ func Test_DeleteFromLocalQueue(t *testing.T) {
 
 	for _, w := range inadmissibleWorkloads {
 		wInfo := workload.NewInfo(w)
-		cq.requeueIfNotPresent(wInfo, false)
+		cq.requeueIfNotPresent(log, wInfo, false)
 		qImpl.AddOrUpdate(wInfo)
 	}
 
@@ -297,7 +297,7 @@ func Test_DeleteFromLocalQueue(t *testing.T) {
 		t.Errorf("clusterQueue's workload number in inadmissibleWorkloads not right, want %v, got %v", len(inadmissibleWorkloads), len(cq.inadmissibleWorkloads))
 	}
 
-	cq.DeleteFromLocalQueue(log, qImpl)
+	cq.DeleteFromLocalQueue(log, qImpl, nil)
 	if cq.PendingTotal() != 0 {
 		t.Error("clusterQueue should be empty")
 	}
@@ -443,10 +443,10 @@ func TestClusterQueueImpl(t *testing.T) {
 			}
 
 			for _, w := range test.inadmissibleWorkloadsToRequeue {
-				cq.requeueIfNotPresent(w, false)
+				cq.requeueIfNotPresent(log, w, false)
 			}
 			for _, w := range test.admissibleWorkloadsToRequeue {
-				cq.requeueIfNotPresent(w, true)
+				cq.requeueIfNotPresent(log, w, true)
 			}
 
 			for _, w := range test.workloadsToUpdate {
@@ -454,7 +454,7 @@ func TestClusterQueueImpl(t *testing.T) {
 			}
 
 			for _, w := range test.workloadsToDelete {
-				cq.Delete(log, w)
+				cq.Delete(log, workload.Key(w))
 			}
 
 			if test.queueInadmissibleWorkloads {
@@ -476,7 +476,7 @@ func TestClusterQueueImpl(t *testing.T) {
 }
 
 func TestQueueInadmissibleWorkloadsDuringScheduling(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()))
 	cq.namespaceSelector = labels.Everything()
 	wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).Obj()
@@ -493,7 +493,7 @@ func TestQueueInadmissibleWorkloadsDuringScheduling(t *testing.T) {
 	// Simulate requeuing during scheduling attempt.
 	head := cq.Pop()
 	cq.QueueInadmissibleWorkloads(ctx, cl)
-	cq.requeueIfNotPresent(head, false)
+	cq.requeueIfNotPresent(log, head, false)
 
 	activeWorkloads, _ = cq.Dump()
 	wantActiveWorkloads = []workload.Reference{workload.Key(wl)}
@@ -503,7 +503,7 @@ func TestQueueInadmissibleWorkloadsDuringScheduling(t *testing.T) {
 
 	// Simulating scheduling again without requeuing.
 	head = cq.Pop()
-	cq.requeueIfNotPresent(head, false)
+	cq.requeueIfNotPresent(log, head, false)
 	activeWorkloads, _ = cq.Dump()
 	wantActiveWorkloads = nil
 	if diff := cmp.Diff(wantActiveWorkloads, activeWorkloads, cmpDump...); diff != "" {
@@ -706,9 +706,7 @@ func TestFIFOClusterQueue(t *testing.T) {
 		t.Errorf("Popped workload %q want %q", got.Obj.Name, "after")
 	}
 
-	q.Delete(log, &kueue.Workload{
-		ObjectMeta: metav1.ObjectMeta{Name: "now"},
-	})
+	q.Delete(log, workload.NewReference("", "now"))
 	got = q.Pop()
 	if got != nil {
 		t.Errorf("Queue is not empty, popped workload %q", got.Obj.Name)

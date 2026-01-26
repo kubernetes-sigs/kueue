@@ -92,16 +92,7 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 			ControllerName(kueue.MultiKueueControllerName).
 			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", multiKueueConfig.Name).
 			Obj()
-		util.MustCreate(ctx, k8sManagerClient, multiKueueAc)
-
-		ginkgo.By("wait for check active", func() {
-			updatedAc := kueue.AdmissionCheck{}
-			acKey := client.ObjectKeyFromObject(multiKueueAc)
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sManagerClient.Get(ctx, acKey, &updatedAc)).To(gomega.Succeed())
-				g.Expect(updatedAc.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.AdmissionCheckActive))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
+		util.CreateAdmissionChecksAndWaitForActive(ctx, k8sManagerClient, multiKueueAc)
 
 		managerTopology = utiltestingapi.MakeTopology("default").Levels(corev1.LabelHostname).Obj()
 		util.MustCreate(ctx, k8sManagerClient, managerTopology)
@@ -121,10 +112,10 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 			).
 			AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAc.Name)).
 			Obj()
-		util.MustCreate(ctx, k8sManagerClient, managerCq)
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sManagerClient, managerCq)
 
 		managerLq = utiltestingapi.MakeLocalQueue(managerCq.Name, managerNs.Name).ClusterQueue(managerCq.Name).Obj()
-		util.MustCreate(ctx, k8sManagerClient, managerLq)
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sManagerClient, managerLq)
 
 		worker1Topology = utiltestingapi.MakeTopology("default").Levels(corev1.LabelHostname).Obj()
 		util.MustCreate(ctx, k8sWorker1Client, worker1Topology)
@@ -143,10 +134,10 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 					Obj(),
 			).
 			Obj()
-		util.MustCreate(ctx, k8sWorker1Client, worker1Cq)
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sWorker1Client, worker1Cq)
 
 		worker1Lq = utiltestingapi.MakeLocalQueue(worker1Cq.Name, worker1Ns.Name).ClusterQueue(worker1Cq.Name).Obj()
-		util.MustCreate(ctx, k8sWorker1Client, worker1Lq)
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sWorker1Client, worker1Lq)
 
 		worker2Topology = utiltestingapi.MakeTopology("default").Levels(corev1.LabelHostname).Obj()
 		util.MustCreate(ctx, k8sWorker2Client, worker2Topology)
@@ -165,10 +156,10 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 					Obj(),
 			).
 			Obj()
-		util.MustCreate(ctx, k8sWorker2Client, worker2Cq)
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sWorker2Client, worker2Cq)
 
 		worker2Lq = utiltestingapi.MakeLocalQueue(worker2Cq.Name, worker2Ns.Name).ClusterQueue(worker2Cq.Name).Obj()
-		util.MustCreate(ctx, k8sWorker2Client, worker2Lq)
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sWorker2Client, worker2Lq)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -376,7 +367,7 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 			ginkgo.By("Waiting for the job to finish", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-					g.Expect(workload.HasQuotaReservation(createdWorkload)).Should(gomega.BeFalse())
+					g.Expect(workload.HasQuotaReservation(createdWorkload)).Should(gomega.BeTrue())
 					g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadFinished, kueue.WorkloadFinishedReasonSucceeded))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})

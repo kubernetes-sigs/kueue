@@ -39,10 +39,12 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
 type CohortReconcilerOptions struct {
 	FairSharingEnabled bool
+	roleTracker        *roletracker.RoleTracker
 }
 
 type CohortReconcilerOption func(*CohortReconcilerOptions)
@@ -53,16 +55,23 @@ func CohortReconcilerWithFairSharing(enabled bool) CohortReconcilerOption {
 	}
 }
 
+func CohortReconcilerWithRoleTracker(tracker *roletracker.RoleTracker) CohortReconcilerOption {
+	return func(o *CohortReconcilerOptions) {
+		o.roleTracker = tracker
+	}
+}
+
 // CohortReconciler is responsible for synchronizing the in-memory
 // representation of Cohorts in cache.Cache and queue.Manager with
 // Cohort Kubernetes objects.
 type CohortReconciler struct {
 	client             client.Client
-	log                logr.Logger
+	logName            string
 	cache              *schdcache.Cache
 	qManager           *qcache.Manager
 	cqUpdateCh         chan event.GenericEvent
 	fairSharingEnabled bool
+	roleTracker        *roletracker.RoleTracker
 }
 
 func NewCohortReconciler(
@@ -78,12 +87,17 @@ func NewCohortReconciler(
 
 	return &CohortReconciler{
 		client:             client,
-		log:                ctrl.Log.WithName("cohort-reconciler"),
+		logName:            "cohort-reconciler",
 		cache:              cache,
 		qManager:           qManager,
 		cqUpdateCh:         make(chan event.GenericEvent, updateChBuffer),
 		fairSharingEnabled: options.FairSharingEnabled,
+		roleTracker:        options.roleTracker,
 	}
+}
+
+func (r *CohortReconciler) logger() logr.Logger {
+	return roletracker.WithReplicaRole(ctrl.Log.WithName(r.logName), r.roleTracker)
 }
 
 func (r *CohortReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) error {
@@ -101,6 +115,7 @@ func (r *CohortReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Config
 		WithOptions(controller.Options{
 			NeedLeaderElection:      ptr.To(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("Cohort").GroupKind().String()],
+			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "cohort-reconciler"),
 		}).
 		WatchesRawSource(source.Channel(r.cqUpdateCh, cqHandler)).
 		Complete(WithLeadingManager(mgr, r, &kueue.Cohort{}, cfg))
@@ -111,7 +126,7 @@ func (r *CohortReconciler) Create(event.TypedCreateEvent[*kueue.Cohort]) bool {
 }
 
 func (r *CohortReconciler) Update(e event.TypedUpdateEvent[*kueue.Cohort]) bool {
-	log := r.log.WithValues("cohort", klog.KObj(e.ObjectNew))
+	log := r.logger().WithValues("cohort", klog.KObj(e.ObjectNew))
 	if equality.Semantic.DeepEqual(e.ObjectOld.Spec, e.ObjectNew.Spec) {
 		log.V(2).Info("Skip Cohort update event as Cohort unchanged")
 		return false
@@ -167,7 +182,7 @@ func (r *CohortReconciler) updateCohortStatusIfChanged(ctx context.Context, coho
 	}
 
 	if r.fairSharingEnabled {
-		metrics.ReportCohortWeightedShare(cohort.Name, stats.WeightedShare)
+		metrics.ReportCohortWeightedShare(cohort.Name, stats.WeightedShare, r.roleTracker)
 		if cohort.Status.FairSharing == nil {
 			cohort.Status.FairSharing = &kueue.FairSharingStatus{}
 		}

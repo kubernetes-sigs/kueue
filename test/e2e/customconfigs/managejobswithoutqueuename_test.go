@@ -78,9 +78,9 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 				*utiltestingapi.MakeFlavorQuotas(defaultRf.Name).
 					Resource(corev1.ResourceCPU, "2").
 					Resource(corev1.ResourceMemory, "2G").Obj()).Obj()
-		util.MustCreate(ctx, k8sClient, clusterQueue)
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 		localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
-		util.MustCreate(ctx, k8sClient, localQueue)
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -185,7 +185,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 
 			ginkgo.By("creating a default LocalQueue", func() {
 				localQueue = utiltestingapi.MakeLocalQueue("default", ns.Name).ClusterQueue("cluster-queue").Obj()
-				util.MustCreate(ctx, k8sClient, localQueue)
+				util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 			})
 
 			ginkgo.By("creating an unsuspended job without a queue name", func() {
@@ -227,7 +227,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 
 			ginkgo.By("creating a default LocalQueue", func() {
 				localQueue = utiltestingapi.MakeLocalQueue("default", ns.Name).ClusterQueue("cluster-queue").Obj()
-				util.MustCreate(ctx, k8sClient, localQueue)
+				util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 			})
 
 			ginkgo.By("creating an unsuspended job without a queue name", func() {
@@ -569,7 +569,6 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 					g.Expect(k8sClient.Get(ctx, podLookupKey, createdPod)).Should(gomega.Succeed())
 					g.Expect(createdPod.Spec.SchedulingGates).ShouldNot(gomega.BeEmpty())
 					g.Expect(createdPod.Labels).Should(gomega.HaveKeyWithValue(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue))
-					g.Expect(createdPod.Finalizers).Should(gomega.ContainElement(podcontroller.PodFinalizer))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -625,7 +624,6 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 					for _, pod := range pods.Items {
 						g.Expect(pod.Spec.SchedulingGates).ShouldNot(gomega.BeEmpty())
 						g.Expect(pod.Labels).Should(gomega.HaveKeyWithValue(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue))
-						g.Expect(pod.Finalizers).Should(gomega.ContainElement(podcontroller.PodFinalizer))
 					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -1009,9 +1007,9 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName without JobSet integration",
 				*utiltestingapi.MakeFlavorQuotas(defaultRf.Name).
 					Resource(corev1.ResourceCPU, "2").
 					Resource(corev1.ResourceMemory, "2G").Obj()).Obj()
-		util.MustCreate(ctx, k8sClient, clusterQueue)
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 		localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
-		util.MustCreate(ctx, k8sClient, localQueue)
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 	})
 
 	ginkgo.AfterEach(func() {

@@ -21,20 +21,29 @@ export YQ="$ROOT_DIR"/bin/yq
 export HELM="$ROOT_DIR"/bin/helm
 export KUEUE_NAMESPACE="${KUEUE_NAMESPACE:-kueue-system}"
 
-export KIND_VERSION="${E2E_KIND_VERSION/"kindest/node:v"/}"
-
-if [[ -n ${APPWRAPPER_VERSION:-} ]]; then
-    export APPWRAPPER_MANIFEST=${ROOT_DIR}/dep-crds/appwrapper/config/default
-    APPWRAPPER_IMAGE=quay.io/ibm/appwrapper:${APPWRAPPER_VERSION}
+# E2E_MODE controls e2e cluster lifecycle behavior:
+# - ci  (default): create cluster(s), run tests, delete cluster(s)
+# - dev           : create if missing / reuse if existing, run tests, keep cluster(s)
+export E2E_MODE="${E2E_MODE:-ci}"
+if [[ "${E2E_MODE}" != "ci" && "${E2E_MODE}" != "dev" ]]; then
+    echo "Invalid E2E_MODE='${E2E_MODE}'. Supported values: ci|dev" >&2
+    exit 2
 fi
 
-if [[ -n ${JOBSET_VERSION:-} ]]; then
+export KIND_VERSION="${E2E_KIND_VERSION/"kindest/node:v"/}"
+
+if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:appwrapper || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+    export APPWRAPPER_MANIFEST=${ROOT_DIR}/dep-crds/appwrapper/config/default
+    export APPWRAPPER_IMAGE=quay.io/ibm/appwrapper:${APPWRAPPER_VERSION}
+fi
+
+if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export JOBSET_MANIFEST="https://github.com/kubernetes-sigs/jobset/releases/download/${JOBSET_VERSION}/manifests.yaml"
     export JOBSET_IMAGE=registry.k8s.io/jobset/jobset:${JOBSET_VERSION}
     export JOBSET_CRDS=${ROOT_DIR}/dep-crds/jobset-operator/
 fi
 
-if [[ -n ${KUBEFLOW_VERSION:-} ]]; then
+if [[ -n ${KUBEFLOW_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jaxjob|pytorchjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export KUBEFLOW_MANIFEST_ORIG=${ROOT_DIR}/dep-crds/training-operator/manifests/overlays/standalone/kustomization.yaml
     export KUBEFLOW_MANIFEST_PATCHED=${ROOT_DIR}/test/e2e/config/multikueue
     # Extract the Kubeflow Training Operator image version tag (newTag) from the manifest.
@@ -44,7 +53,7 @@ if [[ -n ${KUBEFLOW_VERSION:-} ]]; then
     export KUBEFLOW_IMAGE=kubeflow/training-operator:${KUBEFLOW_IMAGE_VERSION}
 fi
 
-if [[ -n ${KUBEFLOW_TRAINER_VERSION:-} ]]; then
+if [[ -n ${KUBEFLOW_TRAINER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(tas|trainjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export KUBEFLOW_TRAINER_MANIFEST=${ROOT_DIR}/dep-crds/kf-trainer/manifests
     # Extract the Kubeflow Trainer controller manager image version tag (newTag) from the manifest.
     # This is necessary because the image version tag does not follow the usual package versioning convention.
@@ -58,18 +67,27 @@ if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
     export KUBEFLOW_MPI_IMAGE=mpioperator/mpi-operator:${KUBEFLOW_MPI_VERSION/#v}
 fi
 
-if [[ -n ${KUBERAY_VERSION:-} ]]; then
+if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export KUBERAY_MANIFEST="${ROOT_DIR}/dep-crds/ray-operator/default/"
     export KUBERAY_IMAGE=quay.io/kuberay/operator:${KUBERAY_VERSION}
 fi
 
-if [[ -n ${LEADERWORKERSET_VERSION:-} ]]; then
+if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:leaderworkerset || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export LEADERWORKERSET_MANIFEST="https://github.com/kubernetes-sigs/lws/releases/download/${LEADERWORKERSET_VERSION}/manifests.yaml"
     export LEADERWORKERSET_IMAGE=registry.k8s.io/lws/lws:${LEADERWORKERSET_VERSION}
 fi
 
 if [[ -n "${CERTMANAGER_VERSION:-}" ]]; then
     export CERTMANAGER_MANIFEST="https://github.com/cert-manager/cert-manager/releases/download/${CERTMANAGER_VERSION}/cert-manager.yaml"
+fi
+
+if [[ -n "${CLUSTERPROFILE_VERSION:-}" ]]; then
+    export CLUSTERPROFILE_CRD=${ROOT_DIR}/dep-crds/clusterprofile/multicluster.x-k8s.io_clusterprofiles.yaml
+    export CLUSTERPROFILE_PLUGIN_IMAGE=us-central1-docker.pkg.dev/k8s-staging-images/kueue/secretreader-plugin:${CLUSTERPROFILE_PLUGIN_IMAGE_VERSION}
+fi
+
+if [[ -n "${DRA_EXAMPLE_DRIVER_VERSION:-}" ]]; then
+    export DRA_EXAMPLE_DRIVER_REPO=https://github.com/kubernetes-sigs/dra-example-driver.git
 fi
 
 if [[ -n "${KUEUE_UPGRADE_FROM_VERSION:-}" ]]; then
@@ -86,12 +104,101 @@ export E2E_TEST_AGNHOST_IMAGE=${E2E_TEST_AGNHOST_IMAGE_WITH_SHA%%@*}
 # $1 cluster name
 # $2 kubeconfig
 function cluster_cleanup {
-    kubectl config --kubeconfig="$2" use-context "kind-$1"
-    
-    $KIND export logs "$ARTIFACTS" --name "$1" || true
-    kubectl describe pods --kubeconfig="$2" -n kueue-system > "$ARTIFACTS/$1-kueue-system-pods.log" || true
-    kubectl describe pods --kubeconfig="$2" > "$ARTIFACTS/$1-default-pods.log" || true
-    $KIND delete cluster --name "$1"
+    local name=$1
+    local kubeconfig=$2
+
+    kubectl config --kubeconfig="$kubeconfig" use-context "kind-${name}"
+    $KIND delete cluster --name "$name"
+}
+
+# $1 cluster name
+# $2 kubeconfig
+function cluster_collect_artifacts {
+    local name=$1
+    local kubeconfig=${2:-}
+
+    local kubeconfig_args=()
+    if [[ -n "${kubeconfig}" ]]; then
+        kubeconfig_args=(--kubeconfig="${kubeconfig}")
+    fi
+
+    kubectl config "${kubeconfig_args[@]}" use-context "kind-${name}" || true
+    $KIND export logs "$ARTIFACTS" --name "$name" || true
+    kubectl describe pods "${kubeconfig_args[@]}" -n kueue-system > "$ARTIFACTS/${name}-kueue-system-pods.log" || true
+    kubectl describe pods "${kubeconfig_args[@]}" > "$ARTIFACTS/${name}-default-pods.log" || true
+}
+
+# $1 cluster name
+function kind_cluster_exists {
+    $KIND get clusters 2>/dev/null | grep -Fxq "$1"
+}
+
+# $1 cluster name
+# $2 kubeconfig file path (optional)
+function kind_write_kubeconfig {
+    if [[ -n "${2:-}" ]]; then
+        mkdir -p "$(dirname "$2")"
+        $KIND get kubeconfig --name "$1" > "$2"
+    fi
+}
+
+# $1 cluster name
+# $2 cluster kind config
+# $3 kubeconfig file path (optional)
+function ensure_kind_cluster {
+    local name=$1
+    local cfg=$2
+    local kubeconfig=$3
+
+    if [[ "${E2E_MODE}" == "dev" ]]; then
+        if kind_cluster_exists "$name"; then
+            echo "Reusing kind cluster: $name (E2E_MODE=dev)"
+            kind_write_kubeconfig "$name" "$kubeconfig"
+            return 0
+        fi
+
+        echo "Creating kind cluster (E2E_MODE=dev): $name"
+        cluster_create "$name" "$cfg" "$kubeconfig"
+        return 0
+    fi
+
+    # CI mode: always start from a clean cluster.
+    if kind_cluster_exists "$name"; then
+        echo "Deleting existing kind cluster for a clean CI run: $name"
+        cluster_cleanup "$name" "$kubeconfig"
+    fi
+    cluster_create "$name" "$cfg" "$kubeconfig"
+}
+
+# $1 cluster name
+function e2e_should_delete_cluster {
+    [[ "${E2E_MODE}" != "dev" ]]
+}
+
+# Patches a kind config file with DRA-specific settings.
+function patch_kind_config_for_dra {
+    local patched_config
+    patched_config=$(mktemp)
+    cp "$1" "$patched_config"
+
+    $YQ -i '.featureGates.DynamicResourceAllocation = true' "$patched_config"
+    $YQ -i '.containerdConfigPatches += ["[plugins.\"io.containerd.grpc.v1.cri\"]\n  enable_cdi = true"]' "$patched_config"
+    $YQ -i '(.nodes[] | select(.role == "control-plane")).kubeadmConfigPatches[0] = "kind: ClusterConfiguration
+apiVersion: kubeadm.k8s.io/v1beta3
+scheduler:
+  extraArgs:
+    v: \"3\"
+controllerManager:
+  extraArgs:
+    v: \"3\"
+apiServer:
+  extraArgs:
+    enable-aggregator-routing: \"true\"
+    runtime-config: \"resource.k8s.io/v1=true\"
+    v: \"3\"
+"' "$patched_config"
+
+    echo "$patched_config"
 }
 
 # $1 cluster name
@@ -100,9 +207,19 @@ function cluster_cleanup {
 function cluster_create {
     prepare_kubeconfig "$1" "$3"
 
-    $KIND create cluster --name "$1" --image "$E2E_KIND_VERSION" --config "$2" --kubeconfig="$3" --wait 1m -v 5  > "$ARTIFACTS/$1-create.log" 2>&1 \
+    local kind_config="$2"
+
+    if [[ -n ${DRA_EXAMPLE_DRIVER_VERSION:-} ]]; then
+        kind_config=$(patch_kind_config_for_dra "$2")
+        # shellcheck disable=SC2064 # Intentionally expand now to capture the temp file path
+        trap "rm -f '$kind_config'" RETURN
+        echo "Using patched kind config for DRA:"
+        cat "$kind_config"
+    fi
+
+    $KIND create cluster --name "$1" --image "$E2E_KIND_VERSION" --config "$kind_config" --kubeconfig="$3" --wait 1m -v 5  > "$ARTIFACTS/$1-create.log" 2>&1 \
     ||  { echo "unable to start the $1 cluster "; cat "$ARTIFACTS/$1-create.log" ; }
- 
+
     kubectl config --kubeconfig="$3" use-context "kind-$1"
     kubectl get nodes --kubeconfig="$3" > "$ARTIFACTS/$1-nodes.log" || true
     kubectl describe pods --kubeconfig="$3" -n kube-system > "$ARTIFACTS/$1-system-pods.log" || true
@@ -118,31 +235,30 @@ function prepare_docker_images {
     docker tag "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE_OLD"
     docker tag "$E2E_TEST_AGNHOST_IMAGE_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE"
 
-    if [[ -n ${APPWRAPPER_VERSION:-} ]]; then
+    if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:appwrapper || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         docker pull "${APPWRAPPER_IMAGE}"
     fi
-    if [[ -n ${JOBSET_VERSION:-} ]]; then
+    if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         docker pull "${JOBSET_IMAGE}"
     fi
-    if [[ -n ${KUBEFLOW_VERSION:-} ]]; then
+    if [[ -n ${KUBEFLOW_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jaxjob|pytorchjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         docker pull "${KUBEFLOW_IMAGE}"
     fi
-    
-    if [[ -n ${KUBEFLOW_TRAINER_VERSION:-} ]]; then
+    if [[ -n ${KUBEFLOW_TRAINER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(tas|trainjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         docker pull "${KF_TRAINER_IMAGE}"
     fi
 
     if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
         docker pull "${KUBEFLOW_MPI_IMAGE}"
     fi
-    if [[ -n ${KUBERAY_VERSION:-} ]]; then
+    if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         docker pull "${KUBERAY_IMAGE}"
         determine_kuberay_ray_image
         if [[ ${USE_RAY_FOR_TESTS:-} == "ray" ]]; then
             docker pull "${KUBERAY_RAY_IMAGE}"
         fi
     fi
-    if [[ -n ${LEADERWORKERSET_VERSION:-} ]]; then
+    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:leaderworkerset || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         docker pull "${LEADERWORKERSET_IMAGE}"
     fi
     if [[ -n ${KUEUE_UPGRADE_FROM_VERSION:-} ]]; then
@@ -160,6 +276,9 @@ function cluster_kind_load {
         local old_image="${IMAGE_TAG%:*}:${KUEUE_UPGRADE_FROM_VERSION}"
         cluster_kind_load_image "$1" "${old_image}"
     fi
+    if [[ -n "${CLUSTERPROFILE_VERSION:-}" ]]; then
+        cluster_kind_load_image "$1" "${CLUSTERPROFILE_PLUGIN_IMAGE}"
+    fi
 }
 
 # $1 cluster
@@ -167,37 +286,43 @@ function cluster_kind_load {
 function kind_load {
     kubectl config --kubeconfig="$2" use-context "kind-$1"
 
-    if [ "$CREATE_KIND_CLUSTER" == 'true' ]; then
-	    cluster_kind_load "$1"
+    if kind_cluster_exists "$1"; then
+        cluster_kind_load "$1"
     fi
-    if [[ -n ${APPWRAPPER_VERSION:-} ]]; then
+    if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:appwrapper || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         install_appwrapper "$1" "$2"
     fi
-    if [[ -n ${JOBSET_VERSION:-} ]]; then
+    if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         install_jobset "$1" "$2"
     fi
-    if [[ -n ${KUBEFLOW_VERSION:-} ]]; then
+    if [[ -n ${KUBEFLOW_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jaxjob|pytorchjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         # In order for MPI-operator and Training-operator to work on the same cluster it is required that:
         # 1. 'kubeflow.org_mpijobs.yaml' is removed from base/crds/kustomization.yaml - https://github.com/kubeflow/training-operator/issues/1930
         # 2. Training-operator deployment is modified to enable all kubeflow jobs except for mpi -  https://github.com/kubeflow/training-operator/issues/1777
         install_kubeflow "$1" "$2"
     fi
 
-    if [[ -n ${KUBEFLOW_TRAINER_VERSION:-} ]]; then
+    if [[ -n ${KUBEFLOW_TRAINER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(tas|trainjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         install_kubeflow_trainer "$1" "$2"
     fi
 
     if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
         install_mpi "$1" "$2"
     fi
-    if [[ -n ${LEADERWORKERSET_VERSION:-} ]]; then
+    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:leaderworkerset || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         install_lws "$1" "$2"
     fi
-    if [[ -n ${KUBERAY_VERSION:-} ]]; then
+    if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         install_kuberay "$1" "$2"
     fi
     if [[ -n ${CERTMANAGER_VERSION:-} ]]; then
         install_cert_manager "$2"
+    fi
+    if [[ -n ${CLUSTERPROFILE_VERSION:-} ]]; then
+        install_multicluster "$2"
+    fi
+    if [[ -n ${DRA_EXAMPLE_DRIVER_VERSION:-} ]]; then
+        install_dra_example_driver "$1" "$2"
     fi
 }
 
@@ -277,6 +402,8 @@ function cluster_kueue_deploy {
         else
             deploy_with_certmanager "$1"
         fi
+    elif [[ -n ${DRA_EXAMPLE_DRIVER_VERSION:-} ]]; then
+        build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra"
     elif [ "$E2E_USE_HELM" == 'true' ]; then
         helm_install "$1" "${ROOT_DIR}/test/e2e/config/default/values.yaml"
     else
@@ -302,7 +429,8 @@ function helm_install {
 function build_and_apply_kueue_manifests {
     local build_output
     build_output=$($KUSTOMIZE build "$2")
-    build_output=${build_output//kueue-system/$KUEUE_NAMESPACE}
+    # shellcheck disable=SC2001 # bash parameter substitution does not work on macOS
+    build_output=$(echo "$build_output" | sed "s/kueue-system/$KUEUE_NAMESPACE/g")
     echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side -f -
 }
 
@@ -374,6 +502,51 @@ function install_lws {
 function install_cert_manager {
     kubectl apply --kubeconfig="$1" --server-side -f "${CERTMANAGER_MANIFEST}"
 }
+
+# $1 kubeconfig option
+function install_multicluster {
+    kubectl apply --kubeconfig="$1" --server-side -f "${CLUSTERPROFILE_CRD}"
+}
+
+# $1 cluster name
+# $2 kubeconfig option
+function install_dra_example_driver {
+    local dra_driver_temp_dir
+    dra_driver_temp_dir=$(mktemp -d)
+    # shellcheck disable=SC2064 # Intentionally expand now to capture the temp dir path
+    trap "rm -rf '$dra_driver_temp_dir'" RETURN
+    git clone --depth 1 --branch "${DRA_EXAMPLE_DRIVER_VERSION}" "${DRA_EXAMPLE_DRIVER_REPO}" "$dra_driver_temp_dir"
+
+    local dra_image_repo="dra-example-driver"
+    local dra_image_tag="local"
+
+    local go_version
+    go_version=$(grep '^go ' "$dra_driver_temp_dir/go.mod" | awk '{print $2}' | cut -d. -f1,2)
+
+    echo "Building dra-example-driver image from source (Go ${go_version})..."
+    # Patch Makefile to ensure static build with CGO_ENABLED=0
+    sed 's/CGO_LDFLAGS_ALLOW/CGO_ENABLED=0 CGO_LDFLAGS_ALLOW/' "$dra_driver_temp_dir/Makefile" > "$dra_driver_temp_dir/Makefile.tmp" \
+        && mv "$dra_driver_temp_dir/Makefile.tmp" "$dra_driver_temp_dir/Makefile"
+    docker build -t "${dra_image_repo}:${dra_image_tag}" \
+        --build-arg GOLANG_VERSION="${go_version}" \
+        --build-arg BASE_IMAGE=gcr.io/distroless/static:latest \
+        -f "$dra_driver_temp_dir/deployments/container/Dockerfile" \
+        "$dra_driver_temp_dir"
+
+    cluster_kind_load_image "${1}" "${dra_image_repo}:${dra_image_tag}"
+
+    $HELM upgrade -i \
+      --create-namespace \
+      --namespace dra-example-driver \
+      --kubeconfig="$2" \
+      --set image.repository="${dra_image_repo}" \
+      --set image.tag="${dra_image_tag}" \
+      --set kubeletPlugin.containers.plugin.securityContext.privileged=true \
+      --wait \
+      dra-example-driver \
+      "$dra_driver_temp_dir/deployments/helm/dra-example-driver"
+}
+
 
 INITIAL_IMAGE=$($YQ '.images[] | select(.name == "controller") | [.newName, .newTag] | join(":")' config/components/manager/kustomization.yaml)
 export INITIAL_IMAGE
@@ -511,7 +684,8 @@ EOF
         
         local build_output
         build_output=$($KUSTOMIZE build "${ROOT_DIR}/test/e2e/config/default")
-        build_output=${build_output//kueue-system/$KUEUE_NAMESPACE}
+        # shellcheck disable=SC2001 # bash parameter substitution does not work on macOS
+        build_output=$(echo "$build_output" | sed "s/kueue-system/$KUEUE_NAMESPACE/g")
         echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side --force-conflicts -f -
     )
     

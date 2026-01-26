@@ -175,7 +175,7 @@ Changes since `v0.14.0`:
 - FailureRecovery: Introduce a mechanism to terminate Pods "stuck" in a terminating state due to node failures.
   The feature is activated by enabling the alpha FailureRecoveryPolicy feature gate (disabled by default).
   Only Pods with the kueue.x-k8s.io/safe-to-forcefully-terminate annotation are handled by the mechanism. (#7312, @kshalot)
-- FlavorFungability: introduce the ClusterQueue's API for flavorFungability: `.spec.flavorFungability.preference` to indicate
+- FlavorFungibility: introduce the ClusterQueue's API for flavorFungibility: `.spec.flavorFungibility.preference` to indicate
   the user's preference for borrowing or preemption when there is no flavor which avoids both.
   This new field is a replacement for the alpha feature gate FlavorFungibilityImplicitPreferenceDefault which is considered as deprecated in 0.15 and will be removed in 0.16. (#7316, @vladikkuzn)
 - Integrations: the Pod integration is no longer required to be enabled explicitly in the configMap when you are using LeaderWorkerSet, StatefulSet, or Deployment frameworks. (#6736, @IrvingMg)

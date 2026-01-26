@@ -19,7 +19,12 @@ package v1beta1
 
 // CohortStatusApplyConfiguration represents a declarative configuration of the CohortStatus type for use
 // with apply.
+//
+// CohortStatus defines the observed state of Cohort.
 type CohortStatusApplyConfiguration struct {
+	// fairSharing contains the current state for this Cohort
+	// when participating in Fair Sharing.
+	// The is recorded only when Fair Sharing is enabled in the Kueue configuration.
 	FairSharing *FairSharingStatusApplyConfiguration `json:"fairSharing,omitempty"`
 }
 

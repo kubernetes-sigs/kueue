@@ -20,9 +20,28 @@ package v1beta2
 // ProvisioningRequestRetryStrategyApplyConfiguration represents a declarative configuration of the ProvisioningRequestRetryStrategy type for use
 // with apply.
 type ProvisioningRequestRetryStrategyApplyConfiguration struct {
-	BackoffLimitCount  *int32 `json:"backoffLimitCount,omitempty"`
+	// backoffLimitCount defines the maximum number of re-queuing retries.
+	// Once the number is reached, the workload is deactivated (`.spec.activate`=`false`).
+	//
+	// Every backoff duration is about "b*2^(n-1)+Rand" where:
+	// - "b" represents the base set by "BackoffBaseSeconds" parameter,
+	// - "n" represents the "workloadStatus.requeueState.count",
+	// - "Rand" represents the random jitter.
+	// During this time, the workload is taken as an inadmissible and
+	// other workloads will have a chance to be admitted.
+	// By default, the consecutive requeue delays are around: (60s, 120s, 240s, ...).
+	//
+	// Defaults to 3.
+	BackoffLimitCount *int32 `json:"backoffLimitCount,omitempty"`
+	// backoffBaseSeconds defines the base for the exponential backoff for
+	// re-queuing an evicted workload.
+	//
+	// Defaults to 60.
 	BackoffBaseSeconds *int32 `json:"backoffBaseSeconds,omitempty"`
-	BackoffMaxSeconds  *int32 `json:"backoffMaxSeconds,omitempty"`
+	// backoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.
+	//
+	// Defaults to 1800.
+	BackoffMaxSeconds *int32 `json:"backoffMaxSeconds,omitempty"`
 }
 
 // ProvisioningRequestRetryStrategyApplyConfiguration constructs a declarative configuration of the ProvisioningRequestRetryStrategy type for use with

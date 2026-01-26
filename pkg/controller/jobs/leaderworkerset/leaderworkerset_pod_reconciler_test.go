@@ -18,6 +18,7 @@ package leaderworkerset
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -35,11 +36,12 @@ import (
 )
 
 func TestPodReconciler(t *testing.T) {
+	now := time.Now()
 	cases := map[string]struct {
-		lws     *leaderworkersetv1.LeaderWorkerSet
-		pod     *corev1.Pod
-		wantPod *corev1.Pod
-		wantErr error
+		lws      *leaderworkersetv1.LeaderWorkerSet
+		pod      *corev1.Pod
+		wantPods []corev1.Pod
+		wantErr  error
 	}{
 		"should finalize succeeded pod": {
 			lws: leaderworkerset.MakeLeaderWorkerSet("lws", "ns").Obj(),
@@ -48,10 +50,12 @@ func TestPodReconciler(t *testing.T) {
 				StatusPhase(corev1.PodSucceeded).
 				KueueFinalizer().
 				Obj(),
-			wantPod: testingjobspod.MakePod("pod", "ns").
-				Label(leaderworkersetv1.SetNameLabelKey, "lws").
-				StatusPhase(corev1.PodSucceeded).
-				Obj(),
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod", "ns").
+					Label(leaderworkersetv1.SetNameLabelKey, "lws").
+					StatusPhase(corev1.PodSucceeded).
+					Obj(),
+			},
 		},
 		"should finalize failed pod": {
 			lws: leaderworkerset.MakeLeaderWorkerSet("lws", "ns").Obj(),
@@ -60,10 +64,12 @@ func TestPodReconciler(t *testing.T) {
 				StatusPhase(corev1.PodFailed).
 				KueueFinalizer().
 				Obj(),
-			wantPod: testingjobspod.MakePod("pod", "ns").
-				Label(leaderworkersetv1.SetNameLabelKey, "lws").
-				StatusPhase(corev1.PodFailed).
-				Obj(),
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod", "ns").
+					Label(leaderworkersetv1.SetNameLabelKey, "lws").
+					StatusPhase(corev1.PodFailed).
+					Obj(),
+			},
 		},
 		"shouldn't set default values without group index label": {
 			lws: leaderworkerset.MakeLeaderWorkerSet("lws", "ns").Obj(),
@@ -72,11 +78,13 @@ func TestPodReconciler(t *testing.T) {
 				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				Obj(),
-			wantPod: testingjobspod.MakePod("pod", "ns").
-				Label(leaderworkersetv1.SetNameLabelKey, "lws").
-				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-				Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
-				Obj(),
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod", "ns").
+					Label(leaderworkersetv1.SetNameLabelKey, "lws").
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+					Obj(),
+			},
 		},
 		"shouldn't set default values without queue name": {
 			lws: leaderworkerset.MakeLeaderWorkerSet("lws", "ns").
@@ -87,14 +95,17 @@ func TestPodReconciler(t *testing.T) {
 				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				Obj(),
-			wantPod: testingjobspod.MakePod("pod", "ns").
-				Label(leaderworkersetv1.SetNameLabelKey, "lws").
-				Label(leaderworkersetv1.GroupIndexLabelKey, "0").
-				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-				Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
-				Obj(),
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod", "ns").
+					Label(leaderworkersetv1.SetNameLabelKey, "lws").
+					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+					Obj(),
+			},
 		},
-		"should set default values": {
+		// Leader pod doesn't have a leaderworkerset.sigs.k8s.io/leader-name annotation.
+		"should set default values (worker template, leader pod)": {
 			lws: leaderworkerset.MakeLeaderWorkerSet("lws", "ns").
 				UID(testUID).
 				Queue("queue").
@@ -105,17 +116,114 @@ func TestPodReconciler(t *testing.T) {
 				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				Obj(),
-			wantPod: testingjobspod.MakePod("pod", "ns").
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod", "ns").
+					Label(leaderworkersetv1.SetNameLabelKey, "lws").
+					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+					Queue("queue").
+					ManagedByKueueLabel().
+					Group(GetWorkloadName(types.UID(testUID), "lws", "0")).
+					GroupTotalCount("1").
+					PrebuiltWorkload(GetWorkloadName(types.UID(testUID), "lws", "0")).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					Obj(),
+			},
+		},
+		// Worker pod has a leaderworkerset.sigs.k8s.io/leader-name annotation.
+		"should set default values (worker template, worker pod)": {
+			lws: leaderworkerset.MakeLeaderWorkerSet("lws", "ns").
+				UID(testUID).
+				Queue("queue").
+				Obj(),
+			pod: testingjobspod.MakePod("pod", "ns").
 				Label(leaderworkersetv1.SetNameLabelKey, "lws").
 				Label(leaderworkersetv1.GroupIndexLabelKey, "0").
-				Queue("queue").
-				ManagedByKueueLabel().
-				Group(GetWorkloadName(types.UID(testUID), "lws", "0")).
-				GroupTotalCount("1").
-				PrebuiltWorkload(GetWorkloadName(types.UID(testUID), "lws", "0")).
 				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
-				Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+				Annotation(leaderworkersetv1.LeaderPodNameAnnotationKey, "lws-0").
+				Obj(),
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod", "ns").
+					Label(leaderworkersetv1.SetNameLabelKey, "lws").
+					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+					Queue("queue").
+					ManagedByKueueLabel().
+					Group(GetWorkloadName(types.UID(testUID), "lws", "0")).
+					GroupTotalCount("1").
+					PrebuiltWorkload(GetWorkloadName(types.UID(testUID), "lws", "0")).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+					Annotation(leaderworkersetv1.LeaderPodNameAnnotationKey, "lws-0").
+					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					Obj(),
+			},
+		},
+		// Leader pod doesn't have a leaderworkerset.sigs.k8s.io/leader-name annotation.
+		"should set default values (leader+worker template, leader pod)": {
+			lws: leaderworkerset.MakeLeaderWorkerSet("lws", "ns").
+				UID(testUID).
+				Queue("queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Obj(),
+			pod: testingjobspod.MakePod("pod", "ns").
+				Label(leaderworkersetv1.SetNameLabelKey, "lws").
+				Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				Obj(),
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod", "ns").
+					Label(leaderworkersetv1.SetNameLabelKey, "lws").
+					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+					Queue("queue").
+					ManagedByKueueLabel().
+					Group(GetWorkloadName(types.UID(testUID), "lws", "0")).
+					GroupTotalCount("1").
+					PrebuiltWorkload(GetWorkloadName(types.UID(testUID), "lws", "0")).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+					Annotation(podconstants.RoleHashAnnotation, leaderPodSetName).
+					Obj(),
+			},
+		},
+		// Worker pod has a leaderworkerset.sigs.k8s.io/leader-name annotation.
+		"should set default values (leader+worker template, worker pod)": {
+			lws: leaderworkerset.MakeLeaderWorkerSet("lws", "ns").
+				UID(testUID).
+				Queue("queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Obj(),
+			pod: testingjobspod.MakePod("pod", "ns").
+				Label(leaderworkersetv1.SetNameLabelKey, "lws").
+				Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				Annotation(leaderworkersetv1.LeaderPodNameAnnotationKey, "lws-0").
+				Obj(),
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod", "ns").
+					Label(leaderworkersetv1.SetNameLabelKey, "lws").
+					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+					Queue("queue").
+					ManagedByKueueLabel().
+					Group(GetWorkloadName(types.UID(testUID), "lws", "0")).
+					GroupTotalCount("1").
+					PrebuiltWorkload(GetWorkloadName(types.UID(testUID), "lws", "0")).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+					Annotation(leaderworkersetv1.LeaderPodNameAnnotationKey, "lws-0").
+					Annotation(podconstants.RoleHashAnnotation, workerPodSetName).
+					Obj(),
+			},
+		},
+		"should finalize deleted pod": {
+			lws: leaderworkerset.MakeLeaderWorkerSet("lws", "ns").Obj(),
+			pod: testingjobspod.MakePod("pod", "ns").
+				Label(leaderworkersetv1.SetNameLabelKey, "lws").
+				DeletionTimestamp(now).
+				KueueFinalizer().
 				Obj(),
 		},
 	}
@@ -137,13 +245,13 @@ func TestPodReconciler(t *testing.T) {
 				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
 			}
 
-			gotPod := &corev1.Pod{}
-			if err := kClient.Get(ctx, podKey, gotPod); err != nil {
-				t.Fatalf("Could not get Pod after reconcile: %v", err)
+			gotPods := &corev1.PodList{}
+			if err := kClient.List(ctx, gotPods, client.InNamespace(tc.pod.Namespace)); err != nil {
+				t.Fatalf("Could not list Pods after reconcile: %v", err)
 			}
 
-			if diff := cmp.Diff(tc.wantPod, gotPod, baseCmpOpts...); diff != "" {
-				t.Errorf("Pod after reconcile (-want,+got):\n%s", diff)
+			if diff := cmp.Diff(tc.wantPods, gotPods.Items, baseCmpOpts...); diff != "" {
+				t.Errorf("Pods after reconcile (-want,+got):\n%s", diff)
 			}
 		})
 	}

@@ -66,7 +66,7 @@ make test-multikueue-e2e
 
 You can specify the Kubernetes version used for running the e2e tests by setting the `E2E_K8S_FULL_VERSION` variable:
 ```shell
-E2E_K8S_FULL_VERSION=1.34.1 make test-e2e
+E2E_K8S_FULL_VERSION=1.35.0 make test-e2e
 ```
 
 For running a subset of tests, see [Running subset of tests](#running-subset-of-integration-or-e2e-tests).
@@ -95,7 +95,7 @@ func TestValidateClusterQueue(t *testing.T) {
 You can click on the `debug test` to debug a specific test.
 
 For integration tests, an additional step is needed.  In settings.json, you need to add two variables inside `go.testEnvVars`:
-- Run `ENVTEST_K8S_VERSION=1.34 make envtest && ./bin/setup-envtest use $ENVTEST_K8S_VERSION -p path` and assign the path to the `KUBEBUILDER_ASSETS` variable
+- Run `ENVTEST_K8S_VERSION=1.35 make envtest && ./bin/setup-envtest use $ENVTEST_K8S_VERSION -p path` and assign the path to the `KUBEBUILDER_ASSETS` variable
 - Set `KUEUE_BIN` to the `bin` directory within your cloned Kueue repository
 ```json
 "go.testEnvVars": {
@@ -120,7 +120,32 @@ and then you can use GUI of the Ginkgo Test Explorer to run individual tests, pr
 You can use the following approach to start up a kind cluster and then run e2e tests from commandline or VSCode,
 attaching them to the existing cluster. For example, suppose you want to test some of the multikueue-e2e tests.
 
-Run `E2E_RUN_ONLY_ENV=true make kind-image-build test-multikueue-e2e` and wait for the `Do you want to cleanup? [Y/n] ` to appear.
+### DEV mode (recommended)
+Use `E2E_MODE=dev` to create-or-reuse a kind cluster, rebuild/redeploy Kueue, run tests, and keep the cluster running for fast reruns and post-test investigation:
+
+```shell
+# Create if missing, otherwise reuse cluster. Rebuild image, run tests, keep the cluster.
+E2E_MODE=dev make kind-image-build test-e2e
+
+# MultiKueue dev mode
+E2E_MODE=dev make kind-image-build test-multikueue-e2e
+
+# Loop a suite (until it fails) while keeping the cluster
+E2E_MODE=dev GINKGO_ARGS="--until-it-fails" make kind-image-build  test-e2e
+```
+
+To delete the kept cluster(s) afterwards:
+- For regular e2e tests, run:
+    ```shell
+    kind delete clusters kind
+    ```
+- For MultiKueue tests, run:
+    ```shell
+    kind delete clusters kind kind-manager kind-worker1 kind-worker2
+    ```
+
+### Legacy: interactive attach mode
+Run `E2E_RUN_ONLY_ENV=true make kind-image-build test-multikueue-e2e` and wait for the `Do you want to cleanup? [Y/n] ` to appear (CI-style behavior).
 
 The cluster is ready, and now you can run tests from another terminal:
 ```shell
@@ -129,6 +154,58 @@ The cluster is ready, and now you can run tests from another terminal:
 or from VSCode.
 
 ## Running subset of integration or e2e tests
+
+### Use label filters for integration tests
+Integration tests are labeled by controller, job type, feature, and area to enable targeted test execution. You can use `INTEGRATION_FILTERS` with `--label-filter` to run specific test subsets:
+
+**Label Taxonomy:**
+- Controllers: `controller:workload`, `controller:localqueue`, `controller:clusterqueue`, `controller:admissioncheck`, `controller:resourceflavor`, `controller:provisioning`
+- Job Types: `job:batch`, `job:pod`, `job:jobset`, `job:pytorch`, `job:tensorflow`, `job:mpi`, `job:paddle`, `job:xgboost`, `job:jax`, `job:train`, `job:ray`, `job:appwrapper`
+- Features: `feature:tas`, `feature:multikueue`, `feature:provisioning`, `feature:fairsharing`, `feature:admissionfairsharing`
+- Areas: `area:core`, `area:jobs`, `area:admissionchecks`, `area:multikueue`
+
+**Examples:**
+```shell
+# Run only LocalQueue tests
+INTEGRATION_FILTERS="--label-filter=controller:localqueue" make test-integration
+
+# Run all job tests
+INTEGRATION_FILTERS="--label-filter=area:jobs" make test-integration
+
+# Run PyTorch job tests
+INTEGRATION_FILTERS="--label-filter=job:pytorch" make test-integration
+
+# Run all tests except slow
+INTEGRATION_FILTERS="--label-filter=!slow" make test-integration
+
+# Run core tests except slow
+INTEGRATION_FILTERS="--label-filter=area:core && !slow" make test-integration
+
+# Run TAS-related tests
+INTEGRATION_FILTERS="--label-filter=feature:tas" make test-integration
+
+# Run FairSharing tests
+INTEGRATION_FILTERS="--label-filter=feature:fairsharing" make test-integration
+```
+
+### Use label filters for e2e singlecluster tests
+SingleCluster tests are labeled by feature and area. You can use `GINKGO_ARGS` with `--label-filter` to run specific tests:
+
+**Label Taxonomy:**
+- Features: `appwrapper,certs,deployment,job,fairsharing,jaxjob,jobset,kuberay,kueuectl,leaderworkerset,metrics,pod,pytorchjob,statefulset,tas,trainjob,visibility,e2e_v1beta1`
+
+**Examples:**
+```shell
+# Run only appwrapper tests
+GINKGO_ARGS="--label-filter=feature:appwrapper" make test-e2e
+
+# Run only deployment tests with helm
+GINKGO_ARGS="--label-filter=feature:deployment" make test-e2e-helm
+
+# Run only jobset and trainjob tests with helm
+GINKGO_ARGS="--label-filter=feature:jobset,feature:trainjob" make test-e2e
+```
+
 ### Use Ginkgo --focus arg
 ```shell
 GINKGO_ARGS="--focus=Scheduler" make test-integration

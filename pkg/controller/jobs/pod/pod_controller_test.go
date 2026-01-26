@@ -506,25 +506,13 @@ func TestReconciler(t *testing.T) {
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-					Condition(metav1.Condition{
-						Type:    kueue.WorkloadQuotaReserved,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadFinished,
-						Message: "Workload has finished",
-					}).
-					Condition(metav1.Condition{
-						Type:    kueue.WorkloadAdmitted,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadFinished,
-						Message: "Workload has finished",
-					}).
+					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
 						Reason:  kueue.WorkloadFinishedReasonSucceeded,
 						Message: "Job finished successfully",
 					}).
-					PastAdmittedTime(0).
 					Obj(),
 			},
 			workloadCmpOpts: append(
@@ -572,25 +560,13 @@ func TestReconciler(t *testing.T) {
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-					Condition(metav1.Condition{
-						Type:    kueue.WorkloadAdmitted,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadFinished,
-						Message: "Workload has finished",
-					}).
-					Condition(metav1.Condition{
-						Type:    kueue.WorkloadQuotaReserved,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadFinished,
-						Message: "Workload has finished",
-					}).
+					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
 						Reason:  kueue.WorkloadFinishedReasonSucceeded,
 						Message: "Job finished successfully",
 					}).
-					PastAdmittedTime(0).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -1277,27 +1253,15 @@ func TestReconciler(t *testing.T) {
 					).
 					Queue("user-queue").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					AdmittedAt(true, now).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					Condition(metav1.Condition{
-						Type:    kueue.WorkloadQuotaReserved,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadFinished,
-						Message: "Workload has finished",
-					}).
-					Condition(metav1.Condition{
-						Type:    kueue.WorkloadAdmitted,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadFinished,
-						Message: "Workload has finished",
-					}).
 					Condition(metav1.Condition{
 						Type:    "Finished",
 						Status:  "True",
 						Reason:  kueue.WorkloadFinishedReasonSucceeded,
 						Message: "Pods succeeded: 2/2.",
 					}).
-					PastAdmittedTime(0).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -1929,24 +1893,11 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod3", "test-uid").
 					Condition(metav1.Condition{
-						Type:    kueue.WorkloadQuotaReserved,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadFinished,
-						Message: "Workload has finished",
-					}).
-					Condition(metav1.Condition{
-						Type:    kueue.WorkloadAdmitted,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadFinished,
-						Message: "Workload has finished",
-					}).
-					Condition(metav1.Condition{
 						Type:    "Finished",
 						Status:  "True",
 						Reason:  kueue.WorkloadFinishedReasonSucceeded,
 						Message: "Pods succeeded: 2/2.",
 					}).
-					PastAdmittedTime(0).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -2631,6 +2582,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod3", "test-uid").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
@@ -2638,26 +2590,11 @@ func TestReconciler(t *testing.T) {
 						Message: "Some Failed pods need replacement",
 					}).
 					Condition(metav1.Condition{
-						Type:    kueue.WorkloadQuotaReserved,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadFinished,
-						Message: "Workload has finished",
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadFinishedReasonSucceeded,
+						Message: "Pods succeeded: 1/3.",
 					}).
-					Condition(metav1.Condition{
-						Type:    kueue.WorkloadAdmitted,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadFinished,
-						Message: "Workload has finished",
-					}).
-					Condition(
-						metav1.Condition{
-							Type:    kueue.WorkloadFinished,
-							Status:  metav1.ConditionTrue,
-							Reason:  kueue.WorkloadFinishedReasonSucceeded,
-							Message: "Pods succeeded: 1/3.",
-						},
-					).
-					PastAdmittedTime(0).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -4395,7 +4332,7 @@ func TestReconciler(t *testing.T) {
 					Priority(0).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
-					Admitted(false).
+					AdmittedAt(false, now).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -4425,7 +4362,7 @@ func TestReconciler(t *testing.T) {
 					Priority(0).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
-					Admitted(false).
+					AdmittedAt(false, now).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -4482,7 +4419,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
-					Admitted(false).
+					AdmittedAt(false, now).
 					Obj(),
 			},
 			wantPods: nil,
@@ -4509,7 +4446,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
-					Admitted(false).
+					AdmittedAt(false, now).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -5527,12 +5464,6 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					Condition(metav1.Condition{
-						Type:    kueue.WorkloadQuotaReserved,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadFinished,
-						Message: "Workload has finished",
-					}).
-					Condition(metav1.Condition{
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
 						Reason:  "OutOfSync",
@@ -5775,31 +5706,14 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 	// Workload should be finished after the second reconcile
 	wantWl := baseWl.Clone().
 		ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-		Condition(
-			metav1.Condition{
-				Type:    kueue.WorkloadQuotaReserved,
-				Status:  metav1.ConditionFalse,
-				Reason:  kueue.WorkloadFinished,
-				Message: "Workload has finished",
-			},
-		).
-		Condition(
-			metav1.Condition{
-				Type:    kueue.WorkloadAdmitted,
-				Status:  metav1.ConditionFalse,
-				Reason:  kueue.WorkloadFinished,
-				Message: "Workload has finished",
-			},
-		).
-		Condition(
-			metav1.Condition{
-				Type:    kueue.WorkloadFinished,
-				Status:  metav1.ConditionTrue,
-				Reason:  kueue.WorkloadFinishedReasonSucceeded,
-				Message: "Job finished successfully",
-			},
-		).
-		PastAdmittedTime(0).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+		AdmittedAt(true, now).
+		Condition(metav1.Condition{
+			Type:    kueue.WorkloadFinished,
+			Status:  metav1.ConditionTrue,
+			Reason:  kueue.WorkloadFinishedReasonSucceeded,
+			Message: "Job finished successfully",
+		}).
 		Obj()
 
 	for _, useMergePatch := range []bool{false, true} {

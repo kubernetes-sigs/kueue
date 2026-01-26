@@ -23,7 +23,25 @@ import (
 
 // FairSharingApplyConfiguration represents a declarative configuration of the FairSharing type for use
 // with apply.
+//
+// FairSharing contains the properties of the ClusterQueue or Cohort,
+// when participating in FairSharing.
+//
+// Fair Sharing is compatible with Hierarchical Cohorts (any Cohort
+// which has a parent) as of v0.11. Using these features together in
+// V0.9 and V0.10 is unsupported, and results in undefined behavior.
 type FairSharingApplyConfiguration struct {
+	// weight gives a comparative advantage to this ClusterQueue
+	// or Cohort when competing for unused resources in the
+	// Cohort.  The share is based on the dominant resource usage
+	// above nominal quotas for each resource, divided by the
+	// weight.  Admission prioritizes scheduling workloads from
+	// ClusterQueues and Cohorts with the lowest share and
+	// preempting workloads from the ClusterQueues and Cohorts
+	// with the highest share.  A zero weight implies infinite
+	// share value, meaning that this Node will always be at
+	// disadvantage against other ClusterQueues and Cohorts.
+	// When not 0, Weight must be greater than 10^-9.
 	Weight *resource.Quantity `json:"weight,omitempty"`
 }
 

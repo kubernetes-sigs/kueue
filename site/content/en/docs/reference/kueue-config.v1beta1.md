@@ -258,6 +258,14 @@ before exposing it to public.</p>
 registered within this manager.</p>
 </td>
 </tr>
+<tr><td><code>tls</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-TLSOptions"><code>TLSOptions</code></a>
+</td>
+<td>
+   <p>TLS contains TLS security settings for all Kueue API servers
+(webhooks, metrics, and visibility).</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -861,6 +869,16 @@ re-queuing an evicted workload.</p>
 Defaults to Retain</p>
 </td>
 </tr>
+<tr><td><code>multiplyBy</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>k8s.io/api/core/v1.ResourceName</code></a>
+</td>
+<td>
+   <p>MultiplyBy indicates the resource name requested by a workload, if
+specified.
+The requested amount of the resource is used to multiply the requested
+amount of the resource indicated by the &quot;input&quot; field.</p>
+</td>
+</tr>
 <tr><td><code>outputs</code> <B>[Required]</B><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcelist-v1-core"><code>k8s.io/api/core/v1.ResourceList</code></a>
 </td>
@@ -923,6 +941,45 @@ for Dynamic Resource Allocation support.</p>
 </tbody>
 </table>
 
+## `TLSOptions`     {#config-kueue-x-k8s-io-v1beta1-TLSOptions}
+    
+
+**Appears in:**
+
+- [ControllerManager](#config-kueue-x-k8s-io-v1beta1-ControllerManager)
+
+
+<p>TLSOptions defines TLS security settings for Kueue servers</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>minVersion</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>minVersion is the minimum TLS version supported.
+Values are from tls package constants (https://golang.org/pkg/crypto/tls/#pkg-constants).
+This field is only valid when TLSOptions is set to true.
+The default would be to not set this value and inherit golang settings.</p>
+</td>
+</tr>
+<tr><td><code>cipherSuites</code><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>cipherSuites is the list of allowed cipher suites for the server.
+Note that TLS 1.3 ciphersuites are not configurable.
+Values are from tls package constants (https://golang.org/pkg/crypto/tls/#pkg-constants).
+The default would be to not set this value and inherit golang settings.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `WaitForPodsReady`     {#config-kueue-x-k8s-io-v1beta1-WaitForPodsReady}
     
 
@@ -977,13 +1034,13 @@ This setting is only honored when <code>Enable</code> is set to true.</p>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
 </td>
 <td>
-   <p>RecoveryTimeout defines an opt-in timeout, measured since the
+   <p>RecoveryTimeout defines a timeout, measured since the
 last transition to the PodsReady=false condition after a Workload is Admitted and running.
 Such a transition may happen when a Pod failed and the replacement Pod
 is awaited to be scheduled.
 After exceeding the timeout the corresponding job gets suspended again
 and requeued after the backoff delay. The timeout is enforced only if waitForPodsReady.enable=true.
-If not set, there is no timeout.</p>
+Defaults to the value of timeout. Setting to &quot;0s&quot; disables recovery timeout checking.</p>
 </td>
 </tr>
 </tbody>

@@ -28,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/component-base/featuregate"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -203,7 +204,6 @@ func TestAssignFlavors(t *testing.T) {
 		simulationResult                    map[resources.FlavorResource]simulationResultForFlavor
 		elasticJobsViaWorkloadSlicesEnabled bool
 		preemptWorkloadSlice                *workload.Info
-		enableImplicitPreferenceDefault     bool
 		featureGates                        map[featuregate.Feature]bool
 	}{
 		"single flavor, fits": {
@@ -341,9 +341,10 @@ func TestAssignFlavors(t *testing.T) {
 					Status: *NewStatus("insufficient unused quota for cpu in flavor default, 1 more needed"),
 					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
 						{
-							Flavor:  "default",
-							Mode:    Preempt,
-							Reasons: []string{"insufficient unused quota for cpu in flavor default, 1 more needed"},
+							Flavor:                "default",
+							Mode:                  Preempt,
+							PreemptionPossibility: ptr.To(preemptioncommon.Preempt),
+							Reasons:               []string{"insufficient unused quota for cpu in flavor default, 1 more needed"},
 						},
 					},
 					Count: 1,
@@ -800,19 +801,21 @@ func TestAssignFlavors(t *testing.T) {
 					),
 					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
 						{
-							Flavor:  "b_one",
-							Mode:    Preempt,
-							Reasons: []string{"insufficient unused quota for example.com/gpu in flavor b_one, 1 more needed"},
+							Flavor:                "b_one",
+							Mode:                  Preempt,
+							PreemptionPossibility: ptr.To(preemptioncommon.Preempt),
+							Reasons:               []string{"insufficient unused quota for example.com/gpu in flavor b_one, 1 more needed"},
 						},
 						{
 							Flavor:  "one",
 							Mode:    NoFit,
 							Reasons: []string{"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (3) > maximum capacity (2)"}},
 						{
-							Flavor:  "two",
-							Mode:    Preempt,
-							Borrow:  1,
-							Reasons: []string{"insufficient unused quota for memory in flavor two, 5Mi more needed"},
+							Flavor:                "two",
+							Mode:                  Preempt,
+							PreemptionPossibility: ptr.To(preemptioncommon.Preempt),
+							Borrow:                1,
+							Reasons:               []string{"insufficient unused quota for memory in flavor two, 5Mi more needed"},
 						},
 					},
 					Count: 1,
@@ -1366,10 +1369,11 @@ func TestAssignFlavors(t *testing.T) {
 					Status: *NewStatus("insufficient unused quota for cpu in flavor one, 1 more needed"),
 					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
 						{
-							Flavor:  "one",
-							Mode:    Preempt,
-							Borrow:  1,
-							Reasons: []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
+							Flavor:                "one",
+							Mode:                  Preempt,
+							PreemptionPossibility: ptr.To(preemptioncommon.Preempt),
+							Borrow:                1,
+							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
 						},
 					},
 					Count: 1,
@@ -1408,9 +1412,10 @@ func TestAssignFlavors(t *testing.T) {
 					Status: *NewStatus("insufficient unused quota for cpu in flavor one, 1 more needed"),
 					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
 						{
-							Flavor:  "one",
-							Mode:    Preempt,
-							Reasons: []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
+							Flavor:                "one",
+							Mode:                  Preempt,
+							PreemptionPossibility: ptr.To(preemptioncommon.Preempt),
+							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
 						},
 					},
 					Count: 1,
@@ -1462,10 +1467,11 @@ func TestAssignFlavors(t *testing.T) {
 					Status: *NewStatus("insufficient unused quota for cpu in flavor one, 2 more needed"),
 					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
 						{
-							Flavor:  "one",
-							Mode:    Preempt,
-							Borrow:  1,
-							Reasons: []string{"insufficient unused quota for cpu in flavor one, 2 more needed"},
+							Flavor:                "one",
+							Mode:                  Preempt,
+							PreemptionPossibility: ptr.To(preemptioncommon.Preempt),
+							Borrow:                1,
+							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 2 more needed"},
 						},
 					},
 					Count: 1,
@@ -1518,9 +1524,10 @@ func TestAssignFlavors(t *testing.T) {
 							Reasons: []string{"flavor one doesn't match node affinity"},
 						},
 						{
-							Flavor:  "two",
-							Mode:    Preempt,
-							Reasons: []string{"insufficient unused quota for cpu in flavor two, 1 more needed"},
+							Flavor:                "two",
+							Mode:                  Preempt,
+							PreemptionPossibility: ptr.To(preemptioncommon.Preempt),
+							Reasons:               []string{"insufficient unused quota for cpu in flavor two, 1 more needed"},
 						},
 					},
 					Count: 1,
@@ -1575,9 +1582,10 @@ func TestAssignFlavors(t *testing.T) {
 						),
 						FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
 							{
-								Flavor:  "one",
-								Mode:    Preempt,
-								Reasons: []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
+								Flavor:                "one",
+								Mode:                  Preempt,
+								PreemptionPossibility: ptr.To(preemptioncommon.Preempt),
+								Reasons:               []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
 							},
 							{
 								Flavor:  "tainted",
@@ -1606,9 +1614,10 @@ func TestAssignFlavors(t *testing.T) {
 								Reasons: []string{"insufficient quota for cpu in flavor one, previously considered podsets requests (2) + current podset request (10) > maximum capacity (4)"},
 							},
 							{
-								Flavor:  "tainted",
-								Mode:    Preempt,
-								Reasons: []string{"insufficient unused quota for cpu in flavor tainted, 3 more needed"},
+								Flavor:                "tainted",
+								Mode:                  Preempt,
+								PreemptionPossibility: ptr.To(preemptioncommon.Preempt),
+								Reasons:               []string{"insufficient unused quota for cpu in flavor tainted, 3 more needed"},
 							},
 						},
 						Count: 10,
@@ -1643,6 +1652,77 @@ func TestAssignFlavors(t *testing.T) {
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
 			},
+		},
+		"zero resource request not in clusterQueue should succeed": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					Request("example.com/gpu", "0").
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "4").
+						Obj(),
+				).Obj(),
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: &FlavorAssignment{Name: "default", Mode: Fit, TriedFlavorIdx: -1},
+					},
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+						"example.com/gpu":  resource.MustParse("0"),
+					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{Flavor: "default", Mode: Fit},
+					},
+					Count: 1,
+				}},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+					{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
+				}},
+			},
+			wantRepMode: Fit,
+		},
+		"zero resource request defined in clusterQueue should get flavor assigned": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					Request("example.com/gpu", "0").
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "4").
+						Resource("example.com/gpu", "4").
+						Obj(),
+				).Obj(),
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: &FlavorAssignment{Name: "default", Mode: Fit, TriedFlavorIdx: -1},
+						"example.com/gpu":  &FlavorAssignment{Name: "default", Mode: Fit, TriedFlavorIdx: -1},
+					},
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+						"example.com/gpu":  resource.MustParse("0"),
+					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{Flavor: "default", Mode: Fit},
+					},
+					Count: 1,
+				}},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+					{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
+					{Flavor: "default", Resource: "example.com/gpu"}:  0,
+				}},
+			},
+			wantRepMode: Fit,
 		},
 		"num pods fit": {
 			wlPods: []kueue.PodSet{
@@ -1837,9 +1917,10 @@ func TestAssignFlavors(t *testing.T) {
 					Status: *NewStatus("insufficient unused quota for cpu in flavor one, 1 more needed"),
 					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
 						{
-							Flavor:  "one",
-							Mode:    Preempt,
-							Reasons: []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
+							Flavor:                "one",
+							Mode:                  Preempt,
+							PreemptionPossibility: ptr.To(preemptioncommon.Preempt),
+							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
 						},
 					},
 					Count: 1,
@@ -1886,9 +1967,10 @@ func TestAssignFlavors(t *testing.T) {
 					Status: *NewStatus("insufficient unused quota for cpu in flavor one, 1 more needed"),
 					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
 						{
-							Flavor:  "one",
-							Mode:    Preempt,
-							Reasons: []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
+							Flavor:                "one",
+							Mode:                  Preempt,
+							PreemptionPossibility: ptr.To(preemptioncommon.Preempt),
+							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
 						},
 					},
 					Count: 1,
@@ -1933,9 +2015,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
 						{
-							Flavor:  "one",
-							Mode:    Preempt,
-							Reasons: []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
+							Flavor:                "one",
+							Mode:                  Preempt,
+							PreemptionPossibility: ptr.To(preemptioncommon.Preempt),
+							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
 						},
 						{Flavor: "two", Mode: Fit},
 					},
@@ -2166,10 +2249,11 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
 						{
-							Flavor:  "one",
-							Mode:    Preempt,
-							Borrow:  1,
-							Reasons: []string{"insufficient unused quota for cpu in flavor one, 10 more needed"},
+							Flavor:                "one",
+							Mode:                  Preempt,
+							PreemptionPossibility: ptr.To(preemptioncommon.Preempt),
+							Borrow:                1,
+							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 10 more needed"},
 						},
 					},
 					Count: 1,
@@ -2232,10 +2316,11 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
 						{
-							Flavor:  "one",
-							Mode:    Preempt,
-							Borrow:  1,
-							Reasons: []string{"insufficient unused quota for cpu in flavor one, 10 more needed"},
+							Flavor:                "one",
+							Mode:                  Preempt,
+							PreemptionPossibility: ptr.To(preemptioncommon.Preempt),
+							Borrow:                1,
+							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 10 more needed"},
 						},
 					},
 					Count: 1,
@@ -2298,10 +2383,11 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
 						{
-							Flavor:  "one",
-							Mode:    Preempt,
-							Borrow:  1,
-							Reasons: []string{"insufficient unused quota for cpu in flavor one, 10 more needed"},
+							Flavor:                "one",
+							Mode:                  Preempt,
+							PreemptionPossibility: ptr.To(preemptioncommon.Preempt),
+							Borrow:                1,
+							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 10 more needed"},
 						},
 					},
 					Count: 1,
@@ -2364,10 +2450,11 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
 						{
-							Flavor:  "one",
-							Mode:    Preempt,
-							Borrow:  1,
-							Reasons: []string{"insufficient unused quota for cpu in flavor one, 10 more needed"},
+							Flavor:                "one",
+							Mode:                  Preempt,
+							PreemptionPossibility: ptr.To(preemptioncommon.Preempt),
+							Borrow:                1,
+							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 10 more needed"},
 						},
 					},
 					Count: 1,
@@ -2707,9 +2794,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
 						{
-							Flavor:  "one",
-							Mode:    Preempt,
-							Reasons: []string{"insufficient unused quota for cpu in flavor one, 2 more needed"},
+							Flavor:                "one",
+							Mode:                  Preempt,
+							PreemptionPossibility: ptr.To(preemptioncommon.NoCandidates),
+							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 2 more needed"},
 						},
 						{Flavor: "two", Mode: Fit, Borrow: 1},
 					},
@@ -2773,9 +2861,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
 						{
-							Flavor:  "one",
-							Mode:    Preempt,
-							Reasons: []string{"insufficient unused quota for cpu in flavor one, 2 more needed"},
+							Flavor:                "one",
+							Mode:                  Preempt,
+							PreemptionPossibility: ptr.To(preemptioncommon.NoCandidates),
+							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 2 more needed"},
 						},
 						{Flavor: "two", Mode: Fit, Borrow: 1},
 					},
@@ -2830,10 +2919,11 @@ func TestAssignFlavors(t *testing.T) {
 					Status: *NewStatus("insufficient unused quota for cpu in flavor one, 1 more needed"),
 					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
 						{
-							Flavor:  "one",
-							Mode:    Preempt,
-							Borrow:  1,
-							Reasons: []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
+							Flavor:                "one",
+							Mode:                  Preempt,
+							PreemptionPossibility: ptr.To(preemptioncommon.Preempt),
+							Borrow:                1,
+							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
 						},
 					},
 					Count: 1,
@@ -2891,10 +2981,11 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
 						{
-							Flavor:  "one",
-							Mode:    Preempt,
-							Borrow:  1,
-							Reasons: []string{"insufficient unused quota for cpu in flavor one, 10 more needed"},
+							Flavor:                "one",
+							Mode:                  Preempt,
+							PreemptionPossibility: ptr.To(preemptioncommon.Preempt),
+							Borrow:                1,
+							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 10 more needed"},
 						},
 					},
 					Count: 1,
@@ -2950,10 +3041,11 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
 						{
-							Flavor:  "one",
-							Mode:    Preempt,
-							Borrow:  1,
-							Reasons: []string{"insufficient unused quota for cpu in flavor one, 10 more needed"},
+							Flavor:                "one",
+							Mode:                  Preempt,
+							PreemptionPossibility: ptr.To(preemptioncommon.Preempt),
+							Borrow:                1,
+							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 10 more needed"},
 						},
 					},
 					Count: 1,
@@ -3208,193 +3300,12 @@ func TestAssignFlavors(t *testing.T) {
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
 			},
 		},
-		"preferPreemption; preempt without borrowing is preferred over fit with borrowing; preempt within cohort": {
-			enableImplicitPreferenceDefault: true,
-			wlPods: []kueue.PodSet{
-				*utiltestingapi.MakePodSet("main", 1).
-					Request(corev1.ResourceCPU, "10").
-					Obj(),
-			},
-			clusterQueue: *utiltestingapi.MakeClusterQueue("cq-test").
-				Cohort("cohort").
-				FlavorFungibility(kueue.FlavorFungibility{
-					WhenCanPreempt: kueue.TryNextFlavor,
-					WhenCanBorrow:  kueue.TryNextFlavor,
-				}).
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("one").
-						Resource(corev1.ResourceCPU, "10").
-						Obj(),
-					*utiltestingapi.MakeFlavorQuotas("two").
-						Resource(corev1.ResourceCPU, "5").
-						Obj(),
-				).Obj(),
-			secondaryClusterQueue: utiltestingapi.MakeClusterQueue("cq-secondary").
-				Cohort("cohort").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("one").
-						Resource(corev1.ResourceCPU, "5").
-						Obj(),
-					*utiltestingapi.MakeFlavorQuotas("two").
-						Resource(corev1.ResourceCPU, "5").
-						Obj(),
-				).
-				Obj(),
-			secondaryClusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 10_000,
-			},
-			wantRepMode: Preempt,
-			wantAssignment: Assignment{
-				PodSets: []PodSetAssignment{{
-					Name: "main",
-					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "one", Mode: Preempt, TriedFlavorIdx: -1},
-					},
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("10"),
-					},
-					Status: *NewStatus("insufficient unused quota for cpu in flavor one, 5 more needed"),
-					Count:  1,
-					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
-						{
-							Flavor:  "one",
-							Mode:    Preempt,
-							Reasons: []string{"insufficient unused quota for cpu in flavor one, 5 more needed"},
-						},
-						{Flavor: "two", Mode: Fit, Borrow: 1},
-					},
-				}},
-				Borrowing: 0,
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "one", Resource: corev1.ResourceCPU}: 10_000,
-				}},
-			},
-		},
-		"preferPreemption; preempt without borrowing is preferred over fit with borrowing; preempt in own CQ": {
-			enableImplicitPreferenceDefault: true,
-			wlPods: []kueue.PodSet{
-				*utiltestingapi.MakePodSet("main", 1).
-					Request(corev1.ResourceCPU, "10").
-					Obj(),
-			},
-			clusterQueue: *utiltestingapi.MakeClusterQueue("cq-test").
-				Cohort("cohort").
-				FlavorFungibility(kueue.FlavorFungibility{
-					WhenCanPreempt: kueue.TryNextFlavor,
-					WhenCanBorrow:  kueue.TryNextFlavor,
-				}).
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("one").
-						Resource(corev1.ResourceCPU, "10").
-						Obj(),
-					*utiltestingapi.MakeFlavorQuotas("two").
-						Resource(corev1.ResourceCPU, "5").
-						Obj(),
-				).Obj(),
-			secondaryClusterQueue: utiltestingapi.MakeClusterQueue("cq-secondary").
-				Cohort("cohort").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("one").
-						Resource(corev1.ResourceCPU, "5").
-						Obj(),
-					*utiltestingapi.MakeFlavorQuotas("two").
-						Resource(corev1.ResourceCPU, "5").
-						Obj(),
-				).
-				Obj(),
-			clusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 10_000,
-			},
-			wantRepMode: Preempt,
-			wantAssignment: Assignment{
-				PodSets: []PodSetAssignment{{
-					Name: "main",
-					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "one", Mode: Preempt, TriedFlavorIdx: -1},
-					},
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("10"),
-					},
-					Status: *NewStatus("insufficient unused quota for cpu in flavor one, 5 more needed"),
-					Count:  1,
-					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
-						{
-							Flavor:  "one",
-							Mode:    Preempt,
-							Reasons: []string{"insufficient unused quota for cpu in flavor one, 5 more needed"},
-						},
-						{Flavor: "two", Mode: Fit, Borrow: 1},
-					},
-				}},
-				Borrowing: 0,
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "one", Resource: corev1.ResourceCPU}: 10_000,
-				}},
-			},
-		},
-		"preferPreemption; fit without borrowing is preferred over fit with borrowing": {
-			enableImplicitPreferenceDefault: true,
-			wlPods: []kueue.PodSet{
-				*utiltestingapi.MakePodSet("main", 1).
-					Request(corev1.ResourceCPU, "10").
-					Obj(),
-			},
-			clusterQueue: *utiltestingapi.MakeClusterQueue("cq-test").
-				Cohort("cohort").
-				FlavorFungibility(kueue.FlavorFungibility{
-					WhenCanPreempt: kueue.TryNextFlavor,
-					WhenCanBorrow:  kueue.TryNextFlavor,
-				}).
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("one").
-						Resource(corev1.ResourceCPU, "5").
-						Obj(),
-					*utiltestingapi.MakeFlavorQuotas("two").
-						Resource(corev1.ResourceCPU, "10").
-						Obj(),
-				).Obj(),
-			secondaryClusterQueue: utiltestingapi.MakeClusterQueue("cq-secondary").
-				Cohort("cohort").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("one").
-						Resource(corev1.ResourceCPU, "5").
-						Obj(),
-					*utiltestingapi.MakeFlavorQuotas("two").
-						Resource(corev1.ResourceCPU, "5").
-						Obj(),
-				).
-				Obj(),
-			wantRepMode: Fit,
-			wantAssignment: Assignment{
-				PodSets: []PodSetAssignment{{
-					Name: "main",
-					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
-					},
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("10"),
-					},
-					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
-						{Flavor: "one", Mode: Fit, Borrow: 1},
-						{Flavor: "two", Mode: Fit},
-					},
-					Count: 1,
-				}},
-				Borrowing: 0,
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "two", Resource: corev1.ResourceCPU}: 10_000,
-				}},
-			},
-		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 			if tc.disableLendingLimit {
 				features.SetFeatureGateDuringTest(t, features.LendingLimit, false)
-			}
-			if tc.enableImplicitPreferenceDefault {
-				features.SetFeatureGateDuringTest(t, features.FlavorFungibilityImplicitPreferenceDefault, true)
 			}
 			for fg, enabled := range tc.featureGates {
 				features.SetFeatureGateDuringTest(t, fg, enabled)
@@ -3981,7 +3892,6 @@ func TestIsPreferred(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		enableGate    bool
 		a             granularMode
 		b             granularMode
 		config        kueue.FlavorFungibility
@@ -3996,30 +3906,9 @@ func TestIsPreferred(t *testing.T) {
 			},
 			wantPreferred: true,
 		},
-		"both policies try default to borrowing preference": {
-			enableGate: true,
-			a:          granularMode{preemptionMode: preempt, borrowingLevel: 1},
-			b:          granularMode{preemptionMode: fit, borrowingLevel: 2},
-			config: kueue.FlavorFungibility{
-				WhenCanBorrow:  kueue.TryNextFlavor,
-				WhenCanPreempt: kueue.TryNextFlavor,
-			},
-			wantPreferred: true,
-		},
-		"mismatched policies default to preemption preference": {
-			enableGate: true,
-			a:          granularMode{preemptionMode: preempt, borrowingLevel: 0},
-			b:          granularMode{preemptionMode: fit, borrowingLevel: 1},
-			config: kueue.FlavorFungibility{
-				WhenCanBorrow:  kueue.MayStopSearch,
-				WhenCanPreempt: kueue.TryNextFlavor,
-			},
-			wantPreferred: false,
-		},
 		"explicit BorrowingOverPreemption prioritises borrowing distance": {
-			enableGate: false,
-			a:          granularMode{preemptionMode: preempt, borrowingLevel: 1},
-			b:          granularMode{preemptionMode: fit, borrowingLevel: 2},
+			a: granularMode{preemptionMode: preempt, borrowingLevel: 1},
+			b: granularMode{preemptionMode: fit, borrowingLevel: 2},
 			config: kueue.FlavorFungibility{
 				WhenCanBorrow:  kueue.TryNextFlavor,
 				WhenCanPreempt: kueue.TryNextFlavor,
@@ -4028,9 +3917,8 @@ func TestIsPreferred(t *testing.T) {
 			wantPreferred: true,
 		},
 		"explicit PreemptionOverBorrowing prioritises lower preemption": {
-			enableGate: false,
-			a:          granularMode{preemptionMode: preempt, borrowingLevel: 1},
-			b:          granularMode{preemptionMode: fit, borrowingLevel: 2},
+			a: granularMode{preemptionMode: preempt, borrowingLevel: 1},
+			b: granularMode{preemptionMode: fit, borrowingLevel: 2},
 			config: kueue.FlavorFungibility{
 				WhenCanBorrow:  kueue.TryNextFlavor,
 				WhenCanPreempt: kueue.TryNextFlavor,
@@ -4039,9 +3927,8 @@ func TestIsPreferred(t *testing.T) {
 			wantPreferred: false,
 		},
 		"explicit PreemptionOverBorrowing breaks borrowing ties with preemption": {
-			enableGate: false,
-			a:          granularMode{preemptionMode: preempt, borrowingLevel: 1},
-			b:          granularMode{preemptionMode: fit, borrowingLevel: 1},
+			a: granularMode{preemptionMode: preempt, borrowingLevel: 1},
+			b: granularMode{preemptionMode: fit, borrowingLevel: 1},
 			config: kueue.FlavorFungibility{
 				WhenCanBorrow:  kueue.TryNextFlavor,
 				WhenCanPreempt: kueue.TryNextFlavor,
@@ -4053,8 +3940,6 @@ func TestIsPreferred(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.FlavorFungibilityImplicitPreferenceDefault, tc.enableGate)
-
 			if got := isPreferred(tc.a, tc.b, tc.config); got != tc.wantPreferred {
 				t.Fatalf("isPreferred(%+v, %+v, %+v)=%t, want %t", tc.a, tc.b, tc.config, got, tc.wantPreferred)
 			}
@@ -4235,6 +4120,36 @@ func TestAssignment_TotalRequestsFor(t *testing.T) {
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Obj()).
 					Request(corev1.ResourceCPU, "1").
 					Request(corev1.ResourceMemory, "1Mi").
+					Obj()),
+			},
+			want: resources.FlavorResourceQuantities{
+				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}:    2 * 1000,
+				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceMemory}: 2 * 1048576,
+			},
+		},
+		"WorkloadWithZeroQuantityResourceNotInClusterQueueSkipsResourceWithoutFlavor": {
+			fields: fields{
+				PodSets: []PodSetAssignment{
+					{
+						Name: kueue.DefaultPodSetName,
+						Flavors: ResourceAssignment{
+							corev1.ResourceCPU:    {Name: "default", Mode: Fit, TriedFlavorIdx: -1},
+							corev1.ResourceMemory: {Name: "default", Mode: Fit, TriedFlavorIdx: -1},
+						},
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Mi"),
+						},
+						Count: 2,
+					},
+				},
+			},
+			args: args{
+				wl: workload.NewInfo(utiltestingapi.MakeWorkload("test", "default").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Obj()).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "1Mi").
+					Request("example.com/gpu", "0").
 					Obj()),
 			},
 			want: resources.FlavorResourceQuantities{

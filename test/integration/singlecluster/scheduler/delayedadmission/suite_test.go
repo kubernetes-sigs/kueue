@@ -85,10 +85,10 @@ func managerAndSchedulerSetup(configuration *configapi.Configuration) framework.
 		cCache := schdcache.New(mgr.GetClient(), cacheOpts...)
 		queues := qcache.NewManager(mgr.GetClient(), cCache, queuesOpts...)
 
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
-		failedWebhook, err := webhooks.Setup(mgr)
+		failedWebhook, err := webhooks.Setup(mgr, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 		err = workloadjob.SetupIndexes(ctx, mgr.GetFieldIndexer())

@@ -36,6 +36,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
+	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -190,7 +191,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, lowWl)
 		})
 
-		ginkgo.It("Should preempt newer Workloads with the same priority when there is not enough quota", func() {
+		ginkgo.It("Should preempt newer Workloads with the same priority when there is not enough quota", framework.SlowSpec, func() {
 			ginkgo.By("Creating initial Workloads")
 			wl1 := utiltestingapi.MakeWorkload("wl-1", ns.Name).
 				Queue(kueue.LocalQueueName(q.Name)).
@@ -595,7 +596,10 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, useAllAlphaWl)
 			util.FinishEvictionForWorkloads(ctx, k8sClient, useAllAlphaWl)
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, preemptorBetaWl)
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, useAllAlphaWl, pendingAlphaWl)
+			// here we only assert tha the "use-all" workload is pending. The other
+			// workload "pending" may occasionally get admitted, see the issue analysis
+			// under https://github.com/kubernetes-sigs/kueue/issues/8141#issuecomment-3641580881
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, useAllAlphaWl)
 		})
 	})
 

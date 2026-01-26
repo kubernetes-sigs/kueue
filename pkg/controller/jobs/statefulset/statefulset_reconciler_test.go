@@ -18,6 +18,7 @@ package statefulset
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -27,8 +28,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	statefulsettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 )
@@ -41,12 +44,15 @@ var (
 )
 
 func TestReconciler(t *testing.T) {
+	now := time.Now()
 	cases := map[string]struct {
 		stsKey          client.ObjectKey
 		statefulSet     *appsv1.StatefulSet
 		pods            []corev1.Pod
+		workloads       []kueue.Workload
 		wantStatefulSet *appsv1.StatefulSet
 		wantPods        []corev1.Pod
+		wantWorkloads   []kueue.Workload
 		wantErr         error
 	}{
 		"statefulset not found": {
@@ -170,6 +176,87 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
+		"should add StatefulSet to Workload owner references if replicas > 0": {
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts"), "ns").
+					Obj(),
+			},
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				DeepCopy(),
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts"), "ns").
+					OwnerReference(gvk, "sts", "sts-uid").
+					Obj(),
+			},
+		},
+		"shouldn't add StatefulSet to Workload owner references if replicas = 0": {
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts"), "ns").
+					Obj(),
+			},
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				DeepCopy(),
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts"), "ns").
+					OwnerReference(gvk, "sts", "sts-uid").
+					Obj(),
+			},
+		},
+		"should remove StatefulSet from Workload owner references if replicas = 0": {
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				Replicas(0).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts"), "ns").
+					OwnerReference(gvk, "sts", "sts-uid").
+					Obj(),
+			},
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				Replicas(0).
+				DeepCopy(),
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts"), "ns").
+					Obj(),
+			},
+		},
+		"should finalize deleted pod": {
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				Replicas(0).
+				Queue("lq").
+				DeepCopy(),
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				Replicas(0).
+				Queue("lq").
+				DeepCopy(),
+			pods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", "ns").
+					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					KueueFinalizer().
+					DeletionTimestamp(now).
+					Obj(),
+			},
+			wantPods: nil,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -177,13 +264,17 @@ func TestReconciler(t *testing.T) {
 			clientBuilder := utiltesting.NewClientBuilder()
 			indexer := utiltesting.AsIndexer(clientBuilder)
 
-			objs := make([]client.Object, 0, len(tc.pods)+1)
+			objs := make([]client.Object, 0, len(tc.pods)+len(tc.workloads)+1)
 			if tc.statefulSet != nil {
 				objs = append(objs, tc.statefulSet)
 			}
 
 			for _, p := range tc.pods {
 				objs = append(objs, p.DeepCopy())
+			}
+
+			for _, wl := range tc.workloads {
+				objs = append(objs, wl.DeepCopy())
 			}
 
 			kClient := clientBuilder.WithObjects(objs...).Build()
@@ -217,6 +308,15 @@ func TestReconciler(t *testing.T) {
 			}
 
 			if diff := cmp.Diff(tc.wantPods, gotPodList.Items, baseCmpOpts...); diff != "" {
+				t.Errorf("Pods after reconcile (-want,+got):\n%s", diff)
+			}
+
+			gotWorkloadList := &kueue.WorkloadList{}
+			if err := kClient.List(ctx, gotWorkloadList); err != nil {
+				t.Fatalf("Could not get WorkloadList after reconcile: %v", err)
+			}
+
+			if diff := cmp.Diff(tc.wantWorkloads, gotWorkloadList.Items, baseCmpOpts...); diff != "" {
 				t.Errorf("Pods after reconcile (-want,+got):\n%s", diff)
 			}
 		})

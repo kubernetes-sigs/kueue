@@ -32,7 +32,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("JobSet", func() {
+var _ = ginkgo.Describe("JobSet", ginkgo.Label("area:singlecluster", "feature:jobset"), func() {
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
@@ -44,21 +44,25 @@ var _ = ginkgo.Describe("JobSet", func() {
 	})
 	ginkgo.When("Creating a JobSet", func() {
 		var (
-			defaultRf    *kueue.ResourceFlavor
-			localQueue   *kueue.LocalQueue
-			clusterQueue *kueue.ClusterQueue
+			defaultRf        *kueue.ResourceFlavor
+			localQueue       *kueue.LocalQueue
+			clusterQueue     *kueue.ClusterQueue
+			flavorDefault    string
+			clusterQueueName string
 		)
 		ginkgo.BeforeEach(func() {
-			defaultRf = utiltestingapi.MakeResourceFlavor("default").Obj()
+			flavorDefault = "default-" + ns.Name
+			clusterQueueName = "cluster-queue-" + ns.Name
+			defaultRf = utiltestingapi.MakeResourceFlavor(flavorDefault).Obj()
 			util.MustCreate(ctx, k8sClient, defaultRf)
-			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+			clusterQueue = utiltestingapi.MakeClusterQueue(clusterQueueName).
 				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas(defaultRf.Name).
+					*utiltestingapi.MakeFlavorQuotas(flavorDefault).
 						Resource(corev1.ResourceCPU, "2").
 						Resource(corev1.ResourceMemory, "2G").Obj()).Obj()
-			util.MustCreate(ctx, k8sClient, clusterQueue)
-			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
-			util.MustCreate(ctx, k8sClient, localQueue)
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue(clusterQueueName).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteAllJobSetsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
@@ -105,25 +109,31 @@ var _ = ginkgo.Describe("JobSet", func() {
 
 	ginkgo.When("Using resource flavors with node selectors", func() {
 		var (
-			onDemandRF   *kueue.ResourceFlavor
-			spotRF       *kueue.ResourceFlavor
-			localQueue   *kueue.LocalQueue
-			clusterQueue *kueue.ClusterQueue
+			onDemandRF       *kueue.ResourceFlavor
+			spotRF           *kueue.ResourceFlavor
+			localQueue       *kueue.LocalQueue
+			clusterQueue     *kueue.ClusterQueue
+			flavorOnDemand   string
+			flavorSpot       string
+			clusterQueueName string
 		)
 		ginkgo.BeforeEach(func() {
-			onDemandRF = utiltestingapi.MakeResourceFlavor("on-demand").
+			flavorOnDemand = "on-demand-" + ns.Name
+			flavorSpot = "spot-" + ns.Name
+			clusterQueueName = "cluster-queue-" + ns.Name
+			onDemandRF = utiltestingapi.MakeResourceFlavor(flavorOnDemand).
 				NodeLabel("instance-type", "on-demand").Obj()
 			util.MustCreate(ctx, k8sClient, onDemandRF)
-			spotRF = utiltestingapi.MakeResourceFlavor("spot").
+			spotRF = utiltestingapi.MakeResourceFlavor(flavorSpot).
 				NodeLabel("instance-type", "spot").Obj()
 			util.MustCreate(ctx, k8sClient, spotRF)
-			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+			clusterQueue = utiltestingapi.MakeClusterQueue(clusterQueueName).
 				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("on-demand").
+					*utiltestingapi.MakeFlavorQuotas(flavorOnDemand).
 						Resource(corev1.ResourceCPU, "1").
 						Resource(corev1.ResourceMemory, "1Gi").
 						Obj(),
-					*utiltestingapi.MakeFlavorQuotas("spot").
+					*utiltestingapi.MakeFlavorQuotas(flavorSpot).
 						Resource(corev1.ResourceCPU, "1").
 						Resource(corev1.ResourceMemory, "1Gi").
 						Obj(),
@@ -132,9 +142,9 @@ var _ = ginkgo.Describe("JobSet", func() {
 					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 				}).
 				Obj()
-			util.MustCreate(ctx, k8sClient, clusterQueue)
-			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
-			util.MustCreate(ctx, k8sClient, localQueue)
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue(clusterQueueName).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteAllJobSetsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())

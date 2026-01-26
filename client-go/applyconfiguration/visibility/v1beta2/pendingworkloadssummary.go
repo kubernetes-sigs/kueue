@@ -25,6 +25,9 @@ import (
 
 // PendingWorkloadsSummaryApplyConfiguration represents a declarative configuration of the PendingWorkloadsSummary type for use
 // with apply.
+//
+// PendingWorkloadsSummary contains a list of pending workloads in the context
+// of the query (within LocalQueue or ClusterQueue).
 type PendingWorkloadsSummaryApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:",inline"`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
@@ -39,6 +42,7 @@ func PendingWorkloadsSummary() *PendingWorkloadsSummaryApplyConfiguration {
 	b.WithAPIVersion("visibility.kueue.x-k8s.io/v1beta2")
 	return b
 }
+
 func (b PendingWorkloadsSummaryApplyConfiguration) IsApplyConfiguration() {}
 
 // WithKind sets the Kind field in the declarative configuration to the given value

@@ -56,10 +56,10 @@ integrations:
   - "kubeflow.org/jaxjob"
   - "workload.codeflare.dev/appwrapper"
   - "trainer.kubeflow.org/trainjob"
-#  - "pod"
-#  - "deployment" # requires enabling pod integration
-#  - "statefulset" # requires enabling pod integration
-#  - "leaderworkerset.x-k8s.io/leaderworkerset" # requires enabling pod integration
+  - "pod"
+  - "deployment"
+  - "statefulset"
+  - "leaderworkerset.x-k8s.io/leaderworkerset"
 #  externalFrameworks:
 #  - "Foo.v1.example.com"
 #fairSharing:

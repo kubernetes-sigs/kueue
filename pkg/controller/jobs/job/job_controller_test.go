@@ -24,6 +24,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -47,6 +48,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 func TestPodsReady(t *testing.T) {
@@ -2094,6 +2096,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
+					AdmittedAt(true, now).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check1",
 						State: kueue.CheckStateReady,
@@ -2119,24 +2122,11 @@ func TestReconciler(t *testing.T) {
 						},
 					}).
 					Condition(metav1.Condition{
-						Type:    kueue.WorkloadQuotaReserved,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadFinished,
-						Message: `Workload has finished`,
-					}).
-					Condition(metav1.Condition{
-						Type:    kueue.WorkloadAdmitted,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadFinished,
-						Message: `Workload has finished`,
-					}).
-					Condition(metav1.Condition{
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
 						Reason:  "FailedToStart",
 						Message: `in admission check "check2": invalid admission check PodSetUpdate: conflict for labels: conflict for key=ac-key, value1=ac-value1, value2=ac-value2`,
 					}).
-					PastAdmittedTime(0).
 					Obj(),
 			},
 		},
@@ -2177,6 +2167,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
+					AdmittedAt(true, now).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check1",
 						State: kueue.CheckStateReady,
@@ -2202,24 +2193,11 @@ func TestReconciler(t *testing.T) {
 						},
 					}).
 					Condition(metav1.Condition{
-						Type:    kueue.WorkloadQuotaReserved,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadFinished,
-						Message: `Workload has finished`,
-					}).
-					Condition(metav1.Condition{
-						Type:    kueue.WorkloadAdmitted,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadFinished,
-						Message: `Workload has finished`,
-					}).
-					Condition(metav1.Condition{
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
 						Reason:  "FailedToStart",
 						Message: `in admission check "check2": invalid admission check PodSetUpdate: conflict for annotations: conflict for key=ac-key, value1=ac-value1, value2=ac-value2`,
 					}).
-					PastAdmittedTime(0).
 					Obj(),
 			},
 		},
@@ -2260,6 +2238,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
+					AdmittedAt(true, now).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check1",
 						State: kueue.CheckStateReady,
@@ -2285,24 +2264,11 @@ func TestReconciler(t *testing.T) {
 						},
 					}).
 					Condition(metav1.Condition{
-						Type:    kueue.WorkloadQuotaReserved,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadFinished,
-						Message: `Workload has finished`,
-					}).
-					Condition(metav1.Condition{
-						Type:    kueue.WorkloadAdmitted,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadFinished,
-						Message: `Workload has finished`,
-					}).
-					Condition(metav1.Condition{
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
 						Reason:  "FailedToStart",
 						Message: `in admission check "check2": invalid admission check PodSetUpdate: conflict for nodeSelector: conflict for key=ac-key, value1=ac-value1, value2=ac-value2`,
 					}).
-					PastAdmittedTime(0).
 					Obj(),
 			},
 		},
@@ -2333,6 +2299,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
+					AdmittedAt(true, now).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check",
 						State: kueue.CheckStateReady,
@@ -2346,24 +2313,11 @@ func TestReconciler(t *testing.T) {
 						},
 					}).
 					Condition(metav1.Condition{
-						Type:    kueue.WorkloadQuotaReserved,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadFinished,
-						Message: `Workload has finished`,
-					}).
-					Condition(metav1.Condition{
-						Type:    kueue.WorkloadAdmitted,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadFinished,
-						Message: `Workload has finished`,
-					}).
-					Condition(metav1.Condition{
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
 						Reason:  "FailedToStart",
 						Message: `invalid admission check PodSetUpdate: conflict for nodeSelector: conflict for key=provisioning, value1=spot, value2=on-demand`,
 					}).
-					PastAdmittedTime(0).
 					Obj(),
 			},
 		},
@@ -3155,20 +3109,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Condition(metav1.Condition{
-						Type:               kueue.WorkloadQuotaReserved,
-						Status:             metav1.ConditionFalse,
-						Reason:             kueue.WorkloadFinished,
-						Message:            `Workload has finished`,
-						ObservedGeneration: 1,
-					}).
-					Condition(metav1.Condition{
-						Type:               kueue.WorkloadAdmitted,
-						Status:             metav1.ConditionFalse,
-						Reason:             kueue.WorkloadFinished,
-						Message:            `Workload has finished`,
-						ObservedGeneration: 1,
-					}).
+					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadFinished,
 						Status:             metav1.ConditionTrue,
@@ -3177,7 +3118,6 @@ func TestReconciler(t *testing.T) {
 						ObservedGeneration: 1,
 					}).
 					Generation(1).
-					PastAdmittedTime(0).
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -3511,12 +3451,6 @@ func TestReconciler(t *testing.T) {
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
-					Condition(metav1.Condition{
-						Type:    kueue.WorkloadQuotaReserved,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadFinished,
-						Message: `Workload has finished`,
-					}).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
@@ -4104,6 +4038,210 @@ func TestCleanLabels(t *testing.T) {
 			cleanLabels(pt)
 			if diff := cmp.Diff(tc.wantLabels, pt.Labels); diff != "" {
 				t.Errorf("cleanLabels() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestJobIsTopLevel(t *testing.T) {
+	testcases := map[string]struct {
+		job  *Job
+		want bool
+	}{
+		"job without owner should return true": {
+			job: &Job{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-job",
+					Namespace: "test-ns",
+					Labels: map[string]string{
+						controllerconsts.QueueLabel: "test-queue",
+					},
+				},
+				Spec: batchv1.JobSpec{},
+			},
+			want: true,
+		},
+		"job with non-RayJob owner should return false": {
+			job: &Job{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-job",
+					Namespace: "test-ns",
+					Labels: map[string]string{
+						controllerconsts.QueueLabel: "test-queue",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "apps/v1",
+							Kind:       "Deployment",
+							Name:       "test-deployment",
+							Controller: ptr.To(true),
+						},
+					},
+				},
+				Spec: batchv1.JobSpec{},
+			},
+			want: false,
+		},
+		"job owned by RayJob but not elastic should return false": {
+			job: &Job{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-job",
+					Namespace: "test-ns",
+					Labels: map[string]string{
+						controllerconsts.QueueLabel: "test-queue",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: rayv1.GroupVersion.String(),
+							Kind:       "RayJob",
+							Name:       "test-rayjob",
+							Controller: ptr.To(true),
+						},
+					},
+				},
+				Spec: batchv1.JobSpec{},
+			},
+			want: false,
+		},
+		"job owned by RayJob with incorrect elastic annotation value should return false": {
+			job: &Job{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-job",
+					Namespace: "test-ns",
+					Labels: map[string]string{
+						controllerconsts.QueueLabel: "test-queue",
+					},
+					Annotations: map[string]string{
+						workloadslicing.EnabledAnnotationKey: "false",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: rayv1.GroupVersion.String(),
+							Kind:       "RayJob",
+							Name:       "test-rayjob",
+							Controller: ptr.To(true),
+						},
+					},
+				},
+				Spec: batchv1.JobSpec{},
+			},
+			want: false,
+		},
+		"job owned by RayJob with elastic annotation should return true": {
+			job: &Job{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-job",
+					Namespace: "test-ns",
+					Labels: map[string]string{
+						controllerconsts.QueueLabel: "test-queue",
+					},
+					Annotations: map[string]string{
+						workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: rayv1.GroupVersion.String(),
+							Kind:       "RayJob",
+							Name:       "test-rayjob",
+							Controller: ptr.To(true),
+						},
+					},
+				},
+				Spec: batchv1.JobSpec{},
+			},
+			want: true,
+		},
+		"job owned by RayJob with multiple owner references (controller is RayJob) and elastic annotation should return true": {
+			job: &Job{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-job",
+					Namespace: "test-ns",
+					Labels: map[string]string{
+						controllerconsts.QueueLabel: "test-queue",
+					},
+					Annotations: map[string]string{
+						workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "apps/v1",
+							Kind:       "ReplicaSet",
+							Name:       "test-replicaset",
+							Controller: ptr.To(false),
+						},
+						{
+							APIVersion: rayv1.GroupVersion.String(),
+							Kind:       "RayJob",
+							Name:       "test-rayjob",
+							Controller: ptr.To(true),
+						},
+					},
+				},
+				Spec: batchv1.JobSpec{},
+			},
+			want: true,
+		},
+		"job owned by RayJob with multiple owner references (controller is not RayJob) should return false": {
+			job: &Job{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-job",
+					Namespace: "test-ns",
+					Labels: map[string]string{
+						controllerconsts.QueueLabel: "test-queue",
+					},
+					Annotations: map[string]string{
+						workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: rayv1.GroupVersion.String(),
+							Kind:       "RayJob",
+							Name:       "test-rayjob",
+							Controller: ptr.To(false),
+						},
+						{
+							APIVersion: "apps/v1",
+							Kind:       "Deployment",
+							Name:       "test-deployment",
+							Controller: ptr.To(true),
+						},
+					},
+				},
+				Spec: batchv1.JobSpec{},
+			},
+			want: false,
+		},
+		"job owned by RayJob with correct APIVersion but wrong GroupVersion should return false": {
+			job: &Job{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-job",
+					Namespace: "test-ns",
+					Labels: map[string]string{
+						controllerconsts.QueueLabel: "test-queue",
+					},
+					Annotations: map[string]string{
+						workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "foo.io/v1", // wrong version
+							Kind:       "RayJob",
+							Name:       "test-rayjob",
+							Controller: ptr.To(true),
+						},
+					},
+				},
+				Spec: batchv1.JobSpec{},
+			},
+			want: false,
+		},
+	}
+
+	for name, tc := range testcases {
+		t.Run(name, func(t *testing.T) {
+			got := tc.job.IsTopLevel()
+			if got != tc.want {
+				t.Errorf("Job.IsTopLevel() = %v, want %v", got, tc.want)
 			}
 		})
 	}

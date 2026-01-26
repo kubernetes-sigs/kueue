@@ -49,18 +49,21 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var (
-	errPendingUngateOps = errors.New("pending ungate operations")
+	errPendingUngateOps      = errors.New("pending ungate operations")
+	errParseOffsetAnnotation = errors.New("failed to parse offset annotation")
 )
 
 type topologyUngater struct {
 	client            client.Client
 	expectationsStore *expectations.Store
+	roleTracker       *roletracker.RoleTracker
 }
 
 type podWithUngateInfo struct {
@@ -80,10 +83,11 @@ var _ predicate.TypedPredicate[*kueue.Workload] = (*topologyUngater)(nil)
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get
 
-func newTopologyUngater(c client.Client) *topologyUngater {
+func newTopologyUngater(c client.Client, roleTracker *roletracker.RoleTracker) *topologyUngater {
 	return &topologyUngater{
 		client:            c,
 		expectationsStore: expectations.NewStore(TASTopologyUngater),
+		roleTracker:       roleTracker,
 	}
 }
 
@@ -104,6 +108,7 @@ func (r *topologyUngater) setupWithManager(mgr ctrl.Manager, cfg *configapi.Conf
 			NeedLeaderElection:      ptr.To(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("Workload").GroupKind().String()],
 		}).
+		WithLogConstructor(roletracker.NewLogConstructor(r.roleTracker, TASTopologyUngater)).
 		Complete(core.WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
 }
 
@@ -219,6 +224,22 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 				log.Error(err, "failed to list Pods for PodSet", "podset", psa.Name, "count", psa.Count)
 				return reconcile.Result{}, err
 			}
+			if len(pods) > 0 {
+				// Assume that same replica all Pods has the same offset value.
+				offsetVal, found := pods[0].Annotations[kueue.PodIndexOffsetAnnotation]
+				if found {
+					var offset int
+					if offset, err = strconv.Atoi(offsetVal); err != nil {
+						log.Error(err, errParseOffsetAnnotation.Error(),
+							kueue.PodIndexOffsetAnnotation, offsetVal,
+							"pod", klog.KObj(pods[0]),
+						)
+						return reconcile.Result{}, errors.Join(err, errParseOffsetAnnotation)
+					}
+					rankOffsets[psa.Name] += int32(offset)
+					maxRank[psa.Name] += int32(offset)
+				}
+			}
 			gatedPodsToDomains := assignGatedPodsToDomains(log, &psa, pods, psNameToTopologyRequest[psa.Name], rankOffsets[psa.Name], maxRank[psa.Name])
 			if len(gatedPodsToDomains) > 0 {
 				toUngate := podsToUngateInfo(&psa, gatedPodsToDomains)
@@ -239,13 +260,15 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 		podWithUngateInfo := &allToUngate[i]
 		var ungated bool
 		e := utilclient.Patch(ctx, r.client, podWithUngateInfo.pod, func() (bool, error) {
-			log.V(3).Info("ungating pod", "pod", klog.KObj(podWithUngateInfo.pod), "nodeLabels", podWithUngateInfo.nodeLabels)
 			ungated = utilpod.Ungate(podWithUngateInfo.pod, kueue.TopologySchedulingGate)
-			if podWithUngateInfo.pod.Spec.NodeSelector == nil {
-				podWithUngateInfo.pod.Spec.NodeSelector = make(map[string]string)
+			if ungated {
+				log.V(3).Info("ungating pod", "pod", klog.KObj(podWithUngateInfo.pod), "nodeLabels", podWithUngateInfo.nodeLabels)
+				if podWithUngateInfo.pod.Spec.NodeSelector == nil {
+					podWithUngateInfo.pod.Spec.NodeSelector = make(map[string]string)
+				}
+				maps.Copy(podWithUngateInfo.pod.Spec.NodeSelector, podWithUngateInfo.nodeLabels)
 			}
-			maps.Copy(podWithUngateInfo.pod.Spec.NodeSelector, podWithUngateInfo.nodeLabels)
-			return true, nil
+			return ungated, nil
 		})
 		if e != nil {
 			// We won't observe this cleanup in the event handler.
@@ -410,7 +433,11 @@ func readRanksIfAvailable(log logr.Logger,
 	}
 	result, err := readRanksForLabels(psa, pods, psReq, offset, maxRank)
 	if err != nil {
-		log.Error(err, "failed to read rank information from Pods")
+		if errors.Is(err, utilpod.ErrLabelNotFound) {
+			log.V(5).Info("pods missing index label for rank ordering", "error", err)
+		} else {
+			log.Error(err, "failed to read rank information from pods")
+		}
 		return nil, false
 	}
 	return result, true

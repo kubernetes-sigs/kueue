@@ -20,14 +20,14 @@ import (
 	"fmt"
 	"io"
 
-	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/dryrun"
 )
 
-func printWithDryRunStrategy(out io.Writer, name string, dryRunStrategy util.DryRunStrategy) {
+func printWithDryRunStrategy(out io.Writer, name string, dryRunStrategy dryrun.Strategy) {
 	switch dryRunStrategy {
-	case util.DryRunClient:
+	case dryrun.Client:
 		fmt.Fprintf(out, "%s deleted (client dry run)\n", name)
-	case util.DryRunServer:
+	case dryrun.Server:
 		fmt.Fprintf(out, "%s deleted (server dry run)\n", name)
 	default:
 		fmt.Fprintf(out, "%s deleted\n", name)

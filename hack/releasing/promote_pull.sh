@@ -27,6 +27,7 @@ KUBERNETES_SIGS_KUEUE_UPSTREAM_REMOTE=${KUBERNETES_SIGS_KUEUE_UPSTREAM_REMOTE:-u
 KUBERNETES_SIGS_KUEUE_FORK_REMOTE=${KUBERNETES_SIGS_KUEUE_FORK_REMOTE:-origin}
 KUBERNETES_SIGS_KUEUE_MAIN_REPO_ORG=${KUBERNETES_SIGS_KUEUE_MAIN_REPO_ORG:-$(git remote get-url "$KUBERNETES_SIGS_KUEUE_UPSTREAM_REMOTE" | awk '{gsub(/http[s]:\/\/|git@/,"")}1' | awk -F'[@:./]' 'NR==1{print $3}')}
 KUBERNETES_SIGS_KUEUE_MAIN_REPO_NAME=${KUBERNETES_SIGS_KUEUE_MAIN_REPO_NAME:-$(git remote get-url "$KUBERNETES_SIGS_KUEUE_UPSTREAM_REMOTE" | awk '{gsub(/http[s]:\/\/|git@/,"")}1' | awk -F'[@:./]' 'NR==1{print $4}')}
+KUBERNETES_SIGS_KUEUE_MAIN_REPO="${KUBERNETES_SIGS_KUEUE_MAIN_REPO_ORG}/${KUBERNETES_SIGS_KUEUE_MAIN_REPO_NAME}"
 
 # shellcheck source=hack/releasing/common.sh
 source "${KUBERNETES_SIGS_KUEUE_PATH}/hack/releasing/common.sh"
@@ -68,8 +69,9 @@ declare -r REBASE_MAGIC=".git/rebase-apply"
 DRY_RUN=${DRY_RUN:-""}
 KUBERNETES_K8S_IO_UPSTREAM_REMOTE=${KUBERNETES_K8S_IO_UPSTREAM_REMOTE:-upstream}
 KUBERNETES_K8S_IO_FORK_REMOTE=${KUBERNETES_K8S_IO_FORK_REMOTE:-origin}
-KUBERNETES_K8S_IO_MAIN_REPO_ORG=$(git remote get-url "$KUBERNETES_K8S_IO_UPSTREAM_REMOTE" | cut -d: -f2- | cut -d/ -f1)
-KUBERNETES_K8S_IO_MAIN_REPO_NAME=$(git remote get-url "$KUBERNETES_K8S_IO_UPSTREAM_REMOTE" | cut -d: -f2- | cut -d/ -f2- | sed 's/\.git$//')
+KUBERNETES_K8S_IO_MAIN_REPO_ORG=${KUBERNETES_K8S_IO_MAIN_REPO_ORG:-$(git remote get-url "${KUBERNETES_K8S_IO_UPSTREAM_REMOTE}" | awk '{gsub(/http[s]:\/\/|git@/,"")}1' | awk -F'[@:./]' 'NR==1{print $3}')}
+KUBERNETES_K8S_IO_MAIN_REPO_NAME=${KUBERNETES_K8S_IO_MAIN_REPO_NAME:-$(git remote get-url "${KUBERNETES_K8S_IO_UPSTREAM_REMOTE}" | awk '{gsub(/http[s]:\/\/|git@/,"")}1' | awk -F'[@:./]' 'NR==1{print $4}')}
+KUBERNETES_K8S_IO_MAIN_REPO="${KUBERNETES_K8S_IO_MAIN_REPO_ORG}/${KUBERNETES_K8S_IO_MAIN_REPO_NAME}"
 
 if [[ -z ${GITHUB_USER:-} ]]; then
   echo "Please export GITHUB_USER=<your-user> (or GH organization, if that's where your fork lives)"
@@ -131,13 +133,13 @@ fi
 
 RELEASE_ISSUE_NAME="Release ${RELEASE_VERSION}"
 
-RELEASE_ISSUE_NUMBER=$(gh issue list --repo="${KUBERNETES_SIGS_KUEUE_MAIN_REPO_ORG}/${KUBERNETES_SIGS_KUEUE_MAIN_REPO_NAME}" --search "in:title ${RELEASE_ISSUE_NAME}" | awk '{print $1}' || true)
+RELEASE_ISSUE_NUMBER=$(gh issue list --repo="${KUBERNETES_SIGS_KUEUE_MAIN_REPO}" --search "in:title ${RELEASE_ISSUE_NAME}" | awk '{print $1}' || true)
 if [ -z "$RELEASE_ISSUE_NUMBER" ]; then
   echo "!!! No release issue found for version ${RELEASE_VERSION}. Please create 'Release ${RELEASE_VERSION}' issue first."
   exit 1
 fi
 
-RELEASE_ISSUE=$(gh issue view "${RELEASE_ISSUE_NUMBER}" --repo="${KUBERNETES_SIGS_KUEUE_MAIN_REPO_ORG}/${KUBERNETES_SIGS_KUEUE_MAIN_REPO_NAME}" --json body || true)
+RELEASE_ISSUE=$(gh issue view "${RELEASE_ISSUE_NUMBER}" --repo="${KUBERNETES_SIGS_KUEUE_MAIN_REPO}" --json body || true)
 if [ -z "$RELEASE_ISSUE" ]; then
   echo "!!! No release issue found for version ${RELEASE_VERSION}. Please create 'Release ${RELEASE_VERSION}' issue first."
   exit 1
@@ -183,18 +185,18 @@ function make_pr() {
   rel="$(basename "$1")"
 
   echo
-  echo "+++ Creating a pull request on GitHub at ${GITHUB_USER}:$2 for ${rel}"
+  echo "+++ Creating a pull request on GitHub repo ${KUBERNETES_K8S_IO_MAIN_REPO} at ${GITHUB_USER}:$2 for ${rel}"
 
   pr_text=$(cat <<EOF
 #### What this PR does / why we need it:
 $3.
 
 #### Which issue(s) this PR fixes:
-Part of ${KUBERNETES_SIGS_KUEUE_MAIN_REPO_ORG}/${KUBERNETES_SIGS_KUEUE_MAIN_REPO_NAME}#${RELEASE_ISSUE_NUMBER}
+Part of ${KUBERNETES_SIGS_KUEUE_MAIN_REPO}#${RELEASE_ISSUE_NUMBER}
 EOF
 )
 
-   gh pr create --title="$3" --body="${pr_text}" --head "${GITHUB_USER}:$2" --base "${rel}" --repo="${KUBERNETES_K8S_IO_MAIN_REPO_ORG}/${KUBERNETES_K8S_IO_MAIN_REPO_NAME}"
+   gh pr create --title="$3" --body="${pr_text}" --head "${GITHUB_USER}:$2" --base "${rel}" --repo="${KUBERNETES_K8S_IO_MAIN_REPO}"
 }
 
 # $1 - images file
@@ -331,7 +333,7 @@ function prepare_local_branch() {
 
   while IFS= read -r name; do
     version="$RELEASE_VERSION"
-    if [ "${name}" == "charts/kueue" ]; then
+    if [[ "${name}" == "charts/kueue" || "${name}" == "charts/kueue-populator" ]]; then
       version="${version#v}"
     fi
 
@@ -384,10 +386,11 @@ declare -r K8S_IO_PR_NAME
 prepare_local_branch main "${K8S_IO_BRANCH_UNIQUE}" "${K8S_IO_PR_NAME}"
 push_and_create_pr main "${K8S_IO_BRANCH}" "${K8S_IO_BRANCH_UNIQUE}" "${K8S_IO_PR_NAME}"
 
-K8S_IO_PR_NUMBER=$(gh pr list --repo="${KUBERNETES_K8S_IO_MAIN_REPO_ORG}/${KUBERNETES_K8S_IO_MAIN_REPO_NAME}" | grep "${K8S_IO_PR_NAME}" | awk '{print $1}' || true)
+K8S_IO_PR_NUMBER=$(gh pr list --repo="${KUBERNETES_K8S_IO_MAIN_REPO}" | grep "${K8S_IO_PR_NAME}" | awk '{print $1}' || true)
 if [ -n "$K8S_IO_PR_NUMBER" ]; then
-  NEW_RELEASE_ISSUE_BODY=${RELEASE_ISSUE_BODY//<!-- K8S_IO_PULL -->/${KUBERNETES_K8S_IO_MAIN_REPO_ORG}/${KUBERNETES_K8S_IO_MAIN_REPO_NAME}#${K8S_IO_PR_NUMBER}}
-  gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${NEW_RELEASE_ISSUE_BODY}" --repo="${KUBERNETES_SIGS_KUEUE_MAIN_REPO_ORG}/${KUBERNETES_SIGS_KUEUE_MAIN_REPO_NAME}" || {
+  NEW_RELEASE_ISSUE_BODY=${RELEASE_ISSUE_BODY//<!-- K8S_IO_PULL -->/${KUBERNETES_K8S_IO_MAIN_REPO}#${K8S_IO_PR_NUMBER}}
+  echo "+++ Editing release issue ${RELEASE_ISSUE_NUMBER} on GitHub repo ${KUBERNETES_SIGS_KUEUE_MAIN_REPO}"
+  gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${NEW_RELEASE_ISSUE_BODY}" --repo="${KUBERNETES_SIGS_KUEUE_MAIN_REPO}" || {
     echo "!!! Failed to edit release issue \"${RELEASE_ISSUE_NAME}\": gh issue edit command failed."
   }
 fi

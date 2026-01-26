@@ -40,6 +40,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
+	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crconfig "sigs.k8s.io/controller-runtime/pkg/config"
@@ -84,10 +85,11 @@ func (f *Framework) Init() *rest.Config {
 
 	var cfg *rest.Config
 	ginkgo.By("bootstrapping test environment", func() {
-		baseCrdPath := filepath.Join(util.GetProjectBaseDir(), "config", "components", "crd", "_output")
+		baseCrdPath := filepath.Join(util.ProjectBaseDir, "config", "components", "crd", "_output")
 		f.testEnv = &envtest.Environment{
-			CRDDirectoryPaths:     append(f.DepCRDPaths, baseCrdPath),
-			ErrorIfCRDPathMissing: true,
+			CRDDirectoryPaths:       append(f.DepCRDPaths, baseCrdPath),
+			ErrorIfCRDPathMissing:   true,
+			ControlPlaneStopTimeout: 90 * time.Second,
 		}
 		var err error
 		f.testEnv.Scheme = scheme.Scheme
@@ -156,6 +158,9 @@ func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.WithW
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = resourcev1.AddToScheme(f.scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = inventoryv1alpha1.AddToScheme(f.scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	k8sClient, err := client.NewWithWatch(cfg, client.Options{Scheme: f.scheme})
@@ -253,7 +258,7 @@ var (
 	//  curl https://storage.googleapis.com/kubernetes-jenkins/pr-logs/pull/kubernetes-sigs_kueue/3054/pull-kueue-test-integration-main/1836045641336229888/artifacts/integration-top.yaml \
 	// | yq '.[] | select(.name != "") | .f.duration = .duration | .f.name = .name | .f.suite=.suite | .f | [] + .' | yq '.[0:30]' -oc
 	//
-	// taking the item which run for more then 5 sec
+	// taking the item which run for more than 5 sec
 	SlowSpec = ginkgo.Label("slow")
 
 	// RedundantSpec label used to decorate test specs that largely cover generic code covered by other specs also. (eg. Kubeflow jobs)

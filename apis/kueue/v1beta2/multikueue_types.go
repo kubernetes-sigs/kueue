@@ -103,6 +103,7 @@ type MultiKueueClusterStatus struct {
 // +genclient
 // +genclient:nonNamespaced
 // +kubebuilder:object:root=true
+// +kubebuilder:storageversion
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster
 
@@ -139,7 +140,7 @@ type MultiKueueConfigSpec struct {
 	//
 	// +listType=set
 	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=10
+	// +kubebuilder:validation:MaxItems=20
 	// +kubebuilder:validation:items:MaxLength=256
 	// +required
 	Clusters []string `json:"clusters,omitempty,omitzero"`
@@ -148,6 +149,7 @@ type MultiKueueConfigSpec struct {
 // +genclient
 // +genclient:nonNamespaced
 // +kubebuilder:object:root=true
+// +kubebuilder:storageversion
 // +kubebuilder:resource:scope=Cluster
 
 // MultiKueueConfig is the Schema for the multikueue API

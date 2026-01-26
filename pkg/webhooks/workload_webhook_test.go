@@ -42,6 +42,7 @@ const (
 )
 
 func TestValidateWorkload(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
 	specPath := field.NewPath("spec")
 	podSetsPath := specPath.Child("podSets")
 	statusPath := field.NewPath("status")
@@ -60,7 +61,7 @@ func TestValidateWorkload(t *testing.T) {
 		},
 		"should have a valid podSet name in status assignment": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				ReserveQuota(utiltestingapi.MakeAdmission("cluster-queue", "@invalid").Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue", "@invalid").Obj(), now).
 				Obj(),
 			wantErr: field.ErrorList{
 				field.NotFound(statusPath.Child("admission", "podSetAssignments").Index(0).Child("name"), nil),
@@ -71,12 +72,12 @@ func TestValidateWorkload(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
 					Request(corev1.ResourceCPU, "1").
 					Obj()).
-				ReserveQuota(utiltestingapi.MakeAdmission("cluster-queue").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").
 					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment(corev1.ResourceCPU, "flv", "1").
 						Count(3).
 						Obj()).
-					Obj()).
+					Obj(), now).
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(statusPath.Child("admission", "podSetAssignments").Index(0).Child("resourceUsage").Key(string(corev1.ResourceCPU)), nil, ""),
@@ -173,7 +174,7 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(podSetUpdatePath.Index(0).Child("labels"), "@abc", "").
-					WithOrigin("labelKey"),
+					WithOrigin("format=k8s-label-key"),
 			},
 		},
 		"invalid node selector name of podSetUpdate": {
@@ -184,7 +185,7 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(podSetUpdatePath.Index(0).Child("nodeSelector"), "@abc", "").
-					WithOrigin("labelKey"),
+					WithOrigin("format=k8s-label-key"),
 			},
 		},
 		"invalid label value of podSetUpdate": {
@@ -194,7 +195,8 @@ func TestValidateWorkload(t *testing.T) {
 				).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(podSetUpdatePath.Index(0).Child("labels"), "@abc", ""),
+				field.Invalid(podSetUpdatePath.Index(0).Child("labels"), "@abc", "").
+					WithOrigin("format=k8s-label-value"),
 			},
 		},
 		"invalid reclaimablePods": {
@@ -235,6 +237,7 @@ func TestValidateWorkload(t *testing.T) {
 }
 
 func TestValidateWorkloadUpdate(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
 	testCases := map[string]struct {
 		enableTopologyAwareScheduling bool
 		enableElasticJobsFeature      bool
@@ -248,10 +251,10 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 					*utiltestingapi.MakePodSet("ps1", 3).Obj(),
 					*utiltestingapi.MakePodSet("ps2", 3).Obj(),
 				).
-				ReserveQuota(
+				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
 						PodSets(kueue.PodSetAssignment{Name: "ps1"}, kueue.PodSetAssignment{Name: "ps2"}).
-						Obj(),
+						Obj(), now,
 				).
 				ReclaimablePods(
 					kueue.ReclaimablePod{Name: "ps1", Count: 1},
@@ -262,10 +265,10 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 					*utiltestingapi.MakePodSet("ps1", 3).Obj(),
 					*utiltestingapi.MakePodSet("ps2", 3).Obj(),
 				).
-				ReserveQuota(
+				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
 						PodSets(kueue.PodSetAssignment{Name: "ps1"}, kueue.PodSetAssignment{Name: "ps2"}).
-						Obj(),
+						Obj(), now,
 				).
 				ReclaimablePods(
 					kueue.ReclaimablePod{Name: "ps1", Count: 2},
@@ -280,10 +283,10 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 					*utiltestingapi.MakePodSet("ps1", 3).Obj(),
 					*utiltestingapi.MakePodSet("ps2", 3).Obj(),
 				).
-				ReserveQuota(
+				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
 						PodSets(kueue.PodSetAssignment{Name: "ps1"}, kueue.PodSetAssignment{Name: "ps2"}).
-						Obj(),
+						Obj(), now,
 				).
 				ReclaimablePods(
 					kueue.ReclaimablePod{Name: "ps1", Count: 2},
@@ -295,10 +298,10 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 					*utiltestingapi.MakePodSet("ps1", 3).Obj(),
 					*utiltestingapi.MakePodSet("ps2", 3).Obj(),
 				).
-				ReserveQuota(
+				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
 						PodSets(kueue.PodSetAssignment{Name: "ps1"}, kueue.PodSetAssignment{Name: "ps2"}).
-						Obj(),
+						Obj(), now,
 				).
 				ReclaimablePods(
 					kueue.ReclaimablePod{Name: "ps1", Count: 1},
@@ -315,10 +318,10 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 					*utiltestingapi.MakePodSet("ps1", 3).Obj(),
 					*utiltestingapi.MakePodSet("ps2", 3).Obj(),
 				).
-				ReserveQuota(
+				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
 						PodSets(kueue.PodSetAssignment{Name: "ps1"}, kueue.PodSetAssignment{Name: "ps2"}).
-						Obj(),
+						Obj(), now,
 				).
 				ReclaimablePods(
 					kueue.ReclaimablePod{Name: "ps1", Count: 2},
@@ -387,7 +390,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(
 					*utiltestingapi.MakePodSet("ps1", 3).Obj(),
 				).
-				ReserveQuota(
+				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
 						PodSets(kueue.PodSetAssignment{
 							Name: "ps1",
@@ -401,14 +404,14 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 								},
 							}),
 						}).
-						Obj(),
+						Obj(), now,
 				).
 				Obj(),
 			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
 					*utiltestingapi.MakePodSet("ps1", 3).Obj(),
 				).
-				ReserveQuota(
+				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
 						PodSets(kueue.PodSetAssignment{
 							Name: "ps1",
@@ -422,7 +425,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 								},
 							}),
 						}).
-						Obj(),
+						Obj(), now,
 				).
 				Obj(),
 			wantErr: nil,
@@ -434,7 +437,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 					*utiltestingapi.MakePodSet("ps1", 3).Obj(),
 					*utiltestingapi.MakePodSet("ps2", 3).Obj(),
 				).
-				ReserveQuota(
+				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
 						PodSets(kueue.PodSetAssignment{
 							Name: "ps1",
@@ -442,7 +445,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 						PodSets(kueue.PodSetAssignment{
 							Name: "ps2",
 						}).
-						Obj(),
+						Obj(), now,
 				).
 				Obj(),
 			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -450,12 +453,12 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 					*utiltestingapi.MakePodSet("ps1", 3).Obj(),
 					*utiltestingapi.MakePodSet("ps2", 3).Obj(),
 				).
-				ReserveQuota(
+				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
 						PodSets(kueue.PodSetAssignment{
 							Name: "ps1",
 						}).
-						Obj(),
+						Obj(), now,
 				).
 				Obj(),
 			wantErr: field.ErrorList{
@@ -469,12 +472,12 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 					*utiltestingapi.MakePodSet("ps1", 3).Obj(),
 					*utiltestingapi.MakePodSet("ps2", 3).Obj(),
 				).
-				ReserveQuota(
+				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
 						PodSets(kueue.PodSetAssignment{
 							Name: "ps1",
 						}).
-						Obj(),
+						Obj(), now,
 				).
 				Obj(),
 			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -482,7 +485,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 					*utiltestingapi.MakePodSet("ps1", 3).Obj(),
 					*utiltestingapi.MakePodSet("ps2", 3).Obj(),
 				).
-				ReserveQuota(
+				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
 						PodSets(kueue.PodSetAssignment{
 							Name: "ps1",
@@ -490,7 +493,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 						PodSets(kueue.PodSetAssignment{
 							Name: "ps2",
 						}).
-						Obj(),
+						Obj(), now,
 				).
 				Obj(),
 			wantErr: field.ErrorList{
@@ -503,16 +506,16 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(
 					*utiltestingapi.MakePodSet("ps1", 3).Obj(),
 					*utiltestingapi.MakePodSet("ps2", 4).Obj()).
-				ReserveQuota(utiltestingapi.MakeAdmission("cluster-queue").PodSets(
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").PodSets(
 					kueue.PodSetAssignment{Name: "ps1"},
-					kueue.PodSetAssignment{Name: "ps2"}).Obj()).Obj(),
+					kueue.PodSetAssignment{Name: "ps2"}).Obj(), now).Obj(),
 			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
 					*utiltestingapi.MakePodSet("ps1", 3).Obj(),
 					*utiltestingapi.MakePodSet("ps2", 3).Obj()).
-				ReserveQuota(utiltestingapi.MakeAdmission("cluster-queue").PodSets(
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").PodSets(
 					kueue.PodSetAssignment{Name: "ps1"},
-					kueue.PodSetAssignment{Name: "ps2"}).Obj()).Obj(),
+					kueue.PodSetAssignment{Name: "ps2"}).Obj(), now).Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("spec", "podSets", "1"), nil, ""),
 			},
@@ -523,16 +526,16 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(
 					*utiltestingapi.MakePodSet("ps1", 3).Obj(),
 					*utiltestingapi.MakePodSet("ps2", 4).Obj()).
-				ReserveQuota(utiltestingapi.MakeAdmission("cluster-queue").PodSets(
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").PodSets(
 					kueue.PodSetAssignment{Name: "ps1"},
-					kueue.PodSetAssignment{Name: "ps2"}).Obj()).Obj(),
+					kueue.PodSetAssignment{Name: "ps2"}).Obj(), now).Obj(),
 			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
 					*utiltestingapi.MakePodSet("ps1", 3).Obj(),
 					*utiltestingapi.MakePodSet("ps2", 3).Obj()).
-				ReserveQuota(utiltestingapi.MakeAdmission("cluster-queue").PodSets(
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").PodSets(
 					kueue.PodSetAssignment{Name: "ps1"},
-					kueue.PodSetAssignment{Name: "ps2"}).Obj()).Obj(),
+					kueue.PodSetAssignment{Name: "ps2"}).Obj(), now).Obj(),
 		},
 		"ClusterName doesn't have to be one of the nominatedClusterNames with ElasticJobs feature gate": {
 			enableElasticJobsFeature: true,
@@ -545,9 +548,9 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(
 					*utiltestingapi.MakePodSet("ps1", 3).Obj(),
 					*utiltestingapi.MakePodSet("ps2", 4).Obj()).
-				ReserveQuota(utiltestingapi.MakeAdmission("cluster-queue").PodSets(
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").PodSets(
 					kueue.PodSetAssignment{Name: "ps1"},
-					kueue.PodSetAssignment{Name: "ps2"}).Obj()).
+					kueue.PodSetAssignment{Name: "ps2"}).Obj(), now).
 				ClusterName("worker1").
 				Annotation(workloadslicing.WorkloadSliceReplacementFor, string(workload.NewReference(testWorkloadNamespace, testWorkloadName))).
 				Obj(),
