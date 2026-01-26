@@ -211,16 +211,14 @@ func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerS
 			gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "failed to run manager")
 		}()
 
-		if len(f.WebhookPath) > 0 {
-			// wait for the webhook server to get ready
-			dialer := &net.Dialer{Timeout: time.Second}
-			addrPort := fmt.Sprintf("%s:%d", webhookInstallOptions.LocalServingHost, webhookInstallOptions.LocalServingPort)
-			gomega.Eventually(func(g gomega.Gomega) {
-				conn, err := tls.DialWithDialer(dialer, "tcp", addrPort, &tls.Config{InsecureSkipVerify: true})
-				g.Expect(err).NotTo(gomega.HaveOccurred())
-				conn.Close()
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		}
+		// wait for the webhook server to get ready
+		dialer := &net.Dialer{Timeout: time.Second}
+		addrPort := fmt.Sprintf("%s:%d", webhookInstallOptions.LocalServingHost, webhookInstallOptions.LocalServingPort)
+		gomega.Eventually(func(g gomega.Gomega) {
+			conn, err := tls.DialWithDialer(dialer, "tcp", addrPort, &tls.Config{InsecureSkipVerify: true})
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+			conn.Close()
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 }
 
