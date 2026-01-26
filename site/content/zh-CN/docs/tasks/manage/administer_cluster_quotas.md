@@ -9,7 +9,7 @@ description: >
 本页面向你展示如何管理集群资源配额，
 并在租户之间建立公平共享规则。
 
-本页面的目标读者是[批处理管理员](/zh-cn/docs/tasks#batch-administrator)。
+本页面的目标读者是[批处理管理员](/zh-CN/docs/tasks#batch-administrator)。
 
 ## 你开始之前 {#before-you-begin}
 
@@ -17,12 +17,12 @@ description: >
 
 - Kubernetes 集群已运行。
 - kubectl 命令行工具能与你的集群通信。
-- [已安装 Kueue](/zh-cn/docs/installation)。
+- [已安装 Kueue](/zh-CN/docs/installation)。
 
 ## 安装单一 ClusterQueue 和 ResourceFlavor {#single-clusterqueue-and-single-resourceflavor-setup}
 
 在以下步骤中，你将创建一个排队系统用于管理集群的配额，它拥有
-一个 ClusterQueue 和一个 [ResourceFlavor](/zh-cn/docs/concepts/cluster_queue#resourceflavor-object)。
+一个 ClusterQueue 和一个 [ResourceFlavor](/zh-CN/docs/concepts/cluster_queue#resourceflavor-object)。
 
 你可以通过 apply [examples/admin/single-clusterqueue-setup.yaml](/examples/admin/single-clusterqueue-setup.yaml)一次性完成这些步骤：
 
@@ -30,7 +30,7 @@ description: >
 kubectl apply -f examples/admin/single-clusterqueue-setup.yaml
 ```
 
-### 1. 创建 [ClusterQueue](/zh-cn/docs/concepts/cluster_queue) {#1-create-clusterqueue}
+### 1. 创建 [ClusterQueue](/zh-CN/docs/concepts/cluster_queue) {#1-create-clusterqueue}
 
 创建一个 ClusterQueue 来表示整个集群的资源配额。
 
@@ -62,12 +62,12 @@ kubectl apply -f cluster-queue.yaml
 ```
 
 此 ClusterQueue 管理[资源类型](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#resource-types)
-`cpu` 和 `memory` 的使用。每种资源类型都有一个名为 `default` 的 [ResourceFlavor](/zh-cn/docs/concepts/cluster_queue#resourceflavor-object)，
+`cpu` 和 `memory` 的使用。每种资源类型都有一个名为 `default` 的 [ResourceFlavor](/zh-CN/docs/concepts/cluster_queue#resourceflavor-object)，
 并设置了名义配额。
 
 空的 `namespaceSelector` 允许任何命名空间使用这些资源。
 
-### 2. 创建 [ResourceFlavor](/zh-cn/docs/concepts/cluster_queue#resourceflavor-object) {#2-create-resourceflavor}
+### 2. 创建 [ResourceFlavor](/zh-CN/docs/concepts/cluster_queue#resourceflavor-object) {#2-create-resourceflavor}
 
 ClusterQueue 目前还不能使用，因为 `default` 风味尚未定义。
 
@@ -94,9 +94,9 @@ kubectl apply -f default-flavor.yaml
 `.metadata.name` 字段需与 ClusterQueue 中 `.spec.resourceGroups[0].flavors[0].name`
 字段一致。
 
-### 3. 创建 [LocalQueues](/zh-cn/docs/concepts/local_queue) {#3-create-localqueues}
+### 3. 创建 [LocalQueues](/zh-CN/docs/concepts/local_queue) {#3-create-localqueues}
 
-用户不能直接将[工作负载](/zh-cn/docs/concepts/workload)
+用户不能直接将[工作负载](/zh-CN/docs/concepts/workload)
 发送到 ClusterQueue。
 用户需要将工作负载发送到其命名空间中的队列。
 因此，为了使排队系统完整，
@@ -123,7 +123,7 @@ kubectl apply -f default-user-queue.yaml
 
 ## 多 ResourceFlavor 设置 {#multiple-resourceflavors-setup}
 
-你可以为不同的 [ResourceFlavor](/zh-cn/docs/concepts/cluster_queue#resourceflavor-object)定义配额。
+你可以为不同的 [ResourceFlavor](/zh-CN/docs/concepts/cluster_queue#resourceflavor-object)定义配额。
 
 本节其余部分假设你的集群有两种 CPU 架构的节点，
 分别为 `x86` 和 `arm`，通过节点标签 `cpu-arch` 指定。
@@ -211,7 +211,7 @@ kubectl apply -f cluster-queue.yaml
 
 ## 多 ClusterQueue 与借用 cohort {#multiple-clusterqueues-and-borrowing-cohorts}
 
-两个或多个 ClusterQueue 可以在同一 [cohort](/zh-cn/docs/concepts/cluster_queue#cohort)
+两个或多个 ClusterQueue 可以在同一 [cohort](/zh-CN/docs/concepts/cluster_queue#cohort)
 中相互借用未使用的配额。
 
 通过以下示例，你可以建立一个包含 ClusterQueue `team-a-cq` 和 `team-b-cq` 的 cohort `team-ab`。
@@ -257,7 +257,7 @@ spec:
         nominalQuota: 48Gi
 ```
 
-注意，ClusterQueue `team-a-cq` 还定义了 [borrowingLimit](/zh-cn/docs/concepts/cluster_queue#borrowingLimit)。
+注意，ClusterQueue `team-a-cq` 还定义了 [borrowingLimit](/zh-CN/docs/concepts/cluster_queue#borrowingLimit)。
 这限制了 ClusterQueue 从 cohort 借用未使用配额的能力，
 最多只能借用到配置的 `borrowingLimit`，即使配额完全未被使用。
 
@@ -271,7 +271,7 @@ kubectl apply -f team-a-cq.yaml -f team-b-cq.yaml
 ## 多个 ClusterQueue 包含专用和回退资源类型 {#multiple-clusterqueue-with-dedicated-and-fallback-flavors}
 
 即使 ClusterQueue 某个风味的 nominalQuota 为零，
-也可以从 [cohort](/zh-cn/docs/concepts/cluster_queue#cohort)
+也可以从 [cohort](/zh-CN/docs/concepts/cluster_queue#cohort)
 借用资源。这允许你为某个风味分配专用配额，并在需要时回退到与其他租户共享的风味配额。
 
 这种设置可以通过为每个租户创建一个 ClusterQueue，
@@ -379,7 +379,7 @@ kubectl apply -f team-a-cq.yaml -f team-b-cq.yaml -f shared-cq.yaml
 默认情况下，管理员必须在 ClusterQueue 的 `.spec.resourceGroups[*]` 中指定 Pod 所需的所有资源。
 如果你希望在 ClusterQueue 配额管理和准入过程中排除某些资源，可以在 Kueue 配置中以集群级别设置资源前缀。
 
-请按照[使用自定义配置的安装说明](/zh-cn/docs/installation#install-a-custom-configured-released-version)
+请按照[使用自定义配置的安装说明](/zh-CN/docs/installation#install-a-custom-configured-released-version)
 操作，并在配置中添加如下字段：
 
 ```yaml
@@ -406,7 +406,7 @@ resources:
 输入资源可以保留（默认）或从转换后的资源中移除。
 如果未为输入资源定义转换，则保持不变。
 
-请按照[使用自定义配置的安装说明](/zh-cn/docs/installation#install-a-custom-configured-released-version)
+请按照[使用自定义配置的安装说明](/zh-CN/docs/installation#install-a-custom-configured-released-version)
 操作，并在 Kueue 配置中添加如下字段：
 
 ```yaml

@@ -8,7 +8,7 @@ description: 在启用了 Kueue 的环境里运行 CronJob
 
 本页面展示了如何在 Kubernetes 集群中运行带有 Kueue 的 CronJob。
 
-本页面的受众是[批处理用户](/zh-cn/docs/tasks#batch-user)。
+本页面的受众是[批处理用户](/zh-CN/docs/tasks#batch-user)。
 
 ## 开始之前 {#before-you-begin}
 
@@ -16,8 +16,8 @@ description: 在启用了 Kueue 的环境里运行 CronJob
 
 - 已运行 Kubernetes 集群。
 - kubectl 命令行工具已与你的集群建立通信。
-- [Kueue 安装文档](/zh-cn/docs/installation)。
-- 集群已配置 [配额](/zh-cn/docs/tasks/manage/administer_cluster_quotas)。
+- [Kueue 安装文档](/zh-CN/docs/installation)。
+- 集群已配置 [配额](/zh-CN/docs/tasks/manage/administer_cluster_quotas)。
 
 ## 0. 识别你命名空间中的可用队列 {#0-identify-the-queues-available-in-your-namespace}
 
@@ -36,7 +36,7 @@ NAME         CLUSTERQUEUE    PENDING WORKLOADS
 user-queue   cluster-queue   3
 ```
 
-[ClusterQueue](/zh-cn/docs/concepts/cluster_queue) 定义了队列的配额。
+[ClusterQueue](/zh-CN/docs/concepts/cluster_queue) 定义了队列的配额。
 
 ## 1. 定义作业 {#1-define-the-job}
 
@@ -64,7 +64,7 @@ user-queue   cluster-queue   3
 kubectl create -f sample-cronjob.yaml
 ```
 
-内部，Kueue 将为每次 Job 运行创建一个对应 [Workload](/zh-cn/docs/concepts/workload)
+内部，Kueue 将为每次 Job 运行创建一个对应 [Workload](/zh-CN/docs/concepts/workload)
 其名称与 Job 匹配。
 
 ```shell
@@ -80,4 +80,4 @@ job-sample-cronjob-28373363-e2aa0   user-queue   cluster-queue   68m
 job-sample-cronjob-28373364-b42ac   user-queue   cluster-queue   67m
 ```
 
-你还可以[监控 Workload 的状态](/zh-cn/docs/tasks/run/jobs#3-optional-monitor-the-status-of-the-workload)。
+你还可以[监控 Workload 的状态](/zh-CN/docs/tasks/run/jobs#3-optional-monitor-the-status-of-the-workload)。

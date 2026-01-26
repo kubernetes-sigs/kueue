@@ -12,7 +12,7 @@ description: >
 `MultiKueue` 目前是一个 Beta 特性，默认启用。
 
 你可以通过编辑 `MultiKueue` **特性门控**来禁用它。关于特性门控配置的详情，
-请参阅[安装指南](/zh-cn/docs/installation/#change-the-feature-gates-configuration)。
+请参阅[安装指南](/zh-CN/docs/installation/#change-the-feature-gates-configuration)。
 {{% /alert %}}
 
 MultiKueue 设置由一个管理集群和至少一个工作集群组成。
@@ -63,10 +63,10 @@ MultiKueue 支持多种工作负载，你可以学习如何：
 - [调度 Kueue 管理的普通 Pod](docs/tasks/run/multikueue/plain_pods)。
 
 ## 提交作业
-在[配置好的 MultiKueue 环境](/zh-cn/docs/tasks/manage/setup_multikueue)中，
+在[配置好的 MultiKueue 环境](/zh-CN/docs/tasks/manage/setup_multikueue)中，
 你可以向管理集群提交任何 MultiKueue 支持的作业，目标是为 Multikueue 配置的 ClusterQueue。
 Kueue 将作业委派给配置的工作集群，无需任何额外的配置更改。
 
 ## 接下来是什么？
-- 学习如何[设置 MultiKueue 环境](/zh-cn/docs/tasks/manage/setup_multikueue/)
-- 学习如何在 MultiKueue 环境中[运行作业](/zh-cn/docs/tasks/run/multikueue)。
+- 学习如何[设置 MultiKueue 环境](/zh-CN/docs/tasks/manage/setup_multikueue/)
+- 学习如何在 MultiKueue 环境中[运行作业](/zh-CN/docs/tasks/run/multikueue)。

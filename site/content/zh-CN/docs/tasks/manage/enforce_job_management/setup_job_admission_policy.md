@@ -17,7 +17,7 @@ description: >
 - 一个 Kubernetes 集群正在运行。
 - 已启用 `ValidatingAdmissionPolicy` **特性门控**。在 Kubernetes 1.30 或更新版本中，默认启用该特性门控。
 - kubectl 命令行工具能够与你的集群通信。
-- [Kueue 已安装](/zh-cn/docs/installation)。
+- [Kueue 已安装](/zh-CN/docs/installation)。
 
 ## 示例
 

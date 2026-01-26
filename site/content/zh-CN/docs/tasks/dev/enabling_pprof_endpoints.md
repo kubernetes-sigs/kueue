@@ -8,7 +8,7 @@ description: >
 
 本页面向你展示如何为 Kueue 控制器管理器开启 pprof 端点。
 
-本页面的目标读者是[批处理管理员](/zh-cn/docs/tasks#batch-administrator)。
+本页面的目标读者是[批处理管理员](/zh-CN/docs/tasks#batch-administrator)。
 
 ## 开始之前
 
@@ -16,14 +16,14 @@ description: >
 
 - Kubernetes 集群正在运行。
 - kubectl 命令行工具能够与你的集群进行通信。
-- [Kueue 已安装](/zh-cn/docs/installation)。
+- [Kueue 已安装](/zh-CN/docs/installation)。
 
 ## 开启 pprof 端点
 
 {{< feature-state state="stable" for_version="v0.5" >}}
 
 要开启 pprof 端点，
-你需要在[管理器的配置](/zh-cn/docs/installation/#install-a-custom-configured-released-version)中设置 `pprofBindAddress`。
+你需要在[管理器的配置](/zh-CN/docs/installation/#install-a-custom-configured-released-version)中设置 `pprofBindAddress`。
 
 在 Kubernetes 中访问 pprof 端口最简单的方法是使用 `port-forward` 命令。
 

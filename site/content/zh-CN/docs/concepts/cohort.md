@@ -33,7 +33,7 @@ spec:
 ## 配置配额
 
 资源配额可以在 Cohort 级别定义（类似于为
-[ClusterQueue](/zh-cn/docs/concepts/cluster_queue/#flavors-and-resources)
+[ClusterQueue](/zh-CN/docs/concepts/cluster_queue/#flavors-and-resources)
 定义的方式），并由 Cohort 内的 ClusterQueue 来消耗使用。请注意，
 在 Cohort 级别定义的 `nominalQuota` 表示除了 Cohort 内 ClusterQueue
 所定义的资源之外的**额外资源**。Cohort 的 `nominalQuota` 可以被视为其内
@@ -84,7 +84,7 @@ Cohort 可以组织成树形结构。我们将属于同一棵树的 ClusterQueue
 Cohort 的组合称为 **CohortTree**。
 
 给定 CohortTree 中的 ClusterQueue 可以使用其中的资源，
-并遵循[借用和借出限制](/zh-cn/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-ResourceQuota)。
+并遵循[借用和借出限制](/zh-CN/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-ResourceQuota)。
 这些借用和借出限制可以为 Cohort 以及 ClusterQueue 指定。
 
 这是一个简单的 CohortTree，包含三个 Cohort：
