@@ -770,6 +770,26 @@ func ExpectLQFinishedWorkloadsTotalMetric(lq *kueue.LocalQueue, priorityClass st
 	expectCounterMetric(metric, value)
 }
 
+func ExpectFinishedWorkloadsGaugeMetric(cq *kueue.ClusterQueue, count int) {
+	ginkgo.GinkgoHelper()
+	metric := metrics.FinishedWorkloads.WithLabelValues(cq.Name, roletracker.RoleStandalone)
+	gomega.Eventually(func(g gomega.Gomega) {
+		v, err := testutil.GetGaugeMetricValue(metric)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(int(v)).Should(gomega.Equal(count))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func ExpectLQFinishedWorkloadsGaugeMetric(lq *kueue.LocalQueue, count int) {
+	ginkgo.GinkgoHelper()
+	metric := metrics.LocalQueueFinishedWorkloads.WithLabelValues(lq.Name, lq.Namespace, roletracker.RoleStandalone)
+	gomega.Eventually(func(g gomega.Gomega) {
+		v, err := testutil.GetGaugeMetricValue(metric)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(int(v)).Should(gomega.Equal(count))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
 func expectCounterMetric(metric prometheus.Counter, count int) {
 	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
 		v, err := testutil.GetCounterMetricValue(metric)

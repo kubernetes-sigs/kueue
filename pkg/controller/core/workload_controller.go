@@ -811,6 +811,7 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 	log.V(2).Info("Workload create event")
 
 	if status == workload.StatusFinished {
+		r.queues.AddFinishedWorkload(e.Object)
 		return true
 	}
 
@@ -901,6 +902,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		}
 		// The workload could have been in the queues if we missed an event.
 		r.queues.DeleteWorkload(log, wlKey)
+		r.queues.AddFinishedWorkload(wlCopy)
 
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() {
