@@ -13,7 +13,7 @@ The page is intended for a [batch administrator](/docs/tasks#batch-administrator
 
 本页面介绍了如何在集群中设置基于角色的访问控制（RBAC），以控制可以查看和创建 Kueue 对象的用户类型。
 
-本页面适用于[批处理管理员](/zh-CN/docs/tasks#batch-administrator)。
+本页面适用于[批处理管理员](/zh-cn/docs/tasks#batch-administrator)。
 
 ## 开始之前
 
@@ -21,7 +21,7 @@ The page is intended for a [batch administrator](/docs/tasks#batch-administrator
 
 - Kubernetes 集群正在运行。
 - kubectl 命令行工具与你的集群通信。
-- [Kueue 已安装](/zh-CN/docs/installation)。
+- [Kueue 已安装](/zh-cn/docs/installation)。
 
 本页面假设你已经熟悉 [Kubernetes 中的 RBAC](https://kubernetes.io/zh-cn/docs/reference/access-authn-authz/rbac/)。
 

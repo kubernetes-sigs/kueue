@@ -18,7 +18,7 @@ description: 基于超时的全有或全无调度实现
 
 本页面向你展示如何配置 Kueue 使用 `waitForPodsReady`，
 这是全有或全无调度的简单实现。
-本页面面向[批处理管理员](/zh-CN/docs/tasks#batch-administrator)。
+本页面面向[批处理管理员](/zh-cn/docs/tasks#batch-administrator)。
 
 ## 开始之前 {#before-you-begin}
 
@@ -26,11 +26,11 @@ description: 基于超时的全有或全无调度实现
 
 - Kubernetes 集群已运行。
 - kubectl 命令行工具已能与你的集群通信。
-- [已安装 Kueue](/zh-CN/docs/installation)，版本为 0.3.0 或更高。
+- [已安装 Kueue](/zh-cn/docs/installation)，版本为 0.3.0 或更高。
 
 ## 启用 waitForPodsReady {#enabling-waitforpodsready}
 
-请按照[此处](/zh-CN/docs/installation#install-a-custom-configured-released-version)的说明，
+请按照[此处](/zh-cn/docs/installation#install-a-custom-configured-released-version)的说明，
 使用如下字段扩展配置来安装某个发布版本：
 
 ```yaml
@@ -96,7 +96,7 @@ kubectl delete pods --all -n kueue-system
 Kueue 会将因 `PodsReadyTimeout` 被驱逐的 Workload 重新入队，
 直到重新入队次数达到 `backoffLimitCount`。
 如果未指定 `backoffLimitCount`，Workload 会根据 `timestamp` 不断、无限制地重新入队。
-一旦重新入队次数达到上限，Kueue 会[停用该 Workload](/zh-CN/docs/concepts/workload/#active)。
+一旦重新入队次数达到上限，Kueue 会[停用该 Workload](/zh-cn/docs/concepts/workload/#active)。
 
 每次超时后，Workload 重新入队的时间会以 2 为底数指数递增。
 第一次延迟由 `backoffBaseSeconds` 参数决定（默认为 60）。

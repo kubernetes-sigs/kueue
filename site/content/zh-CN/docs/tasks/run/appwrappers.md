@@ -17,11 +17,11 @@ AppWrapper 控制器会监控工作负载的健康状况，
 如果主要资源控制器在指定的截止时间内未采取纠正措施，AppWrapper 控制器将协调工作负载级别的重试和资源删除，
 以确保工作负载要么恢复到健康状态，要么被干净地从集群中移除，并释放其配额供其他工作负载使用。
 
-本指南适用于对 Kueue 有基本了解的[批用户](/zh-CN/docs/tasks#batch-user)。更多信息请参见 [Kueue 概述](/zh-CN/docs/overview)。
+本指南适用于对 Kueue 有基本了解的[批用户](/zh-cn/docs/tasks#batch-user)。更多信息请参见 [Kueue 概述](/zh-cn/docs/overview)。
 
 ## 开始之前 {#before-you-begin}
 
-请查阅[管理集群配额](/zh-CN/docs/tasks/manage/administer_cluster_quotas)以了解 Kueue 的初始设置详情。
+请查阅[管理集群配额](/zh-cn/docs/tasks/manage/administer_cluster_quotas)以了解 Kueue 的初始设置详情。
 
 为简化设置，请确保你使用的是 Kueue v0.11.0 和 AppWrapper v1.1.1 及以上版本。
 
@@ -33,7 +33,7 @@ AppWrapper 控制器会监控工作负载的健康状况，
 
 ### a. 队列选择 {#a-queue-selection}
 
-目标[本地队列](/zh-CN/docs/concepts/local_queue)应在 AppWrapper 的 `metadata.labels` 部分指定。
+目标[本地队列](/zh-cn/docs/concepts/local_queue)应在 AppWrapper 的 `metadata.labels` 部分指定。
 
 ```yaml
 metadata:

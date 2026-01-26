@@ -9,17 +9,17 @@ description: >
 
 本页面展示了如何使用 [AppWrapper](https://project-codeflare.github.io/appwrapper/)
 使 Kueue 的调度和资源管理能力可用于没有专用 Kueue 集成的工作负载类型。
-对于在其定义中使用 `PodSpecTemplates` 的工作负载，这提供了一种比[构建自定义集成](/zh-CN/docs/tasks/dev/integrate_a_custom_job)
+对于在其定义中使用 `PodSpecTemplates` 的工作负载，这提供了一种比[构建自定义集成](/zh-cn/docs/tasks/dev/integrate_a_custom_job)
 更简便的方法来启用与自定义工作负载类型一起使用 Kueue。
 
-本指南适用于对 Kueue 有基本了解的[批处理用户](/zh-CN/docs/tasks#batch-user)。
-欲了解更多信息，请参阅[Kueue 概述](/zh-CN/docs/overview)。
+本指南适用于对 Kueue 有基本了解的[批处理用户](/zh-cn/docs/tasks#batch-user)。
+欲了解更多信息，请参阅[Kueue 概述](/zh-cn/docs/overview)。
 
 ## 开始之前
 
 1. 确保你正在使用 Kueue v0.11.0 版本或更新版本以及 AppWrapper v1.0.2 或更新版本。
 
-2. 遵循[运行 AppWrapper](/zh-CN/docs/tasks/run/appwrappers/#before-you-begin)
+2. 遵循[运行 AppWrapper](/zh-cn/docs/tasks/run/appwrappers/#before-you-begin)
    中的步骤学习如何启用和配置 `workload.codeflare.dev/appwrapper` 集成。
 
 ## 使用 LeaderWorkerSet 作为自定义工作负载的示例  {#example-using-leaderworkersets-as-the-custom-workload}

@@ -15,12 +15,12 @@ description: 将 LeaderWorkerSet 作为由 Kueue 管理的工作负载运行
 
 此集成基于[普通的 Pod 组](https://kueue.sigs.k8s.io/docs/tasks/run/plain_pods/)集成。
 
-本指南适用于[为用户提供服务](/zh-CN/docs/tasks#serving-user)并对 Kueue 有基本理解的人们。
-有关更多信息，请参见 [Kueue 概述](/zh-CN/docs/overview)。
+本指南适用于[为用户提供服务](/zh-cn/docs/tasks#serving-user)并对 Kueue 有基本理解的人们。
+有关更多信息，请参见 [Kueue 概述](/zh-cn/docs/overview)。
 
 ## 开始之前 {#before-you-begin}
 
-1. 学习如何[安装 Kueue 并使用自定义管理器配置](/zh-CN/docs/installation/#install-a-custom-configured-released-version)。
+1. 学习如何[安装 Kueue 并使用自定义管理器配置](/zh-cn/docs/installation/#install-a-custom-configured-released-version)。
 
 2. 确保你已启用 `leaderworkerset.x-k8s.io/leaderworkerset` 集成，例如：
    ```yaml
@@ -31,10 +31,10 @@ description: 将 LeaderWorkerSet 作为由 Kueue 管理的工作负载运行
       - "pod"
       - "leaderworkerset.x-k8s.io/leaderworkerset"
    ```
-   同时，请参见[运行普通 Pod](/zh-CN/docs/tasks/run/plain_pods/#before-you-begin) 中所述的步骤，
+   同时，请参见[运行普通 Pod](/zh-cn/docs/tasks/run/plain_pods/#before-you-begin) 中所述的步骤，
    了解如何启用和配置 Pod 集成。
 
-3. 查阅[管理集群配额](/zh-CN/docs/tasks/manage/administer_cluster_quotas)了解初始 Kueue 设置的详细信息。
+3. 查阅[管理集群配额](/zh-cn/docs/tasks/manage/administer_cluster_quotas)了解初始 Kueue 设置的详细信息。
 
 ## 运行一个由 Kueue 准入的 LeaderWorkerSet {#running-a-leaderworkerset-admitted-by-kueue}
 
@@ -42,7 +42,7 @@ description: 将 LeaderWorkerSet 作为由 Kueue 管理的工作负载运行
 
 ### a. 队列选择 {#a-queue-selection}
 
-目标[本地队列](/zh-CN/docs/concepts/local_queue)应在 LeaderWorkerSet 配置的 `metadata.labels` 部分指定。
+目标[本地队列](/zh-cn/docs/concepts/local_queue)应在 LeaderWorkerSet 配置的 `metadata.labels` 部分指定。
 
 ```yaml
 metadata:

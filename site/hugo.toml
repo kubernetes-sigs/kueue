@@ -2,7 +2,6 @@ baseURL = "/"
 title = "Kueue"
 
 enableRobotsTXT = true
-disablePathToLower = true
 
 ###############################################################################
 # Docsy
