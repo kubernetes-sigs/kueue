@@ -28,13 +28,13 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
@@ -65,11 +65,15 @@ func SetupRayJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		cache:                        options.Cache,
 	}
 	obj := &rayv1.RayJob{}
-	return webhook.WebhookManagedBy(mgr).
+	gvk, err := apiutil.GVKForObject(obj, mgr.GetScheme())
+	if err != nil {
+		return err
+	}
+	return ctrl.NewWebhookManagedBy(mgr).
 		For(obj).
-		WithMutationHandler(admission.WithCustomDefaulter(mgr.GetScheme(), obj, wh)).
+		WithDefaulter(wh).
 		WithValidator(wh).
-		WithRoleTracker(options.RoleTracker).
+		WithLogConstructor(jobframework.PrepareLogConstructor(gvk.Group, gvk.Kind, options.RoleTracker)).
 		Complete()
 }
 

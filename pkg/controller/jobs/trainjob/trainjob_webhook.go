@@ -25,13 +25,13 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 	"sigs.k8s.io/kueue/pkg/features"
 )
 
@@ -54,11 +54,15 @@ func SetupTrainJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		cache:                        options.Cache,
 	}
 	obj := &kftrainerapi.TrainJob{}
-	return webhook.WebhookManagedBy(mgr).
+	gvk, err := apiutil.GVKForObject(obj, mgr.GetScheme())
+	if err != nil {
+		return err
+	}
+	return ctrl.NewWebhookManagedBy(mgr).
 		For(obj).
-		WithMutationHandler(admission.WithCustomDefaulter(mgr.GetScheme(), obj, wh)).
+		WithDefaulter(wh).
 		WithValidator(wh).
-		WithRoleTracker(options.RoleTracker).
+		WithLogConstructor(jobframework.PrepareLogConstructor(gvk.Group, gvk.Kind, options.RoleTracker)).
 		Complete()
 }
 
