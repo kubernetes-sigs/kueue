@@ -47,7 +47,7 @@ func NewClientFromManager(manager ctrlmanager.Manager) Client {
 func ClusterQueuesGVR() schema.GroupVersionResource {
 	return schema.GroupVersionResource{
 		Group:    "kueue.x-k8s.io",
-		Version:  "v1beta1",
+		Version:  "v1beta2",
 		Resource: "clusterqueues",
 	}
 }
@@ -56,7 +56,7 @@ func ClusterQueuesGVR() schema.GroupVersionResource {
 func WorkloadsGVR() schema.GroupVersionResource {
 	workloadsGVR := schema.GroupVersionResource{
 		Group:    "kueue.x-k8s.io",
-		Version:  "v1beta1",
+		Version:  "v1beta2",
 		Resource: "workloads",
 	}
 	return workloadsGVR
@@ -66,7 +66,7 @@ func WorkloadsGVR() schema.GroupVersionResource {
 func LocalQueuesGVR() schema.GroupVersionResource {
 	localQueuesGVR := schema.GroupVersionResource{
 		Group:    "kueue.x-k8s.io",
-		Version:  "v1beta1",
+		Version:  "v1beta2",
 		Resource: "localqueues",
 	}
 	return localQueuesGVR
@@ -76,7 +76,7 @@ func LocalQueuesGVR() schema.GroupVersionResource {
 func CohortsGVR() schema.GroupVersionResource {
 	cohortsGVR := schema.GroupVersionResource{
 		Group:    "kueue.x-k8s.io",
-		Version:  "v1beta1",
+		Version:  "v1beta2",
 		Resource: "cohorts",
 	}
 	return cohortsGVR
@@ -86,7 +86,7 @@ func CohortsGVR() schema.GroupVersionResource {
 func ResourceFlavorsGVR() schema.GroupVersionResource {
 	resourceFlavorsGVR := schema.GroupVersionResource{
 		Group:    "kueue.x-k8s.io",
-		Version:  "v1beta1",
+		Version:  "v1beta2",
 		Resource: "resourceflavors",
 	}
 	return resourceFlavorsGVR

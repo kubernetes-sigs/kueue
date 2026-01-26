@@ -54,7 +54,7 @@ const ClusterQueueDetail = () => {
           <Typography variant="body1"><strong>UID:</strong> {clusterQueue.metadata?.uid}</Typography>
           <Typography variant="body1"><strong>Creation Timestamp:</strong> {new Date(clusterQueue.metadata?.creationTimestamp).toLocaleString()}</Typography>
           <Typography variant="body1"><strong>Cohort:</strong>
-            <Link to={`/cohort/${clusterQueue.spec?.cohort}`}>{clusterQueue.spec?.cohort}</Link>
+            <Link to={`/cohort/${clusterQueue.spec?.cohortName}`}>{clusterQueue.spec?.cohortName}</Link>
           </Typography>        </Grid>
         <Grid item xs={12} sm={6}>
           <Typography variant="body1"><strong>Admitted Workloads:</strong> {clusterQueue.status?.admittedWorkloads ?? 'N/A'}</Typography>
@@ -155,7 +155,7 @@ const ClusterQueueDetail = () => {
                    showBorrowingColumn={true} />
 
       {/* Flavor Usage Table */}
-      <FlavorTable title="Flavor Usage" flavorData={clusterQueue.status?.flavorsUsage} linkToFlavor={true} 
+      <FlavorTable title="Flavor Usage" flavorData={clusterQueue.status?.flavorsUsage} linkToFlavor={true}
                    showBorrowingColumn={true} />
 
       {/* Local Queues Section */}
