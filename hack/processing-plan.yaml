@@ -10,7 +10,7 @@ files:
     operations:
       - type: INSERT_OBJECT
         key: .spec
-        onFileCondition: '{"Workload": true, "LocalQueue": true, "ClusterQueue": true, "Cohort": true, "MultiKueueCluster": true}[.spec.names.kind]'
+        onFileCondition: '{"Workload": true, "LocalQueue": true, "ClusterQueue": true, "Cohort": true, "MultiKueueCluster": true, "ResourceFlavor": true}[.spec.names.kind]'
         value: |
           conversion:
               strategy: Webhook

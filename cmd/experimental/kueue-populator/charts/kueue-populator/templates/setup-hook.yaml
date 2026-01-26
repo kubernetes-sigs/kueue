@@ -26,7 +26,7 @@ data:
 {{- end }}
 {{- if .Values.kueuePopulator.config.resourceFlavor }}
     kind: ResourceFlavor
-    apiVersion: kueue.x-k8s.io/v1beta1
+    apiVersion: kueue.x-k8s.io/v1beta2
     metadata:
       name: "tas-gpu-default"
     spec:

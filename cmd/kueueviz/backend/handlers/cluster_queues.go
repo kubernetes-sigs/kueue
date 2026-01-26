@@ -23,7 +23,7 @@ import (
 	"github.com/gin-gonic/gin"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 // ClusterQueuesWebSocketHandler streams all cluster queues
@@ -58,7 +58,7 @@ func (h *Handlers) fetchClusterQueues(ctx context.Context) ([]map[string]any, er
 		// Extract relevant fields
 		name := item.GetName()
 
-		var cohort = string(item.Spec.Cohort)
+		var cohort = string(item.Spec.CohortName)
 		admittedWorkloads := item.Status.AdmittedWorkloads
 		pendingWorkloads := item.Status.PendingWorkloads
 		reservingWorkloads := item.Status.ReservingWorkloads

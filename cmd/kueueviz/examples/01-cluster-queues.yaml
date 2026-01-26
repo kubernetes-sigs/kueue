@@ -1,10 +1,10 @@
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "emergency-cluster-queue"
 spec:
-  cohort: ai-for-humanity-foundation
+  cohortName: ai-for-humanity-foundation
   namespaceSelector: {} # match all.
   preemption:
     borrowWithinCohort:
@@ -30,12 +30,12 @@ spec:
       - name: "gpu"
         nominalQuota: 1Gi
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: agi-cluster-queue
 spec:
-  cohort: ai-for-humanity-foundation
+  cohortName: ai-for-humanity-foundation
   namespaceSelector: {}
   preemption:
     reclaimWithinCohort: Never # do not preempt Workloads in the cohort. 
@@ -53,12 +53,12 @@ spec:
         nominalQuota: 300Mi
 
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: llm-cluster-queue
 spec:
-  cohort: ai-for-humanity-foundation
+  cohortName: ai-for-humanity-foundation
   namespaceSelector: {}
   preemption:
     reclaimWithinCohort: LowerPriority # only preempt Workloads in the cohort that have lower priority than the pending Workload.
@@ -76,7 +76,7 @@ spec:
         nominalQuota: 300Mi
 
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: unused-cluster-queue
