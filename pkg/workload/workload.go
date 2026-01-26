@@ -1429,9 +1429,9 @@ func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, ms
 		return err
 	}
 	priorityClassName := PriorityClassName(wl)
-	metrics.FinishedWorkload(ptr.Deref(wl.Status.Admission, kueue.Admission{}).ClusterQueue, priorityClassName, tracker)
+	metrics.IncrementFinishedWorkloadTotal(ptr.Deref(wl.Status.Admission, kueue.Admission{}).ClusterQueue, priorityClassName, tracker)
 	if features.Enabled(features.LocalQueueMetrics) {
-		metrics.LocalQueueFinishedWorkload(metrics.LQRefFromWorkload(wl), priorityClassName, tracker)
+		metrics.IncrementLocalQueueFinishedWorkloadTotal(metrics.LQRefFromWorkload(wl), priorityClassName, tracker)
 	}
 	return nil
 }

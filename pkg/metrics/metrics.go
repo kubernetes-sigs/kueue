@@ -644,6 +644,34 @@ func LocalQueueQuotaReservedWorkload(lq LocalQueueReference, priorityClass strin
 	LocalQueueQuotaReservedWaitTime.WithLabelValues(string(lq.Name), lq.Namespace, priorityClass, role).Observe(waitTime.Seconds())
 }
 
+// IncrementFinishedWorkloadTotal increases the counter of finished workloads
+// for the given ClusterQueue, priority class, and workload role.
+func IncrementFinishedWorkloadTotal(cqName kueue.ClusterQueueReference, priorityClass string, tracker *roletracker.RoleTracker) {
+	role := roletracker.GetRole(tracker)
+	FinishedWorkloadsTotal.WithLabelValues(string(cqName), priorityClass, role).Inc()
+}
+
+// IncrementLocalQueueFinishedWorkloadTotal increases the counter of finished workloads
+// for the given LocalQueue, priority class, and workload role.
+func IncrementLocalQueueFinishedWorkloadTotal(lq LocalQueueReference, priorityClass string, tracker *roletracker.RoleTracker) {
+	role := roletracker.GetRole(tracker)
+	LocalQueueFinishedWorkloadsTotal.WithLabelValues(string(lq.Name), lq.Namespace, priorityClass, role).Inc()
+}
+
+// ReportFinishedWorkloads sets the current total number of finished workloads
+// for the given ClusterQueue and workload role (gauge).
+func ReportFinishedWorkloads(cqName kueue.ClusterQueueReference, count int, tracker *roletracker.RoleTracker) {
+	role := roletracker.GetRole(tracker)
+	FinishedWorkloads.WithLabelValues(string(cqName), role).Set(float64(count))
+}
+
+// ReportLocalQueueFinishedWorkloads sets the current total number of finished workloads
+// for the given LocalQueue and workload role (gauge).
+func ReportLocalQueueFinishedWorkloads(lq LocalQueueReference, count int, tracker *roletracker.RoleTracker) {
+	role := roletracker.GetRole(tracker)
+	LocalQueueFinishedWorkloads.WithLabelValues(string(lq.Name), lq.Namespace, role).Set(float64(count))
+}
+
 func AdmittedWorkload(cqName kueue.ClusterQueueReference, priorityClass string, waitTime time.Duration, tracker *roletracker.RoleTracker) {
 	role := roletracker.GetRole(tracker)
 	AdmittedWorkloadsTotal.WithLabelValues(string(cqName), priorityClass, role).Inc()
@@ -690,26 +718,6 @@ func ReportLocalQueuePendingWorkloads(lq LocalQueueReference, active, inadmissib
 	role := roletracker.GetRole(tracker)
 	LocalQueuePendingWorkloads.WithLabelValues(string(lq.Name), lq.Namespace, PendingStatusActive, role).Set(float64(active))
 	LocalQueuePendingWorkloads.WithLabelValues(string(lq.Name), lq.Namespace, PendingStatusInadmissible, role).Set(float64(inadmissible))
-}
-
-func FinishedWorkload(cqName kueue.ClusterQueueReference, priorityClass string, tracker *roletracker.RoleTracker) {
-	role := roletracker.GetRole(tracker)
-	FinishedWorkloadsTotal.WithLabelValues(string(cqName), priorityClass, role).Inc()
-}
-
-func LocalQueueFinishedWorkload(lq LocalQueueReference, priorityClass string, tracker *roletracker.RoleTracker) {
-	role := roletracker.GetRole(tracker)
-	LocalQueueFinishedWorkloadsTotal.WithLabelValues(string(lq.Name), lq.Namespace, priorityClass, role).Inc()
-}
-
-func ReportFinishedWorkloads(cqName kueue.ClusterQueueReference, count int, tracker *roletracker.RoleTracker) {
-	role := roletracker.GetRole(tracker)
-	FinishedWorkloads.WithLabelValues(string(cqName), role).Set(float64(count))
-}
-
-func ReportLocalQueueFinishedWorkloads(lq LocalQueueReference, count int, tracker *roletracker.RoleTracker) {
-	role := roletracker.GetRole(tracker)
-	LocalQueueFinishedWorkloads.WithLabelValues(string(lq.Name), lq.Namespace, role).Set(float64(count))
 }
 
 func ReportEvictedWorkloads(cqName kueue.ClusterQueueReference, evictionReason, underlyingCause, priorityClass string, tracker *roletracker.RoleTracker) {
