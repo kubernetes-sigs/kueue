@@ -913,7 +913,8 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 				log.Error(err, "Failed to delete workload from cache")
 			}
 		})
-
+		// This workload now is inadmissible. Delete from workloadAssignedQueues.
+		r.queues.DeleteAndForgetWorkload(log, wlKey)
 	case prevStatus == workload.StatusPending && status == workload.StatusPending:
 		// Skip queue operations for DRA workloads - they are handled in Reconcile loop
 		if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(e.ObjectNew) {
