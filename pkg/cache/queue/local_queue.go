@@ -17,6 +17,8 @@ limitations under the License.
 package queue
 
 import (
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -29,13 +31,14 @@ type LocalQueue struct {
 
 	items map[workload.Reference]*workload.Info
 
-	finishedWorkloads int
+	finishedWorkloads sets.Set[workload.Reference]
 }
 
 func newLocalQueue(q *kueue.LocalQueue) *LocalQueue {
 	qImpl := &LocalQueue{
-		Key:   queue.Key(q),
-		items: make(map[workload.Reference]*workload.Info),
+		Key:               queue.Key(q),
+		items:             make(map[workload.Reference]*workload.Info),
+		finishedWorkloads: sets.New[workload.Reference](),
 	}
 	qImpl.update(q)
 	return qImpl

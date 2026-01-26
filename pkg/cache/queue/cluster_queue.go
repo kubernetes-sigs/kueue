@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -93,7 +94,7 @@ type ClusterQueue struct {
 	// inadmissibleWorkloads are workloads that have been tried at least once and couldn't be admitted.
 	inadmissibleWorkloads inadmissibleWorkloads
 
-	finishedWorkloads int
+	finishedWorkloads sets.Set[workload.Reference]
 
 	// popCycle identifies the last call to Pop. It's incremented when calling Pop.
 	// popCycle and queueInadmissibleCycle are used to track when there is a requeuing
@@ -193,6 +194,7 @@ func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.
 	return &ClusterQueue{
 		heap:                      *heap.New(workloadKey, lessFunc),
 		inadmissibleWorkloads:     make(inadmissibleWorkloads),
+		finishedWorkloads:         sets.New[workload.Reference](),
 		queueInadmissibleCycle:    -1,
 		lessFunc:                  lessFunc,
 		rwm:                       sync.RWMutex{},
@@ -229,9 +231,9 @@ func (c *ClusterQueue) AddFromLocalQueue(q *LocalQueue, roleTracker *roletracker
 		if c.heap.PushIfNotPresent(info) {
 			added = true
 		}
+		c.finishedWorkloads.Insert(workloadKey(info))
 	}
-	c.finishedWorkloads += q.finishedWorkloads
-	metrics.ReportFinishedWorkloads(c.GetName(), c.finishedWorkloads, roleTracker)
+	metrics.ReportFinishedWorkloads(c.GetName(), c.finishedWorkloads.Len(), roleTracker)
 	return added
 }
 
@@ -316,10 +318,11 @@ func (c *ClusterQueue) DeleteFromLocalQueue(log logr.Logger, q *LocalQueue, role
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	for _, w := range q.items {
-		c.delete(log, workloadKey(w))
+		wlKey := workloadKey(w)
+		c.delete(log, wlKey)
+		c.finishedWorkloads.Delete(wlKey)
 	}
-	c.finishedWorkloads -= q.finishedWorkloads
-	metrics.ReportFinishedWorkloads(c.GetName(), c.finishedWorkloads, roleTracker)
+	metrics.ReportFinishedWorkloads(c.GetName(), c.finishedWorkloads.Len(), roleTracker)
 }
 
 // requeueIfNotPresent inserts a workload that cannot be admitted into

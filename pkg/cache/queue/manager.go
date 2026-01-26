@@ -184,7 +184,6 @@ func (m *Manager) AddFinishedWorkload(wl *kueue.Workload) {
 
 func (m *Manager) addFinishedWorkloadWithoutLock(wl *kueue.Workload) {
 	wlKey := workload.Key(wl)
-	m.deleteFinishedWorkloadWithoutLock(wlKey)
 
 	if !workload.IsFinished(wl) {
 		return
@@ -198,21 +197,21 @@ func (m *Manager) addFinishedWorkloadWithoutLock(wl *kueue.Workload) {
 	if q == nil {
 		return
 	}
-	q.finishedWorkloads++
+	q.finishedWorkloads.Insert(wlKey)
 	if features.Enabled(features.LocalQueueMetrics) {
 		namespace, lqName := queue.MustParseLocalQueueReference(qKey)
 		metrics.ReportLocalQueueFinishedWorkloads(metrics.LocalQueueReference{
 			Name:      lqName,
 			Namespace: namespace,
-		}, q.finishedWorkloads, m.roleTracker)
+		}, q.finishedWorkloads.Len(), m.roleTracker)
 	}
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq == nil {
 		return
 	}
-	cq.finishedWorkloads++
-	metrics.ReportFinishedWorkloads(q.ClusterQueue, cq.finishedWorkloads, m.roleTracker)
+	cq.finishedWorkloads.Insert(wlKey)
+	metrics.ReportFinishedWorkloads(q.ClusterQueue, cq.finishedWorkloads.Len(), m.roleTracker)
 }
 
 func (m *Manager) deleteFinishedWorkloadWithoutLock(wlKey workload.Reference) {
@@ -228,21 +227,21 @@ func (m *Manager) deleteFinishedWorkloadWithoutLock(wlKey workload.Reference) {
 		return
 	}
 
-	q.finishedWorkloads--
+	q.finishedWorkloads.Delete(wlKey)
 	if features.Enabled(features.LocalQueueMetrics) {
 		namespace, lqName := queue.MustParseLocalQueueReference(qKey)
 		metrics.ReportLocalQueueFinishedWorkloads(metrics.LocalQueueReference{
 			Name:      lqName,
 			Namespace: namespace,
-		}, q.finishedWorkloads, m.roleTracker)
+		}, q.finishedWorkloads.Len(), m.roleTracker)
 	}
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq == nil {
 		return
 	}
-	cq.finishedWorkloads--
-	metrics.ReportFinishedWorkloads(q.ClusterQueue, cq.finishedWorkloads, m.roleTracker)
+	cq.finishedWorkloads.Delete(wlKey)
+	metrics.ReportFinishedWorkloads(q.ClusterQueue, cq.finishedWorkloads.Len(), m.roleTracker)
 }
 
 func (m *Manager) AddOrUpdateCohort(ctx context.Context, cohort *kueue.Cohort) {
