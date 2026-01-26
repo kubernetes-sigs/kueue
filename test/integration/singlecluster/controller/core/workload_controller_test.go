@@ -912,8 +912,8 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 				}, util.Timeout, util.Interval).ShouldNot(gomega.Succeed())
 			})
 
-			util.ExpectFinishedWorkloadsMetric(clusterQueue, 0)
-			util.ExpectLQFinishedWorkloadsMetric(localQueue, 0)
+			util.ExpectFinishedWorkloadsGaugeMetric(clusterQueue, 0)
+			util.ExpectLQFinishedWorkloadsGaugeMetric(localQueue, 0)
 		})
 	})
 
@@ -986,8 +986,8 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 			})
 
-			util.ExpectFinishedWorkloadsMetric(clusterQueue, 0)
-			util.ExpectLQFinishedWorkloadsMetric(localQueue, 0)
+			util.ExpectFinishedWorkloadsGaugeMetric(clusterQueue, 0)
+			util.ExpectLQFinishedWorkloadsGaugeMetric(localQueue, 0)
 
 			ginkgo.By("marking workload as finished", func() {
 				gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWorkload)).To(gomega.Succeed())
@@ -1009,8 +1009,8 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 
-			util.ExpectFinishedWorkloadsMetric(clusterQueue, 1)
-			util.ExpectLQFinishedWorkloadsMetric(localQueue, 1)
+			util.ExpectFinishedWorkloadsGaugeMetric(clusterQueue, 1)
+			util.ExpectLQFinishedWorkloadsGaugeMetric(localQueue, 1)
 		})
 	})
 })
