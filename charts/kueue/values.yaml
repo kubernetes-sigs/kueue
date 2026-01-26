@@ -28,7 +28,7 @@ controllerManager:
       # -- ControllerManager's image repository
       repository: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue
       # -- ControllerManager's image tag
-      tag: main
+      tag: release-0.16
       # -- ControllerManager's image pullPolicy.
       # This should be set to 'IfNotPresent' for released version
       pullPolicy: Always
@@ -240,7 +240,7 @@ kueueViz:
       # -- KueueViz dashboard backend image repository
       repository: "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend"
       # -- KueueViz dashboard backend image tag
-      tag: main
+      tag: release-0.16
       # -- KueueViz dashboard backend image pullPolicy.
       # This should be set to 'IfNotPresent' for released version
       pullPolicy: Always
@@ -273,7 +273,7 @@ kueueViz:
       # -- KueueViz dashboard frontend image repository
       repository: "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend"
       # -- KueueViz dashboard frontend image tag
-      tag: main
+      tag: release-0.16
       # -- KueueViz dashboard frontend image pullPolicy.
       # This should be set to 'IfNotPresent' for released version
       pullPolicy: Always
