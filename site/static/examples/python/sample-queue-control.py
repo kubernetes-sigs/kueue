@@ -34,7 +34,7 @@ def main():
 
     listing = crd_api.list_namespaced_custom_object(
         group="kueue.x-k8s.io",
-        version="v1beta1",
+        version="v1beta2",
         namespace=args.namespace,
         plural="localqueues",
     )
