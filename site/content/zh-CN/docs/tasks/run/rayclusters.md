@@ -8,14 +8,14 @@ description: 在启用了 Kueue 的环境里运行 RayClusters
 
 本页面展示了如何利用 Kueue 的调度和服务管理能力来运行 [RayCluster](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/raycluster-quick-start.html)。
 
-本指南适用于[批处理用户](/zh-cn/docs/tasks#batch-user)，他们需要对 Kueue 有基本的了解。
-更多信息，请参见 [Kueue 概述](/zh-cn/docs/overview)。
+本指南适用于[批处理用户](/zh-CN/docs/tasks#batch-user)，他们需要对 Kueue 有基本的了解。
+更多信息，请参见 [Kueue 概述](/zh-CN/docs/overview)。
 
 ## 开始之前 {#before-you-begin}
 
 1. 请确保你使用的是 Kueue v0.6.0 版本或更高版本，以及 KubeRay v1.1.0 或更高版本。
 
-2. 请参见 [Administer cluster quotas](/zh-cn/docs/tasks/manage/administer_cluster_quotas)
+2. 请参见 [Administer cluster quotas](/zh-CN/docs/tasks/manage/administer_cluster_quotas)
    了解初始 Kueue 设置的详细信息。
 
 3. 请参见 [KubeRay Installation](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/raycluster-quick-start.html#step-2-deploy-a-kuberay-operator)
@@ -31,7 +31,7 @@ description: 在启用了 Kueue 的环境里运行 RayClusters
 
 ### a. 队列选择 {#a-queue-selection}
 
-目标 [本地队列](/zh-cn/docs/concepts/local_queue)应在 RayCluster 配置的 `metadata.labels` 部分指定。
+目标 [本地队列](/zh-CN/docs/concepts/local_queue)应在 RayCluster 配置的 `metadata.labels` 部分指定。
 
 ```yaml
 metadata:

@@ -9,17 +9,17 @@ description: >
 本页面展示了在运行 [MPI Operator](https://www.kubeflow.org/docs/components/training/mpi/)
 MPIJob 时，如何利用 Kueue 的调度和资源管理能力。
 
-本指南适用于对 Kueue 有基本了解的[批处理用户](/zh-cn/docs/tasks#batch-user)。
-更多信息，请参阅 [Kueue 概述](/zh-cn/docs/overview)。
+本指南适用于对 Kueue 有基本了解的[批处理用户](/zh-CN/docs/tasks#batch-user)。
+更多信息，请参阅 [Kueue 概述](/zh-CN/docs/overview)。
 
 ## 开始之前  {#before-you-begin}
 
-查阅[管理集群配额](/zh-cn/docs/tasks/manage/administer_cluster_quotas)，
+查阅[管理集群配额](/zh-CN/docs/tasks/manage/administer_cluster_quotas)，
 以获取初始集群设置的详细信息。
 
 查阅 [MPI Operator 安装指南](https://github.com/kubeflow/mpi-operator#installation)。
 
-你可以[修改已安装版本的 Kueue 配置](/zh-cn/docs/installation#install-a-custom-configured-released-version)，
+你可以[修改已安装版本的 Kueue 配置](/zh-CN/docs/installation#install-a-custom-configured-released-version)，
 以将 MPIJob 添加到允许的工作负载中。
 
 {{% alert title="Note" color="primary" %}}
@@ -37,7 +37,7 @@ MPIJob 时，如何利用 Kueue 的调度和资源管理能力。
 
 ### a. 队列选择
 
-目标[本地队列](/zh-cn/docs/concepts/local_queue)应在 MPIJob 配置的
+目标[本地队列](/zh-CN/docs/concepts/local_queue)应在 MPIJob 配置的
 `metadata.labels` 部分中指定。
 
 ```yaml
@@ -63,4 +63,4 @@ MPIJob 被接受时取消挂起。
 
 {{< include "examples/jobs/sample-mpijob.yaml" "yaml" >}}
 
-有关在 Python 中执行此操作的等效说明，请参阅[运行 Python 作业](/zh-cn/docs/tasks/run/python_jobs/#mpi-operator-job)。
+有关在 Python 中执行此操作的等效说明，请参阅[运行 Python 作业](/zh-CN/docs/tasks/run/python_jobs/#mpi-operator-job)。

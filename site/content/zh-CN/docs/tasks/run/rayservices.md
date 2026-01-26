@@ -13,14 +13,14 @@ description: >
 Kueue 通过为 RayService 创建的 RayCluster 来管理 RayService。
 因此，RayService 需要在 metadata.labels 中包含 `kueue.x-k8s.io/queue-name: user-queue` 标签，该标签会被传递到相应的 RayCluster，以触发 Kueue 的管理。
 
-本指南面向对 Kueue 有基本了解的、[对外提供服务的用户](/zh-cn/docs/tasks#serving-user)。
-更多信息，请参见 [Kueue 概览](/zh-cn/docs/overview)。
+本指南面向对 Kueue 有基本了解的、[对外提供服务的用户](/zh-CN/docs/tasks#serving-user)。
+更多信息，请参见 [Kueue 概览](/zh-CN/docs/overview)。
 
 ## 开始之前 {#before-you-begin}
 
 1. 请确保你使用的是 Kueue v0.6.0 版本或更高版本，以及 KubeRay v1.3.0 或更高版本。
 
-2. 请参见 [管理集群配额](/zh-cn/docs/tasks/manage/administer_cluster_quotas)了解初始 Kueue 设置的详细信息。
+2. 请参见 [管理集群配额](/zh-CN/docs/tasks/manage/administer_cluster_quotas)了解初始 Kueue 设置的详细信息。
 
 3. 请参见 [KubeRay 安装说明](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/raycluster-quick-start.html#step-2-deploy-a-kuberay-operator)了解 KubeRay 的安装和配置详情。
 
@@ -37,7 +37,7 @@ RayService 通过 RayCluster 由 Kueue 管理；
 
 ### a. 队列选择 {#a-queue-selection}
 
-目标 [本地队列](/zh-cn/docs/concepts/local_queue)应在 RayService 配置的 `metadata.labels`
+目标 [本地队列](/zh-CN/docs/concepts/local_queue)应在 RayService 配置的 `metadata.labels`
 部分指定，该标签会被传递到其 RayCluster。
 
 ```yaml

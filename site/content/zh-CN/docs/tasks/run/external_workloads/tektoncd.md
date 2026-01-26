@@ -10,20 +10,20 @@ description: >
 此页面展示了在运行 [Tekton Pipeline](https://tekton.dev/docs/) 时，
 如何利用 Kueue 的调度和资源管理能力。
 
-本指南适用于对 Kueue 有基本了解的[批处理用户](/zh-cn/docs/tasks#batch-user)。
-欲了解更多，请参阅 [Kueue 概述](/zh-cn/docs/overview)。
+本指南适用于对 Kueue 有基本了解的[批处理用户](/zh-CN/docs/tasks#batch-user)。
+欲了解更多，请参阅 [Kueue 概述](/zh-CN/docs/overview)。
 
-我们将演示如何基于 [Plain Pod](/zh-cn/docs/tasks/run/plain_pods) 集成，
+我们将演示如何基于 [Plain Pod](/zh-CN/docs/tasks/run/plain_pods) 集成，
 在 Kueue 中支持 Tekton Pipeline 任务的调度，其中来自 Pipeline 的每个 Pod 都表现为单个独立的 Plain Pod。
 
 ## 开始之前
 
-1. 学习如何[安装具有自定义管理器配置的 Kueue](/zh-cn/docs/installation/#install-a-custom-configured-released-version)。
+1. 学习如何[安装具有自定义管理器配置的 Kueue](/zh-CN/docs/installation/#install-a-custom-configured-released-version)。
 
-2. 按照[运行 Plain Pod](/zh-cn/docs/tasks/run/plain_pods/#before-you-begin)
+2. 按照[运行 Plain Pod](/zh-CN/docs/tasks/run/plain_pods/#before-you-begin)
    中的步骤学习如何启用和配置 `pod` 集成。
 
-3. 查看[管理员集群配额](/zh-cn/docs/tasks/manage/administer_cluster_quotas/)以获取初始 Kueue 步骤的详细信息。
+3. 查看[管理员集群配额](/zh-CN/docs/tasks/manage/administer_cluster_quotas/)以获取初始 Kueue 步骤的详细信息。
 
 4. 确保你的集群已安装 Tekton Pipeline：[安装指南](https://tekton.dev/docs/installation/pipelines/)。
 
@@ -53,7 +53,7 @@ Tekton 有 [Pipeline](https://tekton.dev/vault/pipelines-v0.59.x-lts/pipelines/)
 
 ## a. 针对单个本地队列
 
-如果你希望每个任务都针对一个单独的[本地队列](/zh-cn/docs/concepts/local_queue)，
+如果你希望每个任务都针对一个单独的[本地队列](/zh-CN/docs/concepts/local_queue)，
 那么它应该在 PipelineRun 配置的 `metadata.label` 部分中指定。
 
 {{< include "examples/pod-based-workloads/tekton-pipeline-run.yaml" "yaml" >}}

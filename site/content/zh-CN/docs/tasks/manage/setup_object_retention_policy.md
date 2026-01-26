@@ -15,11 +15,11 @@ etcd 存储并降低 Kueue 的内存占用。
 
 - 可正常运行的 Kueue **v0.12** 或更高版本。
 - 在 Kueue 控制器管理器中启用 `ObjectRetentionPolicies` 特性。
-  有关此特性的配置细节，请参阅[安装指南](/zh-cn/docs/installation/#change-the-feature-gates-configuration)。
+  有关此特性的配置细节，请参阅[安装指南](/zh-CN/docs/installation/#change-the-feature-gates-configuration)。
 
 ## 设置保留策略 {#set-up-a-retention-policy}
 
-按照此处描述的说明[安装自定义配置的发布版本](/zh-cn/docs/installation#install-a-custom-configured-released-version)，
+按照此处描述的说明[安装自定义配置的发布版本](/zh-CN/docs/installation#install-a-custom-configured-released-version)，
 并通过添加以下字段扩展配置：
 
 ```yaml
@@ -41,7 +41,7 @@ Workload 的保留策略在 `.objectRetentionPolicies.workloads` 字段下定义
 
 ### Kueue 配置 {##kueue-configuration}
 
-**配置** Kueue 使用 1 分钟的保留策略，并启用 [waitForPodsReady](/zh-cn/docs/tasks/manage/setup_wait_for_pods_ready)：
+**配置** Kueue 使用 1 分钟的保留策略，并启用 [waitForPodsReady](/zh-CN/docs/tasks/manage/setup_wait_for_pods_ready)：
 
 ```yaml
   objectRetentionPolicies:
@@ -123,7 +123,7 @@ kubectl get jobs -n default
 
 ### 场景 B：通过 `waitForPodsReady` 驱逐 Workload {#scenario-b-evicted-workload-via-waitforpodsready}
 
-1. **配置** Kueue 使得 [Deployment](/zh-cn/docs/installation#install-a-custom-configured-released-version)
+1. **配置** Kueue 使得 [Deployment](/zh-CN/docs/installation#install-a-custom-configured-released-version)
     可使用超过节点容量的资源：
 
 ```yaml

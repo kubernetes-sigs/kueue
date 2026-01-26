@@ -9,19 +9,19 @@ description: >
 此页面展示了在运行 [Trainer](https://www.kubeflow.org/docs/components/training/jax/)
 JAXJob 时，如何利用 Kueue 的调度和资源管理能力。
 
-本指南适用于对 Kueue 有基本了解的[批处理用户](/zh-cn/docs/tasks#batch-user)。
-欲了解更多信息，请参阅 [Kueue 概述](/zh-cn/docs/overview)。
+本指南适用于对 Kueue 有基本了解的[批处理用户](/zh-CN/docs/tasks#batch-user)。
+欲了解更多信息，请参阅 [Kueue 概述](/zh-CN/docs/overview)。
 
 ## 开始之前  {#before-you-begin}
 
-检查[管理集群配额](/zh-cn/docs/tasks/manage/administer_cluster_quotas)，
+检查[管理集群配额](/zh-CN/docs/tasks/manage/administer_cluster_quotas)，
 以获取有关初始集群设置的详细信息。
 
 查阅 [Trainer 安装指南](https://github.com/kubeflow/training-operator#installation)。
 
 请注意，Trainer 的最低要求版本是 v1.9.0。
 
-你可以[修改已安装版本的 Kueue 配置](/zh-cn/docs/installation#install-a-custom-configured-released-version)，
+你可以[修改已安装版本的 Kueue 配置](/zh-CN/docs/installation#install-a-custom-configured-released-version)，
 以将 JAXJob 添加到允许的工作负载中。
 
 {{% alert title="Note" color="primary" %}}
@@ -33,7 +33,7 @@ JAXJob 时，如何利用 Kueue 的调度和资源管理能力。
 
 ### a. 队列选择
 
-目标[本地队列](/zh-cn/docs/concepts/local_queue)应当在 JAXJob
+目标[本地队列](/zh-CN/docs/concepts/local_queue)应当在 JAXJob
 配置的 `metadata.labels` 部分中指定。
 
 ```yaml
