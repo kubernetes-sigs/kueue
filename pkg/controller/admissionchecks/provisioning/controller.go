@@ -433,7 +433,11 @@ func (c *Controller) syncProvisionRequestsPodTemplates(ctx context.Context, wl *
 }
 
 func (c *Controller) reqIsNeeded(wl *kueue.Workload, prc *kueue.ProvisioningRequestConfig) bool {
-	return len(requiredPodSets(wl.Spec.PodSets, prc.Spec.ManagedResources)) > 0
+	merged, err := mergePodSets(wl, &prc.Spec)
+	if err != nil {
+		return len(requiredPodSets(wl.Spec.PodSets, prc.Spec.ManagedResources)) > 0
+	}
+	return podSetsCount(merged) > 0
 }
 
 func requiredPodSets(podSets []kueue.PodSet, resources []corev1.ResourceName) []kueue.PodSetReference {
@@ -441,7 +445,7 @@ func requiredPodSets(podSets []kueue.PodSet, resources []corev1.ResourceName) []
 	users := make([]kueue.PodSetReference, 0, len(podSets))
 	for i := range podSets {
 		ps := &podSets[i]
-		if len(resources) == 0 || podUses(&ps.Template.Spec, resourcesSet) {
+		if ps.Count > 0 && (len(resources) == 0 || podUses(&ps.Template.Spec, resourcesSet)) {
 			users = append(users, ps.Name)
 		}
 	}
@@ -960,4 +964,13 @@ func areContainersEqual(ps1Containers []corev1.Container, ps2Containers []corev1
 		}
 	}
 	return true
+}
+
+func podSetsCount(podSets []MergedPodSet) int {
+	count := 0
+	for _, ps := range podSets {
+		count += int(ps.Count)
+	}
+	return count
+
 }
