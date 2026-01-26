@@ -29,7 +29,7 @@ echo $TOKEN
    - Set `Hide` to `Nothing`.
    - Under `Query Options`, select `Data source` as `yesoreyeram-infinity-datasource`.
    - Set `Query Type` to `Infinity`.
-   - Enter the URL: https://kubernetes.default.svc/apis/kueue.x-k8s.io/v1beta1/clusterqueues.
+   - Enter the URL: https://kubernetes.default.svc/apis/kueue.x-k8s.io/v1beta2/clusterqueues.
    - Expand `Parsing Options` and set `Rows Root` to `items`.
    - In `Rows Root` put `items`.
    - Click `Add Columns` and add a column with:
@@ -38,7 +38,7 @@ echo $TOKEN
    - Click `Back to Dashboard`.
 5. Click `Add` > `Visualization`.
 6. Choose `yesoreyeram-infinity-datasource` as the `Data Source`.
-7. Enter the URL: https://kubernetes.default.svc/apis/visibility.kueue.x-k8s.io/v1beta1/clusterqueues/$cluster_queue/pendingworkloads.
+7. Enter the URL: https://kubernetes.default.svc/apis/visibility.kueue.x-k8s.io/v1beta2/clusterqueues/$cluster_queue/pendingworkloads.
 8. Expand `Parsing Options` and set `Rows Root` to `items`.
 9. In `Rows Root` put `items`. 
 10. Click `Add Columns` and add a columns with:
@@ -79,7 +79,7 @@ echo $TOKEN
    - Set `Hide` to `Nothing`. 
    - Under `Query Options`, select `Data Source` as `yesoreyeram-infinity-datasource`. 
    - Set `Query Type` to `Infinity`. 
-   - Enter the URL: https://kubernetes.default.svc/apis/visibility.kueue.x-k8s.io/v1beta1/clusterqueues/$cluster_queue/pendingworkloads. 
+   - Enter the URL: https://kubernetes.default.svc/apis/visibility.kueue.x-k8s.io/v1beta2/clusterqueues/$cluster_queue/pendingworkloads. 
    - Expand `Parsing Options` and set `Rows Root` to `items`. 
    - Click `Add Columns` and add a column with:
      - Selector: `metadata.name`
@@ -88,7 +88,7 @@ echo $TOKEN
    - Click `Back to Dashboard`.
 6. Click `Add` > `Visualization`. 
 7. Select `yesoreyeram-infinity-datasource` as the `Data Source`. 
-8. Enter the URL: https://kubernetes.default.svc/apis/visibility.kueue.x-k8s.io/v1beta1/namespaces/${namespace}/localqueues/${local_queue}/pendingworkloads.
+8. Enter the URL: https://kubernetes.default.svc/apis/visibility.kueue.x-k8s.io/v1beta2/namespaces/${namespace}/localqueues/${local_queue}/pendingworkloads.
 9. Expand `Parsing Options` and set `Rows Root` to `items`.
 10. In `Rows Root` put `items`.
 11. Click `Add Columns` and add a columns with:
