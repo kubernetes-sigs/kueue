@@ -1,0 +1,25 @@
+# TAS Performance Test - Expected Performance Ranges
+#
+# NOTE: the thresholds below are provisional and will be fully specified based on the actual
+# numbers only once we have enough execution history on CI. The provisional thresholds avoid
+# flaky CI failures in the mean time.
+#
+# Configuration: 640 nodes, ~1,050 workloads, required/preferred/balanced topology
+
+# Command execution limits
+cmd:
+  maxWallMs: 1_000_000
+
+# Cluster Queue utilization targets
+clusterQueueClassesMinUsage:
+  cq: 1 #%
+
+# Workload admission time limits
+wlClassesMaxAvgTimeToAdmissionMs:
+  large-balanced-rack: 1_000_000
+  large-required-rack: 1_000_000
+  medium-balanced-rack: 1_000_000
+  medium-preferred-block: 1_000_000
+  medium-required-rack: 1_000_000
+  small-preferred-rack: 1_000_000
+  small-required-rack: 1_000_000
