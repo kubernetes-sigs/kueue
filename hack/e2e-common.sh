@@ -117,15 +117,18 @@ function cluster_collect_artifacts {
     local name=$1
     local kubeconfig=${2:-}
 
-    local kubeconfig_args=()
     if [[ -n "${kubeconfig}" ]]; then
-        kubeconfig_args=(--kubeconfig="${kubeconfig}")
+        kubectl config --kubeconfig="${kubeconfig}" use-context "kind-${name}" || true
+        $KIND export logs "$ARTIFACTS" --name "$name" || true
+        kubectl describe pods --kubeconfig="${kubeconfig}" -n kueue-system > "$ARTIFACTS/${name}-kueue-system-pods.log" || true
+        kubectl describe pods --kubeconfig="${kubeconfig}" > "$ARTIFACTS/${name}-default-pods.log" || true
+        return 0
     fi
 
-    kubectl config "${kubeconfig_args[@]}" use-context "kind-${name}" || true
+    kubectl config use-context "kind-${name}" || true
     $KIND export logs "$ARTIFACTS" --name "$name" || true
-    kubectl describe pods "${kubeconfig_args[@]}" -n kueue-system > "$ARTIFACTS/${name}-kueue-system-pods.log" || true
-    kubectl describe pods "${kubeconfig_args[@]}" > "$ARTIFACTS/${name}-default-pods.log" || true
+    kubectl describe pods -n kueue-system > "$ARTIFACTS/${name}-kueue-system-pods.log" || true
+    kubectl describe pods > "$ARTIFACTS/${name}-default-pods.log" || true
 }
 
 # $1 cluster name
@@ -431,28 +434,31 @@ function build_and_apply_kueue_manifests {
     build_output=$($KUSTOMIZE build "$2")
     # shellcheck disable=SC2001 # bash parameter substitution does not work on macOS
     build_output=$(echo "$build_output" | sed "s/kueue-system/$KUEUE_NAMESPACE/g")
-    echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side -f -
+    # NOTE: kubectl's OpenAPI-based client-side validation can fail when an aggregated APIService
+    # publishes an OpenAPI spec with broken refs (observed on reruns in E2E_MODE=dev). Server-side
+    # apply still validates on the apiserver, so we can safely skip client-side validation here.
+    echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side --validate=false -f -
 }
 
 # $1 cluster name
 # $2 kubeconfig option
 function install_appwrapper {
     cluster_kind_load_image "${1}" "${APPWRAPPER_IMAGE}"
-    kubectl apply --kubeconfig="$2" --server-side -k "${APPWRAPPER_MANIFEST}"
+    kubectl apply --kubeconfig="$2" --server-side --validate=false -k "${APPWRAPPER_MANIFEST}"
 }
 
 # $1 cluster name
 # $2 kubeconfig option
 function install_jobset {
     cluster_kind_load_image "${1}" "${JOBSET_IMAGE}"
-    kubectl apply --kubeconfig="$2" --server-side -f "${JOBSET_MANIFEST}"
+    kubectl apply --kubeconfig="$2" --server-side --validate=false -f "${JOBSET_MANIFEST}"
 }
 
 # $1 cluster name
 # $2 kubeconfig option
 function install_kubeflow {
     cluster_kind_load_image "${1}" "${KUBEFLOW_IMAGE}"
-    kubectl apply --kubeconfig="$2" --server-side -k "${KUBEFLOW_MANIFEST_PATCHED}"
+    kubectl apply --kubeconfig="$2" --server-side --validate=false -k "${KUBEFLOW_MANIFEST_PATCHED}"
 }
 
 # $1 cluster name
@@ -468,18 +474,18 @@ function install_kubeflow_trainer {
         if [[ -n ${JOBSET_VERSION:-} ]]; then
             $YQ eval 'del(.resources[] | select(. == "../../third-party/jobset"))' -i "$manifests_temp_dir/overlays/manager/kustomization.yaml"
         fi
-        kubectl apply --kubeconfig="$2" --server-side -k "$manifests_temp_dir/overlays/manager"
+        kubectl apply --kubeconfig="$2" --server-side --validate=false -k "$manifests_temp_dir/overlays/manager"
     )
     # In order to install the training runtimes we need to wait for the ClusterTrainingRuntime webhook to be ready
     kubectl wait --kubeconfig="$2" deploy/kubeflow-trainer-controller-manager -n kubeflow-system --for=condition=available --timeout=5m
-    kubectl apply --kubeconfig="$2" --server-side -k "${KUBEFLOW_TRAINER_MANIFEST}/overlays/runtimes"
+    kubectl apply --kubeconfig="$2" --server-side --validate=false -k "${KUBEFLOW_TRAINER_MANIFEST}/overlays/runtimes"
 }
 
 # $1 cluster name
 # $2 kubeconfig option
 function install_mpi {
     cluster_kind_load_image "${1}" "${KUBEFLOW_MPI_IMAGE/#v}"
-    kubectl apply --kubeconfig="$2" --server-side -f "${KUBEFLOW_MPI_MANIFEST}"
+    kubectl apply --kubeconfig="$2" --server-side --validate=false -f "${KUBEFLOW_MPI_MANIFEST}"
 }
 
 # $1 cluster name
@@ -488,24 +494,24 @@ function install_kuberay {
     cluster_kind_load_image "${1}" "${KUBERAY_RAY_IMAGE}"
     cluster_kind_load_image "${1}" "${KUBERAY_IMAGE}"
     # create used instead of apply - https://github.com/ray-project/kuberay/issues/504
-    kubectl create --kubeconfig="$2" -k "${KUBERAY_MANIFEST}"
+    kubectl create --kubeconfig="$2" --validate=false -k "${KUBERAY_MANIFEST}"
 }
 
 # $1 cluster name
 # $2 kubeconfig option
 function install_lws {
     cluster_kind_load_image "${1}" "${LEADERWORKERSET_IMAGE/#v}"
-    kubectl apply --kubeconfig="$2" --server-side -f "${LEADERWORKERSET_MANIFEST}"
+    kubectl apply --kubeconfig="$2" --server-side --validate=false -f "${LEADERWORKERSET_MANIFEST}"
 }
 
 # $1 kubeconfig option
 function install_cert_manager {
-    kubectl apply --kubeconfig="$1" --server-side -f "${CERTMANAGER_MANIFEST}"
+    kubectl apply --kubeconfig="$1" --server-side --validate=false -f "${CERTMANAGER_MANIFEST}"
 }
 
 # $1 kubeconfig option
 function install_multicluster {
-    kubectl apply --kubeconfig="$1" --server-side -f "${CLUSTERPROFILE_CRD}"
+    kubectl apply --kubeconfig="$1" --server-side --validate=false -f "${CLUSTERPROFILE_CRD}"
 }
 
 # $1 cluster name
@@ -625,7 +631,7 @@ function upgrade_test_flow {
     curl -sL "${KUEUE_OLD_VERSION_MANIFEST}" | \
       sed "s|registry.k8s.io/kueue/kueue:${old_version}|${old_image}|g" | \
       sed 's|imagePullPolicy: Always|imagePullPolicy: IfNotPresent|g' | \
-      kubectl apply --server-side -f -
+      kubectl apply --server-side --validate=false -f -
 
     kubectl wait --for=condition=available --timeout=180s deployment/kueue-controller-manager -n kueue-system
     echo "✓ $old_version ready"
@@ -634,7 +640,7 @@ function upgrade_test_flow {
     echo "Creating test resources..."
     
     # Create custom namespace for test resources (idempotent)
-    kubectl apply --kubeconfig="$1" -f - <<EOF_NS
+    kubectl apply --kubeconfig="$1" --validate=false -f - <<EOF_NS
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -642,7 +648,7 @@ metadata:
 EOF_NS
     
     # Apply test resources
-    kubectl apply --kubeconfig="$1" -f - <<EOF
+    kubectl apply --kubeconfig="$1" --validate=false -f - <<EOF
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: ResourceFlavor
 metadata:
@@ -686,7 +692,7 @@ EOF
         build_output=$($KUSTOMIZE build "${ROOT_DIR}/test/e2e/config/default")
         # shellcheck disable=SC2001 # bash parameter substitution does not work on macOS
         build_output=$(echo "$build_output" | sed "s/kueue-system/$KUEUE_NAMESPACE/g")
-        echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side --force-conflicts -f -
+        echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side --force-conflicts --validate=false -f -
     )
     
     # Wait for the rolling update to complete.
