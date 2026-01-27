@@ -2539,3 +2539,31 @@ func TestFinish(t *testing.T) {
 		})
 	}
 }
+
+func TestGetLocalQueueFromWorkload(t *testing.T) {
+	testCases := map[string]struct {
+		wl     *kueue.Workload
+		wantLq kueue.LocalQueueName
+	}{
+		"no workload": {
+			wl:     nil,
+			wantLq: "",
+		},
+		"workload with lq": {
+			wl: &kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					QueueName: "test-queue",
+				},
+			},
+			wantLq: "test-queue",
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			gotLq := GetLocalQueue(tc.wl)
+			if gotLq != tc.wantLq {
+				t.Errorf("invalid local queue identified: got \"%v\", want \"%v\"", gotLq, tc.wantLq)
+			}
+		})
+	}
+}

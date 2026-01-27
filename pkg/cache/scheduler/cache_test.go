@@ -3753,3 +3753,114 @@ func TestClusterQueueAncestors(t *testing.T) {
 		})
 	}
 }
+
+func TestGetWorkloadFromCache(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	now := time.Now().Truncate(time.Second)
+
+	cqToDelete := utiltestingapi.MakeClusterQueue("deleted-cq").Obj()
+	clusterQueues := []*kueue.ClusterQueue{
+		utiltestingapi.MakeClusterQueue("cq").Obj(),
+		cqToDelete,
+	}
+
+	lqToDelete := utiltestingapi.MakeLocalQueue("deleted-lq", "").ClusterQueue("deleted-cq").Obj()
+	queues := []*kueue.LocalQueue{
+		utiltestingapi.MakeLocalQueue("lq", "").ClusterQueue("cq").Obj(),
+		lqToDelete,
+	}
+
+	cases := map[string]struct {
+		wl           *kueue.Workload
+		deleteFromCq kueue.ClusterQueueReference
+		wantWl       *kueue.Workload
+	}{
+		"workload fetched correctly": {
+			wl: utiltestingapi.MakeWorkload("a", "").ReserveQuotaAt(&kueue.Admission{
+				ClusterQueue: "cq",
+			}, now).Condition(metav1.Condition{
+				Type:   kueue.WorkloadPodsReady,
+				Status: metav1.ConditionFalse,
+			}).Obj(),
+			wantWl: utiltestingapi.MakeWorkload("a", "").ReserveQuotaAt(&kueue.Admission{
+				ClusterQueue: "cq",
+			}, now).Condition(metav1.Condition{
+				Type:   kueue.WorkloadPodsReady,
+				Status: metav1.ConditionFalse,
+			}).Obj(),
+		},
+		"cluster queue deleted": {
+			wl: utiltestingapi.MakeWorkload("a", "").ReserveQuotaAt(&kueue.Admission{
+				ClusterQueue: "deleted-cq",
+			}, now).Condition(metav1.Condition{
+				Type:   kueue.WorkloadPodsReady,
+				Status: metav1.ConditionFalse,
+			}).Obj(),
+			wantWl: nil,
+		},
+		"workload missing": {
+			wl:     nil,
+			wantWl: nil,
+		},
+		"workload missing from cluter queue": {
+			wl: utiltestingapi.MakeWorkload("a", "").ReserveQuotaAt(&kueue.Admission{
+				ClusterQueue: "cq",
+			}, now).Condition(metav1.Condition{
+				Type:   kueue.WorkloadPodsReady,
+				Status: metav1.ConditionFalse,
+			}).Obj(),
+			deleteFromCq: "cq",
+			wantWl:       nil,
+		},
+		"missing local queue": {
+			wl: utiltestingapi.MakeWorkload("a", "").Queue("deleted-lq").ReserveQuotaAt(&kueue.Admission{
+				ClusterQueue: "cq",
+			}, now).Condition(metav1.Condition{
+				Type:   kueue.WorkloadPodsReady,
+				Status: metav1.ConditionFalse,
+			}).Obj(),
+			wantWl: utiltestingapi.MakeWorkload("a", "").Queue("deleted-lq").ReserveQuotaAt(&kueue.Admission{
+				ClusterQueue: "cq",
+			}, now).Condition(metav1.Condition{
+				Type:   kueue.WorkloadPodsReady,
+				Status: metav1.ConditionFalse,
+			}).Obj(),
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			client := utiltesting.NewClientBuilder().Build()
+			cache := New(client)
+			for _, cq := range clusterQueues {
+				if err := cache.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
+				}
+			}
+			for _, q := range queues {
+				if err := cache.AddLocalQueue(q); err != nil {
+					t.Fatalf("Failed adding queue %s: %v", q.Name, err)
+				}
+			}
+
+			wlRef := workload.NewReference("", "non-existent-wl")
+			if tc.wl != nil {
+				wlRef = workload.Key(tc.wl)
+				if !cache.AddOrUpdateWorkload(log, tc.wl) {
+					t.Errorf("Failed to add or update workload: %v", tc.wl)
+				}
+				if tc.deleteFromCq != "" {
+					delete(cache.hm.ClusterQueue(tc.deleteFromCq).Workloads, wlRef)
+				}
+			}
+
+			cache.DeleteClusterQueue(cqToDelete)
+			cache.DeleteLocalQueue(lqToDelete)
+
+			gotWl := cache.GetWorkloadFromCache(wlRef)
+			if diff := cmp.Diff(tc.wantWl, gotWl, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); diff != "" {
+				t.Errorf("GetWorkloadFromCache returned wrong workload (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
