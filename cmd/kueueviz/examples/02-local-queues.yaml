@@ -1,5 +1,5 @@
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: LocalQueue
 metadata:
   name: emergency-queue
@@ -7,7 +7,7 @@ spec:
   clusterQueue: emergency-cluster-queue
 
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: LocalQueue
 metadata:
   name: llm-model-queue
@@ -16,7 +16,7 @@ spec:
 
 
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: LocalQueue
 metadata:
   name: agi-model-queue

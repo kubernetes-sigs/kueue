@@ -24,7 +24,7 @@ import (
 	"k8s.io/api/core/v1"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 // ResourceFlavorsWebSocketHandler streams all resource flavors

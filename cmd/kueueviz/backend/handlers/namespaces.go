@@ -22,7 +22,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 // NamespacesWebSocketHandler streams namespaces that are related to Kueue

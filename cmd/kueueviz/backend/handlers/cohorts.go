@@ -22,7 +22,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 // CohortsWebSocketHandler streams all cohorts
@@ -56,7 +56,7 @@ func (h *Handlers) fetchCohorts(ctx context.Context) (any, error) {
 	// Iterate through cluster queue items
 	for _, item := range cql.Items {
 		// Get cohort name from the spec
-		cohortName := string(item.Spec.Cohort)
+		cohortName := string(item.Spec.CohortName)
 		if cohortName == "" {
 			continue
 		}
@@ -102,7 +102,7 @@ func (h *Handlers) fetchCohortDetails(ctx context.Context, cohortName string) (m
 
 	// Iterate through the cluster queues and filter by cohort name
 	for _, item := range cql.Items {
-		if string(item.Spec.Cohort) == cohortName {
+		if string(item.Spec.CohortName) == cohortName {
 			queueDetails := map[string]any{
 				"name":   item.GetName(),
 				"spec":   item.Spec,

@@ -36,7 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 var (
