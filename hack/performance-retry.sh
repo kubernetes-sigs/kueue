@@ -18,23 +18,23 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-if [[ "$#" -lt 1 ]]; then
-	echo "Usage: ${0} <num-retries>"
+if [[ "$#" -lt 2 ]]; then
+	echo "Usage: ${0} <num-retries> <target-name>"
 	exit 1
 fi
 
+TARGET_NAME="$2"
 
 for i in $(seq 1 "$1"); do
 	echo "Try ${i}"
 	err=0
-	make test-performance-scheduler-once || err=$?
+	make "$TARGET_NAME" || err=$?
 	if [ $err -eq 0 ]; then
 		break
 	else
 		if [ "$i" -lt "$1" ]; then
-			mv "${ARTIFACTS}/junit.xml" "${ARTIFACTS}/junit-fail-${i}.xml" || echo "Unable to back-up ${ARTIFACTS}/junit.xml"
-			mv "${ARTIFACTS}/run-performance-scheduler" "${ARTIFACTS}/run-performance-scheduler-fail-${i}" || echo "Unable to back-up ${ARTIFACTS}/run-performance-scheduler"
-		else 
+			mv "${ARTIFACTS%/}" "${ARTIFACTS%/}-fail-${i}" || echo "Unable to back-up ${ARTIFACTS}"
+		else
 			exit $err
 		fi
 	fi
