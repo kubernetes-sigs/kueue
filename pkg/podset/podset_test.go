@@ -436,25 +436,6 @@ func TestMergeRestore(t *testing.T) {
 				Obj(),
 			wantRestoreChanges: true,
 		},
-		"podset with tas label; empty info": {
-			podSet: utiltestingapi.MakePodSet("", 1).
-				Labels(map[string]string{kueue.TASLabel: "true"}).
-				Obj(),
-			wantPodSet: utiltestingapi.MakePodSet("", 1).
-				Labels(map[string]string{kueue.TASLabel: "true"}).
-				Obj(),
-		},
-		"podset with tas label; info re-adds the same": {
-			podSet: utiltestingapi.MakePodSet("", 1).
-				Labels(map[string]string{kueue.TASLabel: "true"}).
-				Obj(),
-			info: PodSetInfo{
-				Labels: map[string]string{kueue.TASLabel: "true"},
-			},
-			wantPodSet: utiltestingapi.MakePodSet("", 1).
-				Labels(map[string]string{kueue.TASLabel: "true"}).
-				Obj(),
-		},
 	}
 
 	for name, tc := range cases {

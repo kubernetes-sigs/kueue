@@ -23,6 +23,7 @@
     - [Support for the &quot;auto&quot; mode](#support-for-the-auto-mode)
     - [PodSetAssignment is per lowest-topology level](#podsetassignment-is-per-lowest-topology-level)
     - [Provisioning request and required mode](#provisioning-request-and-required-mode)
+    - [kueue.x-k8s.io/tas Pod label](#kueuex-k8siotas-pod-label)
   - [Risks and Mitigations](#risks-and-mitigations)
     - [Non-exclusive use of nodes](#non-exclusive-use-of-nodes)
     - [Node topology changes](#node-topology-changes)
@@ -585,6 +586,14 @@ However, the workload will not get stuck forever. After a while (10min by defaul
 the BookingExpired condition is added by ClusterAutoscaler, which in turn will
 result in releasing quota for the workload and retrying. After a couple of
 retries the workload will get deactivated.
+
+#### kueue.x-k8s.io/tas Pod label
+We initially introduced `kueue.x-k8s.io/tas` label to Pod level label 
+to identify if created Pod is scheduled via TopologyAwareScheduling.
+
+But, we find better way (informer cache pattern <a.k.a. indexer>) to do the same thing.
+So, we stop adding `kueue.x-k8s.io/tas` label to Pod Template in Kueue v0.14.0, and then
+we remove the label evaluation mechanism in Kueue v0.17.0.
 
 ### Risks and Mitigations
 
@@ -1764,6 +1773,11 @@ it specifies values for the keys in the `levels` field.
 * the intention of the field can be expressed in a comment.
 
 ### Drop dedicated TAS label
+
+During Beta graduation, we found the effort-less approach to identify TAS Pods
+by alternative approach without TAS label. 
+So, this proposal (drop TAS label) was introduced.
+The following is the outdated evaluation when the first implementations. 
 
 We could reduce the API surface by dropping the TAS label. The label is going
 to be used in two places:
