@@ -334,6 +334,7 @@ data:
           execConfig:
             apiVersion: client.authentication.k8s.io/v1beta1
             command: /plugins/<plugin-command>
+            interactiveMode: Never
 kind: ConfigMap
 metadata:
   labels:
