@@ -593,7 +593,7 @@ to identify if created Pod is scheduled via TopologyAwareScheduling.
 
 But, we find better way (informer cache pattern <a.k.a. indexer>) to do the same thing.
 So, we stop adding `kueue.x-k8s.io/tas` label to Pod Template in Kueue v0.14.0, and then
-we remove the label evaluation mechanism in Kueue v0.16.0.
+we remove the label evaluation mechanism in Kueue v0.17.0.
 
 ### Risks and Mitigations
 
