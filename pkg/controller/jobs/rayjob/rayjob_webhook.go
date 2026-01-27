@@ -34,7 +34,6 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
@@ -65,11 +64,11 @@ func SetupRayJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		cache:                        options.Cache,
 	}
 	obj := &rayv1.RayJob{}
-	return webhook.WebhookManagedBy(mgr).
+	return ctrl.NewWebhookManagedBy(mgr).
 		For(obj).
-		WithMutationHandler(admission.WithCustomDefaulter(mgr.GetScheme(), obj, wh)).
+		WithDefaulter(wh).
 		WithValidator(wh).
-		WithRoleTracker(options.RoleTracker).
+		WithLogConstructor(jobframework.WebhookLogConstructor(fromObject(obj).GVK(), options.RoleTracker)).
 		Complete()
 }
 
