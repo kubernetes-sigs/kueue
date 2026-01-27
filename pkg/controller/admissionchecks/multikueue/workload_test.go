@@ -604,7 +604,7 @@ func TestWlReconcile(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadDeactivationTarget,
 						Status:  metav1.ConditionTrue,
-						Reason:  "DeactivatedDueToEvictedOnManagerCluster",
+						Reason:  kueue.WorkloadEvictedOnManagerCluster,
 						Message: "Evicted on manager: Evicted by test",
 					}).
 					Obj(),
