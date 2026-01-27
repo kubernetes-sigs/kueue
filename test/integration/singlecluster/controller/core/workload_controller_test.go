@@ -926,7 +926,7 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 			flavor          *kueue.ResourceFlavor
 		)
 
-		ginkgo.BeforeAll(func() {
+		startManager := func() {
 			fwk.StartManager(
 				ctx, cfg,
 				managerAndControllerSetup(
@@ -941,10 +941,23 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 					},
 				),
 			)
+		}
+
+		stopManager := func() {
+			fwk.StopManager(ctx)
+		}
+
+		restartManager := func() {
+			stopManager()
+			startManager()
+		}
+
+		ginkgo.BeforeAll(func() {
+			startManager()
 		})
 
 		ginkgo.AfterAll(func() {
-			fwk.StopManager(ctx)
+			stopManager()
 		})
 
 		ginkgo.BeforeEach(func() {
@@ -1011,6 +1024,24 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 
 			util.ExpectFinishedWorkloadsGaugeMetric(clusterQueue, 1)
 			util.ExpectLQFinishedWorkloadsGaugeMetric(localQueue, 1)
+
+			ginkgo.By("restarting the manager", func() {
+				restartManager()
+			})
+
+			ginkgo.By("verifying that the metrics still keep their counts", func() {
+				util.ExpectFinishedWorkloadsGaugeMetric(clusterQueue, 1)
+				util.ExpectLQFinishedWorkloadsGaugeMetric(localQueue, 1)
+			})
+
+			ginkgo.By("deleting the workload manually", func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+			})
+
+			ginkgo.By("verifying that the metrics are updated", func() {
+				util.ExpectFinishedWorkloadsGaugeMetric(clusterQueue, 0)
+				util.ExpectLQFinishedWorkloadsGaugeMetric(localQueue, 0)
+			})
 		})
 	})
 })
