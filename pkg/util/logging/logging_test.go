@@ -29,8 +29,12 @@ const reconcilerErrorMessage = "Reconciler error"
 
 const reconcilerErrorDetails = "Some prefix: the object has been modified; please apply your changes to the latest version and try again"
 
+// custom debug levels used by logr to better align with usage
+const infoLevel = zapcore.Level(-4)
+const warningLevel = zapcore.Level(-3)
+
 func TestCustomLogProcessorChangesErrorLevelOfConcurrentModificationReconcilerError(t *testing.T) {
-	core, observedLogs := observer.New(zapcore.WarnLevel)
+	core, observedLogs := observer.New(warningLevel)
 	logger := zap.New(NewCustomLogProcessor(core))
 
 	errorDetailsField := newErrorField(reconcilerErrorDetails)
@@ -53,7 +57,6 @@ func TestCustomLogProcessorChangesErrorLevelOfConcurrentModificationReconcilerEr
 	assertThereIsOnlyOneReconcilerErrorWithWarningLevel(t, logs)
 	expectedFields = []zap.Field{someOtherField, errorDetailsField}
 	assertLoggedEntryContainsCorrectFields(t, logs[0], expectedFields)
-
 }
 
 type DummyError struct {
@@ -74,7 +77,7 @@ func assertThereIsOnlyOneReconcilerErrorWithWarningLevel(t *testing.T, logs []ob
 	}
 
 	log := logs[0]
-	if log.Message != reconcilerErrorMessage || logs[0].Level != zapcore.WarnLevel {
+	if log.Message != reconcilerErrorMessage || logs[0].Level != zapcore.Level(-3) {
 		t.Errorf("Unexpected log entry %v\n", log)
 	}
 }
@@ -86,7 +89,7 @@ func assertLoggedEntryContainsCorrectFields(t *testing.T, entry observer.LoggedE
 }
 
 func TestCustomLogProcessorLeavesRestOfLogsIntact(t *testing.T) {
-	core, observedLogs := observer.New(zapcore.InfoLevel)
+	core, observedLogs := observer.New(infoLevel)
 	logger := zap.New(NewCustomLogProcessor(core))
 
 	otherErrorMessage := "Some other error"
@@ -98,11 +101,11 @@ func TestCustomLogProcessorLeavesRestOfLogsIntact(t *testing.T) {
 	logger.Error(reconcilerErrorMessage) // lacking appropriate error details
 	logger.Error(reconcilerErrorMessage, otherErrorDetailsField)
 
-	logger.Info(reconcilerErrorMessage, concurrentModificationErrorDetailsField)
+	logger.Log(infoLevel, reconcilerErrorMessage, concurrentModificationErrorDetailsField)
 	fieldKey := "some field key"
 	fieldValue := "some field value"
 	someField := zap.String(fieldKey, fieldValue)
-	logger.Warn(messageOfWarningLogWithField, someField)
+	logger.Log(warningLevel, messageOfWarningLogWithField, someField)
 
 	logs := observedLogs.TakeAll()
 
@@ -114,8 +117,8 @@ func TestCustomLogProcessorLeavesRestOfLogsIntact(t *testing.T) {
 		{otherErrorMessage, zapcore.ErrorLevel, []zap.Field{}},
 		{reconcilerErrorMessage, zapcore.ErrorLevel, []zap.Field{}},
 		{reconcilerErrorMessage, zapcore.ErrorLevel, []zap.Field{otherErrorDetailsField}},
-		{reconcilerErrorMessage, zapcore.InfoLevel, []zap.Field{concurrentModificationErrorDetailsField}},
-		{messageOfWarningLogWithField, zapcore.WarnLevel, []zap.Field{someField}},
+		{reconcilerErrorMessage, infoLevel, []zap.Field{concurrentModificationErrorDetailsField}},
+		{messageOfWarningLogWithField, warningLevel, []zap.Field{someField}},
 	}
 
 	if len(logs) != len(expectedLogs) {
@@ -130,5 +133,4 @@ func TestCustomLogProcessorLeavesRestOfLogsIntact(t *testing.T) {
 
 		assertLoggedEntryContainsCorrectFields(t, log, expected.Fields)
 	}
-
 }

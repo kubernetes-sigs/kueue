@@ -100,7 +100,13 @@ func (c CustomLogProcessor) With(fields []zapcore.Field) zapcore.Core {
 
 func NewCustomLogProcessor(core zapcore.Core) zapcore.Core {
 	return CustomLogProcessor{
-		Core:        core,
-		TargetLevel: zapcore.WarnLevel,
+		Core: core,
+
+		// as indicated in https://pkg.go.dev/github.com/go-logr/zapr#hdr-Usage
+		// logr log levels correspond to custom zapcore levels and
+		// zapLevel = -1*logrLevel, so we set it to -3 as it means first verbosity
+		// not visible by users in default settings,
+		// see https://github.com/kubernetes/community/blob/88841374e9558803b5b2ec81beb450e246283f09/contributors/devel/sig-instrumentation/logging.md?plain=1#L109
+		TargetLevel: zapcore.Level(-3),
 	}
 }

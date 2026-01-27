@@ -17,9 +17,12 @@ limitations under the License.
 package core
 
 import (
+	"strings"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1036,13 +1039,22 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		})
 
-		ginkgo.It("Should log reconciler errors with log level smaller than error", func() {
+		ginkgo.It("Should log reconciler concurrent modification errors with log level smaller than error", func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				reconcileLogs := util.ObservedLogs.FilterMessage("Reconciler error")
-				g.Expect(reconcileLogs.All()).ShouldNot(gomega.BeEmpty(), "There should be some reconciliation log entry")
-				g.Expect(reconcileLogs.FilterLevelExact(zapcore.ErrorLevel).All()).Should(gomega.BeEmpty(), "Log level should not be error")
+
+				reconcileConcurrentModificationLogs := reconcileLogs.Filter(
+					func(le observer.LoggedEntry) bool {
+						errorDetals := le.ContextMap()["error"].(string)
+						expectedConcurrentModicationDetails := "the object has been modified; please apply your changes to the latest version and try again"
+						return strings.Contains(errorDetals, expectedConcurrentModicationDetails)
+					})
+				g.Expect(reconcileConcurrentModificationLogs.All()).ShouldNot(gomega.BeEmpty(),
+					"There should be some reconciler concurrent modifcation error log entries")
+				g.Expect(reconcileConcurrentModificationLogs.FilterLevelExact(zapcore.ErrorLevel).All()).Should(gomega.BeEmpty(),
+					"Log level should not be error")
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
