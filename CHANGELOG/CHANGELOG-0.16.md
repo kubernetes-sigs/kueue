@@ -27,7 +27,7 @@ Changes since `v0.15.0`:
   Ensuring all objects are migrated to `v1beta2` is essential for compatibility with future Kueue upgrades. We tentatively plan to discontinue support for `v1beta1` in version 0.18.
   
   To ensure your environment is consistent, we recommend running the following migration script after installing Kueue v0.16 and verifying cluster stability: https://raw.githubusercontent.com/kubernetes-sigs/kueue/main/hack/migrate-to-v1beta2.sh. The script triggers a "no-op" update for all existing Kueue objects, forcing the API server to pass them through conversion webhooks and save them in the `v1beta2` version.
-  Migration instructions (including the official script): https://github.com/kubernetes-sigs/kueue/issues/8018#issuecomment-3729056171. (#8020, @mbobrovskyi)
+  Migration instructions (including the official script): https://github.com/kubernetes-sigs/kueue/issues/8018#issuecomment-3788710736. (#8020, @mbobrovskyi)
 - MultiKueue: Allow up to 20 clusters per MultiKueueConfig. (#8614, @IrvingMg)
 
 ### Feature
