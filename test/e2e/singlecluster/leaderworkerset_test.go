@@ -17,11 +17,13 @@ limitations under the License.
 package e2e
 
 import (
+	"fmt"
 	"strconv"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -698,40 +700,26 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 		})
 
 		ginkgo.It("Rolling update with maxSurge creates workloads for surge pods and completes successfully", func() {
+			const (
+				lwsReplicas    = 4
+				maxSurge       = 2
+				maxUnavailable = 2
+			)
+
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws-rollout", ns.Name).
 				Image(util.GetAgnHostImageOld(), util.BehaviorWaitForDeletion).
 				Size(1).
-				Replicas(4).
+				Replicas(lwsReplicas).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Queue(lq.Name).
-				LeaderTemplate(corev1.PodTemplateSpec{
-					Spec: corev1.PodSpec{
-						Containers: []corev1.Container{
-							{
-								Name:  "c",
-								Args:  util.BehaviorWaitForDeletion,
-								Image: util.GetAgnHostImageOld(),
-								Resources: corev1.ResourceRequirements{
-									Requests: corev1.ResourceList{
-										corev1.ResourceCPU: resource.MustParse("200m"),
-									},
-									Limits: corev1.ResourceList{
-										corev1.ResourceCPU: resource.MustParse("200m"),
-									},
-								},
-							},
-						},
-						NodeSelector: map[string]string{},
-					},
-				}).
 				TerminationGracePeriod(1).
 				Obj()
 
 			lws.Spec.RolloutStrategy = leaderworkersetv1.RolloutStrategy{
 				Type: leaderworkersetv1.RollingUpdateStrategyType,
 				RollingUpdateConfiguration: &leaderworkersetv1.RollingUpdateConfiguration{
-					MaxUnavailable: intstr.FromInt(2),
-					MaxSurge:       intstr.FromInt(2),
+					MaxUnavailable: intstr.FromInt32(maxUnavailable),
+					MaxSurge:       intstr.FromInt32(maxSurge),
 				},
 			}
 
@@ -741,16 +729,16 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 
 			createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
 
-			ginkgo.By("Wait for initial 4 replicas to be ready", func() {
+			ginkgo.By(fmt.Sprintf("Wait for initial %d replicas to be ready", lwsReplicas), func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
-					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(4)))
+					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(lwsReplicas)))
 					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Verify workloads exist for initial 4 groups", func() {
-				for i := range 4 {
+			ginkgo.By(fmt.Sprintf("Verify workloads exist for initial %d groups", lwsReplicas), func() {
+				for i := range lwsReplicas {
 					wl := &kueue.Workload{}
 					wlKey := types.NamespacedName{
 						Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, strconv.Itoa(i)),
@@ -768,44 +756,25 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Wait for surge pods to be created (maxSurge=2)", func() {
+			ginkgo.By(fmt.Sprintf("Wait for the surge workloads to be created with maxSurge=%d", maxSurge), func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					pods := &corev1.PodList{}
-					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name),
-						client.MatchingLabels{leaderworkersetv1.SetNameLabelKey: lws.Name})).To(gomega.Succeed())
-					g.Expect(pods.Items).To(gomega.HaveLen(6))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Verify workloads are created for all pods including surge pods", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					pods := &corev1.PodList{}
-					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name),
-						client.MatchingLabels{leaderworkersetv1.SetNameLabelKey: lws.Name})).To(gomega.Succeed())
-
-					groupIndices := make(map[string]bool)
-					for _, pod := range pods.Items {
-						if groupIndex, ok := pod.Labels[leaderworkersetv1.GroupIndexLabelKey]; ok {
-							groupIndices[groupIndex] = true
-						}
-					}
-
-					for groupIndex := range groupIndices {
+					for i := lwsReplicas; i < lwsReplicas+maxSurge; i++ {
 						wl := &kueue.Workload{}
 						wlKey := types.NamespacedName{
-							Name:      leaderworkerset.GetWorkloadName(createdLeaderWorkerSet.UID, lws.Name, groupIndex),
+							Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, strconv.Itoa(i)),
 							Namespace: ns.Name,
 						}
-						g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+						g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed(),
+							"workload for surge group %d should exist", i)
 					}
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Verify rolling update completes successfully with 4 pods running", func() {
+			ginkgo.By(fmt.Sprintf("Verify rolling update completes successfully with %d replicas running", lwsReplicas), func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
-					g.Expect(createdLeaderWorkerSet.Status.UpdatedReplicas).To(gomega.Equal(int32(4)))
-					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(4)))
+					g.Expect(createdLeaderWorkerSet.Status.UpdatedReplicas).To(gomega.Equal(int32(lwsReplicas)))
+					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(lwsReplicas)))
 					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
 
 					pods := &corev1.PodList{}
@@ -816,6 +785,21 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 						g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
 					}
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By(fmt.Sprintf("Verify surge workloads are cleaned up with maxSurge=%d", maxSurge), func() {
+				for i := lwsReplicas; i < lwsReplicas+maxSurge; i++ {
+					wlKey := types.NamespacedName{
+						Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, strconv.Itoa(i)),
+						Namespace: ns.Name,
+					}
+					gomega.Eventually(func() bool {
+						wl := &kueue.Workload{}
+						err := k8sClient.Get(ctx, wlKey, wl)
+						return apierrors.IsNotFound(err)
+					}, util.Timeout, util.Interval).Should(gomega.BeTrue(),
+						"surge workload for group %d should be deleted after rollout completes", i)
+				}
 			})
 
 			ginkgo.By("Delete the LeaderWorkerSet", func() {
