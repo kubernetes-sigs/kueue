@@ -1106,7 +1106,7 @@ func NewTestingLogger(writer io.Writer) logr.Logger {
 	logsObserver, ObservedLogs = observer.New(zapcoreLevel)
 
 	logsObserverWrapper := zaplog.WrapCore(func(core zapcore.Core) zapcore.Core {
-		return utillogging.NewErrorLogLevelOverridenCore(zapcore.NewTee(logsObserver, core))
+		return utillogging.NewCustomLogProcessor(zapcore.NewTee(logsObserver, core))
 	})
 
 	opts := func(o *zap.Options) {

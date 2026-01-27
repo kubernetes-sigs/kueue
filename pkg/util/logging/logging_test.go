@@ -17,6 +17,7 @@ limitations under the License.
 package logging
 
 import (
+	"reflect"
 	"testing"
 
 	"go.uber.org/zap"
@@ -26,22 +27,45 @@ import (
 
 const reconcilerErrorMessage = "Reconciler error"
 
-func TestErrorLogLevelOverridenZapCoreChangesErrorLevelOfReconcilerError(t *testing.T) {
-	core, observedLogs := observer.New(zapcore.WarnLevel)
-	logger := zap.New(NewErrorLogLevelOverridenCore(core))
+const reconcilerErrorDetails = "Some prefix: the object has been modified; please apply your changes to the latest version and try again"
 
-	logger.Error(reconcilerErrorMessage)
+func TestCustomLogProcessorChangesErrorLevelOfConcurrentModificationReconcilerError(t *testing.T) {
+	core, observedLogs := observer.New(zapcore.WarnLevel)
+	logger := zap.New(NewCustomLogProcessor(core))
+
+	errorDetailsField := newErrorField(reconcilerErrorDetails)
+
+	logger.Error(reconcilerErrorMessage, errorDetailsField)
 
 	logs := observedLogs.TakeAll()
 
 	assertThereIsOnlyOneReconcilerErrorWithWarningLevel(t, logs)
 
-	childLogger := logger.With(zap.String("Some field", "Some value"))
-	childLogger.Error(reconcilerErrorMessage)
+	expectedFields := []zap.Field{errorDetailsField}
+	assertLoggedEntryContainsCorrectFields(t, logs[0], expectedFields)
+
+	someOtherField := zap.String("Some field", "Some value")
+	childLogger := logger.With(someOtherField)
+	childLogger.Error(reconcilerErrorMessage, errorDetailsField)
 
 	logs = observedLogs.TakeAll()
 
 	assertThereIsOnlyOneReconcilerErrorWithWarningLevel(t, logs)
+	expectedFields = []zap.Field{someOtherField, errorDetailsField}
+	assertLoggedEntryContainsCorrectFields(t, logs[0], expectedFields)
+
+}
+
+type DummyError struct {
+	errorDetails string
+}
+
+func (e DummyError) Error() string {
+	return e.errorDetails
+}
+
+func newErrorField(errorDetailsValue string) zap.Field {
+	return zap.Error(DummyError{errorDetailsValue})
 }
 
 func assertThereIsOnlyOneReconcilerErrorWithWarningLevel(t *testing.T, logs []observer.LoggedEntry) {
@@ -55,15 +79,26 @@ func assertThereIsOnlyOneReconcilerErrorWithWarningLevel(t *testing.T, logs []ob
 	}
 }
 
-func TestErrorLogLevelOverridenZapCoreLeavesRestOfLogsIntact(t *testing.T) {
+func assertLoggedEntryContainsCorrectFields(t *testing.T, entry observer.LoggedEntry, expectedFields []zap.Field) {
+	if !reflect.DeepEqual(entry.Context, expectedFields) {
+		t.Errorf("Unexpected field values %v, expected %v\n", entry.Context, expectedFields)
+	}
+}
+
+func TestCustomLogProcessorLeavesRestOfLogsIntact(t *testing.T) {
 	core, observedLogs := observer.New(zapcore.InfoLevel)
-	logger := zap.New(NewErrorLogLevelOverridenCore(core))
+	logger := zap.New(NewCustomLogProcessor(core))
 
 	otherErrorMessage := "Some other error"
 	messageOfWarningLogWithField := "Some log with fields"
+	concurrentModificationErrorDetailsField := newErrorField(reconcilerErrorDetails)
+	otherErrorDetailsField := newErrorField("Some other error details")
 
-	logger.Info(reconcilerErrorMessage)
 	logger.Error(otherErrorMessage)
+	logger.Error(reconcilerErrorMessage) // lacking appropriate error details
+	logger.Error(reconcilerErrorMessage, otherErrorDetailsField)
+
+	logger.Info(reconcilerErrorMessage, concurrentModificationErrorDetailsField)
 	fieldKey := "some field key"
 	fieldValue := "some field value"
 	someField := zap.String(fieldKey, fieldValue)
@@ -71,17 +106,20 @@ func TestErrorLogLevelOverridenZapCoreLeavesRestOfLogsIntact(t *testing.T) {
 
 	logs := observedLogs.TakeAll()
 
-	if len(logs) != 3 {
-		t.Errorf("Unexpected number of log entries %v, expected 3\n", len(logs))
-	}
-
 	expectedLogs := []struct {
 		Message string
 		Level   zapcore.Level
 		Fields  []zap.Field
-	}{{reconcilerErrorMessage, zapcore.InfoLevel, nil},
-		{otherErrorMessage, zapcore.ErrorLevel, nil},
+	}{
+		{otherErrorMessage, zapcore.ErrorLevel, []zap.Field{}},
+		{reconcilerErrorMessage, zapcore.ErrorLevel, []zap.Field{}},
+		{reconcilerErrorMessage, zapcore.ErrorLevel, []zap.Field{otherErrorDetailsField}},
+		{reconcilerErrorMessage, zapcore.InfoLevel, []zap.Field{concurrentModificationErrorDetailsField}},
 		{messageOfWarningLogWithField, zapcore.WarnLevel, []zap.Field{someField}},
+	}
+
+	if len(logs) != len(expectedLogs) {
+		t.Errorf("Unexpected number of log entries %v, expected %v\n", len(logs), len(expectedLogs))
 	}
 
 	for i, expected := range expectedLogs {
@@ -89,11 +127,8 @@ func TestErrorLogLevelOverridenZapCoreLeavesRestOfLogsIntact(t *testing.T) {
 		if log.Message != expected.Message || log.Level != expected.Level {
 			t.Errorf("Unexpected log entry %v\n", log)
 		}
+
+		assertLoggedEntryContainsCorrectFields(t, log, expected.Fields)
 	}
 
-	logWithFieldContext := logs[2].ContextMap()
-
-	if retrievedVal := logWithFieldContext[fieldKey]; retrievedVal != fieldValue {
-		t.Errorf("Unexpected field value %v, expected %v\n", retrievedVal, fieldValue)
-	}
 }
