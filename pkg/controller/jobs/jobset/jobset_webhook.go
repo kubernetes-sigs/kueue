@@ -24,7 +24,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -59,15 +58,11 @@ func SetupJobSetWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		cache:                        options.Cache,
 	}
 	obj := &jobsetapi.JobSet{}
-	gvk, err := apiutil.GVKForObject(obj, mgr.GetScheme())
-	if err != nil {
-		return err
-	}
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(obj).
 		WithDefaulter(wh).
 		WithValidator(wh).
-		WithLogConstructor(jobframework.PrepareLogConstructor(gvk.Group, gvk.Kind, options.RoleTracker)).
+		WithLogConstructor(jobframework.WebhookLogConstructor(fromObject(obj).GVK(), options.RoleTracker)).
 		Complete()
 }
 

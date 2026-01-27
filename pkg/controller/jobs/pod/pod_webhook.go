@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -72,15 +71,11 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 	}
 	obj := &corev1.Pod{}
-	gvk, err := apiutil.GVKForObject(obj, mgr.GetScheme())
-	if err != nil {
-		return err
-	}
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(obj).
 		WithDefaulter(wh).
 		WithValidator(wh).
-		WithLogConstructor(jobframework.PrepareLogConstructor(gvk.Group, gvk.Kind, options.RoleTracker)).
+		WithLogConstructor(jobframework.WebhookLogConstructor(FromObject(obj).GVK(), options.RoleTracker)).
 		Complete()
 }
 

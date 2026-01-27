@@ -22,10 +22,9 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/klog/v2"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
@@ -54,15 +53,11 @@ func BaseWebhookFactory(job GenericJob, fromObject func(runtime.Object) GenericJ
 			Queues:                       options.Queues,
 			Cache:                        options.Cache,
 		}
-		gvk, err := apiutil.GVKForObject(job.Object(), mgr.GetScheme())
-		if err != nil {
-			return err
-		}
 		return ctrl.NewWebhookManagedBy(mgr).
 			For(job.Object()).
 			WithDefaulter(wh).
 			WithValidator(wh).
-			WithLogConstructor(PrepareLogConstructor(gvk.Group, gvk.Kind, options.RoleTracker)).
+			WithLogConstructor(WebhookLogConstructor(job.GVK(), options.RoleTracker)).
 			Complete()
 	}
 }
@@ -122,21 +117,10 @@ func (w *BaseWebhook) ValidateDelete(context.Context, runtime.Object) (admission
 	return nil, nil
 }
 
-func PrepareLogConstructor(group, kind string, roleTracker *roletracker.RoleTracker) func(base logr.Logger, req *admission.Request) logr.Logger {
+// WebhookLogConstructor adds group, kind and replicaRole information to the base log.
+func WebhookLogConstructor(gvk schema.GroupVersionKind, roleTracker *roletracker.RoleTracker) func(base logr.Logger, req *admission.Request) logr.Logger {
 	return func(base logr.Logger, req *admission.Request) logr.Logger {
-		log := base.WithValues(
-			"webhookGroup", group,
-			"webhookKind", kind,
-			"replica-role", roletracker.GetRole(roleTracker),
-		)
-		if req != nil {
-			return log.WithValues(
-				req.RequestKind.Kind, klog.KRef(req.Namespace, req.Name),
-				"namespace", req.Namespace, "name", req.Name,
-				"resource", req.Resource, "user", req.UserInfo.Username,
-				"requestID", req.UID,
-			)
-		}
-		return log
+		rtWebhookLogConstructor := roletracker.WebhookLogConstructor(roleTracker)
+		return rtWebhookLogConstructor(base.WithValues("webhookGroup", gvk.Group, "webhookKind", gvk.Kind), req)
 	}
 }
