@@ -49,15 +49,17 @@ function check_image() {
   local image_name="$1"
   local version="$2"
   local full_image_name="${STAGING_IMAGE_REGISTRY}/${image_name}:${version}"
-  echo "Checking if \"${full_image_name}\" is available."
+  echo "  Checking if \"${full_image_name}\" is available."
   local image_details
   image_details=$(gcloud container images describe "${full_image_name}" --verbosity error --format json || true)
   if [ -n "$image_details" ]; then
     image_name_with_digest=$(echo "$image_details" | jq -r '.image_summary.fully_qualified_digest')
-    echo " ✅ Image \"${image_name_with_digest}\" is available."
+    echo "    ✅ Image \"${image_name_with_digest}\" is available."
+    hash=$(echo "$image_name_with_digest" | grep -o -E "sha256:.+")
+    echo "    $hash"
     return 0
   else
-    echo " 🚫 Image \"${full_image_name}\" is not found."
+    echo "    🚫 Image \"${full_image_name}\" is not found."
     return 1
   fi
 }
@@ -70,16 +72,29 @@ function check_images() {
       kueue-populator
   )
 
+    local charts=(
+      kueue
+      kueue-populator
+  )
+
+  echo "Images:"
   for image in "${images[@]}"; do
+    echo ""
     if ! check_image "${image}" "${RELEASE_VERSION}"; then
       return 1
     fi
   done
 
-  # The charts/kueue image is require tag without `v` prefix.
-  if ! check_image "charts/kueue" "${RELEASE_VERSION#v}"; then
-    return 1
-  fi
+  echo ""
+  echo "Charts:"
+  for chart in "${charts[@]}"; do
+    echo ""
+    # Charts require tag without `v` prefix.
+    if ! check_image "charts/${chart}" "${RELEASE_VERSION#v}"; then
+      return 1
+    fi
+  done
+
 }
 
 while true; do
