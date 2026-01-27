@@ -1607,6 +1607,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		var (
 			workerCluster3         *kueue.MultiKueueCluster
 			defaultManagerKueueCfg *kueueconfig.Configuration
+			cp                     *inventoryv1alpha1.ClusterProfile
 		)
 
 		ginkgo.BeforeAll(func() {
@@ -1630,9 +1631,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		})
 
 		ginkgo.AfterEach(func() {
-			if workerCluster3 != nil {
-				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, workerCluster3, true, util.LongTimeout)
-			}
+			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, cp, true, util.LongTimeout)
+			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, workerCluster3, true, util.LongTimeout)
 		})
 
 		ginkgo.It("uses ClusterProfile as way to connect worker cluster", func() {
@@ -1662,7 +1662,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			var cp *inventoryv1alpha1.ClusterProfile
 			ginkgo.By("creating missing ClusterProfile", func() {
 				cp = utiltestingapi.MakeClusterProfile("clusterprofile3", kueueNS).
 					ClusterManager("clustermanager3").
