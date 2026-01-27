@@ -231,7 +231,9 @@ func (c *ClusterQueue) AddFromLocalQueue(q *LocalQueue, roleTracker *roletracker
 		if c.heap.PushIfNotPresent(info) {
 			added = true
 		}
-		c.finishedWorkloads.Insert(workloadKey(info))
+	}
+	for finishedWorkload := range q.finishedWorkloads {
+		c.finishedWorkloads.Insert(finishedWorkload)
 	}
 	metrics.ReportFinishedWorkloads(c.GetName(), c.finishedWorkloads.Len(), roleTracker)
 	return added
@@ -320,7 +322,9 @@ func (c *ClusterQueue) DeleteFromLocalQueue(log logr.Logger, q *LocalQueue, role
 	for _, w := range q.items {
 		wlKey := workloadKey(w)
 		c.delete(log, wlKey)
-		c.finishedWorkloads.Delete(wlKey)
+	}
+	for fw := range q.finishedWorkloads {
+		c.finishedWorkloads.Delete(fw)
 	}
 	metrics.ReportFinishedWorkloads(c.GetName(), c.finishedWorkloads.Len(), roleTracker)
 }
