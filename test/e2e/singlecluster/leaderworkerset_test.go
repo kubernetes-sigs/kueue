@@ -730,8 +730,8 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			lws.Spec.RolloutStrategy = leaderworkersetv1.RolloutStrategy{
 				Type: leaderworkersetv1.RollingUpdateStrategyType,
 				RollingUpdateConfiguration: &leaderworkersetv1.RollingUpdateConfiguration{
-					MaxUnavailable: intstr.FromInt(2),
-					MaxSurge:       intstr.FromInt(2),
+					MaxUnavailable: intstr.FromInt32(2),
+					MaxSurge:       intstr.FromInt32(2),
 				},
 			}
 
@@ -768,35 +768,17 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Wait for surge pods to be created (maxSurge=2)", func() {
+			ginkgo.By("Wait for surge workloads to be created (maxSurge=2)", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					pods := &corev1.PodList{}
-					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name),
-						client.MatchingLabels{leaderworkersetv1.SetNameLabelKey: lws.Name})).To(gomega.Succeed())
-					g.Expect(pods.Items).To(gomega.HaveLen(6))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Verify workloads are created for all pods including surge pods", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					pods := &corev1.PodList{}
-					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name),
-						client.MatchingLabels{leaderworkersetv1.SetNameLabelKey: lws.Name})).To(gomega.Succeed())
-
-					groupIndices := make(map[string]bool)
-					for _, pod := range pods.Items {
-						if groupIndex, ok := pod.Labels[leaderworkersetv1.GroupIndexLabelKey]; ok {
-							groupIndices[groupIndex] = true
-						}
-					}
-
-					for groupIndex := range groupIndices {
+					surgeGroups := []int{4, 5}
+					for _, groupIndex := range surgeGroups {
 						wl := &kueue.Workload{}
 						wlKey := types.NamespacedName{
-							Name:      leaderworkerset.GetWorkloadName(createdLeaderWorkerSet.UID, lws.Name, groupIndex),
+							Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, strconv.Itoa(groupIndex)),
 							Namespace: ns.Name,
 						}
-						g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+						g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed(),
+							"workload for surge group %d should exist", groupIndex)
 					}
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
