@@ -19,15 +19,17 @@ package jobframework
 import (
 	"context"
 
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
 // BaseWebhook applies basic defaulting and validation for jobs.
@@ -51,11 +53,11 @@ func BaseWebhookFactory(job GenericJob, fromObject func(runtime.Object) GenericJ
 			Queues:                       options.Queues,
 			Cache:                        options.Cache,
 		}
-		return webhook.WebhookManagedBy(mgr).
+		return ctrl.NewWebhookManagedBy(mgr).
 			For(job.Object()).
-			WithMutationHandler(admission.WithCustomDefaulter(mgr.GetScheme(), job.Object(), wh)).
+			WithDefaulter(wh).
 			WithValidator(wh).
-			WithRoleTracker(options.RoleTracker).
+			WithLogConstructor(WebhookLogConstructor(job.GVK(), options.RoleTracker)).
 			Complete()
 	}
 }
@@ -113,4 +115,12 @@ func (w *BaseWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *BaseWebhook) ValidateDelete(context.Context, runtime.Object) (admission.Warnings, error) {
 	return nil, nil
+}
+
+// WebhookLogConstructor adds group, kind and replicaRole information to the base log.
+func WebhookLogConstructor(gvk schema.GroupVersionKind, roleTracker *roletracker.RoleTracker) func(base logr.Logger, req *admission.Request) logr.Logger {
+	return func(base logr.Logger, req *admission.Request) logr.Logger {
+		rtWebhookLogConstructor := roletracker.WebhookLogConstructor(roleTracker)
+		return rtWebhookLogConstructor(base.WithValues("webhookGroup", gvk.Group, "webhookKind", gvk.Kind), req)
+	}
 }
