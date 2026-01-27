@@ -30,6 +30,34 @@ UPSTREAM_REMOTE=${UPSTREAM_REMOTE:-upstream}
 FORK_REMOTE=${FORK_REMOTE:-origin}
 MAIN_REPO_ORG=${MAIN_REPO_ORG:-$(git remote get-url "$UPSTREAM_REMOTE" | awk '{gsub(/http[s]:\/\/|git@/,"")}1' | awk -F'[@:./]' 'NR==1{print $3}')}
 MAIN_REPO_NAME=${MAIN_REPO_NAME:-$(git remote get-url "$UPSTREAM_REMOTE" | awk '{gsub(/http[s]:\/\/|git@/,"")}1' | awk -F'[@:./]' 'NR==1{print $4}')}
+TARGET=${TARGET:-all}
+POSITIONAL_ARGS=()
+
+# Parse flags (can appear anywhere in argument list)
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --target)
+      TARGET="$2"
+      shift 2
+      ;;
+    --target=*)
+      TARGET="${1#*=}"
+      shift
+      ;;
+    *)
+      POSITIONAL_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+# Restore positional arguments
+set -- "${POSITIONAL_ARGS[@]}"
+
+if [[ ! "$TARGET" =~ ^(all|release|main)$ ]]; then
+  echo "!!! Invalid --target value: ${TARGET}. Must be 'all', 'release', or 'main'." >&2
+  exit 2
+fi
 
 if [[ -z ${GITHUB_USER:-} ]]; then
   echo "Please export GITHUB_USER=<your-user> (or GH organization, if that's where your fork lives)"
@@ -41,13 +69,21 @@ if ! command -v gh > /dev/null; then
   exit 1
 fi
 
-if [[ "$#" -ne 1 ]]; then
-  echo "${0} <version>"
+if [[ "$#" -lt 1 ]]; then
+  echo "${0} [--target <all|release|main>] <version>"
   echo
-  echo "  Create prepare-release PRs for the release branch and main (for major/minor releases)"
+  echo "  Create prepare-release PRs for the release branch and/or main"
+  echo
+  echo "  Options:"
+  echo "    --target <all|release|main>  Which PR(s) to create (default: all)"
+  echo "      all     - Create both release branch and main PRs"
+  echo "      release - Create only the release branch PR"
+  echo "      main    - Create only the main branch PR"
   echo
   echo "  Example:"
-  echo "    $0 v0.13.2"
+  echo "    $0 v0.13.2              # Create both PRs"
+  echo "    $0 --target release v0.13.2  # Create only release branch PR"
+  echo "    $0 --target main v0.13.2     # Create only main branch PR"
   echo
   echo "  Set the DRY_RUN environment var to skip git push and creating PR."
   echo "  This is useful for creating patches to a release branch without making a PR."
@@ -268,43 +304,44 @@ function push_and_create_pr() {
   fi
 }
 
-PREPARE_RELEASE_BRANCH="prepare-${RELEASE_BRANCH}"
-declare -r PREPARE_RELEASE_BRANCH
-PREPARE_RELEASE_BRANCH_UNIQUE="${PREPARE_RELEASE_BRANCH}-$(date +%s)"
-declare -r PREPARE_RELEASE_BRANCH_UNIQUE
+if [[ "$TARGET" == "all" || "$TARGET" == "release" ]]; then
+  PREPARE_RELEASE_BRANCH="prepare-${RELEASE_BRANCH}"
+  declare -r PREPARE_RELEASE_BRANCH
+  PREPARE_RELEASE_BRANCH_UNIQUE="${PREPARE_RELEASE_BRANCH}-$(date +%s)"
+  declare -r PREPARE_RELEASE_BRANCH_UNIQUE
 
-PREPARE_RELEASE_PR_NAME="Prepare release ${RELEASE_VERSION}"
-declare -r PREPARE_RELEASE_PR_NAME
+  PREPARE_RELEASE_PR_NAME="Prepare release ${RELEASE_VERSION}"
+  declare -r PREPARE_RELEASE_PR_NAME
 
-prepare_local_branch "${RELEASE_BRANCH}" "${PREPARE_RELEASE_BRANCH_UNIQUE}" "${PREPARE_RELEASE_PR_NAME}"
-push_and_create_pr "${RELEASE_BRANCH}" "${PREPARE_RELEASE_BRANCH}" "${PREPARE_RELEASE_BRANCH_UNIQUE}" "${PREPARE_RELEASE_PR_NAME}"
+  prepare_local_branch "${RELEASE_BRANCH}" "${PREPARE_RELEASE_BRANCH_UNIQUE}" "${PREPARE_RELEASE_PR_NAME}"
+  push_and_create_pr "${RELEASE_BRANCH}" "${PREPARE_RELEASE_BRANCH}" "${PREPARE_RELEASE_BRANCH_UNIQUE}" "${PREPARE_RELEASE_PR_NAME}"
 
-PREPARE_RELEASE_PR_NUMBER=$(gh pr list --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" | grep "${PREPARE_RELEASE_PR_NAME}" | awk '{print $1}' || true)
-if [ -n "$PREPARE_RELEASE_PR_NUMBER" ]; then
-  NEW_RELEASE_ISSUE_BODY=${RELEASE_ISSUE_BODY//<!-- PREPARE_PULL -->/#${PREPARE_RELEASE_PR_NUMBER}}
-  gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${NEW_RELEASE_ISSUE_BODY}" --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" || {
-    echo "!!! Failed to edit release issue \"${RELEASE_ISSUE_NAME}\": gh issue edit command failed."
-  }
+  PREPARE_RELEASE_PR_NUMBER=$(gh pr list --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" | grep "${PREPARE_RELEASE_PR_NAME}" | awk '{print $1}' || true)
+  if [ -n "$PREPARE_RELEASE_PR_NUMBER" ]; then
+    NEW_RELEASE_ISSUE_BODY=${RELEASE_ISSUE_BODY//<!-- PREPARE_PULL -->/#${PREPARE_RELEASE_PR_NUMBER}}
+    gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${NEW_RELEASE_ISSUE_BODY}" --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" || {
+      echo "!!! Failed to edit release issue \"${RELEASE_ISSUE_NAME}\": gh issue edit command failed."
+    }
+  fi
 fi
 
-LATEST_RELEASE_VERSION=$(git tag -l | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
+if [[ "$TARGET" == "all" || "$TARGET" == "main" ]]; then
+  LATEST_RELEASE_VERSION=$(git tag -l | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
 
-# Split into LATEST_MAJOR, LATEST_MINOR, LATEST_PATCH
-latest_core_version=${LATEST_RELEASE_VERSION#v}
-LATEST_MAJOR=$(echo "$latest_core_version" | cut -d. -f1)
-LATEST_MINOR=$(echo "$latest_core_version" | cut -d. -f2)
+  # Split into LATEST_MAJOR, LATEST_MINOR, LATEST_PATCH
+  latest_core_version=${LATEST_RELEASE_VERSION#v}
+  LATEST_MAJOR=$(echo "$latest_core_version" | cut -d. -f1)
+  LATEST_MINOR=$(echo "$latest_core_version" | cut -d. -f2)
 
-if (( MAJOR > LATEST_MAJOR )) || (( MAJOR == LATEST_MAJOR && MINOR >= LATEST_MINOR )); then
-  UPDATE_MAIN_WITH_LATEST_BRANCH="update-main-with-latest-${RELEASE_VERSION}"
-  declare -r UPDATE_MAIN_WITH_LATEST_BRANCH
-  UPDATE_MAIN_WITH_LATEST_BRANCH_UNIQUE="${UPDATE_MAIN_WITH_LATEST_BRANCH}-$(date +%s)"
-  declare -r UPDATE_MAIN_WITH_LATEST_BRANCH_UNIQUE
+  if (( MAJOR > LATEST_MAJOR )) || (( MAJOR == LATEST_MAJOR && MINOR >= LATEST_MINOR )); then
+    UPDATE_MAIN_WITH_LATEST_BRANCH="update-main-with-latest-${RELEASE_VERSION}"
+    declare -r UPDATE_MAIN_WITH_LATEST_BRANCH
+    UPDATE_MAIN_WITH_LATEST_BRANCH_UNIQUE="${UPDATE_MAIN_WITH_LATEST_BRANCH}-$(date +%s)"
+    declare -r UPDATE_MAIN_WITH_LATEST_BRANCH_UNIQUE
 
-  UPDATE_MAIN_WITH_LATEST_PR_NAME="Update main with the latest ${RELEASE_VERSION}"
+    UPDATE_MAIN_WITH_LATEST_PR_NAME="Update main with the latest ${RELEASE_VERSION}"
 
-  prepare_local_branch main "${UPDATE_MAIN_WITH_LATEST_BRANCH_UNIQUE}" "${UPDATE_MAIN_WITH_LATEST_PR_NAME}"
-  push_and_create_pr main "${UPDATE_MAIN_WITH_LATEST_BRANCH}" "${UPDATE_MAIN_WITH_LATEST_BRANCH_UNIQUE}" "${UPDATE_MAIN_WITH_LATEST_PR_NAME}"
-
-  git add .
-  git commit -m "$PREPARE_RELEASE_PR_NAME"
+    prepare_local_branch main "${UPDATE_MAIN_WITH_LATEST_BRANCH_UNIQUE}" "${UPDATE_MAIN_WITH_LATEST_PR_NAME}"
+    push_and_create_pr main "${UPDATE_MAIN_WITH_LATEST_BRANCH}" "${UPDATE_MAIN_WITH_LATEST_BRANCH_UNIQUE}" "${UPDATE_MAIN_WITH_LATEST_PR_NAME}"
+  fi
 fi
