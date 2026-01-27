@@ -1,5 +1,5 @@
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: WorkloadPriorityClass
 metadata:
   name: human-critical
@@ -8,7 +8,7 @@ description: "Use for critical human critical workloads like research on disease
 value: 1000000  # 1M out of 1B, higher is better
 
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: WorkloadPriorityClass
 metadata:
   name: business-impacting
@@ -18,7 +18,7 @@ value: 1000  # 1M out of 1B, higher is better
 
 
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: WorkloadPriorityClass
 metadata:
   name: long-term-research
