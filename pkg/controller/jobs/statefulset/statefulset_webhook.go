@@ -37,6 +37,7 @@ import (
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
 type Webhook struct {
@@ -58,6 +59,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		For(&appsv1.StatefulSet{}).
 		WithDefaulter(wh).
 		WithValidator(wh).
+		WithLogConstructor(roletracker.WebhookLogConstructor(options.RoleTracker)).
 		Complete()
 }
 
