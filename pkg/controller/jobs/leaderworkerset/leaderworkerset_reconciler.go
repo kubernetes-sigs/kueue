@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"strconv"
 
 	"github.com/go-logr/logr"
 	"golang.org/x/sync/errgroup"
@@ -116,14 +115,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return ctrl.Result{}, err
 	}
 
-	podList := &corev1.PodList{}
-	if err := r.client.List(ctx, podList, client.InNamespace(lws.GetNamespace()),
-		client.MatchingLabels{leaderworkersetv1.SetNameLabelKey: lws.Name},
-	); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	toCreate, toUpdate, toDelete := r.filterWorkloads(lws, wlList.Items, podList.Items)
+	toCreate, toUpdate, toDelete := r.filterWorkloads(lws, wlList.Items)
 
 	eg, ctx := errgroup.WithContext(ctx)
 
@@ -156,44 +148,29 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 // filterWorkloads compares the desired state of a LeaderWorkerSet with existing workloads,
 // determining which workloads need to be created, updated, or deleted.
 //
-// It accepts a LeaderWorkerSet, a slice of existing Workload objects, and a slice of existing
-// Pod objects as input and returns:
+// It accepts a LeaderWorkerSet and a slice of existing Workload objects as input and returns:
 // 1. A slice of workload names to be created
 // 2. A slice of workloads that may require updates
 // 3. A slice of Workload pointers to be deleted
-func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, existingWorkloads []kueue.Workload, pods []corev1.Pod) ([]string, []*kueue.Workload, []*kueue.Workload) {
+//
+// During rolling updates with maxSurge, status.Replicas may temporarily exceed spec.Replicas.
+// This function ensures workloads exist for all groups including surge replicas.
+func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, existingWorkloads []kueue.Workload) ([]string, []*kueue.Workload, []*kueue.Workload) {
 	var (
 		toCreate []string
 		toUpdate []*kueue.Workload
 		toDelete = utilslices.ToRefMap(existingWorkloads, func(e *kueue.Workload) string {
 			return e.Name
 		})
-		groupIndices = make(map[string]bool)
-		replicas     = ptr.Deref(lws.Spec.Replicas, 1)
+		replicas = ptr.Deref(lws.Spec.Replicas, 1)
 	)
 
+	if lws.Status.Replicas > replicas {
+		replicas = lws.Status.Replicas
+	}
+
 	for i := range replicas {
-		groupIndices[fmt.Sprint(i)] = true
-	}
-
-	// Additionally, ensure workloads exist for any surge replicas during rolling updates.
-	// Surge pods only exist when updatedReplicas < replicas (rolling update in progress).
-	// During scale-down, updatedReplicas == replicas, so surge pods are not added.
-	// DeletionTimestamp check prevents keeping workloads for surge pods being cleaned up.
-	if lws.Status.UpdatedReplicas < lws.Status.Replicas {
-		for i := range pods {
-			if groupIndex, ok := pods[i].Labels[leaderworkersetv1.GroupIndexLabelKey]; ok {
-				if groupIndexInt, err := strconv.Atoi(groupIndex); err == nil && groupIndexInt >= int(replicas) {
-					if pods[i].DeletionTimestamp == nil {
-						groupIndices[groupIndex] = true
-					}
-				}
-			}
-		}
-	}
-
-	for groupIndex := range groupIndices {
-		workloadName := GetWorkloadName(lws.UID, lws.Name, groupIndex)
+		workloadName := GetWorkloadName(lws.UID, lws.Name, fmt.Sprint(i))
 		if wl, ok := toDelete[workloadName]; ok {
 			toUpdate = append(toUpdate, wl)
 			delete(toDelete, workloadName)
