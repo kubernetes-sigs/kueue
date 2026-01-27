@@ -461,6 +461,13 @@ func Key(w *kueue.Workload) Reference {
 	return NewReference(w.Namespace, w.Name)
 }
 
+func GetLocalQueue(wl *kueue.Workload) kueue.LocalQueueName {
+	if wl == nil {
+		return ""
+	}
+	return wl.Spec.QueueName
+}
+
 func reclaimableCounts(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
 	return utilslices.ToMap(wl.Status.ReclaimablePods, func(i int) (kueue.PodSetReference, int32) {
 		return wl.Status.ReclaimablePods[i].Name, wl.Status.ReclaimablePods[i].Count

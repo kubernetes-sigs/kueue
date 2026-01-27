@@ -1705,3 +1705,98 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 		})
 	}
 }
+
+func TestGetWorkloadFromCache(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+
+	cqToDelete := utiltestingapi.MakeClusterQueue("deleted-cq").Obj()
+	clusterQueues := []*kueue.ClusterQueue{
+		utiltestingapi.MakeClusterQueue("cq").Obj(),
+		cqToDelete,
+	}
+
+	lqToDelete := utiltestingapi.MakeLocalQueue("deleted-lq", "").ClusterQueue("deleted-cq").Obj()
+	queues := []*kueue.LocalQueue{
+		utiltestingapi.MakeLocalQueue("lq", "").ClusterQueue("cq").Obj(),
+		utiltestingapi.MakeLocalQueue("lq-with-deleted-cq", "").ClusterQueue("deleted-cq").Obj(),
+		lqToDelete,
+	}
+
+	cases := map[string]struct {
+		wl           *kueue.Workload
+		deleteFromLq queue.LocalQueueReference
+		deleteFromCq kueue.ClusterQueueReference
+		wantWl       *kueue.Workload
+	}{
+		"workload fetched from local queue": {
+			wl:     utiltestingapi.MakeWorkload("a", "").Queue("lq").Obj(),
+			wantWl: utiltestingapi.MakeWorkload("a", "").Queue("lq").Obj(),
+		},
+		"workload fetched from local queue with deleted cq": {
+			wl:     utiltestingapi.MakeWorkload("a", "").Queue("lq-with-deleted-cq").Obj(),
+			wantWl: utiltestingapi.MakeWorkload("a", "").Queue("lq-with-deleted-cq").Obj(),
+		},
+		"workload missing from lq; fetched from cq": {
+			wl:           utiltestingapi.MakeWorkload("a", "").Queue("lq").Obj(),
+			deleteFromLq: "/lq",
+			wantWl:       utiltestingapi.MakeWorkload("a", "").Queue("lq").Obj(),
+		},
+		"workload missing from lq; cq deleted": {
+			wl:           utiltestingapi.MakeWorkload("a", "").Queue("lq-with-deleted-cq").Obj(),
+			deleteFromLq: "/lq-with-deleted-cq",
+			wantWl:       nil,
+		},
+		"workload missing from both queues": {
+			wl:           utiltestingapi.MakeWorkload("a", "").Queue("lq").Obj(),
+			deleteFromLq: "/lq",
+			deleteFromCq: "cq",
+			wantWl:       nil,
+		},
+		"workload missing": {
+			wl:     nil,
+			wantWl: nil,
+		},
+		"missing local queue": {
+			wl:     utiltestingapi.MakeWorkload("a", "").Queue("deleted-lq").Obj(),
+			wantWl: nil,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			manager := NewManager(utiltesting.NewFakeClient(), nil)
+			for _, cq := range clusterQueues {
+				if err := manager.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
+				}
+			}
+			for _, q := range queues {
+				if err := manager.AddLocalQueue(ctx, q); err != nil {
+					t.Fatalf("Failed adding queue %s: %v", q.Name, err)
+				}
+			}
+
+			wlRef := workload.NewReference("", "non-existent-wl")
+			if tc.wl != nil {
+				wlRef = workload.Key(tc.wl)
+				if err := manager.AddOrUpdateWorkload(log, tc.wl); err != nil {
+					t.Errorf("Failed to add or update workload: %v", err)
+				}
+				if tc.deleteFromLq != "" {
+					delete(manager.localQueues[tc.deleteFromLq].items, wlRef)
+				}
+				if tc.deleteFromCq != "" {
+					manager.hm.ClusterQueue(tc.deleteFromCq).heap.Delete(wlRef)
+				}
+			}
+
+			manager.DeleteClusterQueue(cqToDelete)
+			manager.DeleteLocalQueue(log, lqToDelete)
+
+			gotWl := manager.GetWorkloadFromCache(wlRef)
+			if diff := cmp.Diff(tc.wantWl, gotWl); diff != "" {
+				t.Errorf("GetWorkloadFromCache returned wrong workload (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
