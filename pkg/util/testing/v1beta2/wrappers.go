@@ -1183,6 +1183,15 @@ func (t *TopologyWrapper) Levels(levels ...string) *TopologyWrapper {
 	return t
 }
 
+// Label adds a label to a Topology.
+func (t *TopologyWrapper) Label(k, v string) *TopologyWrapper {
+	if t.Labels == nil {
+		t.Labels = make(map[string]string)
+	}
+	t.Labels[k] = v
+	return t
+}
+
 func (t *TopologyWrapper) Obj() *kueue.Topology {
 	return &t.Topology
 }
