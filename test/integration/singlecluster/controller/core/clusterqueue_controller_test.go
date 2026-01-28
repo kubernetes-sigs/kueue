@@ -1079,7 +1079,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 						g.Expect(k8sClient.Status().Update(ctx, &updatedCq)).Should(gomega.Succeed())
 						return false
 					}
-				}, util.Timeout, util.Interval).Should(gomega.Equal(true))
+				}, util.Timeout, util.Interval).To(gomega.BeTrue())
 			}
 
 			go setClusterStatusPending()
