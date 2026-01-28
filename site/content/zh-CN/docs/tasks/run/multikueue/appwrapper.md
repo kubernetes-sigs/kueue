@@ -8,7 +8,7 @@ description: 在多集群环境中运行 AppWrappers
 
 ## 开始之前 {#before-you-begin}
 
-请查阅 [MultiKueue 安装指南](/zh-cn/docs/tasks/manage/setup_multikueue)了解如何正确设置 MultiKueue 集群。
+请查阅 [MultiKueue 安装指南](/zh-CN/docs/tasks/manage/setup_multikueue)了解如何正确设置 MultiKueue 集群。
 
 为方便安装和使用，建议至少使用 Kueue v0.11.0 及 AppWrapper Operator v1.1.1 及以上版本。
 
@@ -20,7 +20,7 @@ MultiKueue 对 AppWrappers 的支持在 Kueue v0.11.0 之前的版本中不可�
 
 ## MultiKueue 集成 {#multikueue-integration}
 
-完成设置后，你可以通过运行 AppWrapper [`appwrapper-pytorch-sample.yaml`](/zh-cn/docs/tasks/run/appwrappers/#example-appwrapper-containing-a-pytorchjob)进行测试。
+完成设置后，你可以通过运行 AppWrapper [`appwrapper-pytorch-sample.yaml`](/zh-CN/docs/tasks/run/appwrappers/#example-appwrapper-containing-a-pytorchjob)进行测试。
 
 {{% alert title="注意" color="primary" %}}
 注意：Kueue 会在管理集群上的 AppWrappers 默认设置 `spec.managedBy` 字段为 `kueue.x-k8s.io/multikueue`。

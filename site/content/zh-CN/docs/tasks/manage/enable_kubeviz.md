@@ -9,7 +9,7 @@ description: >
 {{% alert title="注意" color="primary" %}}
 为了简化安装和升级过程，我们建议使用 Helm 部署 Kueue。  
 你可以使用本地 `values.yaml` 文件来自定义部署以适应你的环境。  
-有关完整说明，请参阅 [Helm chart 安装指南](/zh-cn/docs/installation/#install-by-helm)。
+有关完整说明，请参阅 [Helm chart 安装指南](/zh-CN/docs/installation/#install-by-helm)。
 {{% /alert %}}
 
 KueueViz 是一个基于 Web 的可视化工具，提供对 Kueue 工作负载、队列和资源分配的实时监控。
@@ -17,7 +17,7 @@ KueueViz 是一个基于 Web 的可视化工具，提供对 Kueue 工作负载�
 
 本页面展示如何在你的集群中安装和配置 KueueViz。
 
-本页面的目标读者是[批处理管理员](/zh-cn/docs/tasks#batch-administrator)。
+本页面的目标读者是[批处理管理员](/zh-CN/docs/tasks#batch-administrator)。
 
 ## 开始之前 {#before-you-begin}
 
@@ -45,7 +45,7 @@ helm install kueue oci://registry.k8s.io/kueue/charts/kueue \
   --set enableKueueViz=true # 启用 KueueViz
 ```
 
-有关安装 Kueue 的更多信息，请参阅[安装](/zh-cn/docs/installation)。
+有关安装 Kueue 的更多信息，请参阅[安装](/zh-CN/docs/installation)。
 
 ## 启用 KueueViz（安装 Kueue 之后）{#enable-kueueviz-kueue-is-already-installed}
 
@@ -176,5 +176,5 @@ kubectl delete -f https://github.com/kubernetes-sigs/kueue/releases/download/{{<
 
 ## 下一步 {#whats-next}
 
-- 探索更多[任务](/zh-cn/docs/tasks)
-- 了解[概念](/zh-cn/docs/concepts)
+- 探索更多[任务](/zh-CN/docs/tasks)
+- 了解[概念](/zh-CN/docs/concepts)

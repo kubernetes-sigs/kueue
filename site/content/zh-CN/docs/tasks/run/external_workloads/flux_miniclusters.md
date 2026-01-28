@@ -10,12 +10,12 @@ description: >
 此页面展示了在运行 [Flux Operator 的](https://flux-framework.org/flux-operator/)
 MiniCluster 时，如何利用 Kueue 的调度和资源管理能力。
 
-本指南适用于对 Kueue 有基本了解的[批处理用户](/zh-cn/docs/tasks#batch-user)。
-欲了解更多信息，请参见 [Kueue 概述](/zh-cn/docs/overview)。
+本指南适用于对 Kueue 有基本了解的[批处理用户](/zh-CN/docs/tasks#batch-user)。
+欲了解更多信息，请参见 [Kueue 概述](/zh-CN/docs/overview)。
 
 ## 开始之前
 
-查阅[管理集群配额](/zh-cn/docs/tasks/manage/administer_cluster_quotas)，
+查阅[管理集群配额](/zh-CN/docs/tasks/manage/administer_cluster_quotas)，
 以获取初始集群设置的详细信息。
 
 查阅 [Flux Operator 安装指南](https://flux-framework.org/flux-operator/getting_started/user-guide.html#install)。
@@ -28,7 +28,7 @@ MiniCluster 时，如何利用 Kueue 的调度和资源管理能力。
 
 ### a. 队列选择
 
-目标[本地队列](/zh-cn/docs/concepts/local_queue)应在 MiniCluster
+目标[本地队列](/zh-CN/docs/concepts/local_queue)应在 MiniCluster
 配置的 `spec.jobLabels` 部分中指定。
 
 ```yaml
@@ -70,4 +70,4 @@ spec:
     kueue.x-k8s.io/queue-name: user-queue
 ```
 
-有关在 Python 中执行此操作的等效说明，请参阅[运行 Python 作业](/zh-cn/docs/tasks/run/python_jobs/#flux-operator-job)。
+有关在 Python 中执行此操作的等效说明，请参阅[运行 Python 作业](/zh-CN/docs/tasks/run/python_jobs/#flux-operator-job)。

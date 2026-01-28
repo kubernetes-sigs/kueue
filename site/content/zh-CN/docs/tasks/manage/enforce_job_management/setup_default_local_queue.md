@@ -13,7 +13,7 @@ description: >
 `LocalQueueDefaulting` 是一个默认启用的 Beta 特性。
 
 你可以通过设置 `LocalQueueDefaulting` 特性门控来禁用它。
-查看[安装](/zh-cn/docs/installation/#change-the-feature-gates-configuration)指南以获取关于特性门控配置的详细信息。
+查看[安装](/zh-CN/docs/installation/#change-the-feature-gates-configuration)指南以获取关于特性门控配置的详细信息。
 {{% /alert %}}
 
 此页面描述了如何设置默认 LocalQueue，以确保所有提交到特定命名空间的工作负载由 Kueue 管理，

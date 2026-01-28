@@ -6,9 +6,9 @@ description: >
   设置 MultiKueue 集群所需的额外步骤。
 ---
 
-本教程解释了如何在 MultiKueue 环境中配置管理集群和一个工作集群来运行 [JobSets](/zh-cn/docs/tasks/run/jobsets/#jobset-definition) 和 [batch/Jobs](/zh-cn/docs/tasks/run/jobs/#1-define-the-job)。
+本教程解释了如何在 MultiKueue 环境中配置管理集群和一个工作集群来运行 [JobSets](/zh-CN/docs/tasks/run/jobsets/#jobset-definition) 和 [batch/Jobs](/zh-CN/docs/tasks/run/jobs/#1-define-the-job)。
 
-请查看概念部分了解 [MultiKueue 概述](/zh-cn/docs/concepts/multikueue/)。
+请查看概念部分了解 [MultiKueue 概述](/zh-CN/docs/concepts/multikueue/)。
 
 假设您的管理集群名为 `manager-cluster`，工作集群名为 `worker1-cluster`。
 要遵循本教程，请确保所有这些集群的凭据都存在于您本地机器的 kubeconfig 中。
@@ -65,7 +65,7 @@ kubectl config use-context manager-cluster
 
 ### CRD 安装
 
-有关与 MultiKueue 兼容的 CRD 安装，请参阅专用页面[这里](/zh-cn/docs/tasks/run/multikueue/)。
+有关与 MultiKueue 兼容的 CRD 安装，请参阅专用页面[这里](/zh-CN/docs/tasks/run/multikueue/)。
 
 ### 创建工作集群的 Kubeconfig 密钥
 
