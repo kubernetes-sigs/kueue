@@ -17,6 +17,8 @@ limitations under the License.
 package e2e
 
 import (
+	"fmt"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -411,97 +413,99 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			ginkgo.Entry("LeaderReadyStartupPolicy", leaderworkersetv1.LeaderReadyStartupPolicy),
 		)
 
-		ginkgo.DescribeTable("should allow to scale up, scale down fast",
-			func(startupPolicyType leaderworkersetv1.StartupPolicyType) {
-				lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
-					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
-					Size(3).
-					Replicas(1).
-					RequestAndLimit(corev1.ResourceCPU, "200m").
-					TerminationGracePeriod(1).
-					Queue(lq.Name).
-					StartupPolicy(startupPolicyType).
-					Obj()
+		for i := 0; i < 100; i++ {
+			ginkgo.FDescribeTable(fmt.Sprintf("should allow to scale up, scale down fast %d", i),
+				func(startupPolicyType leaderworkersetv1.StartupPolicyType) {
+					lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
+						Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+						Size(3).
+						Replicas(1).
+						RequestAndLimit(corev1.ResourceCPU, "200m").
+						TerminationGracePeriod(1).
+						Queue(lq.Name).
+						StartupPolicy(startupPolicyType).
+						Obj()
 
-				ginkgo.By("Create a LeaderWorkerSet", func() {
-					gomega.Expect(k8sClient.Create(ctx, lws)).To(gomega.Succeed())
-				})
+					ginkgo.By("Create a LeaderWorkerSet", func() {
+						gomega.Expect(k8sClient.Create(ctx, lws)).To(gomega.Succeed())
+					})
 
-				createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
+					createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
 
-				ginkgo.By("Waiting for replicas is ready", func() {
-					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
-						g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
-						g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
-					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-				})
+					ginkgo.By("Waiting for replicas is ready", func() {
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
+							g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
+							g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
+						}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+					})
 
-				createdWorkload1 := &kueue.Workload{}
-				wlLookupKey1 := types.NamespacedName{Name: leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0"), Namespace: ns.Name}
-				ginkgo.By("Check workload is created", func() {
-					gomega.Expect(k8sClient.Get(ctx, wlLookupKey1, createdWorkload1)).To(gomega.Succeed())
-				})
+					createdWorkload1 := &kueue.Workload{}
+					wlLookupKey1 := types.NamespacedName{Name: leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0"), Namespace: ns.Name}
+					ginkgo.By("Check workload is created", func() {
+						gomega.Expect(k8sClient.Get(ctx, wlLookupKey1, createdWorkload1)).To(gomega.Succeed())
+					})
 
-				ginkgo.By("Scale up LeaderWorkerSet", func() {
-					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
-						createdLeaderWorkerSet.Spec.Replicas = ptr.To[int32](2)
-						g.Expect(k8sClient.Update(ctx, createdLeaderWorkerSet)).To(gomega.Succeed())
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				})
+					ginkgo.By("Scale up LeaderWorkerSet", func() {
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
+							createdLeaderWorkerSet.Spec.Replicas = ptr.To[int32](2)
+							g.Expect(k8sClient.Update(ctx, createdLeaderWorkerSet)).To(gomega.Succeed())
+						}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					})
 
-				ginkgo.By("Scale down LeaderWorkerSet", func() {
-					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
-						createdLeaderWorkerSet.Spec.Replicas = ptr.To[int32](1)
-						g.Expect(k8sClient.Update(ctx, createdLeaderWorkerSet)).To(gomega.Succeed())
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				})
+					ginkgo.By("Scale down LeaderWorkerSet", func() {
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
+							createdLeaderWorkerSet.Spec.Replicas = ptr.To[int32](1)
+							g.Expect(k8sClient.Update(ctx, createdLeaderWorkerSet)).To(gomega.Succeed())
+						}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					})
 
-				ginkgo.By("Waiting for replicas is ready", func() {
-					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
-						g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
-						g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
-					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-				})
+					ginkgo.By("Waiting for replicas is ready", func() {
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
+							g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
+							g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
+						}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+					})
 
-				ginkgo.By("Check workload for group 1 is still exist", func() {
-					gomega.Expect(k8sClient.Get(ctx, wlLookupKey1, createdWorkload1)).To(gomega.Succeed())
-				})
+					ginkgo.By("Check workload for group 1 is still exist", func() {
+						gomega.Expect(k8sClient.Get(ctx, wlLookupKey1, createdWorkload1)).To(gomega.Succeed())
+					})
 
-				createdWorkload2 := &kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "1"),
-						Namespace: ns.Name,
-					},
-				}
-				ginkgo.By("Check workload for group 2 is released", func() {
-					util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload2, false, util.LongTimeout)
-				})
+					createdWorkload2 := &kueue.Workload{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "1"),
+							Namespace: ns.Name,
+						},
+					}
+					ginkgo.By("Check workload for group 2 is released", func() {
+						util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload2, false, util.LongTimeout)
+					})
 
-				ginkgo.By("Delete the LeaderWorkerSet", func() {
-					util.ExpectObjectToBeDeleted(ctx, k8sClient, lws, true)
-				})
+					ginkgo.By("Delete the LeaderWorkerSet", func() {
+						util.ExpectObjectToBeDeleted(ctx, k8sClient, lws, true)
+					})
 
-				ginkgo.By("Check pods are deleted", func() {
-					pods := &corev1.PodList{}
-					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.List(ctx, pods, client.MatchingLabels{
-							leaderworkersetv1.SetNameLabelKey: lws.Name,
-						}, client.InNamespace(lws.Namespace))).Should(gomega.Succeed())
-						g.Expect(pods.Items).To(gomega.BeEmpty())
-					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-				})
+					ginkgo.By("Check pods are deleted", func() {
+						pods := &corev1.PodList{}
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(k8sClient.List(ctx, pods, client.MatchingLabels{
+								leaderworkersetv1.SetNameLabelKey: lws.Name,
+							}, client.InNamespace(lws.Namespace))).Should(gomega.Succeed())
+							g.Expect(pods.Items).To(gomega.BeEmpty())
+						}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+					})
 
-				ginkgo.By("Check workloads are deleted", func() {
-					util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload1, false, util.LongTimeout)
-				})
-			},
-			ginkgo.Entry("LeaderCreatedStartupPolicy", leaderworkersetv1.LeaderCreatedStartupPolicy),
-			ginkgo.Entry("LeaderReadyStartupPolicy", leaderworkersetv1.LeaderReadyStartupPolicy),
-		)
+					ginkgo.By("Check workloads are deleted", func() {
+						util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload1, false, util.LongTimeout)
+					})
+				},
+				ginkgo.Entry("LeaderCreatedStartupPolicy", leaderworkersetv1.LeaderCreatedStartupPolicy),
+				ginkgo.Entry("LeaderReadyStartupPolicy", leaderworkersetv1.LeaderReadyStartupPolicy),
+			)
+		}
 
 		ginkgo.DescribeTable("should admit group with multiple leaders and workers that fits and have different resource needs",
 			func(startupPolicyType leaderworkersetv1.StartupPolicyType) {
