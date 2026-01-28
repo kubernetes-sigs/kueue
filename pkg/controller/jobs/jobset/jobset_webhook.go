@@ -20,7 +20,6 @@ import (
 	"context"
 
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -58,8 +57,7 @@ func SetupJobSetWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		cache:                        options.Cache,
 	}
 	obj := &jobsetapi.JobSet{}
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(obj).
+	return ctrl.NewWebhookManagedBy(mgr, obj).
 		WithDefaulter(wh).
 		WithValidator(wh).
 		WithLogConstructor(jobframework.WebhookLogConstructor(fromObject(obj).GVK(), options.RoleTracker)).
@@ -68,15 +66,15 @@ func SetupJobSetWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 
 // +kubebuilder:webhook:path=/mutate-jobset-x-k8s-io-v1alpha2-jobset,mutating=true,failurePolicy=fail,sideEffects=None,groups=jobset.x-k8s.io,resources=jobsets,verbs=create,versions=v1alpha2,name=mjobset.kb.io,admissionReviewVersions=v1
 
-var _ admission.CustomDefaulter = &JobSetWebhook{}
+var _ admission.Defaulter[*jobsetapi.JobSet] = &JobSetWebhook{}
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
-func (w *JobSetWebhook) Default(ctx context.Context, obj runtime.Object) error {
+func (w *JobSetWebhook) Default(ctx context.Context, obj *jobsetapi.JobSet) error {
 	jobSet := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
 	log.V(5).Info("Applying defaults")
 
-	jobframework.ApplyDefaultLocalQueue(jobSet.Object(), w.queues.DefaultLocalQueueExist)
+	jobframework.ApplyDefaultLocalQueue(obj, w.queues.DefaultLocalQueueExist)
 	if err := jobframework.ApplyDefaultForSuspend(ctx, jobSet, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
@@ -88,10 +86,10 @@ func (w *JobSetWebhook) Default(ctx context.Context, obj runtime.Object) error {
 
 // +kubebuilder:webhook:path=/validate-jobset-x-k8s-io-v1alpha2-jobset,mutating=false,failurePolicy=fail,sideEffects=None,groups=jobset.x-k8s.io,resources=jobsets,verbs=create;update,versions=v1alpha2,name=vjobset.kb.io,admissionReviewVersions=v1
 
-var _ admission.CustomValidator = &JobSetWebhook{}
+var _ admission.Validator[*jobsetapi.JobSet] = &JobSetWebhook{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *JobSetWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+func (w *JobSetWebhook) ValidateCreate(ctx context.Context, obj *jobsetapi.JobSet) (admission.Warnings, error) {
 	jobSet := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
 	log.Info("Validating create")
@@ -103,7 +101,7 @@ func (w *JobSetWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) 
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *JobSetWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
+func (w *JobSetWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *jobsetapi.JobSet) (admission.Warnings, error) {
 	oldJobSet := fromObject(oldObj)
 	newJobSet := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
@@ -176,6 +174,6 @@ func buildPodSetAnnotationsPathByNameMap(jobSet *JobSet) map[kueue.PodSetReferen
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *JobSetWebhook) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
+func (w *JobSetWebhook) ValidateDelete(_ context.Context, _ *jobsetapi.JobSet) (admission.Warnings, error) {
 	return nil, nil
 }

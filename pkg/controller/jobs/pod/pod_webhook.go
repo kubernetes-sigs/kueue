@@ -24,7 +24,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -71,8 +70,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 	}
 	obj := &corev1.Pod{}
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(obj).
+	return ctrl.NewWebhookManagedBy(mgr, obj).
 		WithDefaulter(wh).
 		WithValidator(wh).
 		WithLogConstructor(jobframework.WebhookLogConstructor(FromObject(obj).GVK(), options.RoleTracker)).
@@ -82,7 +80,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 // +kubebuilder:webhook:path=/mutate--v1-pod,mutating=true,failurePolicy=fail,sideEffects=None,groups="",resources=pods,verbs=create,versions=v1,name=mpod.kb.io,admissionReviewVersions=v1
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 
-var _ admission.CustomDefaulter = &PodWebhook{}
+var _ admission.Defaulter[*corev1.Pod] = &PodWebhook{}
 
 // addRoleHash calculates the role hash and adds it to the pod's annotations
 func (p *Pod) addRoleHash() error {
@@ -99,7 +97,7 @@ func (p *Pod) addRoleHash() error {
 	return nil
 }
 
-func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
+func (w *PodWebhook) Default(ctx context.Context, obj *corev1.Pod) error {
 	pod := FromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook")
 	log.V(5).Info("Applying defaults")
@@ -185,7 +183,7 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 			return err
 		}
 		// copy back changes to the object
-		pod.pod.DeepCopyInto(obj.(*corev1.Pod))
+		pod.pod.DeepCopyInto(obj)
 	}
 
 	return nil
@@ -193,9 +191,9 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 
 // +kubebuilder:webhook:path=/validate--v1-pod,mutating=false,failurePolicy=fail,sideEffects=None,groups="",resources=pods,verbs=create;update,versions=v1,name=vpod.kb.io,admissionReviewVersions=v1
 
-var _ admission.CustomValidator = &PodWebhook{}
+var _ admission.Validator[*corev1.Pod] = &PodWebhook{}
 
-func (w *PodWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+func (w *PodWebhook) ValidateCreate(ctx context.Context, obj *corev1.Pod) (admission.Warnings, error) {
 	var warnings admission.Warnings
 
 	pod := FromObject(obj)
@@ -212,7 +210,7 @@ func (w *PodWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (ad
 	return warnings, allErrs.ToAggregate()
 }
 
-func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
+func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *corev1.Pod) (admission.Warnings, error) {
 	var warnings admission.Warnings
 
 	oldPod := FromObject(oldObj)
@@ -237,7 +235,7 @@ func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.
 	return warnings, allErrs.ToAggregate()
 }
 
-func (w *PodWebhook) ValidateDelete(context.Context, runtime.Object) (admission.Warnings, error) {
+func (w *PodWebhook) ValidateDelete(context.Context, *corev1.Pod) (admission.Warnings, error) {
 	return nil, nil
 }
 

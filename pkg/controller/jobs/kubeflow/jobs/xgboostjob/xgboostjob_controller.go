@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob"
@@ -36,12 +37,15 @@ var (
 	FrameworkName = "kubeflow.org/xgboostjob"
 
 	SetupXGBoostJobWebhook = jobframework.BaseWebhookFactory(
-		NewJob(),
-		func(o runtime.Object) jobframework.GenericJob {
+		&kftraining.XGBoostJob{},
+		func(o *kftraining.XGBoostJob) jobframework.GenericJob {
 			return fromObject(o)
 		},
 	)
 )
+
+var _ admission.Defaulter[*kftraining.XGBoostJob] = &jobframework.BaseWebhook[*kftraining.XGBoostJob]{}
+var _ admission.Validator[*kftraining.XGBoostJob] = &jobframework.BaseWebhook[*kftraining.XGBoostJob]{}
 
 // +kubebuilder:webhook:path=/mutate-kubeflow-org-v1-xgboostjob,mutating=true,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=xgboostjobs,verbs=create,versions=v1,name=mxgboostjob.kb.io,admissionReviewVersions=v1
 // +kubebuilder:webhook:path=/validate-kubeflow-org-v1-xgboostjob,mutating=false,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=xgboostjobs,verbs=create;update,versions=v1,name=vxgboostjob.kb.io,admissionReviewVersions=v1
