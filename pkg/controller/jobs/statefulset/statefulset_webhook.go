@@ -73,7 +73,7 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 	log.V(5).Info("Propagating queue-name")
 
 	jobframework.ApplyDefaultLocalQueue(ss.Object(), wh.queues.DefaultLocalQueueExist)
-	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, ss.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
+	suspend, err := wh.workloadShouldBeSuspended(ctx, ss)
 	if err != nil {
 		return err
 	}
@@ -128,6 +128,13 @@ var (
 	podSpecPath                = specTemplatePath.Child("spec")
 )
 
+func (wh *Webhook) workloadShouldBeSuspended(ctx context.Context, ss *StatefulSet) (bool, error) {
+	if len(ss.Spec.Template.Annotations[podconstants.SuspendedByParentAnnotation]) > 0 {
+		return true, nil
+	}
+	return jobframework.WorkloadShouldBeSuspended(ctx, ss.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
+}
+
 func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
 	oldStatefulSet := fromObject(oldObj)
 	newStatefulSet := fromObject(newObj)
@@ -152,7 +159,7 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 		newStatefulSet.Object(),
 	)...)
 
-	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, newStatefulSet.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
+	suspend, err := wh.workloadShouldBeSuspended(ctx, newStatefulSet)
 	if err != nil {
 		return nil, err
 	}

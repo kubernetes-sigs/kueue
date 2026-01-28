@@ -413,7 +413,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			ginkgo.Entry("LeaderReadyStartupPolicy", leaderworkersetv1.LeaderReadyStartupPolicy),
 		)
 
-		for i := 0; i < 100; i++ {
+		for i := range 200 {
 			ginkgo.FDescribeTable(fmt.Sprintf("should allow to scale up, scale down fast %d", i),
 				func(startupPolicyType leaderworkersetv1.StartupPolicyType) {
 					lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
