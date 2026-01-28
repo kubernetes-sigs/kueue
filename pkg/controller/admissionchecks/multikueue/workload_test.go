@@ -646,7 +646,7 @@ func TestWlReconcile(t *testing.T) {
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 					ClusterName("worker1").
-					Evicted().
+					EvictedAt(now).
 					Obj(),
 			},
 			managersJobs: []batchv1.Job{
@@ -678,7 +678,7 @@ func TestWlReconcile(t *testing.T) {
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 					ClusterName("worker1").
-					Evicted().
+					EvictedAt(now).
 					Obj(),
 			},
 			wantManagersJobs: []batchv1.Job{
@@ -716,7 +716,7 @@ func TestWlReconcile(t *testing.T) {
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 					ClusterName("worker1").
-					Evicted().
+					EvictedAt(now).
 					Obj(),
 			},
 			managersJobs: []batchv1.Job{
@@ -734,9 +734,9 @@ func TestWlReconcile(t *testing.T) {
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 					Condition(metav1.Condition{
-						Type:    kueue.WorkloadEvicted,
+						Type:    kueue.WorkloadDeactivationTarget,
 						Status:  metav1.ConditionTrue,
-						Reason:  "DeactivatedDueToEvictedOnManagerCluster",
+						Reason:  kueue.WorkloadEvictedOnManagerCluster,
 						Message: "Evicted on manager: Evicted by test",
 					}).
 					Obj(),
@@ -755,20 +755,22 @@ func TestWlReconcile(t *testing.T) {
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 					ClusterName("worker1").
-					Evicted().
+					EvictedAt(now).
 					Obj(),
 			},
 			wantManagersJobs: []batchv1.Job{
-				*baseJobManagedByKueueBuilder.Clone().Active(0).Obj(),
+				*baseJobManagedByKueueBuilder.Clone().
+					Active(1).
+					Obj(),
 			},
 			wantWorker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 					Condition(metav1.Condition{
-						Type:    kueue.WorkloadEvicted,
+						Type:    kueue.WorkloadDeactivationTarget,
 						Status:  metav1.ConditionTrue,
-						Reason:  "DeactivatedDueToEvictedOnManagerCluster",
+						Reason:  kueue.WorkloadEvictedOnManagerCluster,
 						Message: "Evicted on manager: Evicted by test",
 					}).
 					Obj(),
@@ -777,11 +779,10 @@ func TestWlReconcile(t *testing.T) {
 				*baseJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Active(0).
 					Obj(),
 			},
-			wantWorker2Workloads: []kueue.Workload{
-				*baseWorkloadBuilder.DeepCopy(),
-			},
+			wantWorker2Workloads: nil,
 		},
 		"handle workload evicted on worker cluster": {
 			features:     map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: true},
