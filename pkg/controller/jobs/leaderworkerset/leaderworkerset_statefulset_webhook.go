@@ -18,6 +18,7 @@ package leaderworkerset
 
 import (
 	"context"
+	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -54,6 +55,10 @@ func (wh *StatefulSetWebhook) Default(ctx context.Context, obj runtime.Object) e
 
 	log := ctrl.LoggerFrom(ctx).WithName("leaderworkerset-statefulset-webhook")
 	log.V(3).Info("Defaulting")
+
+	fmt.Println(sts.Labels)
+	fmt.Println(sts.Annotations)
+	fmt.Println(sts.OwnerReferences)
 
 	if sts.Annotations != nil {
 		sts.Annotations[podconstants.SuspendedByParentAnnotation] = FrameworkName
