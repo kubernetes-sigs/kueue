@@ -25,6 +25,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	coreindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
@@ -92,6 +94,14 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 
 	if err := indexer.IndexField(ctx, &corev1.Pod{}, WorkloadNameKey, indexPodWorkload); err != nil {
 		return fmt.Errorf("setting index pod workload: %w", err)
+	}
+
+	// Register workload slice name index only if ElasticJobsViaWorkloadSlices is disabled;
+	// otherwise the core indexer registers it.
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		if err := indexer.IndexField(ctx, &corev1.Pod{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexPodWorkloadSliceName); err != nil {
+			return fmt.Errorf("setting index pod workload slice name: %w", err)
+		}
 	}
 
 	if err := indexer.IndexField(ctx, &corev1.Node{}, ReadyNode, indexReadyNode); err != nil {
