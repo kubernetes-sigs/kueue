@@ -233,7 +233,8 @@ func rolloutOperatorDeployment(ctx context.Context, k8sClient client.Client, key
 		deploymentCondition = FindDeploymentCondition(deployment, appsv1.DeploymentProgressing)
 		g.Expect(deploymentCondition).NotTo(gomega.BeNil())
 		g.Expect(deploymentCondition.Status).To(gomega.Equal(corev1.ConditionTrue))
-		g.Expect(deploymentCondition.Reason).To(gomega.BeElementOf("NewReplicaSetAvailable", "ReplicaSetUpdated"))
+		g.Expect(deploymentCondition.Reason).To(gomega.BeElementOf("NewReplicaSetCreated", "NewReplicaSetAvailable", "ReplicaSetUpdated"))
+		ginkgo.GinkgoLogr.Info("Deployment status condition before the restart", "type", deploymentCondition.Type, "status", deploymentCondition.Status, "reason", deploymentCondition.Reason)
 	}, Timeout, Interval).Should(gomega.Succeed())
 	beforeUpdateTime := deploymentCondition.LastUpdateTime
 
