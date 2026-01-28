@@ -68,6 +68,14 @@ var _ webhook.CustomDefaulter = &Webhook{}
 func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 	ss := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("statefulset-webhook")
+
+	if ss.Annotations != nil {
+		if parent, ok := ss.Annotations[podconstants.SuspendedByParentAnnotation]; ok {
+			log.V(3).Info("Skipping defaulting because SuspendedByParentAnnotation is set", "parent", parent)
+			return nil
+		}
+	}
+
 	log.V(5).Info("Propagating queue-name")
 
 	jobframework.ApplyDefaultLocalQueue(ss.Object(), wh.queues.DefaultLocalQueueExist)

@@ -18,10 +18,12 @@ package leaderworkerset
 
 import (
 	"context"
+	"fmt"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
@@ -47,6 +49,18 @@ func init() {
 		ImplicitlyEnabledFrameworkNames: []string{"pod"},
 		GVK:                             gvk,
 	}))
+}
+
+func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
+	if err := SetupLeaderWorkerSetWebhook(mgr, opts...); err != nil {
+		return fmt.Errorf("failed to setup leaderworkerset webhook: %w", err)
+	}
+
+	if err := SetupStatefulSetWebhook(mgr, opts...); err != nil {
+		return fmt.Errorf("failed to setup leaderworkerset statefulset webhook: %w", err)
+	}
+
+	return nil
 }
 
 type LeaderWorkerSet leaderworkersetv1.LeaderWorkerSet

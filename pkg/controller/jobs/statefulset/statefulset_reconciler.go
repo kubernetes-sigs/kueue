@@ -230,6 +230,13 @@ func (r *Reconciler) handle(obj client.Object) bool {
 	log := r.log.WithValues("statefulset", klog.KObj(sts))
 	ctrl.LoggerInto(ctx, log)
 
+	if sts.Annotations != nil {
+		if parent, ok := sts.Annotations[podcontroller.SuspendedByParentAnnotation]; ok {
+			log.V(3).Info("Skipping reconciliation because SuspendedByParentAnnotation is set", "parent", parent)
+			return false
+		}
+	}
+
 	// Handle only statefulset managed by kueue.
 	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, sts, r.client, r.manageJobsWithoutQueueName, r.managedJobsNamespaceSelector)
 	if err != nil {
