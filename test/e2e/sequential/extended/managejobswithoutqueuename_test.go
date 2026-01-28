@@ -780,13 +780,9 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 				})
 
 				ginkgo.By("Check workload is deleted", func() {
-					wlLookupKey := types.NamespacedName{
-						Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0"),
-						Namespace: ns.Name,
-					}
 					createdWorkload := &kueue.Workload{}
 					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
+						g.Expect(k8sClient.Get(ctx, util.WorkloadKeyForLeaderWorkerSet(lws, 0), createdWorkload)).To(utiltesting.BeNotFoundError())
 					}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
@@ -842,13 +838,9 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			})
 
 			ginkgo.By("Check workload is deleted", func() {
-				wlLookupKey := types.NamespacedName{
-					Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0"),
-					Namespace: ns.Name,
-				}
 				createdWorkload := &kueue.Workload{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
+					g.Expect(k8sClient.Get(ctx, util.WorkloadKeyForLeaderWorkerSet(lws, 0), createdWorkload)).To(utiltesting.BeNotFoundError())
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
