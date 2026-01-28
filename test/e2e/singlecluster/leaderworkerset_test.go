@@ -554,7 +554,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 				})
 
 				createdWorkload2 := &kueue.Workload{}
-				wlLookupKey2 := types.NamespacedName{Name: leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0"), Namespace: ns.Name}
+				wlLookupKey2 := types.NamespacedName{Name: leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "1"), Namespace: ns.Name}
 				ginkgo.By("Check workload for group 2 is created", func() {
 					gomega.Expect(k8sClient.Get(ctx, wlLookupKey2, createdWorkload2)).To(gomega.Succeed())
 				})
@@ -667,7 +667,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 
 			createdWorkload2 := &kueue.Workload{}
 			wlLookupKey2 := types.NamespacedName{
-				Name:      leaderworkerset.GetWorkloadName(createdLeaderWorkerSet.UID, createdLeaderWorkerSet.Name, "0"),
+				Name:      leaderworkerset.GetWorkloadName(createdLeaderWorkerSet.UID, createdLeaderWorkerSet.Name, "1"),
 				Namespace: ns.Name,
 			}
 			ginkgo.By("Check workload for group 2 is created", func() {
