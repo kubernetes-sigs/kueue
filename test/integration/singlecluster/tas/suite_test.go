@@ -93,7 +93,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	queues := qcache.NewManager(mgr.GetClient(), cCache)
 	qManager = queues
 
-	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil)
+	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil, nil)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "Core controller", failedCtrl)
 
 	failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, controllersCfg, nil)
