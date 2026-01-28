@@ -20,12 +20,15 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -199,5 +202,127 @@ var _ = ginkgo.Describe("SchedulerWithExcludeResourcePrefixes", ginkgo.Ordered, 
 		resourceUsage := wl.Status.Admission.PodSetAssignments[0].ResourceUsage
 		gomega.Expect(resourceUsage).To(gomega.HaveKey(corev1.ResourceName("networking.other.com/vpc")))
 		gomega.Expect(resourceUsage).To(gomega.HaveKey(corev1.ResourceCPU))
+	})
+})
+
+var _ = ginkgo.Describe("TAS with ExcludeResourcePrefixes", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	var (
+		tasFlavor *kueue.ResourceFlavor
+		topology  *kueue.Topology
+		ns        *corev1.Namespace
+		cq        *kueue.ClusterQueue
+		lq        *kueue.LocalQueue
+		nodes     []corev1.Node
+	)
+
+	ginkgo.BeforeAll(func() {
+		configuration := &config.Configuration{
+			Resources: &config.Resources{
+				ExcludeResourcePrefixes: []string{
+					"example.com/",
+				},
+			},
+		}
+		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(configuration))
+	})
+
+	ginkgo.BeforeEach(func() {
+		nodes = []corev1.Node{
+			*testingnode.MakeNode("tas-n1").
+				Label("node-group", "tas").
+				Label(corev1.LabelHostname, "tas-n1").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("4"),
+					corev1.ResourcePods: resource.MustParse("10"),
+					corev1.ResourceName("example.com/test-resource"): resource.MustParse("2"),
+				}).
+				Ready().
+				Obj(),
+			*testingnode.MakeNode("tas-n2").
+				Label("node-group", "tas").
+				Label(corev1.LabelHostname, "tas-n2").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("4"),
+					corev1.ResourcePods: resource.MustParse("10"),
+					corev1.ResourceName("example.com/test-resource"): resource.MustParse("2"),
+				}).
+				Ready().
+				Obj(),
+		}
+		util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+
+		topology = utiltestingapi.MakeDefaultOneLevelTopology("tas-topology")
+		util.MustCreate(ctx, k8sClient, topology)
+
+		tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
+			NodeLabel("node-group", "tas").
+			TopologyName("tas-topology").
+			Obj()
+		util.MustCreate(ctx, k8sClient, tasFlavor)
+
+		ns = &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "tas-exclude-",
+			},
+		}
+		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+
+		cq = utiltestingapi.MakeClusterQueue("tas-exclude-cq").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("tas-flavor").
+					Resource(corev1.ResourceCPU, "10").
+					Obj(),
+			).Obj()
+		util.MustCreate(ctx, k8sClient, cq)
+		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+
+		lq = utiltestingapi.MakeLocalQueue("tas-exclude-lq", ns.Name).ClusterQueue(cq.Name).Obj()
+		util.MustCreate(ctx, k8sClient, lq)
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+		for _, node := range nodes {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
+		}
+	})
+
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.It("should use excluded resource from PodSpec for TAS placement", func() {
+		wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+			Queue(kueue.LocalQueueName(lq.Name)).
+			PodSets(*utiltestingapi.MakePodSet("main", 4).
+				PreferredTopologyRequest(corev1.LabelHostname).
+				Request(corev1.ResourceCPU, "100m").
+				Request("example.com/test-resource", "1").
+				Obj()).
+			Obj()
+		util.MustCreate(ctx, k8sClient, wl)
+
+		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+		ginkgo.By("verifying pods are spread based on excluded resource", func() {
+			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: wl.Name, Namespace: ns.Name}, wl)).To(gomega.Succeed())
+			topologyAssignment := wl.Status.Admission.PodSetAssignments[0].TopologyAssignment
+			gomega.Expect(topologyAssignment).NotTo(gomega.BeNil())
+
+			domains := utiltas.InternalFrom(topologyAssignment).Domains
+			gomega.Expect(domains).To(gomega.HaveLen(2))
+			for _, domain := range domains {
+				gomega.Expect(domain.Count).To(gomega.Equal(int32(2)))
+			}
+		})
+
+		ginkgo.By("verifying excluded resource is not in quota usage", func() {
+			resourceUsage := wl.Status.Admission.PodSetAssignments[0].ResourceUsage
+			gomega.Expect(resourceUsage).To(gomega.HaveKey(corev1.ResourceCPU))
+			gomega.Expect(resourceUsage).NotTo(gomega.HaveKey(corev1.ResourceName("example.com/test-resource")))
+		})
 	})
 })
