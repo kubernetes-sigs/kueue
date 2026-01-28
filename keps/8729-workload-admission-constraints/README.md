@@ -131,7 +131,7 @@ A possible shape for such an API could be:
 
 ```yaml
 spec:
-  schedulingConstraints:
+  admissionConstraints:
     preemption: Never
     borrowing: Never
 ```
