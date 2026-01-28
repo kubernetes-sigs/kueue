@@ -53,7 +53,7 @@ func (wh *StatefulSetWebhook) Default(ctx context.Context, obj runtime.Object) e
 	}
 
 	log := ctrl.LoggerFrom(ctx).WithName("leaderworkerset-statefulset-webhook")
-	log.V(5).Info("Propagating queue-name")
+	log.V(3).Info("Defaulting")
 
 	if sts.Labels != nil {
 		if _, ok := sts.Labels[v1.SetNameLabelKey]; !ok {
@@ -61,8 +61,11 @@ func (wh *StatefulSetWebhook) Default(ctx context.Context, obj runtime.Object) e
 				sts.Annotations = map[string]string{}
 			}
 			sts.Annotations[podconstants.SuspendedByParentAnnotation] = FrameworkName
+			log.V(3).Info("Set SuspendedByParentAnnotation", "parent", FrameworkName)
 		}
 	}
+
+	log.V(3).Info("No NameLabelKey")
 
 	return nil
 }
