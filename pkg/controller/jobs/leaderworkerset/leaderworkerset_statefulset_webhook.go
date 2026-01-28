@@ -18,7 +18,6 @@ package leaderworkerset
 
 import (
 	"context"
-	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -57,11 +56,11 @@ func (wh *StatefulSetWebhook) Default(ctx context.Context, obj runtime.Object) e
 	log.V(3).Info("Defaulting")
 
 	if sts.UID == "" {
-		fmt.Println("UID is empty")
+		log.V(3).Info("UID is empty")
 	}
-	fmt.Println(sts.Labels)
-	fmt.Println(sts.Annotations)
-	fmt.Println(sts.OwnerReferences)
+	log.V(3).Info("sts.Labels", sts.Labels)
+	log.V(3).Info("sts.Annotations", sts.Annotations)
+	log.V(3).Info("sts.OwnerReferences", sts.OwnerReferences)
 
 	if sts.Annotations != nil {
 		sts.Annotations[podconstants.SuspendedByParentAnnotation] = FrameworkName
