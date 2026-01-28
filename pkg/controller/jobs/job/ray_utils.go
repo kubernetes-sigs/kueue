@@ -30,18 +30,34 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
+// getRayOwnerReference finds an owner reference with the specified Ray kind and API version.
+// For controller owners (like RayJob), it uses metav1.GetControllerOf.
+// For non-controller owners (like RayCluster), it searches through all owner references.
+func getRayOwnerReference(jobObj client.Object, kind, apiVersion string, controllerOnly bool) *metav1.OwnerReference {
+	if controllerOnly {
+		// For controller owners like RayJob
+		owner := metav1.GetControllerOf(jobObj)
+		if owner != nil && owner.APIVersion == apiVersion && owner.Kind == kind {
+			return owner
+		}
+		return nil
+	}
+
+	// For any owner reference like RayCluster
+	for i, owner := range jobObj.GetOwnerReferences() {
+		if owner.Kind == kind && owner.APIVersion == apiVersion {
+			return &jobObj.GetOwnerReferences()[i]
+		}
+	}
+	return nil
+}
+
 func isRaySubmitterJobWithAutoScaling(ctx context.Context, jobObj client.Object, k8sClient client.Client) (bool, *rayv1.RayJob, error) {
 	log := ctrl.LoggerFrom(ctx).WithValues("jobName", jobObj.GetName(), "jobNamespace", jobObj.GetNamespace())
 
-	owner := metav1.GetControllerOf(jobObj)
+	owner := getRayOwnerReference(jobObj, "RayJob", rayv1.GroupVersion.String(), true)
 	if owner == nil {
-		log.V(5).Info("Did not find owner for job")
-		return false, nil, nil
-	}
-
-	createdByRayJob := owner.APIVersion == rayv1.GroupVersion.String() && owner.Kind == "RayJob"
-	if !createdByRayJob {
-		log.V(5).Info("Owner object for job is not RayJob", "ownerKind", owner.Kind, "ownerName", owner.Name)
+		log.V(5).Info("Did not find RayJob owner for job")
 		return false, nil, nil
 	}
 
@@ -109,4 +125,41 @@ func copyRaySubmitterJobMetadata(ctx context.Context, jobObj client.Object, k8sC
 		jobObj.SetAnnotations(jobAnnotations)
 	}
 	return nil
+}
+
+// isRayRedisCleanupJob checks if the batch job is owned by a RayCluster and has the redis-cleanup label.
+// Returns true if the job should be excluded from getting scheduling gates.
+func isRayRedisCleanupJob(ctx context.Context, job *Job) bool {
+	log := ctrl.LoggerFrom(ctx).WithValues("jobName", job.Name, "jobNamespace", job.Namespace)
+	obj := job.Object()
+
+	// Check if the job is owned by a RayCluster
+	owner := getRayOwnerReference(obj, "RayCluster", "ray.io/v1", true)
+	if owner == nil {
+		log.V(5).Info("Job is not owned by ray.io/v1/RayCluster")
+		return false
+	}
+
+	// Check if the job has the redis-cleanup label
+	labels := obj.GetLabels()
+	if labels == nil {
+		log.V(5).Info("Job owned by RayCluster but has no labels",
+			"rayClusterOwner", owner.Name)
+		return false
+	}
+
+	nodeType, exists := labels["ray.io/node-type"]
+	isRedisCleanup := exists && nodeType == "redis-cleanup"
+
+	if isRedisCleanup {
+		log.V(5).Info("Identified Ray redis-cleanup job",
+			"rayClusterOwner", owner.Name,
+			"nodeType", nodeType)
+	} else {
+		log.V(5).Info("Job owned by RayCluster but not redis-cleanup",
+			"rayClusterOwner", owner.Name,
+			"nodeType", nodeType)
+	}
+
+	return isRedisCleanup
 }

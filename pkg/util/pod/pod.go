@@ -57,6 +57,16 @@ func GateTemplate(template *corev1.PodTemplateSpec, gateName string) bool {
 	return gateSpec(&template.Spec, gateName)
 }
 
+// UngateTemplate removes scheduling gate from the PodTemplate if present.
+// Returns true if the PodTemplate has been updated and false otherwise.
+func UngateTemplate(template *corev1.PodTemplateSpec, gateName string) bool {
+	if idx := gateIndex(&template.Spec, gateName); idx >= 0 {
+		template.Spec.SchedulingGates = slices.Delete(template.Spec.SchedulingGates, idx, idx+1)
+		return true
+	}
+	return false
+}
+
 // Gate adds scheduling gate to the PodSpec.
 // Returns true if the PodSpec has been updated and false otherwise.
 func gateSpec(podSpec *corev1.PodSpec, gateName string) bool {
