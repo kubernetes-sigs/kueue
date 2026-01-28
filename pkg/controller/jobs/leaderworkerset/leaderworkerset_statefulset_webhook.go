@@ -56,6 +56,9 @@ func (wh *StatefulSetWebhook) Default(ctx context.Context, obj runtime.Object) e
 	log := ctrl.LoggerFrom(ctx).WithName("leaderworkerset-statefulset-webhook")
 	log.V(3).Info("Defaulting")
 
+	if sts.UID == "" {
+		fmt.Println("UID is empty")
+	}
 	fmt.Println(sts.Labels)
 	fmt.Println(sts.Annotations)
 	fmt.Println(sts.OwnerReferences)
