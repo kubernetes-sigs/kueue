@@ -33,7 +33,7 @@ integrations:
   - "workload.codeflare.dev/appwrapper"
   - "pod"
   - "deployment"
-  - "statefulset"
+#  - "statefulset"
   - "leaderworkerset.x-k8s.io/leaderworkerset"
 featureGates:
   LocalQueueMetrics: true
