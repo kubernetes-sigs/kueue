@@ -1063,10 +1063,10 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			setClusterStatusPending := func() {
 				defer ginkgo.GinkgoRecover()
 
-				gomega.Eventually(func(g gomega.Gomega) {
+				gomega.Eventually(func(g gomega.Gomega) bool {
 					select {
 					case <-stopModification:
-						return
+						return true
 					default:
 						var updatedCq kueue.ClusterQueue
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)).Should(gomega.Succeed())
@@ -1077,8 +1077,9 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 							Message: "by test",
 						})
 						g.Expect(k8sClient.Status().Update(ctx, &updatedCq)).Should(gomega.Succeed())
+						return false
 					}
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Equal(true))
 			}
 
 			go setClusterStatusPending()
