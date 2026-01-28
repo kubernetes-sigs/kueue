@@ -545,7 +545,7 @@ For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`
 			Subsystem: constants.KueueName,
 			Name:      "local_queue_resource_reservation",
 			Help:      `Reports the localQueue's total resource reservation within all the flavors`,
-		}, []string{"name", "namespace", "flavor", "resource", "replica_role"},
+		}, []string{"name", "namespace", "flavor", "resource", "priority_class", "replica_role"},
 	)
 
 	// +metricsdoc:group=localqueue
@@ -828,8 +828,8 @@ func ReportClusterQueueResourceReservations(cohort kueue.CohortReference, queue,
 	ClusterQueueResourceReservations.WithLabelValues(string(cohort), queue, flavor, resource, roletracker.GetRole(tracker)).Set(usage)
 }
 
-func ReportLocalQueueResourceReservations(lq LocalQueueReference, flavor, resource string, usage float64, tracker *roletracker.RoleTracker) {
-	LocalQueueResourceReservations.WithLabelValues(string(lq.Name), lq.Namespace, flavor, resource, roletracker.GetRole(tracker)).Set(usage)
+func ReportLocalQueueResourceReservations(lq LocalQueueReference, flavor, resource string, usage float64, priorityClass string, tracker *roletracker.RoleTracker) {
+	LocalQueueResourceReservations.WithLabelValues(string(lq.Name), lq.Namespace, flavor, resource, priorityClass, roletracker.GetRole(tracker)).Set(usage)
 }
 
 func ReportClusterQueueResourceUsage(cohort kueue.CohortReference, queue, flavor, resource string, usage float64, tracker *roletracker.RoleTracker) {
