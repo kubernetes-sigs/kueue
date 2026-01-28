@@ -121,7 +121,7 @@ func TestDefault(t *testing.T) {
 				}
 			}
 
-			w := &Webhook{
+			w := &LeaderWorkerSetWebhook{
 				client:                     cli,
 				manageJobsWithoutQueueName: tc.manageJobsWithoutQueueName,
 				queues:                     queueManager,
@@ -571,7 +571,7 @@ func TestValidateCreate(t *testing.T) {
 			}
 			builder := utiltesting.NewClientBuilder()
 			client := builder.Build()
-			w := &Webhook{client: client}
+			w := &LeaderWorkerSetWebhook{client: client}
 			ctx, _ := utiltesting.ContextWithLog(t)
 			warns, err := w.ValidateCreate(ctx, tc.lws)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
@@ -1100,7 +1100,7 @@ func TestValidateUpdate(t *testing.T) {
 			for _, integration := range tc.integrations {
 				jobframework.EnableIntegrationsForTest(t, integration)
 			}
-			wh := &Webhook{}
+			wh := &LeaderWorkerSetWebhook{}
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 			_, err := wh.ValidateUpdate(ctx, tc.oldObj, tc.newObj)

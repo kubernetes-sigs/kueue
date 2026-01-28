@@ -39,7 +39,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
@@ -242,6 +241,12 @@ func (r *Reconciler) handle(obj client.Object) bool {
 	ctx := context.Background()
 	log := r.logger().WithValues("statefulset", klog.KObj(sts))
 	ctrl.LoggerInto(ctx, log)
+
+	if sts.Annotations != nil {
+		if _, ok := sts.Annotations[podcontroller.SuspendedByParentAnnotation]; !ok {
+			return false
+		}
+	}
 
 	// Handle only statefulset managed by kueue.
 	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, sts, r.client, r.manageJobsWithoutQueueName, r.managedJobsNamespaceSelector)
