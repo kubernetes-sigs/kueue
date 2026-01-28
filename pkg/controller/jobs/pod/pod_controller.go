@@ -385,7 +385,7 @@ func (p *Pod) Finished(ctx context.Context) (message string, success, finished b
 }
 
 // PodSets will build workload podSets corresponding to the job.
-func (p *Pod) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
+func (p *Pod) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, error) {
 	if !p.isGroup {
 		return constructPodSets(&p.pod)
 	} else {
@@ -1070,7 +1070,7 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		p.list.Items = activePods[:len(activePods)-excessPodsCount]
 	}
 
-	podSets, err := jobframework.JobPodSets(ctx, p)
+	podSets, err := jobframework.JobPodSets(ctx, c, p)
 	if err != nil {
 		if jobframework.IsUnretryableError(err) {
 			r.Eventf(p.Object(), corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, err.Error())
