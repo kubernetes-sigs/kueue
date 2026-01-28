@@ -89,7 +89,7 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 				Replicas(3).
 				Queue(lq.Name).
 				Obj()
-			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.Name), Namespace: ns.Name}
+			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.UID, statefulSet.Name), Namespace: ns.Name}
 			util.MustCreate(ctx, k8sClient, statefulSet)
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -110,7 +110,7 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 					Queue(lq.Name).
 					Obj()
 				conflictingWlLookupKey := types.NamespacedName{
-					Name:      statefulset.GetWorkloadName(conflictingStatefulSet.Name),
+					Name:      statefulset.GetWorkloadName(conflictingStatefulSet.UID, conflictingStatefulSet.Name),
 					Namespace: ns.Name,
 				}
 				util.MustCreate(ctx, k8sClient, conflictingStatefulSet)
@@ -198,7 +198,7 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 				Replicas(3).
 				Queue(lq.Name).
 				Obj()
-			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.Name), Namespace: ns.Name}
+			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.UID, statefulSet.Name), Namespace: ns.Name}
 
 			ginkgo.By("Create StatefulSet", func() {
 				util.MustCreate(ctx, k8sClient, statefulSet)
@@ -246,7 +246,7 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 				Replicas(0).
 				Queue(lq.Name).
 				Obj()
-			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.Name), Namespace: ns.Name}
+			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.UID, statefulSet.Name), Namespace: ns.Name}
 
 			ginkgo.By("Create StatefulSet", func() {
 				util.MustCreate(ctx, k8sClient, statefulSet)
@@ -283,7 +283,7 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 				Replicas(3).
 				Queue(lq.Name).
 				Obj()
-			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.Name), Namespace: ns.Name}
+			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.UID, statefulSet.Name), Namespace: ns.Name}
 
 			ginkgo.By("Create StatefulSet", func() {
 				util.MustCreate(ctx, k8sClient, statefulSet)
@@ -345,7 +345,7 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 				Replicas(3).
 				Queue(fmt.Sprintf("%s-invalid", localQueueName)).
 				Obj()
-			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.Name), Namespace: ns.Name}
+			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.UID, statefulSet.Name), Namespace: ns.Name}
 
 			ginkgo.By("Create StatefulSet", func() {
 				util.MustCreate(ctx, k8sClient, statefulSet)
@@ -390,7 +390,7 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 				Replicas(3).
 				Queue(localQueueName).
 				Obj()
-			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.Name), Namespace: ns.Name}
+			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.UID, statefulSet.Name), Namespace: ns.Name}
 
 			ginkgo.By("Create StatefulSet", func() {
 				util.MustCreate(ctx, k8sClient, statefulSet)
@@ -476,7 +476,7 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 
 			createdLowPriorityWl := &kueue.Workload{}
 			lowPriorityWlKey := types.NamespacedName{
-				Name:      statefulset.GetWorkloadName(lowPrioritySTS.Name),
+				Name:      statefulset.GetWorkloadName(lowPrioritySTS.UID, lowPrioritySTS.Name),
 				Namespace: ns.Name,
 			}
 
@@ -522,7 +522,7 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 
 			createdHighPriorityWl := &kueue.Workload{}
 			highPriorityWlKey := types.NamespacedName{
-				Name:      statefulset.GetWorkloadName(highPrioritySTS.Name),
+				Name:      statefulset.GetWorkloadName(highPrioritySTS.UID, highPrioritySTS.Name),
 				Namespace: ns.Name,
 			}
 			ginkgo.By("Verify the high-priority Workload created with workload priority class", func() {
@@ -560,7 +560,7 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 				gomega.Expect(k8sClient.Create(ctx, statefulSet)).To(gomega.Succeed())
 			})
 
-			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.Name), Namespace: ns.Name}
+			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.UID, statefulSet.Name), Namespace: ns.Name}
 			createdWorkload := &kueue.Workload{}
 			ginkgo.By("Check workload is created", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
