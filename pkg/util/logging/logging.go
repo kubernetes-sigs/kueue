@@ -17,6 +17,10 @@ limitations under the License.
 package logging
 
 import (
+	arrayslices "slices"
+	"strings"
+
+	"go.uber.org/zap/zapcore"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -34,4 +38,72 @@ func GetObjectReferences[T ObjectRefProvider](items []T) []klog.ObjectRef {
 	return slices.Map(items, func(item *T) klog.ObjectRef {
 		return klog.KObj((*item).GetObject())
 	})
+}
+
+// as indicated in https://pkg.go.dev/github.com/go-logr/zapr#hdr-Usage
+// logr log levels correspond to custom zapcore levels and
+// zapLevel = -1*logrLevel, so we set it to -3 as it means first verbosity
+// not visible by users in default settings,
+// see https://github.com/kubernetes/community/blob/88841374e9558803b5b2ec81beb450e246283f09/contributors/devel/sig-instrumentation/logging.md?plain=1#L109
+const klogV3Level = zapcore.Level(-3)
+
+// zapcore.Core that overrides log level of
+// expected reconciler errors connected to concurrent resources modification and
+// omits their stack trace.
+// Those errors are emitted with klog V3 level.
+// Other logs are left intact, and written using original core.
+type CustomLogProcessor struct {
+	zapcore.Core
+}
+
+func (core CustomLogProcessor) Check(entry zapcore.Entry, checkedEntries *zapcore.CheckedEntry) *zapcore.CheckedEntry {
+	if core.Enabled(entry.Level) {
+		return checkedEntries.AddCore(entry, core)
+	}
+	return checkedEntries
+}
+
+func (core CustomLogProcessor) Write(entry zapcore.Entry, fields []zapcore.Field) error {
+	if entry.Level == zapcore.ErrorLevel {
+		if isEntryAConcurrentModificationError(entry, fields) {
+			entry.Level = klogV3Level
+			entry.Stack = ""
+		}
+	}
+	return core.Core.Write(entry, fields)
+}
+
+const concurrentModificationError = "the object has been modified; please apply your changes to the latest version and try again"
+
+func isEntryAConcurrentModificationError(entry zapcore.Entry, fields []zapcore.Field) bool {
+	errorDetailsFieldKey := "error"
+
+	if entry.Level != zapcore.ErrorLevel || entry.Message != "Reconciler error" {
+		return false
+	}
+	return arrayslices.ContainsFunc(fields, func(field zapcore.Field) bool {
+		isErrorField := field.Key == errorDetailsFieldKey && field.Type == zapcore.ErrorType
+		if !isErrorField {
+			return false
+		}
+		err := field.Interface.(error)
+		if err == nil {
+			return false
+		}
+		return strings.Contains(err.Error(), concurrentModificationError)
+	})
+}
+
+func (c CustomLogProcessor) With(fields []zapcore.Field) zapcore.Core {
+	wrappedClone := c.Core.With(fields)
+	clone := CustomLogProcessor{
+		Core: wrappedClone,
+	}
+	return clone
+}
+
+func NewCustomLogProcessor(core zapcore.Core) zapcore.Core {
+	return CustomLogProcessor{
+		Core: core,
+	}
 }

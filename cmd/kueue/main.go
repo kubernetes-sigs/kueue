@@ -75,6 +75,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	"sigs.k8s.io/kueue/pkg/util/cert"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
+	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/tlsconfig"
 	"sigs.k8s.io/kueue/pkg/util/useragent"
@@ -126,13 +127,17 @@ func main() {
 	var featureGates string
 	flag.StringVar(&featureGates, "feature-gates", "", "A set of key=value pairs that describe feature gates for alpha/experimental features.")
 
-	opts := zap.Options{
+	customLogProcessor := zaplog.WrapCore(utillogging.NewCustomLogProcessor)
+
+	zapOptions := zap.Options{
 		TimeEncoder: zapcore.RFC3339NanoTimeEncoder,
-		ZapOpts:     []zaplog.Option{zaplog.AddCaller()},
+		ZapOpts:     []zaplog.Option{zaplog.AddCaller(), customLogProcessor},
 	}
-	opts.BindFlags(flag.CommandLine)
+	zapOptions.BindFlags(flag.CommandLine)
 	flag.Parse()
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	logger := zap.New(zap.UseFlagOptions(&zapOptions))
+	ctrl.SetLogger(logger)
 
 	options, cfg, err := apply(configFile)
 	if err != nil {

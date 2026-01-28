@@ -17,9 +17,14 @@ limitations under the License.
 package core
 
 import (
+	"strings"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
@@ -1033,6 +1038,68 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 
 			ginkgo.By("Delete clusterQueue")
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		})
+	})
+
+	ginkgo.When("ClusterQueue is concurrently modified", func() {
+		var (
+			cq *kueue.ClusterQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			cq = utiltestingapi.MakeClusterQueue("foo-cq").Obj()
+			util.MustCreate(ctx, k8sClient, cq)
+		})
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		})
+
+		ginkgo.It("Should log reconciler concurrent modification errors with log level smaller than error", func() {
+			stopModification := make(chan bool)
+
+			// local helper that sets cq status to pending, at the same time
+			// core controller will try to set status to Active, so concurrent modification should occur
+			setClusterStatusPending := func() {
+				defer ginkgo.GinkgoRecover()
+
+				gomega.Eventually(func(g gomega.Gomega) bool {
+					select {
+					case <-stopModification:
+						return true
+					default:
+						var updatedCq kueue.ClusterQueue
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)).Should(gomega.Succeed())
+						apimeta.SetStatusCondition(&updatedCq.Status.Conditions, metav1.Condition{
+							Type:    kueue.ClusterQueueActive,
+							Status:  metav1.ConditionFalse,
+							Reason:  "ByTest",
+							Message: "by test",
+						})
+						g.Expect(k8sClient.Status().Update(ctx, &updatedCq)).Should(gomega.Succeed())
+						return false
+					}
+				}, util.Timeout, util.Interval).To(gomega.BeTrue())
+			}
+
+			go setClusterStatusPending()
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				reconcileLogs := util.ObservedLogs.FilterMessage("Reconciler error")
+
+				reconcileConcurrentModificationLogs := reconcileLogs.Filter(
+					func(le observer.LoggedEntry) bool {
+						errorDetals := le.ContextMap()["error"].(string)
+						expectedConcurrentModicationDetails := "the object has been modified; please apply your changes to the latest version and try again"
+						return strings.Contains(errorDetals, expectedConcurrentModicationDetails)
+					})
+				g.Expect(reconcileConcurrentModificationLogs.All()).ShouldNot(gomega.BeEmpty(),
+					"There should be some reconciler concurrent modifcation error log entries")
+				g.Expect(reconcileConcurrentModificationLogs.FilterLevelExact(zapcore.ErrorLevel).All()).Should(gomega.BeEmpty(),
+					"Log level should not be error")
+
+				stopModification <- true
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })

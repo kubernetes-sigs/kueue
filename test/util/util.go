@@ -41,6 +41,7 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -71,6 +72,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -1089,16 +1091,29 @@ func ExpectPreemptedCondition(ctx context.Context, k8sClient client.Client, reas
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
+var ObservedLogs *observer.ObservedLogs
+
 func NewTestingLogger(writer io.Writer) logr.Logger {
+	level := utiltesting.LogLevelWithDefault(utiltesting.DefaultLogLevel)
+	zapcoreLevel := zapcore.Level(level)
+
+	var logsObserver zapcore.Core
+	logsObserver, ObservedLogs = observer.New(zapcoreLevel)
+
+	logsObserverWrapper := zaplog.WrapCore(func(core zapcore.Core) zapcore.Core {
+		return utillogging.NewCustomLogProcessor(zapcore.NewTee(logsObserver, core))
+	})
+
 	opts := func(o *zap.Options) {
 		o.TimeEncoder = zapcore.RFC3339NanoTimeEncoder
-		o.ZapOpts = []zaplog.Option{zaplog.AddCaller()}
+		o.ZapOpts = []zaplog.Option{zaplog.AddCaller(),
+			logsObserverWrapper}
 	}
-	level := utiltesting.LogLevelWithDefault(utiltesting.DefaultLogLevel)
+
 	return zap.New(
 		zap.WriteTo(writer),
 		zap.UseDevMode(true),
-		zap.Level(zapcore.Level(level)),
+		zap.Level(zapcoreLevel),
 		opts)
 }
 
