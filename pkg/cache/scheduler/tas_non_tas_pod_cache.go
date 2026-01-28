@@ -47,7 +47,6 @@ func (n *nonTasUsageCache) update(pod *corev1.Pod, log logr.Logger) {
 	n.lock.Lock()
 	defer n.lock.Unlock()
 
-	// delete terminated pods as they no longer use any capacity.
 	if utilpod.IsTerminated(pod) {
 		log.V(5).Info("Deleting terminated pod from the cache")
 		delete(n.podUsage, client.ObjectKeyFromObject(pod))
@@ -63,10 +62,15 @@ func (n *nonTasUsageCache) update(pod *corev1.Pod, log logr.Logger) {
 	}
 }
 
-func (n *nonTasUsageCache) delete(key client.ObjectKey) {
+// delete removes a pod from the cache and returns the node it was on (if any).
+func (n *nonTasUsageCache) delete(key client.ObjectKey) string {
 	n.lock.Lock()
 	defer n.lock.Unlock()
-	delete(n.podUsage, key)
+	if usage, ok := n.podUsage[key]; ok {
+		delete(n.podUsage, key)
+		return usage.node
+	}
+	return ""
 }
 
 func (n *nonTasUsageCache) usagePerNode() map[string]resources.Requests {

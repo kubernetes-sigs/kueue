@@ -19,6 +19,7 @@ package core
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -48,8 +49,6 @@ var (
 	k8sClient client.Client
 	ctx       context.Context
 	fwk       *framework.Framework
-	// Cleanup after https://github.com/kubernetes-sigs/kueue/issues/8653
-	qManager *qcache.Manager
 )
 
 func TestAPIs(t *testing.T) {
@@ -91,12 +90,12 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	cacheOptions := []schdcache.Option{}
 	cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 	queues := qcache.NewManager(mgr.GetClient(), cCache)
-	qManager = queues
 
 	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "Core controller", failedCtrl)
 
-	failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, controllersCfg, nil)
+	failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, controllersCfg, nil,
+		tas.WithRequeueBatchPeriod(time.Second))
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "TAS controller", failedCtrl)
 
 	err = tasindexer.SetupIndexes(ctx, mgr.GetFieldIndexer())
