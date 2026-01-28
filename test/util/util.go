@@ -25,7 +25,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"sync"
 	"time"
 
@@ -1462,9 +1461,9 @@ func UpdateReclaimablePods(ctx context.Context, c client.Client, wl *kueue.Workl
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
-func WorkloadKeyForLeaderWorkerSet(lws *leaderworkersetv1.LeaderWorkerSet, group int) client.ObjectKey {
+func WorkloadKeyForLeaderWorkerSet(lws *leaderworkersetv1.LeaderWorkerSet, group string) client.ObjectKey {
 	return types.NamespacedName{
-		Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, strconv.Itoa(group)),
+		Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, group),
 		Namespace: lws.Namespace,
 	}
 }
