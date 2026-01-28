@@ -52,6 +52,12 @@ var (
 	errQNotFound      = errors.New("queue not found")
 )
 
+// ClusterQueueEmptyWatcher is notified when a terminating ClusterQueue
+// transitions from non-empty to empty.
+type ClusterQueueEmptyWatcher interface {
+	NotifyClusterQueueEmpty(cqName kueue.ClusterQueueReference)
+}
+
 const (
 	pending     = metrics.CQStatusPending
 	active      = metrics.CQStatusActive
@@ -122,6 +128,8 @@ type Cache struct {
 	tasCache tasCache
 
 	roleTracker *roletracker.RoleTracker
+
+	emptyWatchers []ClusterQueueEmptyWatcher
 }
 
 func New(client client.Client, options ...Option) *Cache {
@@ -138,6 +146,12 @@ func New(client client.Client, options ...Option) *Cache {
 	}
 	cache.podsReadyCond.L = &cache.RWMutex
 	return cache
+}
+
+func (c *Cache) AddClusterQueueEmptyWatcher(w ClusterQueueEmptyWatcher) {
+	c.Lock()
+	defer c.Unlock()
+	c.emptyWatchers = append(c.emptyWatchers, w)
 }
 
 func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clusterQueue, error) {
@@ -640,10 +654,25 @@ func (c *Cache) deleteFromQueueIfPresent(log logr.Logger, wlKey workload.Referen
 }
 
 func (c *Cache) DeleteWorkload(log logr.Logger, wlKey workload.Reference) error {
-	c.Lock()
-	defer c.Unlock()
+	var (
+		cqName      kueue.ClusterQueueReference
+		becameEmpty bool
+		watchers    []ClusterQueueEmptyWatcher
+	)
 
-	cqName, assigned := c.workloadAssignedQueues[wlKey]
+	c.Lock()
+	// Unlock and notify watchers outside the lock to avoid blocking.
+	defer func() {
+		c.Unlock()
+		if becameEmpty {
+			for _, w := range watchers {
+				w.NotifyClusterQueueEmpty(cqName)
+			}
+		}
+	}()
+
+	var assigned bool
+	cqName, assigned = c.workloadAssignedQueues[wlKey]
 	if !assigned {
 		return nil
 	}
@@ -653,8 +682,11 @@ func (c *Cache) DeleteWorkload(log logr.Logger, wlKey workload.Reference) error 
 		return ErrCqNotFound
 	}
 
+	wasNonEmpty := len(cq.Workloads) > 0
 	cq.forgetWorkload(log, wlKey)
 	delete(c.workloadAssignedQueues, wlKey)
+	becameEmpty = cq.Status == terminating && wasNonEmpty && len(cq.Workloads) == 0
+	watchers = append([]ClusterQueueEmptyWatcher(nil), c.emptyWatchers...)
 
 	if c.podsReadyTracking {
 		c.podsReadyCond.Broadcast()

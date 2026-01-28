@@ -80,6 +80,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 	)
 	rfRec.AddUpdateWatcher(cqRec)
 	acRec.AddUpdateWatchers(cqRec)
+	cc.AddClusterQueueEmptyWatcher(cqRec)
 	if err := cqRec.SetupWithManager(mgr, cfg); err != nil {
 		return "ClusterQueue", err
 	}
