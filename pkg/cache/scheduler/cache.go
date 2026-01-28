@@ -570,9 +570,14 @@ func (c *Cache) UpdateLocalQueue(oldQ, newQ *kueue.LocalQueue) error {
 	return nil
 }
 
+func (c *Cache) WorkloadNotRecorded(wlKey workload.Reference) bool {
+	c.RLock()
+	defer c.RUnlock()
+	_, recorded := c.workloadAssignedQueues[wlKey]
+	return !recorded
+}
+
 func (c *Cache) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload) bool {
-	c.Lock()
-	defer c.Unlock()
 	updated, err := c.addOrUpdateWorkloadWithoutLock(log, w)
 	if err != nil {
 		log.Error(err, "Updating workload in cache")
@@ -640,6 +645,7 @@ func (c *Cache) deleteFromQueueIfPresent(log logr.Logger, wlKey workload.Referen
 }
 
 func (c *Cache) DeleteWorkload(log logr.Logger, wlKey workload.Reference) error {
+	// TODO consider making return a bool
 	c.Lock()
 	defer c.Unlock()
 

@@ -191,6 +191,10 @@ func (m *Manager) addFinishedWorkloadWithoutLock(wl *kueue.Workload) {
 
 	qKey := queue.KeyFromWorkload(wl)
 
+	if recordedCQ, alreadyInCache := m.finishedWorkloads[wlKey]; alreadyInCache && recordedCQ == qKey {
+		return
+	}
+
 	m.finishedWorkloads[wlKey] = qKey
 
 	q := m.localQueues[qKey]
@@ -525,6 +529,34 @@ func (m *Manager) ClusterQueueForWorkload(wl *kueue.Workload) (kueue.ClusterQueu
 	return q.ClusterQueue, ok
 }
 
+// Saves the workload's assignment to a local queue.
+func (m *Manager) RecordWorkloadAssignment(log logr.Logger, w *kueue.Workload) {
+	m.Lock()
+	defer m.Unlock()
+
+	wlKey := workload.Key(w)
+	qKey := queue.KeyFromWorkload(w)
+
+	assignedQueue, ok := m.workloadAssignedQueues[wlKey]
+
+	if ok && assignedQueue != qKey {
+		m.deleteAndForgetWorkloadWithoutLock(log, wlKey)
+		m.assignWorkload(wlKey, qKey)
+	}
+
+	if !ok {
+		m.assignWorkload(wlKey, qKey)
+	}
+}
+
+// Check is workload is already present in the cache map
+func (m *Manager) WorkloadNotRecorded(wlKey workload.Reference) bool {
+	m.RLock()
+	defer m.RUnlock()
+	_, recorded := m.workloadAssignedQueues[wlKey]
+	return !recorded
+}
+
 // AddOrUpdateWorkload adds or updates workload to the corresponding queue.
 // Returns whether the queue existed.
 func (m *Manager) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
@@ -667,29 +699,32 @@ func (m *Manager) deleteWorkloadWithoutLock(log logr.Logger, wlKey workload.Refe
 // An optional action can be executed at the beginning of the function,
 // while holding the lock, to provide atomicity with the operations in the
 // queues.
-func (m *Manager) QueueAssociatedInadmissibleWorkloadsAfter(ctx context.Context, wlKey workload.Reference, action func()) {
+func (m *Manager) QueueAssociatedInadmissibleWorkloadsAfter(ctx context.Context, wlKey workload.Reference, action func() error) error {
 	m.Lock()
 	defer m.Unlock()
 	if action != nil {
-		action()
+		if err := action(); err != nil {
+			return err
+		}
 	}
 
 	qKey, ok := m.workloadAssignedQueues[wlKey]
 	if !ok {
-		return
+		return nil
 	}
 	q := m.localQueues[qKey]
 	if q == nil {
-		return
+		return nil
 	}
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq == nil {
-		return
+		return nil
 	}
 
 	if m.requeueWorkloadsCQ(ctx, cq) {
 		m.Broadcast()
 	}
+	return nil
 }
 
 // QueueInadmissibleWorkloads moves all inadmissibleWorkloads in
