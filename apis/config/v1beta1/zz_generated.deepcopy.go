@@ -589,6 +589,11 @@ func (in *Resources) DeepCopyInto(out *Resources) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.IncludeResourcePrefixes != nil {
+		in, out := &in.IncludeResourcePrefixes, &out.IncludeResourcePrefixes
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.Transformations != nil {
 		in, out := &in.Transformations, &out.Transformations
 		*out = make([]ResourceTransformation, len(*in))

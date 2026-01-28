@@ -459,6 +459,9 @@ type Resources struct {
 	// ExcludedResourcePrefixes defines which resources should be ignored by Kueue
 	ExcludeResourcePrefixes []string `json:"excludeResourcePrefixes,omitempty"`
 
+	// IncludedResourcePrefixes defines which resources should be included by Kueue
+	IncludeResourcePrefixes []string `json:"includeResourcePrefixes,omitempty"`
+
 	// Transformations defines how to transform PodSpec resources into Workload resource requests.
 	// This is intended to be a map with Input as the key (enforced by validation code)
 	Transformations []ResourceTransformation `json:"transformations,omitempty"`

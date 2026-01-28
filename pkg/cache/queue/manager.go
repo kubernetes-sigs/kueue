@@ -82,6 +82,13 @@ func WithExcludedResourcePrefixes(excludedPrefixes []string) Option {
 	}
 }
 
+// WithIncludedResourcePrefixes sets the list of included resource prefixes
+func WithIncludedResourcePrefixes(includedPrefixes []string) Option {
+	return func(m *Manager) {
+		m.workloadInfoOptions = append(m.workloadInfoOptions, workload.WithIncludedResourcePrefixes(includedPrefixes))
+	}
+}
+
 // WithResourceTransformations sets the resource transformations.
 func WithResourceTransformations(transforms []config.ResourceTransformation) Option {
 	return func(m *Manager) {

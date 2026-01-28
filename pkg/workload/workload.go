@@ -109,6 +109,7 @@ type dra struct {
 
 type InfoOptions struct {
 	excludedResourcePrefixes []string
+	includedResourcePrefixes []string
 	resourceTransformations  map[corev1.ResourceName]*config.ResourceTransformation
 	dra
 }
@@ -121,6 +122,13 @@ var defaultOptions = InfoOptions{}
 func WithExcludedResourcePrefixes(n []string) InfoOption {
 	return func(o *InfoOptions) {
 		o.excludedResourcePrefixes = n
+	}
+}
+
+// WithIncludedResourcePrefixes adds the prefixes
+func WithIncludedResourcePrefixes(n []string) InfoOption {
+	return func(o *InfoOptions) {
+		o.includedResourcePrefixes = n
 	}
 }
 
@@ -324,6 +332,20 @@ func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string)
 	return res
 }
 
+func includeResources(input corev1.ResourceList, includedPrefixes []string) corev1.ResourceList {
+	res := corev1.ResourceList{}
+	if len(includedPrefixes) == 0 {
+		return input
+	}
+	for inputName, inputQuantity := range input {
+		for _, includedPrefix := range includedPrefixes {
+			if strings.HasPrefix(string(inputName), includedPrefix) {
+				res[inputName] = inputQuantity
+			}
+		}
+	}
+	return res
+}
 func (i *Info) CalcLocalQueueFSUsage(ctx context.Context, c client.Client, resWeights map[corev1.ResourceName]float64, afsEntryPenalties *queueafs.AfsEntryPenalties, afsConsumedResources *queueafs.AfsConsumedResources) (float64, error) {
 	var usage float64
 	lqKey := utilqueue.KeyFromWorkload(i.Obj)
@@ -514,6 +536,7 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 		}
 		specRequests := resourcehelpers.PodRequests(&corev1.Pod{Spec: ps.Template.Spec}, resourcehelpers.PodResourcesOptions{})
 		effectiveRequests := dropExcludedResources(specRequests, info.excludedResourcePrefixes)
+		effectiveRequests = includeResources(effectiveRequests, info.includedResourcePrefixes)
 		effectiveRequests = applyResourceTransformations(effectiveRequests, info.resourceTransformations)
 		setRes.Requests = resources.NewRequests(effectiveRequests)
 		if features.Enabled(features.DynamicResourceAllocation) && info.preprocessedDRAResources != nil {

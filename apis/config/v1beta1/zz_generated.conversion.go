@@ -739,6 +739,7 @@ func Convert_v1beta2_ResourceTransformation_To_v1beta1_ResourceTransformation(in
 
 func autoConvert_v1beta1_Resources_To_v1beta2_Resources(in *Resources, out *v1beta2.Resources, s conversion.Scope) error {
 	out.ExcludeResourcePrefixes = *(*[]string)(unsafe.Pointer(&in.ExcludeResourcePrefixes))
+	out.IncludeResourcePrefixes = *(*[]string)(unsafe.Pointer(&in.IncludeResourcePrefixes))
 	out.Transformations = *(*[]v1beta2.ResourceTransformation)(unsafe.Pointer(&in.Transformations))
 	out.DeviceClassMappings = *(*[]v1beta2.DeviceClassMapping)(unsafe.Pointer(&in.DeviceClassMappings))
 	return nil
@@ -751,6 +752,7 @@ func Convert_v1beta1_Resources_To_v1beta2_Resources(in *Resources, out *v1beta2.
 
 func autoConvert_v1beta2_Resources_To_v1beta1_Resources(in *v1beta2.Resources, out *Resources, s conversion.Scope) error {
 	out.ExcludeResourcePrefixes = *(*[]string)(unsafe.Pointer(&in.ExcludeResourcePrefixes))
+	out.IncludeResourcePrefixes = *(*[]string)(unsafe.Pointer(&in.IncludeResourcePrefixes))
 	out.Transformations = *(*[]ResourceTransformation)(unsafe.Pointer(&in.Transformations))
 	out.DeviceClassMappings = *(*[]DeviceClassMapping)(unsafe.Pointer(&in.DeviceClassMappings))
 	return nil
