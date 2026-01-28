@@ -284,12 +284,12 @@ func TestAdapter_GetEmptyList(t *testing.T) {
 	}
 }
 
-func TestAdapter_WorkloadKeyFor(t *testing.T) {
+func TestAdapter_WorkloadKeysFor(t *testing.T) {
 	tests := []struct {
 		name       string
 		gvk        schema.GroupVersionKind
 		object     *unstructured.Unstructured
-		want       types.NamespacedName
+		want       []types.NamespacedName
 		wantErrMsg string
 	}{
 		{
@@ -310,10 +310,10 @@ func TestAdapter_WorkloadKeyFor(t *testing.T) {
 					},
 				},
 			},
-			want: types.NamespacedName{
+			want: []types.NamespacedName{{
 				Name:      "test-workload",
 				Namespace: "test-ns",
-			},
+			}},
 		},
 		{
 			name: "object without prebuilt workload label",
@@ -333,7 +333,7 @@ func TestAdapter_WorkloadKeyFor(t *testing.T) {
 					},
 				},
 			},
-			want:       types.NamespacedName{},
+			want:       nil,
 			wantErrMsg: "no prebuilt workload found for TestJob: test-ns/test-job",
 		},
 	}
@@ -345,7 +345,7 @@ func TestAdapter_WorkloadKeyFor(t *testing.T) {
 			tt.object.SetName("test-job")
 			tt.object.SetNamespace("test-ns")
 
-			result, err := adapter.(*Adapter).WorkloadKeyFor(tt.object)
+			result, err := adapter.(*Adapter).WorkloadKeysFor(tt.object)
 
 			if tt.wantErrMsg != "" {
 				if err == nil {
@@ -359,7 +359,7 @@ func TestAdapter_WorkloadKeyFor(t *testing.T) {
 
 			if tt.wantErrMsg == "" {
 				if diff := cmp.Diff(tt.want, result); diff != "" {
-					t.Errorf("Adapter.WorkloadKeyFor() result (-want,+got):\n%s", diff)
+					t.Errorf("Adapter.WorkloadKeysFor() result (-want,+got):\n%s", diff)
 				}
 			}
 		})

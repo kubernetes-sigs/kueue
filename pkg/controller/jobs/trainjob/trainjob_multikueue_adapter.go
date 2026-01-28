@@ -109,16 +109,16 @@ func (*multiKueueAdapter) GetEmptyList() client.ObjectList {
 	return &kftrainerapi.TrainJobList{}
 }
 
-func (*multiKueueAdapter) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
+func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedName, error) {
 	trainJob, isTrainJob := o.(*kftrainerapi.TrainJob)
 	if !isTrainJob {
-		return types.NamespacedName{}, errors.New("not a trainjob")
+		return nil, errors.New("not a trainjob")
 	}
 
 	prebuiltWl, hasPrebuiltWorkload := trainJob.Labels[constants.PrebuiltWorkloadLabel]
 	if !hasPrebuiltWorkload {
-		return types.NamespacedName{}, fmt.Errorf("no prebuilt workload found for trainjog: %s", klog.KObj(trainJob))
+		return nil, fmt.Errorf("no prebuilt workload found for trainjob: %s", klog.KObj(trainJob))
 	}
 
-	return types.NamespacedName{Name: prebuiltWl, Namespace: trainJob.Namespace}, nil
+	return []types.NamespacedName{{Name: prebuiltWl, Namespace: trainJob.Namespace}}, nil
 }
