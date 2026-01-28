@@ -175,10 +175,14 @@ func main() {
 
 	if *qps > 0 {
 		cfg.QPS = float32(*qps)
+	} else {
+		cfg.QPS = 100.0
 	}
 
 	if *burst > 0 {
 		cfg.Burst = *burst
+	} else {
+		cfg.Burst = 200
 	}
 
 	generationDoneCh := make(chan struct{})
