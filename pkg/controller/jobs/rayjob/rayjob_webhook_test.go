@@ -36,7 +36,6 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
-	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 func TestDefault(t *testing.T) {
@@ -134,12 +133,11 @@ func TestValidateCreate(t *testing.T) {
 	bigWorkerGroup := []rayv1.WorkerGroupSpec{worker, worker, worker, worker, worker, worker, worker, worker}
 
 	testcases := map[string]struct {
-		job                          *rayv1.RayJob
-		manageAll                    bool
-		wantErr                      error
-		localQueueDefaulting         bool
-		topologyAwareScheduling      bool
-		elasticJobsViaWorkloadSlices bool
+		job                     *rayv1.RayJob
+		manageAll               bool
+		wantErr                 error
+		localQueueDefaulting    bool
+		topologyAwareScheduling bool
 	}{
 		"invalid unmanaged": {
 			job: testingrayutil.MakeJob("job", "ns").
@@ -203,10 +201,10 @@ func TestValidateCreate(t *testing.T) {
 		"invalid managed - has auto scaler": {
 			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
 				WithEnableAutoscaling(ptr.To(true)).
-				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj(),
-			elasticJobsViaWorkloadSlices: true,
-			wantErr:                      nil,
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "rayClusterSpec", "enableInTreeAutoscaling"), ptr.To(true), "a kueue managed job should not use autoscaling"),
+			}.ToAggregate(),
 		},
 		"invalid managed - too many worker groups": {
 			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
@@ -590,7 +588,6 @@ func TestValidateCreate(t *testing.T) {
 			}
 			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
-			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tc.elasticJobsViaWorkloadSlices)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			_, result := wh.ValidateCreate(ctx, tc.job)
 			if diff := cmp.Diff(tc.wantErr, result); diff != "" {
