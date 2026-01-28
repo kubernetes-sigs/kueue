@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"sync"
 	"time"
 
@@ -66,6 +67,7 @@ import (
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
@@ -1458,6 +1460,13 @@ func UpdateReclaimablePods(ctx context.Context, c client.Client, wl *kueue.Workl
 		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(wl), createdWl)).To(gomega.Succeed())
 		g.Expect(workload.UpdateReclaimablePods(ctx, c, createdWl, reclaimablePods)).To(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func WorkloadKeyForLeaderWorkerSet(lws *leaderworkersetv1.LeaderWorkerSet, group int) client.ObjectKey {
+	return types.NamespacedName{
+		Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, strconv.Itoa(group)),
+		Namespace: lws.Namespace,
+	}
 }
 
 func workloadKeys(wls []*kueue.Workload) []client.ObjectKey {
