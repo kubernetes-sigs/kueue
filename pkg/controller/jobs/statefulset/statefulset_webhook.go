@@ -129,7 +129,7 @@ var (
 )
 
 func (wh *Webhook) workloadShouldBeSuspended(ctx context.Context, ss *StatefulSet) (bool, error) {
-	if len(ss.Spec.Template.Annotations[podconstants.SuspendedByParentAnnotation]) > 0 {
+	if ss.Spec.Template.Annotations[podconstants.SuspendedByParentAnnotation] == FrameworkName {
 		return true, nil
 	}
 	return jobframework.WorkloadShouldBeSuspended(ctx, ss.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
