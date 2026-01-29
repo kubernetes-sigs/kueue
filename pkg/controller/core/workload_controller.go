@@ -238,14 +238,11 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, cachesError
 	}
 
-	defer r.notifyWatchers(wlInCache, &wl)
-	defer r.queues.QueueSecondPassIfNeeded(ctx, &wl, 0)
-
 	if wlInCache == nil {
 		if err := r.addWlToAppropriateCache(log, &wl); err != nil {
 			log.V(3).Info("Unable to add workload to cache", "error", err)
 		}
-	} else {
+	} else if workload.IsActive(&wl) {
 		if err := r.updateWlInCaches(ctx, wlInCache, &wl); err != nil {
 			log.V(3).Info("Unable to update workload in cache", "error", err)
 		}
@@ -687,6 +684,9 @@ func (r *WorkloadReconciler) notifyWathchersOfDeletedWorkloads(deletedWorkloads 
 }
 
 func (r *WorkloadReconciler) updateWlInCaches(ctx context.Context, wlInCache *kueue.Workload, wl *kueue.Workload) error {
+	defer r.notifyWatchers(wlInCache, wl)
+	defer r.queues.QueueSecondPassIfNeeded(ctx, wl, 0)
+
 	log := ctrl.LoggerFrom(ctx)
 	log.V(3).Info("Updating caches")
 
@@ -764,6 +764,8 @@ func (r *WorkloadReconciler) updateWlInCaches(ctx context.Context, wlInCache *ku
 }
 
 func (r *WorkloadReconciler) addWlToAppropriateCache(log logr.Logger, wl *kueue.Workload) error {
+	defer r.notifyWatchers(nil, wl)
+
 	if workload.IsAdmissible(wl) {
 		if err := r.queues.AddOrUpdateWorkload(log, wl); err != nil {
 			return err
