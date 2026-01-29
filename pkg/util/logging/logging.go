@@ -90,7 +90,9 @@ func isEntryAConcurrentModificationError(entry zapcore.Entry, fields []zapcore.F
 			return false
 		}
 		errorDescription := err.Error()
-		return strings.HasPrefix(errorDescription, concurrentModificationErrorPrefix) && strings.HasSuffix(errorDescription, concurrentModificationErrorSuffix)
+		// Error messages sometimes are additionally prefixed like: "clearing admission: %w"
+		// therefore we use Contains instead of HasPrefix to also detect those messages
+		return strings.Contains(errorDescription, concurrentModificationErrorPrefix) && strings.HasSuffix(errorDescription, concurrentModificationErrorSuffix)
 	})
 }
 
