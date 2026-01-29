@@ -31,7 +31,7 @@ import (
 // the cluster-wide /openapi/v2 served by the kube-apiserver. If that aggregated
 // schema contains a broken $ref (dangling definition reference), kubectl can
 // fail even for unrelated applies because it parses OpenAPI to build schemas.
-var _ = ginkgo.FDescribe("Aggregated OpenAPI", ginkgo.Label("area:singlecluster", "feature:visibility"), func() {
+var _ = ginkgo.Describe("Aggregated OpenAPI", ginkgo.Label("area:singlecluster", "feature:visibility"), func() {
 	ginkgo.It("Should have resolvable OpenAPI v2 references", func() {
 		discoveryClient, err := discovery.NewDiscoveryClientForConfig(cfg)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
