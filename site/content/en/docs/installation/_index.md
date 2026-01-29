@@ -284,7 +284,6 @@ spec:
 
 {{% alert title="Note" color="primary" %}}
 The SanitizePodSets and MultiKueueAllowInsecureKubeconfigs features are available starting from versions 0.13.8 and 0.14.3.
-The PropagateBatchJobLabelsToWorkload feature is available starting from versions 0.13.10 and 0.14.5.
 {{% /alert %}}
 
 ### Feature gates for graduated or deprecated features

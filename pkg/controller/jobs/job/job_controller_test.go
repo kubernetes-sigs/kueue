@@ -3995,24 +3995,10 @@ func TestReconciler(t *testing.T) {
 
 func TestCleanLabels(t *testing.T) {
 	cases := map[string]struct {
-		featureEnabled bool
-		labels         map[string]string
-		wantLabels     map[string]string
+		labels     map[string]string
+		wantLabels map[string]string
 	}{
-		"feature disabled": {
-			featureEnabled: false,
-			labels: map[string]string{
-				"foo":                      "bar",
-				batchv1.JobNameLabel:       "job-name",
-				"controller-uid":           "uid",
-				batchv1.ControllerUidLabel: "uid",
-			},
-			wantLabels: map[string]string{
-				"foo": "bar",
-			},
-		},
 		"feature enabled": {
-			featureEnabled: true,
 			labels: map[string]string{
 				"foo":                      "bar",
 				batchv1.JobNameLabel:       "job-name",
@@ -4029,7 +4015,6 @@ func TestCleanLabels(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			print(tc.labels)
-			features.SetFeatureGateDuringTest(t, features.PropagateBatchJobLabelsToWorkload, tc.featureEnabled)
 			pt := &corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: tc.labels,
