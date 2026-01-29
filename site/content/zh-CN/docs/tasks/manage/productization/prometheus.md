@@ -8,7 +8,7 @@ description: >
 
 此页面展示了如何配置 Kueue 以使用 Prometheus 指标。
 
-此页面适用于[批处理管理员](/zh-CN/docs/tasks#batch-administrator)。
+此页面适用于[批处理管理员](/zh-cn/docs/tasks#batch-administrator)。
 
 ## 开始之前
 

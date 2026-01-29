@@ -19,7 +19,7 @@ GO_FMT ?= gofmt
 PATHS_TO_VERIFY := config/components apis charts/kueue client-go site/ netlify.toml
 .PHONY: verify
 verify: gomod-verify ci-lint lint-api fmt-verify shell-lint toc-verify manifests generate update-helm
-verify: helm-verify helm-unit-test prepare-release-branch sync-hugo-version npm-depcheck
+verify: helm-verify helm-unit-test prepare-release-branch sync-hugo-version npm-depcheck verify-website-links
 verify: ## Main target: Ensures the repo is clean after all generation/formatting steps.
 	@echo "Verifying repository cleanliness..."
 	git --no-pager diff --exit-code $(PATHS_TO_VERIFY)
@@ -165,3 +165,7 @@ i18n-verify: ## Verify localized docs are in sync with English. Usage: make i18n
 			fi; \
 		done; \
 	fi
+
+.PHONY: verify-website-links
+verify-website-links: hugo ## Verify website links using linkchecker.
+	$(GO_CMD) run ./hack/verify-website-links.go

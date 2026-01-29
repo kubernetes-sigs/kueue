@@ -5,12 +5,12 @@ weight: 7
 description: 在启用了 Kueue 的环境里运行 Job
 ---
 
-本指南适用于[批处理用户](/zh-CN/docs/tasks#batch-user)他们具有基本的 Python 与 Kubernetes 交互经验。
-更多信息，请参见 [Kueue 概述](/zh-CN/docs/overview)。
+本指南适用于[批处理用户](/zh-cn/docs/tasks#batch-user)他们具有基本的 Python 与 Kubernetes 交互经验。
+更多信息，请参见 [Kueue 概述](/zh-cn/docs/overview)。
 
 ## 开始之前 {#before-you-begin}
 
-检查[管理集群配额](/zh-CN/docs/tasks/manage/administer_cluster_quotas)
+检查[管理集群配额](/zh-cn/docs/tasks/manage/administer_cluster_quotas)
 了解初始集群设置的详细信息。你还需要安装 kubernetes python。我们建议使用虚拟环境。
 
 ```bash
@@ -275,7 +275,7 @@ hello world
 ```
 
 你可以进一步自定义作业，并可以在 [Flux Operator 问题板](https://github.com/flux-framework/flux-operator/issues)上提问。
-最后，有关如何使用 YAML 在 Python 之外完成此操作的说明，请参见[运行 Flux MiniCluster](/zh-CN/docs/tasks/run/external_workloads/flux_miniclusters/)。
+最后，有关如何使用 YAML 在 Python 之外完成此操作的说明，请参见[运行 Flux MiniCluster](/zh-cn/docs/tasks/run/external_workloads/flux_miniclusters/)。
 
 ### MPI Operator  {#mpi-operator-job}
 
@@ -378,4 +378,4 @@ pi is approximately 3.1410376000000002
 ```
 
 看起来像是 pi！🎉️🥧️
-如果你有兴趣在 Python 之外使用 YAML 运行此示例，请参见[运行 MPIJob](/zh-CN/docs/tasks/run/kubeflow/mpijobs/)。
+如果你有兴趣在 Python 之外使用 YAML 运行此示例，请参见[运行 MPIJob](/zh-cn/docs/tasks/run/kubeflow/mpijobs/)。

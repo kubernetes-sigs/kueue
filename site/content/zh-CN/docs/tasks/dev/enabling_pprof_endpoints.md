@@ -8,7 +8,7 @@ description: >
 
 本页面向你展示如何为 Kueue 控制器管理器开启 pprof 端点。
 
-本页面的目标读者是[批处理管理员](/zh-CN/docs/tasks#batch-administrator)。
+本页面的目标读者是[批处理管理员](/zh-cn/docs/tasks#batch-administrator)。
 
 ## 开始之前
 
