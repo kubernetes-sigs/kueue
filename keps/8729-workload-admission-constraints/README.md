@@ -150,9 +150,9 @@ This KEP does not propose introducing per-PodSet scheduling constraints. Admissi
 
 During admission, Kueue:
 
-* it evaluates admission feasibility without using disallowed mechanisms,
-* it excludes preemption and/or borrowing when computing flavor assignments and admission decisions,
-* it leaves runtime scheduling and preemption behavior unchanged.
+* evaluates admission feasibility without using disallowed mechanisms,
+* excludes preemption and/or borrowing when computing flavor assignments and admission decisions,
+* leaves runtime scheduling and preemption behavior unchanged.
 
 ### Interaction with Existing Features
 
