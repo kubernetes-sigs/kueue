@@ -76,10 +76,7 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 	log := ctrl.LoggerFrom(ctx).WithName("statefulset-webhook")
 
 	if frameworkName, managed := managedByAnotherFramework(stsObj); managed {
-		log.V(3).Info(
-			fmt.Sprintf("Skipping defaulting because %s annotation is set", podconstants.SuspendedByParentAnnotation),
-			"framework", frameworkName,
-		)
+		log.V(3).Info("Skipping defaulting because the object is managed by another framework", "framework", frameworkName)
 		return nil
 	}
 
