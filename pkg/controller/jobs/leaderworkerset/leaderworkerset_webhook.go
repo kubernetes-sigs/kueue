@@ -42,16 +42,16 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
-type LeaderWorkerSetWebhook struct {
+type Webhook struct {
 	client                       client.Client
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
 	queues                       *qcache.Manager
 }
 
-func SetupLeaderWorkerSetWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
+func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
-	wh := &LeaderWorkerSetWebhook{
+	wh := &Webhook{
 		client:                       mgr.GetClient(),
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
@@ -67,9 +67,9 @@ func SetupLeaderWorkerSetWebhook(mgr ctrl.Manager, opts ...jobframework.Option) 
 
 // +kubebuilder:webhook:path=/mutate-leaderworkerset-x-k8s-io-v1-leaderworkerset,mutating=true,failurePolicy=fail,sideEffects=None,groups="leaderworkerset.x-k8s.io",resources=leaderworkersets,verbs=create;update,versions=v1,name=mleaderworkerset.kb.io,admissionReviewVersions=v1
 
-var _ webhook.CustomDefaulter = &LeaderWorkerSetWebhook{}
+var _ webhook.CustomDefaulter = &Webhook{}
 
-func (wh *LeaderWorkerSetWebhook) Default(ctx context.Context, obj runtime.Object) error {
+func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 	lws := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("leaderworkerset-webhook")
 	log.V(5).Info("Applying defaults")
@@ -89,7 +89,7 @@ func (wh *LeaderWorkerSetWebhook) Default(ctx context.Context, obj runtime.Objec
 	return nil
 }
 
-func (wh *LeaderWorkerSetWebhook) podTemplateSpecDefault(lws *LeaderWorkerSet, podTemplateSpec *corev1.PodTemplateSpec) {
+func (wh *Webhook) podTemplateSpecDefault(lws *LeaderWorkerSet, podTemplateSpec *corev1.PodTemplateSpec) {
 	if priorityClass := jobframework.WorkloadPriorityClassName(lws.Object()); priorityClass != "" {
 		if podTemplateSpec.Labels == nil {
 			podTemplateSpec.Labels = make(map[string]string, 1)
@@ -106,7 +106,7 @@ func (wh *LeaderWorkerSetWebhook) podTemplateSpecDefault(lws *LeaderWorkerSet, p
 
 // +kubebuilder:webhook:path=/validate-leaderworkerset-x-k8s-io-v1-leaderworkerset,mutating=false,failurePolicy=fail,sideEffects=None,groups="leaderworkerset.x-k8s.io",resources=leaderworkersets,verbs=create;update,versions=v1,name=vleaderworkerset.kb.io,admissionReviewVersions=v1
 
-var _ webhook.CustomValidator = &LeaderWorkerSetWebhook{}
+var _ webhook.CustomValidator = &Webhook{}
 
 var (
 	labelsPath                    = field.NewPath("metadata", "labels")
@@ -125,7 +125,7 @@ var (
 	}
 )
 
-func (wh *LeaderWorkerSetWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
+func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
 	lws := fromObject(obj)
 
 	log := ctrl.LoggerFrom(ctx).WithName("leaderworkerset-webhook")
@@ -139,7 +139,7 @@ func (wh *LeaderWorkerSetWebhook) ValidateCreate(ctx context.Context, obj runtim
 	return nil, validationErrs.ToAggregate()
 }
 
-func (wh *LeaderWorkerSetWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
+func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
 	oldLeaderWorkerSet := fromObject(oldObj)
 	newLeaderWorkerSet := fromObject(newObj)
 
@@ -184,7 +184,7 @@ func (wh *LeaderWorkerSetWebhook) ValidateUpdate(ctx context.Context, oldObj, ne
 	return warnings, allErrs.ToAggregate()
 }
 
-func (wh *LeaderWorkerSetWebhook) ValidateDelete(context.Context, runtime.Object) (warnings admission.Warnings, err error) {
+func (wh *Webhook) ValidateDelete(context.Context, runtime.Object) (warnings admission.Warnings, err error) {
 	return nil, nil
 }
 
