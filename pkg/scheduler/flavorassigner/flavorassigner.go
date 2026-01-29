@@ -184,12 +184,13 @@ func (a *Assignment) TotalRequestsFor(wl *workload.Info) resources.FlavorResourc
 		ps = *ps.ScaledTo(newCount)
 
 		for res, q := range ps.Requests {
-			flv := a.PodSets[i].Flavors[res]
-			if flv == nil {
-				// Resource has no flavor assigned (e.g., zero-quantity request for resource not in CQ).
+			// zero-quantity request may have no flavor (#8079), and is irrelevant for
+			// later calculations
+			if q == 0 {
 				continue
 			}
-			usage[resources.FlavorResource{Flavor: flv.Name, Resource: res}] += q
+			flv := a.PodSets[i].Flavors[res].Name
+			usage[resources.FlavorResource{Flavor: flv, Resource: res}] += q
 		}
 	}
 	return usage
@@ -611,7 +612,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 		}
 		var groupStatus Status
 		for resName, quantity := range requests {
-			// Skip zero-quantity requests for resources not defined in the ClusterQueue.
+			// Skip zero-quantity requests for resources not defined in the ClusterQueue (#8079).
 			if quantity == 0 && a.cq.RGByResource(resName) == nil {
 				continue
 			}
