@@ -8,7 +8,7 @@ description: 运行 MultiKueue 调度的 Kubernetes Job。
 
 ## 开始之前 {#before-you-begin}
 
-请查阅 [MultiKueue 安装指南](/zh-CN/docs/tasks/manage/setup_multikueue)了解如何正确设置 MultiKueue 集群。
+请查阅 [MultiKueue 安装指南](/zh-cn/docs/tasks/manage/setup_multikueue)了解如何正确设置 MultiKueue 集群。
 
 为方便安装和使用，建议使用 Kueue v0.8.1 以上版本。
 

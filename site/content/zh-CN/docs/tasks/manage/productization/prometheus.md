@@ -8,7 +8,7 @@ description: >
 
 此页面展示了如何配置 Kueue 以使用 Prometheus 指标。
 
-此页面适用于[批处理管理员](/zh-CN/docs/tasks#batch-administrator)。
+此页面适用于[批处理管理员](/zh-cn/docs/tasks#batch-administrator)。
 
 ## 开始之前
 
@@ -16,7 +16,7 @@ description: >
 
 - 一个 Kubernetes 集群正在运行。
 - kubectl 命令行工具可以与集群通信。
-- [Kueue 已安装](/zh-cn/docs/installation)。
+- [Kueue 已安装](/zh-CN/docs/installation)。
 - Prometheus 已[安装](https://prometheus-operator.dev/docs/getting-started/installation/)
 - Cert Manager 已[安装](https://cert-manager.io/docs/installation/)（可选地）
 

@@ -19,7 +19,7 @@ GO_FMT ?= gofmt
 PATHS_TO_VERIFY := config/components apis charts/kueue client-go site/ netlify.toml
 .PHONY: verify
 verify: gomod-verify ci-lint lint-api fmt-verify shell-lint toc-verify manifests generate update-helm
-verify: helm-verify helm-unit-test prepare-release-branch sync-hugo-version npm-depcheck
+verify: helm-verify helm-unit-test prepare-release-branch sync-hugo-version npm-depcheck verify-website-links
 verify: ## Main target: Ensures the repo is clean after all generation/formatting steps.
 	@echo "Verifying repository cleanliness..."
 	git --no-pager diff --exit-code $(PATHS_TO_VERIFY)
@@ -91,6 +91,59 @@ helm-unit-test: helm helm-unittest-plugin ## Run Helm unit tests for the kueue c
 npm-depcheck: ## Verify frontend and e2e npm dependencies.
 	$(PROJECT_DIR)/hack/depcheck/verify.sh $(PROJECT_DIR)/cmd/kueueviz/frontend
 	$(PROJECT_DIR)/hack/depcheck/verify.sh $(PROJECT_DIR)/test/e2e/kueueviz
+
+# ── Website link checking ──────────────────────────────────────────────
+# verify-website-links builds (or reuses) a Docker image containing all
+# runtime dependencies (Go, Node.js, Hugo, linkchecker) and runs the Go
+# linkchecker tool inside it.
+#
+# Variables:
+#   LINKCHECKER_IMAGE           – local image tag (default: kueue-linkchecker:dev)
+#   LINKCHECKER_IMAGE_PREBUILT  – if set, skip docker build and use this image.
+#                                 Intended for Prow, where a prebuilt image is
+#                                 provided. Takes precedence over LINKCHECKER_IMAGE.
+#   LINKCHECKER_SKIP_NPM_CI    – set to 1 to skip npm ci at runtime (e.g. when
+#                                 node_modules are baked into the image).
+#
+# Version sources (used as docker build args):
+#   GO_VERSION   – from root go.mod          (already defined in Makefile)
+#   HUGO_VERSION – from tools go.mod          (already defined in Makefile-deps.mk)
+#   NODE_VERSION – defined below              (no go.mod source; update manually)
+LINKCHECKER_IMAGE ?= kueue-linkchecker:dev
+LINKCHECKER_IMAGE_PREBUILT ?=
+LINKCHECKER_SKIP_NPM_CI ?= 0
+DOCKER ?= docker
+
+.PHONY: verify-website-links
+verify-website-links: ## Check all internal links on the Hugo docs site.
+	@img="$(LINKCHECKER_IMAGE)"; \
+	go_version="$$(awk '/^go /{print $$2; exit}' hack/internal/tools/go.mod)"; \
+	hugo_version="$$(grep -m1 -E '^[[:space:]]*github.com/gohugoio/hugo[[:space:]]' hack/internal/tools/go.mod | awk '{print $$2}' | sed 's/^v//')"; \
+	if [ -n "$(LINKCHECKER_IMAGE_PREBUILT)" ]; then \
+		img="$(LINKCHECKER_IMAGE_PREBUILT)"; \
+		echo "Using prebuilt image: $$img"; \
+	else \
+		if [ -z "$$go_version" ]; then \
+			echo "ERROR: GO_VERSION is empty; cannot build linkchecker image." >&2; \
+			exit 1; \
+		fi; \
+		if [ -z "$$hugo_version" ]; then \
+			echo "ERROR: HUGO_VERSION is empty; cannot build linkchecker image." >&2; \
+			exit 1; \
+		fi; \
+		echo "Building image: $$img (go=$$go_version hugo=$$hugo_version)"; \
+		$(DOCKER) build -t $$img \
+			--build-arg GO_VERSION=$$go_version \
+			--build-arg HUGO_VERSION=$$hugo_version \
+			-f hack/internal/tools/linkchecker/Dockerfile . ; \
+	fi; \
+	$(DOCKER) run --rm \
+		-e GO_CMD=: \
+		-e HUGO=/usr/local/bin/hugo \
+		-e SKIP_NPM_CI=$(LINKCHECKER_SKIP_NPM_CI) \
+		-v "$$PWD":/workspace \
+		-w /workspace \
+		$$img
 
 .PHONY: i18n-verify
 i18n-verify: ## Verify localized docs are in sync with English. Usage: make i18n-verify [TARGET_LANG=zh-CN]

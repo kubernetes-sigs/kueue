@@ -12,10 +12,10 @@ description: >
 
 ### [AppWrapper](https://project-codeflare.github.io/appwrapper/) 集成
 
-- [使用 AppWrapper 运行自定义工作负载](/zh-CN/docs/tasks/run/external_workloads/wrapped_custom_workload)。
+- [使用 AppWrapper 运行自定义工作负载](/zh-cn/docs/tasks/run/external_workloads/wrapped_custom_workload)。
 
 ### 基于内置框架的集成 {#integrations-based-on-built-in-frameworks}
 
-- [使用 Job 集成运行 Flux Minicluster](/zh-CN/docs/tasks/run/external_workloads/flux_miniclusters)。
-- [使用 Pod 集成运行 Argo Workflow](/zh-CN/docs/tasks/run/external_workloads/argo_workflow)。
-- [使用 Pod 集成运行 Tekton CD Pipeline](/zh-CN/docs/tasks/run/external_workloads/tektoncd)。
+- [使用 Job 集成运行 Flux Minicluster](/zh-cn/docs/tasks/run/external_workloads/flux_miniclusters)。
+- [使用 Pod 集成运行 Argo Workflow](/zh-cn/docs/tasks/run/external_workloads/argo_workflow)。
+- [使用 Pod 集成运行 Tekton CD Pipeline](/zh-cn/docs/tasks/run/external_workloads/tektoncd)。

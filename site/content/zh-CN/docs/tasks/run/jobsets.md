@@ -8,11 +8,11 @@ description: 在启用了 Kueue 的环境里运行 Jobset
 
 本指南解释了如何使用 Kueue 的调度和资源管理功能运行 [JobSet Operator](https://github.com/kubernetes-sigs/jobset) [JobSet](https://jobset.sigs.k8s.io/docs/concepts/)。
 
-本指南适用于[批处理用户](/zh-CN/docs/tasks#batch-user)，他们需要对 Kueue 有基本的了解。更多信息，请参见 [Kueue 概览](/zh-CN/docs/overview)。
+本指南适用于[批处理用户](/zh-cn/docs/tasks#batch-user)，他们需要对 Kueue 有基本的了解。更多信息，请参见 [Kueue 概览](/zh-cn/docs/overview)。
 
 ## 开始之前 {#before-you-begin}
 
-1. 请参见[管理集群配额](/zh-CN/docs/tasks/manage/administer_cluster_quotas)了解初始 Kueue 设置的详细信息。
+1. 请参见[管理集群配额](/zh-cn/docs/tasks/manage/administer_cluster_quotas)了解初始 Kueue 设置的详细信息。
 
 2. 请参见 [JobSet 安装文档](https://jobset.sigs.k8s.io/docs/installation/)了解 JobSet Operator 的安装和配置详情。
 
@@ -27,7 +27,7 @@ description: 在启用了 Kueue 的环境里运行 Jobset
 
 ### a. 队列选择 {#a-queue-selection}
 
-目标[本地队列](/zh-CN/docs/concepts/local_queue)应在 JobSet 配置的 `metadata.labels` 部分指定。
+目标[本地队列](/zh-cn/docs/concepts/local_queue)应在 JobSet 配置的 `metadata.labels` 部分指定。
 
 ```yaml
 metadata:
@@ -79,4 +79,4 @@ kubectl create -f sample-jobset.yaml
 ```
 
 ## Multikueue {#multikueue}
-请参见 [Multikueue](/zh-CN/docs/tasks/run/multikueue) 了解在 MultiKueue 环境中运行 JobSet 的详细信息。
+请参见 [Multikueue](/zh-cn/docs/tasks/run/multikueue) 了解在 MultiKueue 环境中运行 JobSet 的详细信息。

@@ -9,7 +9,7 @@ description: >
 本指南解释了如何使用 `VisibilityOnDemand` 特性在 Grafana 中监控待处理的工作负载。
 
 本文的受众是[批处理管理员](/zh-CN/docs/tasks#batch-administrator)，
-用于 ClusterQueue 可见性，以及[批处理用户](/zh-cn/docs/tasks#batch-user)用于 LocalQueue 可见性。
+用于 ClusterQueue 可见性，以及[批处理用户](/zh-CN/docs/tasks#batch-user)用于 LocalQueue 可见性。
 
 ## 开始之前
 
@@ -82,8 +82,8 @@ Grafana 现已在 [http://localhost:3000](http://localhost:3000) 可用。
 ### 步骤 6：导入待处理工作负载仪表板
 
 1. 下载适当的仪表板 JSON：
-    - [ClusterQueue 可视化](examples/visibility/pending-workloads-for-cluster-queue-visibility-dashboard.json)。
-    - [LocalQueue 可视化](examples/visibility/pending-workloads-for-local-queue-visibility-dashboard.json)。
+    - [ClusterQueue 可视化](/examples/visibility/pending-workloads-for-cluster-queue-visibility-dashboard.json)。
+    - [LocalQueue 可视化](/examples/visibility/pending-workloads-for-local-queue-visibility-dashboard.json)。
 2. 在 Grafana 中，转到 `Dashboards` > `New` > `Import`。
 3. 选择 `Upload dashboard JSON` 文件并选择下载的文件。
 4. 选择在步骤 5 中配置的 Infinity 数据源。
