@@ -29,7 +29,8 @@ tags, and then generate with `hack/update-toc.sh`.
       - [Story 3: Reservation + Homogenous Flavors](#story-3-reservation--homogenous-flavors)
       - [Story 4: Homogenous Flavors only](#story-4-homogenous-flavors-only)
       - [Story 5: Delaying Option creation](#story-5-delaying-option-creation)
-      - [Story 6: Workload with multiple PodSets](#story-6-workload-with-multiple-podsets)
+      - [Story 6: Limit when migration can happen](#story-6-limit-when-migration-can-happen)
+      - [Story 7: Workload with multiple PodSets](#story-7-workload-with-multiple-podsets)
   - [Design Details](#design-details)
     - [ClusterQueue API](#clusterqueue-api)
       - [OnSuccess Policies](#onsuccess-policies)
@@ -201,9 +202,19 @@ As an admin I have two resource flavors in my cluster:
 
 I want my workloads to attempt scheduling on 'Reservation' only for the first 2 hours. If they are not admitted, I want to try 'Reservation' and 'On-Demand' simultaneously.
 
-To achieve that, I configure my ClusterQueue to use the Concurrent Admission with `ExplicitOptions` policy, where I set `CreateDelaySeconds` for the On-Demand option (details below).
+To achieve that, I configure my ClusterQueue to use the Concurrent Admission with `ExplicitOptions` policy, where I set `CreateDelaySeconds=7200` for the On-Demand option (details below).
 
-#### Story 6: Workload with multiple PodSets
+#### Story 6: Limit when migration can happen
+As an admin I have two resource flavors in my CQ:
+1) Most preferable: Reservation
+2) Less preferable: On-Demand
+
+I know my Workload submitted to this CQ run around 2 hours. I calculated that it only makes sense to migrate the to Reservation for the first hour
+of Job's runtime. Thus I want to constraint the migration, and allow it to happen only for the first hour.
+
+To achieve that, I configure my ClusterQueue to use the Concurrent Admission with `ExplicitOptions` policy, where I set `DeleteDelaySeconds=3600` for the Reservation option (details below).
+
+#### Story 7: Workload with multiple PodSets
 As an admin I have two GPU resource flavors and one CPU resource flavor in my cluster.
 GPU:
 1) Most preferable: Reservation
@@ -555,7 +566,7 @@ Introduction of `ExplicitOptions` functionality.
 
 Minimizing number of Option issuing preemptions to only one per Parent.
 
-We have gathered positive feedback from users.
+Positive feedback from users.
 
 Adding/updating Kueue metrics based on users' feedback
 
