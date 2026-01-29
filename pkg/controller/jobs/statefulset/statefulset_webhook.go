@@ -68,15 +68,22 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 var _ webhook.CustomDefaulter = &Webhook{}
 
 func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
-	ss := fromObject(obj)
+	stsObj, ok := obj.(*appsv1.StatefulSet)
+	if !ok {
+		return nil
+	}
+
 	log := ctrl.LoggerFrom(ctx).WithName("statefulset-webhook")
 
-	if ss.Annotations != nil {
-		if parent, ok := ss.Annotations[podconstants.SuspendedByParentAnnotation]; ok {
-			log.V(3).Info("Skipping defaulting because SuspendedByParentAnnotation is set", "parent", parent)
-			return nil
-		}
+	if frameworkName, managed := managedByAnotherFramework(stsObj); managed {
+		log.V(3).Info(
+			fmt.Sprintf("Skipping defaulting because %s annotation is set", podconstants.SuspendedByParentAnnotation),
+			"framework", frameworkName,
+		)
+		return nil
 	}
+
+	ss := fromObject(obj)
 
 	log.V(5).Info("Propagating queue-name")
 

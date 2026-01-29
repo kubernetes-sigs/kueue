@@ -18,6 +18,7 @@ package statefulset
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -243,11 +244,12 @@ func (r *Reconciler) handle(obj client.Object) bool {
 	log := r.logger().WithValues("statefulset", klog.KObj(sts))
 	ctrl.LoggerInto(ctx, log)
 
-	if sts.Annotations != nil {
-		if parent, ok := sts.Annotations[podcontroller.SuspendedByParentAnnotation]; ok {
-			log.V(3).Info("Skipping reconciliation because SuspendedByParentAnnotation is set", "parent", parent)
-			return false
-		}
+	if frameworkName, managed := managedByAnotherFramework(sts); managed {
+		log.V(3).Info(
+			fmt.Sprintf("Skipping reconciliation because %s is set", podcontroller.SuspendedByParentAnnotation),
+			"framework", frameworkName,
+		)
+		return false
 	}
 
 	// Handle only statefulset managed by kueue.

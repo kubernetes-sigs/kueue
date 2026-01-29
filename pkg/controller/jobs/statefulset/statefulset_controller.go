@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 )
 
 var (
@@ -65,4 +66,13 @@ func (d *StatefulSet) GVK() schema.GroupVersionKind {
 
 func SetupIndexes(context.Context, client.FieldIndexer) error {
 	return nil
+}
+
+// managedByAnotherFramework checks if the StatefulSet is managed by a framework other than the current one.
+// It returns the managing framework's name and a boolean indicating whether the StatefulSet is externally managed.
+func managedByAnotherFramework(sts *appsv1.StatefulSet) (string, bool) {
+	if frameworkName, ok := sts.Spec.Template.Annotations[podconstants.SuspendedByParentAnnotation]; ok && frameworkName != FrameworkName {
+		return frameworkName, true
+	}
+	return "", false
 }
