@@ -240,6 +240,12 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/8585
 	// Enable waiting for WorkloadAdmitted before cleaning up non-selected worker workloads.
 	MultiKueueWaitForWorkloadAdmitted featuregate.Feature = "MultiKueueWaitForWorkloadAdmitted"
+
+	// owner: @mykysha
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/3899-remove-finalizers-with-strict-patch
+	//
+	// Finalizers are removed using a strict patch not to cause race conditions.
+	RemoveFinalizersWithStrictPatch featuregate.Feature = "RemoveFinalizersWithStrictPatch"
 )
 
 func init() {
@@ -376,6 +382,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	MultiKueueWaitForWorkloadAdmitted: {
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
+	},
+	RemoveFinalizersWithStrictPatch: {
+		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 
