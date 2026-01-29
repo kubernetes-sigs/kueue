@@ -239,12 +239,10 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	if wlInCache == nil {
-		if err := r.addWlToAppropriateCache(log, &wl); err != nil {
-			log.V(3).Info("Unable to add workload to cache", "error", err)
-		}
+		r.addToCachesIfAble(log, &wl)
 	} else if workload.IsActive(&wl) {
-		if err := r.updateWlInCaches(ctx, wlInCache, &wl); err != nil {
-			log.V(3).Info("Unable to update workload in cache", "error", err)
+		if err := r.updateWorkloadIfAble(ctx, wlInCache, &wl); err != nil {
+			log.V(3).Info("Workload cannot be updated in caches", "error", err)
 		}
 	}
 
@@ -683,7 +681,7 @@ func (r *WorkloadReconciler) notifyWathchersOfDeletedWorkloads(deletedWorkloads 
 	}
 }
 
-func (r *WorkloadReconciler) updateWlInCaches(ctx context.Context, wlInCache *kueue.Workload, wl *kueue.Workload) error {
+func (r *WorkloadReconciler) updateWorkloadIfAble(ctx context.Context, wlInCache *kueue.Workload, wl *kueue.Workload) error {
 	defer r.notifyWatchers(wlInCache, wl)
 	defer r.queues.QueueSecondPassIfNeeded(ctx, wl, 0)
 
@@ -763,20 +761,21 @@ func (r *WorkloadReconciler) updateWlInCaches(ctx context.Context, wlInCache *ku
 	}
 }
 
-func (r *WorkloadReconciler) addWlToAppropriateCache(log logr.Logger, wl *kueue.Workload) error {
-	defer r.notifyWatchers(nil, wl)
-
+func (r *WorkloadReconciler) addToCachesIfAble(log logr.Logger, wl *kueue.Workload) {
 	if workload.IsAdmissible(wl) {
 		if err := r.queues.AddOrUpdateWorkload(log, wl); err != nil {
-			return err
+			log.V(3).Info("Workload cannot be added to the queue cache", "error", err)
+		} else {
+			r.notifyWatchers(nil, wl)
 		}
 	}
 	if workload.HasQuotaReservation(wl) {
-		if _, err := r.cache.VerboseAddOrUpdateWorkload(log, wl); err != nil {
-			return err
+		if !r.cache.AddOrUpdateWorkload(log, wl) {
+			log.V(3).Info("Workload cannot be added to the scheduler cache")
+		} else {
+			r.notifyWatchers(nil, wl)
 		}
 	}
-	return nil
 }
 
 // isDisabledRequeuedByClusterQueueStopped returns true if the workload is unset requeued by cluster queue stopped.
