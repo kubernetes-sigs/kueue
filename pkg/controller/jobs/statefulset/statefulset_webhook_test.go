@@ -95,6 +95,19 @@ func TestDefault(t *testing.T) {
 				PodTemplateSpecPodGroupPodIndexLabelAnnotation(appsv1.PodIndexLabel).
 				Obj(),
 		},
+		"statefulset managed by another framework": {
+			enableIntegrations: []string{"pod"},
+			statefulset: testingstatefulset.MakeStatefulSet("test-pod", "").
+				Replicas(10).
+				Queue("test-queue").
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, "test-framework").
+				Obj(),
+			want: testingstatefulset.MakeStatefulSet("test-pod", "").
+				Replicas(10).
+				Queue("test-queue").
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, "test-framework").
+				Obj(),
+		},
 		"statefulset with queue and priority class": {
 			enableIntegrations: []string{"pod"},
 			statefulset: testingstatefulset.MakeStatefulSet("test-pod", "").

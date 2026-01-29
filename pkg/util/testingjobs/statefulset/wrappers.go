@@ -89,15 +89,6 @@ func (ss *StatefulSetWrapper) Label(k, v string) *StatefulSetWrapper {
 	return ss
 }
 
-// Annotation sets the annotation of the StatefulSet
-func (ss *StatefulSetWrapper) Annotation(k, v string) *StatefulSetWrapper {
-	if ss.Annotations == nil {
-		ss.Annotations = make(map[string]string)
-	}
-	ss.Annotations[k] = v
-	return ss
-}
-
 // Queue updates the queue name of the StatefulSet
 func (ss *StatefulSetWrapper) Queue(q string) *StatefulSetWrapper {
 	return ss.Label(controllerconstants.QueueLabel, q)

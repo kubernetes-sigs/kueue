@@ -39,7 +39,7 @@ import (
 	testingleaderworkerset "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 )
 
-func TestLeaderWorkerSetWebhookDefault(t *testing.T) {
+func TestDefault(t *testing.T) {
 	testCases := map[string]struct {
 		lws                        *leaderworkersetv1.LeaderWorkerSet
 		manageJobsWithoutQueueName bool
@@ -121,7 +121,7 @@ func TestLeaderWorkerSetWebhookDefault(t *testing.T) {
 				}
 			}
 
-			w := &LeaderWorkerSetWebhook{
+			w := &Webhook{
 				client:                     cli,
 				manageJobsWithoutQueueName: tc.manageJobsWithoutQueueName,
 				queues:                     queueManager,
@@ -137,7 +137,7 @@ func TestLeaderWorkerSetWebhookDefault(t *testing.T) {
 	}
 }
 
-func TestLeaderWorkerSetWebhookValidateCreate(t *testing.T) {
+func TestValidateCreate(t *testing.T) {
 	testCases := map[string]struct {
 		integrations []string
 		lws          *leaderworkersetv1.LeaderWorkerSet
@@ -571,7 +571,7 @@ func TestLeaderWorkerSetWebhookValidateCreate(t *testing.T) {
 			}
 			builder := utiltesting.NewClientBuilder()
 			client := builder.Build()
-			w := &LeaderWorkerSetWebhook{client: client}
+			w := &Webhook{client: client}
 			ctx, _ := utiltesting.ContextWithLog(t)
 			warns, err := w.ValidateCreate(ctx, tc.lws)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
@@ -584,7 +584,7 @@ func TestLeaderWorkerSetWebhookValidateCreate(t *testing.T) {
 	}
 }
 
-func TestLeaderWorkerSetWebhookValidateUpdate(t *testing.T) {
+func TestValidateUpdate(t *testing.T) {
 	testCases := map[string]struct {
 		integrations []string
 		oldObj       *leaderworkersetv1.LeaderWorkerSet
@@ -1100,7 +1100,7 @@ func TestLeaderWorkerSetWebhookValidateUpdate(t *testing.T) {
 			for _, integration := range tc.integrations {
 				jobframework.EnableIntegrationsForTest(t, integration)
 			}
-			wh := &LeaderWorkerSetWebhook{}
+			wh := &Webhook{}
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 			_, err := wh.ValidateUpdate(ctx, tc.oldObj, tc.newObj)
