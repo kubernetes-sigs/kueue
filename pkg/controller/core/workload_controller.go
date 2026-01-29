@@ -187,6 +187,9 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, err
 	}
 
+	// all non deleted workloads should be recorded in the queue cache
+	r.queues.RecordWorkloadAssignment(log, &wl)
+
 	if len(wl.OwnerReferences) == 0 && !wl.DeletionTimestamp.IsZero() {
 		// manual deletion triggered by the user
 		err := workload.RemoveFinalizer(ctx, r.client, &wl)
@@ -194,18 +197,18 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	wlRef := workload.NewReference(wl.Namespace, wl.Name)
-
 	finishedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished)
 	if finishedCond != nil && finishedCond.Status == metav1.ConditionTrue {
 		log.V(3).Info("Reconciling finished workload")
 
 		wlCopy := wl.DeepCopy()
 
-		r.queues.RecordWorkloadAssignment(log, &wl)
 		r.queues.DeleteWorkload(log, wlRef)
 		r.queues.AddFinishedWorkload(wlCopy)
 
-		if err := r.cache.DeleteWorkload(log, wlRef); err != nil {
+		if err := r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlRef, func() error {
+			return r.cache.DeleteWorkload(log, wlRef)
+		}); err != nil {
 			return ctrl.Result{}, err
 		}
 
@@ -229,30 +232,27 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, nil
 	}
 
-	workloadIsDra := features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(&wl)
+	wlInCache, cachesError := r.reconcileCaches(ctx, &wl)
+	if cachesError != nil {
+		log.Error(cachesError, "Failed to reconcile internal kueue state")
+		return ctrl.Result{}, cachesError
+	}
 
-	if r.queues.WorkloadNotRecorded(wlRef) && r.cache.WorkloadNotRecorded(wlRef) {
-		// Workload not present in the current Kueue instance
-		if workloadIsDra {
-			// we only record the worload; adding to the queues will be handled later if needed
-			r.queues.RecordWorkloadAssignment(log, &wl)
-		} else {
-			// in any other case: populate the queues if possible
-			if err := r.queues.AddOrUpdateWorkload(log, &wl); err != nil {
-				log.V(3).Info("Unable to add workload to queue cache; this may be as intended", "error", err)
-			}
-			if !r.cache.AddOrUpdateWorkload(log, &wl) {
-				log.V(3).Info("Unable to add workload to scheduler cache; this may be as intended")
-			}
+	defer r.notifyWatchers(wlInCache, &wl)
+	defer r.queues.QueueSecondPassIfNeeded(ctx, &wl, 0)
+
+	if wlInCache == nil {
+		if err := r.addWlToAppropriateCache(log, &wl); err != nil {
+			log.V(3).Info("Unable to add workload to cache", "error", err)
 		}
 	} else {
-		if err := r.reconcileCaches(ctx, &wl); err != nil {
-			return ctrl.Result{}, err
+		if err := r.updateWlInCaches(ctx, wlInCache, &wl); err != nil {
+			log.V(3).Info("Unable to update workload in cache", "error", err)
 		}
 	}
 
 	if workload.IsAdmitted(&wl) && workload.HasUnhealthyNodes(&wl) {
-		log.V(3).Info("Skipping reconcile of a workload with nodes to replace", "unhealthyNodes", workload.UnhealthyNodeNames(&wl))
+		log.V(3).Info("Stopping reconcile of a workload with nodes to replace", "unhealthyNodes", workload.UnhealthyNodeNames(&wl))
 		return ctrl.Result{}, nil
 	}
 
@@ -268,7 +268,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
-	if workloadIsDra && workload.Status(&wl) == workload.StatusPending {
+	if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(&wl) && workload.Status(&wl) == workload.StatusPending {
 		workload.AdjustResources(ctx, r.client, &wl)
 		if workload.HasResourceClaim(&wl) {
 			log.V(3).Info("Workload is inadmissible because it uses resource claims which is not supported")
@@ -410,6 +410,27 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	} else {
 		var updated, evicted bool
 		var underlyingCause kueue.EvictionUnderlyingCause
+
+		if wlInCache != nil && workload.IsActive(wlInCache) {
+			log.V(3).Info("Workload became inactive; removing form caches")
+
+			// The workload could have been in the queues if we missed an event.
+			r.queues.DeleteWorkload(log, wlRef)
+
+			// trigger the move of associated inadmissibleWorkloads, if there are any.
+			if err := r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlRef, func() error {
+				// Delete the workload from cache while holding the queues lock
+				// to guarantee that requeued workloads are taken into account before
+				// the next scheduling cycle.
+				if err := r.cache.DeleteWorkload(log, wlRef); err != nil && workload.Status(wlInCache) == workload.StatusAdmitted {
+					return err
+				}
+				return nil
+			}); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+
 		reason := kueue.WorkloadDeactivated
 		message := "The workload is deactivated"
 		dtCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadDeactivationTarget)
@@ -616,8 +637,10 @@ func (r *WorkloadReconciler) deleteWorkloadFromCaches(ctx context.Context, names
 	return nil
 }
 
-func (r *WorkloadReconciler) reconcileCaches(ctx context.Context, wl *kueue.Workload) error {
+// Ensures caches have state consistent with the new status of the workload, then return the wl cached by kueue
+func (r *WorkloadReconciler) reconcileCaches(ctx context.Context, wl *kueue.Workload) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
+	log.V(3).Info("Reconciling internal cache state")
 	wlRef := workload.Key(wl)
 
 	wlInQueueCache := r.queues.GetWorkloadFromCache(wlRef)
@@ -632,7 +655,7 @@ func (r *WorkloadReconciler) reconcileCaches(ctx context.Context, wl *kueue.Work
 	}
 	if wlInSchedulerCache != nil && !workload.HasQuotaReservation(wl) {
 		if err := r.cache.DeleteWorkload(log, wlRef); err != nil {
-			return err
+			return nil, err
 		}
 		deletedWorkloads = append(deletedWorkloads, wlInSchedulerCache)
 		wlInSchedulerCache = nil
@@ -640,21 +663,14 @@ func (r *WorkloadReconciler) reconcileCaches(ctx context.Context, wl *kueue.Work
 
 	r.notifyWathchersOfDeletedWorkloads(deletedWorkloads...)
 
-	// Ensure that, no matter what, the workload is recorded in the queue cache assignments map
-	r.queues.RecordWorkloadAssignment(log, wl)
-
-	// Witch caches reconciled we can learn the actual state of the workload in the kueue memory
-	var wlInCache *kueue.Workload
 	switch {
 	case wlInQueueCache != nil:
-		wlInCache = wlInQueueCache
+		return wlInQueueCache, nil
 	case wlInSchedulerCache != nil:
-		wlInCache = wlInSchedulerCache
+		return wlInSchedulerCache, nil
 	default:
-		wlInCache = nil
+		return nil, nil
 	}
-
-	return r.updateCaches(ctx, wlInCache, wl)
 }
 
 func (r *WorkloadReconciler) notifyWathchersOfDeletedWorkloads(deletedWorkloads ...*kueue.Workload) {
@@ -670,51 +686,23 @@ func (r *WorkloadReconciler) notifyWathchersOfDeletedWorkloads(deletedWorkloads 
 	}
 }
 
-func (r *WorkloadReconciler) updateCaches(ctx context.Context, wlInCache *kueue.Workload, wl *kueue.Workload) error {
-	defer r.notifyWatchers(wlInCache, wl)
-	defer r.queues.QueueSecondPassIfNeeded(ctx, wl, 0)
-
+func (r *WorkloadReconciler) updateWlInCaches(ctx context.Context, wlInCache *kueue.Workload, wl *kueue.Workload) error {
 	log := ctrl.LoggerFrom(ctx)
+	log.V(3).Info("Updating caches")
+
+	wlRef := workload.Key(wl)
+	wlCopy := wl.DeepCopy()
 	statusInCache := workload.Status(wlInCache)
 	newStatus := workload.Status(wl)
-	activeInCache := workload.IsActive(wl)
-	active := workload.IsActive(wl)
 
-	wlCopy := wl.DeepCopy()
-	wlKey := workload.Key(wl)
 	// We do not handle old workload here as it will be deleted or replaced by new one anyway.
 	workload.AdjustResources(ctrl.LoggerInto(ctx, log), r.client, wlCopy)
 
 	switch {
-	case activeInCache && !active:
-		log.V(2).Info("Workload became inactive")
-
-		// The workload could have been in the queues if we missed an event.
-		r.queues.DeleteWorkload(log, wlKey)
-
-		// trigger the move of associated inadmissibleWorkloads, if there are any.
-		return r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() error {
-			// Delete the workload from cache while holding the queues lock
-			// to guarantee that requeued workloads are taken into account before
-			// the next scheduling cycle.
-			if err := r.cache.DeleteWorkload(log, wlKey); err != nil && statusInCache == workload.StatusAdmitted {
-				return err
-			}
-			return nil
-		})
 	case statusInCache == workload.StatusPending && newStatus == workload.StatusPending:
-		// Skip queue operations for DRA workloads - they are handled in Reconcile loop
-		if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(wl) {
-			log.V(2).Info("Skipping queue update for DRA workload - handled in Reconcile")
-		} else {
-			err := r.queues.UpdateWorkload(log, wlCopy)
-			if err != nil {
-				log.V(2).Info("ignored an error for now", "error", err)
-			}
-		}
-		return nil
+		return r.queues.UpdateWorkload(log, wlCopy)
 	case statusInCache == workload.StatusPending && (newStatus == workload.StatusQuotaReserved || newStatus == workload.StatusAdmitted):
-		r.queues.DeleteWorkload(log, wlKey)
+		r.queues.DeleteWorkload(log, wlRef)
 		if !r.cache.AddOrUpdateWorkload(log, wlCopy) {
 			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 		}
@@ -731,11 +719,11 @@ func (r *WorkloadReconciler) updateCaches(ctx context.Context, wlInCache *kueue.
 		log.V(3).Info("Workload transitioned back to pending", "backoff", backoff, "immediate", immediate)
 
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
-		return r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() error {
+		return r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlRef, func() error {
 			// Delete the workload from cache while holding the queues lock
 			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
-			if err := r.cache.DeleteWorkload(log, wlKey); err != nil {
+			if err := r.cache.DeleteWorkload(log, wlRef); err != nil {
 				return err
 			}
 			// Here we don't take the lock as it is already taken by the wrapping function.
@@ -751,7 +739,7 @@ func (r *WorkloadReconciler) updateCaches(ctx context.Context, wlInCache *kueue.
 					if err := r.queues.AddOrUpdateWorkloadWithoutLock(log, wlCopy); err != nil {
 						return err
 					}
-					r.queues.DeleteSecondPassWithoutLock(wlKey)
+					r.queues.DeleteSecondPassWithoutLock(wlRef)
 				}
 			}
 			return nil
@@ -760,7 +748,7 @@ func (r *WorkloadReconciler) updateCaches(ctx context.Context, wlInCache *kueue.
 		features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(wlInCache), workload.ExtractPodSetCountsFromWorkload(wl)),
 		workload.PriorityChanged(wlInCache, wl):
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
-		return r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() error {
+		return r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlRef, func() error {
 			// Update the workload from cache while holding the queues lock
 			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
@@ -773,6 +761,20 @@ func (r *WorkloadReconciler) updateCaches(ctx context.Context, wlInCache *kueue.
 		r.cache.AddOrUpdateWorkload(log, wlCopy)
 		return nil
 	}
+}
+
+func (r *WorkloadReconciler) addWlToAppropriateCache(log logr.Logger, wl *kueue.Workload) error {
+	if workload.IsAdmissible(wl) {
+		if err := r.queues.AddOrUpdateWorkload(log, wl); err != nil {
+			return err
+		}
+	}
+	if workload.HasQuotaReservation(wl) {
+		if _, err := r.cache.VerboseAddOrUpdateWorkload(log, wl); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // isDisabledRequeuedByClusterQueueStopped returns true if the workload is unset requeued by cluster queue stopped.

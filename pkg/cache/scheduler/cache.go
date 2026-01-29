@@ -578,11 +578,19 @@ func (c *Cache) WorkloadNotRecorded(wlKey workload.Reference) bool {
 }
 
 func (c *Cache) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload) bool {
+	c.Lock()
+	defer c.Unlock()
 	updated, err := c.addOrUpdateWorkloadWithoutLock(log, w)
 	if err != nil {
 		log.Error(err, "Updating workload in cache")
 	}
 	return updated
+}
+
+func (c *Cache) VerboseAddOrUpdateWorkload(log logr.Logger, w *kueue.Workload) (bool, error) {
+	c.Lock()
+	defer c.Unlock()
+	return c.addOrUpdateWorkloadWithoutLock(log, w)
 }
 
 func (c *Cache) addOrUpdateWorkloadWithoutLock(log logr.Logger, wl *kueue.Workload) (bool, error) {

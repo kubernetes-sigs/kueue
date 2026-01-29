@@ -2862,12 +2862,12 @@ func TestWorkloadDeletion(t *testing.T) {
 			wlInSchedCache: admittedWlWithDifferentQueues,
 			wantNotifications: []notification{
 				{
-					Cq: "cq2",
-					Lq: "lq2",
-				},
-				{
 					Cq: "cq1",
 					Lq: "lq1",
+				},
+				{
+					Cq: "cq2",
+					Lq: "lq2",
 				},
 			},
 		},
