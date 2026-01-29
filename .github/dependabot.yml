@@ -43,6 +43,7 @@ updates:
       - "/hack/agnhost"
       - "/hack/cypress"
       - "/hack/depcheck"
+      - "/hack/internal/tools/linkchecker"
       - "/hack/shellcheck"
       - "/hack/multikueue/secretreader"
     schedule:
