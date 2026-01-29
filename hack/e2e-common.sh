@@ -117,15 +117,18 @@ function cluster_collect_artifacts {
     local name=$1
     local kubeconfig=${2:-}
 
-    local kubeconfig_args=()
     if [[ -n "${kubeconfig}" ]]; then
-        kubeconfig_args=(--kubeconfig="${kubeconfig}")
+        kubectl config --kubeconfig="${kubeconfig}" use-context "kind-${name}" || true
+        $KIND export logs "$ARTIFACTS" --name "$name" || true
+        kubectl describe pods --kubeconfig="${kubeconfig}" -n kueue-system > "$ARTIFACTS/${name}-kueue-system-pods.log" || true
+        kubectl describe pods --kubeconfig="${kubeconfig}" > "$ARTIFACTS/${name}-default-pods.log" || true
+        return 0
     fi
 
-    kubectl config "${kubeconfig_args[@]}" use-context "kind-${name}" || true
+    kubectl config use-context "kind-${name}" || true
     $KIND export logs "$ARTIFACTS" --name "$name" || true
-    kubectl describe pods "${kubeconfig_args[@]}" -n kueue-system > "$ARTIFACTS/${name}-kueue-system-pods.log" || true
-    kubectl describe pods "${kubeconfig_args[@]}" > "$ARTIFACTS/${name}-default-pods.log" || true
+    kubectl describe pods -n kueue-system > "$ARTIFACTS/${name}-kueue-system-pods.log" || true
+    kubectl describe pods > "$ARTIFACTS/${name}-default-pods.log" || true
 }
 
 # $1 cluster name
@@ -431,6 +434,9 @@ function build_and_apply_kueue_manifests {
     build_output=$($KUSTOMIZE build "$2")
     # shellcheck disable=SC2001 # bash parameter substitution does not work on macOS
     build_output=$(echo "$build_output" | sed "s/kueue-system/$KUEUE_NAMESPACE/g")
+    # NOTE: kubectl's OpenAPI-based client-side validation can fail when an aggregated APIService
+    # publishes an OpenAPI spec with broken refs (observed on reruns in E2E_MODE=dev). Server-side
+    # apply still validates on the apiserver, so we can safely skip client-side validation here.
     echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side -f -
 }
 
@@ -487,8 +493,30 @@ function install_mpi {
 function install_kuberay {
     cluster_kind_load_image "${1}" "${KUBERAY_RAY_IMAGE}"
     cluster_kind_load_image "${1}" "${KUBERAY_IMAGE}"
-    # create used instead of apply - https://github.com/ray-project/kuberay/issues/504
-    kubectl create --kubeconfig="$2" -k "${KUBERAY_MANIFEST}"
+    # In E2E_MODE=dev we keep and reuse the kind cluster between runs.
+    #
+    # "kubectl create -k" is used instead of apply (https://github.com/ray-project/kuberay/issues/504),
+    # but it is not idempotent: it exits non-zero if any objects already exist.
+    #
+    # For dev reruns, we want idempotence:
+    # - if KubeRay looks fully installed, skip
+    if [[ "${E2E_MODE}" == "dev" ]]; then
+        if [[ -n "${2:-}" ]]; then
+            if kubectl get deployment --kubeconfig="$2" kuberay-operator -n default >/dev/null 2>&1; then
+                echo "KubeRay operator deployment already exists; skipping install (E2E_MODE=dev)."
+                return 0
+            fi
+        elif kubectl get deployment kuberay-operator -n default >/dev/null 2>&1; then
+            echo "KubeRay operator deployment already exists; skipping install (E2E_MODE=dev)."
+            return 0
+        fi
+    fi
+
+    if [[ -n "${2:-}" ]]; then
+        kubectl create --kubeconfig="$2" -k "${KUBERAY_MANIFEST}"
+    else
+        kubectl create -k "${KUBERAY_MANIFEST}"
+    fi
 }
 
 # $1 cluster name
