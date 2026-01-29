@@ -1,4 +1,4 @@
-title: KEP Template
+title: Workload Admission-Time Constraints for Preemption and Borrowing
 kep-number: 8729
 authors:
   - "@ichekrygin"
