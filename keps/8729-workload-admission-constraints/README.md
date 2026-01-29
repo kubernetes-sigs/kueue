@@ -238,3 +238,23 @@ As a result, this approach is not enough to express the full set of admission-ti
 
 Encoding all behavior at the ClusterQueue level was considered but rejected, as it requires over-partitioning queues and does not support workload-specific admission intent.
 
+### Annotations vs. Labels
+
+The current proposal supports expressing admission constraints via annotations:
+
+* `kueue.x-k8s.io/cannot-preempt`
+* `kueue.x-k8s.io/cannot-borrow`
+
+While labels and annotations are nearly identical constructs from an implementation standpoint, they serve distinct semantic purposes in Kubernetes. Labels are primarily intended for selection, grouping, and indexing, while annotations are designed to carry non-identifying metadata that influences behavior but is not meant to participate in object selection or lifecycle management.
+
+Admission-time constraints for preemption and borrowing fall more naturally into the latter category. These constraints do not define workload identity, grouping, or affinity. Instead, they express intent about *how* a workload may be admitted into the cluster, specifically which admission mechanisms are allowed or disallowed. Using annotations better aligns with this intent-driven, behavioral nature of the configuration and avoids overloading labels with semantics unrelated to selection or indexing.
+
+We are aware that labels and annotations have different propagation semantics from parent objects to Pods. 
+However, this difference is not considered a blocker for this proposal. 
+Admission constraints are evaluated at the Workload level and do not generally require automatic propagation to Pods. 
+
+For workloads that do require pod-level integration, job owners can explicitly define the corresponding annotations on the Pod template, as is already common practice for other pod-scoped behaviors.
+
+In summary, annotations provide a clearer semantic signal for admission constraints, avoid unintended coupling with label-based mechanisms, and remain flexible enough to support pod-level use cases when explicitly needed.
+
+
