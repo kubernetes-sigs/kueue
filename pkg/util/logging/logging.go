@@ -48,7 +48,7 @@ func GetObjectReferences[T ObjectRefProvider](items []T) []klog.ObjectRef {
 const klogV3Level = zapcore.Level(-3)
 
 // zapcore.Core that overrides log level of
-// expected reconciler errors connected to concurrent resources modification and
+// expected errors connected to concurrent resources modification and
 // omits their stack trace.
 // Those errors are emitted with klog V3 level.
 // Other logs are left intact, and written using original core.
@@ -64,21 +64,20 @@ func (core CustomLogProcessor) Check(entry zapcore.Entry, checkedEntries *zapcor
 }
 
 func (core CustomLogProcessor) Write(entry zapcore.Entry, fields []zapcore.Field) error {
-	if entry.Level == zapcore.ErrorLevel {
-		if isEntryAConcurrentModificationError(entry, fields) {
-			entry.Level = klogV3Level
-			entry.Stack = ""
-		}
+	if isEntryAConcurrentModificationError(entry, fields) {
+		entry.Level = klogV3Level
+		entry.Stack = ""
 	}
 	return core.Core.Write(entry, fields)
 }
 
-const concurrentModificationError = "the object has been modified; please apply your changes to the latest version and try again"
+const concurrentModificationErrorSuffix = "the object has been modified; please apply your changes to the latest version and try again"
+const concurrentModificationErrorPrefix = "Operation cannot be fulfilled on"
 
 func isEntryAConcurrentModificationError(entry zapcore.Entry, fields []zapcore.Field) bool {
 	errorDetailsFieldKey := "error"
 
-	if entry.Level != zapcore.ErrorLevel || entry.Message != "Reconciler error" {
+	if entry.Level != zapcore.ErrorLevel {
 		return false
 	}
 	return arrayslices.ContainsFunc(fields, func(field zapcore.Field) bool {
@@ -90,16 +89,16 @@ func isEntryAConcurrentModificationError(entry zapcore.Entry, fields []zapcore.F
 		if err == nil {
 			return false
 		}
-		return strings.Contains(err.Error(), concurrentModificationError)
+		errorDescription := err.Error()
+		return strings.HasPrefix(errorDescription, concurrentModificationErrorPrefix) && strings.HasSuffix(errorDescription, concurrentModificationErrorSuffix)
 	})
 }
 
 func (c CustomLogProcessor) With(fields []zapcore.Field) zapcore.Core {
 	wrappedClone := c.Core.With(fields)
-	clone := CustomLogProcessor{
+	return CustomLogProcessor{
 		Core: wrappedClone,
 	}
-	return clone
 }
 
 func NewCustomLogProcessor(core zapcore.Core) zapcore.Core {
