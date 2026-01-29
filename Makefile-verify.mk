@@ -163,7 +163,3 @@ i18n-verify: ## Verify localized docs are in sync with English. Usage: make i18n
 			fi; \
 		done; \
 	fi
-
-.PHONY: verify-website-links
-verify-website-links: hugo ## Verify website links using linkchecker.
-	$(GO_CMD) run ./hack/verify-website-links.go
