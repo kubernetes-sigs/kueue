@@ -322,3 +322,34 @@ func TestReconciler(t *testing.T) {
 		})
 	}
 }
+
+func TestHandle(t *testing.T) {
+	testCases := map[string]struct {
+		obj  client.Object
+		want bool
+	}{
+		"not a statefulset": {
+			obj:  &corev1.Pod{},
+			want: true,
+		},
+		"statefulset": {
+			obj:  statefulsettesting.MakeStatefulSet("sts", metav1.NamespaceDefault),
+			want: true,
+		},
+		"statefulset managed by another framework": {
+			obj: statefulsettesting.MakeStatefulSet("sts", metav1.NamespaceDefault).
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, "test-framework").
+				Obj(),
+			want: false,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			r := Reconciler{}
+			got := r.handle(tc.obj)
+			if got != tc.want {
+				t.Errorf("handle(%T) = %v, want %v", tc.obj, got, tc.want)
+			}
+		})
+	}
+}
