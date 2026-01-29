@@ -26,9 +26,10 @@ tags, and then generate with `hack/update-toc.sh`.
     - [User Stories](#user-stories)
       - [Story 1: ResourceFlavor Upgrade](#story-1-resourceflavor-upgrade)
       - [Story 2: Upgrade only to Reservation](#story-2-upgrade-only-to-reservation)
-      - [Story 3](#story-3)
-      - [Story 4](#story-4)
-      - [Story 5](#story-5)
+      - [Story 3: Reservation + Homogenous Flavors](#story-3-reservation--homogenous-flavors)
+      - [Story 4: Homogenous Flavors only](#story-4-homogenous-flavors-only)
+      - [Story 5: Delaying Option creation](#story-5-delaying-option-creation)
+      - [Story 6: Workload with multiple PodSets](#story-6-workload-with-multiple-podsets)
   - [Design Details](#design-details)
     - [ClusterQueue API](#clusterqueue-api)
       - [OnSuccess Policies](#onsuccess-policies)
@@ -36,11 +37,12 @@ tags, and then generate with `hack/update-toc.sh`.
       - [Naming Convention](#naming-convention)
       - [Workload Spec](#workload-spec)
       - [Workload Status (Observability)](#workload-status-observability)
-    - [Option Lifecycle Controller](#option-lifecycle-controller)
+    - [Option Controller](#option-controller)
     - [Observability](#observability)
     - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
       - [Code Changes Complexity](#code-changes-complexity)
     - [Risks and Mitigations](#risks-and-mitigations)
+      - [StrictFIFO](#strictfifo)
       - [Multiple Preemptions](#multiple-preemptions)
       - [Reserving Quota for the same Workload twice](#reserving-quota-for-the-same-workload-twice)
       - [Scheduling Options in wrong order](#scheduling-options-in-wrong-order)
@@ -52,6 +54,7 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Graduation Criteria](#graduation-criteria)
       - [Alpha](#alpha)
       - [Beta](#beta)
+      - [GA](#ga)
   - [Implementation History](#implementation-history)
   - [Drawbacks](#drawbacks)
     - [Increased API Object Count](#increased-api-object-count)
@@ -171,7 +174,7 @@ e.g. Workload is running on On-Demand, but after 1h Reservation quota is release
 
 To achieve that, I configure my ClusterQueue to use the Concurrent Admission feature, with `RemoveBelowTarget: Reservation` policy (details below).
 
-#### Story 3
+#### Story 3: Reservation + Homogenous Flavors
 As an admin I have four resource flavors in my cluster:
 1) Most preferable: Reservation
 2a) Less preferable flavor with a long-running AdmissionCheck
@@ -186,12 +189,12 @@ e.g. Workload is running on the 2b flavor, but after 1h Reservation quota is rel
 
 To achieve that, I configure my ClusterQueue to use the Concurrent Admission feature, with `RemoveBelowTarget: Reservation` policy (details below).
 
-#### Story 4
+#### Story 4: Homogenous Flavors only
 As an admin, I have three homogeneous resource flavors (1a, 1b, 1c). I want my workloads to start as soon as possible on any flavor and stop pursuing other options once the job is accommodated.
 
 To achieve that, I configure my ClusterQueue to use the Concurrent Admission feature, with `RemoveOther` policy (details below).
 
-#### Story 5
+#### Story 5: Delaying Option creation
 As an admin I have two resource flavors in my cluster:
 1) Most preferable: Reservation
 2) Less preferable: On-Demand
@@ -200,6 +203,21 @@ I want my workloads to attempt scheduling on 'Reservation' only for the first 2 
 
 To achieve that, I configure my ClusterQueue to use the Concurrent Admission with `ExplicitOptions` policy, where I set `CreateDelaySeconds` for the On-Demand option (details below).
 
+#### Story 6: Workload with multiple PodSets
+As an admin I have two GPU resource flavors and one CPU resource flavor in my cluster.
+GPU:
+1) Most preferable: Reservation
+2) Less preferable: On-Demand
+
+CPU:
+1) Default-CPU
+
+My workload consists of 2 PodSets, one requesting GPUs and one requesting CPUs only.
+I want my workloads to start as soon as possible, on whatever GPU flavor. However if the Reservation flavor releases some quota, I want to migrate to that flavor.
+
+To achieve that, I configure my ClusterQueue to use the Concurrent Admission with `ExplicitOptions` policy.
+I create a configuration for the Reservation Option with `AllowedResourceFlavors=["Reservation, Default-CPU"]`
+and for the On-Demand Option with `AllowedResourceFlavors=["On-Demand", "Default-CPU"]`.
 
 <!--
 What are the risks of this proposal, and how do we mitigate? Think broadly.
@@ -219,6 +237,12 @@ Consider including folks who also work outside the SIG or subproject.
 The ClusterQueue is extended to define the policy for concurrent attempts. This includes how to handle sibling Options once one is admitted and how to define specific, customized Options.
 
 ```
+type ClusterQueueSpec struct {
+    ...
+    // +optional
+    ConcurrentAdmission *ConcurrentAdmission
+}
+
 type OnSuccessPolicy string
 
 const (
@@ -285,10 +309,10 @@ type RemoveBelowTargetConfig struct {
 
 The `OnSuccess` field determines how Kueue manages sibling Options once a specific Option has been admitted.
 
-| Policy                  | Behavior                                                                        | Use Case                                                                                                                                                       |
-| :---------------------- | :------------------------------------------------------------------------------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **`RemoveOther`**       | Stops all other attempts immediately once any Option is admitted.               | Ideal for homogeneous flavors where any placement is equally good and no "upgrade" migration is desired.                                                       |
-| **`RemoveLower`**       | Stops attempts for flavors ranked lower than the admitted one.   | Enables "upgrading" to a more preferred flavor if it becomes available after the workload has started on a lower-tier flavor.                                  |
+| Policy                  | Behavior                                                                        | Use Case                                                                                                                                                                                            |
+| :---------------------- | :------------------------------------------------------------------------------ | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`RemoveOther`**       | Stops all other attempts immediately once any Option is admitted.               | Ideal for homogeneous flavors where any placement is equally good and no "upgrade" migration is desired.                                                                                            |
+| **`RemoveLower`**       | Stops attempts for flavors ranked lower than the admitted one.                  | Enables "upgrading" to a more preferred flavor if it becomes available after the workload has started on a lower-tier flavor.                                                                       |
 | **`RemoveBelowTarget`** | Stops attempts for flavors ranked lower than a specific `TargetResourceFlavor`. | Supports selective upgrades; for example, migrating only if a "Reservation" flavor becomes available, but ignoring transitions between "Spot" and "On-Demand, or when some flavors are homogenous." |
 
 ### Workload API
@@ -373,14 +397,14 @@ type WorkloadStatus struct {
 }
 ```
 
-### Option Lifecycle Controller
+### Option Controller
 
-A dedicated Option Lifecycle Controller will be introduced to manage the state and lifespan of virtual workloads and the relationship with the parent Workload.
+A dedicated Option Lifecycle will be introduced to manage the state and lifespan of virtual Workloads and the relationship with the parent Workload.
 Its responsibilities include:
 
 1. Creation: It instantiates Options based on the CQ's ExplicitOptions or default RF list.
-2. Aggregation: It syncs the status of Options back into the status.options of the Parent.
-3. Policy Enforcement: Upon admission of any option, it executes the OnSuccessPolicy (e.g., deactivating lower-priority virtual workloads).
+2. Aggregation: It syncs the status of Options back into the status.options of the Parent. Based on that the Parent Workload can interact (e.g. suspend/unsuspend) with the top-level job
+3. Policy Enforcement: Upon admission of any option, it executes the OnSuccessPolicy (e.g., deactivating lower-priority virtual Workloads).
 
 ### Observability
 
@@ -401,13 +425,26 @@ can create/activate/deactivate Options.
 With making as little changes to scheduling logic as possible in mind, we still need to work on at least 3 things there:
 1) Narrowing selection of ResourceFlavors for a given Workload. This however can be also used outside of the Concurrent Admissions feature, creating more flexibility for Kueue.
 2) Preempting sibling Options when admitting more preferable ones.
-3) Handling `StrictFIFO` queueing strategy. This comes with a difficulty of keeping the `StrictFIFO` policy but at the same time allow other sibling Options to try to schedule.
-There are at least three different approaches to that:
-   1) Grouped Popping - the scheduler could pick up all of the Options belonging to the same parent from the heap and then process them within the same schedulingCycle. Each heap node would still consist of one Workload.
-   2) The heap node consists of all of the Options belonging to the same parent Workload.
-   3) The scheduler picks up only one Option per scheduling cycle. If there's a sibling in the heap head, it doesn't put back the processed after failed scheduling. Instead it lets the other Option run
 
 ### Risks and Mitigations
+
+#### StrictFIFO
+
+Handling `StrictFIFO` queueing strategy comes with challenges.
+
+The most important one is once less favorable Options is admitted,
+scheduler cannot try admitting more favorable Options (migration)
+and let other Workloads schedule at the same time, without violating `StrictFIFO` semantics.
+It can either try the more favorable Option over and over which blocks the queue, or
+let other Workloads schedule, which violates the `StrictFIFO`
+
+The other one is to not block Options siblings if the first one cannot be scheduled. There are at least couple of ways to solve it:
+
+1) Grouped Popping - the scheduler could pick up all of the Options belonging to the same parent from the heap and then process them within the same schedulingCycle. Each heap node would still consist of one Workload.
+2) The heap node consists of all of the Options belonging to the same parent Workload.
+3) The scheduler picks up only one Option per scheduling cycle. If there's a sibling in the heap head, it doesn't put back the processed after failed scheduling. Instead it lets the other Option run.
+
+Mitigation: For Alpha and Beta version of this feature we don't plan to support `StrictFIFO` queueing strategy. Based on users' feedback we will reconsider it for GA.
 
 #### Multiple Preemptions
 
@@ -429,8 +466,8 @@ Mitigation: The Kueue scheduler must preempt the less preferable Option immediat
 
 The `OptionsController` leverages the existing implementation of scheduling logic in Kueue, where Workloads are sorted
 by priorities and creation timestamps and then picked-up by the scheduler one per scheduling cycle (per ClusterQueue).
-This means when creating Options the controller should ensure more favorable Options are ahead of less favorable ones in the queue.
-Possibly adding a new criteria to heap sorting. The order of the Options should be based on the order of ResourceFlavors in ClusterQueue.
+This means when creating Options the controller should ensure more favorable Options are ahead of less favorable ones in the queue. This could be achieved by adding another dimension to our heap sort mechanism that would only
+be used for sorting Options coming from the same Parent. The value of this dimension would be filled by the Option Controller based on the order of ResourceFlavors in ClusterQueue.
 
 #### FlavorFungibility
 
@@ -516,13 +553,15 @@ Support for `RemoveOther` and `RemoveLower` policies
 
 Introduction of `ExplicitOptions` functionality.
 
-Support `StrictFIFO` queueing strategy.
-
 Minimizing number of Option issuing preemptions to only one per Parent.
 
 We have gathered positive feedback from users.
 
 Adding/updating Kueue metrics based on users' feedback
+
+#### GA
+
+Reconsider support for `StrictFIFO` queueing strategy.
 
 <!--
 
