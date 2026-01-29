@@ -112,7 +112,6 @@ npm-depcheck: ## Verify frontend and e2e npm dependencies.
 LINKCHECKER_IMAGE ?= kueue-linkchecker:dev
 LINKCHECKER_IMAGE_PREBUILT ?=
 LINKCHECKER_SKIP_NPM_CI ?= 0
-LINKCHECKER_NODE_VERSION ?= $(shell cat hack/internal/tools/linkchecker/.node-version)
 DOCKER ?= docker
 
 .PHONY: verify-website-links
@@ -132,11 +131,10 @@ verify-website-links: ## Check all internal links on the Hugo docs site.
 			echo "ERROR: HUGO_VERSION is empty; cannot build linkchecker image." >&2; \
 			exit 1; \
 		fi; \
-		echo "Building image: $$img (go=$$go_version hugo=$$hugo_version node=$(LINKCHECKER_NODE_VERSION))"; \
+		echo "Building image: $$img (go=$$go_version hugo=$$hugo_version)"; \
 		$(DOCKER) build -t $$img \
 			--build-arg GO_VERSION=$$go_version \
 			--build-arg HUGO_VERSION=$$hugo_version \
-			--build-arg NODE_VERSION=$(LINKCHECKER_NODE_VERSION) \
 			-f hack/internal/tools/linkchecker/Dockerfile . ; \
 	fi; \
 	$(DOCKER) run --rm \
