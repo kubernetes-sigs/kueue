@@ -123,10 +123,21 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 var _ webhook.CustomValidator = &Webhook{}
 
 func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
-	sts := fromObject(obj)
+	stsObj, ok := obj.(*appsv1.StatefulSet)
+	if !ok {
+		return nil, nil
+	}
 
 	log := ctrl.LoggerFrom(ctx).WithName("statefulset-webhook")
+
+	if frameworkName, managed := managedByAnotherFramework(stsObj); managed {
+		log.V(3).Info("Skipping create validation because the object is managed by another framework", "framework", frameworkName)
+		return nil, nil
+	}
+
 	log.V(5).Info("Validating create")
+
+	sts := fromObject(obj)
 
 	allErrs := jobframework.ValidateQueueName(sts.Object())
 
@@ -144,10 +155,21 @@ var (
 )
 
 func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
+	newSTSObj, ok := newObj.(*appsv1.StatefulSet)
+	if !ok {
+		return nil, nil
+	}
+
+	log := ctrl.LoggerFrom(ctx).WithName("statefulset-webhook")
+
+	if frameworkName, managed := managedByAnotherFramework(newSTSObj); managed {
+		log.V(3).Info("Skipping update validation because the object is managed by another framework", "framework", frameworkName)
+		return nil, nil
+	}
+
 	oldStatefulSet := fromObject(oldObj)
 	newStatefulSet := fromObject(newObj)
 
-	log := ctrl.LoggerFrom(ctx).WithName("statefulset-webhook")
 	log.V(5).Info("Validating update")
 
 	oldQueueName := jobframework.QueueNameForObject(oldStatefulSet.Object())

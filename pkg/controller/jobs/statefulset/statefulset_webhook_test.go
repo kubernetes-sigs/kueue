@@ -245,6 +245,12 @@ func TestValidateCreate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
+		"statefulset managed by another framework": {
+			sts: testingstatefulset.MakeStatefulSet("test-pod", "").
+				Queue("test/queue").
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, "test-framework").
+				Obj(),
+		},
 	}
 
 	for name, tc := range testCases {
@@ -370,6 +376,15 @@ func TestValidateUpdate(t *testing.T) {
 					Field: queueNameLabelPath.String(),
 				},
 			}.ToAggregate(),
+		},
+		"statefulset managed by another framework": {
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, "test-framework").
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, "test-framework").
+				Obj(),
 		},
 		"change in priority class label when suspended": {
 			oldObj: &appsv1.StatefulSet{
