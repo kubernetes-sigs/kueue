@@ -327,6 +327,13 @@ The `OnSuccess` field determines how Kueue manages sibling Options once a specif
 
 ### Workload API
 
+An Option Workload references its Parent in the `metadata.ownerReferences` field.
+Besides that a Parent Workload has the `kueue.x-k8s.io/parent-option` annotation to distinguish it from
+"regular" Workloads, in a cluster.
+
+This way of distinguishing Options, Parents, and "regular" Workloads is introduced in the Alpha, and will be
+revisited when graduating to Beta.
+
 #### Naming Convention
 
 To maintain a clear relationship between the parent and its virtual clones, the Option Workloads will follow a strict naming convention.
@@ -346,36 +353,27 @@ ${original_workload_name}-option-${explicit_option_name}
 Note: Option names are designed to be deterministic. If a name collision occurs (due to long Workload/RF names), standard Kubernetes suffix truncation logic will be applied while maintaining the -option- identifier.
 
 #### Workload Spec
+
+We propose to extend Workload's Spec API to have the capability to narrow the set of ResourceFlavors that can be used
+for scheduling a Workload.
+
 ```
-type WorkloadType string
-const (
-    Default              WorkloadType = "Default"
-    ResourceFlavorOption WorkloadType = "ResourceFlavorOption"
-    Parent               WorkloadType = "Parent"
-)
-
-type WorkloadMode struct {
-    // +required
-    Type                   WorkloadType
-}
-
 type WorkloadSpec struct {
     ...
-
+    // AdmissionConstraints describes the constraints Kueue scheduling algorithm takes into account
+    // when reserving quota for a Workload.
+    //
     // +optional
-    WorkloadMode *WorkloadMode
+    AdmissionConstraints *AdmissionConstraints
 }
 
-
-
-type PodSet struct {
+type AdmissionConstraints struct {
   ...
 
-	// If set, only RF from this list can be assigned to PodSets.
+	// If set, only RF from this list can be assigned to this Workload.
   //
   // +optional
   AllowedResourceFlavors []string
-
 }
 
 ```
@@ -564,6 +562,17 @@ Support for `RemoveOther` and `RemoveLower` policies
 Introduction of `ExplicitOptions` functionality.
 
 Minimizing number of Option issuing preemptions to only one per Parent.
+
+Revisit the idea of introducing WorkloadType API
+```
+type WorkloadType string
+const (
+    Default              WorkloadType = "Default"
+    ResourceFlavorOption WorkloadType = "ResourceFlavorOption"
+    Parent               WorkloadType = "Parent"
+    ... // possibly more like WorkloadSlice, PrebuiltWorkload
+)
+```
 
 Positive feedback from users.
 
