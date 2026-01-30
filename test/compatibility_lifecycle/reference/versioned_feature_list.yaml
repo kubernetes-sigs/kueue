@@ -169,6 +169,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
+- name: RemoveFinalizersWithStrictPatch
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.17"
 - name: SanitizePodSets
   versionedSpecs:
   - default: true

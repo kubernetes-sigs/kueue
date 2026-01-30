@@ -263,6 +263,72 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
+			ginkgo.It("Should preserve custom finalizers when workload terminates", func() {
+				pod := testingpod.MakePod(podName, ns.Name).Queue("test-queue").Obj()
+				gomega.Expect(k8sClient.Create(ctx, pod)).Should(gomega.Succeed())
+
+				createdPod := &corev1.Pod{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, lookupKey, createdPod)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Expect(createdPod.Finalizers).
+					To(gomega.ContainElement(constants.ManagedByKueueLabelKey), "Pod should have finalizer")
+
+				ginkgo.By("checking that workload is created for pod with the queue name")
+				createdWorkload := &kueue.Workload{}
+				wlLookupKey := types.NamespacedName{
+					Name:      podcontroller.GetWorkloadNameForPod(pod.Name, pod.UID),
+					Namespace: ns.Name,
+				}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				ginkgo.By("checking the pod is unsuspended when workload is assigned")
+				clusterQueue := utiltestingapi.MakeClusterQueue("cluster-queue").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj(),
+					).Obj()
+				admission := utiltestingapi.MakeAdmission(clusterQueue.Name).
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "default", "1").
+						Count(createdWorkload.Spec.PodSets[0].Count).
+						Obj(),
+					).Obj()
+				util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, lookupKey, createdPod)).Should(gomega.Succeed())
+					g.Expect(createdPod.Spec.SchedulingGates).Should(gomega.BeEmpty())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				ginkgo.By("adding custom finalizer to the pod and setting the pod as succeeded")
+				customFinalizer := "my.custom/finalizer"
+
+				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdPod)).Should(gomega.Succeed())
+				updatedPod := createdPod.DeepCopy()
+
+				updatedPod.Finalizers = append(updatedPod.Finalizers, customFinalizer)
+
+				util.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, updatedPod)
+				gomega.Expect(k8sClient.Patch(ctx, updatedPod, client.MergeFrom(createdPod))).Should(gomega.Succeed())
+
+				ginkgo.By("waiting for the workload to finish")
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+					g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				ginkgo.By("checking that the custom finalizer is preserved")
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, lookupKey, createdPod)).Should(gomega.Succeed())
+					g.Expect(createdPod.Finalizers).NotTo(gomega.ContainElement(constants.ManagedByKueueLabelKey))
+					g.Expect(createdPod.Finalizers).To(gomega.ContainElement(customFinalizer))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
 			ginkgo.When("A workload is evicted", func() {
 				const finalizerName = "kueue.x-k8s.io/integration-test"
 				var pod *corev1.Pod
