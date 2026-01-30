@@ -1416,13 +1416,10 @@ func prepare(pod *corev1.Pod, info podset.PodSetInfo) error {
 		return err
 	}
 	utilpod.Ungate(pod, podconstants.SchedulingGateName)
-	// Remove the TopologySchedulingGate if the Pod is scheduled without using TAS
-	found := slices.ContainsFunc(info.SchedulingGates, func(g corev1.PodSchedulingGate) bool {
-		return g.Name == kueue.TopologySchedulingGate
-	})
-	if !found {
-		utilpod.Ungate(pod, kueue.TopologySchedulingGate)
-	}
+
+        // Topology gate must be removed unless explicitly re-added by PodSetInfo
+        utilpod.Ungate(pod, kueue.TopologySchedulingGate)
+
 	return nil
 }
 
