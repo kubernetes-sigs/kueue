@@ -11,7 +11,7 @@ require (
 	github.com/kubeflow/mpi-operator v0.7.0
 	github.com/kubeflow/trainer/v2 v2.1.0
 	github.com/kubeflow/training-operator v1.9.3
-	github.com/onsi/ginkgo/v2 v2.28.0
+	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.1
 	github.com/open-policy-agent/cert-controller v0.15.0
 	github.com/project-codeflare/appwrapper v1.1.2
