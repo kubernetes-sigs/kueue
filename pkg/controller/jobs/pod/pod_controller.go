@@ -60,6 +60,7 @@ import (
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
+
 const (
 	FrameworkName                  = "pod"
 	ConditionTypeTerminationTarget = "TerminationTarget"
@@ -1417,8 +1418,11 @@ func prepare(pod *corev1.Pod, info podset.PodSetInfo) error {
 	}
 	utilpod.Ungate(pod, podconstants.SchedulingGateName)
 
-        // Topology gate must be removed unless explicitly re-added by PodSetInfo
-        utilpod.Ungate(pod, kueue.TopologySchedulingGate)
+	// Remove topology gate only when TAS is not enabled.
+	// For TAS workloads, the gate must remain until topology is assigned.
+	if !features.Enabled(features.TopologyAwareScheduling) {
+		utilpod.Ungate(pod, kueue.TopologySchedulingGate)
+	}
 
 	return nil
 }
