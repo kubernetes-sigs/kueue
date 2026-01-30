@@ -721,13 +721,9 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			})
 
 			ginkgo.By(fmt.Sprintf("Verify workloads exist for initial %d groups", lwsReplicas), func() {
+				wl := &kueue.Workload{}
 				for i := range lwsReplicas {
-					wl := &kueue.Workload{}
-					wlKey := types.NamespacedName{
-						Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, strconv.Itoa(i)),
-						Namespace: ns.Name,
-					}
-					gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+					gomega.Expect(k8sClient.Get(ctx, util.WorkloadKeyForLeaderWorkerSet(lws, strconv.Itoa(i)), wl)).To(gomega.Succeed())
 				}
 			})
 
@@ -740,14 +736,10 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			})
 
 			ginkgo.By(fmt.Sprintf("Wait for the surge workloads to be created with maxSurge=%d", maxSurge), func() {
+				wl := &kueue.Workload{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					for i := lwsReplicas; i < lwsReplicas+maxSurge; i++ {
-						wl := &kueue.Workload{}
-						wlKey := types.NamespacedName{
-							Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, strconv.Itoa(i)),
-							Namespace: ns.Name,
-						}
-						g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed(),
+						g.Expect(k8sClient.Get(ctx, util.WorkloadKeyForLeaderWorkerSet(lws, strconv.Itoa(i)), wl)).To(gomega.Succeed(),
 							"workload for surge group %d should exist", i)
 					}
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
@@ -771,14 +763,10 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			})
 
 			ginkgo.By(fmt.Sprintf("Verify surge workloads are cleaned up with maxSurge=%d", maxSurge), func() {
+				wl := &kueue.Workload{}
 				for i := lwsReplicas; i < lwsReplicas+maxSurge; i++ {
-					wlKey := types.NamespacedName{
-						Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, strconv.Itoa(i)),
-						Namespace: ns.Name,
-					}
 					gomega.Eventually(func() bool {
-						wl := &kueue.Workload{}
-						err := k8sClient.Get(ctx, wlKey, wl)
+						err := k8sClient.Get(ctx, util.WorkloadKeyForLeaderWorkerSet(lws, strconv.Itoa(i)), wl)
 						return apierrors.IsNotFound(err)
 					}, util.Timeout, util.Interval).Should(gomega.BeTrue(),
 						"surge workload for group %d should be deleted after rollout completes", i)
