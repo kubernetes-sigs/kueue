@@ -189,7 +189,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, err
 	}
 
-	if err := r.reconcileInternalCaches(ctx, &wl); err != nil {
+	if err := r.reconcileInternalState(ctx, &wl); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -591,28 +591,60 @@ func (r *WorkloadReconciler) deleteWorkloadFromCaches(ctx context.Context, names
 	r.queues.DeleteAndForgetWorkload(log, wlRef)
 }
 
-func (r *WorkloadReconciler) reconcileInternalCaches(ctx context.Context, wl *kueue.Workload) error {
+func (r *WorkloadReconciler) reconcileInternalState(ctx context.Context, wl *kueue.Workload) error {
 	// all non-deleted workload should be recorded
 	r.queues.RecordUnassignedWorkload(wl)
 
-	wlRef := workload.Key(wl)
-	wlInQueueCache := r.queues.GetWorkloadFromCache(wlRef)
-	wlInSchedCache := r.cache.GetWorkloadFromCache(wlRef)
+	wlInCache, err := r.getWorkloadFromCache(workload.Key(wl))
+	if err != nil {
+		return err
+	}
 
-	switch {
-	case wlInQueueCache != nil && wlInSchedCache != nil:
-		return errors.New("Workload should never be present in both caches simultaniously")
-	case wlInQueueCache != nil:
-		r.reconcileCache(ctx, wlInQueueCache, wl)
-	case wlInSchedCache != nil:
-		r.reconcileCache(ctx, wlInSchedCache, wl)
-	case !handleAsDRA(wl):
+	if wlInCache == nil {
 		r.addWorkloadToCache(ctx, wl)
+	} else {
+		r.updateCaches(ctx, wlInCache, wl)
 	}
 	return nil
 }
 
-func (r *WorkloadReconciler) reconcileCache(ctx context.Context, wlInCache *kueue.Workload, wl *kueue.Workload) {
+func (r *WorkloadReconciler) getWorkloadFromCache(wlRef workload.Reference) (*kueue.Workload, error) {
+	wlInQueueCache := r.queues.GetWorkloadFromCache(wlRef)
+	wlInSchedCache := r.cache.GetWorkloadFromCache(wlRef)
+	if wlInQueueCache != nil && wlInSchedCache != nil {
+		return nil, errors.New("Workload should never be present in both caches simultaniously")
+	}
+	if wlInQueueCache != nil {
+		return wlInQueueCache, nil
+	}
+	return wlInSchedCache, nil
+}
+
+func (r *WorkloadReconciler) addWorkloadToCache(ctx context.Context, wl *kueue.Workload) {
+	defer r.notifyWatchers(nil, wl)
+	log := ctrl.LoggerFrom(ctx)
+
+	if workload.Status(wl) == workload.StatusFinished {
+		r.queues.AddFinishedWorkload(wl)
+		return
+	}
+
+	wlCopy := wl.DeepCopy()
+	workload.AdjustResources(ctx, r.client, wlCopy)
+
+	if workload.IsAdmissible(wl) {
+		log.V(3).Info("Workload cannot be added to queue cache")
+		return
+	}
+
+	if !r.cache.AddOrUpdateWorkload(log, wlCopy) {
+		log.V(3).Info("Workload cannot be added to scheduler cache")
+	}
+
+	r.queues.QueueSecondPassIfNeeded(ctx, wl, 0)
+}
+
+func (r *WorkloadReconciler) updateCaches(ctx context.Context, wlInCache *kueue.Workload, wl *kueue.Workload) {
 	defer r.notifyWatchers(wlInCache, wl)
 
 	log := ctrl.LoggerFrom(ctx)
@@ -701,30 +733,6 @@ func (r *WorkloadReconciler) reconcileCache(ctx context.Context, wlInCache *kueu
 		// and are not supposed to actually change anything.
 		r.cache.AddOrUpdateWorkload(log, wlCopy)
 	}
-	r.queues.QueueSecondPassIfNeeded(ctx, wl, 0)
-}
-
-func (r *WorkloadReconciler) addWorkloadToCache(ctx context.Context, wl *kueue.Workload) {
-	defer r.notifyWatchers(nil, wl)
-	log := ctrl.LoggerFrom(ctx)
-
-	if workload.Status(wl) == workload.StatusFinished {
-		r.queues.AddFinishedWorkload(wl)
-		return
-	}
-
-	wlCopy := wl.DeepCopy()
-	workload.AdjustResources(ctx, r.client, wlCopy)
-
-	if workload.IsAdmissible(wl) {
-		log.V(3).Info("Workload cannot be added to queue cache")
-		return
-	}
-
-	if !r.cache.AddOrUpdateWorkload(log, wlCopy) {
-		log.V(3).Info("Workload cannot be added to scheduler cache")
-	}
-
 	r.queues.QueueSecondPassIfNeeded(ctx, wl, 0)
 }
 
