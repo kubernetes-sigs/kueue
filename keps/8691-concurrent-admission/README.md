@@ -36,17 +36,21 @@ tags, and then generate with `hack/update-toc.sh`.
   - [Workload API](#workload-api)
     - [Naming Convention](#naming-convention)
     - [Workload Spec](#workload-spec)
-    - [Workload Status (Observability)](#workload-status-observability)
+    - [Workload Status](#workload-status)
   - [Option Controller](#option-controller)
+    - [Creation](#creation)
+    - [Aggregation](#aggregation)
+    - [Policy Enforcement](#policy-enforcement)
+    - [Eviction](#eviction)
   - [Observability](#observability)
+  - [Code Changes Complexity](#code-changes-complexity)
+  - [Reserving Quota for the same Workload twice](#reserving-quota-for-the-same-workload-twice)
+  - [Multiple Preemptions](#multiple-preemptions)
+  - [Ordering Options](#ordering-options)
+  - [FlavorFungibility](#flavorfungibility)
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
-    - [Code Changes Complexity](#code-changes-complexity)
-  - [Risks and Mitigations](#risks-and-mitigations)
     - [StrictFIFO](#strictfifo)
-    - [Multiple Preemptions](#multiple-preemptions)
-    - [Reserving Quota for the same Workload twice](#reserving-quota-for-the-same-workload-twice)
-    - [Scheduling Options in wrong order](#scheduling-options-in-wrong-order)
-    - [FlavorFungibility](#flavorfungibility)
+  - [Risks and Mitigations](#risks-and-mitigations)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
@@ -68,7 +72,7 @@ tags, and then generate with `hack/update-toc.sh`.
 Currently, the Kueue admission process selects a single ResourceFlavor (RF) and pursues it until the workload is admitted. This KEP proposes Concurrent Admission, allowing a Workload to attempt multiple ResourceFlavors simultaneously.
 
 Kueue will create clones of a Workload, referred to as Options. Each Option is scheduled independently on a specific subset of ResourceFlavors. This unblocks scenarios where a user needs
-to maintain a path to "upgrade" a Workload from a less preferred flavor to a more preferred one as it becomes available or to "race" multiple long-running AdmissionChecks (e.g., across different accelerator types)
+to maintain a path to "upgrade" a Workload from a less preferred flavor to a more preferred one as it becomes available, or to "race" multiple long-running AdmissionChecks (e.g., across different accelerator types)
 
 <!--
 This section is incredibly important for producing high-quality, user-focused
@@ -105,19 +109,22 @@ demonstrate the interest in a KEP within the wider Kubernetes community.
 -->
 
 ### Goals
-- [G1] Pursue capacity on multiple flavors (e.g. Spot and Reservation) simultaneously.
+- Pursue capacity on multiple flavors (e.g. Spot and Reservation) simultaneously.
 
-- [G2] Start two or more independent long-running AdmissionChecks until any succeeds.
+- Start two or more independent long-running AdmissionChecks until any succeeds.
 
-- [G3] Support various policies on migration to more desired flavor
+- Support various policies on migration to more desired flavor
 
-  - [a] Do not migrate at all
+  - Do not migrate at all
 
-  - [b] Migrate only to "higher" RFs than the admitted one
+  - Migrate only to "higher" RFs than the admitted one
 
-  - [c] Migrate only to a subset of RFs
+  - Migrate only to a subset of RFs
 
-- [G4] Delay fallback to "lower" RFs than the currently tried
+  - Do not migrate after certain amount of time
+
+- Delay fallback to "lower" RFs than the currently tried
+
 
 <!--
 List the specific goals of the KEP. What is it trying to achieve? How will we
@@ -126,7 +133,7 @@ know that this has succeeded?
 
 ### Non-Goals
 
-
+- Describe the exact behavior of ConcurrentAdmission with `StrictFIFO` queueing strategy.
 
 <!--
 What is out of scope for this KEP? Listing non-goals helps to focus discussion
@@ -134,6 +141,21 @@ and make progress.
 -->
 
 ## Proposal
+
+Concurrent Admission feature propose to introduce a new controller and extend the ClusterQueue API.
+Based on the API a new controller creates multiple Option Workloads per a single top-level job.
+At any given point in time, only one Option can be admitted by Kueue.
+
+Each Option is a clone of Parent Workload with additional scheduling constraints, in particular could only be assigned to a subset of ResourceFlavors
+defined in the ClusterQueue. Besides that, Options are treated by the scheduling algorithm almost identically as regular Workloads.
+
+A Parent Workload, doesn't participate in scheduling, its main role is to provide visibility and aggregate information from its Options, to then interact
+with the top-level job, preventing from race conditions.
+
+![Workload Diagram](options.svg)
+
+An Option can get activated/deactivated based on the configuration provided by an admin, more about its lifecycle below.
+
 
 <!--
 This is where we get down to the specifics of what the proposal actually is.
@@ -276,12 +298,12 @@ type ConcurrentAdmission struct {
     // If not specified, Kueue creates an option for each RF mentioned in the CQ.
     //
     // +optional
-    ExplicitOptions []OptionCreationCustomization
+    ExplicitOptions []ConcurrentAdmissionExplicitOption
 
     // RemoveBelowTargetConfig provides configuration for the RemoveBelowTarget policy.
     //
     // +optional
-    RemoveBelowTargetConfig *RemoveBelowTargetConfig
+    RemoveBelowTargetConfig *ConcurrentAdmissionRemoveBelowTargetConfig
 }
 
 type OptionCreationCustomization struct {
@@ -290,13 +312,15 @@ type OptionCreationCustomization struct {
     // +required
     Name string
 
-    // CreateDelaySeconds defines how long after Workload creation this option is added.
-    // Allows prioritizing a preferred RF before falling back to others [R8].
+    // CreateDelaySeconds defines how long after Workload creation this Option is activated.
+    // Allows prioritizing a preferred RF before falling back to others.
     //
     // +optional
     CreateDelaySeconds *int32
 
-    // DeleteDelaySeconds defines how long after creation this option should be discarded.
+    // DeleteDelaySeconds defines how long after admission of other Options,
+    // this Option should be deactivated.
+    // Allows disallowing migration after certain amount of time
     //
     // +optional
     DeleteDelaySeconds *int32
@@ -304,14 +328,14 @@ type OptionCreationCustomization struct {
     // AllowedResourceFlavors limits which flavors can be assigned to PodSets for this option.
     //
     // +required
-    AllowedResourceFlavors []string
+    AllowedResourceFlavors []ResourceFlavorReference
 }
 
 type RemoveBelowTargetConfig struct {
     // TargetResourceFlavor defines the boundary for the RemoveBelowTarget policy.
     //
     // +required
-    TargetResourceFlavor string
+    TargetResourceFlavor ResourceFlavorReference
 }
 ```
 
@@ -373,12 +397,12 @@ type AdmissionConstraints struct {
 	// If set, only RF from this list can be assigned to this Workload.
   //
   // +optional
-  AllowedResourceFlavors []string
+  AllowedResourceFlavors []ResourceFlavorReference
 }
 
 ```
 
-#### Workload Status (Observability)
+#### Workload Status
 
 To ensure the user can easily check which attempts are still active, the WorkloadStatus is extended to include an Options list.
 This provides a central view of all virtual workloads without needing to query for child objects manually.
@@ -386,15 +410,35 @@ This provides a central view of all virtual workloads without needing to query f
 For more detailed scheduling stats a user can check a particular Option Workload.
 
 ```
+type WorkloadOptionState string
+
+const (
+    // OptionsStatePending means the Option is still pending
+    OptionStatePending = "Pending"
+
+    // OptionStateAdmitted means the Option has been admitted
+    OptionStateAdmitted = "Admitted"
+
+    // OptionStateDeactivated means the Options has the field `.spec.active` set to `false`. It may happen due
+    // to `CreatedDelaySeconds`/`DeleteDelaySeconds` or `OnSuccessPolicy` configuration.
+    OptionStateDeactivated = "Deactivated"
+)
+
 type WorkloadOptionStatus struct {
-    // Name of the option (corresponds to the virtual workload name).
+    // name of the Option (corresponds to the virtual workload name).
     Name string
-    // ResourceFlavors assigned to this option.
+
+    // resourceFlavors assigned to this Option.
     ResourceFlavors []string
-    // Status of the admission for this specific option (e.g., Pending, Admitted, Evicted).
-    Status string
-    // Message provides details on why an option is in its current state.
+
+    // state of this Option
+    State WorkloadOptionState
+
+    // message provides details on why an Option is in its current state.
     Message string
+
+    // lastTransitionTime is the last time the condition transitioned from one status to another.
+	  LastTransitionTime metav1.Time `json:"lastTransitionTime"`
 }
 
 type WorkloadStatus struct {
@@ -408,11 +452,31 @@ type WorkloadStatus struct {
 ### Option Controller
 
 A dedicated Option Lifecycle will be introduced to manage the state and lifespan of virtual Workloads and the relationship with the parent Workload.
-Its responsibilities include:
 
-1. Creation: It instantiates Options based on the CQ's ExplicitOptions or default RF list.
-2. Aggregation: It syncs the status of Options back into the status.options of the Parent. Based on that the Parent Workload can interact (e.g. suspend/unsuspend) with the top-level job
-3. Policy Enforcement: Upon admission of any option, it executes the OnSuccessPolicy (e.g., deactivating lower-priority virtual Workloads).
+#### Creation
+The controller creates Options based on the CQ's ExplicitOptions or default ResourceFlavor list. It happens in a standalone asynchronous reconciliation loop
+right after the Parent Workload has been created. The Option Controller doesn't evaluate ResourceFlavors on its own, in particular it doesn't check if a Option
+can be ever admitted with the ResourceFlavor assigned. It defers all scheduling decision to the scheduler. It in the cluster admin's responsibilities to configure
+ResourceFlavors and ConcurrentAdmission API in a way to prevent creation of Options that can never schedule.
+
+#### Aggregation
+The controller syncs the status of Options back into a Parent. A Parent aggregates information from Options and acts as source of truth
+for the top-level jobs. Once any of the Options is admitted, the Parent is also marked as admitted. Then Parent unsuspends the top-level job.
+
+Once any of the Options is evicted it should suspend the job.
+
+
+#### Policy Enforcement
+The controller is responsible for executing `OnSuccessPolicy` upon an admission of a Option. It should deactivate Options with
+respect to a chosen policy.
+It should also deactivate and deactivate Options based on `CreateDelaySeconds` and `DeleteDelaySeconds` fields.
+
+#### Eviction
+An Option can be evicted because of its sibling Option during the "upgrade" process, in that case the evicted Option
+is simply deactivated.
+
+In case of preemption by other Workloads (e.g. priority-based preemption), we reset all the Options and treat them as if
+Parent Workload has just been created - we reset the delay countdown, and activate all Options again (beside those ones with `CreateDelaySeconds`)
 
 ### Observability
 
@@ -422,9 +486,10 @@ Status: The Parent Workload status will list status of all Options.
 
 Checking a particular Option directly.
 
-### Notes/Constraints/Caveats (Optional)
+The existing metrics will be only used to track Parent Workloads, and skip Options.
+We'll revisit adding more metrics per Options when graduating to Beta, based on users' feedback.
 
-#### Code Changes Complexity
+### Code Changes Complexity
 
 The feature should require as few changes in the quota accounting, scheduling, other core Kueue features as possible.
 It creates Workloads that should be treated as regular Workloads, but are controlled by the `OptionsController` that
@@ -432,9 +497,43 @@ can create/activate/deactivate Options.
 
 With making as little changes to scheduling logic as possible in mind, we still need to work on at least 3 things there:
 1) Narrowing selection of ResourceFlavors for a given Workload. This however can be also used outside of the Concurrent Admissions feature, creating more flexibility for Kueue.
-2) Preempting sibling Options when admitting more preferable ones.
+2) Evicting sibling Options when admitting more preferable ones.
 
-### Risks and Mitigations
+### Reserving Quota for the same Workload twice
+
+Migrating to a more preferred flavor could lead to booking quota for the same Workload twice — once for the running instance and once for the "upgrade" attempt.
+A more preferred Option must evict the less preferable one immediately before admission to ensure resource utilization remains accurate, and fair sharing is not negatively impacted.
+
+### Multiple Preemptions
+
+When pursuing multiple flavors concurrently, Kueue might preempt Workloads to accommodate multiple Options belonging to the same Parent Workload.
+While we only issue preemptions coming from one Workload per CQ, what happen is:
+1. An Option preempted a Workload and got the quota reserved.
+2. The same Options is now running AdmissionChecks
+3. A sibling Options is picked up by the scheduler and is preempting some other Workloads
+
+We want to disallow other Options to preempt if one of the Options has already preempted some Workloads.
+We achieve it by storing in memory a map of Workloads that have issued a preemption during their current admission cycle.
+
+### Ordering Options
+
+The `OptionsController` leverages the existing implementation of scheduling logic in Kueue, where Workloads are sorted
+by priorities and creation timestamps and then picked-up by the scheduler one per scheduling cycle (per ClusterQueue).
+This means when creating Options the controller should ensure more favorable Options are ahead of less favorable ones in the queue.
+This could be achieved by adding another dimension to our heap sort mechanism that would only
+be used for sorting sibling Options. The value of this dimension would be filled by the Option Controller based on the order of ResourceFlavors in ClusterQueue.
+Thanks to that we also have a guarantee that sibling Options are always adjacent in the heap, which
+results in Kueue scheduler picking sibling Options one after the another, without any other Workloads in between.
+
+### FlavorFungibility
+
+In the first iteration of the feature we don't plan to integrate with the `FlavorFungibility` configuration on the
+inter-Options level. It means that the `OnSuccessPolicy` is binary - whether an Options has been admitted or not.
+It doesn't take into account if preemption or borrowing was necessary to admit an Option.
+At the same time if an Option can be scheduled onto multiple flavors, it follows
+the `FlavorFungibility` configuration.
+
+### Notes/Constraints/Caveats (Optional)
 
 #### StrictFIFO
 
@@ -452,36 +551,10 @@ The other one is to not block Options siblings if the first one cannot be schedu
 2) The heap node consists of all of the Options belonging to the same parent Workload.
 3) The scheduler picks up only one Option per scheduling cycle. If there's a sibling in the heap head, it doesn't put back the processed after failed scheduling. Instead it lets the other Option run.
 
-Mitigation: For Alpha and Beta version of this feature we don't plan to support `StrictFIFO` queueing strategy. Based on users' feedback we will reconsider it for GA.
+For Alpha and Beta version of this feature we don't plan to support `StrictFIFO` queueing strategy. Based on users' feedback we will reconsider it for GA.
 
-#### Multiple Preemptions
+### Risks and Mitigations
 
-When pursuing multiple flavors concurrently, Kueue might preempt Workloads to accommodate multiple Options belonging to the same Parent Workload.
-While we only issue preemptions coming from one Workload per CQ, what happen is:
-1. An Option preempted a Workload and got the quota reserved.
-2. The same Options is now running AdmissionChecks
-3. A sibling Options is picked up by the scheduler and is preempting some other Workloads
-
-Mitigation: We want to avoid and disallow other Options to preempt if one of the Options has already preempted some Workloads.
-
-#### Reserving Quota for the same Workload twice
-
-Migrating to a more preferred flavor could lead to booking quota for the same Workload twice — once for the running instance and once for the "upgrade" attempt.
-
-Mitigation: The Kueue scheduler must preempt the less preferable Option immediately before admitting the more preferable one to ensure resource utilization remains accurate and fair sharing is not negatively impacted.
-
-#### Scheduling Options in wrong order
-
-The `OptionsController` leverages the existing implementation of scheduling logic in Kueue, where Workloads are sorted
-by priorities and creation timestamps and then picked-up by the scheduler one per scheduling cycle (per ClusterQueue).
-This means when creating Options the controller should ensure more favorable Options are ahead of less favorable ones in the queue. This could be achieved by adding another dimension to our heap sort mechanism that would only
-be used for sorting Options coming from the same Parent. The value of this dimension would be filled by the Option Controller based on the order of ResourceFlavors in ClusterQueue.
-
-#### FlavorFungibility
-
-In the first iteration of the feature we don't plan to integrate with the FlavorFungibility configuration. Users should be able to
-impact what Options are activated/deactivated using `RemoveBelowTarget` policy. Based on the user feedback we may extend the
-`OnSuccessPolicy` API or integrate it with FlavorFungibility API.
 
 <!--
 This section should contain enough information that the specifics of your
