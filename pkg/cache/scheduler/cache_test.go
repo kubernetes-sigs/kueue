@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
@@ -1289,6 +1290,74 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				}).Obj()
 				if !cache.AddOrUpdateWorkload(log, w) {
 					return errors.New("failed to add workload")
+				}
+				return nil
+			},
+			wantResults: map[kueue.ClusterQueueReference]result{
+				"one": {
+					Workloads: sets.New[workload.Reference]("/a", "/b"),
+					UsedResources: resources.FlavorResourceQuantities{
+						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
+						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
+					},
+				},
+				"two": {
+					Workloads: sets.New[workload.Reference]("/c"),
+				},
+			},
+		},
+		{
+			name: "AddOrUpdateWorkload; finished workload removed",
+			operation: func(log logr.Logger, cache *Cache) error {
+				w := utiltestingapi.MakeWorkload("b", "").ReserveQuotaAt(&kueue.Admission{
+					ClusterQueue: "one",
+				}, time.Now()).Finished().Obj()
+				if cache.AddOrUpdateWorkload(log, w) {
+					return errors.New("declared workload update performed when only a deletion should have been performed")
+				}
+				return nil
+			},
+			wantResults: map[kueue.ClusterQueueReference]result{
+				"one": {
+					Workloads: sets.New[workload.Reference]("/a"),
+					UsedResources: resources.FlavorResourceQuantities{
+						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
+						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
+					},
+				},
+				"two": {
+					Workloads: sets.New[workload.Reference]("/c"),
+				},
+			},
+		},
+		{
+			name: "AddOrUpdateWorkload; quota assigned -> quota unassigned",
+			operation: func(log logr.Logger, cache *Cache) error {
+				w := utiltestingapi.MakeWorkload("b", "").Obj()
+				if cache.AddOrUpdateWorkload(log, w) {
+					return errors.New("declared workload update performed when only a deletion should have been performed")
+				}
+				return nil
+			},
+			wantResults: map[kueue.ClusterQueueReference]result{
+				"one": {
+					Workloads: sets.New[workload.Reference]("/a"),
+					UsedResources: resources.FlavorResourceQuantities{
+						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
+						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
+					},
+				},
+				"two": {
+					Workloads: sets.New[workload.Reference]("/c"),
+				},
+			},
+		},
+		{
+			name: "AddOrUpdateWorkload; quota not assigned -> quota still not assigned",
+			operation: func(log logr.Logger, cache *Cache) error {
+				w := utiltestingapi.MakeWorkload("d", "").Obj()
+				if cache.AddOrUpdateWorkload(log, w) {
+					return errors.New("declared workload update performed when no action should have been taken")
 				}
 				return nil
 			},

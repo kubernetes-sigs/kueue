@@ -412,7 +412,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 	}
 	for i, w := range workloads.Items {
 		log := log.WithValues("workload", workload.Key(&w))
-		if !workload.HasQuotaReservation(&w) || workload.IsFinished(&w) {
+		if !workload.HasActiveQuotaReservation(&w) {
 			continue
 		}
 		c.addOrUpdateWorkload(log, &workloads.Items[i])
@@ -562,7 +562,12 @@ func (c *Cache) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload) bool {
 }
 
 func (c *Cache) addOrUpdateWorkload(log logr.Logger, w *kueue.Workload) bool {
-	if !workload.HasQuotaReservation(w) {
+	// Finished or deactivated workloads should not keep ClusterQueues in-use in the cache.
+	if !workload.HasActiveQuotaReservation(w) {
+		if cq := c.clusterQueueForWorkload(w); cq != nil {
+			c.cleanupAssumedState(log, w)
+			cq.deleteWorkload(log, w)
+		}
 		return false
 	}
 
