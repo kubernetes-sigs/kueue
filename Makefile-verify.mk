@@ -15,7 +15,7 @@
 ##@ Verify
 
 GO_FMT ?= gofmt
-VERIFY_NPROCS ?= 8
+VERIFY_NPROCS ?= 1
 # Paths whose content is expected to be fully reproducible from sources.
 # The final step of `make verify` enforces that these paths have:
 # - no unstaged/staged diffs (`git diff --exit-code`)
