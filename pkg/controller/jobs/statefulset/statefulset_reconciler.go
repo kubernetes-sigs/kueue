@@ -243,6 +243,11 @@ func (r *Reconciler) handle(obj client.Object) bool {
 	log := r.logger().WithValues("statefulset", klog.KObj(sts))
 	ctrl.LoggerInto(ctx, log)
 
+	if frameworkName, managed := managedByAnotherFramework(sts); managed {
+		log.V(3).Info("Skipping reconciliation because the object is managed by another framework", "framework", frameworkName)
+		return false
+	}
+
 	// Handle only statefulset managed by kueue.
 	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, sts, r.client, r.manageJobsWithoutQueueName, r.managedJobsNamespaceSelector)
 	if err != nil {
