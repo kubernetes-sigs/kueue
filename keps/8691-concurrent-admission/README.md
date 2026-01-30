@@ -51,6 +51,7 @@ tags, and then generate with `hack/update-toc.sh`.
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
     - [StrictFIFO](#strictfifo)
   - [Risks and Mitigations](#risks-and-mitigations)
+    - [Misconfiguration](#misconfiguration)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
@@ -454,20 +455,23 @@ type WorkloadStatus struct {
 
 ### Option Controller
 
-A dedicated Option Lifecycle will be introduced to manage the state and lifespan of virtual Workloads and the relationship with the parent Workload.
+A dedicated Option Controller will be introduced to manage the state and lifespan of Option Workloads and the relationship with the Parent Workload.
 
 #### Creation
-The controller creates Options based on the CQ's ExplicitOptions or default ResourceFlavor list. It happens in a standalone asynchronous reconciliation loop
-right after the Parent Workload has been created. The Option Controller doesn't evaluate ResourceFlavors on its own, in particular it doesn't check if a Option
-can be ever admitted with the ResourceFlavor assigned. It defers all scheduling decision to the scheduler. It in the cluster admin's responsibilities to configure
-ResourceFlavors and ConcurrentAdmission API in a way to prevent creation of Options that can never schedule.
+The controller creates Options based on the CQ's `ExplicitOptions` or ResourceFlavor list.
+It happens in a standalone asynchronous reconciliation loop right after the Parent Workload has been created.
+
+The controller doesn't evaluate ResourceFlavors on its own, in particular it doesn't check if a Option
+can be ever admitted with the ResourceFlavor assigned. It defers all scheduling decision to the scheduler.
+It in the cluster admin's responsibilities to configure ResourceFlavors and ConcurrentAdmission API in a way to prevent creation of Options that can never schedule.
+
+The controller also reacts on changes both in CQ's `ExplicitOptions` and ResourceFlavor list creating and deleting Options accordingly.
 
 #### Aggregation
 The controller syncs the status of Options back into a Parent. A Parent aggregates information from Options and acts as source of truth
 for the top-level jobs. Once any of the Options is admitted, the Parent is also marked as admitted. Then Parent unsuspends the top-level job.
 
 Once any of the Options is evicted it should suspend the job.
-
 
 #### Policy Enforcement
 The controller is responsible for executing `OnSuccessPolicy` upon an admission of a Option. It should deactivate Options with
@@ -558,6 +562,10 @@ For Alpha and Beta version of this feature we don't plan to support `StrictFIFO`
 
 ### Risks and Mitigations
 
+#### Misconfiguration
+
+The complexity of the feature may lead to misconfigurations, to mitigate this risk
+we should provide users with comprehensive documentation and examples
 
 <!--
 This section should contain enough information that the specifics of your
@@ -629,7 +637,7 @@ Initial support for `RemoveBelowTarget` policy.
 
 Integration with `BestEffortFIFO` queueing strategy.
 
-Introduction of `WorkloadMode`, `WorkloadOptionStatus` and `AllowedResourceFlavors` fields.
+Introduction of `WorkloadOptionStatus` and `AdmissionConstraints` fields.
 
 #### Beta
 
@@ -637,7 +645,7 @@ Support for `RemoveOther` and `RemoveLower` policies
 
 Introduction of `ExplicitOptions` functionality.
 
-Minimizing number of Option issuing preemptions to only one per Parent.
+Minimizing number of Options issuing preemptions to only one per Parent.
 
 Revisit the idea of introducing WorkloadType API
 ```
