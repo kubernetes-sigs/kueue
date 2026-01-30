@@ -191,10 +191,6 @@ func (m *Manager) addFinishedWorkloadWithoutLock(wl *kueue.Workload) {
 
 	qKey := queue.KeyFromWorkload(wl)
 
-	if recordedCQ, alreadyInCache := m.finishedWorkloads[wlKey]; alreadyInCache && recordedCQ == qKey {
-		return
-	}
-
 	m.finishedWorkloads[wlKey] = qKey
 
 	q := m.localQueues[qKey]
