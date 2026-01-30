@@ -1309,6 +1309,30 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 		},
 		{
+			name: "AddOrUpdateWorkload; finished workload removed",
+			operation: func(log logr.Logger, cache *Cache) error {
+				w := utiltestingapi.MakeWorkload("b", "").ReserveQuotaAt(&kueue.Admission{
+					ClusterQueue: "one",
+				}, now).Finished().Obj()
+				if cache.AddOrUpdateWorkload(log, w) {
+					return errors.New("declared workload update performed when only a deletion should have been performed")
+				}
+				return nil
+			},
+			wantResults: map[kueue.ClusterQueueReference]result{
+				"one": {
+					Workloads: sets.New[workload.Reference]("/a"),
+					UsedResources: resources.FlavorResourceQuantities{
+						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
+						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
+					},
+				},
+				"two": {
+					Workloads: sets.New[workload.Reference]("/c"),
+				},
+			},
+		},
+		{
 			name: "AddOrUpdateWorkload; quota assigned -> quota unassigned",
 			operation: func(log logr.Logger, cache *Cache) error {
 				w := utiltestingapi.MakeWorkload("b", "").Obj()
