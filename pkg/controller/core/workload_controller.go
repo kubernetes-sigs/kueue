@@ -209,6 +209,13 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 
 		log.V(2).Info("Deleting workload because it has finished and the retention period has elapsed", "retention", *r.workloadRetention.afterFinished)
+		// Proactively purge this workload from in-memory caches as soon as we decide
+		// to delete it. This avoids relying solely on a later delete event/reconcile
+		// to unblock ClusterQueue/Flavor finalizers.
+		//
+		// This is safe because finished workloads are not schedulable and should not
+		// block cache-based garbage collection once their retention has elapsed.
+		r.deleteWorkloadFromCaches(ctx, req.Namespace, req.Name)
 		if err := r.client.Delete(ctx, &wl); err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}

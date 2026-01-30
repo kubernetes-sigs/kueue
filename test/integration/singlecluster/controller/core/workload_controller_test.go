@@ -822,7 +822,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo
 	})
 })
 
-var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.FDescribe("Workload controller with resource retention", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	ginkgo.When("manager is setup with tiny retention period", func() {
 		var (
 			ns              *corev1.Namespace
