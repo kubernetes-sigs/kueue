@@ -21,11 +21,26 @@ import (
 // ReplicatedJobApplyConfiguration represents a declarative configuration of the ReplicatedJob type for use
 // with apply.
 type ReplicatedJobApplyConfiguration struct {
-	Name      *string                               `json:"name,omitempty"`
-	GroupName *string                               `json:"groupName,omitempty"`
-	Template  *v1.JobTemplateSpecApplyConfiguration `json:"template,omitempty"`
-	Replicas  *int32                                `json:"replicas,omitempty"`
-	DependsOn []DependsOnApplyConfiguration         `json:"dependsOn,omitempty"`
+	// name is the name of the entry and will be used as a suffix
+	// for the Job name.
+	Name *string `json:"name,omitempty"`
+	// groupName defines the name of the group this ReplicatedJob belongs to. Defaults to "default"
+	GroupName *string `json:"groupName,omitempty"`
+	// template defines the template of the Job that will be created.
+	Template *v1.JobTemplateSpecApplyConfiguration `json:"template,omitempty"`
+	// replicas is the number of jobs that will be created from this ReplicatedJob's template.
+	// Jobs names will be in the format: <jobSet.name>-<spec.replicatedJob.name>-<job-index>
+	Replicas *int32 `json:"replicas,omitempty"`
+	// dependsOn is an optional list that specifies the preceding ReplicatedJobs upon which
+	// the current ReplicatedJob depends. If specified, the ReplicatedJob will be created
+	// only after the referenced ReplicatedJobs reach their desired state.
+	// The Order of ReplicatedJobs is defined by their enumeration in the slice.
+	// Note, that the first ReplicatedJob in the slice cannot use the DependsOn API.
+	// Currently, only a single item is supported in the DependsOn list.
+	// If JobSet is suspended the all active ReplicatedJobs will be suspended. When JobSet is
+	// resumed the Job sequence starts again.
+	// This API is mutually exclusive with the StartupPolicy API.
+	DependsOn []DependsOnApplyConfiguration `json:"dependsOn,omitempty"`
 }
 
 // ReplicatedJobApplyConfiguration constructs a declarative configuration of the ReplicatedJob type for use with

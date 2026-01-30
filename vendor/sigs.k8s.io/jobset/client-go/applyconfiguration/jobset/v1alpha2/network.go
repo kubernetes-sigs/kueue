@@ -17,9 +17,17 @@ package v1alpha2
 // NetworkApplyConfiguration represents a declarative configuration of the Network type for use
 // with apply.
 type NetworkApplyConfiguration struct {
-	EnableDNSHostnames       *bool   `json:"enableDNSHostnames,omitempty"`
-	Subdomain                *string `json:"subdomain,omitempty"`
-	PublishNotReadyAddresses *bool   `json:"publishNotReadyAddresses,omitempty"`
+	// enableDNSHostnames allows pods to be reached via their hostnames.
+	// Pods will be reachable using the fully qualified pod hostname:
+	// <jobSet.name>-<spec.replicatedJob.name>-<job-index>-<pod-index>.<subdomain>
+	EnableDNSHostnames *bool `json:"enableDNSHostnames,omitempty"`
+	// subdomain is an explicit choice for a network subdomain name
+	// When set, any replicated job in the set is added to this network.
+	// Defaults to <jobSet.name> if not set.
+	Subdomain *string `json:"subdomain,omitempty"`
+	// publishNotReadyAddresses indicates if DNS records of pods should be published before the pods are ready.
+	// Defaults to True.
+	PublishNotReadyAddresses *bool `json:"publishNotReadyAddresses,omitempty"`
 }
 
 // NetworkApplyConfiguration constructs a declarative configuration of the Network type for use with

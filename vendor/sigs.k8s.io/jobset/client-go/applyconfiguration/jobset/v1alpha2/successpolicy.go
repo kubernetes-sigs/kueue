@@ -21,8 +21,11 @@ import (
 // SuccessPolicyApplyConfiguration represents a declarative configuration of the SuccessPolicy type for use
 // with apply.
 type SuccessPolicyApplyConfiguration struct {
-	Operator             *jobsetv1alpha2.Operator `json:"operator,omitempty"`
-	TargetReplicatedJobs []string                 `json:"targetReplicatedJobs,omitempty"`
+	// operator determines either All or Any of the selected jobs should succeed to consider the JobSet successful
+	Operator *jobsetv1alpha2.Operator `json:"operator,omitempty"`
+	// targetReplicatedJobs are the names of the replicated jobs the operator will apply to.
+	// A null or empty list will apply to all replicatedJobs.
+	TargetReplicatedJobs []string `json:"targetReplicatedJobs,omitempty"`
 }
 
 // SuccessPolicyApplyConfiguration constructs a declarative configuration of the SuccessPolicy type for use with
