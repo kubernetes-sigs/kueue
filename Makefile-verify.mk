@@ -49,7 +49,7 @@ PATHS_TO_VERIFY := config/components apis charts/kueue client-go site/ netlify.t
 ## - If it ONLY VALIDATES without writing files: add it to `verify-checks`.
 ##
 ## Implementation location:
-## - You can define the target in this file (`Makefile-verify.mk`) if it’s verify-specific,
+## - You can define the target in this file (`Makefile-verify.mk`) if it's verify-specific,
 ##   or in another included fragment (`Makefile-test.mk`, etc.) if it logically belongs there.
 ## - Then, wire it into the appropriate aggregator target below.
 verify: ## Ensure repo is clean after generation/formatting.
@@ -81,7 +81,7 @@ verify-tree-prereqs: verify-go-prereqs verify-docs-prereqs verify-helm-prereqs
 ## Read-only verification targets that should not mutate the repo.
 ## Add new check-only targets here.
 verify-checks: ## Phase 2 (parallel): checks that should run after generation completes.
-verify-checks: ci-lint lint-api fmt-verify shell-lint toc-verify helm-verify helm-unit-test npm-depcheck
+verify-checks: ci-lint lint-api fmt-verify shell-lint toc-verify helm-verify helm-unit-test npm-depcheck verify-website-links
 
 .PHONY: gomod-verify
 gomod-verify: ## Verify go.mod / go.sum are tidy and unchanged.
@@ -149,6 +149,10 @@ helm-unit-test: verify-helm-prereqs helm helm-unittest-plugin ## Run Helm unit t
 npm-depcheck: prepare-release-branch ## Verify frontend and e2e npm dependencies.
 	$(PROJECT_DIR)/hack/depcheck/verify.sh $(PROJECT_DIR)/cmd/kueueviz/frontend
 	$(PROJECT_DIR)/hack/depcheck/verify.sh $(PROJECT_DIR)/test/e2e/kueueviz
+
+.PHONY: verify-website-links
+verify-website-links: ## Check for broken internal links on the public website.
+	$(PROJECT_DIR)/hack/linkchecker/verify.sh
 
 .PHONY: i18n-verify
 i18n-verify: ## Verify localized docs are in sync with English. Usage: make i18n-verify [TARGET_LANG=zh-CN]
