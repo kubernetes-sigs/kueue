@@ -419,9 +419,12 @@ const (
     // OptionStateAdmitted means the Option has been admitted
     OptionStateAdmitted = "Admitted"
 
-    // OptionStateDeactivated means the Options has the field `.spec.active` set to `false`. It may happen due
+    // OptionStateDeactivated means the Option has the field `.spec.active` set to `false`. It may happen due
     // to `CreatedDelaySeconds`/`DeleteDelaySeconds` or `OnSuccessPolicy` configuration.
     OptionStateDeactivated = "Deactivated"
+
+    // OptionStateFinished means the Option has completed running.
+    OptionStateFinished = "Finished"
 )
 
 type WorkloadOptionStatus struct {
@@ -438,7 +441,7 @@ type WorkloadOptionStatus struct {
     Message string
 
     // lastTransitionTime is the last time the condition transitioned from one status to another.
-	  LastTransitionTime metav1.Time `json:"lastTransitionTime"`
+    LastTransitionTime metav1.Time `json:"lastTransitionTime"`
 }
 
 type WorkloadStatus struct {
