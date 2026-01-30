@@ -39,11 +39,11 @@ require (
 	k8s.io/metrics v0.35.0
 	k8s.io/utils v0.0.0-20251002143259-bc988d571ff4
 	sigs.k8s.io/cluster-inventory-api v0.0.0-20251028164203-2e3fabb46733
-	sigs.k8s.io/controller-runtime v0.22.4
+	sigs.k8s.io/controller-runtime v0.23.1
 	sigs.k8s.io/dra-example-driver v0.2.1
 	sigs.k8s.io/jobset v0.10.1
 	sigs.k8s.io/lws v0.7.0
-	sigs.k8s.io/structured-merge-diff/v6 v6.3.1
+	sigs.k8s.io/structured-merge-diff/v6 v6.3.2-0.20260122202528-d9cc6641c482
 	sigs.k8s.io/yaml v1.6.0
 )
 
