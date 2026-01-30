@@ -570,8 +570,7 @@ func TestWlReconcile(t *testing.T) {
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
-		},
-		"handle workload evicted on manager cluster": {
+		}, "handle workload evicted on manager cluster": {
 			features:     map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: true},
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
@@ -594,7 +593,7 @@ func TestWlReconcile(t *testing.T) {
 				*baseJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					Active(0).
+					Active(1).
 					Obj(),
 			},
 			worker1Workloads: []kueue.Workload{
@@ -602,10 +601,10 @@ func TestWlReconcile(t *testing.T) {
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 					Condition(metav1.Condition{
-						Type:    kueue.WorkloadDeactivationTarget,
+						Type:    kueue.WorkloadEvicted,
 						Status:  metav1.ConditionTrue,
-						Reason:  kueue.WorkloadEvictedOnManagerCluster,
-						Message: "Evicted on manager: Evicted by test",
+						Reason:  "ByTest",
+						Message: "Evicted by test",
 					}).
 					Obj(),
 			},
@@ -627,9 +626,7 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 			wantManagersJobs: []batchv1.Job{
-				*baseJobManagedByKueueBuilder.Clone().
-					Active(1).
-					Obj(),
+				*baseJobManagedByKueueBuilder.Clone().Active(1).Obj(),
 			},
 			wantWorker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -641,16 +638,21 @@ func TestWlReconcile(t *testing.T) {
 						Reason:  kueue.WorkloadEvictedOnManagerCluster,
 						Message: "Evicted on manager: Evicted by test",
 					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "ByTest",
+						Message: "Evicted by test",
+					}).
 					Obj(),
 			},
 			wantWorker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					Active(0).
+					Active(1).
 					Obj(),
 			},
-			wantWorker2Workloads: nil,
 		},
 		"remote wl with reservation (withoutJobManagedBy)": {
 			features:     map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: false},
