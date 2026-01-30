@@ -12,6 +12,8 @@ updates:
     labels:
       - "ok-to-test"
       - "release-note-none"
+      - "dependencies"
+      - "area/dependency"
     groups:
       kubernetes:
         patterns:
@@ -29,6 +31,8 @@ updates:
     labels:
       - "ok-to-test"
       - "release-note-none"
+      - "dependencies"
+      - "area/dependency"
     open-pull-requests-limit: 10
     groups:
       all:
@@ -50,6 +54,8 @@ updates:
     labels:
       - "ok-to-test"
       - "release-note-none"
+      - "dependencies"
+      - "area/dependency"
 
   # Maintain go dependencies for KueueViz backend
   - package-ecosystem: "gomod"
@@ -60,6 +66,8 @@ updates:
     labels:
       - "ok-to-test"
       - "release-note-none"
+      - "dependencies"
+      - "area/dependency"
     groups:
       kubernetes:
         patterns:
@@ -81,6 +89,8 @@ updates:
     labels:
       - "ok-to-test"
       - "release-note-none"
+      - "dependencies"
+      - "area/dependency"
     groups:
       mui-packages:
         patterns:
