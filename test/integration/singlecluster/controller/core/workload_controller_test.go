@@ -874,47 +874,49 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
 		})
 
-		ginkgo.It("should delete the workload after retention period elapses", framework.SlowSpec, func() {
-			var (
-				wl    *kueue.Workload
-				wlKey client.ObjectKey
-			)
+		for i := range 300 {
+			ginkgo.FIt(fmt.Sprintf("should delete the workload after retention period elapses %d", i), framework.SlowSpec, func() {
+				var (
+					wl    *kueue.Workload
+					wlKey client.ObjectKey
+				)
 
-			ginkgo.By("creating a workload", func() {
-				wl = utiltestingapi.MakeWorkload("wl-to-expire", ns.Name).Queue("q").Obj()
-				wlKey = client.ObjectKeyFromObject(wl)
-				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+				ginkgo.By("creating a workload", func() {
+					wl = utiltestingapi.MakeWorkload("wl-to-expire", ns.Name).Queue("q").Obj()
+					wlKey = client.ObjectKeyFromObject(wl)
+					gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+				})
+
+				ginkgo.By("simulating workload admission", func() {
+					admission := utiltestingapi.MakeAdmission("cq").Obj()
+					util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+				})
+
+				ginkgo.By("marking workload as finished", func() {
+					gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWorkload)).To(gomega.Succeed())
+					gomega.Eventually(func(g gomega.Gomega) {
+						createdWorkload.Status.Conditions = append(createdWorkload.Status.Conditions, metav1.Condition{
+							Type:               kueue.WorkloadFinished,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.Now(),
+							Reason:             "FinishedByTest",
+							Message:            "Finished for testing purposes",
+						})
+						g.Expect(k8sClient.Status().Update(ctx, &createdWorkload)).To(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("workload should be deleted after the retention period", func() {
+					gomega.Eventually(func() error {
+						return k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWorkload)
+					}, util.Timeout, util.Interval).ShouldNot(gomega.Succeed())
+				})
+
+				util.ExpectFinishedWorkloadsGaugeMetric(clusterQueue, 0)
+				util.ExpectLQFinishedWorkloadsGaugeMetric(localQueue, 0)
 			})
-
-			ginkgo.By("simulating workload admission", func() {
-				admission := utiltestingapi.MakeAdmission("cq").Obj()
-				util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
-				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
-			})
-
-			ginkgo.By("marking workload as finished", func() {
-				gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWorkload)).To(gomega.Succeed())
-				gomega.Eventually(func(g gomega.Gomega) {
-					createdWorkload.Status.Conditions = append(createdWorkload.Status.Conditions, metav1.Condition{
-						Type:               kueue.WorkloadFinished,
-						Status:             metav1.ConditionTrue,
-						LastTransitionTime: metav1.Now(),
-						Reason:             "FinishedByTest",
-						Message:            "Finished for testing purposes",
-					})
-					g.Expect(k8sClient.Status().Update(ctx, &createdWorkload)).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("workload should be deleted after the retention period", func() {
-				gomega.Eventually(func() error {
-					return k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWorkload)
-				}, util.Timeout, util.Interval).ShouldNot(gomega.Succeed())
-			})
-
-			util.ExpectFinishedWorkloadsGaugeMetric(clusterQueue, 0)
-			util.ExpectLQFinishedWorkloadsGaugeMetric(localQueue, 0)
-		})
+		}
 	})
 
 	ginkgo.When("manager is setup with long retention period", func() {
