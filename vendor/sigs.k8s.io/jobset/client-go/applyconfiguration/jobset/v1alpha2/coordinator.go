@@ -16,10 +16,17 @@ package v1alpha2
 
 // CoordinatorApplyConfiguration represents a declarative configuration of the Coordinator type for use
 // with apply.
+//
+// Coordinator defines which pod can be marked as the coordinator for the JobSet workload.
 type CoordinatorApplyConfiguration struct {
+	// replicatedJob is the name of the ReplicatedJob which contains
+	// the coordinator pod.
 	ReplicatedJob *string `json:"replicatedJob,omitempty"`
-	JobIndex      *int    `json:"jobIndex,omitempty"`
-	PodIndex      *int    `json:"podIndex,omitempty"`
+	// jobIndex is the index of Job which contains the coordinator pod
+	// (i.e., for a ReplicatedJob with N replicas, there are Job indexes 0 to N-1).
+	JobIndex *int `json:"jobIndex,omitempty"`
+	// podIndex is the Job completion index of the coordinator pod.
+	PodIndex *int `json:"podIndex,omitempty"`
 }
 
 // CoordinatorApplyConfiguration constructs a declarative configuration of the Coordinator type for use with

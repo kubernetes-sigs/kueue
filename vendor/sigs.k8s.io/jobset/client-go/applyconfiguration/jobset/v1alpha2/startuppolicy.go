@@ -21,6 +21,10 @@ import (
 // StartupPolicyApplyConfiguration represents a declarative configuration of the StartupPolicy type for use
 // with apply.
 type StartupPolicyApplyConfiguration struct {
+	// startupPolicyOrder determines the startup order of the ReplicatedJobs.
+	// AnyOrder means to start replicated jobs in any order.
+	// InOrder means to start them as they are listed in the JobSet. A ReplicatedJob is started only
+	// when all the jobs of the previous one are ready.
 	StartupPolicyOrder *jobsetv1alpha2.StartupPolicyOptions `json:"startupPolicyOrder,omitempty"`
 }
 

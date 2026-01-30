@@ -22,11 +22,16 @@ import (
 
 // JobSetApplyConfiguration represents a declarative configuration of the JobSet type for use
 // with apply.
+//
+// JobSet is the Schema for the jobsets API
 type JobSetApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration    `json:",inline"`
+	v1.TypeMetaApplyConfiguration `json:",inline"`
+	// metadata is the object metadata for JobSet
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Spec                             *JobSetSpecApplyConfiguration   `json:"spec,omitempty"`
-	Status                           *JobSetStatusApplyConfiguration `json:"status,omitempty"`
+	// spec is the specification for jobset
+	Spec *JobSetSpecApplyConfiguration `json:"spec,omitempty"`
+	// status is the status of the jobset
+	Status *JobSetStatusApplyConfiguration `json:"status,omitempty"`
 }
 
 // JobSet constructs a declarative configuration of the JobSet type for use with
@@ -39,6 +44,7 @@ func JobSet(name, namespace string) *JobSetApplyConfiguration {
 	b.WithAPIVersion("jobset.x-k8s.io/v1alpha2")
 	return b
 }
+
 func (b JobSetApplyConfiguration) IsApplyConfiguration() {}
 
 // WithKind sets the Kind field in the declarative configuration to the given value
