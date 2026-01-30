@@ -39,6 +39,7 @@ kube::codegen::gen_openapi \
   --boilerplate "${KUEUE_ROOT}/hack/boilerplate.go.txt" \
   --output-dir "${KUEUE_ROOT}/apis/visibility/openapi" \
   --output-pkg "${KUEUE_PKG}/apis/visibility/openapi" \
+  --output-model-name-file "zz_generated.model_name.go" \
   --update-report \
   "${KUEUE_ROOT}/apis/visibility"
 
