@@ -525,6 +525,19 @@ func (m *Manager) ClusterQueueForWorkload(wl *kueue.Workload) (kueue.ClusterQueu
 	return q.ClusterQueue, ok
 }
 
+// Record workload lq mapping if not present yet
+func (m *Manager) RecordUnassignedWorkload(w *kueue.Workload) {
+	m.Lock()
+	defer m.Unlock()
+
+	wlKey := workload.Key(w)
+
+	_, assigned := m.workloadAssignedQueues[wlKey]
+	if !assigned {
+		m.assignWorkload(wlKey, queue.KeyFromWorkload(w))
+	}
+}
+
 // AddOrUpdateWorkload adds or updates workload to the corresponding queue.
 // Returns whether the queue existed.
 func (m *Manager) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
