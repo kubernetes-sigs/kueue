@@ -17,6 +17,7 @@ limitations under the License.
 package yamlproc
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -370,6 +371,14 @@ func loadBoilerplate(path string) ([]byte, error) {
 		if err != nil {
 			logger.Fatal("Failed to load boilerplate", zap.Error(err))
 		}
+
+		// The boilerplate is expected to be a Go-style block comment: /* ... */
+		// We wrap it as a Go-template action so it doesn't affect YAML parsing.
+		//
+		// Trimming whitespace is critical: otherwise the boilerplate typically ends
+		// with "*/\n", which would terminate the comment before the template action
+		// closes (leading to "comment ends before closing delimiter").
+		boilerplate = bytes.TrimSpace(boilerplate)
 		boilerplate = append([]byte("{{- "), boilerplate...)
 		return append(boilerplate, []byte(" -}}\n\n")...), nil
 	}
