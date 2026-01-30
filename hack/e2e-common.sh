@@ -116,16 +116,15 @@ function cluster_cleanup {
 function cluster_collect_artifacts {
     local name=$1
     local kubeconfig=${2:-}
-
-    local kubeconfig_args=()
+    local kubeconfig_arg=""
     if [[ -n "${kubeconfig}" ]]; then
-        kubeconfig_args=(--kubeconfig="${kubeconfig}")
+        kubeconfig_arg="--kubeconfig=${kubeconfig}"
     fi
 
-    kubectl config "${kubeconfig_args[@]}" use-context "kind-${name}" || true
+    kubectl config "$kubeconfig_arg" use-context "kind-${name}" || true
     $KIND export logs "$ARTIFACTS" --name "$name" || true
-    kubectl describe pods "${kubeconfig_args[@]}" -n kueue-system > "$ARTIFACTS/${name}-kueue-system-pods.log" || true
-    kubectl describe pods "${kubeconfig_args[@]}" > "$ARTIFACTS/${name}-default-pods.log" || true
+    kubectl describe pods "$kubeconfig_arg" -n kueue-system > "$ARTIFACTS/${name}-kueue-system-pods.log" || true
+    kubectl describe pods "$kubeconfig_arg" > "$ARTIFACTS/${name}-default-pods.log" || true
 }
 
 # $1 cluster name
@@ -485,10 +484,38 @@ function install_mpi {
 # $1 cluster name
 # $2 kubeconfig option
 function install_kuberay {
-    cluster_kind_load_image "${1}" "${KUBERAY_RAY_IMAGE}"
-    cluster_kind_load_image "${1}" "${KUBERAY_IMAGE}"
-    # create used instead of apply - https://github.com/ray-project/kuberay/issues/504
-    kubectl create --kubeconfig="$2" -k "${KUBERAY_MANIFEST}"
+    local name=$1
+    local kubeconfig=${2:-}
+    local -a kubectl_args=()
+    if [[ -n "${kubeconfig}" ]]; then
+        kubectl_args+=(--kubeconfig="${kubeconfig}")
+    fi
+
+    cluster_kind_load_image "$name" "${KUBERAY_RAY_IMAGE}"
+    cluster_kind_load_image "$name" "${KUBERAY_IMAGE}"
+    # In E2E_MODE=dev we keep and reuse the kind cluster between runs.
+    #
+    # "kubectl create -k" is used instead of apply (https://github.com/ray-project/kuberay/issues/504),
+    # but it is not idempotent: it exits non-zero if any objects already exist.
+    #
+    # For dev reruns, we want idempotence:
+    # - if KubeRay looks fully installed at the desired version, skip
+    # - if KubeRay exists but the version changed, remove and recreate
+    if [[ "${E2E_MODE}" == "dev" ]]; then
+        if kubectl "${kubectl_args[@]}" get deployment kuberay-operator -n default >/dev/null 2>&1; then
+            local deployed_image=""
+            deployed_image=$(kubectl "${kubectl_args[@]}" get deployment kuberay-operator -n default -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true)
+            deployed_image="${deployed_image%@*}"
+            if [[ -n "${deployed_image}" && "${deployed_image}" == "${KUBERAY_IMAGE}" ]]; then
+                echo "KubeRay operator already installed at ${deployed_image}; skipping install (E2E_MODE=dev)."
+                return 0
+            fi
+
+            echo "KubeRay operator exists but version differs (installed='${deployed_image:-unknown}', desired='${KUBERAY_IMAGE}'); reinstalling (E2E_MODE=dev)."
+            kubectl "${kubectl_args[@]}" delete -k "${KUBERAY_MANIFEST}" --ignore-not-found=true
+        fi
+    fi
+    kubectl "${kubectl_args[@]}" create -k "${KUBERAY_MANIFEST}"
 }
 
 # $1 cluster name
