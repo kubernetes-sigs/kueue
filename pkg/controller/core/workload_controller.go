@@ -196,64 +196,35 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	wlRef := workload.NewReference(wl.Namespace, wl.Name)
-	finishedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished)
-	if finishedCond != nil && finishedCond.Status == metav1.ConditionTrue {
-		log.V(3).Info("Reconciling finished workload")
-
-		wlCopy := wl.DeepCopy()
-
-		r.queues.DeleteWorkload(log, wlRef)
-		r.queues.AddFinishedWorkload(wlCopy)
-
-		if err := r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlRef, func() error {
-			return r.cache.DeleteWorkload(log, wlRef)
-		}); err != nil {
-			return ctrl.Result{}, err
-		}
-
-		if !features.Enabled(features.ObjectRetentionPolicies) || r.workloadRetention == nil || r.workloadRetention.afterFinished == nil {
-			return ctrl.Result{}, nil
-		}
-
-		now := r.clock.Now()
-		expirationTime := finishedCond.LastTransitionTime.Add(*r.workloadRetention.afterFinished)
-		if now.Before(expirationTime) {
-			remainingTime := expirationTime.Sub(now)
-			log.V(3).Info("Requeueing workload for deletion after retention period", "remainingTime", remainingTime)
-			return ctrl.Result{RequeueAfter: remainingTime}, nil
-		}
-
-		log.V(2).Info("Deleting workload because it has finished and the retention period has elapsed", "retention", *r.workloadRetention.afterFinished)
-		if err := r.client.Delete(ctx, &wl); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-		r.recorder.Eventf(&wl, corev1.EventTypeNormal, "Deleted", "Deleted finished workload due to elapsed retention")
-		return ctrl.Result{}, nil
-	}
-
+	// ensure internal cache state is correct
 	wlInCache, cachesError := r.reconcileCaches(ctx, &wl)
 	if cachesError != nil {
 		log.Error(cachesError, "Failed to reconcile internal kueue state")
 		return ctrl.Result{}, cachesError
 	}
 
-	handlingDraWl := features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(&wl)
-
-	if wlInCache == nil && !handlingDraWl {
-		r.addToCachesIfAble(ctx, &wl)
+	// reconcile a finished workload
+	if workload.IsFinished(&wl) {
+		wlWasAdmitted := wlInCache != nil && workload.Status(wlInCache) == workload.StatusAdmitted
+		return r.reconcileFinishedWorkload(ctx, &wl, wlWasAdmitted)
 	}
 
+	// reconcile internal cache state
 	if wlInCache != nil {
 		if err := r.updateWorkloadIfAble(ctx, wlInCache, &wl); err != nil {
 			log.V(3).Info("Workload cannot be updated in caches", "error", err)
 		}
+	} else if !handleAsDRA(&wl) {
+		r.addToCachesIfAble(ctx, &wl)
 	}
 
+	// finish if the workload is unhealthy
 	if workload.IsAdmitted(&wl) && workload.HasUnhealthyNodes(&wl) {
 		log.V(3).Info("Stopping reconcile of a workload with nodes to replace", "unhealthyNodes", workload.UnhealthyNodeNames(&wl))
 		return ctrl.Result{}, nil
 	}
+
+	// reconcile workload
 
 	if requeueAt := workload.NeedsRequeueAtUpdate(&wl, r.clock); requeueAt != nil {
 		err := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
@@ -267,7 +238,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
-	if handlingDraWl && workload.Status(&wl) == workload.StatusPending {
+	if handleAsDRA(&wl) && workload.Status(&wl) == workload.StatusPending {
 		workload.AdjustResources(ctx, r.client, &wl)
 		if workload.HasResourceClaim(&wl) {
 			log.V(3).Info("Workload is inadmissible because it uses resource claims which is not supported")
@@ -665,6 +636,49 @@ func (r *WorkloadReconciler) notifyWathchersOfDeletedWorkloads(deletedWorkloads 
 	}
 }
 
+func (r *WorkloadReconciler) reconcileFinishedWorkload(ctx context.Context, wl *kueue.Workload, wlWasAdmitted bool) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+	log.V(3).Info("Reconciling finished workload")
+
+	wlCopy := wl.DeepCopy()
+	wlRef := workload.Key(wl)
+
+	r.queues.DeleteWorkload(log, wlRef)
+	r.queues.AddFinishedWorkload(wlCopy)
+
+	if err := r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlRef, func() error {
+		if err := r.cache.DeleteWorkload(log, wlRef); err != nil && wlWasAdmitted {
+			return err
+		}
+		return nil
+	}); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if !features.Enabled(features.ObjectRetentionPolicies) || r.workloadRetention == nil || r.workloadRetention.afterFinished == nil {
+		return ctrl.Result{}, nil
+	}
+
+	now := r.clock.Now()
+	expirationTime := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished).LastTransitionTime.Add(*r.workloadRetention.afterFinished)
+	if now.Before(expirationTime) {
+		remainingTime := expirationTime.Sub(now)
+		log.V(3).Info("Requeueing workload for deletion after retention period", "remainingTime", remainingTime)
+		return ctrl.Result{RequeueAfter: remainingTime}, nil
+	}
+
+	log.V(2).Info("Deleting workload because it has finished and the retention period has elapsed", "retention", *r.workloadRetention.afterFinished)
+	if err := r.client.Delete(ctx, wl); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	r.recorder.Eventf(wl, corev1.EventTypeNormal, "Deleted", "Deleted finished workload due to elapsed retention")
+	return ctrl.Result{}, nil
+}
+
+func handleAsDRA(wl *kueue.Workload) bool {
+	return features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(wl)
+}
+
 func (r *WorkloadReconciler) updateWorkloadIfAble(ctx context.Context, wlInCache *kueue.Workload, wl *kueue.Workload) error {
 	defer r.notifyWatchers(wlInCache, wl)
 	defer r.queues.QueueSecondPassIfNeeded(ctx, wl, 0)
@@ -676,7 +690,6 @@ func (r *WorkloadReconciler) updateWorkloadIfAble(ctx context.Context, wlInCache
 	wlCopy := wl.DeepCopy()
 	statusInCache := workload.Status(wlInCache)
 	newStatus := workload.Status(wl)
-	handlingDraWl := features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(wl)
 
 	// We do not handle old workload here as it will be deleted or replaced by new one anyway.
 	workload.AdjustResources(ctrl.LoggerInto(ctx, log), r.client, wlCopy)
@@ -699,7 +712,7 @@ func (r *WorkloadReconciler) updateWorkloadIfAble(ctx context.Context, wlInCache
 			return nil
 		})
 	case statusInCache == workload.StatusPending && newStatus == workload.StatusPending:
-		if !handlingDraWl {
+		if !handleAsDRA(wl) {
 			return r.queues.UpdateWorkload(log, wlCopy)
 		}
 	case statusInCache == workload.StatusPending && (newStatus == workload.StatusQuotaReserved || newStatus == workload.StatusAdmitted):
@@ -732,7 +745,7 @@ func (r *WorkloadReconciler) updateWorkloadIfAble(ctx context.Context, wlInCache
 			// keep the immediate retry here because it will ensure that
 			// AddOrUpdateWorkload is only called once. When moving it to the main
 			// reconciler, we would execute it on every run, which might mess up the state.
-			if immediate && !handlingDraWl {
+			if immediate && !handleAsDRA(wl) {
 				if err := r.queues.AddOrUpdateWorkloadWithoutLock(log, wlCopy); err != nil {
 					return err
 				}
@@ -1233,7 +1246,7 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, q
 		log.V(5).Info("Queue reconcile for")
 		workload.AdjustResources(ctrl.LoggerInto(ctx, log), h.r.client, wlCopy)
 
-		if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(wlCopy) {
+		if handleAsDRA(wlCopy) {
 			req := reconcile.Request{
 				NamespacedName: types.NamespacedName{
 					Name:      wlCopy.Name,
