@@ -156,6 +156,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 // 1. A slice of workload names to be created
 // 2. A slice of workloads that may require updates
 // 3. A slice of Workload pointers to be deleted
+//
+// During rolling updates with maxSurge, status.Replicas may temporarily exceed spec.Replicas.
+// This function ensures workloads exist for all groups including surge replicas.
 func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, existingWorkloads []kueue.Workload) ([]string, []*kueue.Workload, []*kueue.Workload) {
 	var (
 		toCreate []string
@@ -165,6 +168,10 @@ func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, exi
 		})
 		replicas = ptr.Deref(lws.Spec.Replicas, 1)
 	)
+
+	if lws.Status.Replicas > replicas {
+		replicas = lws.Status.Replicas
+	}
 
 	for i := range replicas {
 		workloadName := GetWorkloadName(lws.UID, lws.Name, fmt.Sprint(i))
