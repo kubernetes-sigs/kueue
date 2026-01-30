@@ -113,7 +113,7 @@ helm: ## Download helm locally if necessary.
 	@GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install helm.sh/helm/v3/cmd/helm@$(HELM_VERSION)
 
 .PHONY: helm-unittest-plugin
-helm-unittest-plugin: ## Download helm-unittest locally if necessary.
+helm-unittest-plugin: helm ## Download helm-unittest locally if necessary.
 	@if ! HELM_PLUGINS=$(BIN_DIR)/helm-plugins $(HELM) plugin list | grep -q unittest; then \
 		HELM_PLUGINS=$(BIN_DIR)/helm-plugins $(HELM) plugin install https://github.com/helm-unittest/helm-unittest.git --version $(HELM_UNITTEST_PLUGIN_VERSION); \
 	fi
@@ -238,6 +238,8 @@ clusterprofile-crd: ## Copy the CRDs from the clusterprofile to the dep-crds dir
 dep-crds: mpi-operator-crd kf-training-operator-crd kf-trainer-crd kf-trainer-runtimes ray-operator-crd jobset-operator-crd leaderworkerset-operator-crd cluster-autoscaler-crd appwrapper-crd appwrapper-manifests kf-training-operator-manifests ray-operator-manifests kf-trainer-manifests clusterprofile-crd ## Copy the CRDs from the external operators to the dep-crds directory.
 	@echo "Copying CRDs from external operators to dep-crds directory"
 
+KUEUECTL_DOCS = $(BIN_DIR)/kueuectl-docs
+
 .PHONY: kueuectl-docs
 kueuectl-docs:
-	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(BIN_DIR)/kueuectl-docs ./cmd/kueuectl-docs/main.go
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(KUEUECTL_DOCS) ./cmd/kueuectl-docs/main.go
