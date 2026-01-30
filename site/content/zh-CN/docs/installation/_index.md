@@ -298,6 +298,7 @@ spec:
 | `SanitizePodSets`                             | `true`  | Beta  | 0.13 |      |
 | `MultiKueueAllowInsecureKubeconfigs`          | `false` | Alpha | 0.13 |      |
 | `SkipFinalizersForPodsSuspendedByParent`      | `true`  | Beta  | 0.15 |      |
+| `RemoveFinalizersWithStrictPatch`             | `true`  | Beta  | 0.15 |       |
 
 ### 已毕业或已弃用特性的特性门控 {#feature-gates-for-graduated-or-deprecated-features}
 
