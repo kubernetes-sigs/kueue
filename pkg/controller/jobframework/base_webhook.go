@@ -30,6 +30,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	"sigs.k8s.io/kueue/pkg/util/webhook"
 )
 
 // BaseWebhook applies basic defaulting and validation for jobs.
@@ -52,6 +53,9 @@ func BaseWebhookFactory[T runtime.Object](obj T, fromObject func(T) GenericJob) 
 			FromObject:                   fromObject,
 			Queues:                       options.Queues,
 			Cache:                        options.Cache,
+		}
+		if options.NoopWebhook {
+			return webhook.SetupNoopWebhook(mgr, obj)
 		}
 		return ctrl.NewWebhookManagedBy(mgr, obj).
 			WithDefaulter(wh).
