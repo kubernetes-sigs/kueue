@@ -10,7 +10,7 @@ A `Topology` is a cluster-scoped object that defines the hierarchical structure
 of nodes in a data center. It enables
 [Topology Aware Scheduling](/docs/concepts/topology_aware_scheduling) by
 providing a model for representing the hierarchy of organizational units
-(such as blocks and racks) using node labels.
+(such as zones, blocks, and racks) using node labels.
 
 The `Topology` object is referenced from a [ResourceFlavor](/docs/concepts/resource_flavor)
 via the `.spec.topologyName` field to associate the flavor with a specific
@@ -25,6 +25,7 @@ metadata:
   name: "default"
 spec:
   levels:
+  - nodeLabel: "topology.kubernetes.io/zone"
   - nodeLabel: "cloud.provider.com/topology-block"
   - nodeLabel: "cloud.provider.com/topology-rack"
   - nodeLabel: "kubernetes.io/hostname"
@@ -37,6 +38,8 @@ the highest (coarsest) level to the lowest (finest) level. Each level is
 identified by a node label that nodes in your cluster must have.
 
 For example, in a typical data center:
+- **Zone level**: Regions or zones, identified by a label like
+  `topology.kubernetes.io/zone`
 - **Block level**: Groups of racks, identified by a label like
   `cloud.provider.com/topology-block`
 - **Rack level**: Individual racks within blocks, identified by a label like
