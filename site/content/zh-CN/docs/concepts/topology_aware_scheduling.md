@@ -81,7 +81,7 @@ TAS 通过 [Provisioning AdmissionCheck](/docs/admission-check-controllers/provi
 2. **准入检查**：Kueue 等待所有 AdmissionCheck（包括 Provisioning）在 Workload 的 `status.admissionChecks` 字段中报告 `Ready`。
 3. **拓扑分配**：Kueue 在 Workload 对象上设置拓扑分配，计算时会考虑新扩容的节点。
 
-另请参阅 [ProvisioningRequestConfig 中的 PodSet 更新](site/content/en/docs/admission-check-controllers/provisioning.md)，了解如何配置 Kueue 以限制调度到新扩容节点（前提是扩容类支持）。
+另请参阅 [ProvisioningRequestConfig 中的 PodSet 更新](/docs/admission-check-controllers/provisioning/#podset-updates)，了解如何配置 Kueue 以限制调度到新扩容节点（前提是扩容类支持）。
 
 ### 热插拔（Hot swap）支持
 {{% alert title="注意" color="primary" %}}
