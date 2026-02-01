@@ -1148,8 +1148,7 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 	log := ctrl.LoggerFrom(ctx)
 	if features.Enabled(features.MultiKueue) {
 		_, isComposable := job.(ComposableJob)
-		isBatchJobWithoutManagedBy := job.GVK() == batchv1.SchemeGroupVersion.WithKind("Job") &&
-			!features.Enabled(features.MultiKueueBatchJobWithManagedBy)
+		isBatchJobWithoutManagedBy := job.GVK() == batchv1.SchemeGroupVersion.WithKind("Job")
 
 		if isComposable || isBatchJobWithoutManagedBy {
 			skip, err := admissioncheck.ShouldSkipLocalExecution(ctx, r.client, wl)
