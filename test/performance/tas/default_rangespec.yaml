@@ -1,0 +1,39 @@
+# TAS Performance Test - Expected Performance Ranges
+# GENERATED FROM 10 TEST RUNS
+# Configuration: 640 nodes, ~1,050 workloads, required/preferred/balanced topology
+
+# Command execution limits
+cmd:
+  # Mean: 43750ms, StdDev: 685ms, Max: 45503ms
+  # Threshold: max + 20% buffer = 54603ms
+  maxWallMs: 54603
+
+# Cluster Queue utilization targets
+clusterQueueClassesMinUsage:
+  # cq: Mean=46.97%, StdDev=0.45%, Min=46.47%, Max=47.78%
+  # Threshold: mean - stddev = 46%
+  cq: 46 #%
+
+# Workload admission time limits
+wlClassesMaxAvgTimeToAdmissionMs:
+  # large-balanced-rack: Mean=477ms, StdDev=154ms, Min=342ms, Max=839ms
+  # Threshold: mean + 2*stddev = 784ms
+  large-balanced-rack: 784
+  # large-required-rack: Mean=612ms, StdDev=196ms, Min=380ms, Max=959ms
+  # Threshold: mean + 2*stddev = 1003ms
+  large-required-rack: 1_003
+  # medium-balanced-rack: Mean=785ms, StdDev=277ms, Min=468ms, Max=1420ms
+  # Threshold: mean + 2*stddev = 1338ms
+  medium-balanced-rack: 1_338
+  # medium-preferred-block: Mean=1837ms, StdDev=711ms, Min=1001ms, Max=3004ms
+  # Threshold: mean + 2*stddev = 3260ms
+  medium-preferred-block: 3_260
+  # medium-required-rack: Mean=4922ms, StdDev=752ms, Min=3822ms, Max=6340ms
+  # Threshold: mean + 2*stddev = 6426ms
+  medium-required-rack: 6_426
+  # small-preferred-rack: Mean=4859ms, StdDev=599ms, Min=3702ms, Max=5775ms
+  # Threshold: mean + 2*stddev = 6057ms
+  small-preferred-rack: 6_057
+  # small-required-rack: Mean=12152ms, StdDev=836ms, Min=11117ms, Max=13470ms
+  # Threshold: mean + 2*stddev = 13823ms
+  small-required-rack: 13_823

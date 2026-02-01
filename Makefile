@@ -502,3 +502,53 @@ secretreader-plugin-image-build:
 kind-secretreader-plugin-image-build: PLATFORMS=$(HOST_IMAGE_PLATFORM)
 kind-secretreader-plugin-image-build: PUSH=--load
 kind-secretreader-plugin-image-build: secretreader-plugin-image-build
+
+
+##@ TAS Performance Testing
+
+SCALABILITY_TAS_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/performance/tas/default_generator_config.yaml
+SCALABILITY_TAS_RANGE_FILE ?= $(PROJECT_DIR)/test/performance/tas/default_rangespec.yaml
+
+.PHONY: minimalkueue-tas
+minimalkueue-tas: ## Build minimalkueue binary with TAS support
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(PROJECT_DIR)/bin/minimalkueue-tas ./test/performance/tas/minimalkueue
+
+.PHONY: run-performance-tas
+run-performance-tas: $(ENVTEST) gotestsum minimalkueue-tas ## Run TAS performance test with minimalkueue
+	mkdir -p $(PROJECT_DIR)/bin/run-performance-tas
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
+	$(GO_BUILD_ENV) $(GO_CMD) run ./test/performance/tas/runner/main.go \
+	  -o $(PROJECT_DIR)/bin/run-performance-tas \
+	  -crds $(PROJECT_DIR)/config/components/crd/bases \
+	  -generatorConfig $(SCALABILITY_TAS_GENERATOR_CONFIG) \
+	  -minimalKueue $(PROJECT_DIR)/bin/minimalkueue-tas \
+	  $(if $(SCALABILITY_CPU_PROFILE),-withCPUProfile) \
+	  $(if $(SCALABILITY_KUEUE_LOGS),-withLogs -withLogsLevel=$(or $(SCALABILITY_KUEUE_LOGS_LEVEL),2)) \
+	  $(if $(SCALABILITY_SCRAPE_INTERVAL),-metricsScrapeInterval=$(SCALABILITY_SCRAPE_INTERVAL))
+
+.PHONY: run-performance-tas-in-cluster
+run-performance-tas-in-cluster: ## Run TAS performance test in existing cluster
+	mkdir -p $(PROJECT_DIR)/bin/run-performance-tas-in-cluster
+	$(GO_BUILD_ENV) $(GO_CMD) run ./test/performance/tas/runner/main.go \
+	  -o $(PROJECT_DIR)/bin/run-performance-tas-in-cluster \
+	  -generatorConfig $(SCALABILITY_TAS_GENERATOR_CONFIG) \
+	  $(if $(SCALABILITY_SCRAPE_INTERVAL),-metricsScrapeInterval=$(SCALABILITY_SCRAPE_INTERVAL)) \
+	  $(if $(SCALABILITY_SCRAPE_URL),-metricsScrapeURL=$(SCALABILITY_SCRAPE_URL))
+
+.PHONY: test-performance-tas
+test-performance-tas: $(ENVTEST) gotestsum minimalkueue-tas ## Run TAS performance test and validate against rangespec
+	mkdir -p $(PROJECT_DIR)/bin/test-performance-tas
+	@echo "Running TAS performance test..."
+	@KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
+	$(GO_BUILD_ENV) $(GO_CMD) run ./test/performance/tas/runner/main.go \
+	  -o $(PROJECT_DIR)/bin/test-performance-tas \
+	  -crds $(PROJECT_DIR)/config/components/crd/bases \
+	  -generatorConfig $(SCALABILITY_TAS_GENERATOR_CONFIG) \
+	  -minimalKueue $(PROJECT_DIR)/bin/minimalkueue-tas
+	@echo "Validating results..."
+	@$(GO_BUILD_ENV) $(GOTESTSUM) --junitfile $(ARTIFACTS)/junit-tas-performance.xml -- $(GO_TEST_FLAGS) \
+	  ./test/performance/tas/checker/... \
+	  -summary=$(PROJECT_DIR)/bin/test-performance-tas/summary.yaml \
+	  -cmdStats=$(PROJECT_DIR)/bin/test-performance-tas/minimalkueue-tas.stats.yaml \
+	  -range=$(SCALABILITY_TAS_RANGE_FILE)
+	@echo "TAS performance test completed successfully"
