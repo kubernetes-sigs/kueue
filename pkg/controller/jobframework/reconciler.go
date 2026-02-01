@@ -117,6 +117,7 @@ type Options struct {
 	Clock                        clock.Clock
 	WorkloadRetentionPolicy      WorkloadRetentionPolicy
 	RoleTracker                  *roletracker.RoleTracker
+	NoopWebhook                  bool
 }
 
 // Option configures the reconciler.
@@ -239,6 +240,14 @@ func WithObjectRetentionPolicies(value *configapi.ObjectRetentionPolicies) Optio
 func WithRoleTracker(tracker *roletracker.RoleTracker) Option {
 	return func(o *Options) {
 		o.RoleTracker = tracker
+	}
+}
+
+// WithNoopWebhook sets the integration webhook to noopWebhook.
+// This is needed when the integration is disabled.
+func WithNoopWebhook(noop bool) Option {
+	return func(o *Options) {
+		o.NoopWebhook = noop
 	}
 }
 

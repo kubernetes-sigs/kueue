@@ -22,7 +22,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -33,6 +32,7 @@ import (
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/util/webhook"
 )
 
 type Webhook struct {
@@ -51,8 +51,10 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		queues:                       options.Queues,
 	}
 	obj := &appsv1.Deployment{}
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(obj).
+	if options.NoopWebhook {
+		return webhook.SetupNoopWebhook(mgr, obj)
+	}
+	return ctrl.NewWebhookManagedBy(mgr, obj).
 		WithDefaulter(wh).
 		WithValidator(wh).
 		WithLogConstructor(jobframework.WebhookLogConstructor(fromObject(obj).GVK(), options.RoleTracker)).
@@ -61,9 +63,9 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 
 // +kubebuilder:webhook:path=/mutate-apps-v1-deployment,mutating=true,failurePolicy=fail,sideEffects=None,groups="apps",resources=deployments,verbs=create;update,versions=v1,name=mdeployment.kb.io,admissionReviewVersions=v1
 
-var _ admission.CustomDefaulter = &Webhook{}
+var _ admission.Defaulter[*appsv1.Deployment] = &Webhook{}
 
-func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
+func (wh *Webhook) Default(ctx context.Context, obj *appsv1.Deployment) error {
 	deployment := fromObject(obj)
 
 	log := ctrl.LoggerFrom(ctx).WithName("deployment-webhook")
@@ -97,9 +99,9 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 
 // +kubebuilder:webhook:path=/validate-apps-v1-deployment,mutating=false,failurePolicy=fail,sideEffects=None,groups="apps",resources=deployments,verbs=create;update,versions=v1,name=vdeployment.kb.io,admissionReviewVersions=v1
 
-var _ admission.CustomValidator = &Webhook{}
+var _ admission.Validator[*appsv1.Deployment] = &Webhook{}
 
-func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
+func (wh *Webhook) ValidateCreate(ctx context.Context, obj *appsv1.Deployment) (warnings admission.Warnings, err error) {
 	deployment := fromObject(obj)
 
 	log := ctrl.LoggerFrom(ctx).WithName("deployment-webhook")
@@ -115,7 +117,7 @@ var (
 	queueNameLabelPath = labelsPath.Key(controllerconstants.QueueLabel)
 )
 
-func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
+func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *appsv1.Deployment) (warnings admission.Warnings, err error) {
 	oldDeployment := fromObject(oldObj)
 	newDeployment := fromObject(newObj)
 
@@ -141,6 +143,6 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	return warnings, allErrs.ToAggregate()
 }
 
-func (wh *Webhook) ValidateDelete(context.Context, runtime.Object) (warnings admission.Warnings, err error) {
+func (wh *Webhook) ValidateDelete(context.Context, *appsv1.Deployment) (warnings admission.Warnings, err error) {
 	return nil, nil
 }

@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob"
@@ -36,12 +37,15 @@ var (
 	FrameworkName = "kubeflow.org/paddlejob"
 
 	SetupPaddleJobWebhook = jobframework.BaseWebhookFactory(
-		NewJob(),
-		func(o runtime.Object) jobframework.GenericJob {
+		&kftraining.PaddleJob{},
+		func(o *kftraining.PaddleJob) jobframework.GenericJob {
 			return fromObject(o)
 		},
 	)
 )
+
+var _ admission.Defaulter[*kftraining.PaddleJob] = &jobframework.BaseWebhook[*kftraining.PaddleJob]{}
+var _ admission.Validator[*kftraining.PaddleJob] = &jobframework.BaseWebhook[*kftraining.PaddleJob]{}
 
 // +kubebuilder:webhook:path=/mutate-kubeflow-org-v1-paddlejob,mutating=true,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=paddlejobs,verbs=create,versions=v1,name=mpaddlejob.kb.io,admissionReviewVersions=v1
 // +kubebuilder:webhook:path=/validate-kubeflow-org-v1-paddlejob,mutating=false,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=paddlejobs,verbs=create;update,versions=v1,name=vpaddlejob.kb.io,admissionReviewVersions=v1
