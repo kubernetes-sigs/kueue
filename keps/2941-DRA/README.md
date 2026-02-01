@@ -32,6 +32,7 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Story 1](#story-1)
     - [Story 2](#story-2)
     - [Story 3](#story-3)
+    - [Story 4](#story-4)
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
@@ -42,6 +43,11 @@ tags, and then generate with `hack/update-toc.sh`.
   - [Workloads](#workloads)
     - [DRA-Specific Workload Processing](#dra-specific-workload-processing)
     - [Workload Processing Flow](#workload-processing-flow)
+  - [Extended Resources](#extended-resources)
+    - [Configuration](#configuration)
+    - [Processing Flow](#processing-flow)
+    - [DeviceClass Cache](#deviceclass-cache)
+    - [Late DeviceClass Creation](#late-deviceclass-creation)
   - [Architecture Details](#architecture-details)
     - [Queue Manager Extensions](#queue-manager-extensions)
   - [Test Plan](#test-plan)
@@ -68,6 +74,10 @@ tags, and then generate with `hack/update-toc.sh`.
 
 [Dynamic Resource Allocation (DRA)](https://kubernetes.io/docs/concepts/scheduling-eviction/dynamic-resource-allocation/)
 is a major effort to improve device support in Kubernetes. It changes how one can request resources in a myriad of ways.
+
+This KEP supports two approaches for DRA integration with Kueue:
+1. **ResourceClaimTemplates**: Pods explicitly reference ResourceClaimTemplates that specify device requests.
+2. **Extended Resources**: Pods request DRA devices via standard `resources.requests` (e.g., `example.com/gpu: 1`), and kube-scheduler automatically creates ResourceClaims when the DeviceClass has an `extendedResourceName` field set.
 
 ## Motivation
 
@@ -204,6 +214,12 @@ queuing, quota management and preemptable workloads for cluster users.
 As a cluster administrator, I want clear validation feedback when I misconfigure device class mappings so I can quickly
 identify and fix configuration conflicts before they affect workload scheduling.
 
+#### Story 4
+
+As a Kueue user, I want to request DRA devices using standard resource requests (e.g., `resources.requests: {"example.com/gpu": 1}`)
+instead of ResourceClaimTemplates, so my existing workloads can benefit from DRA without modification when the cluster
+administrator configures DeviceClasses with `extendedResourceName`.
+
 ### Notes/Constraints/Caveats (Optional)
 
 - The `ResourceClaims` and `ResourceClaimTemplates` APIs for DRA in k8s are immutable.
@@ -214,6 +230,10 @@ identify and fix configuration conflicts before they affect workload scheduling.
 - This design does not work with Kueue's Topology Aware Scheduling feature and will be addressed in future work.
 - This implementation focuses on structured parameters (GA in 1.34) and does not support alpha DRA features
   like DRADeviceTaints, DRAAdminAccess, DRAPrioritizedLists, and DRAPartitionableDevices.
+- **Extended Resources** requires DeviceClasses to have `spec.extendedResourceName` set.
+  This depends on the Kubernetes `DRAExtendedResource` feature gate (alpha in k8s 1.35).
+  When enabled, kube-scheduler automatically creates ResourceClaims for pods requesting extended resources.
+  The DeviceClass must be included in Kueue's `deviceClassMappings` configuration.
 
 ### Risks and Mitigations
 
@@ -404,11 +424,15 @@ rules:
 - apiGroups: ["resource.k8s.io"]
   resources: ["resourceclaimtemplates"]
   verbs: ["get", "list", "watch"]
+- apiGroups: ["resource.k8s.io"]
+  resources: ["deviceclasses"]
+  verbs: ["get", "list", "watch"]
 ```
 
 **Required Permissions:**
 - `resourceclaims`: Read access to validate ResourceClaim references (though not supported for quota)
 - `resourceclaimtemplates`: Read access to process ResourceClaimTemplates and extract device class information
+- `deviceclasses`: Read access to look up `extendedResourceName` for Extended Resources
 
 **Security Considerations:**
 - Kueue only requires read permissions - no create, update, or delete access to DRA resources
@@ -558,6 +582,54 @@ status:
         whole-gpus: "1" # DRA device count reflected in status
 ```
 
+### Extended Resources
+
+Kueue also supports workloads requesting DRA devices via `resources.requests` (e.g., `example.com/gpu: 1`).
+When a DeviceClass has `spec.extendedResourceName` set, kube-scheduler automatically creates ResourceClaims.
+This requires the Kubernetes `DRAExtendedResource` feature gate (alpha in k8s 1.35).
+
+#### Configuration
+
+DeviceClass with `extendedResourceName` (note: DeviceClass API is v1/GA, but the `extendedResourceName` field requires the `DRAExtendedResource` feature gate):
+```yaml
+apiVersion: resource.k8s.io/v1
+kind: DeviceClass
+metadata:
+  name: gpu.example.com
+spec:
+  extendedResourceName: example.com/gpu
+```
+
+Kueue configuration must include the DeviceClass in `deviceClassMappings`:
+```yaml
+resources:
+  deviceClassMappings:
+  - name: gpu
+    deviceClassNames:
+    - gpu.example.com
+```
+
+#### Processing Flow
+
+1. Kueue detects extended resources in `resources.requests`
+2. Looks up DeviceClass by `extendedResourceName` in the cache
+3. If no matching DeviceClass is found in cache, leaves the extended resource unchanged (relies on re-reconciliation when DeviceClass is created)
+4. If DeviceClass is found but not in `deviceClassMappings`, the workload is marked inadmissible with an error
+5. If found and in `deviceClassMappings`, translates to the logical resource name
+6. Removes original extended resource from workload (avoids double-counting)
+7. Admits workload against the translated resource quota
+
+#### DeviceClass Cache
+
+Kueue maintains an in-memory cache mapping extended resource names to DeviceClass names.
+The cache is updated via DeviceClass watch events and runs on all replicas.
+
+#### Late DeviceClass Creation
+
+If a DeviceClass doesn't exist when a workload is created, the extended resource isn't translated.
+When the DeviceClass is created, a field indexer (`WorkloadExtendedResourceIndex`) efficiently
+identifies affected workloads for re-reconciliation.
+
 ### Architecture Details
 
 #### Queue Manager Extensions
@@ -570,7 +642,10 @@ func (m *Manager) AddOrUpdateWorkload(wl *kueue.Workload, opts ...workload.InfoO
 func (m *Manager) UpdateWorkload(oldWl, newWl *kueue.Workload, opts ...workload.InfoOption) error
 
 // DRA-specific InfoOption
-func WithPreprocessedDRAResources(resources map[kueue.PodSetReference]corev1.ResourceList) workload.InfoOption
+func WithPreprocessedDRAResources(
+	draResources map[kueue.PodSetReference]corev1.ResourceList,
+	replacedExtendedResources map[kueue.PodSetReference]sets.Set[corev1.ResourceName],
+) workload.InfoOption
 ```
 
 Processing Flow:
@@ -616,6 +691,8 @@ extending the production code to implement this enhancement.
 - pkg/config/validation.go: 09/17/2025 - 97.3%
 - pkg/controller/core/workload_controller.go: 09/17/2025 - 55.8%
 - pkg/dra/claims.go: 09/17/2025 - 83.3%
+- pkg/dra/extended_resources.go: TODO (pkg/dra overall: 89.6%)
+- pkg/dra/deviceclass_cache.go: TODO (pkg/dra overall: 89.6%)
 - pkg/workload/workload.go: 09/17/2025 - 72.3%
 
 #### Integration tests
@@ -638,6 +715,8 @@ using mock ResourceClaimTemplates and DeviceClasses to simulate DRA workloads. K
 - Workload inadmissibility: Testing various error conditions and proper WorkloadInadmissible condition setting
 - Resource preprocessing: Verifying correct device count calculation from ResourceClaimTemplates
 - Queue integration: Testing workload admission with preprocessed DRA resources
+- Extended Resources: Testing extended resource detection, DeviceClass lookup, and resource translation
+- Late DeviceClass creation: Testing workload re-queue when DeviceClass is created after workload
 
 #### E2E Test
 
@@ -650,6 +729,7 @@ Use existing dra-example-driver or Kubernetes test driver for e2e testing.
 - the implementation behind the feature gate flag in alpha
 - support Beta API of the core k8s
 - initial e2e tests for baseline scenario
+- support for Extended Resources (alpha in k8s 1.35)
 
 #### Beta
 
@@ -672,12 +752,15 @@ Use existing dra-example-driver or Kubernetes test driver for e2e testing.
 - Design evolution from standalone CRD to Configuration API approach: October 2024
 - Alpha implementation completed: December 2024
 - KEP updated to reflect actual implementation: September 2025 by @alaypatel07
+- Extended Resources implementation: January 2026
 
 **Key Design Evolution:**
 - **Original Design**: Standalone DynamicResourceAllocationConfig CRD with runtime ambiguity resolution
 - **Final Implementation**: Configuration API extension with strict validation and conflict prevention
 - **Architecture Decision**: DRA processing moved to Reconcile loop for proper error handling
 - **Scope Refinement**: ResourceClaims support removed, focus on ResourceClaimTemplates only
+- **Extended Resources**: Added support for workloads requesting DRA devices via `resources.requests`
+  using DeviceClass `extendedResourceName` field (alpha in k8s 1.35)
 
 ## Drawbacks
 
