@@ -1034,5 +1034,28 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			ginkgo.By("Delete clusterQueue")
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		})
+
+		ginkgo.It("Should remove finalizer promptly when workload finishes", func() {
+			util.SetAdmissionCheckActive(ctx, k8sClient, check, metav1.ConditionTrue)
+			util.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusActive)
+
+			ginkgo.By("Creating and admitting workload")
+			wl := utiltestingapi.MakeWorkload("workload", ns.Name).Queue(kueue.LocalQueueName(lq.Name)).Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+			key := client.ObjectKeyFromObject(wl)
+			util.SetQuotaReservation(ctx, k8sClient, key, utiltestingapi.MakeAdmission(cq.Name).Obj())
+			util.SetWorkloadsAdmissionCheck(ctx, k8sClient, wl, kueue.AdmissionCheckReference(check.Name), kueue.CheckStateReady, true)
+			gomega.Eventually(func(g gomega.Gomega) {
+				updatedWl := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, key, updatedWl)).To(gomega.Succeed())
+				g.Expect(updatedWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Finishing workload")
+			util.FinishWorkloads(ctx, k8sClient, wl)
+
+			ginkgo.By("Deleting clusterQueue - should succeed without waiting")
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		})
 	})
 })
