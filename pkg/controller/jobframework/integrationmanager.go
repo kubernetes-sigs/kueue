@@ -363,9 +363,9 @@ func IsOwnerManagedByKueueForObject(obj client.Object) bool {
 	return false
 }
 
-// GetEmptyOwnerObject returns an empty object of the owner's type,
+// getEmptyOwnerObject returns an empty object of the owner's type,
 // returns nil if the owner is not manageable by kueue.
-func GetEmptyOwnerObject(owner *metav1.OwnerReference) client.Object {
+func getEmptyOwnerObject(owner *metav1.OwnerReference) client.Object {
 	if jt := manager.getJobTypeForOwner(owner); jt != nil {
 		return jt.DeepCopyObject().(client.Object)
 	}
