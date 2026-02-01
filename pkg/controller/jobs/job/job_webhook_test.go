@@ -64,11 +64,12 @@ var (
 
 func TestValidateCreate(t *testing.T) {
 	testcases := []struct {
-		name                    string
-		job                     *batchv1.Job
-		wantValidationErrs      field.ErrorList
-		wantErr                 error
-		topologyAwareScheduling bool
+		name                         string
+		job                          *batchv1.Job
+		wantValidationErrs           field.ErrorList
+		wantErr                      error
+		topologyAwareScheduling      bool
+		elasticJobsViaWorkloadSlices bool
 	}{
 		{
 			name:               "simple",
@@ -379,11 +380,48 @@ func TestValidateCreate(t *testing.T) {
 			},
 			topologyAwareScheduling: true,
 		},
+		{
+			name: "elastic job with required topology is rejected",
+			job: testingutil.MakeJob("job", "default").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Forbidden(replicaMetaPath.Child("annotations", kueue.PodSetRequiredTopologyAnnotation),
+					"required topology is not supported with elastic jobs"),
+			},
+			topologyAwareScheduling:      true,
+			elasticJobsViaWorkloadSlices: true,
+		},
+		{
+			name: "elastic job with preferred topology is rejected",
+			job: testingutil.MakeJob("job", "default").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Forbidden(replicaMetaPath.Child("annotations", kueue.PodSetPreferredTopologyAnnotation),
+					"preferred topology is not supported with elastic jobs"),
+			},
+			topologyAwareScheduling:      true,
+			elasticJobsViaWorkloadSlices: true,
+		},
+		{
+			name: "elastic job with unconstrained topology is accepted",
+			job: testingutil.MakeJob("job", "default").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				Obj(),
+			wantValidationErrs:           nil,
+			topologyAwareScheduling:      true,
+			elasticJobsViaWorkloadSlices: true,
+		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tc.elasticJobsViaWorkloadSlices)
 
 			jw := &JobWebhook{}
 

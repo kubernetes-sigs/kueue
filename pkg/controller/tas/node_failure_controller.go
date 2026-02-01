@@ -46,12 +46,13 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core"
-	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 const (
@@ -73,8 +74,6 @@ func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	log.V(2).Info("Reconcile Node")
 
 	var node corev1.Node
-	var affectedWorkloads sets.Set[types.NamespacedName]
-
 	err := r.client.Get(ctx, req.NamespacedName, &node)
 	if client.IgnoreNotFound(err) != nil {
 		return ctrl.Result{}, err
@@ -90,19 +89,19 @@ func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	if errMsg != "" {
 		log.V(3).Info(fmt.Sprintf("%s. Marking as failed immediately", errMsg))
-		affectedWorkloads, err = r.getWorkloadsOnNode(ctx, req.Name)
+		workloads, err := r.getWorkloadsOnNode(ctx, req.Name)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{}, r.handleUnhealthyNode(ctx, req.Name, affectedWorkloads)
+		return ctrl.Result{}, r.handleUnhealthyNode(ctx, req.Name, workloads)
 	}
 	readyCondition := utiltas.GetNodeCondition(&node, corev1.NodeReady)
 	if readyCondition.Status == corev1.ConditionTrue {
-		affectedWorkloads, err = r.getWorkloadsOnNode(ctx, req.Name)
+		workloads, err := r.getWorkloadsOnNode(ctx, req.Name)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{}, r.handleHealthyNode(ctx, req.Name, affectedWorkloads)
+		return ctrl.Result{}, r.handleHealthyNode(ctx, req.Name, workloads)
 	}
 	if features.Enabled(features.TASReplaceNodeOnPodTermination) {
 		return r.reconcileForReplaceNodeOnPodTermination(ctx, req.Name)
@@ -112,11 +111,11 @@ func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{RequeueAfter: NodeFailureDelay - timeSinceNotReady}, nil
 	}
 	log.V(3).Info("Node is not ready and NodeFailureDelay timer expired, marking as failed")
-	affectedWorkloads, err = r.getWorkloadsOnNode(ctx, req.Name)
+	workloads, err := r.getWorkloadsOnNode(ctx, req.Name)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	patchErr := r.handleUnhealthyNode(ctx, req.Name, affectedWorkloads)
+	patchErr := r.handleUnhealthyNode(ctx, req.Name, workloads)
 	return ctrl.Result{}, patchErr
 }
 
@@ -180,19 +179,19 @@ func (r *nodeFailureReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.C
 		Complete(core.WithLeadingManager(mgr, r, &corev1.Node{}, cfg))
 }
 
-// getWorkloadsOnNode gets all workloads that have the given node assigned in TAS topology assignment
+// getWorkloadsOnNode gets all workloads that have the given node assigned in TAS topology assignment.
 func (r *nodeFailureReconciler) getWorkloadsOnNode(ctx context.Context, nodeName string) (sets.Set[types.NamespacedName], error) {
 	var allWorkloads kueue.WorkloadList
 	if err := r.client.List(ctx, &allWorkloads); err != nil {
 		return nil, fmt.Errorf("failed to list workloads: %w", err)
 	}
-	tasWorkloadsOnNode := sets.New[types.NamespacedName]()
+	result := sets.New[types.NamespacedName]()
 	for _, wl := range allWorkloads.Items {
 		if hasTASAssignmentOnNode(&wl, nodeName) {
-			tasWorkloadsOnNode.Insert(types.NamespacedName{Name: wl.Name, Namespace: wl.Namespace})
+			result.Insert(types.NamespacedName{Name: wl.Name, Namespace: wl.Namespace})
 		}
 	}
-	return tasWorkloadsOnNode, nil
+	return result, nil
 }
 
 func hasTASAssignmentOnNode(wl *kueue.Workload, nodeName string) bool {
@@ -207,10 +206,8 @@ func hasTASAssignmentOnNode(wl *kueue.Workload, nodeName string) bool {
 		if !utiltas.IsLowestLevelHostname(topologyAssignment.Levels) {
 			continue
 		}
-		for value := range utiltas.LowestLevelValues(topologyAssignment) {
-			if value == nodeName {
-				return true
-			}
+		if slices.Contains(slices.Collect(utiltas.LowestLevelValues(topologyAssignment)), nodeName) {
+			return true
 		}
 	}
 	return false
@@ -224,12 +221,16 @@ func (r *nodeFailureReconciler) getWorkloadsForImmediateReplacement(ctx context.
 
 	affectedWorkloads := sets.New[types.NamespacedName]()
 	for wlKey := range tasWorkloadsOnNode {
-		var podsForWl corev1.PodList
-		if err := r.client.List(ctx, &podsForWl, client.InNamespace(wlKey.Namespace), client.MatchingFields{indexer.WorkloadNameKey: wlKey.Name}); err != nil {
+		var wl kueue.Workload
+		if err := r.client.Get(ctx, wlKey, &wl); err != nil {
+			return nil, fmt.Errorf("failed to get workload %s: %w", wlKey, err)
+		}
+		podsForWl, err := r.listPodsForWorkload(ctx, &wl)
+		if err != nil {
 			return nil, fmt.Errorf("failed to list pods for workload %s: %w", wlKey, err)
 		}
 		allPodsTerminate := true
-		for _, pod := range podsForWl.Items {
+		for _, pod := range podsForWl {
 			if pod.Spec.NodeName == nodeName && pod.DeletionTimestamp.IsZero() && !utilpod.IsTerminated(&pod) {
 				allPodsTerminate = false
 				break
@@ -240,6 +241,16 @@ func (r *nodeFailureReconciler) getWorkloadsForImmediateReplacement(ctx context.
 		}
 	}
 	return affectedWorkloads, nil
+}
+
+// listPodsForWorkload returns pods belonging to a workload.
+func (r *nodeFailureReconciler) listPodsForWorkload(ctx context.Context, wl *kueue.Workload) ([]corev1.Pod, error) {
+	workloadSliceName := workloadslicing.SliceName(wl)
+	var podList corev1.PodList
+	if err := r.client.List(ctx, &podList, client.InNamespace(wl.Namespace), client.MatchingFields{indexer.WorkloadSliceNameKey: workloadSliceName}); err != nil {
+		return nil, err
+	}
+	return podList.Items, nil
 }
 
 // evictWorkloadIfNeeded idempotently evicts the workload when the node has failed.
