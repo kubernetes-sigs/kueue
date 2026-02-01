@@ -136,7 +136,7 @@ using the ClusterProfile API.</p>
 </td>
 </tr>
 <tr><td><code>execConfig</code> <B>[Required]</B><br/>
-<code>k8s.io/client-go/tools/clientcmd/api.ExecConfig</code>
+<a href="https://pkg.go.dev/k8s.io/client-go/tools/clientcmd/api#ExecConfig"><code>k8s.io/client-go/tools/clientcmd/api.ExecConfig</code></a>
 </td>
 <td>
    <p>ExecConfig is the exec configuration to obtain credentials.</p>
