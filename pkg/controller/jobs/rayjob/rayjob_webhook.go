@@ -18,7 +18,6 @@ package rayjob
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
@@ -82,18 +81,8 @@ func (w *RayJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
 	log.V(5).Info("Applying defaults")
 	jobframework.ApplyDefaultLocalQueue(job.Object(), w.queues.DefaultLocalQueueExist)
-	if job.Spec.RayClusterSpec == nil || !ptr.Deref(job.Spec.RayClusterSpec.EnableInTreeAutoscaling, false) {
-		if err := jobframework.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
-			return err
-		}
-	} else {
-		if !workloadslicing.Enabled(job.Object()) {
-			return errors.New("RayJob should enable workload slicing if autoscaling is enabled")
-		}
-		if job.Spec.Suspend {
-			return errors.New("RayJob should not set suspend to true if autoscaling is enabled")
-		}
-		log.V(5).Info("Do not apply default for suspend due to EnableInTreeAutoscaling", "jobName", job.Name, "jobNamespace", job.Namespace)
+	if err := jobframework.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
+		return err
 	}
 	jobframework.ApplyDefaultForManagedBy(job, w.queues, w.cache, log)
 	return nil
@@ -189,7 +178,7 @@ func (w *RayJobWebhook) validateTopologyRequest(ctx context.Context, rayJob *ray
 		return allErrs, nil
 	}
 
-	podSets, podSetsErr := jobframework.JobPodSets(ctx, (*RayJob)(rayJob))
+	podSets, podSetsErr := jobframework.JobPodSets(ctx, w.client, (*RayJob)(rayJob))
 
 	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(headGroupMetaPath, &rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.ObjectMeta)...)
 
