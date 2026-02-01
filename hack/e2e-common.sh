@@ -513,7 +513,15 @@ function install_kubeflow_trainer {
 # $2 kubeconfig option
 function install_mpi {
     cluster_kind_load_image "${1}" "${KUBEFLOW_MPI_IMAGE/#v}"
-    kubectl apply --kubeconfig="$2" --server-side -f "${KUBEFLOW_MPI_MANIFEST}"
+    # NOTE: When reusing an existing cluster (E2E_MODE=dev), aggregated ClusterRoles may already have
+    # their `.rules` field managed by the `clusterrole-aggregation-controller`. The upstream MPI
+    # operator manifest can include `rules: []` for such ClusterRoles, which causes SSA conflicts.
+    #
+    # To keep installs idempotent without `--force-conflicts`, drop empty `rules: []` only for
+    # ClusterRoles that define an `aggregationRule`.
+    curl -sSL "${KUBEFLOW_MPI_MANIFEST}" \
+        | $YQ eval '(. | select(.kind == "ClusterRole" and has("aggregationRule"))) |= del(.rules | select(length == 0))' - \
+        | kubectl apply --kubeconfig="$2" --server-side -f -
 }
 
 # $1 cluster name
