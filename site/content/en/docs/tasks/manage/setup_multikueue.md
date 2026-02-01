@@ -120,7 +120,7 @@ Manager cluster configuration:
 
 {{< include "examples/multikueue/tas/manager-setup.yaml" "yaml" >}}
 
-For a complete setup guide including local development with Kind, see the [Setup MultiKueue with Topology-Aware Scheduling](/docs/tasks/dev/setup_multikueue_tas/) guide.
+For a complete setup guide including local development with Kind, see the [Setup MultiKueue with Topology-Aware Scheduling](/docs/tasks/dev/setup_multikueue_development_environment/) guide.
 
 ## (Optional) Setup MultiKueue with Open Cluster Management
 
