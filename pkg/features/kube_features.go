@@ -231,6 +231,12 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/8302
 	// Redo admission on eviction in worker cluster.
 	MultiKueueRedoAdmissionOnEvictionInWorker featuregate.Feature = "MultiKueueRedoAdmissionOnEvictionInWorker"
+
+	// owner: @j-skiba
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/8828
+	// Enable workload eviction when node is tainted.
+	TASTaintEviction featuregate.Feature = "TASTaintEviction"
 )
 
 func init() {
@@ -360,6 +366,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	MultiKueueRedoAdmissionOnEvictionInWorker: {
 		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
+	},
+
+	TASTaintEviction: {
+		{Version: version.MustParse("0.16"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

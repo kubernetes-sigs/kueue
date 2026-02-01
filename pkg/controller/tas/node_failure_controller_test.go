@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -268,6 +269,93 @@ func TestNodeFailureReconciler(t *testing.T) {
 				Reason:  kueue.WorkloadEvictedDueToNodeFailures,
 				Message: fmt.Sprintf(nodeMultipleFailuresEvictionMessageFormat, nodeName+", "+nodeName2),
 			},
+		},
+		"Node has untolerated NoExecute taint -> Unhealthy": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).
+					Taints(corev1.Taint{Key: "foo", Effect: corev1.TaintEffectNoExecute}).Obj(),
+				baseWorkload.DeepCopy(),
+				basePod.DeepCopy(),
+			},
+			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
+			featureGates:       map[featuregate.Feature]bool{features.TASTaintEviction: true},
+		},
+		"Node has NoExecute taint with TolerationSeconds -> Healthy (wait for eviction)": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).
+					Taints(corev1.Taint{Key: "foo", Effect: corev1.TaintEffectNoExecute}).Obj(),
+				utiltestingapi.MakeWorkload(wlName, nsName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "1").
+						Toleration(corev1.Toleration{
+							Key:               "foo",
+							Effect:            corev1.TaintEffectNoExecute,
+							Operator:          corev1.TolerationOpExists,
+							TolerationSeconds: ptr.To[int64](300),
+						}).
+						Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{nodeName}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), testStartTime,
+					).
+					AdmittedAt(true, testStartTime).
+					Obj(),
+				basePod.DeepCopy(),
+			},
+			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantUnhealthyNodes: nil,
+			wantRequeue:        1 * time.Second,
+			featureGates:       map[featuregate.Feature]bool{features.TASTaintEviction: true},
+		},
+		"Node has NoExecute taint with TolerationSeconds, pod terminating -> Unhealthy": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).
+					Taints(corev1.Taint{Key: "foo", Effect: corev1.TaintEffectNoExecute}).Obj(),
+				utiltestingapi.MakeWorkload(wlName, nsName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "1").
+						Toleration(corev1.Toleration{
+							Key:               "foo",
+							Effect:            corev1.TaintEffectNoExecute,
+							Operator:          corev1.TolerationOpExists,
+							TolerationSeconds: ptr.To[int64](300),
+						}).
+						Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{nodeName}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), testStartTime,
+					).
+					AdmittedAt(true, testStartTime).
+					Obj(),
+				terminatingPod,
+			},
+			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
+			featureGates:       map[featuregate.Feature]bool{features.TASTaintEviction: true},
 		},
 	}
 	for name, tc := range tests {

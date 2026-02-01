@@ -348,8 +348,19 @@ func assignGatedPodsToDomains(
 	psReq *kueue.PodSetTopologyRequest,
 	offset int32,
 	maxRank int32) []podWithDomain {
-	if rankToGatedPod, ok := readRanksIfAvailable(log, psa, pods, psReq, offset, maxRank); ok {
-		return assignGatedPodsToDomainsByRanks(psa, rankToGatedPod)
+	for _, pod := range pods {
+		if !utilpod.HasGate(pod, kueue.TopologySchedulingGate) && (utilpod.IsTerminated(pod) || !pod.DeletionTimestamp.IsZero()) {
+			log.V(3).Info("Fallback to greedy assignment due to terminated or terminating pods", "pod", klog.KObj(pod))
+			return assignGatedPodsToDomainsGreedy(log, psa, pods)
+		}
+	}
+
+	rankToPod, ok := readRanksIfAvailable(log, psa, pods, psReq, offset, maxRank)
+	if ok {
+		if verifyDomainsForRanks(log, psa, rankToPod) {
+			return assignGatedPodsToDomainsByRanks(psa, rankToPod)
+		}
+		log.V(3).Info("Fallback to greedy assignment due to topology mismatch for running pods", "podSetName", psa.Name)
 	}
 	return assignGatedPodsToDomainsGreedy(log, psa, pods)
 }
@@ -491,6 +502,43 @@ func readRanksForLabels(
 		result[rank] = pod
 	}
 	return result, nil
+}
+
+func verifyDomainsForRanks(
+	log logr.Logger,
+	psa *kueue.PodSetAssignment,
+	rankToPod map[int]*corev1.Pod) bool {
+	totalPodCount := 0
+	for count := range utiltas.PodCounts(psa.TopologyAssignment) {
+		totalPodCount += int(count)
+	}
+	rankToDomainID := make([]utiltas.TopologyDomainID, totalPodCount)
+	index := int32(0)
+	for domain := range utiltas.InternalSeqFrom(psa.TopologyAssignment) {
+		for s := range domain.Count {
+			rankToDomainID[index+s] = utiltas.DomainID(domain.Values)
+		}
+		index += domain.Count
+	}
+
+	for rank, pod := range rankToPod {
+		if utilpod.HasGate(pod, kueue.TopologySchedulingGate) {
+			continue
+		}
+		if rank >= len(rankToDomainID) {
+			continue
+		}
+		expectedDomainID := rankToDomainID[rank]
+		levelKeys := psa.TopologyAssignment.Levels
+		podLevelValues := utiltas.LevelValues(levelKeys, pod.Spec.NodeSelector)
+		podDomainID := utiltas.DomainID(podLevelValues)
+
+		if expectedDomainID != podDomainID {
+			log.V(3).Info("Topology assignment mismatch for running pod", "pod", klog.KObj(pod), "rank", rank, "expectedDomainID", expectedDomainID, "actualDomainID", podDomainID)
+			return false
+		}
+	}
+	return true
 }
 
 func isAdmittedByTAS(w *kueue.Workload) bool {
