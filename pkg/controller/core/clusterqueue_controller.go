@@ -237,6 +237,12 @@ func (r *ClusterQueueReconciler) NotifyWorkloadUpdate(oldWl, newWl *kueue.Worklo
 	}
 }
 
+func (r *ClusterQueueReconciler) NotifyClusterQueueEmpty(cqName kueue.ClusterQueueReference) {
+	r.nonCQObjectUpdateCh <- event.TypedGenericEvent[iter.Seq[kueue.ClusterQueueReference]]{
+		Object: slices.Values([]kueue.ClusterQueueReference{cqName}),
+	}
+}
+
 func (r *ClusterQueueReconciler) requestCQForWL(wls []*kueue.Workload) iter.Seq[kueue.ClusterQueueReference] {
 	return func(yield func(kueue.ClusterQueueReference) bool) {
 		for _, wl := range wls {
