@@ -17,11 +17,14 @@ limitations under the License.
 package scheduler
 
 import (
+	"context"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -6058,6 +6061,196 @@ func TestFindTopologyAssignments(t *testing.T) {
 			gotResult := snapshot.FindTopologyAssignmentsForFlavor(flavorTASRequests)
 			if diff := cmp.Diff(wantResult, gotResult); diff != "" {
 				t.Errorf("unexpected topology assignment (-want,+got): %s", diff)
+			}
+		})
+	}
+}
+
+func TestActiveFlavors(t *testing.T) {
+	topology := &kueue.Topology{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		Spec: kueue.TopologySpec{
+			Levels: []kueue.TopologyLevel{{NodeLabel: "node"}},
+		},
+	}
+	gpuFlavor := &kueue.ResourceFlavor{
+		ObjectMeta: metav1.ObjectMeta{Name: "gpu"},
+		Spec: kueue.ResourceFlavorSpec{
+			TopologyName: ptr.To[kueue.TopologyReference]("default"),
+		},
+	}
+	cpuFlavor := &kueue.ResourceFlavor{
+		ObjectMeta: metav1.ObjectMeta{Name: "cpu"},
+		Spec: kueue.ResourceFlavorSpec{
+			TopologyName: ptr.To[kueue.TopologyReference]("default"),
+		},
+	}
+
+	tests := []struct {
+		name        string
+		topology    *kueue.Topology
+		flavors     []*kueue.ResourceFlavor
+		wantFlavors []kueue.ResourceFlavorReference
+	}{
+		{
+			name:        "no flavors",
+			wantFlavors: []kueue.ResourceFlavorReference{},
+		},
+		{
+			name:        "flavor without topology",
+			flavors:     []*kueue.ResourceFlavor{gpuFlavor},
+			wantFlavors: []kueue.ResourceFlavorReference{},
+		},
+		{
+			name:        "single flavor with topology",
+			topology:    topology,
+			flavors:     []*kueue.ResourceFlavor{gpuFlavor},
+			wantFlavors: []kueue.ResourceFlavorReference{"gpu"},
+		},
+		{
+			name:        "multiple flavors with topology",
+			topology:    topology,
+			flavors:     []*kueue.ResourceFlavor{gpuFlavor, cpuFlavor},
+			wantFlavors: []kueue.ResourceFlavorReference{"cpu", "gpu"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tasCache := NewTASCache(utiltesting.NewFakeClient())
+			if tc.topology != nil {
+				tasCache.AddTopology(tc.topology)
+			}
+			for _, f := range tc.flavors {
+				tasCache.AddFlavor(f)
+			}
+
+			got := tasCache.ActiveFlavors()
+			if diff := cmp.Diff(tc.wantFlavors, got, cmpopts.SortSlices(func(a, b kueue.ResourceFlavorReference) bool {
+				return a < b
+			})); diff != "" {
+				t.Errorf("unexpected active flavors (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestFlavorsForNodes(t *testing.T) {
+	ctx := context.Background()
+	topology := &kueue.Topology{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		Spec: kueue.TopologySpec{
+			Levels: []kueue.TopologyLevel{{NodeLabel: "node"}},
+		},
+	}
+	// Flavor matching nodes with gpu=true label
+	gpuFlavor := &kueue.ResourceFlavor{
+		ObjectMeta: metav1.ObjectMeta{Name: "gpu"},
+		Spec: kueue.ResourceFlavorSpec{
+			TopologyName: ptr.To[kueue.TopologyReference]("default"),
+			NodeLabels:   map[string]string{"gpu": "true"},
+		},
+	}
+	// Flavor matching nodes with cpu=high label
+	cpuFlavor := &kueue.ResourceFlavor{
+		ObjectMeta: metav1.ObjectMeta{Name: "cpu"},
+		Spec: kueue.ResourceFlavorSpec{
+			TopologyName: ptr.To[kueue.TopologyReference]("default"),
+			NodeLabels:   map[string]string{"cpu": "high"},
+		},
+	}
+
+	gpuNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "gpu-node",
+			Labels: map[string]string{"gpu": "true", "zone": "a"},
+		},
+	}
+	cpuNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "cpu-node",
+			Labels: map[string]string{"cpu": "high", "zone": "b"},
+		},
+	}
+	mixedNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "mixed-node",
+			Labels: map[string]string{"gpu": "true", "cpu": "high"},
+		},
+	}
+	noMatchNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "no-match-node",
+			Labels: map[string]string{"zone": "c"},
+		},
+	}
+
+	tests := []struct {
+		name        string
+		nodes       []*corev1.Node
+		nodeNames   []string
+		wantFlavors []kueue.ResourceFlavorReference
+	}{
+		{
+			name:        "no node names",
+			nodes:       []*corev1.Node{gpuNode},
+			nodeNames:   nil,
+			wantFlavors: nil,
+		},
+		{
+			name:        "node not found falls back to all flavors",
+			nodes:       []*corev1.Node{},
+			nodeNames:   []string{"missing-node"},
+			wantFlavors: []kueue.ResourceFlavorReference{"cpu", "gpu"},
+		},
+		{
+			name:        "node matches gpu flavor",
+			nodes:       []*corev1.Node{gpuNode, cpuNode},
+			nodeNames:   []string{"gpu-node"},
+			wantFlavors: []kueue.ResourceFlavorReference{"gpu"},
+		},
+		{
+			name:        "node matches cpu flavor",
+			nodes:       []*corev1.Node{gpuNode, cpuNode},
+			nodeNames:   []string{"cpu-node"},
+			wantFlavors: []kueue.ResourceFlavorReference{"cpu"},
+		},
+		{
+			name:        "node matches both flavors",
+			nodes:       []*corev1.Node{mixedNode},
+			nodeNames:   []string{"mixed-node"},
+			wantFlavors: []kueue.ResourceFlavorReference{"cpu", "gpu"},
+		},
+		{
+			name:        "node matches no flavor",
+			nodes:       []*corev1.Node{noMatchNode},
+			nodeNames:   []string{"no-match-node"},
+			wantFlavors: nil,
+		},
+		{
+			name:        "multiple nodes match different flavors",
+			nodes:       []*corev1.Node{gpuNode, cpuNode},
+			nodeNames:   []string{"gpu-node", "cpu-node"},
+			wantFlavors: []kueue.ResourceFlavorReference{"cpu", "gpu"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			builder := utiltesting.NewClientBuilder()
+			for _, n := range tc.nodes {
+				builder = builder.WithObjects(n)
+			}
+			tasCache := NewTASCache(builder.Build())
+			tasCache.AddTopology(topology)
+			tasCache.AddFlavor(gpuFlavor)
+			tasCache.AddFlavor(cpuFlavor)
+
+			got := tasCache.FlavorsForNodes(ctx, tc.nodeNames)
+			if diff := cmp.Diff(tc.wantFlavors, got, cmpopts.SortSlices(func(a, b kueue.ResourceFlavorReference) bool {
+				return a < b
+			})); diff != "" {
+				t.Errorf("unexpected flavors for nodes (-want,+got):\n%s", diff)
 			}
 		})
 	}
