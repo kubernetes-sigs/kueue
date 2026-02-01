@@ -107,7 +107,7 @@ func managerAndControllerSetup(controllersCfg *config.Configuration, options ...
 		cCache := schdcache.New(mgr.GetClient())
 		queues := qcache.NewManager(mgr.GetClient(), cCache)
 
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil)
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		if opts.runScheduler {

@@ -101,7 +101,7 @@ func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetu
 		queues := qcache.NewManager(mgr.GetClient(), cCache)
 		opts = append(opts, jobframework.WithQueues(queues))
 
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &config.Configuration{}, nil)
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &config.Configuration{}, nil, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		failedWebhook, err := webhooks.Setup(mgr, nil)
