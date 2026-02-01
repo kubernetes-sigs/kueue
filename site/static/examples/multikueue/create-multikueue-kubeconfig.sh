@@ -78,6 +78,22 @@ rules:
   verbs:
   - get
 - apiGroups:
+  - leaderworkerset.x-k8s.io
+  resources:
+  - leaderworkersets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
+  - leaderworkerset.x-k8s.io
+  resources:
+  - leaderworkersets/status
+  verbs:
+  - get
+- apiGroups:
   - jobset.x-k8s.io
   resources:
   - jobsets

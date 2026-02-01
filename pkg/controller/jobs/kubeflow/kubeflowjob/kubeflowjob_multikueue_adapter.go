@@ -144,16 +144,16 @@ func (a adapter[PtrT, T]) GetEmptyList() client.ObjectList {
 	return a.emptyList()
 }
 
-func (a adapter[PtrT, T]) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
+func (a adapter[PtrT, T]) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedName, error) {
 	job, isTheJob := o.(PtrT)
 	if !isTheJob {
-		return types.NamespacedName{}, fmt.Errorf("not a %s", a.gvk.Kind)
+		return nil, fmt.Errorf("not a %s", a.gvk.Kind)
 	}
 
 	prebuiltWl, hasPrebuiltWorkload := job.GetLabels()[constants.PrebuiltWorkloadLabel]
 	if !hasPrebuiltWorkload {
-		return types.NamespacedName{}, fmt.Errorf("no prebuilt workload found for %s: %s", a.gvk.Kind, klog.KObj(job))
+		return nil, fmt.Errorf("no prebuilt workload found for %s: %s", a.gvk.Kind, klog.KObj(job))
 	}
 
-	return types.NamespacedName{Name: prebuiltWl, Namespace: job.GetNamespace()}, nil
+	return []types.NamespacedName{{Name: prebuiltWl, Namespace: job.GetNamespace()}}, nil
 }

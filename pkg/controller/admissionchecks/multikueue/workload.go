@@ -46,6 +46,8 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
@@ -263,12 +265,24 @@ func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName kueue.Admi
 }
 
 func (w *wlReconciler) adapter(local *kueue.Workload) (jobframework.MultiKueueAdapter, *metav1.OwnerReference) {
+	// Try job owner annotations for multi-owner workloads (e.g., LWS).
+	if gvkStr, ok := local.Annotations[constants.JobOwnerGVKAnnotation]; ok {
+		if adapter, found := w.adapters[gvkStr]; found {
+			if jobName, ok := local.Annotations[constants.JobOwnerNameAnnotation]; ok && jobName != "" {
+				apiVersion, kind := adapter.GVK().ToAPIVersionAndKind()
+				return adapter, &metav1.OwnerReference{
+					APIVersion: apiVersion,
+					Kind:       kind,
+					Name:       jobName,
+				}
+			}
+		}
+	}
+
 	if controller := metav1.GetControllerOf(local); controller != nil {
 		adapterKey := schema.FromAPIVersionAndKind(controller.APIVersion, controller.Kind).String()
 		return w.adapters[adapterKey], controller
 	} else if refs := local.GetOwnerReferences(); len(refs) > 0 {
-		// For workloads without a controller but with owner references,
-		// use the first owner reference to find the adapter. This supports composable workloads.
 		adapterKey := schema.FromAPIVersionAndKind(refs[0].APIVersion, refs[0].Kind).String()
 		return w.adapters[adapterKey], &refs[0]
 	}
@@ -488,9 +502,210 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	return w.nominateAndSynchronizeWorkers(ctx, group)
 }
 
+func (w *wlReconciler) listComponentWorkloads(ctx context.Context, wl *kueue.Workload) (*kueue.WorkloadList, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	ownerGVK, hasGVK := wl.Annotations[constants.JobOwnerGVKAnnotation]
+	if !hasGVK {
+		return nil, nil
+	}
+
+	var ownerUID string
+	for _, ref := range wl.OwnerReferences {
+		refGVK := schema.FromAPIVersionAndKind(ref.APIVersion, ref.Kind).String()
+		if refGVK == ownerGVK {
+			ownerUID = string(ref.UID)
+			break
+		}
+	}
+	if ownerUID == "" {
+		log.V(3).Info("Workload has JobOwnerGVKAnnotation but no matching owner reference",
+			"workload", klog.KObj(wl), "ownerGVK", ownerGVK)
+		return nil, nil
+	}
+
+	componentWorkloads := &kueue.WorkloadList{}
+	if err := w.client.List(ctx, componentWorkloads,
+		client.InNamespace(wl.Namespace),
+		client.MatchingFields{indexer.OwnerReferenceUID: ownerUID},
+	); err != nil {
+		return nil, err
+	}
+
+	log.V(4).Info("Listed component workloads",
+		"workload", klog.KObj(wl), "count", len(componentWorkloads.Items))
+	return componentWorkloads, nil
+}
+
+func (w *wlReconciler) getComponentWorkloadsClusterName(ctx context.Context, wl *kueue.Workload, componentWorkloads *kueue.WorkloadList) (string, error) {
+	if componentWorkloads == nil {
+		return "", nil
+	}
+
+	var clusterName string
+	for i := range componentWorkloads.Items {
+		member := &componentWorkloads.Items[i]
+		if member.Name == wl.Name {
+			continue
+		}
+
+		if memberCluster := workload.ClusterName(member); memberCluster != "" {
+			if clusterName != "" && clusterName != memberCluster {
+				ctrl.LoggerFrom(ctx).Error(nil, "Component workloads assigned to different clusters",
+					"workload", klog.KObj(wl), "cluster1", clusterName, "cluster2", memberCluster)
+				return "", fmt.Errorf("component workloads assigned to different clusters: %q and %q", clusterName, memberCluster)
+			}
+			clusterName = memberCluster
+		}
+	}
+
+	return clusterName, nil
+}
+
+func isPrimaryComponentWorkload(wl *kueue.Workload, adapter jobframework.MultiKueueAdapter, componentWorkloads *kueue.WorkloadList) bool {
+	multiWorkloadAdapter, hasMultiWorkload := adapter.(jobframework.MultiKueueMultiWorkloadAdapter)
+	if !hasMultiWorkload || componentWorkloads == nil {
+		return true
+	}
+
+	if multiWorkloadAdapter.GetWorkloadIndex(wl) < 0 {
+		return false
+	}
+
+	for i := range componentWorkloads.Items {
+		member := &componentWorkloads.Items[i]
+		if member.Name == wl.Name {
+			continue
+		}
+
+		if hasLowerIndex(multiWorkloadAdapter, member, wl) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func hasLowerIndex(adapter jobframework.MultiKueueMultiWorkloadAdapter, member, wl *kueue.Workload) bool {
+	memberIndex := adapter.GetWorkloadIndex(member)
+	wlIndex := adapter.GetWorkloadIndex(wl)
+	return memberIndex >= 0 && wlIndex >= 0 && memberIndex < wlIndex
+}
+
+func (w *wlReconciler) allExpectedWorkloadsExist(ctx context.Context, wl *kueue.Workload, adapter jobframework.MultiKueueAdapter, actualCount int) (bool, error) {
+	multiWorkloadAdapter, ok := adapter.(jobframework.MultiKueueMultiWorkloadAdapter)
+	if !ok {
+		return true, nil
+	}
+
+	ownerName := wl.Annotations[constants.JobOwnerNameAnnotation]
+	if ownerName == "" {
+		return true, nil
+	}
+
+	expectedCount, err := multiWorkloadAdapter.GetExpectedWorkloadCount(ctx, w.client, types.NamespacedName{
+		Name:      ownerName,
+		Namespace: wl.Namespace,
+	})
+	if err != nil {
+		return false, err
+	}
+
+	return actualCount >= expectedCount, nil
+}
+
+func (w *wlReconciler) enqueueComponentWorkloads(ctx context.Context, wl *kueue.Workload) {
+	log := ctrl.LoggerFrom(ctx)
+
+	componentWorkloads, err := w.listComponentWorkloads(ctx, wl)
+	if err != nil || componentWorkloads == nil {
+		return
+	}
+	for i := range componentWorkloads.Items {
+		member := &componentWorkloads.Items[i]
+		if member.Name != wl.Name {
+			log.V(3).Info("Enqueueing component workload", "member", klog.KObj(member))
+			w.clusters.wlUpdateCh <- event.GenericEvent{Object: member}
+		}
+	}
+}
+
+func (w *wlReconciler) syncToSingleCluster(ctx context.Context, log klog.Logger, group *wlGroup, targetCluster string) (reconcile.Result, error) {
+	var errs []error
+
+	for clusterName, remoteWl := range group.remotes {
+		if clusterName == targetCluster {
+			if remoteWl == nil {
+				clone := cloneForCreate(group.local, group.remoteClients[clusterName].origin)
+				if err := group.remoteClients[clusterName].client.Create(ctx, clone); err != nil {
+					log.V(2).Error(err, "creating remote workload", "cluster", clusterName)
+					errs = append(errs, err)
+				}
+			}
+			continue
+		}
+
+		if remoteWl != nil {
+			if err := client.IgnoreNotFound(group.RemoveRemoteObjects(ctx, clusterName)); err != nil {
+				log.V(2).Error(err, "removing remote workload", "cluster", clusterName)
+				errs = append(errs, err)
+			}
+			group.remotes[clusterName] = nil
+		}
+	}
+
+	return reconcile.Result{}, errors.Join(errs...)
+}
+
 func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group *wlGroup) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx).WithValues("op", "nominateAndSynchronizeWorkers")
 	log.V(3).Info("Nominate and Synchronize Worker Clusters")
+
+	componentWorkloads, err := w.listComponentWorkloads(ctx, group.local)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
+	if _, ok := group.jobAdapter.(jobframework.MultiKueueMultiWorkloadAdapter); ok && componentWorkloads != nil {
+		allExist, err := w.allExpectedWorkloadsExist(ctx, group.local, group.jobAdapter, len(componentWorkloads.Items))
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+		if !allExist {
+			log.V(3).Info("Waiting for all component workloads to exist")
+			return reconcile.Result{}, nil
+		}
+		w.enqueueComponentWorkloads(ctx, group.local)
+	}
+
+	assignedWorkerCluster, err := w.getComponentWorkloadsClusterName(ctx, group.local, componentWorkloads)
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("checking component workloads: %w", err)
+	}
+	isPrimary := isPrimaryComponentWorkload(group.local, group.jobAdapter, componentWorkloads)
+
+	if assignedWorkerCluster != "" {
+		log.V(3).Info("Using cluster from component workloads", "cluster", assignedWorkerCluster)
+		if _, ok := group.remotes[assignedWorkerCluster]; ok {
+			if !slices.Contains(group.local.Status.NominatedClusterNames, assignedWorkerCluster) {
+				if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+					wl.Status.NominatedClusterNames = []string{assignedWorkerCluster}
+					return true, nil
+				}); err != nil {
+					return reconcile.Result{}, err
+				}
+			}
+			return w.syncToSingleCluster(ctx, log, group, assignedWorkerCluster)
+		}
+		log.V(3).Info("Worker cluster not available", "cluster", assignedWorkerCluster)
+		return reconcile.Result{}, fmt.Errorf("assigned worker cluster %q is not available", assignedWorkerCluster)
+	}
+
+	if !isPrimary {
+		log.V(3).Info("Waiting for primary workload to nominate cluster")
+		return reconcile.Result{}, nil
+	}
+
 	var nominatedWorkers []string
 
 	// For elastic workloads, retrieve the remote cluster where the original workload was scheduled.
@@ -725,7 +940,13 @@ func (w *wlReconciler) syncReservingRemoteState(ctx context.Context, group *wlGr
 
 			workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *acs, w.clock)
 			// Set the cluster name to the reserving remote and clear the nominated clusters.
-			wl.Status.ClusterName = &reservingRemote
+			// Only set ClusterName if not already set, as it is immutable once set.
+			if wl.Status.ClusterName == nil {
+				wl.Status.ClusterName = &reservingRemote
+			} else if *wl.Status.ClusterName != reservingRemote {
+				return false, fmt.Errorf("attempting to change immutable ClusterName from %q to %q",
+					*wl.Status.ClusterName, reservingRemote)
+			}
 			wl.Status.NominatedClusterNames = nil
 		}
 
@@ -737,6 +958,7 @@ func (w *wlReconciler) syncReservingRemoteState(ctx context.Context, group *wlGr
 
 	if needsACUpdate {
 		w.recorder.Eventf(group.local, corev1.EventTypeNormal, "MultiKueue", acs.Message)
+		w.enqueueComponentWorkloads(ctx, group.local)
 	}
 
 	return nil

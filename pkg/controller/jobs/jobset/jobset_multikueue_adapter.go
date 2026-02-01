@@ -109,16 +109,16 @@ func (*multiKueueAdapter) GetEmptyList() client.ObjectList {
 	return &jobset.JobSetList{}
 }
 
-func (*multiKueueAdapter) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
+func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedName, error) {
 	jobSet, isJobSet := o.(*jobset.JobSet)
 	if !isJobSet {
-		return types.NamespacedName{}, errors.New("not a jobset")
+		return nil, errors.New("not a jobset")
 	}
 
 	prebuiltWl, hasPrebuiltWorkload := jobSet.Labels[constants.PrebuiltWorkloadLabel]
 	if !hasPrebuiltWorkload {
-		return types.NamespacedName{}, fmt.Errorf("no prebuilt workload found for jobset: %s", klog.KObj(jobSet))
+		return nil, fmt.Errorf("no prebuilt workload found for jobset: %s", klog.KObj(jobSet))
 	}
 
-	return types.NamespacedName{Name: prebuiltWl, Namespace: jobSet.Namespace}, nil
+	return []types.NamespacedName{{Name: prebuiltWl, Namespace: jobSet.Namespace}}, nil
 }
