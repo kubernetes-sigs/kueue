@@ -19,28 +19,36 @@ set -o nounset
 set -o pipefail
 
 function usage() {
-  echo "${0} [-p] <version>"
+  echo "${0} [-p|--prod] <version>"
   echo
   echo "  Wait for images"
   echo
   echo "  Options:"
-  echo "    -p  Check production registry (default: staging)"
+  echo "    -p, --prod  Check production registry (default: staging)"
   echo
   echo "  Example:"
   echo "    $0 v0.13.2"
   echo "    $0 -p v0.13.2"
+  echo "    $0 --prod v0.13.2"
   echo
   exit 2
 }
 
 IMAGE_REGISTRY="us-central1-docker.pkg.dev/k8s-staging-images/kueue"
-while getopts "p" opt; do
-  case $opt in
-    p) IMAGE_REGISTRY="registry.k8s.io/kueue" ;;
-    *) usage ;;
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    -p|--prod)
+      IMAGE_REGISTRY="registry.k8s.io/kueue"
+      shift
+      ;;
+    -*)
+      usage
+      ;;
+    *)
+      break
+      ;;
   esac
 done
-shift $((OPTIND-1))
 
 if [[ "$#" -ne 1 ]]; then
   usage
