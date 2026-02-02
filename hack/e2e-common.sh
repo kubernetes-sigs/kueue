@@ -273,7 +273,7 @@ function cluster_kind_load {
     cluster_kind_load_image "$1" "${E2E_TEST_AGNHOST_IMAGE}"
     cluster_kind_load_image "$1" "$IMAGE_TAG"
     if [[ -n ${KUEUE_UPGRADE_FROM_VERSION:-} ]]; then
-        local old_image="${IMAGE_TAG%:*}:${KUEUE_UPGRADE_FROM_VERSION}"
+        local old_image="registry.k8s.io/kueue/kueue:${KUEUE_UPGRADE_FROM_VERSION}"
         cluster_kind_load_image "$1" "${old_image}"
     fi
     if [[ -n "${CLUSTERPROFILE_VERSION:-}" ]]; then
