@@ -76,6 +76,13 @@ spec:
   topologyName: "default"
 ```
 
+When a ResourceFlavor references a Topology:
+
+- **At least one nodeLabel is required**: The ResourceFlavor must have at least
+  one entry in `.spec.nodeLabels`.
+- **Spec becomes immutable**: Once a ResourceFlavor has a `topologyName` set,
+  the entire `.spec` field cannot be modified.
+
 ## What's next?
 
 - Learn how to use [Topology Aware Scheduling](/docs/concepts/topology_aware_scheduling)
