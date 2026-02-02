@@ -106,6 +106,7 @@ High-level overview of the main priorities for 2026:
 - Support for Concurrent Workload Admission [#8691](https://github.com/kubernetes-sigs/kueue/issues/8691)
 - Support for running hero workloads [#8826](https://github.com/kubernetes-sigs/kueue/issues/8826)
 - Consider preemption cost when finding preemption candidates [#7990](https://github.com/kubernetes-sigs/kueue/issues/7990)
+- Progress towards Beta for the integration with Dynamic Resource Allocation (DRA)  [#8243](https://github.com/kubernetes-sigs/kueue/issues/8243)
 
 Long-term aspirational goals:
 - Partial preemption of serving workloads [#3762](https://github.com/kubernetes-sigs/kueue/issues/3762)
