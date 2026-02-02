@@ -67,7 +67,7 @@ This proposal enables workloads to express *how they may be admitted* without ch
 
 As a Kueue user running long-lived or expensive workloads, I want to be conservative about how my workload is admitted.
 
-For these workloads, the cost of eviction or restart is high. I am willing to wait longer for admission if that avoids borrowing or preempting other workloads, reducing the risk of disruption once the workload is running.
+For these workloads, the cost of eviction or restart is high. I am willing to wait longer for admission if that avoids borrowing quota, reducing the risk of disruption once the workload is running.
 
 #### Story 2
 **Avoid admission-time preemption of peer workloads**
