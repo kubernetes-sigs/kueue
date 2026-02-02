@@ -35,6 +35,8 @@ externalPackages:
     target: https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#{{- lower .TypeIdentifier -}}-{{- arrIndex .PackageSegments -1 -}}-{{- arrIndex .PackageSegments -2 -}}
   - match: ^k8s\.io/apimachinery/pkg/api/resource\.Quantity$
     target: https://pkg.go.dev/k8s.io/apimachinery/pkg/api/resource#Quantity
+  - match: ^k8s\.io/client-go/tools/clientcmd/api\.
+    target: https://pkg.go.dev/k8s.io/client-go/tools/clientcmd/api#{{- .TypeIdentifier -}}
   - match: ^k8s.io/component-base/config/v1alpha1.
     target: https://pkg.go.dev/k8s.io/component-base/config/v1alpha1#{{- .TypeIdentifier -}}
   - match: ^time\.Duration$
