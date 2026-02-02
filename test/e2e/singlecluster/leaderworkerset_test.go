@@ -681,101 +681,104 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			})
 		})
 
-		ginkgo.It("Rolling update with maxSurge creates workloads for surge pods and completes successfully", func() {
-			const (
-				lwsReplicas    = 4
-				maxSurge       = 2
-				maxUnavailable = 2
-			)
+		// Run the test 200 times to verify stability of the timeout fix for #8938
+		for i := range 200 {
+			ginkgo.FIt(fmt.Sprintf("Rolling update with maxSurge creates workloads for surge pods and completes successfully %d", i), func() {
+				const (
+					lwsReplicas    = 4
+					maxSurge       = 2
+					maxUnavailable = 2
+				)
 
-			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws-rollout", ns.Name).
-				Image(util.GetAgnHostImageOld(), util.BehaviorWaitForDeletion).
-				Size(1).
-				Replicas(lwsReplicas).
-				RequestAndLimit(corev1.ResourceCPU, "200m").
-				Queue(lq.Name).
-				TerminationGracePeriod(1).
-				Obj()
+				lws := leaderworkersettesting.MakeLeaderWorkerSet("lws-rollout", ns.Name).
+					Image(util.GetAgnHostImageOld(), util.BehaviorWaitForDeletion).
+					Size(1).
+					Replicas(lwsReplicas).
+					RequestAndLimit(corev1.ResourceCPU, "200m").
+					Queue(lq.Name).
+					TerminationGracePeriod(1).
+					Obj()
 
-			lws.Spec.RolloutStrategy = leaderworkersetv1.RolloutStrategy{
-				Type: leaderworkersetv1.RollingUpdateStrategyType,
-				RollingUpdateConfiguration: &leaderworkersetv1.RollingUpdateConfiguration{
-					MaxUnavailable: intstr.FromInt32(maxUnavailable),
-					MaxSurge:       intstr.FromInt32(maxSurge),
-				},
-			}
-
-			ginkgo.By("Create LeaderWorkerSet with rolling update strategy", func() {
-				util.MustCreate(ctx, k8sClient, lws)
-			})
-
-			createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
-
-			ginkgo.By(fmt.Sprintf("Wait for initial %d replicas to be ready", lwsReplicas), func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
-					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(lwsReplicas)))
-					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By(fmt.Sprintf("Verify workloads exist for initial %d groups", lwsReplicas), func() {
-				wl := &kueue.Workload{}
-				for i := range lwsReplicas {
-					gomega.Expect(k8sClient.Get(ctx, util.WorkloadKeyForLeaderWorkerSet(lws, strconv.Itoa(i)), wl)).To(gomega.Succeed())
+				lws.Spec.RolloutStrategy = leaderworkersetv1.RolloutStrategy{
+					Type: leaderworkersetv1.RollingUpdateStrategyType,
+					RollingUpdateConfiguration: &leaderworkersetv1.RollingUpdateConfiguration{
+						MaxUnavailable: intstr.FromInt32(maxUnavailable),
+						MaxSurge:       intstr.FromInt32(maxSurge),
+					},
 				}
-			})
 
-			ginkgo.By("Trigger rolling update by changing image", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
-					createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Image = util.GetAgnHostImage()
-					g.Expect(k8sClient.Update(ctx, createdLeaderWorkerSet)).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
+				ginkgo.By("Create LeaderWorkerSet with rolling update strategy", func() {
+					util.MustCreate(ctx, k8sClient, lws)
+				})
 
-			ginkgo.By(fmt.Sprintf("Wait for the surge workloads to be created with maxSurge=%d", maxSurge), func() {
-				wl := &kueue.Workload{}
-				gomega.Eventually(func(g gomega.Gomega) {
-					for i := lwsReplicas; i < lwsReplicas+maxSurge; i++ {
-						g.Expect(k8sClient.Get(ctx, util.WorkloadKeyForLeaderWorkerSet(lws, strconv.Itoa(i)), wl)).To(gomega.Succeed(),
-							"workload for surge group %d should exist", i)
+				createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
+
+				ginkgo.By(fmt.Sprintf("Wait for initial %d replicas to be ready", lwsReplicas), func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
+						g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(lwsReplicas)))
+						g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
+					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By(fmt.Sprintf("Verify workloads exist for initial %d groups", lwsReplicas), func() {
+					wl := &kueue.Workload{}
+					for i := range lwsReplicas {
+						gomega.Expect(k8sClient.Get(ctx, util.WorkloadKeyForLeaderWorkerSet(lws, strconv.Itoa(i)), wl)).To(gomega.Succeed())
 					}
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-			})
+				})
 
-			ginkgo.By(fmt.Sprintf("Verify rolling update completes successfully with %d replicas running", lwsReplicas), func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
-					g.Expect(createdLeaderWorkerSet.Status.UpdatedReplicas).To(gomega.Equal(int32(lwsReplicas)))
-					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(lwsReplicas)))
-					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
+				ginkgo.By("Trigger rolling update by changing image", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
+						createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Image = util.GetAgnHostImage()
+						g.Expect(k8sClient.Update(ctx, createdLeaderWorkerSet)).To(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
 
-					pods := &corev1.PodList{}
-					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name),
-						client.MatchingLabels{leaderworkersetv1.SetNameLabelKey: lws.Name})).To(gomega.Succeed())
-
-					for _, pod := range pods.Items {
-						g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
-					}
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By(fmt.Sprintf("Verify surge workloads are cleaned up with maxSurge=%d", maxSurge), func() {
-				for i := lwsReplicas; i < lwsReplicas+maxSurge; i++ {
+				ginkgo.By(fmt.Sprintf("Wait for the surge workloads to be created with maxSurge=%d", maxSurge), func() {
 					wl := &kueue.Workload{}
 					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, util.WorkloadKeyForLeaderWorkerSet(lws, strconv.Itoa(i)), wl)).
-							To(utiltesting.BeNotFoundError())
-					}, util.Timeout, util.Interval).Should(gomega.Succeed(),
-						"surge workload for group %d should be deleted after rollout completes", i)
-				}
-			})
+						for i := lwsReplicas; i < lwsReplicas+maxSurge; i++ {
+							g.Expect(k8sClient.Get(ctx, util.WorkloadKeyForLeaderWorkerSet(lws, strconv.Itoa(i)), wl)).To(gomega.Succeed(),
+								"workload for surge group %d should exist", i)
+						}
+					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				})
 
-			ginkgo.By("Delete the LeaderWorkerSet", func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, lws, true)
+				ginkgo.By(fmt.Sprintf("Verify rolling update completes successfully with %d replicas running", lwsReplicas), func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
+						g.Expect(createdLeaderWorkerSet.Status.UpdatedReplicas).To(gomega.Equal(int32(lwsReplicas)))
+						g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(lwsReplicas)))
+						g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
+
+						pods := &corev1.PodList{}
+						g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name),
+							client.MatchingLabels{leaderworkersetv1.SetNameLabelKey: lws.Name})).To(gomega.Succeed())
+
+						for _, pod := range pods.Items {
+							g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
+						}
+					}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By(fmt.Sprintf("Verify surge workloads are cleaned up with maxSurge=%d", maxSurge), func() {
+					for i := lwsReplicas; i < lwsReplicas+maxSurge; i++ {
+						wl := &kueue.Workload{}
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, util.WorkloadKeyForLeaderWorkerSet(lws, strconv.Itoa(i)), wl)).
+								To(utiltesting.BeNotFoundError())
+						}, util.Timeout, util.Interval).Should(gomega.Succeed(),
+							"surge workload for group %d should be deleted after rollout completes", i)
+					}
+				})
+
+				ginkgo.By("Delete the LeaderWorkerSet", func() {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, lws, true)
+				})
 			})
-		})
+		}
 	})
 
 	ginkgo.When("LeaderWorkerSet created with WorkloadPriorityClass", func() {
