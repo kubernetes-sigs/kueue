@@ -1248,6 +1248,15 @@ Kueue tries to find a replacement for a failed node until success (or until it g
 evicted by e.g. `waitForPodsReady.recoveryTimeout`). One can limit the number of retries
 to only one, by setting the `TASFailedNodeReplacementFailFast` feature gate to `true`.
 
+#### Tainted Nodes treatment
+
+When the `TASTaintEviction` feature gate is enabled, Kueue treats tainted nodes as unhealthy.
+
+- **NoExecute**: Nodes with `NoExecute` taint that is not tolerated by the workload are considered unhealthy. The pods on such nodes are expected to be terminated by the node controller. Once terminated, Kueue will attempt to replace the node if `TASFailedNodeReplacement` is enabled, and evict the workload if no replacement is possible. If `tolerationSeconds` is specified, Kueue waits for the duration before treating the node as unhealthy.
+- **NoSchedule**: Nodes with `NoSchedule` taint that is not tolerated by the workload are considered unhealthy only if the pods of the workload running on them are in a failed (or terminating) state or if they are in pending state. In this case, Kueue triggers node replacement. If the pods are running and healthy, the `NoSchedule` taint does not trigger node replacement, allowing the workload to continue running.
+
+Note: Actions are taken only on workloads (and their pods) that do not tolerate the taints.
+
 ### Implicit defaulting of TAS annotations
 
 Requiring to set the TAS annotations (see [User facing API](#user-facing-api))
