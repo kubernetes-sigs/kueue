@@ -109,16 +109,16 @@ func (*multiKueueAdapter) GetEmptyList() client.ObjectList {
 	return &rayv1.RayJobList{}
 }
 
-func (*multiKueueAdapter) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
+func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedName, error) {
 	job, isJob := o.(*rayv1.RayJob)
 	if !isJob {
-		return types.NamespacedName{}, errors.New("not a rayjob")
+		return nil, errors.New("not a rayjob")
 	}
 
 	prebuiltWl, hasPrebuiltWorkload := job.Labels[constants.PrebuiltWorkloadLabel]
 	if !hasPrebuiltWorkload {
-		return types.NamespacedName{}, fmt.Errorf("no prebuilt workload found for rayjob: %s", klog.KObj(job))
+		return nil, fmt.Errorf("no prebuilt workload found for rayjob: %s", klog.KObj(job))
 	}
 
-	return types.NamespacedName{Name: prebuiltWl, Namespace: job.Namespace}, nil
+	return []types.NamespacedName{{Name: prebuiltWl, Namespace: job.Namespace}}, nil
 }
