@@ -143,8 +143,9 @@ and make progress.
 
 ## Proposal
 
-Concurrent Admission feature propose to introduce a new controller and extend the ClusterQueue API.
-Based on the API a new controller creates multiple Option Workloads per a single top-level job.
+We propose an opt-in feature (Concurrent Admission) that introduces a new controller and extends the ClusterQueue API.
+When an admin sets `.spec.concurrentAdmission` (details below) in the ClusterQueue,
+the new controller creates multiple Option Workloads for each single top-level job.
 At any given point in time, only one Option can be admitted by Kueue.
 
 Each Option is a clone of Parent Workload with additional scheduling constraints, in particular could only be assigned to a subset of ResourceFlavors
