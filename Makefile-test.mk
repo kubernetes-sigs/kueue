@@ -47,7 +47,7 @@ E2E_KIND_VERSION ?= kindest/node:v$(E2E_K8S_FULL_VERSION)
 E2E_RUN_ONLY_ENV ?= false
 E2E_USE_HELM ?= false
 E2E_MODE ?= ci
-KUEUE_UPGRADE_FROM_VERSION ?= v0.14.4
+KUEUE_UPGRADE_FROM_VERSION ?= v0.14.8
 
 # For local testing, we should allow user to use different kind cluster name
 # Default will delete default kind cluster
