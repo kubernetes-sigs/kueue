@@ -392,6 +392,7 @@ func RestartKueueController(ctx context.Context, k8sClient client.Client, kindCl
 	rolloutOperatorDeployment(ctx, k8sClient, kcmKey, kindClusterName)
 	WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
 	waitForDeploymentWithOnlyAvailableReplicas(ctx, k8sClient, kcmKey)
+	waitForDeploymentReadyPodsToMatchDesiredReplicas(ctx, k8sClient, kcmKey)
 	WaitForLeaderElection(ctx, k8sClient, restartStartTime)
 	waitForWebhookEndpointsReady(ctx, k8sClient)
 }
@@ -410,7 +411,8 @@ func isPodReady(pod *corev1.Pod) bool {
 func waitForWebhookEndpointsReady(ctx context.Context, k8sClient client.Client) {
 	ginkgo.GinkgoHelper()
 	kueueNS := GetKueueNamespace()
-
+	ginkgo.By(fmt.Sprintf("Waiting for the Endpoint IPs to match the IPs for Ready Pods: %q", kueueNS))
+	waitForAvailableStart := time.Now()
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		pods := &corev1.PodList{}
 		g.Expect(k8sClient.List(ctx, pods,
@@ -443,6 +445,7 @@ func waitForWebhookEndpointsReady(ctx context.Context, k8sClient client.Client) 
 
 		g.Expect(readyIPs).To(gomega.Equal(podIPs))
 	}, Timeout, Interval).Should(gomega.Succeed())
+	ginkgo.GinkgoLogr.Info("Deployment has only Endpoints corresponding to Ready Pods", "waitingTime", time.Since(waitForAvailableStart))
 }
 
 func waitForDeploymentWithOnlyAvailableReplicas(ctx context.Context, k8sClient client.Client, key types.NamespacedName) {
@@ -455,6 +458,32 @@ func waitForDeploymentWithOnlyAvailableReplicas(ctx context.Context, k8sClient c
 		g.Expect(ptr.Deref(deployment.Spec.Replicas, 0)).To(gomega.Equal(deployment.Status.AvailableReplicas))
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 	ginkgo.GinkgoLogr.Info("Deployment has only available replicas in the cluster", "deployment", key, "waitingTime", time.Since(waitForAvailableStart))
+}
+
+func waitForDeploymentReadyPodsToMatchDesiredReplicas(ctx context.Context, k8sClient client.Client, key types.NamespacedName) {
+	ginkgo.GinkgoHelper()
+	deployment := &appsv1.Deployment{}
+	waitForAvailableStart := time.Now()
+	ginkgo.By(fmt.Sprintf("Waiting for the number of ready Pods to match the expected number of replicas: %q", key))
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, key, deployment)).To(gomega.Succeed())
+		replicas := ptr.Deref(deployment.Spec.Replicas, 0)
+
+		pods := &corev1.PodList{}
+		g.Expect(k8sClient.List(ctx, pods,
+			client.InNamespace(key.Namespace),
+			client.MatchingLabels{"control-plane": "controller-manager"},
+		)).To(gomega.Succeed())
+
+		readyPods := sets.New[string]()
+		for _, pod := range pods.Items {
+			if isPodReady(&pod) && pod.DeletionTimestamp == nil {
+				readyPods.Insert(pod.Status.PodIP)
+			}
+		}
+		g.Expect(readyPods).To(gomega.HaveLen(int(replicas)), "Deployment should have only ready Pods")
+	}, LongTimeout, Interval).Should(gomega.Succeed())
+	ginkgo.GinkgoLogr.Info("Deployment has only Ready Pods", "deployment", key, "waitingTime", time.Since(waitForAvailableStart))
 }
 
 func WaitForActivePodsAndTerminate(ctx context.Context, k8sClient client.Client, restClient *rest.RESTClient, cfg *rest.Config, namespace string, activePodsCount, exitCode int, opts ...client.ListOption) {
