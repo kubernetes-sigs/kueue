@@ -136,6 +136,7 @@ MultiKueue supports a wide variety of workloads. You can learn how to:
 - [Dispatch a Kueue managed AppWrapper](docs/tasks/run/multikueue/appwrapper).
 - [Dispatch a Kueue managed plain Pod](docs/tasks/run/multikueue/plain_pods).
 - [Dispatch a Kueue managed StatefulSet](docs/tasks/run/multikueue/statefulset).
+- [Dispatch a Kueue managed LeaderWorkerSet](docs/tasks/run/multikueue/leaderworkerset).
 - [Dispatch a Kueue managed External Framework Job](docs/tasks/run/multikueue/external-frameworks.md)
 
 ## Submitting Jobs
@@ -150,6 +151,11 @@ Kueue handles delegation to the appropriate worker cluster without requiring any
 - [Set up a MultiKueue environment](/docs/tasks/manage/setup_multikueue/)
 - [Run Jobs in a MultiKueue environment](/docs/tasks/run/multikueue)
 
-## Limitation
+## Limitations
 
-- we do not support currently running manager cluster as one of workers for itself.
+- We do not currently support running the manager cluster as one of the workers for itself.
+- For job types without `managedBy` support (StatefulSet, LeaderWorkerSet), the job status on the
+  manager cluster may not reflect the actual status from the worker cluster. This is because the
+  local job controller continuously updates status based on local (gated) pods. The job execution
+  on the worker cluster is not affected - only the status visibility on the manager is limited.
+  Check the Workload status for accurate admission state.

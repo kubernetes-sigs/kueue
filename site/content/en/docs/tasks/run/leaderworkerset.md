@@ -112,3 +112,6 @@ The following example uses the `podset-group-name` annotation to ensure that the
 {{< include "examples/serving-workloads/sample-leaderworkerset-tas.yaml" "yaml" >}}
 
 When `replicas` is greater than 1 (as in the example above where `replicas: 2`), the topology constraints apply to each replica individually. This means that for each replica, the Leader and its Workers will be co-located in the same topology domain (e.g., rack), but different replicas may be assigned to different topology domains.
+
+## Multikueue
+Check [MultiKueue](/docs/tasks/run/multikueue/leaderworkerset) for details on running LeaderWorkerSets in MultiKueue environment.
