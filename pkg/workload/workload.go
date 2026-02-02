@@ -1172,6 +1172,13 @@ func IsAdmissible(w *kueue.Workload) bool {
 	return !IsFinished(w) && IsActive(w) && !HasQuotaReservation(w)
 }
 
+// HasActiveQuotaReservation returns true if the workload has an active quota
+// reservation that should be tracked for ClusterQueue usage. This requires the
+// workload to be active, not finished, and holding a quota reservation.
+func HasActiveQuotaReservation(w *kueue.Workload) bool {
+	return HasQuotaReservation(w) && !IsFinished(w) && IsActive(w)
+}
+
 // HasDRA returns true if the workload has DRA resources (ResourceClaims or ResourceClaimTemplates).
 func HasDRA(w *kueue.Workload) bool {
 	return HasResourceClaim(w) || HasResourceClaimTemplates(w)
