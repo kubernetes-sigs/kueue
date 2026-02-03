@@ -46,6 +46,14 @@ A mechanism allowing internal or external components to influence the timing of 
 
 ![Components](/images/queueing-components.svg)
 
+### [Topology](/docs/concepts/topology)
+
+A cluster-scoped resource that represents the hierarchical topology of nodes
+in a data center. A `Topology` defines levels of organizational units
+(such as blocks and racks) using node labels, and is referenced from a
+`ResourceFlavor` to enable
+[Topology Aware Scheduling](/docs/concepts/topology_aware_scheduling).
+
 ### [Topology Aware Scheduling](/docs/concepts/topology_aware_scheduling)
 
 A mechanism allowing to schedule Workloads optimizing Pod placement for
