@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -61,7 +62,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
+		fwk.StartManager(ctx, cfg, managerSetup(nil))
 	})
 
 	ginkgo.AfterAll(func() {
@@ -783,7 +784,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("restart controllers", func() {
 					fwk.StopManager(ctx)
-					fwk.StartManager(ctx, cfg, managerSetup)
+					fwk.StartManager(ctx, cfg, managerSetup(nil))
 				})
 
 				ginkgo.By("verify wl2 is still not admitted", func() {
@@ -3566,7 +3567,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("restart Kueue manager", func() {
 					fwk.StopManager(ctx)
-					fwk.StartManager(ctx, cfg, managerSetup)
+					fwk.StartManager(ctx, cfg, managerSetup(nil))
 				})
 
 				ginkgo.By("verify admission for the workload", func() {
@@ -4926,6 +4927,195 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					g.Expect(newAssignment2).ShouldNot(gomega.BeNil())
 					g.Expect(newAssignment2.Slices).ShouldNot(gomega.BeEmpty())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
+})
+
+// Tests the "Retain" resource transformation strategy: regular CPU requests are
+// transformed into cpu_credits (1:1 mapping) while preserving the original CPU
+// request for scheduling against on-demand/spot flavors.
+//
+// Goal: verify that transformed capacity (cpu_credits quota) correctly gates
+// admission, while original CPU still participates in flavor selection / fitting.
+//
+// See: https://kueue.sigs.k8s.io/docs/tasks/manage/share_quotas_across_flavors/
+var _ = ginkgo.Describe("Topology Aware Scheduling – Resource Transformation: Retain CPU → cpu_credits (Share Quotas Across Flavors)", ginkgo.Ordered, func() {
+	const cpuCredits = "cpu_credits"
+
+	var (
+		nodes    []corev1.Node
+		ns       *corev1.Namespace
+		topology *kueue.Topology
+		onDemand *kueue.ResourceFlavor
+		spot     *kueue.ResourceFlavor
+		credits  *kueue.ResourceFlavor
+		cq       *kueue.ClusterQueue
+		lq       *kueue.LocalQueue
+	)
+
+	ginkgo.BeforeAll(func() {
+		// Starts the manager with a single retain transformation: 1 CPU → 1 cpu_credits
+		fwk.StartManager(ctx, cfg, managerSetup([]config.ResourceTransformation{{
+			Input:    corev1.ResourceCPU,
+			Strategy: ptr.To(config.Retain),
+			Outputs:  corev1.ResourceList{cpuCredits: resource.MustParse("1")},
+		}}))
+	})
+
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.BeforeEach(func() {
+		nodes = []corev1.Node{
+			*testingnode.MakeNode("on-demand").
+				Label("node-type", "on-demand").
+				Label(corev1.LabelHostname, "on-demand").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("9"),
+					corev1.ResourcePods: resource.MustParse("10"),
+				}).
+				Ready().
+				Obj(),
+			*testingnode.MakeNode("spot").
+				Label("node-type", "spot").
+				Label(corev1.LabelHostname, "spot").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("9"),
+					corev1.ResourcePods: resource.MustParse("10"),
+				}).
+				Ready().
+				Obj(),
+		}
+		util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-")
+
+		topology = utiltestingapi.MakeDefaultOneLevelTopology("topology")
+		util.MustCreate(ctx, k8sClient, topology)
+
+		onDemand = utiltestingapi.MakeResourceFlavor("on-demand").
+			NodeLabel("node-type", "on-demand").
+			TopologyName(topology.Name).
+			Obj()
+		util.MustCreate(ctx, k8sClient, onDemand)
+
+		spot = utiltestingapi.MakeResourceFlavor("spot").
+			NodeLabel("node-type", "spot").
+			TopologyName(topology.Name).
+			Obj()
+		util.MustCreate(ctx, k8sClient, spot)
+
+		credits = utiltestingapi.MakeResourceFlavor("credits").Obj()
+		util.MustCreate(ctx, k8sClient, credits)
+
+		// ClusterQueue setup:
+		//   - 9 CPU on on-demand + 9 CPU on spot → total 18 "original" CPU capacity
+		//   - 8 cpu_credits on credits flavor → transformed capacity is the real limit
+		cq = utiltestingapi.MakeClusterQueue("team-cluster-queue").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas(onDemand.Name).Resource(corev1.ResourceCPU, "9").Obj(),
+				*utiltestingapi.MakeFlavorQuotas(spot.Name).Resource(corev1.ResourceCPU, "9").Obj(),
+			).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(credits.Name).Resource(cpuCredits, "8").Obj()).
+			Preemption(kueue.ClusterQueuePreemption{
+				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+			}).
+			Obj()
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+		lq = utiltestingapi.MakeLocalQueue("team-queue", ns.Name).ClusterQueue(cq.Name).Obj()
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemand, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, spot, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, credits, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+		for i := range nodes {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[i], true)
+		}
+	})
+
+	ginkgo.When("workloads request regular CPU but are transformed to cpu_credits", func() {
+		const (
+			highPriorityClassName = "high"
+			highPriority          = 1000
+			lowPriorityClassName  = "low"
+			lowPriority           = 100
+
+			podsPerWorkload = 1
+			// each workload requests 3 CPU → 3 cpu_credits after transformation
+			cpuRequestPerPod = "3"
+			// 8 credits available → floor(8/3) = 2 workloads fit initially
+			initialFitCount = 2
+		)
+
+		var (
+			workloadWrapper *utiltestingapi.WorkloadWrapper
+			admitted        []*kueue.Workload
+			pendingWl       *kueue.Workload
+		)
+
+		ginkgo.BeforeEach(func() {
+			workloadWrapper = utiltestingapi.MakeWorkload("tmpl", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				WorkloadPriorityClassRef(highPriorityClassName).
+				Priority(highPriority).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, podsPerWorkload).
+					Request(corev1.ResourceCPU, cpuRequestPerPod).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj())
+
+			admitted = make([]*kueue.Workload, 0, initialFitCount)
+
+			ginkgo.By(fmt.Sprintf("Creating %d high-priority workloads (should fit within 8 credits)", initialFitCount), func() {
+				for i := range initialFitCount {
+					wl := workloadWrapper.Clone().Name(fmt.Sprintf("wl-%d", i+1)).Obj()
+					util.MustCreate(ctx, k8sClient, wl)
+					admitted = append(admitted, wl)
+				}
+			})
+
+			ginkgo.By("Verifying initial workloads are admitted", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, admitted...)
+			})
+
+			ginkgo.By("Creating a 3rd workload that should stay pending (not enough credits)", func() {
+				pendingWl = workloadWrapper.Clone().Name("wl").Obj()
+				util.MustCreate(ctx, k8sClient, pendingWl)
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, pendingWl)
+			})
+		})
+
+		ginkgo.It("should admit the pending workload after one running workload finishes", func() {
+			ginkgo.By("Marking one admitted workload as finished (frees 3 credits)", func() {
+				util.FinishWorkloads(ctx, k8sClient, admitted[0])
+			})
+
+			ginkgo.By("Waiting for the pending workload to be admitted (credits available again)", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, pendingWl)
+			})
+		})
+
+		ginkgo.It("should admit the pending workload after preempting a lower-priority workload", func() {
+			ginkgo.By("Setting low priority of one admitted workload → making it preemptable", func() {
+				createdWl := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(admitted[0]), createdWl)).To(gomega.Succeed())
+					createdWl.Spec.PriorityClassRef.Name = lowPriorityClassName
+					createdWl.Spec.Priority = ptr.To[int32](lowPriority)
+					g.Expect(k8sClient.Update(ctx, createdWl)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.FinishEvictionForWorkloads(ctx, k8sClient, admitted[0])
+			})
+
+			ginkgo.By("Waiting for the pending workload to be admitted", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, pendingWl)
 			})
 		})
 	})
