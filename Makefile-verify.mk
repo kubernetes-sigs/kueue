@@ -15,15 +15,73 @@
 ##@ Verify
 
 GO_FMT ?= gofmt
-
+VERIFY_NPROCS ?= 1
+# Paths whose content is expected to be fully reproducible from sources.
+# The final step of `make verify` enforces that these paths have:
+# - no unstaged/staged diffs (`git diff --exit-code`)
+# - no untracked files (e.g. newly generated files not added to git)
 PATHS_TO_VERIFY := config/components apis charts/kueue client-go site/ netlify.toml
+
 .PHONY: verify
-verify: gomod-verify ci-lint lint-api fmt-verify shell-lint toc-verify manifests generate update-helm
-verify: helm-verify helm-unit-test prepare-release-branch sync-hugo-version npm-depcheck
-verify: ## Main target: Ensures the repo is clean after all generation/formatting steps.
-	@echo "Verifying repository cleanliness..."
+## Main target used by CI and local development.
+##
+## What it does:
+## - Phase 1: regenerate everything that is checked into git (Go code, docs site data, Helm docs/manifests)
+## - Phase 2: run verification checks (linters, formatting checks, helm rendering/unit tests, npm dep checks)
+## - Phase 3: assert the repo is clean for $(PATHS_TO_VERIFY)
+##
+## Why it matters:
+## A PR may compile locally while still missing generated artifacts (CRDs, docs, mocks, etc.).
+## `make verify` is the "single command" that ensures you haven't forgotten to run generators and that
+## the checked-in output matches what CI will expect.
+##
+## Notes:
+## - The work is parallelized. Override parallelism with `VERIFY_NPROCS=<n> make verify`.
+##
+## How to extend `make verify`
+##
+## `make verify` is intentionally split into two broad phases:
+## - `verify-tree-prereqs`: targets that *may write to the working tree* (codegen, docs generation, helm docs, etc.)
+## - `verify-checks`: targets that should be *read-only* (linters, formatting verification, template rendering, unit tests)
+##
+## To add a new step:
+## - If it GENERATES/UPDATES files checked into git: add it under one of the `verify-*-prereqs` targets.
+## - If it ONLY VALIDATES without writing files: add it to `verify-checks`.
+##
+## Implementation location:
+## - You can define the target in this file (`Makefile-verify.mk`) if it’s verify-specific,
+##   or in another included fragment (`Makefile-test.mk`, etc.) if it logically belongs there.
+## - Then, wire it into the appropriate aggregator target below.
+verify: ## Ensure repo is clean after generation/formatting.
+	$(MAKE) -j $(VERIFY_NPROCS) verify-tree-prereqs verify-checks
 	git --no-pager diff --exit-code $(PATHS_TO_VERIFY)
-	if git ls-files --exclude-standard --others $(PATHS_TO_VERIFY) | grep -q . ; then exit 1; fi
+	if git ls-files --exclude-standard --others $(PATHS_TO_VERIFY) | grep -q . ; then \
+		echo "ERROR: untracked files found under: $(PATHS_TO_VERIFY)" >&2; \
+		git ls-files --exclude-standard --others $(PATHS_TO_VERIFY) >&2; \
+		exit 1; \
+	fi
+
+.PHONY: verify-go-prereqs
+verify-go-prereqs: ## Prerequisites for Go-only checks.
+verify-go-prereqs: gomod-verify generate-code generate-mocks
+
+.PHONY: verify-docs-prereqs
+verify-docs-prereqs: ## Prerequisites for docs/site checks.
+verify-docs-prereqs: generate-apiref generate-kueuectl-docs generate-metrics-tables generate-featuregates sync-hugo-version
+
+.PHONY: verify-helm-prereqs
+verify-helm-prereqs: ## Prerequisites for Helm checks.
+verify-helm-prereqs: compile-crd-manifests update-helm generate-helm-docs prepare-release-branch
+
+.PHONY: verify-tree-prereqs
+verify-tree-prereqs: ## Prerequisites to ensure repo is fully regenerated.
+verify-tree-prereqs: verify-go-prereqs verify-docs-prereqs verify-helm-prereqs
+
+.PHONY: verify-checks
+## Read-only verification targets that should not mutate the repo.
+## Add new check-only targets here.
+verify-checks: ## Phase 2 (parallel): checks that should run after generation completes.
+verify-checks: ci-lint lint-api fmt-verify shell-lint toc-verify helm-verify helm-unit-test npm-depcheck
 
 .PHONY: gomod-verify
 gomod-verify: ## Verify go.mod / go.sum are tidy and unchanged.
@@ -31,15 +89,15 @@ gomod-verify: ## Verify go.mod / go.sum are tidy and unchanged.
 	git --no-pager diff --exit-code go.mod go.sum
 
 .PHONY: ci-lint
-ci-lint: golangci-lint ## Run golangci-lint across all Go modules.
-	find . -path ./site -prune -false -o -name go.mod -exec dirname {} \; | xargs -I {} sh -c 'cd "{}" && $(GOLANGCI_LINT) run $(GOLANGCI_LINT_FIX) --timeout 15m0s --config "$(PROJECT_DIR)/.golangci.yaml"'
+ci-lint: verify-go-prereqs golangci-lint ## Run golangci-lint across all Go modules.
+	find . \( -path ./site -o -path ./bin -o -path ./vendor \) -prune -false -o -name go.mod -exec dirname {} \; | xargs -I {} sh -c 'cd "{}" && $(GOLANGCI_LINT) run $(GOLANGCI_LINT_FIX) --timeout 15m0s --config "$(PROJECT_DIR)/.golangci.yaml"'
 
 .PHONY: lint-fix
 lint-fix: GOLANGCI_LINT_FIX=--fix
 lint-fix: ci-lint ## Fix issues found by golangci-lint where possible.
 
 .PHONY: lint-api
-lint-api: golangci-lint-kal ## Run API-specific linting with custom config.
+lint-api: verify-go-prereqs golangci-lint-kal ## Run API-specific linting with custom config.
 	$(GOLANGCI_LINT_KAL) run -v --config $(PROJECT_DIR)/.golangci-kal.yml ${GOLANGCI_LINT_FIX}
 
 .PHONY: lint-api-fix
@@ -47,8 +105,8 @@ lint-api-fix: GOLANGCI_LINT_FIX=--fix
 lint-api-fix: lint-api ## Fix API linting issues where possible.
 
 .PHONY: fmt-verify
-fmt-verify: ## Verify Go code formatting (no changes allowed).
-	@out=`$(GO_FMT) -w -l -d $$(find . -name '*.go' | grep -v /vendor/)`; \
+fmt-verify: verify-go-prereqs ## Verify Go code formatting (no changes allowed).
+	@out=`$(GO_FMT) -l -d $$(find . \( -path ./vendor -o -path ./bin \) -prune -false -o -name '*.go' -print)`; \
 	if [ -n "$$out" ]; then \
 	    echo "$$out"; \
 	    exit 1; \
@@ -59,11 +117,11 @@ shell-lint: ## Run shell script linting (via shellcheck).
 	$(PROJECT_DIR)/hack/shellcheck/verify.sh
 
 .PHONY: toc-verify
-toc-verify: mdtoc ## Verify markdown TOCs are up-to-date.
+toc-verify: verify-docs-prereqs mdtoc ## Verify markdown TOCs are up-to-date.
 	./hack/verify-toc.sh
 
 .PHONY: helm-verify
-helm-verify: helm helm-lint ## Validate Helm chart rendering with various configuration combinations.
+helm-verify: verify-helm-prereqs helm helm-lint ## Validate Helm chart rendering with various configuration combinations.
 # test default values
 	$(HELM) template charts/kueue > /dev/null
 # test nondefault options (kueueviz, prometheus, certmanager)
@@ -84,11 +142,11 @@ helm-verify: helm helm-lint ## Validate Helm chart rendering with various config
 	$(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.backend.priorityClassName="system-cluster-critical" > /dev/null
 
 .PHONY: helm-unit-test
-helm-unit-test: helm helm-unittest-plugin ## Run Helm unit tests for the kueue chart.
+helm-unit-test: verify-helm-prereqs helm helm-unittest-plugin ## Run Helm unit tests for the kueue chart.
 	HELM_PLUGINS=$(BIN_DIR)/helm-plugins $(HELM) unittest charts/kueue --strict --debug
 
 .PHONY: npm-depcheck
-npm-depcheck: ## Verify frontend and e2e npm dependencies.
+npm-depcheck: prepare-release-branch ## Verify frontend and e2e npm dependencies.
 	$(PROJECT_DIR)/hack/depcheck/verify.sh $(PROJECT_DIR)/cmd/kueueviz/frontend
 	$(PROJECT_DIR)/hack/depcheck/verify.sh $(PROJECT_DIR)/test/e2e/kueueviz
 

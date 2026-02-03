@@ -137,7 +137,7 @@ func (r *PodReconciler) setDefault(ctx context.Context, pod *corev1.Pod) (bool, 
 		return false, nil
 	}
 
-	wlName := GetWorkloadName(lws.UID, lws.Name, pod.Labels[leaderworkersetv1.GroupIndexLabelKey])
+	wlName := GetWorkloadName(GetOwnerUID(lws), lws.Name, pod.Labels[leaderworkersetv1.GroupIndexLabelKey])
 
 	pod.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
 	pod.Labels[controllerconstants.QueueLabel] = string(queueName)

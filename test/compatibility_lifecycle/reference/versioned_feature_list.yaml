@@ -169,6 +169,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
+- name: RemoveFinalizersWithStrictPatch
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.17"
 - name: SanitizePodSets
   versionedSpecs:
   - default: true
@@ -237,6 +243,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.14"
+- name: TLSOptions
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.16"
 - name: TopologyAwareScheduling
   versionedSpecs:
   - default: false

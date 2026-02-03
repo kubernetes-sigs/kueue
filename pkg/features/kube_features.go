@@ -232,7 +232,19 @@ const (
 	// Redo admission on eviction in worker cluster.
 	MultiKueueRedoAdmissionOnEvictionInWorker featuregate.Feature = "MultiKueueRedoAdmissionOnEvictionInWorker"
 
-	// owner: @j-skiba
+	// owner: @kannon92
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/8190
+	// Enables TLSOptions for TLS MinVersion and CipherSuites for kueue servers
+	TLSOptions featuregate.Feature = "TLSOptions"
+
+	// owner: @mykysha
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/3899-remove-finalizers-with-strict-patch
+	//
+	// Finalizers are removed using a strict patch not to cause race conditions.
+	RemoveFinalizersWithStrictPatch featuregate.Feature = "RemoveFinalizersWithStrictPatch"
+  
+  // owner: @j-skiba
 	//
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/8828
 	// Enable workload eviction when node is tainted and pods are not able to run.
@@ -360,17 +372,20 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	SkipFinalizersForPodsSuspendedByParent: {
 		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
 	},
-
 	MultiKueueWaitForWorkloadAdmitted: {
 		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
 	},
 	MultiKueueRedoAdmissionOnEvictionInWorker: {
 		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
 	},
-
-	TASTaintEviction: {
-		{Version: version.MustParse("0.16"), Default: false, PreRelease: featuregate.Alpha},
+	TLSOptions: {
+		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
 	},
+	RemoveFinalizersWithStrictPatch: {
+		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
+	},
+  TASTaintEviction: {
+		{Version: version.MustParse("0.16"), Default: false, PreRelease: featuregate.Alpha},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) {

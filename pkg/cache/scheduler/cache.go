@@ -153,8 +153,7 @@ func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clust
 		tasCache:            &c.tasCache,
 		AdmissionScope:      cq.Spec.AdmissionScope,
 
-		workloadsNotAccountedForTAS: sets.New[workload.Reference](),
-		roleTracker:                 c.roleTracker,
+		roleTracker: c.roleTracker,
 	}
 	c.hm.AddClusterQueue(cqImpl)
 	c.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.CohortName)
@@ -425,7 +424,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 	}
 	for i, w := range workloads.Items {
 		log := log.WithValues("workload", workload.Key(&w))
-		if !workload.HasQuotaReservation(&w) || workload.IsFinished(&w) {
+		if !workload.HasActiveQuotaReservation(&w) {
 			continue
 		}
 		if _, err := c.addOrUpdateWorkloadWithoutLock(log, &workloads.Items[i]); err != nil {
@@ -585,7 +584,8 @@ func (c *Cache) addOrUpdateWorkloadWithoutLock(log logr.Logger, wl *kueue.Worklo
 	wlKey := workload.Key(wl)
 	assignedCqName, assigned := c.workloadAssignedQueues[wlKey]
 
-	if !workload.HasQuotaReservation(wl) {
+	// Finished or deactivated workloads should not keep ClusterQueues in-use in the cache.
+	if !workload.HasActiveQuotaReservation(wl) {
 		if assigned {
 			c.deleteFromQueueIfPresent(log, wlKey, assignedCqName)
 			delete(c.workloadAssignedQueues, wlKey)
@@ -610,6 +610,28 @@ func (c *Cache) addOrUpdateWorkloadWithoutLock(log logr.Logger, wl *kueue.Worklo
 	cq.addOrUpdateWorkload(log, wl)
 
 	return true, nil
+}
+
+func (c *Cache) GetWorkloadFromCache(wlKey workload.Reference) *kueue.Workload {
+	c.RLock()
+	defer c.RUnlock()
+
+	cqRef, ok := c.workloadAssignedQueues[wlKey]
+	if !ok {
+		return nil
+	}
+
+	cq := c.hm.ClusterQueue(cqRef)
+	if cq == nil {
+		return nil
+	}
+
+	wlInfo, ok := cq.Workloads[wlKey]
+	if !ok {
+		return nil
+	}
+
+	return wlInfo.Obj
 }
 
 func (c *Cache) deleteFromQueueIfPresent(log logr.Logger, wlKey workload.Reference, cqName kueue.ClusterQueueReference) {

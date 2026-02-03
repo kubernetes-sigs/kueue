@@ -91,6 +91,12 @@ func (j *JobSetWrapper) StartupPolicy(policy *jobset.StartupPolicy) *JobSetWrapp
 	return j
 }
 
+// VolumeClaimPolicies sets the value of jobSet.spec.volumeClaimPolicies
+func (j *JobSetWrapper) VolumeClaimPolicies(policies []jobset.VolumeClaimPolicy) *JobSetWrapper {
+	j.Spec.VolumeClaimPolicies = policies
+	return j
+}
+
 // SetAnnotations sets the value of the jobSet.metadata.annotations.
 func (j *JobSetWrapper) SetAnnotations(annotations map[string]string) *JobSetWrapper {
 	j.Annotations = annotations
@@ -314,6 +320,18 @@ func (j *JobTemplateWrapper) Obj() batchv1.JobTemplateSpec {
 	return j.JobTemplateSpec
 }
 
+// Parallelism sets the job spec parallelism.
+func (j *JobTemplateWrapper) Parallelism(parallelism int32) *JobTemplateWrapper {
+	j.Spec.Parallelism = ptr.To(parallelism)
+	return j
+}
+
+// Completions sets the job spec completions.
+func (j *JobTemplateWrapper) Completions(completions int32) *JobTemplateWrapper {
+	j.Spec.Completions = ptr.To(completions)
+	return j
+}
+
 // JobWrapper wraps a Job.
 type JobWrapper struct {
 	batchv1.Job
@@ -496,6 +514,12 @@ func (p *PodWrapper) Labels(labels map[string]string) *PodWrapper {
 // SetConditions sets the value of the pod.status.conditions.
 func (p *PodWrapper) SetConditions(conditions []corev1.PodCondition) *PodWrapper {
 	p.Status.Conditions = conditions
+	return p
+}
+
+// SetStatus sets the value of the pod.status.
+func (p *PodWrapper) SetStatus(status corev1.PodStatus) *PodWrapper {
+	p.Status = status
 	return p
 }
 

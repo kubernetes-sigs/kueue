@@ -18,7 +18,7 @@ package handlers
 
 import (
 	"context"
-	"fmt"
+	"log/slog"
 
 	"github.com/gin-gonic/gin"
 	corev1 "k8s.io/api/core/v1"
@@ -27,7 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 // WorkloadsDashboardWebSocketHandler streams workloads along with attached pod details
@@ -65,7 +65,8 @@ func (h *Handlers) fetchWorkloadsDashboardData(ctx context.Context, namespace st
 	err := h.client.List(ctx, wql, ctrlclient.InNamespace(namespace))
 
 	if err != nil {
-		fmt.Printf("error fetching workloads: %v", err)
+		slog.Error("Error fetching workloads", "namespace", namespace, "error", err)
+		return nil
 	}
 
 	workloadsByUID := make(map[types.UID]string)
@@ -80,7 +81,7 @@ func (h *Handlers) fetchWorkloadsDashboardData(ctx context.Context, namespace st
 		pl := &corev1.PodList{}
 		err = h.client.List(ctx, pl, ctrlclient.InNamespace(namespace))
 		if err != nil {
-			fmt.Printf("error fetching pods in namespace %s: %v", namespace, err)
+			slog.Error("Error fetching pods", "namespace", namespace, "error", err)
 			return nil
 		}
 

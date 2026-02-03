@@ -1,4 +1,4 @@
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ResourceFlavor
 metadata:
   name: hami-flavor
@@ -6,7 +6,7 @@ spec:
   nodeLabels:
     gpu: "on"
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: hami-queue
@@ -32,7 +32,7 @@ kind: Namespace
 metadata:
   name: kueue-test
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: LocalQueue
 metadata:
   name: user-queue

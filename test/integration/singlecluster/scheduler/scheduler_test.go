@@ -745,6 +745,28 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				gomega.Expect(*createWl.Status.Admission.PodSetAssignments[0].Count).To(gomega.Equal(int32(1)))
 			})
 		})
+
+		ginkgo.It("Should admit workload with zero quantity request for resource not in ClusterQueue", func() {
+			wl := utiltestingapi.MakeWorkload("zero-resource-wl", ns.Name).
+				Queue(kueue.LocalQueueName(devQueue.Name)).
+				Request(corev1.ResourceCPU, "1").
+				Request("example.com/gpu", "0").
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, devClusterQ.Name, wl)
+
+			ginkgo.By("Verifying admission only contains resources with assigned flavors")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				g.Expect(wl.Status.Admission).NotTo(gomega.BeNil())
+				g.Expect(wl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+				psa := wl.Status.Admission.PodSetAssignments[0]
+				g.Expect(psa.Flavors).To(gomega.HaveKey(corev1.ResourceCPU))
+				g.Expect(psa.Flavors).NotTo(gomega.HaveKey(corev1.ResourceName("example.com/gpu")))
+				g.Expect(psa.ResourceUsage).To(gomega.HaveKey(corev1.ResourceCPU))
+				g.Expect(psa.ResourceUsage).NotTo(gomega.HaveKey(corev1.ResourceName("example.com/gpu")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
 	})
 
 	ginkgo.When("Scheduler patch request fails", func() {
@@ -1583,6 +1605,43 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl, expectAdmission)
 			util.ExpectPendingWorkloadsMetric(cq, 0, 0)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, "", 1)
+		})
+
+		ginkgo.It("Should admit workload borrowing from cohort when requesting zero of a resource not in ClusterQueue", func() {
+			cq = utiltestingapi.MakeClusterQueue("clusterqueue").
+				Cohort("cohort").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj()
+			queue := utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			util.MustCreate(ctx, k8sClient, cq)
+			util.MustCreate(ctx, k8sClient, queue)
+
+			cohort = utiltestingapi.MakeCohort("cohort").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "10").Obj(),
+				).Obj()
+			util.MustCreate(ctx, k8sClient, cohort)
+
+			wl = utiltestingapi.MakeWorkload("wl", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).
+				Request(corev1.ResourceCPU, "5").
+				Request("example.com/gpu", "0").
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wl)
+
+			ginkgo.By("Verifying admission only contains resources with assigned flavors")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				g.Expect(wl.Status.Admission).NotTo(gomega.BeNil())
+				g.Expect(wl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+				psa := wl.Status.Admission.PodSetAssignments[0]
+				g.Expect(psa.Flavors).To(gomega.HaveKey(corev1.ResourceCPU))
+				g.Expect(psa.Flavors).NotTo(gomega.HaveKey(corev1.ResourceName("example.com/gpu")))
+				g.Expect(psa.ResourceUsage).To(gomega.HaveKey(corev1.ResourceCPU))
+				g.Expect(psa.ResourceUsage).NotTo(gomega.HaveKey(corev1.ResourceName("example.com/gpu")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should admit workload when cq switches into cohort with capacity", func() {

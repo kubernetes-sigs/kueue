@@ -48,4 +48,14 @@ const (
 	SafeToForcefullyTerminateAnnotationKey = "kueue.x-k8s.io/safe-to-forcefully-terminate"
 	// SafeToForcefullyTerminateAnnotationValue is the value of that annotation that enables FailureRecoveryPolicy for that pod.
 	SafeToForcefullyTerminateAnnotationValue = "true"
+
+	// JobOwnerGVKAnnotation is the annotation key in the workload that holds the GVK of the owner job.
+	JobOwnerGVKAnnotation = "kueue.x-k8s.io/job-owner-gvk"
+
+	// JobOwnerNameAnnotation is the annotation key in the workload that holds the name of the owner job.
+	JobOwnerNameAnnotation = "kueue.x-k8s.io/job-owner-name"
+
+	// ComponentWorkloadIndexAnnotation stores the numeric index for component workloads
+	// in multi-workload jobs (e.g., LeaderWorkerSet replicas).
+	ComponentWorkloadIndexAnnotation = "kueue.x-k8s.io/component-workload-index"
 )

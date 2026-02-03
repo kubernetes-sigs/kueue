@@ -184,6 +184,11 @@ func (a *Assignment) TotalRequestsFor(wl *workload.Info) resources.FlavorResourc
 		ps = *ps.ScaledTo(newCount)
 
 		for res, q := range ps.Requests {
+			// zero-quantity request may have no flavor (#8079), and is irrelevant for
+			// later calculations
+			if q == 0 {
+				continue
+			}
 			flv := a.PodSets[i].Flavors[res].Name
 			usage[resources.FlavorResource{Flavor: flv, Resource: res}] += q
 		}
@@ -282,13 +287,16 @@ type ResourceAssignment map[corev1.ResourceName]*FlavorAssignment
 
 func (psa *PodSetAssignment) toAPI() kueue.PodSetAssignment {
 	flavors := make(map[corev1.ResourceName]kueue.ResourceFlavorReference, len(psa.Flavors))
+	// Only include resources with assigned flavors (filters out zero-quantity requests for undefined resources).
+	resourceUsage := make(corev1.ResourceList, len(psa.Flavors))
 	for res, flvAssignment := range psa.Flavors {
 		flavors[res] = flvAssignment.Name
+		resourceUsage[res] = psa.Requests[res]
 	}
 	return kueue.PodSetAssignment{
 		Name:                   psa.Name,
 		Flavors:                flavors,
-		ResourceUsage:          psa.Requests,
+		ResourceUsage:          resourceUsage,
 		Count:                  ptr.To(psa.Count),
 		TopologyAssignment:     tas.V1Beta2From(psa.TopologyAssignment),
 		DelayedTopologyRequest: psa.DelayedTopologyRequest,
@@ -603,7 +611,11 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 			}
 		}
 		var groupStatus Status
-		for resName := range requests {
+		for resName, quantity := range requests {
+			// Skip zero-quantity requests for resources not defined in the ClusterQueue (#8079).
+			if quantity == 0 && a.cq.RGByResource(resName) == nil {
+				continue
+			}
 			if _, found := groupFlavors[resName]; found {
 				// This resource got assigned the same flavor as its resource group.
 				// No need to compute again.

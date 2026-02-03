@@ -28,6 +28,10 @@ const (
 	// of multikueue remote objects.
 	MultiKueueOriginLabel = "kueue.x-k8s.io/multikueue-origin"
 
+	// MultiKueueOriginUIDAnnotation stores the UID of the original object from
+	// the management cluster on remote objects.
+	MultiKueueOriginUIDAnnotation = "kueue.x-k8s.io/multikueue-origin-uid"
+
 	// MultiKueueControllerName is the name used by the MultiKueue
 	// admission check controller.
 	MultiKueueControllerName = "kueue.x-k8s.io/multikueue"

@@ -63,7 +63,7 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) and watch the Kueu
 To install the latest release of Kueue in your cluster, run the following command:
 
 ```shell
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.15.3/manifests.yaml
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.16.0/manifests.yaml
 ```
 
 The controller runs in the `kueue-system` namespace.
@@ -91,25 +91,26 @@ Learn more about:
 
 ## Roadmap
 
-High-level overview of the main priorities for 2025:
+High-level overview of the main priorities for 2026:
 - Improve user experience for [MultiKueue](https://kueue.sigs.k8s.io/docs/concepts/multikueue/) - multi-cluster Job dispatching, in particular:
-  * sequential attempts to try worker clusters [#3757](https://github.com/kubernetes-sigs/kueue/issues/3757)
-  * log retrieval from worker clusters [3526](https://github.com/kubernetes-sigs/kueue/issues/3526)
+  * Support Elastic RayJob [#8712](https://github.com/kubernetes-sigs/kueue/issues/8712)
+  * Workload-Level Admission Constraints and Preference-Aware MultiKueue Dispatching [#8729](https://github.com/kubernetes-sigs/kueue/issues/8729)
+  * Prevent starting preemptions in multiple worker clusters [#8303](https://github.com/kubernetes-sigs/kueue/issues/8303)
+  * Support long running services [#8526](https://github.com/kubernetes-sigs/kueue/issues/8526)
+  * Log retrieval from worker clusters [#3526](https://github.com/kubernetes-sigs/kueue/issues/3526)
 - Improve user experience for [Topology Aware Scheduling](https://kueue.sigs.k8s.io/docs/concepts/topology_aware_scheduling/), in particular:
-  * make Topology Aware Scheduling compatible with cohorts and preemption [#3761](https://github.com/kubernetes-sigs/kueue/issues/3761)
-  * optimize the algorithm to minimize fragmentation [#3756](https://github.com/kubernetes-sigs/kueue/issues/3756)
-  * better accuracy of scheduling by tighter integration with kube-scheduler [#3755](https://github.com/kubernetes-sigs/kueue/issues/3755)
-  * reduce friction by defaulting the PodSet annotations [#3754](https://github.com/kubernetes-sigs/kueue/issues/3754)
-- Productization of the Kueue dashboard [#940](https://github.com/kubernetes-sigs/kueue/issues/940)
-- Support Hierarchical Cohorts with FairSharing [#3759](https://github.com/kubernetes-sigs/kueue/issues/3759)
-- Improved support for AI inference, including:
-  * partial preemption of serving workloads [#3762](https://github.com/kubernetes-sigs/kueue/issues/3762)
-  * LeaderWorkerSet support [#3232](https://github.com/kubernetes-sigs/kueue/issues/3232)
-- Progress towards the stable API (v1beta2) [#768](https://github.com/kubernetes-sigs/kueue/issues/768)
+  * Support for ResourceTransformations [#8860](https://github.com/kubernetes-sigs/kueue/issues/8860)
+  * Support for [Elastic Workloads](https://kueue.sigs.k8s.io/docs/concepts/elastic_workload/) [#8160](https://github.com/kubernetes-sigs/kueue/issues/8160)
+  * Evict workloads which are running on nodes which become tainted [#8838](https://github.com/kubernetes-sigs/kueue/issues/8828)
+- Integration with the k8s native Workload-Aware Scheduler (WAS) and Topology-Aware Scheduling [#8871](https://github.com/kubernetes-sigs/kueue/issues/8871)
+- Support for Concurrent Workload Admission [#8691](https://github.com/kubernetes-sigs/kueue/issues/8691)
+- Support for running hero workloads [#8826](https://github.com/kubernetes-sigs/kueue/issues/8826)
+- Consider preemption cost when finding preemption candidates [#7990](https://github.com/kubernetes-sigs/kueue/issues/7990)
+- Progress towards Beta for the integration with Dynamic Resource Allocation (DRA)  [#8243](https://github.com/kubernetes-sigs/kueue/issues/8243)
 
 Long-term aspirational goals:
+- Partial preemption of serving workloads [#3762](https://github.com/kubernetes-sigs/kueue/issues/3762)
 - Integration with workflow frameworks [#74](https://github.com/kubernetes-sigs/kueue/issues/74)
-- Support dynamically-sized Jobs [#77](https://github.com/kubernetes-sigs/kueue/issues/77)
 - Budget support [#28](https://github.com/kubernetes-sigs/kueue/issues/28)
 - Flavor assignment strategies, e.g. _minimizing cost_ vs _minimizing borrowing_ [#312](https://github.com/kubernetes-sigs/kueue/issues/312)
 - Cooperative preemption support for workloads that implement checkpointing [#477](https://github.com/kubernetes-sigs/kueue/issues/477)

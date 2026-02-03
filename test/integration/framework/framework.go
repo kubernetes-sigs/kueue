@@ -49,6 +49,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
+	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -163,6 +164,9 @@ func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.WithW
 	err = inventoryv1alpha1.AddToScheme(f.scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
+	err = leaderworkersetv1.AddToScheme(f.scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
 	k8sClient, err := client.NewWithWatch(cfg, client.Options{Scheme: f.scheme})
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 	gomega.ExpectWithOffset(1, k8sClient).NotTo(gomega.BeNil())
@@ -212,16 +216,14 @@ func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerS
 			gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "failed to run manager")
 		}()
 
-		if len(f.WebhookPath) > 0 {
-			// wait for the webhook server to get ready
-			dialer := &net.Dialer{Timeout: time.Second}
-			addrPort := fmt.Sprintf("%s:%d", webhookInstallOptions.LocalServingHost, webhookInstallOptions.LocalServingPort)
-			gomega.Eventually(func(g gomega.Gomega) {
-				conn, err := tls.DialWithDialer(dialer, "tcp", addrPort, &tls.Config{InsecureSkipVerify: true})
-				g.Expect(err).NotTo(gomega.HaveOccurred())
-				conn.Close()
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		}
+		// wait for the webhook server to get ready
+		dialer := &net.Dialer{Timeout: time.Second}
+		addrPort := fmt.Sprintf("%s:%d", webhookInstallOptions.LocalServingHost, webhookInstallOptions.LocalServingPort)
+		gomega.Eventually(func(g gomega.Gomega) {
+			conn, err := tls.DialWithDialer(dialer, "tcp", addrPort, &tls.Config{InsecureSkipVerify: true})
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+			conn.Close()
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 }
 

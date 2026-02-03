@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os/exec"
 	"regexp"
+	"strconv"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
@@ -47,6 +48,7 @@ import (
 	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
+	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueueconfig "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -55,6 +57,7 @@ import (
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	workloadpytorchjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/pytorchjob"
+	workloadleaderworkerset "sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset"
 	workloadmpijob "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 	workloadpod "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
@@ -71,6 +74,7 @@ import (
 	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
+	testingleaderworkerset "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	testingpytorchjob "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
@@ -144,7 +148,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			ResourceGroup(
 				*utiltestingapi.MakeFlavorQuotas(managerFlavor.Name).
 					Resource(corev1.ResourceCPU, "2").
-					Resource(corev1.ResourceMemory, "2G").
+					Resource(corev1.ResourceMemory, "4G").
 					Obj(),
 			).
 			AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAc.Name)).
@@ -192,7 +196,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			ResourceGroup(
 				*utiltestingapi.MakeFlavorQuotas(worker2Flavor.Name).
 					Resource(corev1.ResourceCPU, "1").
-					Resource(corev1.ResourceMemory, "2G").
+					Resource(corev1.ResourceMemory, "4G").
 					Obj(),
 			).
 			Obj()
@@ -464,6 +468,167 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					workerSts := &appsv1.StatefulSet{}
 					err := k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(statefulset), workerSts)
 					g.Expect(err).To(gomega.HaveOccurred())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("Should sync a LeaderWorkerSet and run replicas on worker cluster", func() {
+			lws := testingleaderworkerset.MakeLeaderWorkerSet("leaderworkerset", managerNs.Name).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Replicas(2).
+				Size(2).
+				Request(corev1.ResourceCPU, "100m").
+				Request(corev1.ResourceMemory, "1G").
+				Queue(managerLq.Name).
+				TerminationGracePeriod(1).
+				Obj()
+
+			ginkgo.By("Creating the leaderworkerset", func() {
+				util.MustCreate(ctx, k8sManagerClient, lws)
+			})
+
+			createdLWS := &leaderworkersetv1.LeaderWorkerSet{}
+			gomega.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLWS)).To(gomega.Succeed())
+
+			wlLookupKey0 := types.NamespacedName{
+				Name:      workloadleaderworkerset.GetWorkloadName(createdLWS.UID, createdLWS.Name, "0"),
+				Namespace: managerNs.Name,
+			}
+			wlLookupKey1 := types.NamespacedName{
+				Name:      workloadleaderworkerset.GetWorkloadName(createdLWS.UID, createdLWS.Name, "1"),
+				Namespace: managerNs.Name,
+			}
+
+			ginkgo.By("Verifying both workloads are admitted on worker2", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					wl0 := &kueue.Workload{}
+					g.Expect(k8sWorker2Client.Get(ctx, wlLookupKey0, wl0)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(wl0)).To(gomega.BeTrue())
+					wl1 := &kueue.Workload{}
+					g.Expect(k8sWorker2Client.Get(ctx, wlLookupKey1, wl1)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(wl1)).To(gomega.BeTrue())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for LWS to be synced to worker cluster", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					workerLWS := &leaderworkersetv1.LeaderWorkerSet{}
+					g.Expect(k8sWorker2Client.Get(ctx, client.ObjectKeyFromObject(lws), workerLWS)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for all replicas to be ready on worker cluster", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					workerLWS := &leaderworkersetv1.LeaderWorkerSet{}
+					g.Expect(k8sWorker2Client.Get(ctx, client.ObjectKeyFromObject(lws), workerLWS)).To(gomega.Succeed())
+					g.Expect(workerLWS.Status.ReadyReplicas).To(gomega.Equal(int32(2)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verifying pods on management cluster remain gated", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					pods := &corev1.PodList{}
+					g.Expect(k8sManagerClient.List(ctx, pods, client.InNamespace(managerNs.Name), client.MatchingLabels{
+						leaderworkersetv1.SetNameLabelKey: lws.Name,
+					})).To(gomega.Succeed())
+					g.Expect(pods.Items).ToNot(gomega.BeEmpty())
+					for _, pod := range pods.Items {
+						g.Expect(utilpod.HasGate(&pod, podconstants.SchedulingGateName)).To(gomega.BeTrue())
+					}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Deleting the leaderworkerset", func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, lws, true)
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker2Client, lws, false, util.LongTimeout)
+			})
+
+			ginkgo.By("Checking that all workloads are deleted from manager and worker clusters", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey0, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey1, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+					g.Expect(k8sWorker2Client.Get(ctx, wlLookupKey0, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+					g.Expect(k8sWorker2Client.Get(ctx, wlLookupKey1, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("Should dispatch all LeaderWorkerSet workloads to the same worker", func() {
+			const lwsReplicas = 3
+			lws := testingleaderworkerset.MakeLeaderWorkerSet("leaderworkerset", managerNs.Name).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Replicas(lwsReplicas).
+				Size(2).
+				Request(corev1.ResourceCPU, "100m").
+				Request(corev1.ResourceMemory, "600M").
+				Queue(managerLq.Name).
+				TerminationGracePeriod(1).
+				Obj()
+
+			ginkgo.By("Creating the leaderworkerset", func() {
+				util.MustCreate(ctx, k8sManagerClient, lws)
+			})
+
+			createdLWS := &leaderworkersetv1.LeaderWorkerSet{}
+			gomega.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLWS)).To(gomega.Succeed())
+
+			wlKeys := make([]types.NamespacedName, lwsReplicas)
+			for i := range lwsReplicas {
+				wlKeys[i] = types.NamespacedName{
+					Name:      workloadleaderworkerset.GetWorkloadName(createdLWS.UID, createdLWS.Name, strconv.Itoa(i)),
+					Namespace: managerNs.Name,
+				}
+			}
+
+			ginkgo.By("Waiting for workloads to be created on manager cluster", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					for _, key := range wlKeys {
+						wl := &kueue.Workload{}
+						g.Expect(k8sManagerClient.Get(ctx, key, wl)).To(gomega.Succeed())
+					}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verifying primary workload is admitted on worker2", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					wl := &kueue.Workload{}
+					g.Expect(k8sWorker2Client.Get(ctx, wlKeys[0], wl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verifying LWS is synced to worker cluster", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					workerLWS := &leaderworkersetv1.LeaderWorkerSet{}
+					g.Expect(k8sWorker2Client.Get(ctx, client.ObjectKeyFromObject(lws), workerLWS)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verifying follower workloads are dispatched to the same worker cluster", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					primaryWl := &kueue.Workload{}
+					g.Expect(k8sManagerClient.Get(ctx, wlKeys[0], primaryWl)).To(gomega.Succeed())
+					g.Expect(primaryWl.Status.ClusterName).ToNot(gomega.BeNil())
+					for _, key := range wlKeys[1:] {
+						wl := &kueue.Workload{}
+						g.Expect(k8sManagerClient.Get(ctx, key, wl)).To(gomega.Succeed())
+						g.Expect(wl.Status.ClusterName).ToNot(gomega.BeNil())
+						g.Expect(*wl.Status.ClusterName).To(gomega.Equal(*primaryWl.Status.ClusterName))
+					}
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Deleting the leaderworkerset", func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, lws, true)
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker2Client, lws, false, util.LongTimeout)
+			})
+
+			ginkgo.By("Checking that all workloads are deleted from manager and worker clusters", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					for _, key := range wlKeys {
+						g.Expect(k8sManagerClient.Get(ctx, key, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+						g.Expect(k8sWorker2Client.Get(ctx, key, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -1607,6 +1772,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		var (
 			workerCluster3         *kueue.MultiKueueCluster
 			defaultManagerKueueCfg *kueueconfig.Configuration
+			cp                     *inventoryv1alpha1.ClusterProfile
 		)
 
 		ginkgo.BeforeAll(func() {
@@ -1630,9 +1796,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		})
 
 		ginkgo.AfterEach(func() {
-			if workerCluster3 != nil {
-				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, workerCluster3, true, util.LongTimeout)
-			}
+			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, cp, true, util.LongTimeout)
+			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, workerCluster3, true, util.LongTimeout)
 		})
 
 		ginkgo.It("uses ClusterProfile as way to connect worker cluster", func() {
@@ -1662,7 +1827,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			var cp *inventoryv1alpha1.ClusterProfile
 			ginkgo.By("creating missing ClusterProfile", func() {
 				cp = utiltestingapi.MakeClusterProfile("clusterprofile3", kueueNS).
 					ClusterManager("clustermanager3").

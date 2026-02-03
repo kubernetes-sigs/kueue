@@ -90,7 +90,7 @@ LD_FLAGS += -X '$(version_pkg).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.15.3
+RELEASE_VERSION=v0.16.0
 RELEASE_BRANCH=main
 # Application version for Helm and npm (strips leading 'v' from RELEASE_VERSION)
 APP_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)
@@ -121,6 +121,8 @@ include Makefile-test.mk
 
 include Makefile-kueue-populator.mk
 
+# Repo-wide verification is defined in a separate fragment so it can be read/maintained
+# independently of build/test logic. See `Makefile-verify.mk` for what `make verify` runs.
 include Makefile-verify.mk
 
 ##@ Development
@@ -134,19 +136,18 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 		rbac:roleName=manager-role output:rbac:artifacts:config=config/components/rbac\
 		webhook output:webhook:artifacts:config=config/components/webhook\
 		paths="./pkg/controller/...;./pkg/webhooks/...;./pkg/util/cert/...;./pkg/visibility/..."
-	$(MAKE) compile-crd-manifests
 
 .PHONY: compile-crd-manifests
-compile-crd-manifests: kustomize
+compile-crd-manifests: manifests kustomize
 	@mkdir -p config/components/crd/_output
 	$(KUSTOMIZE) build config/components/crd > config/components/crd/_output/crds-with-webhooks.yaml
 
 .PHONY: update-helm
-update-helm: manifests yq yaml-processor
-	$(BIN_DIR)/yaml-processor -zap-log-level=$(YAML_PROCESSOR_LOG_LEVEL) hack/processing-plan.yaml
+update-helm: compile-crd-manifests yq yaml-processor
+	$(YAML_PROCESSOR) -zap-log-level=$(YAML_PROCESSOR_LOG_LEVEL) hack/processing-plan.yaml
 
 .PHONY: generate
-generate: gomod-download generate-mocks generate-apiref generate-code generate-kueuectl-docs generate-helm-docs generate-metrics-tables generate-featuregates
+generate: generate-mocks generate-apiref generate-code generate-kueuectl-docs generate-helm-docs generate-metrics-tables generate-featuregates
 
 .PHONY: generate-code
 generate-code: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations and client-go libraries.
@@ -173,7 +174,7 @@ toc-update: mdtoc
 
 .PHONY: helm-lint
 helm-lint: helm ## Run Helm chart lint test.
-	${HELM} lint charts/kueue
+	$(HELM) lint charts/kueue
 
 .PHONY: vet
 vet: ## Run go vet against code.
@@ -190,7 +191,7 @@ build:
 	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o bin/manager cmd/kueue/main.go
 
 .PHONY: run
-run: manifests generate fmt vet ## Run a controller from your host.
+run: compile-crd-manifests generate fmt vet ## Run a controller from your host.
 	$(GO_CMD) run cmd/kueue/main.go
 
 # Build the multiplatform container image locally.
@@ -241,15 +242,17 @@ kind-image-build: PLATFORMS=$(HOST_IMAGE_PLATFORM)
 kind-image-build: PUSH=--load
 kind-image-build: kind image-build
 
+YAML_PROCESSOR = $(BIN_DIR)/yaml-processor
 .PHONY: yaml-processor
 yaml-processor:
 	cd $(TOOLS_DIR)/yaml-processor && \
-	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(BIN_DIR)/yaml-processor
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(YAML_PROCESSOR)
 
+METRICSDOC = $(BIN_DIR)/metricsdoc
 .PHONY: metricsdoc
 metricsdoc:
 	cd $(TOOLS_DIR)/metricsdoc && \
-	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(BIN_DIR)/metricsdoc
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(METRICSDOC)
 
 ##@ Deployment
 
@@ -267,15 +270,15 @@ clean-manifests = \
     	$(KUSTOMIZE) edit set image controller=$(STAGING_IMAGE_REGISTRY)/kueue-populator:$(RELEASE_BRANCH))
 
 .PHONY: install
-install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
+install: compile-crd-manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
 	$(KUSTOMIZE) build config/components/crd | kubectl apply --server-side -f -
 
 .PHONY: uninstall
-uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
+uninstall: compile-crd-manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	$(KUSTOMIZE) build config/components/crd | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
 
 .PHONY: deploy
-deploy: manifests kustomize prepare-manifests ## Deploy controller to the K8s cluster specified in ~/.kube/config.
+deploy: compile-crd-manifests kustomize prepare-manifests ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	kubectl apply --server-side -k config/default
 	@$(call clean-manifests)
 
@@ -331,7 +334,6 @@ prepare-release-branch: yq kustomize ## Prepare the release branch with the rele
 	$(YQ) e '.appVersion = "$(RELEASE_VERSION)" | .version = "$(APP_VERSION)" | .dependencies[0].version = "~$(APP_VERSION)"' -i cmd/experimental/kueue-populator/charts/kueue-populator/Chart.yaml
 	$(YQ) e '.kueuePopulator.image.tag = "$(RELEASE_BRANCH)"' -i cmd/experimental/kueue-populator/charts/kueue-populator/values.yaml
 	$(SED) -r 's/[0-9]+\.[0-9]+\.[0-9]+/$(APP_VERSION)/g' -i cmd/experimental/kueue-populator/README.md -i cmd/experimental/kueue-populator/charts/kueue-populator/README.md
-	$(MAKE) generate-helm-docs
 
 .PHONY: update-security-insights
 update-security-insights: yq
@@ -455,17 +457,17 @@ generate-featuregates: ## Regenerate feature-gate YAML and site data.
 .PHONY: generate-kueuectl-docs
 generate-kueuectl-docs: kueuectl-docs
 	rm -Rf $(PROJECT_DIR)/site/content/en/docs/reference/kubectl-kueue/commands/kueuectl*
-	$(BIN_DIR)/kueuectl-docs \
+	$(KUEUECTL_DOCS) \
 		$(PROJECT_DIR)/cmd/kueuectl-docs/templates \
 		$(PROJECT_DIR)/site/content/en/docs/reference/kubectl-kueue/commands
 
 .PHONY: generate-helm-docs
-generate-helm-docs: helm-docs
+generate-helm-docs: prepare-release-branch helm-docs
 	$(HELM_DOCS) -c $(PROJECT_DIR)/charts/kueue
 
 .PHONY: generate-metrics-tables
 generate-metrics-tables: metricsdoc
-	$(BIN_DIR)/metricsdoc --metrics-package=pkg/metrics --out=site/content/en/docs/reference/metrics.md
+	$(METRICSDOC) --metrics-package=pkg/metrics --out=site/content/en/docs/reference/metrics.md
 
 # Build the ray-project-mini image
 .PHONY: ray-project-mini-image-build

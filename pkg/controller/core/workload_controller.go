@@ -120,7 +120,6 @@ func WithAdmissionFairSharing(value *config.AdmissionFairSharing) Option {
 func WithWorkloadRoleTracker(value *roletracker.RoleTracker) Option {
 	return func(r *WorkloadReconciler) {
 		r.roleTracker = value
-		r.log = roletracker.WithReplicaRole(r.log, value)
 	}
 }
 
@@ -130,7 +129,7 @@ type WorkloadUpdateWatcher interface {
 
 // WorkloadReconciler reconciles a Workload object
 type WorkloadReconciler struct {
-	log                 logr.Logger
+	logName             string
 	queues              *qcache.Manager
 	cache               *schdcache.Cache
 	client              client.Client
@@ -149,7 +148,7 @@ var _ predicate.TypedPredicate[*kueue.Workload] = (*WorkloadReconciler)(nil)
 
 func NewWorkloadReconciler(client client.Client, queues *qcache.Manager, cache *schdcache.Cache, recorder record.EventRecorder, options ...Option) *WorkloadReconciler {
 	r := &WorkloadReconciler{
-		log:                 ctrl.Log.WithName("workload-reconciler"),
+		logName:             "workload-reconciler",
 		client:              client,
 		queues:              queues,
 		cache:               cache,
@@ -163,6 +162,10 @@ func NewWorkloadReconciler(client client.Client, queues *qcache.Manager, cache *
 	return r
 }
 
+func (r *WorkloadReconciler) logger() logr.Logger {
+	return roletracker.WithReplicaRole(ctrl.Log.WithName(r.logName), r.roleTracker)
+}
+
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
 // +kubebuilder:rbac:groups="",resources=limitranges,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
@@ -173,14 +176,17 @@ func NewWorkloadReconciler(client client.Client, queues *qcache.Manager, cache *
 // +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceclaimtemplates,verbs=get;list;watch
 
 func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	var wl kueue.Workload
-	if err := r.client.Get(ctx, req.NamespacedName, &wl); err != nil {
-		// we'll ignore not-found errors, since there is nothing to do.
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
-
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Workload")
+
+	var wl kueue.Workload
+	if err := r.client.Get(ctx, req.NamespacedName, &wl); apierrors.IsNotFound(err) {
+		r.deleteWorkloadFromCaches(ctx, req.Namespace, req.Name)
+		return ctrl.Result{}, nil
+	} else if err != nil {
+		log.Error(err, "Failed to fetch workload")
+		return ctrl.Result{}, err
+	}
 
 	if len(wl.OwnerReferences) == 0 && !wl.DeletionTimestamp.IsZero() {
 		// manual deletion triggered by the user
@@ -550,6 +556,36 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	return ctrl.Result{}, nil
 }
 
+func (r *WorkloadReconciler) deleteWorkloadFromCaches(ctx context.Context, namespace, name string) {
+	log := ctrl.LoggerFrom(ctx)
+	wlRef := workload.NewReference(namespace, name)
+	log.V(3).Info("Workload deleted; removing from cache")
+
+	// Retrieve the cached workload info before purging the data from the caches.
+	// Ensure watchers are notified after the updates are performed.
+	wlInQueuesCache := r.queues.GetWorkloadFromCache(wlRef)
+	defer r.notifyWatchers(wlInQueuesCache, nil)
+
+	// If workload cached by scheduler points to a different queue:
+	// notify watchers to ensure all identified queues remain up-to-date.
+	if wlInSchedulerCache := r.cache.GetWorkloadFromCache(wlRef); workload.GetLocalQueue(wlInSchedulerCache) != workload.GetLocalQueue(wlInQueuesCache) {
+		defer r.notifyWatchers(wlInSchedulerCache, nil)
+	}
+
+	// Delete from cache unconditionally. Pending workloads may have been "assumed"
+	// by the scheduler, and leaving them blocks ClusterQueue finalizer removal.
+	// The operation is idempotent if the workload was never in the cache.
+	r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlRef, func() {
+		if err := r.cache.DeleteWorkload(log, wlRef); err != nil {
+			log.Error(err, "Failed to delete workload from cache")
+		}
+	})
+
+	// Clear the workload form the queues.
+	// No operations will be performed if the wl has already been purged.
+	r.queues.DeleteAndForgetWorkload(log, wlRef)
+}
+
 // isDisabledRequeuedByClusterQueueStopped returns true if the workload is unset requeued by cluster queue stopped.
 func isDisabledRequeuedByClusterQueueStopped(w *kueue.Workload) bool {
 	return isDisabledRequeuedByReason(w, kueue.WorkloadEvictedByClusterQueueStopped)
@@ -804,10 +840,11 @@ func (r *WorkloadReconciler) triggerDeactivation(ctx context.Context, wl *kueue.
 func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) bool {
 	defer r.notifyWatchers(nil, e.Object)
 	status := workload.Status(e.Object)
-	log := r.log.WithValues("workload", klog.KObj(e.Object), "queue", e.Object.Spec.QueueName, "status", status)
+	log := r.logger().WithValues("workload", klog.KObj(e.Object), "queue", e.Object.Spec.QueueName, "status", status)
 	log.V(2).Info("Workload create event")
 
 	if status == workload.StatusFinished {
+		r.queues.AddFinishedWorkload(e.Object)
 		return true
 	}
 
@@ -836,29 +873,11 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 }
 
 func (r *WorkloadReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) bool {
-	defer r.notifyWatchers(e.Object, nil)
 	status := "unknown"
 	if !e.DeleteStateUnknown {
 		status = workload.Status(e.Object)
 	}
-	log := r.log.WithValues("workload", klog.KObj(e.Object), "queue", e.Object.Spec.QueueName, "status", status)
-	log.V(2).Info("Workload delete event")
-	ctx := ctrl.LoggerInto(context.Background(), log)
-	wlKey := workload.Key(e.Object)
-
-	// Delete from cache unconditionally. Pending workloads may have been "assumed"
-	// by the scheduler, and leaving them blocks ClusterQueue finalizer removal.
-	// The operation is idempotent if the workload was never in the cache.
-	r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() {
-		if err := r.cache.DeleteWorkload(log, wlKey); err != nil {
-			log.Error(err, "Failed to delete workload from cache")
-		}
-	})
-
-	// Even if the state is unknown, the last cached state tells us whether the
-	// workload was in the queues and should be cleared from them.
-	r.queues.DeleteAndForgetWorkload(log, wlKey)
-
+	r.logger().V(2).Info("Workload delete event", "workload", klog.KObj(e.Object), "queue", e.Object.Spec.QueueName, "status", status)
 	return true
 }
 
@@ -866,7 +885,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	defer r.notifyWatchers(e.ObjectOld, e.ObjectNew)
 
 	status := workload.Status(e.ObjectNew)
-	log := r.log.WithValues("workload", klog.KObj(e.ObjectNew), "queue", e.ObjectNew.Spec.QueueName, "status", status)
+	log := r.logger().WithValues("workload", klog.KObj(e.ObjectNew), "queue", e.ObjectNew.Spec.QueueName, "status", status)
 	ctx := ctrl.LoggerInto(context.Background(), log)
 	active := workload.IsActive(e.ObjectNew)
 
@@ -898,6 +917,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		}
 		// The workload could have been in the queues if we missed an event.
 		r.queues.DeleteWorkload(log, wlKey)
+		r.queues.AddFinishedWorkload(wlCopy)
 
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() {
@@ -980,7 +1000,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 }
 
 func (r *WorkloadReconciler) Generic(e event.TypedGenericEvent[*kueue.Workload]) bool {
-	r.log.V(3).Info("Ignore Workload generic event", "workload", klog.KObj(e.Object))
+	r.logger().V(3).Info("Ignore Workload generic event", "workload", klog.KObj(e.Object))
 	return false
 }
 
@@ -1013,6 +1033,9 @@ func (r *WorkloadReconciler) updateAfsConsumedUsage(log logr.Logger, wl *kueue.W
 }
 
 func (r *WorkloadReconciler) notifyWatchers(oldWl, newWl *kueue.Workload) {
+	if oldWl == nil && newWl == nil {
+		return
+	}
 	for _, w := range r.watchers {
 		w.NotifyWorkloadUpdate(oldWl, newWl)
 	}

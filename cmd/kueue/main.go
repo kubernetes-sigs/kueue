@@ -76,6 +76,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/cert"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	"sigs.k8s.io/kueue/pkg/util/tlsconfig"
 	"sigs.k8s.io/kueue/pkg/util/useragent"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/version"
@@ -169,6 +170,24 @@ func main() {
 		SecureServing:  true,
 		FilterProvider: filters.WithAuthenticationAndAuthorization,
 	}
+
+	parsedTLSConfig := &tlsconfig.TLS{}
+	if features.Enabled(features.TLSOptions) {
+		var err error
+		parsedTLSConfig, err = tlsconfig.ParseTLSOptions(cfg.TLS)
+		if err != nil {
+			setupLog.Error(err, "Unable to parse TLS options from configuration")
+			os.Exit(1)
+		}
+	}
+
+	// Apply TLS configuration from config
+	if parsedTLSConfig != nil {
+		tlsOpts := tlsconfig.BuildTLSOptions(parsedTLSConfig)
+		metricsServerOptions.TLSOpts = append(metricsServerOptions.TLSOpts, tlsOpts...)
+	}
+
+	config.AddWebhookSettingsTo(&options, &cfg)
 
 	if cfg.InternalCertManagement == nil || !*cfg.InternalCertManagement.Enable {
 		metricsCertPath := "/etc/kueue/metrics/certs"
@@ -307,7 +326,7 @@ func main() {
 
 	if features.Enabled(features.VisibilityOnDemand) {
 		go func() {
-			if err := visibility.CreateAndStartVisibilityServer(ctx, queues, *cfg.InternalCertManagement.Enable, kubeConfig); err != nil {
+			if err := visibility.CreateAndStartVisibilityServer(ctx, queues, *cfg.InternalCertManagement.Enable, kubeConfig, parsedTLSConfig); err != nil {
 				setupLog.Error(err, "Unable to create and start visibility server")
 				os.Exit(1)
 			}

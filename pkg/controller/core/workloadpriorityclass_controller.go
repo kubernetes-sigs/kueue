@@ -42,7 +42,7 @@ import (
 
 // WorkloadPriorityClassReconciler reconciles a WorkloadPriorityClass object
 type WorkloadPriorityClassReconciler struct {
-	log         logr.Logger
+	logName     string
 	client      client.Client
 	roleTracker *roletracker.RoleTracker
 }
@@ -55,10 +55,14 @@ func NewWorkloadPriorityClassReconciler(
 	roleTracker *roletracker.RoleTracker,
 ) *WorkloadPriorityClassReconciler {
 	return &WorkloadPriorityClassReconciler{
-		log:         roletracker.WithReplicaRole(ctrl.Log.WithName("workloadpriorityclass-reconciler"), roleTracker),
+		logName:     "workloadpriorityclass-reconciler",
 		client:      client,
 		roleTracker: roleTracker,
 	}
+}
+
+func (r *WorkloadPriorityClassReconciler) logger() logr.Logger {
+	return roletracker.WithReplicaRole(ctrl.Log.WithName(r.logName), r.roleTracker)
 }
 
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
@@ -115,7 +119,7 @@ func (r *WorkloadPriorityClassReconciler) Reconcile(ctx context.Context, req ctr
 }
 
 func (r *WorkloadPriorityClassReconciler) Create(e event.TypedCreateEvent[*kueue.WorkloadPriorityClass]) bool {
-	log := r.log.WithValues("workloadPriorityClass", klog.KObj(e.Object))
+	log := r.logger().WithValues("workloadPriorityClass", klog.KObj(e.Object))
 	log.V(2).Info("WorkloadPriorityClass create event")
 
 	// Covering the case when the WorkloadPriorityClass was re-created with a different priority,
@@ -128,7 +132,7 @@ func (r *WorkloadPriorityClassReconciler) Delete(e event.TypedDeleteEvent[*kueue
 }
 
 func (r *WorkloadPriorityClassReconciler) Update(e event.TypedUpdateEvent[*kueue.WorkloadPriorityClass]) bool {
-	log := r.log.WithValues("workloadPriorityClass", klog.KObj(e.ObjectNew))
+	log := r.logger().WithValues("workloadPriorityClass", klog.KObj(e.ObjectNew))
 	log.V(2).Info("WorkloadPriorityClass update event")
 
 	// Only reconcile if the priority value changed

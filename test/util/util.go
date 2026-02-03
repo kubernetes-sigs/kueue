@@ -66,6 +66,7 @@ import (
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
@@ -770,6 +771,26 @@ func ExpectLQFinishedWorkloadsTotalMetric(lq *kueue.LocalQueue, priorityClass st
 	expectCounterMetric(metric, value)
 }
 
+func ExpectFinishedWorkloadsGaugeMetric(cq *kueue.ClusterQueue, count int) {
+	ginkgo.GinkgoHelper()
+	metric := metrics.FinishedWorkloads.WithLabelValues(cq.Name, roletracker.RoleStandalone)
+	gomega.Eventually(func(g gomega.Gomega) {
+		v, err := testutil.GetGaugeMetricValue(metric)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(int(v)).Should(gomega.Equal(count))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func ExpectLQFinishedWorkloadsGaugeMetric(lq *kueue.LocalQueue, count int) {
+	ginkgo.GinkgoHelper()
+	metric := metrics.LocalQueueFinishedWorkloads.WithLabelValues(lq.Name, lq.Namespace, roletracker.RoleStandalone)
+	gomega.Eventually(func(g gomega.Gomega) {
+		v, err := testutil.GetGaugeMetricValue(metric)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(int(v)).Should(gomega.Equal(count))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
 func expectCounterMetric(metric prometheus.Counter, count int) {
 	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
 		v, err := testutil.GetCounterMetricValue(metric)
@@ -1438,6 +1459,13 @@ func UpdateReclaimablePods(ctx context.Context, c client.Client, wl *kueue.Workl
 		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(wl), createdWl)).To(gomega.Succeed())
 		g.Expect(workload.UpdateReclaimablePods(ctx, c, createdWl, reclaimablePods)).To(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func WorkloadKeyForLeaderWorkerSet(lws *leaderworkersetv1.LeaderWorkerSet, group string) client.ObjectKey {
+	return types.NamespacedName{
+		Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, group),
+		Namespace: lws.Namespace,
+	}
 }
 
 func workloadKeys(wls []*kueue.Workload) []client.ObjectKey {

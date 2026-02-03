@@ -840,7 +840,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
 			util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq2, "", 2)
-			util.ExpectClusterQueueWeightedShareMetric(cq1, 0.0)
+			util.ExpectClusterQueueWeightedShareMetric(cq1, 1000)
 			util.ExpectClusterQueueWeightedShareMetric(cq2, 0.0)
 		})
 
@@ -878,7 +878,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 
 			ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
 			util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 1)
-			util.ExpectClusterQueueWeightedShareMetric(cq1, 0.0)
+			util.ExpectClusterQueueWeightedShareMetric(cq1, 1000)
 			util.ExpectClusterQueueWeightedShareMetric(cq2, 0.0)
 		})
 

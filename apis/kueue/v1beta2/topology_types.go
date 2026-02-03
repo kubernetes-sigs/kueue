@@ -70,14 +70,6 @@ const (
 	// annotation is set when starting the Job, and removed on stopping the Job.
 	WorkloadAnnotation = "kueue.x-k8s.io/workload"
 
-	// TASLabel is a label set on the Job's PodTemplate to indicate that the
-	// PodSet is admitted using TopologyAwareScheduling, and all Pods created
-	// from the Job's PodTemplate also have the label. For the Pod-based
-	// integrations the label is added in webhook during the Pod creation.
-	// Depracted. This label is no longer added by TAS to Pod. The constant is
-	// only kept to support "reading" the label until 0.16.
-	TASLabel = "kueue.x-k8s.io/tas"
-
 	// PodIndexOffsetAnnotation is an annotation on the Pod's metadata
 	// belonging to a Workload. It indicates an offset which represents starting index number
 	// within the same replica.
@@ -95,6 +87,12 @@ const (
 	// PodSetGroupName is an annotation indicating the name of the group of PodSets. PodSet Group
 	// is a unit flavor assignment and topology domain fitting.
 	PodSetGroupName = "kueue.x-k8s.io/podset-group-name"
+
+	// WorkloadSliceNameAnnotation identifies the original workload name in a slice chain.
+	// It is set on every Workload created in the chain of the workloads, as well as on the Pods
+	// associated with that Workload.
+	// This annotation is alpha-level for the ElasticJobsViaWorkloadSlices feature gate.
+	WorkloadSliceNameAnnotation = "kueue.x-k8s.io/workload-slice-name"
 )
 
 // TopologySpec defines the desired state of Topology
