@@ -73,11 +73,6 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 							gomega.Equal("user-queue"),
 							"Queue name should be injected to pod template labels",
 						)
-					g.Expect(createdStatefulSet.Spec.Template.Labels[podconstants.GroupNameLabel]).
-						To(
-							gomega.Equal(jobframework.GetWorkloadNameForOwnerWithGVK(createdStatefulSet.Name, "", appsv1.SchemeGroupVersion.WithKind("StatefulSet"))),
-							"Pod group name should be injected to pod template labels",
-						)
 					g.Expect(createdStatefulSet.Spec.Template.Annotations[podconstants.GroupTotalCountAnnotation]).
 						To(
 							gomega.Equal("1"),

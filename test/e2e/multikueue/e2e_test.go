@@ -435,7 +435,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 
 			wlLookupKey := types.NamespacedName{
-				Name:      workloadstatefulset.GetWorkloadName(statefulset.Name),
+				Name:      workloadstatefulset.GetWorkloadName(statefulset.UID, statefulset.Name),
 				Namespace: managerNs.Name,
 			}
 
@@ -453,7 +453,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					pods := &corev1.PodList{}
 					g.Expect(k8sManagerClient.List(ctx, pods, client.InNamespace(managerNs.Name), client.MatchingLabels{
-						podconstants.GroupNameLabel: workloadstatefulset.GetWorkloadName(statefulset.Name),
+						podconstants.GroupNameLabel: workloadstatefulset.GetWorkloadName(statefulset.UID, statefulset.Name),
 					})).To(gomega.Succeed())
 					g.Expect(pods.Items).ToNot(gomega.BeEmpty())
 					for _, pod := range pods.Items {
