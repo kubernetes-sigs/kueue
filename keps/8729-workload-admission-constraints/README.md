@@ -3,8 +3,8 @@
 <!-- toc -->
 - [Summary](#summary)
 - [Motivation](#motivation)
-  - [Goals](#goals)
-  - [Non-Goals](#non-goals)
+- [Goals](#goals)
+- [Non-Goals](#non-goals)
 - [Proposal](#proposal)
   - [User Stories](#user-stories)
     - [Story 1](#story-1)
@@ -12,17 +12,25 @@
     - [Story 3](#story-3)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
+  - [Feature Gate](#feature-gate)
   - [API](#api)
+  - [Workload Field-Based API (Future Evolution)](#workload-field-based-api-future-evolution)
   - [Semantics](#semantics)
   - [Admission Flow Changes](#admission-flow-changes)
   - [Interaction with Existing Features](#interaction-with-existing-features)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
-    - [Integration tests](#integration-tests)
+    - [Integration Tests](#integration-tests)
   - [Graduation Criteria](#graduation-criteria)
+    - [Alpha](#alpha)
+    - [Beta](#beta)
+    - [GA](#ga)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
+  - [Extending WorkloadPriorityClass](#extending-workloadpriorityclass)
+  - [ClusterQueue-only Configuration](#clusterqueue-only-configuration)
+  - [Annotations vs. Labels](#annotations-vs-labels)
 <!-- /toc -->
 
 ## Summary
@@ -116,8 +124,14 @@ Admission-time constraints are introduced behind a feature gate, tentatively nam
 
 Introduce workload-level admission constraints expressed via annotations:
 
-* `kueue.x-k8s.io/cannot-preempt`
-* `kueue.x-k8s.io/cannot-borrow`
+* `kueue.x-k8s.io/admission-constraint-preempt`, with possible values:
+  * `Always` (default): admission follows default preemption behavior.
+  * `Never`: admission must not rely on preempting other workloads.
+  * `1h`: admission must not rely on preempting other workloads for at least the specified duration.
+* `kueue.x-k8s.io/admission-constraint-borrow`, with possibe values:
+  * `Always` (default): admission follows default borrowing qouta behavior.
+  * `Never`: admission must not rely on borrowing quota.
+  * `24h`: admission must not rely on borrowing quota for at least the specified duration.
 
 When set to `"true"`, these annotations restrict the mechanisms Kueue may use during admission:
 
