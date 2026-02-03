@@ -3447,6 +3447,42 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					))
 				})
 			})
+
+			ginkgo.It("should not admit workload when PodSet gets more than one TAS flavor (TAS request build fails)", func() {
+				// A single PodSet that requests both CPU and GPU will get CPU from tas-cpu-flavor
+				// and GPU from tas-gpu-flavor. TAS requires a single flavor per PodSet, so building
+				// the TAS request fails (onlyFlavor). Admission must fail so the workload never
+				// gets TopologyAssignment and TopologyUngater never injects topology selectors.
+				var wl *kueue.Workload
+				ginkgo.By("creating a workload with one PodSet requesting both CPU and GPU and TAS", func() {
+					wl = utiltestingapi.MakeWorkload("tas-multi-flavor-pending", ns.Name).
+						Queue(kueue.LocalQueueName(localQueue.Name)).
+						PodSets(*utiltestingapi.MakePodSet("main", 1).
+							Request(corev1.ResourceCPU, "2").
+							Request(gpuResName, "2").
+							RequiredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
+							Obj(),
+						).Obj()
+					util.MustCreate(ctx, k8sClient, wl)
+				})
+
+				ginkgo.By("verify the workload remains pending and is not admitted", func() {
+					util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+					gomega.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
+				})
+
+				ginkgo.By("verify QuotaReserved condition reports TAS failure reason", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+						cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+						g.Expect(cond).ToNot(gomega.BeNil())
+						g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+						g.Expect(cond.Reason).To(gomega.Equal("Pending"))
+						g.Expect(cond.Message).To(gomega.ContainSubstring("more than one flavor assigned"))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+			})
 		})
 	})
 

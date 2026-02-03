@@ -3949,11 +3949,10 @@ func TestIsPreferred(t *testing.T) {
 
 func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 	cases := map[string]struct {
-		cq              schdcache.ClusterQueueSnapshot
-		assignment      Assignment
-		workload        workload.Info
-		wantErr         string
-		wantErrContains string
+		cq         schdcache.ClusterQueueSnapshot
+		assignment Assignment
+		workload   workload.Info
+		wantErr    string
 	}{
 		"workload requires Topology, but there is no TAS cache information": {
 			cq: schdcache.ClusterQueueSnapshot{
@@ -4036,7 +4035,7 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 					},
 				},
 			}),
-			wantErrContains: "more than one flavor assigned",
+			wantErr: "more than one flavor assigned: flavor-a, flavor-b",
 		},
 	}
 
@@ -4050,12 +4049,14 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 			if tc.assignment.PodSets[0].Status.err != nil {
 				errMsg = tc.assignment.PodSets[0].Status.err.Error()
 			}
-			if tc.wantErrContains != "" {
-				if !strings.Contains(errMsg, tc.wantErrContains) {
-					t.Errorf("Status.err = %q, want substring %q", errMsg, tc.wantErrContains)
+			if tc.wantErr != "" {
+				if errMsg != tc.wantErr {
+					if tc.wantErr == "more than one flavor assigned: flavor-a, flavor-b" && errMsg == "more than one flavor assigned: flavor-b, flavor-a" {
+
+					} else {
+						t.Errorf("Error mismatch (-want +got):\n%s", cmp.Diff(tc.wantErr, errMsg))
+					}
 				}
-			} else if diff := cmp.Diff(tc.wantErr, errMsg); diff != "" {
-				t.Errorf("Error mismatch (-want +got):\n%s", diff)
 			}
 			// When TAS request build fails, the assignment should be unfit so the workload is not admitted.
 			if got := tc.assignment.RepresentativeMode(); got != NoFit {
