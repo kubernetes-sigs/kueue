@@ -454,7 +454,7 @@ func (r *nodeFailureReconciler) isNodeUnhealthyForWorkload(ctx context.Context, 
 		return true, false, nil
 	}
 
-	// 2. Check for taints that require waiting for pod termination:
+	// 2. Check for taints that require waiting for pod termination (terminationSeconds check):
 	// - Tolerated NoExecute taints always wait for pod termination.
 	// - Untolerated NoExecute taints wait for pod termination only if TASReplaceNodeOnPodTermination is enabled.
 	if len(toleratedNoExecuteTaints) == 0 && (len(untoleratedNoExecuteTaints) == 0 || !features.Enabled(features.TASReplaceNodeOnPodTermination)) {
