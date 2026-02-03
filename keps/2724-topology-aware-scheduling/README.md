@@ -1248,7 +1248,7 @@ Kueue tries to find a replacement for a failed node until success (or until it g
 evicted by e.g. `waitForPodsReady.recoveryTimeout`). One can limit the number of retries
 to only one, by setting the `TASFailedNodeReplacementFailFast` feature gate to `true`.
 
-#### Tainted Nodes treatment
+#### Tainted nodes treatment
 
 ##### Since v0.16.1
 
