@@ -1,12 +1,14 @@
 version: 2
 updates:
 
-  # Maintain dependencies for go in root
+  # Maintain dependencies for go.
   - package-ecosystem: "gomod"
     directories:
       - "/"
       - "/hack/internal/tools"
       - "/site"
+      - "/cmd/kueueviz/backend"
+      - "/cmd/experimental/kueue-populator"
     schedule:
       interval: "weekly"
     labels:
@@ -56,27 +58,6 @@ updates:
       - "release-note-none"
       - "dependencies"
       - "area/dependency"
-
-  # Maintain go dependencies for KueueViz backend
-  - package-ecosystem: "gomod"
-    directories:
-      - "/cmd/kueueviz/backend"
-    schedule:
-      interval: "weekly"
-    labels:
-      - "ok-to-test"
-      - "release-note-none"
-      - "dependencies"
-      - "area/dependency"
-    groups:
-      kubernetes:
-        patterns:
-          - "k8s.io/*"
-    ignore:
-      # Ignore major and minor versions for dependencies updates
-      # Allow patches and security updates.
-      - dependency-name: k8s.io/*
-        update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
   # Maintain npm dependencies
   - package-ecosystem: "npm"
