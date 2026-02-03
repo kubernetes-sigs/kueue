@@ -21,10 +21,12 @@ Please do not remove items from the checklist
   - [ ] An OWNER pushes the new release branch with
         `git push upstream release-$MAJ.$MIN`
 - [ ] Update the release branch:
-  - [ ] Update `RELEASE_BRANCH` and `RELEASE_VERSION` in `Makefile` and run `make prepare-release-branch`
-  - [ ] Update the `CHANGELOG`
-  - [ ] Submit a pull request with the changes: <!-- PREPARE_PULL --> <!-- example #211 #214 -->
-- [ ] An OWNER creates a signed tag running
+  - [ ] Ensure there are no unstaged changes in your directory (the script adds everything)
+  - [ ] Run `./hack/releasing/prepare_pull.sh --target release $VERSION`
+  - [ ] Wait for this PR to merge <!-- PREPARE_PULL --> <!-- example #211 #214 -->
+- [ ] An OWNER creates a signed tag
+  - [ ] pull the release branch after PR from previous step merged
+  - [ ] run
      `git tag -s $VERSION`
       and inserts the changelog into the tag description.
       To perform this step, you need [a PGP key registered on github](https://docs.github.com/en/authentication/managing-commit-signature-verification/checking-for-existing-gpg-keys).
@@ -43,18 +45,20 @@ Please do not remove items from the checklist
 - [ ] Submit a PR against [k8s.io](https://github.com/kubernetes/k8s.io) to
       [promote the container images and Helm Chart](https://github.com/kubernetes/k8s.io/tree/main/registry.k8s.io#image-promoter)
       to production: <!-- K8S_IO_PULL --> <!-- example kubernetes/k8s.io#7899 -->
-  - [ ] Update `registry.k8s.io/images/k8s-staging-kueue/images.yaml`.
-- [ ] Wait for the PR to be merged and verify that the image `registry.k8s.io/kueue/kueue:$VERSION` is available.
+  - [ ] Update `registry.k8s.io/images/k8s-staging-kueue/images.yaml`. May use `./hack/releasing/promote_pull.sh`
+    [ ] Wait for the PR to be merged
+    [ ] Verify that the image is available `./hack/releasing/wait_for_images.sh --prod $VERSION`
 - [ ] Publish the draft release prepared at the [GitHub releases page](https://github.com/kubernetes-sigs/kueue/releases).
       Link: <!-- example https://github.com/kubernetes-sigs/kueue/releases/tag/v0.1.0 -->
 - [ ] Run the [openvex action](https://github.com/kubernetes-sigs/kueue/actions/workflows/openvex.yaml) to generate openvex data. The action will add the file to the release artifacts.
 - [ ] Run the [SBOM action](https://github.com/kubernetes-sigs/kueue/actions/workflows/sbom.yaml) to generate the SBOM and add it to the release.
 - [ ] Update the `main` branch :
-  - [ ] Update `RELEASE_VERSION` in `Makefile` and run `make prepare-release-branch`
-  - [ ] Release notes in the `CHANGELOG`
-  - [ ] `SECURITY-INSIGHTS.yaml` values by running `make update-security-insights GIT_TAG=$VERSION`
-  - [ ] Submit a pull request with the changes: <!-- example #3007 -->
-  - [ ] Cherry-pick the pull request onto the `website` branch
+  - [ ] for each release:
+    - [ ] update the changelog (example #9578)
+  - [ ] for only the latest release:
+    - [ ] Run `./hack/releasing/prepare_pull.sh --target main $VERSION`
+    - [ ] Submit a pull request with the changes: <!-- example #3007 -->
+    - [ ] Cherry-pick the pull request onto the `website` branch
 - [ ] For major or minor releases, merge the `main` branch into the `website` branch to publish the updated documentation.
 - [ ] Send an announcement email to `sig-scheduling@kubernetes.io` and `wg-batch@kubernetes.io` with the subject `[ANNOUNCE] kueue $VERSION is released`.   <!--Link: example https://groups.google.com/a/kubernetes.io/g/wg-batch/c/-gZOrSnwDV4 -->
 - [ ] For a major or minor release, prepare the repo for the next version:

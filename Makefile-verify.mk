@@ -16,6 +16,13 @@
 
 GO_FMT ?= gofmt
 VERIFY_NPROCS ?= 8
+# Output sync mode for parallel verification. Set to empty to disable.
+# Requires GNU Make 4.0+. Values: target, line, recurse, or empty.
+ifeq ($(shell uname),Darwin)
+    VERIFY_OUTPUT_SYNC ?=
+else
+    VERIFY_OUTPUT_SYNC ?= target
+endif
 # Paths whose content is expected to be fully reproducible from sources.
 # The final step of `make verify` enforces that these paths have:
 # - no unstaged/staged diffs (`git diff --exit-code`)
@@ -37,6 +44,7 @@ PATHS_TO_VERIFY := config/components apis charts/kueue client-go keps site/ netl
 ##
 ## Notes:
 ## - The work is parallelized. Override parallelism with `VERIFY_NPROCS=<n> make verify`.
+## - Output is grouped by target to make failures easier to find. Disable with `VERIFY_OUTPUT_SYNC= make verify`.
 ##
 ## How to extend `make verify`
 ##
@@ -53,7 +61,7 @@ PATHS_TO_VERIFY := config/components apis charts/kueue client-go keps site/ netl
 ##   or in another included fragment (`Makefile-test.mk`, etc.) if it logically belongs there.
 ## - Then, wire it into the appropriate aggregator target below.
 verify: ## Ensure repo is clean after generation/formatting.
-	$(MAKE) -j $(VERIFY_NPROCS) verify-checks
+	$(MAKE) -j $(VERIFY_NPROCS) $(if $(VERIFY_OUTPUT_SYNC),--output-sync=$(VERIFY_OUTPUT_SYNC)) verify-checks
 	git --no-pager diff --exit-code $(PATHS_TO_VERIFY)
 	if git ls-files --exclude-standard --others $(PATHS_TO_VERIFY) | grep -q . ; then \
 		echo "ERROR: untracked files found under: $(PATHS_TO_VERIFY)" >&2; \
@@ -217,6 +225,10 @@ helm-unit-test: helm helm-unittest-plugin ## Run Helm unit tests for the kueue c
 .PHONY: npm-depcheck
 npm-depcheck: ## Verify frontend and e2e npm dependencies.
 	$(_npm_depcheck_recipe)
+
+.PHONY: verify-website-links
+verify-website-links: ## Check for broken internal links on the public website.
+	$(PROJECT_DIR)/hack/testing/linkchecker/verify.sh
 
 .PHONY: i18n-verify
 i18n-verify: ## Verify localized docs are in sync with English. Usage: make i18n-verify [TARGET_LANG=zh-CN]
