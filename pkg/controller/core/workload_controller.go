@@ -611,7 +611,7 @@ func (r *WorkloadReconciler) getWorkloadFromCache(wlRef workload.Reference) (*ku
 	wlInQueueCache := r.queues.GetWorkloadFromCache(wlRef)
 	wlInSchedCache := r.cache.GetWorkloadFromCache(wlRef)
 	if wlInQueueCache != nil && wlInSchedCache != nil {
-		return nil, errors.New("Workload should never be present in both caches simultaniously")
+		return nil, errors.New("Workload should never be present in both caches simultaneously")
 	}
 	if wlInQueueCache != nil {
 		return wlInQueueCache, nil
