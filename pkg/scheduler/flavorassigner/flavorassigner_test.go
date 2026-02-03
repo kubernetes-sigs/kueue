@@ -4049,14 +4049,8 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 			if tc.assignment.PodSets[0].Status.err != nil {
 				errMsg = tc.assignment.PodSets[0].Status.err.Error()
 			}
-			if tc.wantErr != "" {
-				if errMsg != tc.wantErr {
-					if tc.wantErr == "more than one flavor assigned: flavor-a, flavor-b" && errMsg == "more than one flavor assigned: flavor-b, flavor-a" {
-
-					} else {
-						t.Errorf("Error mismatch (-want +got):\n%s", cmp.Diff(tc.wantErr, errMsg))
-					}
-				}
+			if tc.wantErr != "" && errMsg != tc.wantErr {
+				t.Errorf("Error mismatch (-want +got):\n%s", cmp.Diff(tc.wantErr, errMsg))
 			}
 			// When TAS request build fails, the assignment should be unfit so the workload is not admitted.
 			if got := tc.assignment.RepresentativeMode(); got != NoFit {
