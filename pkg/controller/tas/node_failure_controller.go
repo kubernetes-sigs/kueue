@@ -449,23 +449,23 @@ func (r *nodeFailureReconciler) isNodeUnhealthyForWorkload(ctx context.Context, 
 		}
 	}
 
-	if len(untoleratedNoExecuteTaints) == 0 && len(toleratedNoExecuteTaints) == 0 {
-		return false, false, nil
-	}
-
-	// 1. Check Untolerated NoExecute (Immediate Unhealthy)
-	if len(untoleratedNoExecuteTaints) > 0 {
+	// 1. Check Untolerated NoExecute (Immediate Unhealthy, unless TASReplaceNodeOnPodTermination is enabled)
+	if len(untoleratedNoExecuteTaints) > 0 && !features.Enabled(features.TASReplaceNodeOnPodTermination) {
 		return true, false, nil
 	}
 
-	// 2. Check Tolerated NoExecute (Unhealthy only if pods Terminating)
-	// Fetch pods
+	// 2. Check for taints that require waiting for pod termination:
+	// - Tolerated NoExecute taints always wait for pod termination.
+	// - Untolerated NoExecute taints wait for pod termination only if TASReplaceNodeOnPodTermination is enabled.
+	if len(toleratedNoExecuteTaints) == 0 && (len(untoleratedNoExecuteTaints) == 0 || !features.Enabled(features.TASReplaceNodeOnPodTermination)) {
+		return false, false, nil
+	}
+
 	var podsForWl corev1.PodList
 	if err := r.client.List(ctx, &podsForWl, client.InNamespace(wl.Namespace), client.MatchingFields{indexer.WorkloadNameKey: wl.Name}); err != nil {
 		return false, false, fmt.Errorf("list pods: %w", err)
 	}
 
-	// Filter pods for this node
 	var podsOnNode []corev1.Pod
 	for _, pod := range podsForWl.Items {
 		if pod.Spec.NodeName == node.Name {
@@ -483,7 +483,8 @@ func (r *nodeFailureReconciler) isNodeUnhealthyForWorkload(ctx context.Context, 
 		return false, true, nil
 	}
 
-	return false, false, nil
+	// If no pods are left on the node, it's considered failed.
+	return true, false, nil
 }
 
 func (r *nodeFailureReconciler) removeUnhealthyNodes(ctx context.Context, wl *kueue.Workload, nodeName string) error {
