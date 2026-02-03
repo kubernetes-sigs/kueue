@@ -22,6 +22,8 @@ tags, and then generate with `hack/update-toc.sh`.
   - [Goals](#goals)
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
+  - [Architecture &amp; Cardinality](#architecture--cardinality)
+  - [Scheduling &amp; Lifecycle](#scheduling--lifecycle)
   - [User Stories](#user-stories)
     - [Story 1: ResourceFlavor Upgrade](#story-1-resourceflavor-upgrade)
     - [Story 2: Upgrade only to Reservation](#story-2-upgrade-only-to-reservation)
@@ -47,10 +49,10 @@ tags, and then generate with `hack/update-toc.sh`.
   - [Reserving Quota for the same Workload twice](#reserving-quota-for-the-same-workload-twice)
   - [Multiple Preemptions](#multiple-preemptions)
   - [Ordering Options](#ordering-options)
-  - [FlavorFungibility](#flavorfungibility)
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
     - [StrictFIFO](#strictfifo)
   - [Risks and Mitigations](#risks-and-mitigations)
+  - [FlavorFungibility Misinterpretation](#flavorfungibility-misinterpretation)
     - [Misconfiguration](#misconfiguration)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
@@ -100,6 +102,10 @@ The current single-flavor evaluation leads to several inefficiencies:
 - Inability to migrate: Workloads cannot move to a more preferred RF (like a Reservation) once they are already running on a less preferred one.
 - Sequential bottlenecks: Users cannot pursue multiple flavors (which often include long-running AdmissionChecks) in parallel to find placement as quickly as possible.
 
+The feature is intended for environments where gains from the accuracy of scheduling decision (potential migration) outweighs
+the some throughput degradation. This is also intended for Jobs that can tolerate disruption, since migration involves
+recreating Pods on more preferable Nodes.
+
 <!--
 This section is for explicitly listing the motivation, goals, and non-goals of
 this KEP.  Describe why the change is important and the benefits to users. The
@@ -126,6 +132,8 @@ demonstrate the interest in a KEP within the wider Kubernetes community.
 
 - Delay fallback to "lower" RFs than the currently tried
 
+- Make more accurate scheduling decisions at the cost of performance
+
 
 <!--
 List the specific goals of the KEP. What is it trying to achieve? How will we
@@ -143,20 +151,42 @@ and make progress.
 
 ## Proposal
 
-We propose an opt-in feature (Concurrent Admission) that introduces a new controller and extends the ClusterQueue API.
-When an admin sets `.spec.concurrentAdmission` (details below) in the ClusterQueue,
-the new controller creates multiple Option Workloads for each single top-level job.
-At any given point in time, only one Option can be admitted by Kueue.
+We propose a new opt-in feature called Concurrent Admission.
 
-Each Option is a clone of Parent Workload with additional scheduling constraints, in particular could only be assigned to a subset of ResourceFlavors
-defined in the ClusterQueue. Besides that, Options are treated by the scheduling algorithm almost identically as regular Workloads.
+This proposal introduces two new logical categories of Workloads that coexist with existing "regular" Workloads
+1) Parent Workload: Acts as an owner and status aggregator for its associated Options. It is explicitly excluded from Kueue's core scheduling logic.
+2) Option Workload: A cloned view of the Parent Workload with specific scheduling constraints. Most notably, an Option is restricted to a subset of ResourceFlavors.
 
-A Parent Workload, doesn't participate in scheduling, its main role is to provide visibility and aggregate information from its Options, to then interact
-with the top-level job, preventing from race conditions.
+### Architecture & Cardinality
+The relationship between a Parent and its Options follows a parent–child model with 1:N cardinality (where $N \ge 1$). While the number of Options is typically determined by the variety of PodSets and ClusterQueue ResourceFlavors, each remains a distinct Kubernetes object persisted in etcd.
 
 ![Workload Diagram](options.svg)
 
-An Option can get activated/deactivated based on the configuration provided by an admin, more about its lifecycle below.
+### Scheduling & Lifecycle
+An Option Workload functions near-identically to a "regular" Workload regarding quota accounting, preemption, and core scheduling features.
+
+At any given point in time, only one Option per Parent may be admitted by Kueue.
+
+To support this, we will introduce a new controller and extend the ClusterQueue API with a new `.spec` field to manage Option activation and deactivation.
+<!-- 
+Those new types of Workloads can freely coexist with "regular" Workloads in a cluster.
+
+The relationship between a Parent and its Options is parent–child, with 1:1+ cardinality.
+Every Parent has at least one Option, and potentially more depending on PodSets and ClusterQueue ResourceFlavors.
+All of them are separate k8s objects stored in etcd.
+
+A parent Workload is excluded from the scheduling logic in Kueue. It acts as a owner and status aggregator of Options.
+
+An Option Workload is a cloned view of its Parent with some additional scheduling constraints,
+in particular it can be scheduled on a limited number of ResourceFlavors.
+
+Apart from that an Options Workload acts almost identically as a "regular" Workload regarding scheduling, quota accounting and other core features.
+
+At any given point in time, only one Option can be admitted by Kueue.
+
+To accommodate the above proposal we introduce a new controller, and extend the ClusterQueue API with a new `.spec` level field.
+An Option can get activated/deactivated based on the new API, more about its lifecycle below.
+ -->
 
 
 <!--
@@ -533,14 +563,6 @@ be used for sorting sibling Options. The value of this dimension would be filled
 Thanks to that we also have a guarantee that sibling Options are always adjacent in the heap, which
 results in Kueue scheduler picking sibling Options one after the another, without any other Workloads in between.
 
-### FlavorFungibility
-
-In the first iteration of the feature we don't plan to integrate with the `FlavorFungibility` configuration on the
-inter-Options level. It means that the `OnSuccessPolicy` is binary - whether an Options has been admitted or not.
-It doesn't take into account if preemption or borrowing was necessary to admit an Option.
-At the same time if an Option can be scheduled onto multiple flavors, it follows
-the `FlavorFungibility` configuration.
-
 ### Notes/Constraints/Caveats (Optional)
 
 #### StrictFIFO
@@ -562,11 +584,23 @@ The other one is to not block Options siblings if the first one cannot be schedu
 For Alpha and Beta version of this feature we don't plan to support `StrictFIFO` queueing strategy. Based on users' feedback we will reconsider it for GA.
 
 ### Risks and Mitigations
+### FlavorFungibility Misinterpretation
+
+In the first iteration of the feature we don't plan to integrate with the `FlavorFungibility` on the
+inter-Options level. It means that the `OnSuccessPolicy` is binary - if an Option has been admitted or not.
+It doesn't take into account if preemption or borrowing was necessary to admit an Option. The preference order of Options
+is purely based on ResourceFlavors used, and user doesn't have capabilities to express what to do if e.g. two Options can be
+admitted, but the more preferable one requires preemption. The more preferable one will always be chosen.
+
+At the same time if a single Option can be scheduled onto multiple flavors due to `ExplicitOptions`, it follows
+the `FlavorFungibility` config.
+
+This may lead to confusion, so we need to address this use-case directly in the documentation.
 
 #### Misconfiguration
 
-The complexity of the feature may lead to misconfigurations, to mitigate this risk
-we should provide users with comprehensive documentation and examples
+The overall complexity of this feature may lead to misconfigurations. To mitigate this risk
+we should provide users with comprehensive documentation and examples.
 
 <!--
 This section should contain enough information that the specifics of your
@@ -642,9 +676,11 @@ Introduction of `WorkloadOptionStatus` and `AdmissionConstraints` fields.
 
 #### Beta
 
-Support for `RemoveOther` and `RemoveLower` policies
+Support for `RemoveOther` and `RemoveLower` policies.
 
 Introduction of `ExplicitOptions` functionality.
+
+Revisit extending `ExplicitOptions` API with some additional fields.
 
 Minimizing number of Options issuing preemptions to only one per Parent.
 
@@ -661,7 +697,7 @@ const (
 
 Positive feedback from users.
 
-Adding/updating Kueue metrics based on users' feedback
+Adding/updating Kueue metrics based on users' feedback.
 
 #### GA
 
@@ -702,6 +738,14 @@ Major milestones might include:
 ### Increased API Object Count
 
 With this feature Kueue creates more API Object that put pressure on core k8s components such as e.g. API Server or etcd.
+
+Additionally, since one Job corresponds to potentially multiple Workloads it increases the cost of scheduling a Job by Kueue.
+In worst case scenario Kueue scheduler needs to do **V** (number of Options per Job) number of scheduling cycles before it admits the last one.
+However those loops are lighter than for a regular Workload, since because of the scheduling constraints they only consider a subset of ResourceFlavors.
+
+This is a drawback only for environments with thousands of Jobs incoming, where the accuracy of scheduling is amortized by the inflow
+on incoming Jobs, and hence throughput is more important. In environments with fewer and bigger Jobs, the gain from scheduling decisions and
+upgrades outweighs the performance penalty.
 
 <!--
 Why should this KEP _not_ be implemented?
