@@ -46,6 +46,11 @@ const (
 	// +kubebuilder:validation:Type=boolean
 	PodSetUnconstrainedTopologyAnnotation = "kueue.x-k8s.io/podset-unconstrained-topology"
 
+	// PodSetTopologyPlacementAnnotation indicates the algorithm used for the topology
+	// placement other than the default algorithm.
+	//
+	PodSetTopologyPlacementAnnotation = "kueue.x-k8s.io/podset-topology-placement"
+
 	// PodSetSliceRequiredTopologyAnnotation indicates that a PodSet requires
 	// Topology Aware Scheduling, and requires scheduling each PodSet slice on nodes
 	// within the topology domain corresponding to the topology level

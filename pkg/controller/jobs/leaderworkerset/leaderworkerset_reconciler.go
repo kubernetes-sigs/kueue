@@ -260,6 +260,12 @@ func newPodSet(name kueue.PodSetReference, count int32, template *corev1.PodTemp
 			return nil, err
 		}
 		podSet.TopologyRequest = topologyRequest
+		if podSet.Template.Annotations == nil {
+			podSet.Template.Annotations = make(map[string]string)
+		}
+		if len(template.Annotations[kueue.PodSetTopologyPlacementAnnotation]) > 0 {
+			podSet.Template.Annotations[kueue.PodSetTopologyPlacementAnnotation] = template.Annotations[kueue.PodSetTopologyPlacementAnnotation]
+		}
 	}
 	return podSet, nil
 }
