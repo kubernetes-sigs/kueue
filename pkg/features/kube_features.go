@@ -235,7 +235,7 @@ const (
 	// owner: @j-skiba
 	//
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/8828
-	// Enable workload eviction when node is tainted.
+	// Enable workload eviction when node is tainted and pods are not able to run.
 	TASTaintEviction featuregate.Feature = "TASTaintEviction"
 )
 

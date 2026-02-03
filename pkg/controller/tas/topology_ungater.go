@@ -348,13 +348,6 @@ func assignGatedPodsToDomains(
 	psReq *kueue.PodSetTopologyRequest,
 	offset int32,
 	maxRank int32) []podWithDomain {
-	for _, pod := range pods {
-		if !utilpod.HasGate(pod, kueue.TopologySchedulingGate) && (utilpod.IsTerminated(pod) || !pod.DeletionTimestamp.IsZero()) {
-			log.V(3).Info("Fallback to greedy assignment due to terminated or terminating pods", "pod", klog.KObj(pod))
-			return assignGatedPodsToDomainsGreedy(log, psa, pods)
-		}
-	}
-
 	rankToPod, ok := readRanksIfAvailable(log, psa, pods, psReq, offset, maxRank)
 	if ok {
 		if verifyDomainsForRanks(log, psa, rankToPod) {
