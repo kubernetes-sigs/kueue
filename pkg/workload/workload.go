@@ -1067,7 +1067,7 @@ func patchStatus(ctx context.Context, c client.Client, wl *kueue.Workload, owner
 		if updated, err := update(wlCopy); err != nil || !updated {
 			return err
 		}
-		err := c.Status().Patch(ctx, wlCopy, client.Apply, owner, client.ForceOwnership)
+		err := c.Status().Patch(ctx, wlCopy, client.Apply, owner, client.ForceOwnership) //nolint:staticcheck //SA1019: client.Apply is deprecated
 		if err != nil {
 			return err
 		}

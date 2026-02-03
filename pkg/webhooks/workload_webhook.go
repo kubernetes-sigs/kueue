@@ -25,12 +25,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -46,8 +44,7 @@ type WorkloadWebhook struct{}
 
 func setupWebhookForWorkload(mgr ctrl.Manager, roleTracker *roletracker.RoleTracker) error {
 	wh := &WorkloadWebhook{}
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(&kueue.Workload{}).
+	return ctrl.NewWebhookManagedBy(mgr, &kueue.Workload{}).
 		WithDefaulter(wh).
 		WithValidator(wh).
 		WithLogConstructor(roletracker.WebhookLogConstructor(roleTracker)).
@@ -56,11 +53,10 @@ func setupWebhookForWorkload(mgr ctrl.Manager, roleTracker *roletracker.RoleTrac
 
 // +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1beta2-workload,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=workloads,verbs=create,versions=v1beta2,name=mworkload.kb.io,admissionReviewVersions=v1
 
-var _ webhook.CustomDefaulter = &WorkloadWebhook{}
+var _ admission.Defaulter[*kueue.Workload] = &WorkloadWebhook{}
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
-func (w *WorkloadWebhook) Default(ctx context.Context, obj runtime.Object) error {
-	wl := obj.(*kueue.Workload)
+func (w *WorkloadWebhook) Default(ctx context.Context, wl *kueue.Workload) error {
 	log := ctrl.LoggerFrom(ctx).WithName("workload-webhook")
 	log.V(5).Info("Applying defaults")
 
@@ -76,27 +72,24 @@ func (w *WorkloadWebhook) Default(ctx context.Context, obj runtime.Object) error
 
 // +kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1beta2-workload,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=workloads;workloads/status,verbs=create;update,versions=v1beta2,name=vworkload.kb.io,admissionReviewVersions=v1
 
-var _ webhook.CustomValidator = &WorkloadWebhook{}
+var _ admission.Validator[*kueue.Workload] = &WorkloadWebhook{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *WorkloadWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	wl := obj.(*kueue.Workload)
+func (w *WorkloadWebhook) ValidateCreate(ctx context.Context, wl *kueue.Workload) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("workload-webhook")
 	log.V(5).Info("Validating create")
 	return nil, ValidateWorkload(wl).ToAggregate()
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *WorkloadWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
-	newWL := newObj.(*kueue.Workload)
-	oldWL := oldObj.(*kueue.Workload)
+func (w *WorkloadWebhook) ValidateUpdate(ctx context.Context, oldWL, newWL *kueue.Workload) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("workload-webhook")
 	log.V(5).Info("Validating update")
 	return nil, ValidateWorkloadUpdate(newWL, oldWL).ToAggregate()
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *WorkloadWebhook) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
+func (w *WorkloadWebhook) ValidateDelete(_ context.Context, _ *kueue.Workload) (admission.Warnings, error) {
 	return nil, nil
 }
 
