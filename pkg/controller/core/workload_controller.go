@@ -237,8 +237,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		})
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
-	if features.Enabled(features.DynamicResourceAllocation) && workload.Status(&wl) == workload.StatusPending &&
-		workload.HasDRA(&wl) {
+	if workload.Status(&wl) == workload.StatusPending && handleAsDRA(&wl) {
 		workload.AdjustResources(ctx, r.client, &wl)
 		if workload.HasResourceClaim(&wl) {
 			log.V(3).Info("Workload is inadmissible because it uses resource claims which is not supported")
@@ -629,23 +628,28 @@ func (r *WorkloadReconciler) addWorkloadToCache(ctx context.Context, wl *kueue.W
 		return
 	}
 
+	if handleAsDRA(wl) {
+		return
+	}
+
 	wlCopy := wl.DeepCopy()
 	workload.AdjustResources(ctx, r.client, wlCopy)
 
 	if workload.IsAdmissible(wl) {
-		log.V(3).Info("Workload cannot be added to queue cache")
-		return
+		if err := r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
+			log.V(3).Info("Workload cannot be added to queue cache", "error", err)
+		}
+	} else {
+		if !r.cache.AddOrUpdateWorkload(log, wlCopy) {
+			log.V(3).Info("Workload cannot be added to scheduler cache")
+		}
+		r.queues.QueueSecondPassIfNeeded(ctx, wl, 0)
 	}
-
-	if !r.cache.AddOrUpdateWorkload(log, wlCopy) {
-		log.V(3).Info("Workload cannot be added to scheduler cache")
-	}
-
-	r.queues.QueueSecondPassIfNeeded(ctx, wl, 0)
 }
 
 func (r *WorkloadReconciler) updateCaches(ctx context.Context, wlInCache *kueue.Workload, wl *kueue.Workload) {
 	defer r.notifyWatchers(wlInCache, wl)
+	defer r.queues.QueueSecondPassIfNeeded(ctx, wl, 0)
 
 	log := ctrl.LoggerFrom(ctx)
 	status := workload.Status(wl)
@@ -671,14 +675,13 @@ func (r *WorkloadReconciler) updateCaches(ctx context.Context, wlInCache *kueue.
 				log.V(3).Info("Unable to delete workload from scheudler cache", "error", err)
 			}
 		})
-
 	case statusInCache == workload.StatusPending && status == workload.StatusPending:
 		// Skip queue operations for DRA workloads - they are handled in Reconcile loop
-		if !handleAsDRA(wl) {
-			err := r.queues.UpdateWorkload(log, wlCopy)
-			if err != nil {
-				log.V(3).Info("unable to update workload in queue cache", "error", err)
-			}
+		if handleAsDRA(wl) {
+			return
+		}
+		if err := r.queues.UpdateWorkload(log, wlCopy); err != nil {
+			log.V(3).Info("unable to update workload in queue cache", "error", err)
 		}
 	case statusInCache == workload.StatusPending && (status == workload.StatusQuotaReserved || status == workload.StatusAdmitted):
 		r.queues.DeleteWorkload(log, wlRef)
@@ -733,7 +736,6 @@ func (r *WorkloadReconciler) updateCaches(ctx context.Context, wlInCache *kueue.
 		// and are not supposed to actually change anything.
 		r.cache.AddOrUpdateWorkload(log, wlCopy)
 	}
-	r.queues.QueueSecondPassIfNeeded(ctx, wl, 0)
 }
 
 func handleAsDRA(wl *kueue.Workload) bool {
@@ -1192,7 +1194,7 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, q
 		log.V(5).Info("Queue reconcile for")
 		workload.AdjustResources(ctrl.LoggerInto(ctx, log), h.r.client, wlCopy)
 
-		if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(wlCopy) {
+		if handleAsDRA(wlCopy) {
 			req := reconcile.Request{
 				NamespacedName: types.NamespacedName{
 					Name:      wlCopy.Name,
