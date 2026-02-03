@@ -124,16 +124,13 @@ Admission-time constraints are introduced behind a feature gate, tentatively nam
 
 Introduce workload-level admission constraints expressed via annotations:
 
-* `kueue.x-k8s.io/admission-constraint-preempt`, with possible values:
-  * `Always` (default): admission follows default preemption behavior.
-  * `Never`: admission must not rely on preempting other workloads.
-  * `1h`: admission must not rely on preempting other workloads for at least the specified duration.
-* `kueue.x-k8s.io/admission-constraint-borrow`, with possibe values:
-  * `Always` (default): admission follows default borrowing qouta behavior.
-  * `Never`: admission must not rely on borrowing quota.
-  * `24h`: admission must not rely on borrowing quota for at least the specified duration.
-
+* `kueue.x-k8s.io/cannot-preempt`
+* `kueue.x-k8s.io/cannot-borrow`
 When set to `"true"`, these annotations restrict the mechanisms Kueue may use during admission:
+
+* Annotations are defined at the Job level and propagated to the corresponding Workload.
+* Annotations are immutable after admission.
+
 
 * `cannot-preempt=true`: admission must not rely on preempting other workloads.
 * `cannot-borrow=true`: admission must not rely on borrowing quota.
