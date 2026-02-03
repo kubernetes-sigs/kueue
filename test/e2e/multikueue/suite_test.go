@@ -45,6 +45,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
+	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
@@ -125,6 +126,8 @@ func kubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig 
 			policyRule(corev1.SchemeGroupVersion.Group, "pods/status", "get"),
 			policyRule(appsv1.SchemeGroupVersion.Group, "statefulsets", resourceVerbs...),
 			policyRule(appsv1.SchemeGroupVersion.Group, "statefulsets/status", "get"),
+			policyRule(leaderworkersetv1.SchemeGroupVersion.Group, "leaderworkersets", resourceVerbs...),
+			policyRule(leaderworkersetv1.SchemeGroupVersion.Group, "leaderworkersets/status", "get"),
 			policyRule(rayv1.SchemeGroupVersion.Group, "rayclusters", resourceVerbs...),
 			policyRule(rayv1.SchemeGroupVersion.Group, "rayclusters/status", "get"),
 			policyRule(kftrainerapi.SchemeGroupVersion.Group, "trainjobs", resourceVerbs...),
@@ -300,6 +303,10 @@ var _ = ginkgo.BeforeSuite(func() {
 	util.WaitForKubeRayOperatorAvailability(ctx, k8sManagerClient)
 	util.WaitForKubeRayOperatorAvailability(ctx, k8sWorker1Client)
 	util.WaitForKubeRayOperatorAvailability(ctx, k8sWorker2Client)
+
+	util.WaitForLeaderWorkerSetAvailability(ctx, k8sManagerClient)
+	util.WaitForLeaderWorkerSetAvailability(ctx, k8sWorker1Client)
+	util.WaitForLeaderWorkerSetAvailability(ctx, k8sWorker2Client)
 
 	ginkgo.GinkgoLogr.Info(
 		"Kueue and all required operators are available in all the clusters",

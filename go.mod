@@ -3,7 +3,7 @@ module sigs.k8s.io/kueue
 go 1.25.0
 
 require (
-	github.com/cert-manager/cert-manager v1.19.2
+	github.com/cert-manager/cert-manager v1.19.3
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-logr/logr v1.4.3
 	github.com/google/go-cmp v0.7.0
@@ -41,7 +41,7 @@ require (
 	sigs.k8s.io/cluster-inventory-api v0.0.0-20251028164203-2e3fabb46733
 	sigs.k8s.io/controller-runtime v0.22.4
 	sigs.k8s.io/dra-example-driver v0.2.1
-	sigs.k8s.io/jobset v0.10.1
+	sigs.k8s.io/jobset v0.11.0
 	sigs.k8s.io/lws v0.8.0
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.1
 	sigs.k8s.io/yaml v1.6.0

@@ -36,6 +36,29 @@ Used on: [batch/Job](/docs/tasks/run/jobs/).
 
 The annotation key indicates the minimum `parallelism` acceptable for the job in the case of partial admission.
 
+### kueue.x-k8s.io/job-owner-gvk
+
+Type: Annotation
+
+Example: `kueue.x-k8s.io/job-owner-gvk: "leaderworkerset.x-k8s.io/v1, Kind=LeaderWorkerSet"`
+
+Used on: [Workload](/docs/concepts/workload/).
+
+The annotation holds the GVK (GroupVersionKind) of the owner job. Used for MultiKueue adapter
+lookup in workloads with multiple owner references (e.g., LeaderWorkerSet). This is an annotation
+rather than a label because the GVK string format contains characters invalid in label values.
+
+### kueue.x-k8s.io/job-owner-name
+
+Type: Annotation
+
+Example: `kueue.x-k8s.io/job-owner-name: "my-leaderworkerset"`
+
+Used on: [Workload](/docs/concepts/workload/).
+
+The annotation holds the name of the owner job. Used when the owner reference has been removed
+by Kubernetes garbage collection but the job name is still needed for MultiKueue operations.
+
 ### kueue.x-k8s.io/job-uid
 
 Type: Label
@@ -75,6 +98,18 @@ Example: `kueue.x-k8s.io/multikueue-origin: "true"`
 Used on: [MultiKueue](/docs/concepts/multikueue/).
 
 The label key is used to track the creator of MultiKueue remote objects in Worker Cluster.
+
+### kueue.x-k8s.io/multikueue-origin-uid
+
+Type: Annotation
+
+Example: `kueue.x-k8s.io/multikueue-origin-uid: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"`
+
+Used on: [MultiKueue](/docs/concepts/multikueue/).
+
+The annotation stores the UID of the original object from the management cluster on remote objects
+in worker clusters. Used by job types (e.g., LeaderWorkerSet) that generate workload names based on
+their UID, ensuring workload names match between management and worker clusters.
 
 ### kueue.x-k8s.io/pod-group-fast-admission
 
@@ -219,3 +254,15 @@ Example: `kueue.x-k8s.io/role-hash: "b54683bb"`
 Used on: [Plain Pods](/docs/tasks/run/plain_pods/).
 
 The annotation key is used as the name for a Workload podSet.
+
+### kueue.x-k8s.io/component-workload-index
+
+Type: Annotation
+
+Example: `kueue.x-k8s.io/component-workload-index: "0"`
+
+Used on: [Workload](/docs/concepts/workload/).
+
+The annotation stores the numeric index for component workloads created by multi-workload jobs
+(e.g., LeaderWorkerSet creates one workload per replica). Used by MultiKueue to determine
+primary workload ordering when dispatching component workloads to worker clusters atomically.

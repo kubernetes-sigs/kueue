@@ -106,7 +106,13 @@ kind: ## Download kind locally if necessary.
 
 .PHONY: yq
 yq: ## Download yq locally if necessary.
-	@GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install github.com/mikefarah/yq/v4@$(YQ_VERSION)
+	# sumdb lookup fails due to invalid '*' filename in yq v4.52.1 zip,
+	# even when pinning v4.50.1 (deprecation metadata points to v4.52.1).
+	# See https://github.com/mikefarah/yq/issues/2587.
+	@GOBIN=$(BIN_DIR) GO111MODULE=on \
+		GONOSUMDB=github.com/mikefarah/yq/v4 \
+		GOPROXY=direct \
+		$(GO_CMD) install github.com/mikefarah/yq/v4@$(YQ_VERSION)
 
 .PHONY: helm
 helm: ## Download helm locally if necessary.

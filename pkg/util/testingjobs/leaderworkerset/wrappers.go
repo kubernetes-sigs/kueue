@@ -80,6 +80,15 @@ func (w *LeaderWorkerSetWrapper) Label(k, v string) *LeaderWorkerSetWrapper {
 	return w
 }
 
+// Annotation sets an annotation on the LeaderWorkerSet
+func (w *LeaderWorkerSetWrapper) Annotation(k, v string) *LeaderWorkerSetWrapper {
+	if w.Annotations == nil {
+		w.Annotations = make(map[string]string)
+	}
+	w.Annotations[k] = v
+	return w
+}
+
 // Queue updates the queue name of the LeaderWorkerSet
 func (w *LeaderWorkerSetWrapper) Queue(q string) *LeaderWorkerSetWrapper {
 	return w.Label(constants.QueueLabel, q)
