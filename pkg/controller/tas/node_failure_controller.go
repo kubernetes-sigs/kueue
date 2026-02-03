@@ -146,7 +146,7 @@ func (r *nodeFailureReconciler) Update(e event.TypedUpdateEvent[*corev1.Node]) b
 		return true
 	}
 	if features.Enabled(features.TASTaintEviction) && !taintsEqual(e.ObjectOld.Spec.Taints, e.ObjectNew.Spec.Taints) {
-		r.log.V(4).Info("Node taints changed, triggering reconcile", "node", klog.KObj(e.ObjectNew))
+		r.logger().V(4).Info("Node taints changed, triggering reconcile", "node", klog.KObj(e.ObjectNew))
 		return true
 	}
 	return false
@@ -332,7 +332,7 @@ func (r *nodeFailureReconciler) handleHealthyNode(ctx context.Context, node *cor
 	keepMonitoring := false
 
 	for wlKey := range affectedWorkloads {
-		log := r.log.WithValues("workload", klog.KRef(wlKey.Namespace, wlKey.Name))
+		log := r.logger().WithValues("workload", klog.KRef(wlKey.Namespace, wlKey.Name))
 		var wl kueue.Workload
 		if err := r.client.Get(ctx, wlKey, &wl); err != nil {
 			if apierrors.IsNotFound(err) {
