@@ -35,6 +35,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
@@ -57,7 +58,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
+		fwk.StartManager(ctx, cfg, managerSetup(nil))
 	})
 
 	ginkgo.AfterAll(func() {
@@ -779,7 +780,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("restart controllers", func() {
 					fwk.StopManager(ctx)
-					fwk.StartManager(ctx, cfg, managerSetup)
+					fwk.StartManager(ctx, cfg, managerSetup(nil))
 				})
 
 				ginkgo.By("verify wl2 is still not admitted", func() {
@@ -3123,7 +3124,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("restart Kueue manager", func() {
 					fwk.StopManager(ctx)
-					fwk.StartManager(ctx, cfg, managerSetup)
+					fwk.StartManager(ctx, cfg, managerSetup(nil))
 				})
 
 				ginkgo.By("verify admission for the workload", func() {
@@ -4195,6 +4196,103 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						gomega.Expect(workload.HasQuotaReservation(wl)).Should(gomega.BeTrue())
 					})
 				})
+			})
+		})
+	})
+})
+
+var _ = ginkgo.Describe("Topology Aware Scheduling - Resource Transformation", ginkgo.Ordered, func() {
+	const cpuCredits = "cpu_credits"
+
+	var (
+		resourceTransformations []config.ResourceTransformation
+
+		ns           *corev1.Namespace
+		onDemand     *kueue.ResourceFlavor
+		spot         *kueue.ResourceFlavor
+		credits      *kueue.ResourceFlavor
+		clusterQueue *kueue.ClusterQueue
+		localQueue   *kueue.LocalQueue
+	)
+
+	ginkgo.JustBeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup(resourceTransformations))
+
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-")
+
+		onDemand = utiltestingapi.MakeResourceFlavor("on-demand").Obj()
+		util.MustCreate(ctx, k8sClient, onDemand)
+
+		spot = utiltestingapi.MakeResourceFlavor("spot").Obj()
+		util.MustCreate(ctx, k8sClient, spot)
+
+		credits = utiltestingapi.MakeResourceFlavor("credits").Obj()
+		util.MustCreate(ctx, k8sClient, credits)
+
+		clusterQueue = utiltestingapi.MakeClusterQueue("team-cluster-queue").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas(onDemand.Name).Resource(corev1.ResourceCPU, "9").Obj(),
+				*utiltestingapi.MakeFlavorQuotas(spot.Name).Resource(corev1.ResourceCPU, "9").Obj(),
+			).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(credits.Name).Resource(cpuCredits, "14").Obj()).
+			Obj()
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+
+		localQueue = utiltestingapi.MakeLocalQueue("team-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemand, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, spot, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, credits, true)
+
+		resourceTransformations = nil
+
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.When("ResourceTransformation is enabled (cpu -> cpu_credits)", func() {
+		ginkgo.BeforeEach(func() {
+			resourceTransformations = []config.ResourceTransformation{{
+				Input:    corev1.ResourceCPU,
+				Strategy: ptr.To(config.Retain),
+				Outputs:  corev1.ResourceList{cpuCredits: resource.MustParse("1")},
+			}}
+		})
+
+		ginkgo.It("transforms cpu requests and admits workloads up to transformed capacity", func() {
+			const (
+				workloadsToCreate = 5
+				expectedAdmitted  = 4
+				cpuRequest        = "3" // 14 credits / 3 -> 4 workloads fit
+			)
+
+			workloads := make([]*kueue.Workload, 0, workloadsToCreate)
+
+			ginkgo.By(fmt.Sprintf("Creating %d workloads each requesting %s CPU", workloadsToCreate, cpuRequest), func() {
+				for i := range workloadsToCreate {
+					wl := utiltestingapi.MakeWorkload(fmt.Sprintf("wl-%d", i+1), ns.Name).
+						Queue(kueue.LocalQueueName(localQueue.Name)).
+						Request(corev1.ResourceCPU, "3").
+						Obj()
+					util.MustCreate(ctx, k8sClient, wl)
+					workloads = append(workloads, wl)
+				}
+			})
+
+			ginkgo.By(fmt.Sprintf("Eventually exactly %d workloads should be admitted", expectedAdmitted), func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(util.CountAdmittedWorkloads(ctx, k8sClient, g, ns.Name)).Should(gomega.Equal(expectedAdmitted))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By(fmt.Sprintf("Verifying that exactly %d workloads remain admitted", expectedAdmitted), func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(util.CountAdmittedWorkloads(ctx, k8sClient, g, ns.Name)).Should(gomega.Equal(expectedAdmitted))
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 		})
 	})
