@@ -104,15 +104,6 @@ linters:
           - staticcheck
         text: 'SA1019: mgr.GetEventRecorderFor is deprecated: this uses the old events API and will be removed in a future release. Please use GetEventRecorder instead.'
       - linters:
-          - staticcheck
-        text: 'SA1019: admission.CustomDefaulter is deprecated: CustomDefaulter is deprecated, use Defaulter instead'
-      - linters:
-          - staticcheck
-        text: 'SA1019: admission.CustomValidator is deprecated: CustomValidator is deprecated, use Validator instead'
-      - linters:
-          - staticcheck
-        text: 'SA1019: admission.WithCustomValidator is deprecated: WithCustomValidator is deprecated, use WithValidator instead'
-      - linters:
           - fatcontext
         path: ^test/*
       - linters:
