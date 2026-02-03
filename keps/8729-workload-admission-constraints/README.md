@@ -70,12 +70,17 @@ As a Kueue user running long-lived or expensive workloads, I want to be conserva
 For these workloads, the cost of eviction or restart is high. I am willing to wait longer for admission if that avoids borrowing quota, reducing the risk of disruption once the workload is running.
 
 #### Story 2
+
 **Avoid admission-time preemption of peer workloads**
 
 As a Kueue user, I want my workload to be admitted only if it can fit without preempting other workloads during admission.
 
-In some environments, preempting peer workloads to admit my own job is undesirable, even if allowed by policy. 
-I want to express this constraint explicitly, without changing priority or affecting how my workload may be treated after admission.
+In some environments, preempting peer workloads to admit my own job is undesirable, even if policy allows such preemption. The motivation here is not urgency, but **preemption behavior**. I want to be able to express this constraint explicitly, without changing priority or altering how my workload may be treated *after* it has been admitted.
+
+Priority is often interpreted as “who should run first,” but in practice it is equally, and sometimes more, about “who should not be disrupted once admitted.”
+As @mwielgus nicely put it, the **“Gentle Giant”** is a helpful analogy. It describes a workload that carries a higher priority not because it must run immediately, but because once it starts, it should be allowed to proceed without being preempted.
+
+Such a job is patient rather than aggressive: it is willing to wait for capacity to become available naturally and only then begin execution. In this model, priority expresses *stability guarantees*, not impatience or urgency.
 
 #### Story 3
 **Improve multi-cluster workload placement**
