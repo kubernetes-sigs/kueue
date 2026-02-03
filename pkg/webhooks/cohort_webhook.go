@@ -22,7 +22,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -32,8 +31,7 @@ import (
 type CohortWebhook struct{}
 
 func setupWebhookForCohort(mgr ctrl.Manager, roleTracker *roletracker.RoleTracker) error {
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(&kueue.Cohort{}).
+	return ctrl.NewWebhookManagedBy(mgr, &kueue.Cohort{}).
 		WithValidator(&CohortWebhook{}).
 		WithLogConstructor(roletracker.WebhookLogConstructor(roleTracker)).
 		Complete()
@@ -45,26 +43,24 @@ func (w *CohortWebhook) Default(context.Context, runtime.Object) error {
 
 //+kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1beta2-cohort,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=cohorts,verbs=create;update,versions=v1beta2,name=vcohort.kb.io,admissionReviewVersions=v1
 
-var _ webhook.CustomValidator = &CohortWebhook{}
+var _ admission.Validator[*kueue.Cohort] = &CohortWebhook{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *CohortWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	cohort := obj.(*kueue.Cohort)
+func (w *CohortWebhook) ValidateCreate(ctx context.Context, cohort *kueue.Cohort) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("cohort-webhook")
 	log.V(5).Info("Validating Cohort create")
 	return nil, validateCohort(cohort).ToAggregate()
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *CohortWebhook) ValidateUpdate(ctx context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
-	cohort := newObj.(*kueue.Cohort)
+func (w *CohortWebhook) ValidateUpdate(ctx context.Context, _, cohort *kueue.Cohort) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("cohort-webhook")
 	log.V(5).Info("Validating Cohort update")
 	return nil, validateCohort(cohort).ToAggregate()
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *CohortWebhook) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
+func (w *CohortWebhook) ValidateDelete(_ context.Context, _ *kueue.Cohort) (admission.Warnings, error) {
 	return nil, nil
 }
 

@@ -30,22 +30,23 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	"sigs.k8s.io/kueue/pkg/util/webhook"
 )
 
 // BaseWebhook applies basic defaulting and validation for jobs.
-type BaseWebhook struct {
+type BaseWebhook[T any] struct {
 	Client                       client.Client
 	ManageJobsWithoutQueueName   bool
 	ManagedJobsNamespaceSelector labels.Selector
-	FromObject                   func(runtime.Object) GenericJob
+	FromObject                   func(T) GenericJob
 	Queues                       *qcache.Manager
 	Cache                        *schdcache.Cache
 }
 
-func BaseWebhookFactory(job GenericJob, fromObject func(runtime.Object) GenericJob) func(ctrl.Manager, ...Option) error {
+func BaseWebhookFactory[T runtime.Object](obj T, fromObject func(T) GenericJob) func(ctrl.Manager, ...Option) error {
 	return func(mgr ctrl.Manager, opts ...Option) error {
 		options := ProcessOptions(opts...)
-		wh := &BaseWebhook{
+		wh := &BaseWebhook[T]{
 			Client:                       mgr.GetClient(),
 			ManageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 			ManagedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
@@ -53,19 +54,19 @@ func BaseWebhookFactory(job GenericJob, fromObject func(runtime.Object) GenericJ
 			Queues:                       options.Queues,
 			Cache:                        options.Cache,
 		}
-		return ctrl.NewWebhookManagedBy(mgr).
-			For(job.Object()).
+		if options.NoopWebhook {
+			return webhook.SetupNoopWebhook(mgr, obj)
+		}
+		return ctrl.NewWebhookManagedBy(mgr, obj).
 			WithDefaulter(wh).
 			WithValidator(wh).
-			WithLogConstructor(WebhookLogConstructor(job.GVK(), options.RoleTracker)).
+			WithLogConstructor(WebhookLogConstructor(fromObject(obj).GVK(), options.RoleTracker)).
 			Complete()
 	}
 }
 
-var _ admission.CustomDefaulter = &BaseWebhook{}
-
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
-func (w *BaseWebhook) Default(ctx context.Context, obj runtime.Object) error {
+func (w *BaseWebhook[T]) Default(ctx context.Context, obj T) error {
 	job := w.FromObject(obj)
 	log := ctrl.LoggerFrom(ctx)
 	log.V(5).Info("Applying defaults")
@@ -77,10 +78,8 @@ func (w *BaseWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	return nil
 }
 
-var _ admission.CustomValidator = &BaseWebhook{}
-
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *BaseWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+func (w *BaseWebhook[T]) ValidateCreate(ctx context.Context, obj T) (admission.Warnings, error) {
 	job := w.FromObject(obj)
 	log := ctrl.LoggerFrom(ctx)
 	log.V(5).Info("Validating create")
@@ -96,7 +95,7 @@ func (w *BaseWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (a
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *BaseWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
+func (w *BaseWebhook[T]) ValidateUpdate(ctx context.Context, oldObj, newObj T) (admission.Warnings, error) {
 	oldJob := w.FromObject(oldObj)
 	newJob := w.FromObject(newObj)
 	log := ctrl.LoggerFrom(ctx)
@@ -113,7 +112,7 @@ func (w *BaseWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *BaseWebhook) ValidateDelete(context.Context, runtime.Object) (admission.Warnings, error) {
+func (w *BaseWebhook[T]) ValidateDelete(context.Context, T) (admission.Warnings, error) {
 	return nil, nil
 }
 
