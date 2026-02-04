@@ -41,7 +41,7 @@ Kueue 发布[指标](/docs/reference/metrics)以监控其控制器组件。
 如果你没有自己的监控系统，请使用 [kube-prometheus](https://github.com/prometheus-operator/kube-prometheus)。
 
 Kueue 中的 Webhook 服务使用内部证书管理来配置证书。如果你想使用第三方证书，例如
-[cert-manager](https://github.com/cert-manager/cert-manager)，请遵循[证书管理指南](/docs/tasks/manage/installation)。
+[cert-manager](https://github.com/cert-manager/cert-manager)，请遵循[证书管理指南](/docs/tasks/manage/productization/cert_manager)。
 
 [feature_gate]: https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/
 
