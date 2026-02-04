@@ -41,10 +41,8 @@ func NewRequests(rl corev1.ResourceList) Requests {
 	return r
 }
 
-// NewRequestsFromPodTemplate computes resource requests directly from a PodTemplateSpec,
-// bypassing quota filtering. Use for physical placement calculations.
-func NewRequestsFromPodTemplate(template *corev1.PodTemplateSpec) Requests {
-	return NewRequests(resourcehelpers.PodRequests(&corev1.Pod{Spec: template.Spec}, resourcehelpers.PodResourcesOptions{}))
+func NewRequestsFromPodSpec(podSpec *corev1.PodSpec) Requests {
+	return NewRequests(resourcehelpers.PodRequests(&corev1.Pod{Spec: *podSpec}, resourcehelpers.PodResourcesOptions{}))
 }
 
 func (r Requests) Clone() Requests {
@@ -147,6 +145,28 @@ func newCanonicalQuantity(v int64, preferredFormat resource.Format) resource.Qua
 func ResourceQuantityString(name corev1.ResourceName, v int64) string {
 	rq := ResourceQuantity(name, v)
 	return rq.String()
+}
+
+// GreaterKeys returns keys where the receiver is greater than other.
+func (r Requests) GreaterKeys(other Requests) []corev1.ResourceName {
+	if len(r) == 0 || len(other) == 0 {
+		return nil
+	}
+	var result []corev1.ResourceName
+	for name, value := range r {
+		if otherValue, found := other[name]; found && value > otherValue {
+			result = append(result, name)
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+// GreaterKeysRL compares against a ResourceList and returns larger keys.
+func (r Requests) GreaterKeysRL(rl corev1.ResourceList) []corev1.ResourceName {
+	return r.GreaterKeys(NewRequests(rl))
 }
 
 func (r Requests) CountIn(capacity Requests) int32 {
