@@ -5,6 +5,11 @@ date: 2022-02-14
 description: >
   Prometheus metrics exported by Kueue
 ---
+
+{{% alert title="Note" color="primary" %}}
+To enable metrics scraping, see [Setup Prometheus](/docs/tasks/manage/observability/setup_prometheus).
+{{% /alert %}}
+
 Kueue exposes [prometheus](https://prometheus.io) metrics to monitor the health
 of the system and the status of [ClusterQueues](/docs/concepts/cluster_queue)
 and [LocalQueues](/docs/concepts/local_queue).
