@@ -556,4 +556,3 @@ func isPodOnNode(pod *corev1.Pod, node *corev1.Node, levels []string) bool {
 	}
 	return true
 }
-
