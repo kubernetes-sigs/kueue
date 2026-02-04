@@ -136,6 +136,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | kueueViz.backend.ingress.tlsSecretName | string | `"kueueviz-backend-tls"` | KueueViz dashboard backend ingress tls secret name |
 | kueueViz.backend.nodeSelector | object | `{}` | KueueViz backend nodeSelector |
 | kueueViz.backend.priorityClassName | string | `nil` | Enable PriorityClass for KueueViz dashboard backend deployments |
+| kueueViz.backend.resources | object | `{"limits":{"cpu":"500m","memory":"512Mi"},"requests":{"cpu":"500m","memory":"512Mi"}}` | KueueViz backend pod resources |
 | kueueViz.backend.tolerations | list | `[]` | KueueViz backend tolerations |
 | kueueViz.frontend.env | list | `[{"name":"REACT_APP_WEBSOCKET_URL","value":"wss://backend.kueueviz.local"}]` | Environment variables for KueueViz frontend deployment |
 | kueueViz.frontend.image.pullPolicy | string | `"Always"` | KueueViz dashboard frontend image pullPolicy. This should be set to 'IfNotPresent' for released version |
@@ -148,6 +149,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | kueueViz.frontend.ingress.tlsSecretName | string | `"kueueviz-frontend-tls"` | KueueViz dashboard frontend ingress tls secret name |
 | kueueViz.frontend.nodeSelector | object | `{}` | KueueViz frontend nodeSelector |
 | kueueViz.frontend.priorityClassName | string | `nil` | Enable PriorityClass for KueueViz dashboard frontend deployments |
+| kueueViz.frontend.resources | object | `{"limits":{"cpu":"500m","memory":"512Mi"},"requests":{"cpu":"500m","memory":"512Mi"}}` | KueueViz frontend pod resources |
 | kueueViz.frontend.tolerations | list | `[]` | KueueViz frontend tolerations |
 | managerConfig.controllerManagerConfigYaml | string | controllerManagerConfigYaml | controller_manager_config.yaml. ControllerManager utilizes this yaml via manager-config Configmap. |
 | metrics.prometheusNamespace | string | `"monitoring"` | Prometheus namespace |
