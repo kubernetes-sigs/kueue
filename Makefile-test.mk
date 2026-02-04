@@ -347,15 +347,14 @@ ifdef SCALABILITY_SCRAPE_URL
 SCALABILITY_SCRAPE_ARGS +=  --metricsScrapeURL=$(SCALABILITY_SCRAPE_URL)
 endif
 
-SCALABILITY_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/performance/scheduler/default_generator_config.yaml
+SCALABILITY_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/performance/scheduler/configs/baseline/generator.yaml
 
-SCALABILITY_RUN_DIR := $(ARTIFACTS)/run-performance-scheduler
 .PHONY: run-performance-scheduler
 run-performance-scheduler: envtest performance-scheduler-runner minimalkueue
-	mkdir -p $(SCALABILITY_RUN_DIR)
+	mkdir -p $(ARTIFACTS)
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	$(SCALABILITY_RUNNER) \
-		--o $(SCALABILITY_RUN_DIR) \
+		--o $(ARTIFACTS) \
 		--crds=$(PROJECT_DIR)/config/components/crd/bases \
 		--generatorConfig=$(SCALABILITY_GENERATOR_CONFIG) \
 		--minimalKueue=$(MINIMALKUEUE_RUNNER) $(SCALABILITY_EXTRA_ARGS) $(SCALABILITY_SCRAPE_ARGS)
@@ -363,22 +362,59 @@ run-performance-scheduler: envtest performance-scheduler-runner minimalkueue
 .PHONY: test-performance-scheduler-once
 test-performance-scheduler-once: gotestsum run-performance-scheduler
 	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) ./test/performance/scheduler/checker  \
-		--summary=$(SCALABILITY_RUN_DIR)/summary.yaml \
-		--cmdStats=$(SCALABILITY_RUN_DIR)/minimalkueue.stats.yaml \
-		--range=$(PROJECT_DIR)/test/performance/scheduler/default_rangespec.yaml
+		--summary=$(ARTIFACTS)/summary.yaml \
+		--cmdStats=$(ARTIFACTS)/minimalkueue.stats.yaml \
+		--range=$(PROJECT_DIR)/test/performance/scheduler/configs/baseline/rangespec.yaml
 
 PERFORMANCE_RETRY_COUNT?=2
 .PHONY: test-performance-scheduler
 test-performance-scheduler:
-	ARTIFACTS=$(ARTIFACTS) ./hack/performance-retry.sh $(PERFORMANCE_RETRY_COUNT)
+	ARTIFACTS="$(ARTIFACTS)/$@" ./hack/performance-retry.sh $(PERFORMANCE_RETRY_COUNT) test-performance-scheduler-once
 
 .PHONY: run-performance-scheduler-in-cluster
 run-performance-scheduler-in-cluster: envtest performance-scheduler-runner
-	mkdir -p $(ARTIFACTS)/run-performance-scheduler-in-cluster
+	mkdir -p "$(ARTIFACTS)/$@"
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	$(SCALABILITY_RUNNER) \
-		--o $(ARTIFACTS)/run-performance-scheduler-in-cluster \
+		--o "$(ARTIFACTS)/$@" \
 		--generatorConfig=$(SCALABILITY_GENERATOR_CONFIG) \
+		--qps=1000 --burst=2000 --timeout=15m $(SCALABILITY_SCRAPE_ARGS)
+
+##@ Scheduler Performance Testing with TAS
+
+SCALABILITY_TAS_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/performance/scheduler/configs/tas/generator.yaml
+SCALABILITY_TAS_RANGE_FILE ?= $(PROJECT_DIR)/test/performance/scheduler/configs/tas/rangespec.yaml
+
+.PHONY: run-tas-performance-scheduler
+run-tas-performance-scheduler: envtest performance-scheduler-runner minimalkueue
+	mkdir -p $(ARTIFACTS)
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
+	$(SCALABILITY_RUNNER) \
+		--o $(ARTIFACTS) \
+		--crds=$(PROJECT_DIR)/config/components/crd/bases \
+		--generatorConfig=$(SCALABILITY_TAS_GENERATOR_CONFIG) \
+		--minimalKueue=$(MINIMALKUEUE_RUNNER) \
+		--enableTAS=true $(SCALABILITY_EXTRA_ARGS) $(SCALABILITY_SCRAPE_ARGS)
+
+.PHONY: test-tas-performance-scheduler-once
+test-tas-performance-scheduler-once: gotestsum run-tas-performance-scheduler
+	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) ./test/performance/scheduler/checker  \
+		--summary=$(ARTIFACTS)/summary.yaml \
+		--cmdStats=$(ARTIFACTS)/minimalkueue.stats.yaml \
+		--range=$(SCALABILITY_TAS_RANGE_FILE)
+
+.PHONY: test-tas-performance-scheduler
+test-tas-performance-scheduler:
+	ARTIFACTS="$(ARTIFACTS)/$@" ./hack/performance-retry.sh $(PERFORMANCE_RETRY_COUNT) test-tas-performance-scheduler-once
+
+.PHONY: run-tas-performance-scheduler-in-cluster
+run-tas-performance-scheduler-in-cluster: envtest performance-scheduler-runner
+	mkdir -p "$(ARTIFACTS)/$@"
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
+	$(SCALABILITY_RUNNER) \
+		--o "$(ARTIFACTS)/$@" \
+		--generatorConfig=$(SCALABILITY_TAS_GENERATOR_CONFIG) \
+		--enableTAS=true \
 		--qps=1000 --burst=2000 --timeout=15m $(SCALABILITY_SCRAPE_ARGS)
 
 .PHONY: ginkgo-top
