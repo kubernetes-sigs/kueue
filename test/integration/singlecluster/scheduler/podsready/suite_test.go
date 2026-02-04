@@ -96,7 +96,7 @@ func managerAndSchedulerSetup(configuration *config.Configuration) framework.Man
 		cCache := schdcache.New(mgr.GetClient(), cacheOpts...)
 		queues := qcache.NewManager(mgr.GetClient(), cCache, queuesOpts...)
 
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil)
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		failedWebhook, err := webhooks.Setup(mgr, nil)

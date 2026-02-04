@@ -182,6 +182,8 @@ function patch_kind_config_for_dra {
     cp "$1" "$patched_config"
 
     $YQ -i '.featureGates.DynamicResourceAllocation = true' "$patched_config"
+    # Enable Extended Resources (alpha feature in k8s 1.35)
+    $YQ -i '.featureGates.DRAExtendedResource = true' "$patched_config"
     $YQ -i '.containerdConfigPatches += ["[plugins.\"io.containerd.grpc.v1.cri\"]\n  enable_cdi = true"]' "$patched_config"
     $YQ -i '(.nodes[] | select(.role == "control-plane")).kubeadmConfigPatches[0] = "kind: ClusterConfiguration
 apiVersion: kubeadm.k8s.io/v1beta3
