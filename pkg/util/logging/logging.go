@@ -19,6 +19,7 @@ package logging
 import (
 	arrayslices "slices"
 	"strings"
+	"unicode"
 
 	"go.uber.org/zap/zapcore"
 	"k8s.io/klog/v2"
@@ -56,11 +57,11 @@ type CustomLogProcessor struct {
 	zapcore.Core
 }
 
-func (core CustomLogProcessor) Check(entry zapcore.Entry, checkedEntries *zapcore.CheckedEntry) *zapcore.CheckedEntry {
+func (core CustomLogProcessor) Check(entry zapcore.Entry, checkedEntry *zapcore.CheckedEntry) *zapcore.CheckedEntry {
 	if core.Enabled(entry.Level) {
-		return checkedEntries.AddCore(entry, core)
+		return checkedEntry.AddCore(entry, core)
 	}
-	return checkedEntries
+	return checkedEntry
 }
 
 func (core CustomLogProcessor) Write(entry zapcore.Entry, fields []zapcore.Field) error {
@@ -75,21 +76,18 @@ const concurrentModificationErrorSuffix = "the object has been modified; please 
 const concurrentModificationErrorPrefix = "Operation cannot be fulfilled on"
 
 func isEntryAConcurrentModificationError(entry zapcore.Entry, fields []zapcore.Field) bool {
-	errorDetailsFieldKey := "error"
-
 	if entry.Level != zapcore.ErrorLevel {
 		return false
 	}
 	return arrayslices.ContainsFunc(fields, func(field zapcore.Field) bool {
-		isErrorField := field.Key == errorDetailsFieldKey && field.Type == zapcore.ErrorType
-		if !isErrorField {
+		if field.Key != "error" || field.Type != zapcore.ErrorType {
 			return false
 		}
 		err := field.Interface.(error)
 		if err == nil {
 			return false
 		}
-		errorDescription := err.Error()
+		errorDescription := strings.TrimFunc(err.Error(), unicode.IsSpace)
 		// Error messages sometimes are additionally prefixed like: "clearing admission: %w"
 		// therefore we use Contains instead of HasPrefix to also detect those messages
 		return strings.Contains(errorDescription, concurrentModificationErrorPrefix) && strings.HasSuffix(errorDescription, concurrentModificationErrorSuffix)

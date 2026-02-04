@@ -17,8 +17,6 @@ limitations under the License.
 package core
 
 import (
-	"strings"
-
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"go.uber.org/zap/zapcore"
@@ -1055,7 +1053,10 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		})
 
-		ginkgo.It("Should log reconciler concurrent modification errors with log level smaller than error", func() {
+		ginkgo.It("Should log concurrent modification errors with log level smaller than error", func() {
+			var _ = fwk.ObservedLogs.TakeAll() // clear logs
+
+			const nGoroutines = 25
 			stopModification := make(chan bool)
 
 			// local helper that sets cq status to pending, at the same time
@@ -1076,29 +1077,31 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 							Reason:  "ByTest",
 							Message: "by test",
 						})
-						g.Expect(k8sClient.Status().Update(ctx, &updatedCq)).Should(gomega.Succeed())
+						// we do not expect here as status update in some of the calls is expected to fail
+						// due to concurrent modification
+						var _ = k8sClient.Status().Update(ctx, &updatedCq)
 						return false
 					}
 				}, util.Timeout, util.Interval).To(gomega.BeTrue())
 			}
-
-			go setClusterStatusPending()
+			for range nGoroutines {
+				go setClusterStatusPending()
+			}
 
 			gomega.Eventually(func(g gomega.Gomega) {
-				reconcileLogs := util.ObservedLogs.FilterMessage("Reconciler error")
+				reconcileLogs := fwk.ObservedLogs
 
-				reconcileConcurrentModificationLogs := reconcileLogs.Filter(
-					func(le observer.LoggedEntry) bool {
-						errorDetals := le.ContextMap()["error"].(string)
-						expectedConcurrentModicationDetails := "the object has been modified; please apply your changes to the latest version and try again"
-						return strings.Contains(errorDetals, expectedConcurrentModicationDetails)
-					})
+				reconcileConcurrentModificationLogs := reconcileLogs.Filter(util.IsLoggedEntryAConcurrentModification)
 				g.Expect(reconcileConcurrentModificationLogs.All()).ShouldNot(gomega.BeEmpty(),
-					"There should be some reconciler concurrent modifcation error log entries")
-				g.Expect(reconcileConcurrentModificationLogs.FilterLevelExact(zapcore.ErrorLevel).All()).Should(gomega.BeEmpty(),
-					"Log level should not be error")
+					"There should be some concurrent modifcation error log entries")
+				g.Expect(reconcileConcurrentModificationLogs.Filter(func(le observer.LoggedEntry) bool {
+					return le.Level >= zapcore.ErrorLevel
+				}).All()).Should(gomega.BeEmpty(),
+					"Log level should be smaller than error")
 
-				stopModification <- true
+				for range nGoroutines {
+					stopModification <- true
+				}
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})

@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -87,6 +88,12 @@ func init() {
 
 var SetupLogger = sync.OnceFunc(func() {
 	ctrl.SetLogger(NewTestingLogger(ginkgo.GinkgoWriter))
+})
+
+var SetupLoggerGetObservedLogs = sync.OnceValue(func() *observer.ObservedLogs {
+	logger, observedLogs := NewTestingLoggerAndObservedLogs(ginkgo.GinkgoWriter)
+	ctrl.SetLogger(logger)
+	return observedLogs
 })
 
 type objAsPtr[T any] interface {
@@ -1096,14 +1103,16 @@ func ExpectPreemptedCondition(ctx context.Context, k8sClient client.Client, reas
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
-var ObservedLogs *observer.ObservedLogs
-
 func NewTestingLogger(writer io.Writer) logr.Logger {
+	logger, _ := NewTestingLoggerAndObservedLogs(writer)
+	return logger
+}
+
+func NewTestingLoggerAndObservedLogs(writer io.Writer) (logr.Logger, *observer.ObservedLogs) {
 	level := utiltesting.LogLevelWithDefault(utiltesting.DefaultLogLevel)
 	zapcoreLevel := zapcore.Level(level)
 
-	var logsObserver zapcore.Core
-	logsObserver, ObservedLogs = observer.New(zapcoreLevel)
+	logsObserver, observedLogs := observer.New(zapcoreLevel)
 
 	logsObserverWrapper := zaplog.WrapCore(func(core zapcore.Core) zapcore.Core {
 		return utillogging.NewCustomLogProcessor(zapcore.NewTee(logsObserver, core))
@@ -1119,7 +1128,7 @@ func NewTestingLogger(writer io.Writer) logr.Logger {
 		zap.WriteTo(writer),
 		zap.UseDevMode(true),
 		zap.Level(zapcoreLevel),
-		opts)
+		opts), observedLogs
 }
 
 // WaitForNextSecondAfterCreation wait time between the start of the next second
@@ -1491,4 +1500,23 @@ func workloadKeys(wls []*kueue.Workload) []client.ObjectKey {
 
 func uniqueKeys(keys []client.ObjectKey) []client.ObjectKey {
 	return sets.New[client.ObjectKey](keys...).UnsortedList()
+}
+
+func VerifyLogs(observedLogs *observer.ObservedLogs) {
+	errorOrMoreSevereLogs := observedLogs.Filter(func(le observer.LoggedEntry) bool {
+		return le.Level >= zapcore.ErrorLevel
+	})
+
+	concurrentModificationErrorLogs := errorOrMoreSevereLogs.Filter(IsLoggedEntryAConcurrentModification)
+
+	gomega.ExpectWithOffset(1, concurrentModificationErrorLogs.TakeAll()).To(gomega.BeEmpty())
+}
+
+func IsLoggedEntryAConcurrentModification(le observer.LoggedEntry) bool {
+	if le.ContextMap()["error"] == nil {
+		return false
+	}
+	errorDetals := le.ContextMap()["error"].(string)
+	expectedConcurrentModiciationDetails := "the object has been modified; please apply your changes to the latest version and try again"
+	return strings.Contains(errorDetals, expectedConcurrentModiciationDetails)
 }

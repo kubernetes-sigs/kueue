@@ -34,6 +34,7 @@ import (
 	"github.com/onsi/gomega"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	"go.uber.org/zap/zaptest/observer"
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
@@ -78,10 +79,12 @@ type Framework struct {
 
 	managerCancel context.CancelFunc
 	managerDone   <-chan struct{}
+
+	ObservedLogs *observer.ObservedLogs
 }
 
 func (f *Framework) Init() *rest.Config {
-	util.SetupLogger()
+	f.ObservedLogs = util.SetupLoggerGetObservedLogs()
 
 	var cfg *rest.Config
 	ginkgo.By("bootstrapping test environment", func() {
@@ -248,6 +251,7 @@ func (f *Framework) Teardown() {
 	}
 	err := f.testEnv.Stop()
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	util.VerifyLogs(f.ObservedLogs)
 }
 
 var (
