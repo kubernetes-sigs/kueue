@@ -262,7 +262,7 @@ var (
 // Clean labels that are managed by the job controller except job-name label.
 func cleanLabels(pt *corev1.PodTemplateSpec) *corev1.PodTemplateSpec {
 	for _, managedLabel := range managedLabels {
-		if features.Enabled(features.PropagateBatchJobLabelsToWorkload) && managedLabel == batchv1.JobNameLabel {
+		if managedLabel == batchv1.JobNameLabel {
 			continue
 		}
 		delete(pt.Labels, managedLabel)
