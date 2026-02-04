@@ -288,6 +288,38 @@ run-test-e2e-dra-%:
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		./hack/e2e-test.sh
 
+# Run e2e tests against k/k main (latest CI build) with WAS enabled
+K8S_MAIN_NODE_IMAGE ?= k8s-main:latest
+.PHONY: test-e2e-k8s-main-was
+test-e2e-k8s-main-was: setup-e2e-env kueuectl kind-k8s-main-image-build kind-ray-project-mini-image-build run-test-e2e-k8s-main-was
+
+.PHONY: kind-k8s-main-image-build
+kind-k8s-main-image-build: kind
+	@echo "Fetching latest Kubernetes CI build version..."
+	$(eval K8S_CI_VERSION := $(shell curl -sL https://dl.k8s.io/ci/latest.txt))
+	@echo "Building kind node image from k/k main: $(K8S_CI_VERSION)"
+	$(KIND) build node-image --image=$(K8S_MAIN_NODE_IMAGE) \
+		"https://dl.k8s.io/ci/$(K8S_CI_VERSION)/kubernetes-server-linux-$(shell go env GOARCH).tar.gz"
+
+.PHONY: run-test-e2e-k8s-main-was
+run-test-e2e-k8s-main-was:
+	@echo Running e2e for k8s main with WAS enabled
+	E2E_KIND_VERSION="$(K8S_MAIN_NODE_IMAGE)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
+		E2E_MODE=$(E2E_MODE) \
+		APPWRAPPER_VERSION=$(APPWRAPPER_VERSION) \
+		JOBSET_VERSION=$(JOBSET_VERSION) \
+		KUBEFLOW_VERSION=$(KUBEFLOW_VERSION) \
+		KUBEFLOW_TRAINER_VERSION=$(KUBEFLOW_TRAINER_VERSION) \
+		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
+		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster" \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
+		E2E_USE_HELM=$(E2E_USE_HELM) \
+		WAS_ENABLED=true \
+		./hack/e2e-test.sh
+
 SCALABILITY_RUNNER := $(BIN_DIR)/performance-scheduler-runner
 .PHONY: performance-scheduler-runner
 performance-scheduler-runner:
