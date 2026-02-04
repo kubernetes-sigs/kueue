@@ -126,6 +126,7 @@ Introduce workload-level admission constraints expressed via annotations:
 
 * `kueue.x-k8s.io/cannot-preempt`
 * `kueue.x-k8s.io/cannot-borrow`
+
 When set to `"true"`, these annotations restrict the mechanisms Kueue may use during admission:
 
 * Annotations are defined at the Job level and propagated to the corresponding Workload.
