@@ -30,7 +30,120 @@ if [[ "${E2E_MODE}" != "ci" && "${E2E_MODE}" != "dev" ]]; then
     exit 2
 fi
 
+# When set (truthy), external operators are forcefully re-installed even in E2E_MODE=dev.
+export E2E_ENFORCE_OPERATOR_UPDATE="${E2E_ENFORCE_OPERATOR_UPDATE:-false}"
+
 export KIND_VERSION="${E2E_KIND_VERSION/"kindest/node:v"/}"
+
+E2E_OPERATOR_CACHE_NAMESPACE="kube-system"
+E2E_OPERATOR_CACHE_CONFIGMAP="e2e-operator-cache"
+
+function e2e_is_truthy {
+    case "${1:-}" in
+        1|true|TRUE|True|yes|YES|Yes|y|Y|on|ON|On) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+function e2e_operator_cache_get {
+    local key=$1
+    local kubeconfig=${2:-}
+    local -a kubectl_args=()
+    if [[ -n "${kubeconfig}" ]]; then
+        kubectl_args+=(--kubeconfig="${kubeconfig}")
+    fi
+
+    # Use go-template to safely index keys (jsonpath doesn't handle '-' keys well).
+    kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} -n "${E2E_OPERATOR_CACHE_NAMESPACE}" \
+        get configmap "${E2E_OPERATOR_CACHE_CONFIGMAP}" \
+        -o go-template="{{ index .data \"${key}\" }}" 2>/dev/null || true
+}
+
+function e2e_operator_cache_set_installed {
+    local key=$1
+    local kubeconfig=${2:-}
+    local -a kubectl_args=()
+    if [[ -n "${kubeconfig}" ]]; then
+        kubectl_args+=(--kubeconfig="${kubeconfig}")
+    fi
+
+    # Ensure the ConfigMap exists (idempotent).
+    kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} -n "${E2E_OPERATOR_CACHE_NAMESPACE}" \
+        create configmap "${E2E_OPERATOR_CACHE_CONFIGMAP}" \
+        --from-literal=initialized=true \
+        --dry-run=client -o yaml \
+      | kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} apply --server-side -f -
+
+    kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} -n "${E2E_OPERATOR_CACHE_NAMESPACE}" \
+        patch configmap "${E2E_OPERATOR_CACHE_CONFIGMAP}" \
+        --type merge \
+        -p "{\"data\":{\"${key}\":\"installed\"}}"
+}
+
+function e2e_should_skip_operator {
+    local key=$1
+    local kubeconfig=${2:-}
+
+    [[ "${E2E_MODE}" == "dev" ]] || return 1
+    e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}" && return 1
+
+    local marker=""
+    marker=$(e2e_operator_cache_get "${key}" "${kubeconfig}")
+    [[ -n "${marker}" ]]
+}
+
+function e2e_operator_pretty_name {
+    local key=$1
+    case "${key}" in
+        appwrapper) echo "AppWrapper" ;;
+        jobset) echo "JobSet" ;;
+        kubeflow-training-operator) echo "Kubeflow Training Operator" ;;
+        kubeflow-trainer) echo "Kubeflow Trainer" ;;
+        kubeflow-mpi-operator) echo "Kubeflow MPI operator" ;;
+        leaderworkerset) echo "LeaderWorkerSet" ;;
+        kuberay) echo "KubeRay operator" ;;
+        cert-manager) echo "cert-manager" ;;
+        clusterprofile-crd) echo "ClusterProfile CRD" ;;
+        dra-example-driver) echo "DRA example driver" ;;
+        *) echo "${key}" ;;
+    esac
+}
+
+# Ensures an operator is installed once per (reused) dev cluster.
+#
+# Args:
+#  $1 operator key (cache key; used for install dispatch)
+#  $2 cluster name (optional; required by some installers)
+#  $3 kubeconfig (optional; required by most installers)
+function e2e_ensure_operator_installed {
+    local key=$1
+    local cluster_name=${2:-${e2e_cluster_name:-}}
+    local kubeconfig=${3:-${e2e_kubeconfig:-}}
+
+    if e2e_should_skip_operator "${key}" "${kubeconfig}"; then
+        echo "$(e2e_operator_pretty_name "${key}") already installed; skipping install (E2E_MODE=dev)."
+        return 0
+    fi
+
+    case "${key}" in
+        appwrapper) install_appwrapper "${cluster_name}" "${kubeconfig}" ;;
+        jobset) install_jobset "${cluster_name}" "${kubeconfig}" ;;
+        kubeflow-training-operator) install_kubeflow "${cluster_name}" "${kubeconfig}" ;;
+        kubeflow-trainer) install_kubeflow_trainer "${cluster_name}" "${kubeconfig}" ;;
+        kubeflow-mpi-operator) install_mpi "${cluster_name}" "${kubeconfig}" ;;
+        leaderworkerset) install_lws "${cluster_name}" "${kubeconfig}" ;;
+        kuberay) install_kuberay "${cluster_name}" "${kubeconfig}" ;;
+        cert-manager) install_cert_manager "${kubeconfig}" ;;
+        clusterprofile-crd) install_multicluster "${kubeconfig}" ;;
+        dra-example-driver) install_dra_example_driver "${cluster_name}" "${kubeconfig}" ;;
+        *)
+            echo "Unknown operator key: ${key}" >&2
+            return 2
+            ;;
+    esac
+
+    e2e_operator_cache_set_installed "${key}" "${kubeconfig}"
+}
 
 if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:appwrapper || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export APPWRAPPER_MANIFEST=${ROOT_DIR}/dep-crds/appwrapper/config/default
@@ -320,43 +433,46 @@ function cluster_kind_load {
 function kind_load {
     kubectl config --kubeconfig="$2" use-context "kind-$1"
 
+    local e2e_cluster_name=$1
+    local e2e_kubeconfig=$2
+
     if kind_cluster_exists "$1"; then
         cluster_kind_load "$1"
     fi
     if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:appwrapper || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
-        install_appwrapper "$1" "$2"
+        e2e_ensure_operator_installed "appwrapper"
     fi
     if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
-        install_jobset "$1" "$2"
+        e2e_ensure_operator_installed "jobset"
     fi
     if [[ -n ${KUBEFLOW_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jaxjob|pytorchjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         # In order for MPI-operator and Training-operator to work on the same cluster it is required that:
         # 1. 'kubeflow.org_mpijobs.yaml' is removed from base/crds/kustomization.yaml - https://github.com/kubeflow/training-operator/issues/1930
         # 2. Training-operator deployment is modified to enable all kubeflow jobs except for mpi -  https://github.com/kubeflow/training-operator/issues/1777
-        install_kubeflow "$1" "$2"
+        e2e_ensure_operator_installed "kubeflow-training-operator"
     fi
 
     if [[ -n ${KUBEFLOW_TRAINER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(tas|trainjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
-        install_kubeflow_trainer "$1" "$2"
+        e2e_ensure_operator_installed "kubeflow-trainer"
     fi
 
     if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
-        install_mpi "$1" "$2"
+        e2e_ensure_operator_installed "kubeflow-mpi-operator"
     fi
     if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:leaderworkerset || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
-        install_lws "$1" "$2"
+        e2e_ensure_operator_installed "leaderworkerset"
     fi
     if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
-        install_kuberay "$1" "$2"
+        e2e_ensure_operator_installed "kuberay"
     fi
     if [[ -n ${CERTMANAGER_VERSION:-} ]]; then
-        install_cert_manager "$2"
+        e2e_ensure_operator_installed "cert-manager"
     fi
     if [[ -n ${CLUSTERPROFILE_VERSION:-} ]]; then
-        install_multicluster "$2"
+        e2e_ensure_operator_installed "clusterprofile-crd"
     fi
     if [[ -n ${DRA_EXAMPLE_DRIVER_VERSION:-} ]]; then
-        install_dra_example_driver "$1" "$2"
+        e2e_ensure_operator_installed "dra-example-driver"
     fi
 }
 
@@ -534,29 +650,24 @@ function install_kuberay {
         kubectl_args+=(--kubeconfig="${kubeconfig}")
     fi
 
+    # If KubeRay is already present but we don't have the install marker yet (first run after
+    # introducing the marker), avoid failing on "create -k" in dev mode.
+    if [[ "${E2E_MODE}" == "dev" ]] && ! e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
+        if kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} get deployment kuberay-operator -n default >/dev/null 2>&1; then
+            echo "KubeRay operator already present; skipping create (E2E_MODE=dev)."
+            return 0
+        fi
+    fi
+
     cluster_kind_load_image "$name" "${KUBERAY_RAY_IMAGE}"
     cluster_kind_load_image "$name" "${KUBERAY_IMAGE}"
     # In E2E_MODE=dev we keep and reuse the kind cluster between runs.
     #
     # "kubectl create -k" is used instead of apply (https://github.com/ray-project/kuberay/issues/504),
     # but it is not idempotent: it exits non-zero if any objects already exist.
-    #
-    # For dev reruns, we want idempotence:
-    # - if KubeRay looks fully installed at the desired version, skip
-    # - if KubeRay exists but the version changed, remove and recreate
-    if [[ "${E2E_MODE}" == "dev" ]]; then
-        if kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} get deployment kuberay-operator -n default >/dev/null 2>&1; then
-            local deployed_image=""
-            deployed_image=$(kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} get deployment kuberay-operator -n default -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true)
-            deployed_image="${deployed_image%@*}"
-            if [[ -n "${deployed_image}" && "${deployed_image}" == "${KUBERAY_IMAGE}" ]]; then
-                echo "KubeRay operator already installed at ${deployed_image}; skipping install (E2E_MODE=dev)."
-                return 0
-            fi
 
-            echo "KubeRay operator exists but version differs (installed='${deployed_image:-unknown}', desired='${KUBERAY_IMAGE}'); reinstalling (E2E_MODE=dev)."
-            kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} delete -k "${KUBERAY_MANIFEST}" --ignore-not-found=true
-        fi
+    if e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
+        kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} delete -k "${KUBERAY_MANIFEST}" --ignore-not-found=true
     fi
     kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} create -k "${KUBERAY_MANIFEST}"
 }
