@@ -26,10 +26,12 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
+	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
@@ -145,7 +147,7 @@ func (r *nodeFailureReconciler) Update(e event.TypedUpdateEvent[*corev1.Node]) b
 		r.logger().V(4).Info("Node Ready status changed, triggering reconcile", "node", klog.KObj(e.ObjectNew), "oldReady", oldReady, "newReady", newReady)
 		return true
 	}
-	if features.Enabled(features.TASTaintEviction) && !taintsEqual(e.ObjectOld.Spec.Taints, e.ObjectNew.Spec.Taints) {
+	if features.Enabled(features.TASTaintEviction) && !equality.Semantic.DeepEqual(e.ObjectOld.Spec.Taints, e.ObjectNew.Spec.Taints) {
 		r.logger().V(4).Info("Node taints changed, triggering reconcile", "node", klog.KObj(e.ObjectNew))
 		return true
 	}
@@ -207,7 +209,7 @@ func (r *nodeFailureReconciler) getWorkloadsOnNode(ctx context.Context, nodeName
 }
 
 func hasTASAssignmentOnNode(wl *kueue.Workload, nodeName string) bool {
-	if !isAdmittedByTAS(wl) {
+	if !workload.IsAdmittedByTAS(wl) {
 		return false
 	}
 	for _, podSetAssignment := range wl.Status.Admission.PodSetAssignments {
@@ -399,32 +401,8 @@ func (r *nodeFailureReconciler) isNodeUnhealthyForWorkload(ctx context.Context, 
 	untoleratedNoExecuteTaints := make([]corev1.Taint, 0, len(taints))
 	toleratedNoExecuteTaints := make([]corev1.Taint, 0, len(taints))
 
-	podsAreAssigned := false
-	var podSetsToCheck []kueue.PodSet
-	for _, psa := range wl.Status.Admission.PodSetAssignments {
-		// check if this assignment includes this node
-		assigned := false
-		if psa.TopologyAssignment != nil && utiltas.IsLowestLevelHostname(psa.TopologyAssignment.Levels) {
-			for val := range utiltas.LowestLevelValues(psa.TopologyAssignment) {
-				if val == node.Name {
-					assigned = true
-					break
-				}
-			}
-		}
-		if assigned {
-			podsAreAssigned = true
-			// Find the PodSet in Spec
-			for _, ps := range wl.Spec.PodSets {
-				if ps.Name == psa.Name {
-					podSetsToCheck = append(podSetsToCheck, ps)
-					break
-				}
-			}
-		}
-	}
-
-	if !podsAreAssigned {
+	podSetsToCheck := workload.PodSetsOnNode(wl, node.Name)
+	if len(podSetsToCheck) == 0 {
 		return false, false, nil
 	}
 
@@ -432,21 +410,17 @@ func (r *nodeFailureReconciler) isNodeUnhealthyForWorkload(ctx context.Context, 
 		if t.Effect != corev1.TaintEffectNoExecute {
 			continue
 		}
-		tolerated := true
+		untoleratedByAny := false
 		for _, ps := range podSetsToCheck {
-			toleratedByPS := false
-			for _, tol := range ps.Template.Spec.Tolerations {
-				if tol.ToleratesTaint(klog.Background(), &t, true) {
-					toleratedByPS = true
-					break
-				}
-			}
-			if !toleratedByPS {
-				tolerated = false
+			_, untolerated := corev1helpers.FindMatchingUntoleratedTaint(klog.Background(), []corev1.Taint{t}, ps.Template.Spec.Tolerations, func(t *corev1.Taint) bool {
+				return t.Effect == corev1.TaintEffectNoExecute
+			}, true)
+			if untolerated {
+				untoleratedByAny = true
 				break
 			}
 		}
-		if !tolerated {
+		if untoleratedByAny {
 			untoleratedNoExecuteTaints = append(untoleratedNoExecuteTaints, t)
 		} else {
 			toleratedNoExecuteTaints = append(toleratedNoExecuteTaints, t)
@@ -511,16 +485,4 @@ func (r *nodeFailureReconciler) addUnhealthyNode(ctx context.Context, wl *kueue.
 		})
 	}
 	return nil
-}
-
-func taintsEqual(a, b []corev1.Taint) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i].Key != b[i].Key || a[i].Value != b[i].Value || a[i].Effect != b[i].Effect || !a[i].TimeAdded.Equal(b[i].TimeAdded) {
-			return false
-		}
-	}
-	return true
 }
