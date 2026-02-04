@@ -252,3 +252,43 @@ tests:
     asserts:
       - notExists:
           path: spec.template.spec.containers[0].env[0]
+  - it: should not render backend ingress when backend ingress is disabled
+    template: kueueviz/backend-ingress.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          ingress:
+            enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+  - it: should not render frontend ingress when frontend ingress is disabled
+    template: kueueviz/frontend-ingress.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        frontend:
+          ingress:
+            enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+  - it: should render backend ingress when backend ingress is enabled (default)
+    template: kueueviz/backend-ingress.yaml
+    set:
+      enableKueueViz: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Ingress
+  - it: should render frontend ingress when frontend ingress is enabled (default)
+    template: kueueviz/frontend-ingress.yaml
+    set:
+      enableKueueViz: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Ingress
