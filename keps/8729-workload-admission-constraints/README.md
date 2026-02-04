@@ -56,6 +56,7 @@ This proposal enables workloads to express *how they may be admitted* without ch
 
   * preemption
   * borrowing
+  
 * Preserve cluster-wide ownership of scheduling, fairness, and quota policy.
 * Avoid changes to runtime preemption semantics.
 * Maintain backward compatibility and default behavior.
@@ -162,6 +163,20 @@ This KEP does not propose introducing per-PodSet scheduling constraints. Admissi
 * Constraints are evaluated **only during admission**.
 * Constraints are **unidirectional**: they restrict what the workload is allowed to do during admission but do not affect how other workloads may interact with it.
 * If constraints cannot be satisfied, the workload remains pending.
+  * Failed constraints reason(s) recorded in the Workload status leveraging existing "QuotaReserved" condition.
+
+```yaml
+  - lastTransitionTime: "2026-02-04T22:00:16Z"
+    message: 'couldn''t assign flavors to pod set main: insufficient unused quota
+      for cpu in flavor default-flavor, 1 more needed, unsatisfied workload admission
+      constraint: can-preempt=false, can-borrow=true, mode=Preempt, borrowing=0'
+    observedGeneration: 1
+    reason: Pending
+    status: "False"
+    type: QuotaReserved
+```
+
+#### 
 
 ### Admission Flow Changes
 
