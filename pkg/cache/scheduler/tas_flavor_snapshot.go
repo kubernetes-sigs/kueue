@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -687,6 +688,13 @@ func (s *TASFlavorSnapshot) findIncompleteSliceDomain(tr *TASPodSetRequests, ta 
 	return ""
 }
 
+type tasCtx struct {
+	unconstrained            bool
+	required                 bool
+	mostFreeCapacity         bool
+	workersTasPodSetRequests *TASPodSetRequests
+}
+
 // Algorithm overview:
 // Phase 1:
 //
@@ -738,6 +746,12 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	sliceTopologyKey := s.sliceLevelKeyWithDefault(workersTasPodSetRequests.PodSet.TopologyRequest, s.lowestLevel())
 
 	unconstrained := isUnconstrained(workersTasPodSetRequests.PodSet.TopologyRequest, &workersTasPodSetRequests)
+	tasCtx := &tasCtx{
+		unconstrained:            unconstrained,
+		required:                 required,
+		mostFreeCapacity:         isMostFreeCapacity(workersTasPodSetRequests.PodSet),
+		workersTasPodSetRequests: &workersTasPodSetRequests,
+	}
 	if topologyKey == nil {
 		return nil, "topology level not specified"
 	}
@@ -811,7 +825,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	}
 
 	if !useBalancedPlacement {
-		fitLevelIdx, currFitDomain, reason = s.findLevelWithFitDomains(levelIdx, required, count, leaderCount, sliceSize, unconstrained, stats)
+		fitLevelIdx, currFitDomain, reason = s.findLevelWithFitDomains(tasCtx, levelIdx, count, leaderCount, sliceSize, stats)
 		if len(reason) > 0 {
 			return nil, reason
 		}
@@ -819,13 +833,13 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	// phase 2b: traverse the tree down level-by-level optimizing the number of
 	// topology domains at each level
 	// if unconstrained is set, we'll only do it once
-	currFitDomain = s.updateCountsToMinimumGeneric(currFitDomain, count, leaderCount, sliceSize, unconstrained, true)
+	currFitDomain = s.updateCountsToMinimumGeneric(tasCtx, currFitDomain, count, leaderCount, sliceSize, true)
 	levelIdx = fitLevelIdx
 	for ; levelIdx < min(len(s.domainsPerLevel)-1, sliceLevelIdx) && !useBalancedPlacement; levelIdx++ {
 		// If we are "above" the requested slice topology level and we don't run the balanced placement algorithm,
 		// we're greedily assigning pods/slices to all domains without checking what we've assigned to parent domains.
 		sortedLowerDomains := s.sortedDomains(s.lowerLevelDomains(currFitDomain), unconstrained)
-		currFitDomain = s.updateCountsToMinimumGeneric(sortedLowerDomains, count, leaderCount, sliceSize, unconstrained, true)
+		currFitDomain = s.updateCountsToMinimumGeneric(tasCtx, sortedLowerDomains, count, leaderCount, sliceSize, true)
 	}
 
 	for ; levelIdx < len(s.domainsPerLevel)-1; levelIdx++ {
@@ -841,7 +855,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		for _, domain := range currFitDomain {
 			sortedLowerDomains := s.sortedDomains(domain.children, unconstrained)
 
-			addCurrFitDomain := s.updateCountsToMinimumGeneric(sortedLowerDomains, domain.state, domain.leaderState, sliceSizeOnLevel, unconstrained, sliceSizeOnLevel > 1)
+			addCurrFitDomain := s.updateCountsToMinimumGeneric(tasCtx, sortedLowerDomains, domain.state, domain.leaderState, sliceSizeOnLevel, sliceSizeOnLevel > 1)
 			newCurrFitDomain = append(newCurrFitDomain, addCurrFitDomain...)
 		}
 		currFitDomain = newCurrFitDomain
@@ -973,6 +987,12 @@ func isUnconstrained(tr *kueue.PodSetTopologyRequest, tasRequests *TASPodSetRequ
 	return (tr != nil && tr.Unconstrained != nil && *tr.Unconstrained) || tasRequests.Implied || isSliceTopologyOnlyRequest(tr)
 }
 
+func isMostFreeCapacity(ps *kueue.PodSet) bool {
+	value, ok := ps.Template.Annotations[kueue.PodSetTopologyPlacementAnnotation]
+	klog.InfoS("MYDEBUG isMostFreeCapacity", "value", value, "ok", ok, "annotations", ps.Template.Annotations)
+	return ok && value == "MostFreeCapacity"
+}
+
 func isSliceTopologyOnlyRequest(tr *kueue.PodSetTopologyRequest) bool {
 	return tr != nil && tr.Required == nil && tr.Preferred == nil && tr.PodSetSliceRequiredTopology != nil
 }
@@ -1044,17 +1064,19 @@ func findBestFitDomainBy(domains []*domain, needed int32, state domainState) *do
 	return bestDomain
 }
 
-func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool, podSetSize int32, leaderPodSetSize int32, sliceSize int32, unconstrained bool, stats *ExclusionStats) (int, []*domain, string) {
+func (s *TASFlavorSnapshot) findLevelWithFitDomains(tasCtx *tasCtx, levelIdx int, podSetSize int32, leaderPodSetSize int32, sliceSize int32, stats *ExclusionStats) (int, []*domain, string) {
 	domains := s.domainsPerLevel[levelIdx]
 	if len(domains) == 0 {
 		return 0, nil, fmt.Sprintf("no topology domains at level: %s", s.levelKeys[levelIdx])
 	}
+	required := tasCtx.required
+	unconstrained := tasCtx.unconstrained
 	levelDomains := slices.Collect(maps.Values(domains))
 	sortedDomain := s.sortedDomainsWithLeader(levelDomains, unconstrained)
 	topDomain := sortedDomain[0]
 
 	sliceCount := podSetSize / sliceSize
-	if useBestFitAlgorithm(unconstrained) && topDomain.sliceStateWithLeader >= sliceCount && topDomain.leaderState >= leaderPodSetSize {
+	if useBestFitAlgorithm(tasCtx) && topDomain.sliceStateWithLeader >= sliceCount && topDomain.leaderState >= leaderPodSetSize {
 		// optimize the potentially last domain
 		topDomain = findBestFitDomainForSlices(sortedDomain, sliceCount, leaderPodSetSize)
 	}
@@ -1074,7 +1096,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 			return 0, nil, s.notFitMessage(topDomain.sliceState, sliceCount, sliceSize, stats)
 		}
 		if levelIdx > 0 && !unconstrained {
-			return s.findLevelWithFitDomains(levelIdx-1, required, podSetSize, leaderPodSetSize, sliceSize, unconstrained, stats)
+			return s.findLevelWithFitDomains(tasCtx, levelIdx-1, podSetSize, leaderPodSetSize, sliceSize, stats)
 		}
 		results := []*domain{}
 		remainingSliceCount := sliceCount
@@ -1087,7 +1109,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 		idx := 0
 		for ; remainingLeaderCount > 0 && idx < len(sortedDomain) && sortedDomain[idx].leaderState > 0; idx++ {
 			domain := sortedDomain[idx]
-			if useBestFitAlgorithm(unconstrained) && sortedDomain[idx].sliceStateWithLeader >= remainingSliceCount {
+			if useBestFitAlgorithm(tasCtx) && sortedDomain[idx].sliceStateWithLeader >= remainingSliceCount {
 				// optimize the last domain
 				domain = findBestFitDomainForSlices(sortedDomain[idx:], remainingSliceCount, remainingLeaderCount)
 			}
@@ -1105,7 +1127,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 		sortedDomain = s.sortedDomains(sortedDomain[idx:], unconstrained)
 		for idx := 0; remainingSliceCount > 0 && idx < len(sortedDomain); idx++ {
 			domain := sortedDomain[idx]
-			if useBestFitAlgorithm(unconstrained) && sortedDomain[idx].sliceState >= remainingSliceCount {
+			if useBestFitAlgorithm(tasCtx) && sortedDomain[idx].sliceState >= remainingSliceCount {
 				// optimize the last domain
 				domain = findBestFitDomainForSlices(sortedDomain[idx:], remainingSliceCount, 0)
 			}
@@ -1121,9 +1143,15 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 	return levelIdx, []*domain{topDomain}, ""
 }
 
-func useBestFitAlgorithm(unconstrained bool) bool {
+func useBestFitAlgorithm(tasCtx *tasCtx) bool {
+	klog.InfoS("useBestFitAlgorithm MYDEBUG")
 	// following the matrix from KEP#2724
-	return !useLeastFreeCapacityAlgorithm(unconstrained)
+	if tasCtx.mostFreeCapacity {
+		klog.InfoS("useBestFitAlgorithm MYDEBUG false")
+		return false
+	}
+	klog.InfoS("useBestFitAlgorithm MYDEBUG")
+	return !useLeastFreeCapacityAlgorithm(tasCtx.unconstrained)
 }
 
 func useLeastFreeCapacityAlgorithm(unconstrained bool) bool {
@@ -1147,8 +1175,8 @@ func useLeastFreeCapacityAlgorithm(unconstrained bool) bool {
 //   - sliceSize: factor to set domain.state when finalizing or partially consuming
 //     (use 1 for pods, the actual sliceSize for slices)
 //   - slices: whether we're distributing slices (true) or pods (false)
-func (s *TASFlavorSnapshot) consumeWithLeadersGeneric(domain *domain, remainingDomains []*domain, remainingPrimary *int32, remainingLeaderCount *int32, unconstrained bool, withLeader *int32, primary *int32, sliceSize int32, slices bool) (*domain, bool) {
-	if useBestFitAlgorithm(unconstrained) && *withLeader >= *remainingPrimary && domain.leaderState >= *remainingLeaderCount {
+func (s *TASFlavorSnapshot) consumeWithLeadersGeneric(tasCtx *tasCtx, domain *domain, remainingDomains []*domain, remainingPrimary *int32, remainingLeaderCount *int32, withLeader *int32, primary *int32, sliceSize int32, slices bool) (*domain, bool) {
+	if useBestFitAlgorithm(tasCtx) && *withLeader >= *remainingPrimary && domain.leaderState >= *remainingLeaderCount {
 		// optimize the last domain
 		if slices {
 			domain = findBestFitDomainForSlices(remainingDomains, *remainingPrimary, *remainingLeaderCount)
@@ -1194,7 +1222,7 @@ func (s *TASFlavorSnapshot) consumeWithLeadersGeneric(domain *domain, remainingD
 	return domain, false
 }
 
-func (s *TASFlavorSnapshot) updateCountsToMinimumGeneric(domains []*domain, count int32, leaderCount int32, sliceSize int32, unconstrained bool, slices bool) []*domain {
+func (s *TASFlavorSnapshot) updateCountsToMinimumGeneric(tasCtx *tasCtx, domains []*domain, count int32, leaderCount int32, sliceSize int32, slices bool) []*domain {
 	result := make([]*domain, 0)
 	remainingPrimary := count
 	if slices {
@@ -1207,9 +1235,9 @@ func (s *TASFlavorSnapshot) updateCountsToMinimumGeneric(domains []*domain, coun
 			var d *domain
 			var completed bool
 			if slices {
-				d, completed = s.consumeWithLeadersGeneric(dom, domains[i:], &remainingPrimary, &remainingLeaderCount, unconstrained, &dom.sliceStateWithLeader, &dom.sliceState, sliceSize, true)
+				d, completed = s.consumeWithLeadersGeneric(tasCtx, dom, domains[i:], &remainingPrimary, &remainingLeaderCount, &dom.sliceStateWithLeader, &dom.sliceState, sliceSize, true)
 			} else {
-				d, completed = s.consumeWithLeadersGeneric(dom, domains[i:], &remainingPrimary, &remainingLeaderCount, unconstrained, &dom.stateWithLeader, &dom.state, 1, false)
+				d, completed = s.consumeWithLeadersGeneric(tasCtx, dom, domains[i:], &remainingPrimary, &remainingLeaderCount, &dom.stateWithLeader, &dom.state, 1, false)
 			}
 			result = append(result, d)
 			if completed {
@@ -1220,7 +1248,7 @@ func (s *TASFlavorSnapshot) updateCountsToMinimumGeneric(domains []*domain, coun
 
 		// No leaders remaining: handle tail without leaders
 		if slices {
-			if useBestFitAlgorithm(unconstrained) && dom.sliceState >= remainingPrimary {
+			if useBestFitAlgorithm(tasCtx) && dom.sliceState >= remainingPrimary {
 				// optimize the last domain
 				dom = findBestFitDomainForSlices(domains[i:], remainingPrimary, 0)
 			}
@@ -1238,7 +1266,7 @@ func (s *TASFlavorSnapshot) updateCountsToMinimumGeneric(domains []*domain, coun
 		}
 
 		// pods (slices=false)
-		if useBestFitAlgorithm(unconstrained) && dom.state >= remainingPrimary {
+		if useBestFitAlgorithm(tasCtx) && dom.state >= remainingPrimary {
 			// optimize the last domain
 			dom = findBestFitDomain(domains[i:], remainingPrimary, 0)
 		}

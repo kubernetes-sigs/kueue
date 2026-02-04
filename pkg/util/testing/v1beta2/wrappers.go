@@ -610,6 +610,14 @@ func (p *PodSetWrapper) Labels(kv map[string]string) *PodSetWrapper {
 	return p
 }
 
+func (p *PodSetWrapper) Annotation(key, value string) *PodSetWrapper {
+	if p.Template.Annotations == nil {
+		p.Template.Annotations = make(map[string]string, 1)
+	}
+	p.Template.Annotations[key] = value
+	return p
+}
+
 func (p *PodSetWrapper) Annotations(kv map[string]string) *PodSetWrapper {
 	p.Template.Annotations = kv
 	return p

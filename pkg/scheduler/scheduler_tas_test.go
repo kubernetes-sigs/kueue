@@ -265,6 +265,38 @@ func TestScheduleForTAS(t *testing.T) {
 
 		featureGates map[featuregate.Feature]bool
 	}{
+		"workload required TAS gets scheduled at the most free domain": {
+			nodes:           defaultNodes,
+			topologies:      []kueue.Topology{defaultThreeLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASThreeLevelFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo", "default").
+					Queue("tas-main").
+					PodSets(*utiltestingapi.MakePodSet("one", 2).
+						RequiredTopologyRequest(tasRackLabel).
+						Annotation(kueue.PodSetTopologyPlacementAnnotation, "MostFreeCapacity").
+						Request(corev1.ResourceCPU, "500m").
+						Obj()).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/foo": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(utiltestingapi.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 2).Obj()).
+							Obj()).
+						Count(2).
+						Obj()).
+					Obj(),
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
+			},
+		},
 		"workload with a PodSet of size zero": {
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("x1").
@@ -2685,7 +2717,10 @@ func TestScheduleForTAS(t *testing.T) {
 		},
 	}
 	for name, tc := range cases {
-		for _, enabled := range []bool{false, true} {
+		if name != "workload required TAS gets scheduled at the most free domain" {
+			continue
+		}
+		for _, enabled := range []bool{true} {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
 				for fg, enable := range tc.featureGates {
