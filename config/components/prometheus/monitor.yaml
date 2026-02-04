@@ -14,5 +14,5 @@ spec:
         insecureSkipVerify: true
   selector:
     matchLabels:
-      app.kubernetes.io/component: controller
+      app.kubernetes.io/component: metrics-service
       app.kubernetes.io/name: kueue
