@@ -347,6 +347,9 @@ type TASPodSetRequests struct {
 	Flavor            kueue.ResourceFlavorReference
 	Implied           bool
 	PodSetGroupName   *string
+	// PreviousAssignment holds the topology assignment from a workload slice
+	// that this workload is replacing.
+	PreviousAssignment *kueue.TopologyAssignment
 }
 
 func (t *TASPodSetRequests) TotalRequests() resources.Requests {
@@ -511,6 +514,69 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests F
 		} else {
 			leader, workers := findLeaderAndWorkers(trs)
 
+			// Delta-only placement for elastic workloads: keep previous pods fixed, place only new pods.
+			if features.Enabled(features.ElasticJobsViaWorkloadSlices) && workers.PreviousAssignment != nil {
+				prevAssignment := utiltas.InternalFrom(workers.PreviousAssignment)
+
+				if isStale, staleDomain := s.IsTopologyAssignmentStale(prevAssignment); isStale {
+					s.log.V(3).Info("previous TAS assignment is stale, doing fresh placement",
+						"staleDomain", staleDomain)
+				} else {
+					previousCount := countPodsInAssignment(prevAssignment)
+
+					switch {
+					case workers.Count > previousCount:
+						// Scale up: place only delta pods
+						deltaCount := workers.Count - previousCount
+						deltaRequest := workers
+						deltaRequest.Count = deltaCount
+						deltaRequest.PreviousAssignment = nil
+
+						// Previous pods consume capacity
+						prevAssumedUsage := computeAssumedUsageFromAssignment(prevAssignment, workers.SinglePodRequests)
+						for domainID, usage := range prevAssumedUsage {
+							if assumedUsage[domainID] == nil {
+								assumedUsage[domainID] = resources.Requests{}
+							}
+							assumedUsage[domainID].Add(usage)
+						}
+
+						deltaAssignments, reason := s.findTopologyAssignment(deltaRequest, leader, assumedUsage, opts.simulateEmpty, "")
+						if reason != "" {
+							for _, tr := range trs {
+								result[tr.PodSet.Name] = tasPodSetAssignmentResult{FailureReason: reason}
+							}
+							return result
+						}
+
+						deltaAssignment := deltaAssignments[workers.PodSet.Name]
+						finalAssignment := s.mergeTopologyAssignments(deltaAssignment, prevAssignment)
+						result[workers.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: finalAssignment}
+
+						if leader != nil {
+							result[leader.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: deltaAssignments[leader.PodSet.Name]}
+							addAssumedUsage(assumedUsage, deltaAssignments[leader.PodSet.Name], leader)
+						}
+
+						// Add only delta to avoid double-counting previous pods.
+						addAssumedUsage(assumedUsage, deltaAssignment, &workers)
+						continue
+					case workers.Count < previousCount:
+						// Scale down: truncate previous assignment
+						truncatedAssignment := truncateAssignment(prevAssignment, workers.Count)
+						result[workers.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: truncatedAssignment}
+						addAssumedUsage(assumedUsage, truncatedAssignment, &workers)
+						continue
+					default:
+						// Same count: reuse previous assignment
+						result[workers.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: prevAssignment}
+						addAssumedUsage(assumedUsage, prevAssignment, &workers)
+						continue
+					}
+				}
+			}
+
+			// Normal path: no previous assignment or stale assignment
 			assignments, reason := s.findTopologyAssignment(workers, leader, assumedUsage, opts.simulateEmpty, "")
 			for _, tr := range trs {
 				podSetName := tr.PodSet.Name
@@ -579,6 +645,59 @@ func addAssumedUsage(assumedUsage map[utiltas.TopologyDomainID]resources.Request
 	}
 }
 
+// countPodsInAssignment returns total pod count across all domains.
+func countPodsInAssignment(ta *utiltas.TopologyAssignment) int32 {
+	var total int32
+	for _, domain := range ta.Domains {
+		total += domain.Count
+	}
+	return total
+}
+
+// computeAssumedUsageFromAssignment calculates the usage map from an assignment.
+func computeAssumedUsageFromAssignment(ta *utiltas.TopologyAssignment, singlePodRequests resources.Requests) map[utiltas.TopologyDomainID]resources.Requests {
+	usage := make(map[utiltas.TopologyDomainID]resources.Requests)
+	for _, domain := range ta.Domains {
+		domainID := utiltas.DomainID(domain.Values)
+		domainUsage := singlePodRequests.ScaledUp(int64(domain.Count))
+		domainUsage.Add(resources.Requests{corev1.ResourcePods: int64(domain.Count)})
+		usage[domainID] = domainUsage
+	}
+	return usage
+}
+
+// truncateAssignment reduces an assignment to fit newCount pods (removes from end).
+func truncateAssignment(ta *utiltas.TopologyAssignment, newCount int32) *utiltas.TopologyAssignment {
+	if newCount <= 0 {
+		return &utiltas.TopologyAssignment{Levels: ta.Levels, Domains: nil}
+	}
+
+	result := &utiltas.TopologyAssignment{
+		Levels:  ta.Levels,
+		Domains: make([]utiltas.TopologyDomainAssignment, 0, len(ta.Domains)),
+	}
+
+	remaining := newCount
+	for _, domain := range ta.Domains {
+		if remaining <= 0 {
+			break
+		}
+		if domain.Count <= remaining {
+			result.Domains = append(result.Domains, domain)
+			remaining -= domain.Count
+		} else {
+			// Partial domain
+			result.Domains = append(result.Domains, utiltas.TopologyDomainAssignment{
+				Values: domain.Values,
+				Count:  remaining,
+			})
+			remaining = 0
+		}
+	}
+
+	return result
+}
+
 func findPSA(wl *kueue.Workload, psName kueue.PodSetReference) *kueue.PodSetAssignment {
 	if wl.Status.Admission == nil {
 		return nil
@@ -616,9 +735,15 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 	}
 
 	nodeLevel := len(s.levelKeys) - 1
-	// We know at this point that values contains only hostname
-	nodeDomain := ta.Domains[0].Values[0]
-	domain := s.domainsPerLevel[nodeLevel][utiltas.TopologyDomainID(nodeDomain)]
+	domainValues := ta.Domains[0].Values
+	if len(domainValues) == 0 {
+		return ""
+	}
+	// Look up domain using full DomainID path (e.g., "b2,r1,b2-r1")
+	domain, found := s.domainsPerLevel[nodeLevel][utiltas.DomainID(domainValues)]
+	if !found {
+		return ""
+	}
 	// Find a domain that complies with the required policy
 	for i := nodeLevel; i > levelIdx; i-- {
 		domain = domain.parent
