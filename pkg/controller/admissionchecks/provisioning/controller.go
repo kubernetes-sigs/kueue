@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"strings"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -50,6 +51,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -132,6 +134,12 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{}, nil
 	}
 
+	if workloadslicing.IsElasticWorkload(wl) {
+		if err := c.transferOwnership(ctx, wl); err != nil {
+			return reconcile.Result{}, err
+		}
+	}
+
 	provReqs := &autoscaling.ProvisioningRequestList{}
 	if err := c.client.List(ctx, provReqs, client.InNamespace(wl.Namespace), client.MatchingFields{RequestsOwnedByWorkloadKey: wl.Name}); client.IgnoreNotFound(err) != nil {
 		return reconcile.Result{}, err
@@ -162,7 +170,8 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{}, err
 	}
 
-	err = c.deleteUnusedProvisioningRequests(ctx, provReqs.Items, activeOrLastPRForChecks)
+	chainNames := c.getChainNames(ctx, wl)
+	err = c.deleteUnusedProvisioningRequests(ctx, wl, provReqs.Items, activeOrLastPRForChecks, chainNames, checkConfig)
 	if err != nil {
 		log.V(2).Error(err, "syncOwnedProvisionRequest failed to delete unused provisioning requests")
 		return reconcile.Result{}, err
@@ -206,7 +215,75 @@ func (c *Controller) activeOrLastPRForChecks(
 	return activeOrLastPRForChecks
 }
 
-func (c *Controller) deleteUnusedProvisioningRequests(ctx context.Context, ownedPRs []autoscaling.ProvisioningRequest, activeOrLastPRForChecks map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest) error {
+func (c *Controller) getChainNames(ctx context.Context, wl *kueue.Workload) sets.Set[string] {
+	names := sets.New(wl.Name)
+	if !workloadslicing.IsElasticWorkload(wl) {
+		return names
+	}
+	curr := wl
+	for {
+		oldRef := workloadslicing.ReplacementForKey(curr)
+		if oldRef == nil {
+			break
+		}
+		oldWl, err := workload.GetWorkloadFromReference(ctx, c.client, *oldRef)
+		if err != nil || oldWl == nil {
+			break
+		}
+		names.Insert(oldWl.Name)
+		curr = oldWl
+	}
+	return names
+}
+
+func (c *Controller) transferOwnership(ctx context.Context, wl *kueue.Workload) error {
+	oldWorkloadRef := workloadslicing.ReplacementForKey(wl)
+	if oldWorkloadRef == nil {
+		return nil
+	}
+	oldWl, err := workload.GetWorkloadFromReference(ctx, c.client, *oldWorkloadRef)
+	if err != nil {
+		return err
+	}
+	if oldWl == nil {
+		return nil
+	}
+
+	oldProvReqs := &autoscaling.ProvisioningRequestList{}
+	if err := c.client.List(ctx, oldProvReqs, client.InNamespace(wl.Namespace), client.MatchingFields{RequestsOwnedByWorkloadKey: oldWl.Name}); err != nil {
+		return err
+	}
+
+	for i := range oldProvReqs.Items {
+		pr := &oldProvReqs.Items[i]
+		if !metav1.IsControlledBy(pr, wl) {
+			log := ctrl.LoggerFrom(ctx)
+			log.V(3).Info("Transferring ownership of ProvisioningRequest", "pr", klog.KObj(pr), "from", oldWl.Name, "to", wl.Name)
+			err := clientutil.Patch(ctx, c.client, pr, func() (bool, error) {
+				if err := controllerutil.RemoveControllerReference(oldWl, pr, c.client.Scheme()); err != nil {
+					return false, err
+				}
+				if err := controllerutil.SetControllerReference(wl, pr, c.client.Scheme()); err != nil {
+					return false, err
+				}
+				return true, nil
+			})
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (c *Controller) deleteUnusedProvisioningRequests(
+	ctx context.Context,
+	wl *kueue.Workload,
+	ownedPRs []autoscaling.ProvisioningRequest,
+	activeOrLastPRForChecks map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest,
+	chainNames sets.Set[string],
+	checkConfig map[kueue.AdmissionCheckReference]*kueue.ProvisioningRequestConfig,
+) error {
 	log := ctrl.LoggerFrom(ctx)
 	prNames := sets.New[string]()
 	for _, pr := range activeOrLastPRForChecks {
@@ -214,7 +291,28 @@ func (c *Controller) deleteUnusedProvisioningRequests(ctx context.Context, owned
 	}
 	for _, pr := range ownedPRs {
 		req := &pr
-		if !prNames.Has(req.Name) {
+		if prNames.Has(req.Name) {
+			continue
+		}
+
+		// Check if it's a relevant transferred PR
+		isRelevant := false
+		for checkName := range checkConfig {
+			for name := range chainNames {
+				if name == wl.Name {
+					continue
+				}
+				if strings.HasPrefix(req.Name, getProvisioningRequestNamePrefix(name, checkName)) {
+					isRelevant = true
+					break
+				}
+			}
+			if isRelevant {
+				break
+			}
+		}
+
+		if !isRelevant {
 			if err := c.client.Delete(ctx, req); client.IgnoreNotFound(err) != nil {
 				log.V(5).Error(err, "deleting the request", "req", klog.KObj(req))
 				return err
