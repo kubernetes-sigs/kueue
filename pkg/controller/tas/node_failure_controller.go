@@ -72,7 +72,6 @@ const (
 type nodeFailureReconciler struct {
 	client      client.Client
 	clock       clock.Clock
-	logName     string
 	recorder    record.EventRecorder
 	roleTracker *roletracker.RoleTracker
 }
@@ -172,7 +171,6 @@ func (r *nodeFailureReconciler) Delete(e event.TypedDeleteEvent[*corev1.Node]) b
 func newNodeFailureReconciler(client client.Client, recorder record.EventRecorder, roleTracker *roletracker.RoleTracker) *nodeFailureReconciler {
 	return &nodeFailureReconciler{
 		client:      client,
-		logName:     TASNodeFailureController,
 		clock:       clock.RealClock{},
 		recorder:    recorder,
 		roleTracker: roleTracker,
@@ -180,7 +178,7 @@ func newNodeFailureReconciler(client client.Client, recorder record.EventRecorde
 }
 
 func (r *nodeFailureReconciler) logger() logr.Logger {
-	return roletracker.WithReplicaRole(ctrl.Log.WithName(r.logName), r.roleTracker)
+	return roletracker.WithReplicaRole(ctrl.Log.WithName(TASNodeFailureController), r.roleTracker)
 }
 
 func (r *nodeFailureReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) (string, error) {
@@ -459,13 +457,13 @@ func classifyNoExecuteTaints(taints []corev1.Taint, podSetsToCheck []kueue.PodSe
 	}
 
 	for _, t := range taints {
-		if t.Effect != corev1.TaintEffectNoExecute {
+		if t.Effect == corev1.TaintEffectPreferNoSchedule {
 			continue
 		}
 		untoleratedByAny := false
 		for _, ps := range podSetsToCheck {
 			_, untolerated := corev1helpers.FindMatchingUntoleratedTaint(klog.Background(), []corev1.Taint{t}, ps.Template.Spec.Tolerations, func(t *corev1.Taint) bool {
-				return t.Effect == corev1.TaintEffectNoExecute
+				return t.Effect == corev1.TaintEffectNoExecute || t.Effect == corev1.TaintEffectNoSchedule
 			}, true)
 			if untolerated {
 				untoleratedByAny = true
