@@ -4215,7 +4215,9 @@ var _ = ginkgo.Describe("Topology Aware Scheduling - Resource Transformation", g
 	var (
 		resourceTransformations []config.ResourceTransformation
 
+		nodes        []corev1.Node
 		ns           *corev1.Namespace
+		topology     *kueue.Topology
 		onDemand     *kueue.ResourceFlavor
 		spot         *kueue.ResourceFlavor
 		credits      *kueue.ResourceFlavor
@@ -4226,12 +4228,43 @@ var _ = ginkgo.Describe("Topology Aware Scheduling - Resource Transformation", g
 	ginkgo.JustBeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(resourceTransformations))
 
+		nodes = []corev1.Node{
+			*testingnode.MakeNode("on-demand").
+				Label("node-type", "on-demand").
+				Label(corev1.LabelHostname, "on-demand").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("9"),
+					corev1.ResourcePods: resource.MustParse("10"),
+				}).
+				Ready().
+				Obj(),
+			*testingnode.MakeNode("spot").
+				Label("node-type", "spot").
+				Label(corev1.LabelHostname, "spot").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("9"),
+					corev1.ResourcePods: resource.MustParse("10"),
+				}).
+				Ready().
+				Obj(),
+		}
+		util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-")
 
-		onDemand = utiltestingapi.MakeResourceFlavor("on-demand").Obj()
+		topology = utiltestingapi.MakeDefaultOneLevelTopology("topology")
+		util.MustCreate(ctx, k8sClient, topology)
+
+		onDemand = utiltestingapi.MakeResourceFlavor("on-demand").
+			NodeLabel("node-type", "on-demand").
+			TopologyName(topology.Name).
+			Obj()
 		util.MustCreate(ctx, k8sClient, onDemand)
 
-		spot = utiltestingapi.MakeResourceFlavor("spot").Obj()
+		spot = utiltestingapi.MakeResourceFlavor("spot").
+			NodeLabel("node-type", "spot").
+			TopologyName(topology.Name).
+			Obj()
 		util.MustCreate(ctx, k8sClient, spot)
 
 		credits = utiltestingapi.MakeResourceFlavor("credits").Obj()
@@ -4256,6 +4289,10 @@ var _ = ginkgo.Describe("Topology Aware Scheduling - Resource Transformation", g
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemand, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, spot, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, credits, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+		for i := range nodes {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[i], true)
+		}
 
 		resourceTransformations = nil
 
@@ -4284,7 +4321,10 @@ var _ = ginkgo.Describe("Topology Aware Scheduling - Resource Transformation", g
 				for i := range workloadsToCreate {
 					wl := utiltestingapi.MakeWorkload(fmt.Sprintf("wl-%d", i+1), ns.Name).
 						Queue(kueue.LocalQueueName(localQueue.Name)).
-						Request(corev1.ResourceCPU, "3").
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							Request(corev1.ResourceCPU, "3").
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Obj()).
 						Obj()
 					util.MustCreate(ctx, k8sClient, wl)
 					workloads = append(workloads, wl)
