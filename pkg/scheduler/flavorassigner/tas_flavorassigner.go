@@ -25,6 +25,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -71,8 +72,6 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 	if len(cq.TASFlavors) == 0 {
 		return nil, errors.New("workload requires Topology, but there is no TAS cache information")
 	}
-	psResources := wl.TotalRequests[podSetIndex]
-	singlePodRequests := psResources.SinglePodRequests()
 	podCount := psAssignment.Count
 	tasFlvr, err := onlyFlavor(psAssignment.Flavors)
 	if err != nil {
@@ -88,6 +87,8 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 		return nil, errors.New("workload requires Topology, but there is no TAS cache information for the assigned flavor")
 	}
 	podSet := &wl.Obj.Spec.PodSets[podSetIndex]
+	// Use PodSpec directly for TAS placement, not quota-filtered admission values.
+	singlePodRequests := resources.NewRequestsFromPodTemplate(podSet.Template)
 	var podSetUpdates []*kueue.PodSetUpdate
 	for _, ac := range wl.Obj.Status.AdmissionChecks {
 		if ac.State == kueue.CheckStateReady {
