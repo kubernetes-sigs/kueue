@@ -165,7 +165,7 @@ func (r *nodeFailureReconciler) Delete(e event.TypedDeleteEvent[*corev1.Node]) b
 }
 
 //+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
-//+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;delete
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;patch
 
 func newNodeFailureReconciler(client client.Client, recorder record.EventRecorder, roleTracker *roletracker.RoleTracker) *nodeFailureReconciler {
@@ -456,6 +456,43 @@ func classifyNoExecuteTaints(taints []corev1.Taint, podSetsToCheck []kueue.PodSe
 		return nil, nil
 	}
 
+	podsOnNode, hasGatedPods, err := r.getPodsOnNode(ctx, wl, node)
+	if err != nil {
+		return false, nil, false, err
+	}
+
+	if len(podsOnNode) > 0 {
+		allPending := true
+		for _, pod := range podsOnNode {
+			if pod.DeletionTimestamp != nil {
+				return true, nil, false, nil
+			}
+			if pod.Status.Phase != corev1.PodPending {
+				allPending = false
+			}
+		}
+		if allPending {
+			log.V(3).Info("Identified only pending pods on the node", "node", node.Name, "podCount", len(podsOnNode))
+			return true, podsOnNode, false, nil
+		}
+		if immediateUnhealthy {
+			return true, nil, false, nil
+		}
+		// If not terminating or pending, we wait.
+		return false, nil, true, nil
+	}
+
+	// If no pods are left on the node, it's considered failed.
+	return !hasGatedPods, nil, hasGatedPods, nil
+}
+
+func classifyTaints(taints []corev1.Taint, podSetsToCheck []kueue.PodSet) (untoleratedTaints, toleratedTaints []corev1.Taint) {
+	if len(podSetsToCheck) == 0 {
+		return nil, nil
+	}
+	untoleratedTaints = make([]corev1.Taint, 0, len(taints))
+	toleratedTaints = make([]corev1.Taint, 0, len(taints))
+
 	for _, t := range taints {
 		if t.Effect == corev1.TaintEffectPreferNoSchedule {
 			continue
@@ -471,12 +508,12 @@ func classifyNoExecuteTaints(taints []corev1.Taint, podSetsToCheck []kueue.PodSe
 			}
 		}
 		if untoleratedByAny {
-			untolerated = append(untolerated, t)
+			untoleratedTaints = append(untoleratedTaints, t)
 		} else {
-			tolerated = append(tolerated, t)
+			toleratedTaints = append(toleratedTaints, t)
 		}
 	}
-	return untolerated, tolerated
+	return untoleratedTaints, toleratedTaints
 }
 
 func (r *nodeFailureReconciler) removeUnhealthyNodes(ctx context.Context, wl *kueue.Workload, nodeName string) error {
@@ -499,4 +536,22 @@ func (r *nodeFailureReconciler) addUnhealthyNode(ctx context.Context, wl *kueue.
 		})
 	}
 	return nil
+}
+
+func isPodOnNode(pod *corev1.Pod, node *corev1.Node, levels []string) bool {
+	if pod.Spec.NodeName != "" {
+		return pod.Spec.NodeName == node.Name
+	}
+	if len(pod.Spec.NodeSelector) == 0 || len(levels) == 0 {
+		return false
+	}
+	key := levels[len(levels)-1]
+	val, ok := pod.Spec.NodeSelector[key]
+	if !ok {
+		return false
+	}
+	if nodeVal, ok := node.Labels[key]; !ok || nodeVal != val {
+		return false
+	}
+	return true
 }
