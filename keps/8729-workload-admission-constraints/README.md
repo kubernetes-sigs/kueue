@@ -136,7 +136,7 @@ When set to `"true"`, these annotations restrict the mechanisms Kueue may use du
 * `cannot-preempt=true`: admission must not rely on preempting other workloads.
 * `cannot-borrow=true`: admission must not rely on borrowing quota.
 
-If these annotations are absent or unset, the default behavior is preserved, and Kueue may use both preemption and borrowing during admission as it does today.
+If these annotations are absent or annotation value is other than `true`, the default behavior is preserved, and Kueue may use both preemption and borrowing during admission as it does today.
 
 ### Workload Field-Based API (Future Evolution)
 
