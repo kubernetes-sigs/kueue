@@ -201,6 +201,32 @@ apiServer:
     echo "$patched_config"
 }
 
+# Patches a kind config file with WAS (Workload Aware Scheduling) settings.
+function patch_kind_config_for_was {
+    local patched_config
+    patched_config=$(mktemp)
+    cp "$1" "$patched_config"
+
+    $YQ -i '.featureGates.GenericWorkload = true' "$patched_config"
+    $YQ -i '.featureGates.GangScheduling = true' "$patched_config"
+    $YQ -i '(.nodes[] | select(.role == "control-plane")).kubeadmConfigPatches[0] = "kind: ClusterConfiguration
+apiVersion: kubeadm.k8s.io/v1beta3
+scheduler:
+  extraArgs:
+    v: \"3\"
+controllerManager:
+  extraArgs:
+    v: \"3\"
+apiServer:
+  extraArgs:
+    enable-aggregator-routing: \"true\"
+    runtime-config: \"scheduling.k8s.io/v1alpha1=true\"
+    v: \"3\"
+"' "$patched_config"
+
+    echo "$patched_config"
+}
+
 # $1 cluster name
 # $2 cluster kind config
 # $3 kubeconfig
@@ -214,6 +240,14 @@ function cluster_create {
         # shellcheck disable=SC2064 # Intentionally expand now to capture the temp file path
         trap "rm -f '$kind_config'" RETURN
         echo "Using patched kind config for DRA:"
+        cat "$kind_config"
+    fi
+
+    if [[ -n ${WAS_ENABLED:-} ]]; then
+        kind_config=$(patch_kind_config_for_was "$2")
+        # shellcheck disable=SC2064 # Intentionally expand now to capture the temp file path
+        trap "rm -f '$kind_config'" RETURN
+        echo "Using patched kind config for WAS:"
         cat "$kind_config"
     fi
 
