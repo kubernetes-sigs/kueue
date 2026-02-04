@@ -47,6 +47,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -158,7 +159,7 @@ func (r *nodeFailureReconciler) Delete(e event.TypedDeleteEvent[*corev1.Node]) b
 }
 
 //+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
-//+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;delete
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;patch
 
 func newNodeFailureReconciler(client client.Client, recorder record.EventRecorder, roleTracker *roletracker.RoleTracker) *nodeFailureReconciler {
@@ -344,14 +345,23 @@ func (r *nodeFailureReconciler) handleHealthyNode(ctx context.Context, node *cor
 			continue
 		}
 
-		isUnhealthy, needsMonitoring, err := r.isNodeUnhealthyForWorkload(ctx, node, &wl)
+		isUnhealthy, podsToDelete, needsMonitoring, err := r.isNodeUnhealthyForWorkload(ctx, node, &wl)
 		if err != nil {
 			log.Error(err, "Failed to check if node is unhealthy for workload")
 			workloadProcessingErrors = append(workloadProcessingErrors, err)
 			continue
 		}
+		log.Info("Needs monitoring", "needsMonitoring", needsMonitoring)
 
 		if isUnhealthy {
+			if len(podsToDelete) > 0 {
+				log.V(3).Info("Deleting all pending pods on unhealthy node", "podCount", len(podsToDelete))
+				for _, p := range podsToDelete {
+					if err := r.client.Delete(ctx, &p); err != nil && !apierrors.IsNotFound(err) {
+						log.Error(err, "Failed to delete pending pod", "pod", klog.KObj(&p))
+					}
+				}
+			}
 			// evict workload when workload already has a different node marked for replacement
 			evictedNow, err := r.evictWorkloadIfNeeded(ctx, &wl, node.Name)
 			if err != nil {
@@ -388,21 +398,67 @@ func (r *nodeFailureReconciler) handleHealthyNode(ctx context.Context, node *cor
 	return keepMonitoring, nil
 }
 
-func (r *nodeFailureReconciler) isNodeUnhealthyForWorkload(ctx context.Context, node *corev1.Node, wl *kueue.Workload) (bool, bool, error) {
+func (r *nodeFailureReconciler) isNodeUnhealthyForWorkload(ctx context.Context, node *corev1.Node, wl *kueue.Workload) (bool, []corev1.Pod, bool, error) {
+	log := ctrl.LoggerFrom(ctx).WithValues("node", node.Name, "workload", klog.KObj(wl))
 	if !features.Enabled(features.TASTaintEviction) {
-		return false, false, nil
+		return false, nil, false, nil
 	}
 	taints := node.Spec.Taints
 	if len(taints) == 0 {
-		return false, false, nil
+		return false, nil, false, nil
 	}
-	untoleratedTaints := make([]corev1.Taint, 0, len(taints))
-	toleratedTaints := make([]corev1.Taint, 0, len(taints))
+	untoleratedTaints, toleratedTaints := classifyTaints(node.Spec.Taints, workload.PodSetsOnNode(wl, node.Name))
 
-	podSetsToCheck := workload.PodSetsOnNode(wl, node.Name)
-	if len(podSetsToCheck) == 0 {
-		return false, false, nil
+	// Determine if we should wait for pod termination.
+	// We wait if:
+	// - There are tolerated NoExecute/NoSchedule taints.
+	// - There are untolerated taints AND TASReplaceNodeOnPodTermination is enabled.
+	waitForTermination := len(toleratedTaints) > 0 || (len(untoleratedTaints) > 0 && features.Enabled(features.TASReplaceNodeOnPodTermination))
+
+	// If we don't wait for termination, and there are untolerated taints, it's immediately unhealthy.
+	// But we still want to list pods to see if they are pending and can be deleted.
+	immediateUnhealthy := len(untoleratedTaints) > 0 && !features.Enabled(features.TASReplaceNodeOnPodTermination)
+
+	if !immediateUnhealthy && !waitForTermination {
+		return false, nil, false, nil
 	}
+
+	podsOnNode, hasGatedPods, err := r.getPodsOnNode(ctx, wl, node)
+	if err != nil {
+		return false, nil, false, err
+	}
+
+	if len(podsOnNode) > 0 {
+		allPending := true
+		for _, pod := range podsOnNode {
+			if pod.DeletionTimestamp != nil {
+				return true, nil, false, nil
+			}
+			if pod.Status.Phase != corev1.PodPending {
+				allPending = false
+			}
+		}
+		if allPending {
+			log.V(3).Info("Identified only pending pods on the node", "node", node.Name, "podCount", len(podsOnNode))
+			return true, podsOnNode, false, nil
+		}
+		if immediateUnhealthy {
+			return true, nil, false, nil
+		}
+		// If not terminating or pending, we wait.
+		return false, nil, true, nil
+	}
+
+	// If no pods are left on the node, it's considered failed.
+	return !hasGatedPods, nil, hasGatedPods, nil
+}
+
+func classifyTaints(taints []corev1.Taint, podSetsToCheck []kueue.PodSet) (untoleratedTaints, toleratedTaints []corev1.Taint) {
+	if len(podSetsToCheck) == 0 {
+		return nil, nil
+	}
+	untoleratedTaints = make([]corev1.Taint, 0, len(taints))
+	toleratedTaints = make([]corev1.Taint, 0, len(taints))
 
 	for _, t := range taints {
 		if t.Effect == corev1.TaintEffectPreferNoSchedule {
@@ -424,43 +480,41 @@ func (r *nodeFailureReconciler) isNodeUnhealthyForWorkload(ctx context.Context, 
 			toleratedTaints = append(toleratedTaints, t)
 		}
 	}
+	return untoleratedTaints, toleratedTaints
+}
 
-	// 1. Check Untolerated NoExecute/NoSchedule (Immediate Unhealthy, unless TASReplaceNodeOnPodTermination is enabled)
-	if len(untoleratedTaints) > 0 && !features.Enabled(features.TASReplaceNodeOnPodTermination) {
-		return true, false, nil
-	}
-
-	// 2. Check for taints that require waiting for pod termination (terminationSeconds check):
-	// - Tolerated NoExecute/NoSchedule taints always wait for pod termination.
-	// - Untolerated NoExecute/NoSchedule taints wait for pod termination only if TASReplaceNodeOnPodTermination is enabled.
-	if len(toleratedTaints) == 0 && (len(untoleratedTaints) == 0 || !features.Enabled(features.TASReplaceNodeOnPodTermination)) {
-		return false, false, nil
-	}
-
+func (r *nodeFailureReconciler) getPodsOnNode(ctx context.Context, wl *kueue.Workload, node *corev1.Node) ([]corev1.Pod, bool, error) {
 	var podsForWl corev1.PodList
 	if err := r.client.List(ctx, &podsForWl, client.InNamespace(wl.Namespace), client.MatchingFields{indexer.WorkloadNameKey: wl.Name}); err != nil {
-		return false, false, fmt.Errorf("list pods: %w", err)
+		return nil, false, fmt.Errorf("list pods: %w", err)
+	}
+
+	psaMap := make(map[kueue.PodSetReference]*kueue.PodSetAssignment)
+	for i := range wl.Status.Admission.PodSetAssignments {
+		psaMap[wl.Status.Admission.PodSetAssignments[i].Name] = &wl.Status.Admission.PodSetAssignments[i]
 	}
 
 	var podsOnNode []corev1.Pod
+	hasGatedPods := false
 	for _, pod := range podsForWl.Items {
-		if pod.Spec.NodeName == node.Name {
+		if len(pod.Spec.SchedulingGates) > 0 {
+			hasGatedPods = true
+		}
+		psName := kueue.PodSetReference(pod.Labels[constants.PodSetLabel])
+		psa, found := psaMap[psName]
+		if !found && len(wl.Status.Admission.PodSetAssignments) == 1 {
+			psa = &wl.Status.Admission.PodSetAssignments[0]
+			found = true
+		}
+		var levels []string
+		if found && psa.TopologyAssignment != nil {
+			levels = psa.TopologyAssignment.Levels
+		}
+		if isPodOnNode(&pod, node, levels) {
 			podsOnNode = append(podsOnNode, pod)
 		}
 	}
-
-	if len(podsOnNode) > 0 {
-		for _, pod := range podsOnNode {
-			if pod.DeletionTimestamp != nil {
-				return true, false, nil
-			}
-		}
-		// If not terminating, we wait.
-		return false, true, nil
-	}
-
-	// If no pods are left on the node, it's considered failed.
-	return true, false, nil
+	return podsOnNode, hasGatedPods, nil
 }
 
 func (r *nodeFailureReconciler) removeUnhealthyNodes(ctx context.Context, wl *kueue.Workload, nodeName string) error {
@@ -484,3 +538,22 @@ func (r *nodeFailureReconciler) addUnhealthyNode(ctx context.Context, wl *kueue.
 	}
 	return nil
 }
+
+func isPodOnNode(pod *corev1.Pod, node *corev1.Node, levels []string) bool {
+	if pod.Spec.NodeName != "" {
+		return pod.Spec.NodeName == node.Name
+	}
+	if len(pod.Spec.NodeSelector) == 0 || len(levels) == 0 {
+		return false
+	}
+	key := levels[len(levels)-1]
+	val, ok := pod.Spec.NodeSelector[key]
+	if !ok {
+		return false
+	}
+	if nodeVal, ok := node.Labels[key]; !ok || nodeVal != val {
+		return false
+	}
+	return true
+}
+
