@@ -234,6 +234,8 @@ kueueViz:
       - name: KUEUEVIZ_ALLOWED_ORIGINS
         value: "https://frontend.kueueviz.local"
     ingress:
+      # -- Enable KueueViz dashboard backend ingress
+      enabled: true
       # -- KueueViz dashboard backend ingress annotations
       annotations:
         nginx.ingress.kubernetes.io/rewrite-target: "/"
@@ -275,6 +277,8 @@ kueueViz:
       - name: REACT_APP_WEBSOCKET_URL
         value: "wss://backend.kueueviz.local"
     ingress:
+      # -- Enable KueueViz dashboard frontend ingress
+      enabled: true
       # -- KueueViz dashboard frontend ingress annotations
       annotations:
         nginx.ingress.kubernetes.io/rewrite-target: "/"
