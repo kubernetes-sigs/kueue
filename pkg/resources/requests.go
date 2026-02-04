@@ -23,6 +23,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	resourcehelpers "k8s.io/component-helpers/resource"
 	"k8s.io/utils/ptr"
 )
 
@@ -38,6 +39,12 @@ func NewRequests(rl corev1.ResourceList) Requests {
 		r[name] = ResourceValue(name, quant)
 	}
 	return r
+}
+
+// NewRequestsFromPodTemplate computes resource requests directly from a PodTemplateSpec,
+// bypassing quota filtering. Use for physical placement calculations.
+func NewRequestsFromPodTemplate(template corev1.PodTemplateSpec) Requests {
+	return NewRequests(resourcehelpers.PodRequests(&corev1.Pod{Spec: template.Spec}, resourcehelpers.PodResourcesOptions{}))
 }
 
 func (r Requests) Clone() Requests {
