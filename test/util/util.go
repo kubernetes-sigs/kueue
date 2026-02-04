@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -41,6 +42,7 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -71,6 +73,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -85,6 +88,12 @@ func init() {
 
 var SetupLogger = sync.OnceFunc(func() {
 	ctrl.SetLogger(NewTestingLogger(ginkgo.GinkgoWriter))
+})
+
+var SetupLoggerGetObservedLogs = sync.OnceValue(func() *observer.ObservedLogs {
+	logger, observedLogs := NewTestingLoggerAndObservedLogs(ginkgo.GinkgoWriter)
+	ctrl.SetLogger(logger)
+	return observedLogs
 })
 
 type objAsPtr[T any] interface {
@@ -1090,16 +1099,31 @@ func ExpectPreemptedCondition(ctx context.Context, k8sClient client.Client, reas
 }
 
 func NewTestingLogger(writer io.Writer) logr.Logger {
+	logger, _ := NewTestingLoggerAndObservedLogs(writer)
+	return logger
+}
+
+func NewTestingLoggerAndObservedLogs(writer io.Writer) (logr.Logger, *observer.ObservedLogs) {
+	level := utiltesting.LogLevelWithDefault(utiltesting.DefaultLogLevel)
+	zapcoreLevel := zapcore.Level(level)
+
+	logsObserver, observedLogs := observer.New(zapcoreLevel)
+
+	logsObserverWrapper := zaplog.WrapCore(func(core zapcore.Core) zapcore.Core {
+		return utillogging.NewCustomLogProcessor(zapcore.NewTee(logsObserver, core))
+	})
+
 	opts := func(o *zap.Options) {
 		o.TimeEncoder = zapcore.RFC3339NanoTimeEncoder
-		o.ZapOpts = []zaplog.Option{zaplog.AddCaller()}
+		o.ZapOpts = []zaplog.Option{zaplog.AddCaller(),
+			logsObserverWrapper}
 	}
-	level := utiltesting.LogLevelWithDefault(utiltesting.DefaultLogLevel)
+
 	return zap.New(
 		zap.WriteTo(writer),
 		zap.UseDevMode(true),
-		zap.Level(zapcore.Level(level)),
-		opts)
+		zap.Level(zapcoreLevel),
+		opts), observedLogs
 }
 
 // WaitForNextSecondAfterCreation wait time between the start of the next second
@@ -1478,4 +1502,23 @@ func workloadKeys(wls []*kueue.Workload) []client.ObjectKey {
 
 func uniqueKeys(keys []client.ObjectKey) []client.ObjectKey {
 	return sets.New[client.ObjectKey](keys...).UnsortedList()
+}
+
+func VerifyLogs(observedLogs *observer.ObservedLogs) {
+	errorOrMoreSevereLogs := observedLogs.Filter(func(le observer.LoggedEntry) bool {
+		return le.Level >= zapcore.ErrorLevel
+	})
+
+	concurrentModificationErrorLogs := errorOrMoreSevereLogs.Filter(IsLoggedEntryAConcurrentModification)
+
+	gomega.ExpectWithOffset(1, concurrentModificationErrorLogs.TakeAll()).To(gomega.BeEmpty())
+}
+
+func IsLoggedEntryAConcurrentModification(le observer.LoggedEntry) bool {
+	if le.ContextMap()["error"] == nil {
+		return false
+	}
+	errorDetals := le.ContextMap()["error"].(string)
+	expectedConcurrentModiciationDetails := "the object has been modified; please apply your changes to the latest version and try again"
+	return strings.Contains(errorDetals, expectedConcurrentModiciationDetails)
 }

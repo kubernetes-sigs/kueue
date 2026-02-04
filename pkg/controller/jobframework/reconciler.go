@@ -940,7 +940,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		wlKey := workload.Key(wl)
 		err := workload.RemoveFinalizer(ctx, r.client, wl)
 		if err != nil && !apierrors.IsNotFound(err) {
-			return nil, fmt.Errorf("failed to remove workload finalizer for: %w ", err)
+			return nil, fmt.Errorf("failed to remove workload finalizer for: %w", err)
 		}
 
 		err = r.client.Delete(ctx, wl)

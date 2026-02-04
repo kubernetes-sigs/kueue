@@ -19,7 +19,10 @@ package core
 import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
@@ -1056,6 +1059,73 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 
 			ginkgo.By("Deleting clusterQueue - should succeed without waiting")
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		})
+	})
+
+	ginkgo.When("ClusterQueue is concurrently modified", func() {
+		var (
+			cq *kueue.ClusterQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			cq = utiltestingapi.MakeClusterQueue("foo-cq").Obj()
+			util.MustCreate(ctx, k8sClient, cq)
+		})
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		})
+
+		ginkgo.It("Should log concurrent modification errors with log level smaller than error", func() {
+			var _ = fwk.ObservedLogs.TakeAll() // clear logs
+
+			const nGoroutines = 25
+			stopModification := make(chan bool)
+
+			// local helper that sets cq status to pending, at the same time
+			// core controller will try to set status to Active, so concurrent modification should occur
+			setClusterStatusPending := func() {
+				defer ginkgo.GinkgoRecover()
+
+				gomega.Eventually(func(g gomega.Gomega) bool {
+					select {
+					case <-stopModification:
+						return true
+					default:
+						var updatedCq kueue.ClusterQueue
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)).Should(gomega.Succeed())
+						apimeta.SetStatusCondition(&updatedCq.Status.Conditions, metav1.Condition{
+							Type:    kueue.ClusterQueueActive,
+							Status:  metav1.ConditionFalse,
+							Reason:  "ByTest",
+							Message: "by test",
+						})
+						// we do not expect here as status update in some of the calls is expected to fail
+						// due to concurrent modification
+						var _ = k8sClient.Status().Update(ctx, &updatedCq)
+						return false
+					}
+				}, util.Timeout, util.Interval).To(gomega.BeTrue())
+			}
+			for range nGoroutines {
+				go setClusterStatusPending()
+			}
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				reconcileLogs := fwk.ObservedLogs
+
+				reconcileConcurrentModificationLogs := reconcileLogs.Filter(util.IsLoggedEntryAConcurrentModification)
+				g.Expect(reconcileConcurrentModificationLogs.All()).ShouldNot(gomega.BeEmpty(),
+					"There should be some concurrent modifcation error log entries")
+				g.Expect(reconcileConcurrentModificationLogs.Filter(func(le observer.LoggedEntry) bool {
+					return le.Level >= zapcore.ErrorLevel
+				}).All()).Should(gomega.BeEmpty(),
+					"Log level should be smaller than error")
+
+				for range nGoroutines {
+					stopModification <- true
+				}
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })
