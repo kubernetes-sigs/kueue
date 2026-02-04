@@ -65,7 +65,6 @@ const (
 type nodeFailureReconciler struct {
 	client      client.Client
 	clock       clock.Clock
-	logName     string
 	recorder    record.EventRecorder
 	roleTracker *roletracker.RoleTracker
 }
@@ -165,7 +164,6 @@ func (r *nodeFailureReconciler) Delete(e event.TypedDeleteEvent[*corev1.Node]) b
 func newNodeFailureReconciler(client client.Client, recorder record.EventRecorder, roleTracker *roletracker.RoleTracker) *nodeFailureReconciler {
 	return &nodeFailureReconciler{
 		client:      client,
-		logName:     TASNodeFailureController,
 		clock:       clock.RealClock{},
 		recorder:    recorder,
 		roleTracker: roleTracker,
@@ -173,7 +171,7 @@ func newNodeFailureReconciler(client client.Client, recorder record.EventRecorde
 }
 
 func (r *nodeFailureReconciler) logger() logr.Logger {
-	return roletracker.WithReplicaRole(ctrl.Log.WithName(r.logName), r.roleTracker)
+	return roletracker.WithReplicaRole(ctrl.Log.WithName(TASNodeFailureController), r.roleTracker)
 }
 
 func (r *nodeFailureReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) (string, error) {
@@ -398,8 +396,8 @@ func (r *nodeFailureReconciler) isNodeUnhealthyForWorkload(ctx context.Context, 
 	if len(taints) == 0 {
 		return false, false, nil
 	}
-	untoleratedNoExecuteTaints := make([]corev1.Taint, 0, len(taints))
-	toleratedNoExecuteTaints := make([]corev1.Taint, 0, len(taints))
+	untoleratedTaints := make([]corev1.Taint, 0, len(taints))
+	toleratedTaints := make([]corev1.Taint, 0, len(taints))
 
 	podSetsToCheck := workload.PodSetsOnNode(wl, node.Name)
 	if len(podSetsToCheck) == 0 {
@@ -407,13 +405,13 @@ func (r *nodeFailureReconciler) isNodeUnhealthyForWorkload(ctx context.Context, 
 	}
 
 	for _, t := range taints {
-		if t.Effect != corev1.TaintEffectNoExecute {
+		if t.Effect == corev1.TaintEffectPreferNoSchedule {
 			continue
 		}
 		untoleratedByAny := false
 		for _, ps := range podSetsToCheck {
 			_, untolerated := corev1helpers.FindMatchingUntoleratedTaint(klog.Background(), []corev1.Taint{t}, ps.Template.Spec.Tolerations, func(t *corev1.Taint) bool {
-				return t.Effect == corev1.TaintEffectNoExecute
+				return t.Effect == corev1.TaintEffectNoExecute || t.Effect == corev1.TaintEffectNoSchedule
 			}, true)
 			if untolerated {
 				untoleratedByAny = true
@@ -421,21 +419,21 @@ func (r *nodeFailureReconciler) isNodeUnhealthyForWorkload(ctx context.Context, 
 			}
 		}
 		if untoleratedByAny {
-			untoleratedNoExecuteTaints = append(untoleratedNoExecuteTaints, t)
-		} else {
-			toleratedNoExecuteTaints = append(toleratedNoExecuteTaints, t)
+			untoleratedTaints = append(untoleratedTaints, t)
+		} else if t.Effect == corev1.TaintEffectNoExecute {
+			toleratedTaints = append(toleratedTaints, t)
 		}
 	}
 
-	// 1. Check Untolerated NoExecute (Immediate Unhealthy, unless TASReplaceNodeOnPodTermination is enabled)
-	if len(untoleratedNoExecuteTaints) > 0 && !features.Enabled(features.TASReplaceNodeOnPodTermination) {
+	// 1. Check Untolerated NoExecute/NoSchedule (Immediate Unhealthy, unless TASReplaceNodeOnPodTermination is enabled)
+	if len(untoleratedTaints) > 0 && !features.Enabled(features.TASReplaceNodeOnPodTermination) {
 		return true, false, nil
 	}
 
 	// 2. Check for taints that require waiting for pod termination (terminationSeconds check):
-	// - Tolerated NoExecute taints always wait for pod termination.
-	// - Untolerated NoExecute taints wait for pod termination only if TASReplaceNodeOnPodTermination is enabled.
-	if len(toleratedNoExecuteTaints) == 0 && (len(untoleratedNoExecuteTaints) == 0 || !features.Enabled(features.TASReplaceNodeOnPodTermination)) {
+	// - Tolerated NoExecute/NoSchedule taints always wait for pod termination.
+	// - Untolerated NoExecute/NoSchedule taints wait for pod termination only if TASReplaceNodeOnPodTermination is enabled.
+	if len(toleratedTaints) == 0 && (len(untoleratedTaints) == 0 || !features.Enabled(features.TASReplaceNodeOnPodTermination)) {
 		return false, false, nil
 	}
 
