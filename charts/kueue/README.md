@@ -133,6 +133,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | kueueViz.backend.image.tag | string | `"release-0.16"` | KueueViz dashboard backend image tag |
 | kueueViz.backend.imagePullSecrets | list | `[]` | Sets ImagePullSecrets for KueueViz dashboard backend deployments. This is useful when the images are in a private registry. |
 | kueueViz.backend.ingress.annotations | object | `{"nginx.ingress.kubernetes.io/rewrite-target":"/","nginx.ingress.kubernetes.io/ssl-redirect":"true"}` | KueueViz dashboard backend ingress annotations |
+| kueueViz.backend.ingress.enabled | bool | `true` | Enable KueueViz dashboard backend ingress |
 | kueueViz.backend.ingress.host | string | `"backend.kueueviz.local"` | KueueViz dashboard backend ingress host |
 | kueueViz.backend.ingress.ingressClassName | string | `nil` | KueueViz dashboard backend ingress class name |
 | kueueViz.backend.ingress.tlsSecretName | string | `"kueueviz-backend-tls"` | KueueViz dashboard backend ingress tls secret name |
@@ -148,6 +149,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | kueueViz.frontend.image.tag | string | `"release-0.16"` | KueueViz dashboard frontend image tag |
 | kueueViz.frontend.imagePullSecrets | list | `[]` | Sets ImagePullSecrets for KueueViz dashboard frontend deployments. This is useful when the images are in a private registry. |
 | kueueViz.frontend.ingress.annotations | object | `{"nginx.ingress.kubernetes.io/rewrite-target":"/","nginx.ingress.kubernetes.io/ssl-redirect":"true"}` | KueueViz dashboard frontend ingress annotations |
+| kueueViz.frontend.ingress.enabled | bool | `true` | Enable KueueViz dashboard frontend ingress |
 | kueueViz.frontend.ingress.host | string | `"frontend.kueueviz.local"` | KueueViz dashboard frontend ingress host |
 | kueueViz.frontend.ingress.ingressClassName | string | `nil` | KueueViz dashboard frontend ingress class name |
 | kueueViz.frontend.ingress.tlsSecretName | string | `"kueueviz-frontend-tls"` | KueueViz dashboard frontend ingress tls secret name |
