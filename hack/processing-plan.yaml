@@ -799,10 +799,32 @@ files:
         position: START
         value: |
           {{- if .Values.enableKueueViz }}
+        onFileCondition: '.kind != "Ingress"'
       - type: INSERT_TEXT
         position: END
         value: |
           {{- end }}
+        onFileCondition: '.kind != "Ingress"'
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- if and .Values.enableKueueViz .Values.kueueViz.backend.ingress.enabled }}
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("backend")'
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- end }}
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("backend")'
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- if and .Values.enableKueueViz .Values.kueueViz.frontend.ingress.enabled }}
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("frontend")'
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- end }}
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("frontend")'
   - path: ./config/components/internalcert/*.yaml
     outputDir: ./charts/kueue/templates/internalcert
     removeComments: true
