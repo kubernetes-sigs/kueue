@@ -43,6 +43,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
@@ -2584,8 +2585,13 @@ func TestReconcile(t *testing.T) {
 					objs = append(objs, rct)
 				}
 
-				clientBuilder := utiltesting.NewClientBuilder().WithObjects(objs...).WithStatusSubresource(objs...).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
-				cl := clientBuilder.Build()
+				cl := utiltesting.
+					NewClientBuilder().
+					WithObjects(objs...).
+					WithStatusSubresource(objs...).
+					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+					WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerType, indexer.IndexLimitRangeHasContainerType).
+					Build()
 				recorder := &utiltesting.EventRecorder{}
 
 				cqCache := schdcache.New(cl)
@@ -2637,6 +2643,9 @@ func TestReconcile(t *testing.T) {
 					}
 				}
 
+				if err := workload.AdjustResources(ctx, cl, testWl); err != nil {
+					t.Errorf("Unable to adjust workload data correctly: %v", err)
+				}
 				gotResult, gotError := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(testWl)})
 
 				switch {

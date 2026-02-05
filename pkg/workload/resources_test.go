@@ -40,6 +40,7 @@ func TestAdjustResources(t *testing.T) {
 		limitranges    []corev1.LimitRange
 		wl             *kueue.Workload
 		wantWl         *kueue.Workload
+		wantErr        bool
 	}{
 		"Handle runtimeClass with podOverHead": {
 			runtimeClasses: []nodev1.RuntimeClass{
@@ -48,6 +49,10 @@ func TestAdjustResources(t *testing.T) {
 						corev1.ResourceCPU:    resources.ResourceQuantity(corev1.ResourceCPU, 1),
 						corev1.ResourceMemory: resources.ResourceQuantity(corev1.ResourceMemory, 1024),
 					}).
+					RuntimeClass,
+				utiltesting.MakeRuntimeClass("runtime-d", "handler-a").
+					RuntimeClass,
+				utiltesting.MakeRuntimeClass("runtime-e", "handler-a").
 					RuntimeClass,
 			},
 			wl: utiltestingapi.MakeWorkload("foo", "").
@@ -116,6 +121,10 @@ func TestAdjustResources(t *testing.T) {
 			runtimeClasses: []nodev1.RuntimeClass{
 				utiltesting.MakeRuntimeClass("runtime-a", "handler-a").
 					RuntimeClass,
+				utiltesting.MakeRuntimeClass("runtime-d", "handler-a").
+					RuntimeClass,
+				utiltesting.MakeRuntimeClass("runtime-e", "handler-a").
+					RuntimeClass,
 			},
 			wl: utiltestingapi.MakeWorkload("foo", "").
 				PodSets(
@@ -173,6 +182,69 @@ func TestAdjustResources(t *testing.T) {
 						Obj(),
 				).
 				Obj(),
+		},
+		"Handle runtimeClass with runtime classes missing": {
+			runtimeClasses: []nodev1.RuntimeClass{
+				utiltesting.MakeRuntimeClass("runtime-a", "handler-a").
+					RuntimeClass,
+			},
+			wl: utiltestingapi.MakeWorkload("foo", "").
+				PodSets(
+					*utiltestingapi.MakePodSet("a", 1).
+						RuntimeClass("runtime-a").
+						Obj(),
+					*utiltestingapi.MakePodSet("b", 1).
+						Obj(),
+					*utiltestingapi.MakePodSet("c", 1).
+						RuntimeClass("runtime-a").
+						PodOverHead(
+							corev1.ResourceList{
+								corev1.ResourceCPU:    resources.ResourceQuantity(corev1.ResourceCPU, 1),
+								corev1.ResourceMemory: resources.ResourceQuantity(corev1.ResourceMemory, 1024),
+							}).
+						Obj(),
+					*utiltestingapi.MakePodSet("d", 1).
+						RuntimeClass("runtime-d").
+						Obj(),
+					*utiltestingapi.MakePodSet("e", 1).
+						RuntimeClass("runtime-e").
+						PodOverHead(
+							corev1.ResourceList{
+								corev1.ResourceCPU:    resources.ResourceQuantity(corev1.ResourceCPU, 1),
+								corev1.ResourceMemory: resources.ResourceQuantity(corev1.ResourceMemory, 1024),
+							}).
+						Obj(),
+				).
+				Obj(),
+			wantWl: utiltestingapi.MakeWorkload("foo", "").
+				PodSets(
+					*utiltestingapi.MakePodSet("a", 1).
+						RuntimeClass("runtime-a").
+						Obj(),
+					*utiltestingapi.MakePodSet("b", 1).
+						Obj(),
+					*utiltestingapi.MakePodSet("c", 1).
+						RuntimeClass("runtime-a").
+						PodOverHead(
+							corev1.ResourceList{
+								corev1.ResourceCPU:    resources.ResourceQuantity(corev1.ResourceCPU, 1),
+								corev1.ResourceMemory: resources.ResourceQuantity(corev1.ResourceMemory, 1024),
+							}).
+						Obj(),
+					*utiltestingapi.MakePodSet("d", 1).
+						RuntimeClass("runtime-d").
+						Obj(),
+					*utiltestingapi.MakePodSet("e", 1).
+						RuntimeClass("runtime-e").
+						PodOverHead(
+							corev1.ResourceList{
+								corev1.ResourceCPU:    resources.ResourceQuantity(corev1.ResourceCPU, 1),
+								corev1.ResourceMemory: resources.ResourceQuantity(corev1.ResourceMemory, 1024),
+							}).
+						Obj(),
+				).
+				Obj(),
+			wantErr: true,
 		},
 		"Handle container limit range": {
 			limitranges: []corev1.LimitRange{
@@ -299,6 +371,28 @@ func TestAdjustResources(t *testing.T) {
 					WithType(corev1.LimitTypeContainer).
 					LimitRange,
 			},
+			wl: utiltestingapi.MakeWorkload("foo", "").
+				PodSets(
+					*utiltestingapi.MakePodSet("a", 1).
+						Obj(),
+					*utiltestingapi.MakePodSet("b", 1).
+						Limit(corev1.ResourceCPU, "6").
+						Request(corev1.ResourceCPU, "1").
+						Obj(),
+				).
+				Obj(),
+			wantWl: utiltestingapi.MakeWorkload("foo", "").
+				PodSets(
+					*utiltestingapi.MakePodSet("a", 1).
+						Obj(),
+					*utiltestingapi.MakePodSet("b", 1).
+						Limit(corev1.ResourceCPU, "6").
+						Request(corev1.ResourceCPU, "1").
+						Obj(),
+				).
+				Obj(),
+		},
+		"Handle no limit range lists": {
 			wl: utiltestingapi.MakeWorkload("foo", "").
 				PodSets(
 					*utiltestingapi.MakePodSet("a", 1).
@@ -475,13 +569,26 @@ func TestAdjustResources(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			cl := utiltesting.NewClientBuilder().WithLists(
+
+			clBuilder := utiltesting.NewClientBuilder().WithLists(
 				&nodev1.RuntimeClassList{Items: tc.runtimeClasses},
-				&corev1.LimitRangeList{Items: tc.limitranges},
-			).WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerType, indexer.IndexLimitRangeHasContainerType).
-				Build()
+			).WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerType, indexer.IndexLimitRangeHasContainerType)
+
+			if tc.limitranges != nil {
+				clBuilder = clBuilder.WithLists(&corev1.LimitRangeList{Items: tc.limitranges})
+			}
+
+			cl := clBuilder.Build()
+
 			ctx, _ := utiltesting.ContextWithLog(t)
-			AdjustResources(ctx, cl, tc.wl)
+
+			err := AdjustResources(ctx, cl, tc.wl)
+			if err == nil && tc.wantErr {
+				t.Errorf("Expected an error")
+			}
+			if err != nil && !tc.wantErr {
+				t.Errorf("Unexpected error: %v", err)
+			}
 			if diff := cmp.Diff(tc.wl, tc.wantWl); diff != "" {
 				t.Errorf("Unexpected resources after adjusting (-want,+got): %s", diff)
 			}

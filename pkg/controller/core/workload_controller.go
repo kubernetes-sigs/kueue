@@ -188,6 +188,18 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, err
 	}
 
+	// any non-deleted workload should have an assignment recorded in the queue cache
+	r.queues.AssignWorkloadIfMissing(&wl)
+
+	wlCopy := wl.DeepCopy()
+	if err := workload.AdjustResources(ctx, r.client, wlCopy); err != nil {
+		return ctrl.Result{}, err
+	}
+	if !equality.Semantic.DeepEqual(wlCopy.Spec.PodSets, wl.Spec.PodSets) {
+		r.client.Update(ctx, wlCopy)
+		return ctrl.Result{}, nil
+	}
+
 	if len(wl.OwnerReferences) == 0 && !wl.DeletionTimestamp.IsZero() {
 		// manual deletion triggered by the user
 		err := workload.RemoveFinalizer(ctx, r.client, &wl)
@@ -576,8 +588,8 @@ func (r *WorkloadReconciler) deleteWorkloadFromCaches(ctx context.Context, names
 	// by the scheduler, and leaving them blocks ClusterQueue finalizer removal.
 	// The operation is idempotent if the workload was never in the cache.
 	r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlRef, func() {
-		if err := r.cache.DeleteWorkload(log, wlRef); err != nil {
-			log.Error(err, "Failed to delete workload from cache")
+		if !r.cache.DeleteWorkload(log, wlRef) {
+			log.V(3).Info("No workload to delete in scheduler cache")
 		}
 	})
 
@@ -850,23 +862,22 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 
 	ctx := ctrl.LoggerInto(context.Background(), log)
 	wlCopy := e.Object.DeepCopy()
-	workload.AdjustResources(ctx, r.client, wlCopy)
 
 	// It is intentional for this code to be not guarded behind a feature gate
 	// DRA workloads need to have certain error handling and hence to be handled in Reconcile loop
 	if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(e.Object) {
-		log.V(2).Info("Skipping DRA workload in Create event - will be handled in Reconcile")
+		log.V(3).Info("DRA workload; handling postponed till reconcile")
 		return true
 	}
 
 	if workload.IsAdmissible(e.Object) {
 		if err := r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
-			log.V(2).Info("ignored an error for now", "error", err)
+			log.V(3).Info("workload could not be added to queue cache; handling postponed till reconcile", "error", err)
 		}
 		return true
 	}
 	if !r.cache.AddOrUpdateWorkload(log, wlCopy) {
-		log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
+		log.V(3).Info("ClusterQueue for workload didn't exist; postponed to be handled in reconcile")
 	}
 	r.queues.QueueSecondPassIfNeeded(ctx, e.Object, 0)
 	return true
@@ -907,8 +918,6 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 
 	wlCopy := e.ObjectNew.DeepCopy()
 	wlKey := workload.Key(e.ObjectNew)
-	// We do not handle old workload here as it will be deleted or replaced by new one anyway.
-	workload.AdjustResources(ctrl.LoggerInto(ctx, log), r.client, wlCopy)
 
 	switch {
 	case status == workload.StatusFinished || !active:
@@ -924,25 +933,23 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			// Delete the workload from cache while holding the queues lock
 			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
-			if err := r.cache.DeleteWorkload(log, wlKey); err != nil && prevStatus == workload.StatusAdmitted {
-				log.Error(err, "Failed to delete workload from cache")
+			if !r.cache.DeleteWorkload(log, wlKey) {
+				log.V(3).Info("No workload to delete in scheduler cache")
 			}
 		})
 
 	case prevStatus == workload.StatusPending && status == workload.StatusPending:
 		// Skip queue operations for DRA workloads - they are handled in Reconcile loop
 		if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(e.ObjectNew) {
-			log.V(2).Info("Skipping queue update for DRA workload - handled in Reconcile")
-		} else {
-			err := r.queues.UpdateWorkload(log, wlCopy)
-			if err != nil {
-				log.V(2).Info("ignored an error for now", "error", err)
-			}
+			log.V(3).Info("DRA workload; handling postponed till reconcile")
+		} else if err := r.queues.UpdateWorkload(log, wlCopy); err != nil {
+			log.V(3).Info("unable to update pending workload; handling postponed till reconcile", "error", err)
+
 		}
 	case prevStatus == workload.StatusPending && (status == workload.StatusQuotaReserved || status == workload.StatusAdmitted):
 		r.queues.DeleteWorkload(log, wlKey)
 		if !r.cache.AddOrUpdateWorkload(log, wlCopy) {
-			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
+			log.V(3).Info("ClusterQueue for workload didn't exist; handling postponed till reconcile")
 		}
 		if afs.Enabled(r.admissionFSConfig) && status == workload.StatusAdmitted && r.cache.ClusterQueueUsesAdmissionFairSharing(wlCopy.Status.Admission.ClusterQueue) {
 			r.updateAfsConsumedUsage(log, wlCopy)
@@ -959,8 +966,8 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			// Delete the workload from cache while holding the queues lock
 			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
-			if err := r.cache.DeleteWorkload(log, wlKey); err != nil {
-				log.Error(err, "Failed to delete workload from cache")
+			if !r.cache.DeleteWorkload(log, wlKey) {
+				log.V(3).Info("No workload to delete in scheduler cache")
 			}
 			// Here we don't take the lock as it is already taken by the wrapping function.
 			// The delayed requeue is done in the Reconcile function, but we need to
@@ -970,10 +977,10 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			if immediate {
 				// Skip queue operations for DRA workloads - they are handled in Reconcile loop
 				if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(e.ObjectNew) {
-					log.V(2).Info("Skipping immediate requeue for DRA workload - handled in Reconcile")
+					log.V(3).Info("DRA workload; requeue postponed till reconcile")
 				} else {
 					if err := r.queues.AddOrUpdateWorkloadWithoutLock(log, wlCopy); err != nil {
-						log.V(2).Info("ignored an error for now", "error", err)
+						log.V(3).Info("workload could not be added to queue cache; handling postponed till reconcile", "error", err)
 					}
 					r.queues.DeleteSecondPassWithoutLock(wlKey)
 				}
@@ -987,13 +994,17 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			// Update the workload from cache while holding the queues lock
 			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
-			r.cache.AddOrUpdateWorkload(log, wlCopy)
+			if !r.cache.AddOrUpdateWorkload(log, wlCopy) {
+				log.V(3).Info("ClusterQueue for workload didn't exist; handling postponed till reconcile")
+			}
 		})
 
 	default:
 		// Workload update in the cache is handled here; however, some fields are immutable
 		// and are not supposed to actually change anything.
-		r.cache.AddOrUpdateWorkload(log, wlCopy)
+		if !r.cache.AddOrUpdateWorkload(log, wlCopy) {
+			log.V(3).Info("ClusterQueue for workload didn't exist; handling postponed till reconcile")
+		}
 	}
 	r.queues.QueueSecondPassIfNeeded(ctx, e.ObjectNew, 0)
 	return true
@@ -1163,7 +1174,6 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, q
 		wlCopy := w.DeepCopy()
 		log := log.WithValues("workload", klog.KObj(wlCopy))
 		log.V(5).Info("Queue reconcile for")
-		workload.AdjustResources(ctrl.LoggerInto(ctx, log), h.r.client, wlCopy)
 
 		if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(wlCopy) {
 			req := reconcile.Request{

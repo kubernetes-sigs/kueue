@@ -18,13 +18,11 @@ package workload
 
 import (
 	"context"
-	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -45,22 +43,20 @@ const (
 // As a result, the pod's Overhead is not always correct. E.g. if we set a non-existent runtime class name to
 // `pod.Spec.RuntimeClassName` and we also set the `pod.Spec.Overhead`, in real world, the pod creation will be
 // rejected due to the mismatch with RuntimeClass. However, in the future we assume that they are correct.
-func handlePodOverhead(ctx context.Context, cl client.Client, wl *kueue.Workload) []error {
-	var errs []error
+func handlePodOverhead(ctx context.Context, cl client.Client, wl *kueue.Workload) error {
 	for i := range wl.Spec.PodSets {
 		podSpec := &wl.Spec.PodSets[i].Template.Spec
 		if podSpec.RuntimeClassName != nil && len(podSpec.Overhead) == 0 {
 			var runtimeClass nodev1.RuntimeClass
 			if err := cl.Get(ctx, types.NamespacedName{Name: *podSpec.RuntimeClassName}, &runtimeClass); err != nil {
-				errs = append(errs, fmt.Errorf("in podSet %s: %w", wl.Spec.PodSets[i].Name, err))
-				continue
+				return err
 			}
 			if runtimeClass.Overhead != nil {
 				podSpec.Overhead = runtimeClass.Overhead.PodFixed
 			}
 		}
 	}
-	return errs
+	return nil
 }
 
 func handlePodLimitRange(ctx context.Context, cl client.Client, wl *kueue.Workload) error {
@@ -118,15 +114,15 @@ func UseLimitsAsMissingRequestsInPod(pod *corev1.PodSpec) {
 // - PodOverhead
 // - LimitRanges
 // - Limits
-func AdjustResources(ctx context.Context, cl client.Client, wl *kueue.Workload) {
-	log := ctrl.LoggerFrom(ctx)
-	for _, err := range handlePodOverhead(ctx, cl, wl) {
-		log.Error(err, "Failures adjusting requests for pod overhead")
+func AdjustResources(ctx context.Context, cl client.Client, wl *kueue.Workload) error {
+	if err := handlePodOverhead(ctx, cl, wl); err != nil {
+		return err
 	}
 	if err := handlePodLimitRange(ctx, cl, wl); err != nil {
-		log.Error(err, "Failed adjusting requests for LimitRanges")
+		return err
 	}
 	handleLimitsToRequests(wl)
+	return nil
 }
 
 // ValidateResources validates that requested resources are less or equal

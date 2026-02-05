@@ -533,6 +533,16 @@ func (m *Manager) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload, opts .
 	return m.AddOrUpdateWorkloadWithoutLock(log, w, opts...)
 }
 
+func (m *Manager) AssignWorkloadIfMissing(wl *kueue.Workload) {
+	m.Lock()
+	defer m.Unlock()
+
+	wlKey := workload.Key(wl)
+	if _, present := m.workloadAssignedQueues[wlKey]; !present {
+		m.assignWorkload(wlKey, queue.KeyFromWorkload(wl))
+	}
+}
+
 func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
 	if !workload.IsAdmissible(w) {
 		return errWorkloadIsInadmissible

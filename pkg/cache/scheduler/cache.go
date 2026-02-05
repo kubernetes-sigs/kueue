@@ -640,28 +640,24 @@ func (c *Cache) deleteFromQueueIfPresent(log logr.Logger, wlKey workload.Referen
 	}
 }
 
-func (c *Cache) DeleteWorkload(log logr.Logger, wlKey workload.Reference) error {
+func (c *Cache) DeleteWorkload(log logr.Logger, wlKey workload.Reference) bool {
 	c.Lock()
 	defer c.Unlock()
 
 	cqName, assigned := c.workloadAssignedQueues[wlKey]
 	if !assigned {
-		return nil
+		return false
 	}
 
-	cq := c.hm.ClusterQueue(cqName)
-	if cq == nil {
-		return ErrCqNotFound
+	if cq := c.hm.ClusterQueue(cqName); cq != nil {
+		cq.forgetWorkload(log, wlKey)
+		if c.podsReadyTracking {
+			c.podsReadyCond.Broadcast()
+		}
 	}
-
-	cq.forgetWorkload(log, wlKey)
 	delete(c.workloadAssignedQueues, wlKey)
 
-	if c.podsReadyTracking {
-		c.podsReadyCond.Broadcast()
-	}
-
-	return nil
+	return true
 }
 
 func (c *Cache) IsAdded(w workload.Info) bool {
