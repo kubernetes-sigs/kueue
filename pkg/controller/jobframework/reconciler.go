@@ -581,8 +581,14 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			return ctrl.Result{}, err
 		}
 		if workload.HasQuotaReservation(wl) {
-			if !job.IsActive() {
-				log.V(6).Info("The job is no longer active, clear the workloads admission")
+			// For preemption evictions, release quota immediately to enable parallel preemption.
+			// This allows multiple preemptors to be admitted without waiting for each preemptee's
+			// pods to fully terminate. The Kubernetes scheduler independently manages actual node
+			// resources, so new pods will naturally wait for terminating pods to release resources.
+			// For other eviction reasons, we wait until the job is no longer active.
+			releaseQuotaImmediately := evCond.Reason == kueue.WorkloadEvictedByPreemption
+			if releaseQuotaImmediately || !job.IsActive() {
+				log.V(6).Info("Clearing the workloads admission", "reason", evCond.Reason, "immediateRelease", releaseQuotaImmediately)
 				err := workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 					// The requeued condition status set to true only on EvictedByPreemption
 					setRequeued := (evCond.Reason == kueue.WorkloadEvictedByPreemption) || (evCond.Reason == kueue.WorkloadEvictedDueToNodeFailures)
