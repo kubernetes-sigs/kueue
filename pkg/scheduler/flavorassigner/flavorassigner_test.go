@@ -4004,13 +4004,13 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 					},
 				},
 			}),
-			wantErr: "workload requires Topology, but there is no TAS cache information for the assigned flavor",
+			wantErr: "workload requires Topology, but there is no TAS cache information for the assigned flavor(s): tas",
 		},
 		"more than one flavor assigned (onlyFlavor fails); RepresentativeMode must be NoFit": {
 			cq: schdcache.ClusterQueueSnapshot{
 				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{
-					"flavor-a": nil,
-					"flavor-b": nil,
+					"flavor-a": {},
+					"flavor-b": {},
 				},
 			},
 			assignment: Assignment{
