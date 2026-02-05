@@ -461,6 +461,9 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.C
 		jobframework.WithObjectRetentionPolicies(cfg.ObjectRetentionPolicies),
 		jobframework.WithRoleTracker(roleTracker),
 	}
+	if cfg.Controller != nil && cfg.Controller.ParallelPreemption != nil {
+		opts = append(opts, jobframework.WithParallelPreemption(*cfg.Controller.ParallelPreemption))
+	}
 	nsSelector, err := metav1.LabelSelectorAsSelector(cfg.ManagedJobsNamespaceSelector)
 	if err != nil {
 		return fmt.Errorf("failed to parse managedJobsNamespaceSelector: %w", err)
