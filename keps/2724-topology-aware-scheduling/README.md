@@ -41,6 +41,8 @@
     - [Node failures](#node-failures)
       - [Until v0.13](#until-v013)
       - [Since v0.14](#since-v014)
+    - [Tainted nodes treatment](#tainted-nodes-treatment)
+      - [Since v0.16.1](#since-v0161)
   - [Implicit defaulting of TAS annotations](#implicit-defaulting-of-tas-annotations)
   - [Computing the assignment](#computing-the-assignment)
     - [Example](#example)
