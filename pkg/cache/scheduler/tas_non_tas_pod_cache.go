@@ -22,7 +22,6 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
-	resourcehelpers "k8s.io/component-helpers/resource"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -55,8 +54,7 @@ func (n *nonTasUsageCache) update(pod *corev1.Pod, log logr.Logger) {
 	}
 
 	log.V(5).Info("Adding non-TAS pod to the cache")
-	requests := resources.NewRequests(
-		resourcehelpers.PodRequests(pod, resourcehelpers.PodResourcesOptions{}))
+	requests := resources.NewRequestsFromPodSpec(&pod.Spec)
 	n.podUsage[client.ObjectKeyFromObject(pod)] = podUsageValue{
 		node:  pod.Spec.NodeName,
 		usage: requests,
