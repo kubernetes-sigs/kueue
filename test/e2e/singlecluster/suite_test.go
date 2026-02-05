@@ -29,6 +29,7 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueueclientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	visibility "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
@@ -43,6 +44,8 @@ var (
 	kueueClientset               kueueclientset.Interface
 	impersonatedVisibilityClient visibility.VisibilityV1beta2Interface
 	kueueNS                      = util.GetKueueNamespace()
+	defaultKueueCfg              *config.Configuration
+	kindClusterName              = os.Getenv("KIND_CLUSTER_NAME")
 )
 
 func TestAPIs(t *testing.T) {
@@ -91,7 +94,10 @@ var _ = ginkgo.BeforeSuite(func() {
 		util.WaitForKubeFlowTrainnerControllerManagerAvailability(ctx, k8sClient)
 	}
 	ginkgo.GinkgoLogr.Info(
-		"Kueue and all required operators are available in the cluster",
+		"Kueue is available in the cluster",
 		"waitingTime", time.Since(waitForAvailableStart),
 	)
+
+	// Save the default Kueue configuration so that tests that need to modify it can restore it after the test
+	defaultKueueCfg = util.GetKueueConfiguration(ctx, k8sClient)
 })
