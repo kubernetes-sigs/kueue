@@ -35,7 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	constants "sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/constants"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -587,7 +587,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				features.TASReplaceNodeOnNodeTaints: true,
 			},
 		},
-		"Node has untolerated NoSchedule taint, pod is Pending -> Unhealthy, pod deleted": {
+	"Node has untolerated NoSchedule taint, pod is Pending -> Unhealthy, pod deleted": {
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
@@ -608,9 +608,33 @@ func TestNodeFailureReconciler(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{
 				features.TASReplaceNodeOnNodeTaints:               true,
 				features.TASReplaceNodeOnPodTermination: false,
+				features.TASReplaceNodeOnPendingPods:    true,
 			},
 		},
-		"Node has untolerated NoSchedule taint, pod is Pending and on node -> Unhealthy, pod deleted": {
+		"Node has untolerated NoSchedule taint, pod is Pending -> Unhealthy, pod NOT deleted (gate disabled)": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).
+					Label(corev1.LabelHostname, nodeName).
+					Taints(corev1.Taint{Key: "foo", Effect: corev1.TaintEffectNoSchedule}).Obj(),
+				baseWorkload.DeepCopy(),
+				testingpod.MakePod("pending-pod", nsName).
+					Annotation(kueue.WorkloadAnnotation, wlName).
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector(corev1.LabelHostname, nodeName).
+					StatusPhase(corev1.PodPending).Obj(),
+			},
+			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
+			wantRemainingPods:  []string{"pending-pod"},
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnPodTermination: false,
+				features.TASReplaceNodeOnPendingPods:    false,
+			},
+		},
+		"Node has untolerated NoSchedule taint, pod is Pending and on node, TASReplaceNodeOnPendingPods enabled -> Unhealthy, pod deleted": {
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
@@ -631,9 +655,10 @@ func TestNodeFailureReconciler(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{
 				features.TASReplaceNodeOnNodeTaints:               true,
 				features.TASReplaceNodeOnPodTermination: true,
+				features.TASReplaceNodeOnPendingPods:    true,
 			},
 		},
-		"Node has untolerated NoSchedule taint, multiple pending pods, only matching one deleted": {
+		"Node has untolerated NoSchedule taint, multiple pending pods, only matching one deleted, TASReplaceNodeOnPendingPods enabled": {
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
@@ -665,6 +690,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{
 				features.TASReplaceNodeOnNodeTaints:               true,
 				features.TASReplaceNodeOnPodTermination: true,
+				features.TASReplaceNodeOnPendingPods:    true,
 			},
 		},
 		"Node has untolerated NoSchedule taint, pod is Gated -> Healthy (wait)": {
