@@ -164,7 +164,7 @@ var _ = ginkgo.Describe("Pod Preemption Serialization Issue", ginkgo.Ordered, fu
 
 			// Create pods concurrently
 			var wg sync.WaitGroup
-			for i := 0; i < podCountCqA; i++ {
+			for i := range podCountCqA {
 				wg.Add(1)
 				go func(idx int) {
 					defer wg.Done()
@@ -246,7 +246,7 @@ var _ = ginkgo.Describe("Pod Preemption Serialization Issue", ginkgo.Ordered, fu
 
 			// Create all pods that need preemption from CQ-A at once to demonstrate serialized preemption issue
 			var wg sync.WaitGroup
-			for i := 0; i < podCountCqB; i++ {
+			for i := range podCountCqB {
 				wg.Add(1)
 				go func(idx int) {
 					defer wg.Done()
@@ -332,7 +332,7 @@ var _ = ginkgo.Describe("Pod Preemption Serialization Issue", ginkgo.Ordered, fu
 			sortedTimes := make([]time.Time, len(admissionTimes))
 			copy(sortedTimes, admissionTimes)
 			// Sort times chronologically
-			for i := 0; i < len(sortedTimes); i++ {
+			for i := range len(sortedTimes) {
 				for j := i + 1; j < len(sortedTimes); j++ {
 					if sortedTimes[j].Before(sortedTimes[i]) {
 						sortedTimes[i], sortedTimes[j] = sortedTimes[j], sortedTimes[i]
