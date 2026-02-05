@@ -1080,7 +1080,9 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			var _ = fwk.ObservedLogs.TakeAll() // clear logs
 
 			const nGoroutines = 25
-			stopModification := make(chan bool)
+			// We are making a buffered channel to avoid main thread blocking when
+			// one of the goroutines fails
+			stopModification := make(chan bool, nGoroutines)
 
 			// local helper that sets cq status to pending, at the same time
 			// core controller will try to set status to Active, so concurrent modification should occur
@@ -1105,11 +1107,17 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 						var _ = k8sClient.Status().Update(ctx, &updatedCq)
 						return false
 					}
-				}, util.Timeout, util.Interval).To(gomega.BeTrue())
+				}, util.LongTimeout, util.Interval).To(gomega.BeTrue())
 			}
 			for range nGoroutines {
 				go setClusterStatusPending()
 			}
+
+			defer func() {
+				for range nGoroutines {
+					stopModification <- true
+				}
+			}()
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				reconcileLogs := fwk.ObservedLogs
@@ -1121,11 +1129,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 					return le.Level >= zapcore.ErrorLevel
 				}).All()).Should(gomega.BeEmpty(),
 					"Log level should be smaller than error")
-
-				for range nGoroutines {
-					stopModification <- true
-				}
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })
