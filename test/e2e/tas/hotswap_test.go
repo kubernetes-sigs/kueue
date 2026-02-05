@@ -384,8 +384,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 
 			// In this test we use a jobset with SliceSize = 3 and SliceRequiredTopology = Block
 			// Each pod requires 1 "extraResource" so the jobSet will use three nodes from a Block.
-			// We simulate a node failure by tainting it with NoExecute. The pod has a toleration for 5 seconds.
-			// After the toleration period expires, the pod is evicted.
+			// We simulate a node failure by tainting it with NoExecute. The pod has a toleration for 0 seconds.
 			// The replacement mechanism should find the available node in the same Block and replace the tainted one.
 			ginkgo.It("Should replace a node when it becomes tainted with NoExecute and tolerationSeconds", func() {
 				replicas := 1
@@ -393,7 +392,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 				numPods := replicas * parallelism
 				jobName := "toleration-jobset"
 				replicatedJobName := "replicated-job-1"
-				tolerationSeconds := int64(5)
+				tolerationSeconds := int64(0)
 				sampleJob := testingjobset.MakeJobSet(jobName, ns.Name).
 					Queue(localQueue.Name).
 					ReplicatedJobs(
