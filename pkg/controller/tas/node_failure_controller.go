@@ -337,11 +337,12 @@ func (r *nodeFailureReconciler) reconcileForReplaceNodeOnPodTermination(ctx cont
 // It also clears the unhealthyNodes field for each of the specified workloads if it is no longer unhealthy.
 // It returns whether any workload needs monitoring (leading to a requeue), and whether an error was encountered.
 func (r *nodeFailureReconciler) handleHealthyNode(ctx context.Context, node *corev1.Node, affectedWorkloads sets.Set[types.NamespacedName]) (bool, error) {
+	log := ctrl.LoggerFrom(ctx)
 	var workloadProcessingErrors []error
 	keepMonitoring := false
 
 	for wlKey := range affectedWorkloads {
-		log := r.logger().WithValues("workload", klog.KRef(wlKey.Namespace, wlKey.Name))
+		log := log.WithValues("workload", klog.KRef(wlKey.Namespace, wlKey.Name))
 		var wl kueue.Workload
 		if err := r.client.Get(ctx, wlKey, &wl); err != nil {
 			if apierrors.IsNotFound(err) {
