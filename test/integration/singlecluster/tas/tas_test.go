@@ -3447,6 +3447,44 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					))
 				})
 			})
+
+			ginkgo.It("should not admit workload when PodSet gets more than one TAS flavor (TAS request build fails)", func() {
+				// A single PodSet requests both CPU and GPU with TAS. In this CQ no single flavor
+				// has both (tas-cpu has CPU only, tas-gpu has GPU only), so the flavor assigner
+				// fails with "insufficient quota". If the assigner ever assigned different flavors
+				// per resource, TAS would fail with "more than one flavor assigned" (onlyFlavor).
+				// Either way, the workload must not be admitted so it never gets TopologyAssignment.
+				var wl *kueue.Workload
+				ginkgo.By("creating a workload with one PodSet requesting both CPU and GPU and TAS", func() {
+					wl = utiltestingapi.MakeWorkload("tas-multi-flavor-pending", ns.Name).
+						Queue(kueue.LocalQueueName(localQueue.Name)).
+						PodSets(*utiltestingapi.MakePodSet("main", 1).
+							Request(corev1.ResourceCPU, "2").
+							Request(gpuResName, "2").
+							RequiredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
+							Obj(),
+						).Obj()
+					util.MustCreate(ctx, k8sClient, wl)
+				})
+
+				ginkgo.By("verify the workload remains pending and is not admitted", func() {
+					util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+					gomega.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
+				})
+
+				ginkgo.By("verify QuotaReserved condition reports flavor/TAS-related failure", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+						cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+						g.Expect(cond).ToNot(gomega.BeNil())
+						g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+						g.Expect(cond.Reason).To(gomega.Equal("Pending"))
+						// With this CQ, no single flavor fits both CPU and GPU, so flavor assigner fails with "couldn't assign flavors".
+						g.Expect(cond.Message).To(gomega.ContainSubstring("couldn't assign flavors"))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+			})
 		})
 	})
 
