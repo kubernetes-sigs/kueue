@@ -117,15 +117,15 @@ function cluster_collect_artifacts {
     local name=$1
     local kubeconfig=${2:-}
 
-    local kubeconfig_args=()
+    local -a kubectl_args=()
     if [[ -n "${kubeconfig}" ]]; then
-        kubeconfig_args=(--kubeconfig="${kubeconfig}")
+        kubectl_args=(--kubeconfig="${kubeconfig}")
     fi
 
-    kubectl config "${kubeconfig_args[@]}" use-context "kind-${name}" || true
+    kubectl config ${kubectl_args[@]+"${kubectl_args[@]}"} use-context "kind-${name}" || true
     $KIND export logs "$ARTIFACTS" --name "$name" || true
-    kubectl describe pods "${kubeconfig_args[@]}" -n kueue-system > "$ARTIFACTS/${name}-kueue-system-pods.log" || true
-    kubectl describe pods "${kubeconfig_args[@]}" > "$ARTIFACTS/${name}-default-pods.log" || true
+    kubectl describe pods ${kubectl_args[@]+"${kubectl_args[@]}"} -n kueue-system > "$ARTIFACTS/${name}-kueue-system-pods.log" || true
+    kubectl describe pods ${kubectl_args[@]+"${kubectl_args[@]}"} > "$ARTIFACTS/${name}-default-pods.log" || true
 }
 
 # $1 cluster name
