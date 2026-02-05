@@ -73,8 +73,7 @@ var _ = ginkgo.Describe("Pod Preemption Serialization Issue", ginkgo.Ordered, fu
 
 	ginkgo.AfterAll(func() {
 		ginkgo.By("Restoring default Kueue configuration")
-		util.ApplyKueueConfiguration(ctx, k8sClient, defaultKueueCfg)
-		util.RestartKueueController(ctx, k8sClient, kindClusterName)
+		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName)
 	})
 
 	ginkgo.BeforeEach(func() {
