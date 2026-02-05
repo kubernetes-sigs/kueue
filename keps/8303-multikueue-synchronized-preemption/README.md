@@ -45,7 +45,7 @@ Moreover, a general preemption gating/synchronization mechanism can be used to h
 
 ### Goals
 
-- Increase resource usage in a MultiKueue environment by eliminating system-wide preemptions that disrupt running workloads.
+- Avoid unnecessary workload disruptions in the context of MultiKueue, caused by concurrent preemptions in worker clusters.
 - Propose a generalized mechanism that can be extended to other scenarios.
 
 ### Non-Goals
