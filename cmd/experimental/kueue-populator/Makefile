@@ -16,7 +16,7 @@ ENVTEST := $(BIN_DIR)/setup-envtest
 GINKGO := $(BIN_DIR)/ginkgo
 GOTESTSUM := $(BIN_DIR)/gotestsum
 ARTIFACTS ?= $(ROOT_DIR)/artifacts
-ENVTEST_K8S_VERSION ?= 1.34
+ENVTEST_K8S_VERSION ?= 1.35
 INTEGRATION_NPROCS ?= 4
 CONTROLLER_GEN := $(BIN_DIR)/controller-gen
 YAML_PROCESSOR = $(BIN_DIR)/yaml-processor
@@ -99,8 +99,12 @@ kind-image-build: image-build
 manifests:
 	$(CONTROLLER_GEN) rbac:roleName=kueue-populator-role output:rbac:artifacts:config=config/rbac paths="./pkg/controller/..."
 
+.PHONY: compile-crd-manifests
+compile-crd-manifests:
+	cd $(ROOT_DIR) && $(MAKE) compile-crd-manifests
+
 .PHONY: test-integration
-test-integration: $(ENVTEST) $(GINKGO)
+test-integration: compile-crd-manifests $(ENVTEST) $(GINKGO)
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	PROJECT_DIR=$(ROOT_DIR)/ \
 	GOWORK=off $(GINKGO) -procs=$(INTEGRATION_NPROCS) -v ./test/integration/...
