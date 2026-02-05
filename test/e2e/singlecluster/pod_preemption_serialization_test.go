@@ -18,6 +18,7 @@ package e2e
 
 import (
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -328,21 +329,18 @@ var _ = ginkgo.Describe("Pod Preemption Serialization Issue", ginkgo.Ordered, fu
 			}
 			totalAdmissionTime := latestAdmission.Sub(earliestAdmission)
 
-			// Calculate max gap between consecutive admissions (in chronological order)
-			sortedTimes := make([]time.Time, len(admissionTimes))
-			copy(sortedTimes, admissionTimes)
-			// Sort times chronologically
-			for i := range len(sortedTimes) {
-				for j := i + 1; j < len(sortedTimes); j++ {
-					if sortedTimes[j].Before(sortedTimes[i]) {
-						sortedTimes[i], sortedTimes[j] = sortedTimes[j], sortedTimes[i]
-					}
+			slices.SortFunc(admissionTimes, func(a, b time.Time) int {
+				if a.Before(b) {
+					return -1
+				} else if a.After(b) {
+					return 1
 				}
-			}
+				return 0
+			})
 
 			var maxAdmissionGap time.Duration
-			for i := 1; i < len(sortedTimes); i++ {
-				gap := sortedTimes[i].Sub(sortedTimes[i-1])
+			for i := 1; i < len(admissionTimes); i++ {
+				gap := admissionTimes[i].Sub(admissionTimes[i-1])
 				if gap > maxAdmissionGap {
 					maxAdmissionGap = gap
 				}
