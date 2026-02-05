@@ -21,6 +21,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
@@ -226,6 +227,78 @@ func TestCountInWithLimitingResource(t *testing.T) {
 				t.Errorf("unexpected limiting resource, want=%s, got=%s", tc.wantLimitingResource, gotResource)
 			}
 		})
+	}
+}
+
+func TestGreaterKeys(t *testing.T) {
+	cases := map[string]struct {
+		a, b Requests
+		want []corev1.ResourceName
+	}{
+		"empty_a": {
+			b:    Requests{corev1.ResourceCPU: 1},
+			want: nil,
+		},
+		"empty_b": {
+			a:    Requests{corev1.ResourceCPU: 1},
+			want: nil,
+		},
+		"less_one": {
+			a:    Requests{corev1.ResourceCPU: 500},
+			b:    Requests{corev1.ResourceCPU: 1000},
+			want: nil,
+		},
+		"greater_one": {
+			a:    Requests{corev1.ResourceCPU: 1000},
+			b:    Requests{corev1.ResourceCPU: 500},
+			want: []corev1.ResourceName{corev1.ResourceCPU},
+		},
+		"multiple": {
+			a: Requests{
+				"r1": 2,
+				"r2": 1,
+			},
+			b: Requests{
+				"r1": 1,
+				"r2": 2,
+			},
+			want: []corev1.ResourceName{"r1"},
+		},
+		"multiple_unrelated": {
+			a: Requests{
+				"r1": 2,
+				"r2": 2,
+			},
+			b: Requests{
+				"r3": 1,
+				"r4": 1,
+			},
+			want: nil,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := tc.a.GreaterKeys(tc.b)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Unexpected result (-want, +got)\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestGreaterKeysRL(t *testing.T) {
+	reqs := Requests{
+		corev1.ResourceCPU:    1000,
+		corev1.ResourceMemory: 1024,
+	}
+	rl := corev1.ResourceList{
+		corev1.ResourceCPU:    resource.MustParse("500m"),
+		corev1.ResourceMemory: resource.MustParse("2Ki"),
+	}
+	got := reqs.GreaterKeysRL(rl)
+	want := []corev1.ResourceName{corev1.ResourceCPU}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("Unexpected result (-want, +got)\n%s", diff)
 	}
 }
 

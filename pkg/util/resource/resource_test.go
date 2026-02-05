@@ -196,69 +196,6 @@ func TestMerge(t *testing.T) {
 	}
 }
 
-func TestGetGraterKeys(t *testing.T) {
-	cpuOnly1 := corev1.ResourceList{
-		corev1.ResourceCPU: resource.MustParse("1"),
-	}
-	cpuOnly500m := corev1.ResourceList{
-		corev1.ResourceCPU: resource.MustParse("500m"),
-	}
-	cases := map[string]struct {
-		a, b corev1.ResourceList
-		want []corev1.ResourceName
-	}{
-		"empty_a": {
-			b:    cpuOnly1,
-			want: nil,
-		},
-		"empty_b": {
-			a:    cpuOnly1,
-			want: nil,
-		},
-		"less one resource": {
-			a:    cpuOnly500m,
-			b:    cpuOnly1,
-			want: nil,
-		},
-		"not less one resource": {
-			a:    cpuOnly1,
-			b:    cpuOnly500m,
-			want: []corev1.ResourceName{corev1.ResourceCPU},
-		},
-		"multiple unrelated": {
-			a: corev1.ResourceList{
-				"r1": resource.MustParse("2"),
-				"r2": resource.MustParse("2"),
-			},
-			b: corev1.ResourceList{
-				"r3": resource.MustParse("1"),
-				"r4": resource.MustParse("1"),
-			},
-			want: nil,
-		},
-		"multiple": {
-			a: corev1.ResourceList{
-				"r1": resource.MustParse("2"),
-				"r2": resource.MustParse("1"),
-			},
-			b: corev1.ResourceList{
-				"r1": resource.MustParse("1"),
-				"r2": resource.MustParse("2"),
-			},
-			want: []corev1.ResourceName{"r1"},
-		},
-	}
-
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			got := GetGreaterKeys(tc.a, tc.b)
-			if diff := cmp.Diff(tc.want, got); diff != "" {
-				t.Errorf("Unexpected result (-want, +got)\n%s", diff)
-			}
-		})
-	}
-}
-
 func TestQuantityToFloat(t *testing.T) {
 	cases := map[string]struct {
 		q          resource.Quantity
