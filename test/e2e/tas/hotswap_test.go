@@ -19,6 +19,7 @@ package tase2e
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
@@ -476,12 +477,9 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 				ginkgo.By("Check that the topology assignment is updated with the new node in the same block", func() {
-					expectedNodes := []string{}
-					for _, n := range []string{"kind-worker", "kind-worker2", "kind-worker3", "kind-worker4"} {
-						if n != node.Name {
-							expectedNodes = append(expectedNodes, n)
-						}
-					}
+					expectedNodes := slices.DeleteFunc([]string{"kind-worker", "kind-worker2", "kind-worker3", "kind-worker4"}, func(n string) bool {
+						return n == node.Name
+					})
 					expectWorkloadTopologyAssignment(ctx, k8sClient, wlKey, numPods, expectedNodes)
 					expectPodsOnNodes(ctx, k8sClient, ns.Name, jobName, numPods, expectedNodes)
 				})
