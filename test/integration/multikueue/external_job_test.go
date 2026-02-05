@@ -40,17 +40,17 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
+	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	dispatcher "sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
+	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/util"
 )
 
 var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-	ginkgo.When("the external RayJob adapter is enabled", func() {
+	ginkgo.When("the external RayCluster adapter is enabled", func() {
 		var (
 			managerNs *corev1.Namespace
 			worker1Ns *corev1.Namespace
@@ -73,8 +73,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		)
 
 		ginkgo.BeforeAll(func() {
+			// TODO originally this test uses RayJob, we hit a global variable issue `var reconciler rayJobReconciler`.
+			// Change to use RayCluster now. When the global variable is solved, change back to use RayJob in this test.
 			managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
-				// Set up core controllers and RayJob webhook (but not MultiKueue integration)
+				// Set up core controllers and RayCluster webhook (but not MultiKueue integration)
 				err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -90,19 +92,19 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				failedWebhook, err := webhooks.Setup(mgr, nil)
 				gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
-				// Set up RayJob webhook (but not MultiKueue integration)
-				err = workloadrayjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
+				// Set up RayCluster webhook (but not MultiKueue integration)
+				err = workloadraycluster.SetupIndexes(ctx, mgr.GetFieldIndexer())
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-				rayjobReconciler, _ := workloadrayjob.NewReconciler(
+				rayclusterReconciler, _ := workloadraycluster.NewReconciler(
 					ctx,
 					mgr.GetClient(),
 					mgr.GetFieldIndexer(),
 					mgr.GetEventRecorderFor(constants.JobControllerName))
-				err = rayjobReconciler.SetupWithManager(mgr)
+				err = rayclusterReconciler.SetupWithManager(mgr)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-				err = workloadrayjob.SetupRayJobWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
+				err = workloadraycluster.SetupRayClusterWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				// Set up multikueue with external frameworks only
@@ -113,7 +115,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				mgr.GetScheme().Default(cfg)
 				cfg.MultiKueue.ExternalFrameworks = []config.MultiKueueExternalFramework{
 					{
-						Name: "RayJob.v1.ray.io",
+						Name: "RayCluster.v1.ray.io",
 					},
 				}
 
@@ -210,7 +212,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueSecret2, true)
 		})
 
-		ginkgo.It("Should run a RayJob on worker if admitted", func() {
+		ginkgo.It("Should run a RayCluster on worker if admitted", func() {
 			admission := utiltestingapi.MakeAdmission(managerCq.Name).PodSets(
 				kueue.PodSetAssignment{
 					Name: "head",
@@ -218,45 +220,49 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 					Name: "workers-group-0",
 				},
 			)
-			rayjob := testingrayjob.MakeJob("rayjob1", managerNs.Name).
-				WithSubmissionMode(rayv1.InteractiveMode).
+			raycluster := testingraycluster.MakeCluster("raycluster1", managerNs.Name).
 				Queue(managerLq.Name).
 				Obj()
-			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, rayjob)
-			wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(rayjob.Name, rayjob.UID), Namespace: managerNs.Name}
+			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, raycluster)
+			wlLookupKey := types.NamespacedName{Name: workloadraycluster.GetWorkloadNameForRayCluster(raycluster.Name, raycluster.UID), Namespace: managerNs.Name}
 			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission.Obj())
 
 			admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
 
-			ginkgo.By("changing the status of the RayJob in the worker, updates the manager's RayJob status", func() {
+			ginkgo.By("changing the status of the RayCluster in the worker, updates the manager's RayCluster status", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdRayJob := rayv1.RayJob{}
-					g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(rayjob), &createdRayJob)).To(gomega.Succeed())
-					createdRayJob.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusRunning
-					g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdRayJob)).To(gomega.Succeed())
+					createdRayCluster := rayv1.RayCluster{}
+					g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(raycluster), &createdRayCluster)).To(gomega.Succeed())
+					//nolint:staticcheck //SA1019: createdRayCluster.Status.State is deprecated
+					createdRayCluster.Status.State = rayv1.Ready
+					g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdRayCluster)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdRayJob := rayv1.RayJob{}
-					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(rayjob), &createdRayJob)).To(gomega.Succeed())
-					g.Expect(createdRayJob.Status.JobDeploymentStatus).To(gomega.Equal(rayv1.JobDeploymentStatusRunning))
+					createdRayCluster := rayv1.RayCluster{}
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(raycluster), &createdRayCluster)).To(gomega.Succeed())
+					//nolint:staticcheck //SA1019: createdRayCluster.Status.State is deprecated
+					g.Expect(createdRayCluster.Status.State).To(gomega.Equal(rayv1.Ready))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("finishing the worker RayJob, the manager's wl is marked as finished and the worker2 wl removed", func() {
-				finishJobReason := ""
-				gomega.Eventually(func(g gomega.Gomega) {
-					createdRayJob := rayv1.RayJob{}
-					g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(rayjob), &createdRayJob)).To(gomega.Succeed())
-					createdRayJob.Status.JobStatus = rayv1.JobStatusSucceeded
-					createdRayJob.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusComplete
-					g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdRayJob)).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-				waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey, finishJobReason)
-			})
+			// TODO RayCluster Finished() always returns false, uncomment following after following:
+			// 1. The global `var reconciler rayJobReconciler` is solved.
+			// 2. Use RayJob in this test instead of use RayCluster
+			// ginkgo.By("finishing the worker RayCluster, the manager's wl is marked as finished and the worker2 wl removed", func() {
+			//	finishJobReason := ""
+			//	gomega.Eventually(func(g gomega.Gomega) {
+			//		createdRayCluster := rayv1.RayCluster{}
+			//		g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(raycluster), &createdRayCluster)).To(gomega.Succeed())
+			//		//nolint:staticcheck //SA1019: createdRayCluster.Status.State is deprecated
+			//		createdRayCluster.Status.State = rayv1.Ready
+			//		g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdRayCluster)).To(gomega.Succeed())
+			//	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			//
+			//	waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey, finishJobReason)
+			// })
 		})
 
-		ginkgo.It("Should run a RayJob on worker if admitted (ManagedBy)", func() {
+		ginkgo.It("Should run a RayCluster on worker if admitted (ManagedBy)", func() {
 			admission := utiltestingapi.MakeAdmission(managerCq.Name).PodSets(
 				kueue.PodSetAssignment{
 					Name: "head",
@@ -264,56 +270,57 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 					Name: "workers-group-0",
 				},
 			)
-			rayjob := testingrayjob.MakeJob("rayjob1", managerNs.Name).
-				WithSubmissionMode(rayv1.InteractiveMode).
+			raycluster := testingraycluster.MakeCluster("raycluster1", managerNs.Name).
 				Queue(managerLq.Name).
 				ManagedBy(kueue.MultiKueueControllerName).
 				Obj()
-			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, rayjob)
-			wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(rayjob.Name, rayjob.UID), Namespace: managerNs.Name}
+			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, raycluster)
+			wlLookupKey := types.NamespacedName{Name: workloadraycluster.GetWorkloadNameForRayCluster(raycluster.Name, raycluster.UID), Namespace: managerNs.Name}
 			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission.Obj())
 
 			admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
 
-			ginkgo.By("changing the status of the RayJob in the worker, updates the manager's RayJob status", func() {
+			ginkgo.By("changing the status of the RayCluster in the worker, updates the manager's RayCluster status", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdRayJob := rayv1.RayJob{}
-					g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(rayjob), &createdRayJob)).To(gomega.Succeed())
-					createdRayJob.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusRunning
-					g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdRayJob)).To(gomega.Succeed())
+					createdRayCluster := rayv1.RayCluster{}
+					g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(raycluster), &createdRayCluster)).To(gomega.Succeed())
+					//nolint:staticcheck //SA1019: createdRayCluster.Status.State is deprecated
+					createdRayCluster.Status.State = rayv1.Ready
+					g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdRayCluster)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdRayJob := rayv1.RayJob{}
-					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(rayjob), &createdRayJob)).To(gomega.Succeed())
-					g.Expect(createdRayJob.Status.JobDeploymentStatus).To(gomega.Equal(rayv1.JobDeploymentStatusRunning))
+					createdRayCluster := rayv1.RayCluster{}
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(raycluster), &createdRayCluster)).To(gomega.Succeed())
+					//nolint:staticcheck //SA1019: createdRayCluster.Status.State is deprecated
+					g.Expect(createdRayCluster.Status.State).To(gomega.Equal(rayv1.Ready))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("finishing the worker RayJob, the manager's wl is marked as finished and the worker2 wl removed", func() {
-				finishJobReason := ""
-				gomega.Eventually(func(g gomega.Gomega) {
-					createdRayJob := rayv1.RayJob{}
-					g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(rayjob), &createdRayJob)).To(gomega.Succeed())
-					createdRayJob.Status.JobStatus = rayv1.JobStatusSucceeded
-					createdRayJob.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusComplete
-					g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdRayJob)).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-				waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey, finishJobReason)
-			})
+			// TODO RayCluster Finished() always returns false, uncomment following after following:
+			// 1. The global `var reconciler rayJobReconciler` is solved.
+			// 2. Use RayJob in this test instead of use RayCluster
+			// ginkgo.By("finishing the worker raycluster, the manager's wl is marked as finished and the worker2 wl removed", func() {
+			//	finishJobReason := ""
+			//	gomega.Eventually(func(g gomega.Gomega) {
+			//		createdRayCluster := rayv1.RayCluster{}
+			//		g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(raycluster), &createdRayCluster)).To(gomega.Succeed())
+			//		g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdRayCluster)).To(gomega.Succeed())
+			//	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			//
+			//	waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey, finishJobReason)
+			// })
 		})
 
-		ginkgo.It("Should remove the worker's workload and RayJob after reconnect when the managers RayJob and workload are deleted", func() {
-			rayjob := testingrayjob.MakeJob("rayjob1", managerNs.Name).
-				WithSubmissionMode(rayv1.InteractiveMode).
+		ginkgo.It("Should remove the worker's workload and raycluster after reconnect when the managers raycluster and workload are deleted", func() {
+			raycluster := testingraycluster.MakeCluster("raycluster1", managerNs.Name).
 				Queue(managerLq.Name).
 				Obj()
-			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, rayjob)
-			rayjobLookupKey := client.ObjectKeyFromObject(rayjob)
-			createdRayJob := &rayv1.RayJob{}
+			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, raycluster)
+			rayclusterLookupKey := client.ObjectKeyFromObject(raycluster)
+			createdRayCluster := &rayv1.RayCluster{}
 
 			createdWorkload := &kueue.Workload{}
-			wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(rayjob.Name, rayjob.UID), Namespace: managerNs.Name}
+			wlLookupKey := types.NamespacedName{Name: workloadraycluster.GetWorkloadNameForRayCluster(raycluster.Name, raycluster.UID), Namespace: managerNs.Name}
 
 			ginkgo.By("setting workload reservation in the management cluster", func() {
 				admission := utiltestingapi.MakeAdmission(managerCq.Name).PodSets(
@@ -360,7 +367,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("setting workload reservation in worker1, the RayJob is created in worker1", func() {
+			ginkgo.By("setting workload reservation in worker1, the raycluster is created in worker1", func() {
 				admission := utiltestingapi.MakeAdmission(managerCq.Name).PodSets(
 					kueue.PodSetAssignment{
 						Name: "head",
@@ -375,7 +382,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, rayjobLookupKey, createdRayJob)).To(gomega.Succeed())
+					g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, rayclusterLookupKey, createdRayCluster)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -399,8 +406,8 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("removing the managers RayJob and workload", func() {
-				gomega.Expect(managerTestCluster.client.Delete(managerTestCluster.ctx, rayjob)).Should(gomega.Succeed())
+			ginkgo.By("removing the managers raycluster and workload", func() {
+				gomega.Expect(managerTestCluster.client.Delete(managerTestCluster.ctx, raycluster)).Should(gomega.Succeed())
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					g.Expect(managerTestCluster.client.Delete(managerTestCluster.ctx, createdWorkload)).To(gomega.Succeed())
@@ -417,7 +424,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, rayjobLookupKey, createdRayJob)).To(gomega.Succeed())
+					g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, rayclusterLookupKey, createdRayCluster)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -471,9 +478,9 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("the wl and RayJob are removed on the worker1", func() {
+			ginkgo.By("the wl and raycluster are removed on the worker1", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, rayjobLookupKey, createdRayJob)).To(utiltesting.BeNotFoundError())
+					g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, rayclusterLookupKey, createdRayCluster)).To(utiltesting.BeNotFoundError())
 					g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
