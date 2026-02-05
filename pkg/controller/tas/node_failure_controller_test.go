@@ -506,6 +506,28 @@ func TestNodeFailureReconciler(t *testing.T) {
 				features.TASReplaceNodeOnPodTermination: false,
 			},
 		},
+		"Node has NoExecute taint and pods missing -> Unhealthy": {
+			initObjs: []client.Object{
+				testingnode.MakeNode(nodeName).
+					Taints(corev1.Taint{
+						Key:    "key1",
+						Value:  "value1",
+						Effect: corev1.TaintEffectNoExecute,
+					}).
+					StatusConditions(corev1.NodeCondition{
+						Type:               corev1.NodeReady,
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: now,
+					}).
+					Obj(),
+				baseWorkload.DeepCopy(),
+			},
+			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
+			featureGates: map[featuregate.Feature]bool{
+				features.TASTaintEviction: true,
+			},
+		},
 	}
 	for name, tc := range tests {
 		fakeClock.SetTime(testStartTime)
