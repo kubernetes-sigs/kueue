@@ -354,7 +354,7 @@ func (r *nodeFailureReconciler) handleHealthyNode(ctx context.Context, node *cor
 		log.Info("Needs monitoring", "needsMonitoring", needsMonitoring)
 
 		if isUnhealthy {
-			if len(podsToDelete) > 0 {
+			if len(podsToDelete) > 0 && features.Enabled(features.TASReplaceNodeOnPendingPods) {
 				log.V(3).Info("Deleting all pending pods on unhealthy node", "podCount", len(podsToDelete))
 				for _, p := range podsToDelete {
 					if err := r.client.Delete(ctx, &p); err != nil && !apierrors.IsNotFound(err) {

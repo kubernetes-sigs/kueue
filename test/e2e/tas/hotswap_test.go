@@ -282,7 +282,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 						cfg.FeatureGates = make(map[string]bool)
 					}
 					cfg.FeatureGates[string(features.TASTaintEviction)] = true
-					cfg.FeatureGates[string(features.TASReplaceNodeOnPodTermination)] = true
+					cfg.FeatureGates[string(features.TASReplaceNodeOnPendingPods)] = true
 				})
 				util.WaitForKueueAvailability(ctx, k8sClient)
 			})
