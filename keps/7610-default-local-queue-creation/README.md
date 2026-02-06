@@ -6,8 +6,7 @@
   - [Goals](#goals)
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
-  - [Design Pivot](#design-pivot)
-  - [Current Architecture (kueue-populator)](#current-architecture-kueue-populator)
+  - [Implementation Overview](#implementation-overview)
   - [Risks and Mitigations](#risks-and-mitigations)
     - [Risk: Existing <code>LocalQueue</code>s](#risk-existing-localqueues)
 - [Design Details](#design-details)
@@ -19,8 +18,8 @@
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
-  - [ClusterQueue API Field (Rejected)](#clusterqueue-api-field-rejected)
   - [Automatic Garbage Collection](#automatic-garbage-collection)
+  - [Advanced Configuration (Templates)](#advanced-configuration-templates)
 <!-- /toc -->
 
 ## Summary
