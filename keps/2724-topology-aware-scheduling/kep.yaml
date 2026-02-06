@@ -45,7 +45,6 @@ feature-gates:
   - name: TASReplaceNodeOnPodTermination
   - name: TASBalancedPlacement
   - name: TASTaintEviction
-  - name: TASReplaceNodeOnPendingPods
 disable-supported: true
 
 # The following PRR answers are required at beta release

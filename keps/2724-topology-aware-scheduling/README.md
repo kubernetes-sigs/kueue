@@ -1259,7 +1259,13 @@ When the `TASTaintEviction` feature gate is enabled, Kueue treats tainted nodes 
 - **NoExecute**: Nodes with `NoExecute` taint that is not tolerated by the workload are considered unhealthy. The pods on such nodes are expected to be terminated by the node controller. Once terminated, Kueue will attempt to replace the node if `TASFailedNodeReplacement` is enabled, and evict the workload if no replacement is possible. If `tolerationSeconds` is specified, Kueue waits for the duration before treating the node as unhealthy.
 - **NoSchedule**: Nodes with `NoSchedule` taint that is not tolerated by the workload are considered unhealthy only if all pods of the workload that have topology assignment to that node are in a failed state or if they are in a pending state. In this case, Kueue can trigger node replacement.
   
-  Note that if all pods of the workload that have topology assignment to that node are in a pending state because they cannot run due to a taint, and `TASReplaceNodeOnPendingPods` feature gate is enabled, Kueue deletes them so they can be rescheduled on a replacement node. If at least one pod of a workload assigned to the node is running and healthy, the `NoSchedule` taint does not trigger node replacement, allowing the workload to continue running.
+  Note that if all pods of the workload that have a topology assignment to that node are in a pending state because they cannot run due to a taint, Kueue marks the pods as `Failed` and adds the following condition to the pods:
+  ```yaml
+  type: TerminatedByKueue
+  status: True
+  reason: UnschedulableDueToUntoleratedNoScheduleTaint
+  ```
+  so that the pods can be re-created for placement on other nodes.
 
 ### Implicit defaulting of TAS annotations
 
