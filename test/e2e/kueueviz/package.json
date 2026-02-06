@@ -7,7 +7,7 @@
   },
   "devDependencies": {
     "@testing-library/cypress": "^10.1.0",
-    "cypress": "^15.9.0",
+    "cypress": "^15.10.0",
     "depcheck": "^1.4.7"
   }
 }
