@@ -143,7 +143,12 @@ func (r *topologyReconciler) Create(e event.TypedCreateEvent[*kueue.Topology]) b
 	log.V(2).Info("Topology create event")
 
 	defer r.queues.NotifyTopologyUpdateWatchers(nil, e.Object)
-	r.cache.AddOrUpdateTopology(log, e.Object)
+	// If at least one CQ becomes active after the topology is created,
+	// those CQs should now get evaluated by the scheduler.
+	if cqNames := r.cache.AddOrUpdateTopology(log, e.Object); len(cqNames) > 0 {
+		r.queues.QueueInadmissibleWorkloads(context.Background(), cqNames)
+		r.queues.Broadcast()
+	}
 	return true
 }
 
@@ -156,7 +161,9 @@ func (r *topologyReconciler) Delete(e event.TypedDeleteEvent[*kueue.Topology]) b
 	log.V(2).Info("Topology delete event")
 
 	defer r.queues.NotifyTopologyUpdateWatchers(e.Object, nil)
-	r.cache.DeleteTopology(log, kueue.TopologyReference(e.Object.Name))
+	if cqNames := r.cache.DeleteTopology(log, kueue.TopologyReference(e.Object.Name)); len(cqNames) > 0 {
+		r.queues.QueueInadmissibleWorkloads(context.Background(), cqNames)
+	}
 	return true
 }
 
