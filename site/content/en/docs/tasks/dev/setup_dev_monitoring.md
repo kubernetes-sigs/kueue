@@ -11,16 +11,47 @@ This page shows how to set up Prometheus for development, debugging, and testing
 
 The page is intended for a [platform developer](/docs/tasks#platform-developer).
 
-## Before you begin
+## Quick start with e2e infrastructure
+
+The fastest way to get a Prometheus-enabled cluster is to use the e2e test infrastructure:
+
+```bash
+E2E_MODE=dev GINKGO_ARGS="--label-filter=feature:prometheus" make kind-image-build test-e2e
+```
+
+This provisions a Kind cluster with the Prometheus Operator, a Prometheus instance, Kueue, and
+all ServiceMonitors pre-configured.
+
+Use `E2E_MODE=dev` to keep the cluster running after the tests finish so you can explore the
+metrics. To generate sample data, follow [step 3](#3-generate-test-data) below.
+
+Port-forward to Prometheus:
+
+```bash
+kubectl -n monitoring port-forward svc/prometheus-api 9090:9090
+```
+
+Open http://localhost:9090 in your browser and try a query:
+
+```promql
+kueue_admitted_workloads_total
+```
+
+## Manual setup
+
+If you already have a cluster and want to set up Prometheus manually, follow the steps below.
+
+### Before you begin
 
 Make sure the following conditions are met:
 
 - A Kubernetes cluster is running.
 - [Kueue is installed](/docs/installation).
 
-## 1. Install kube-prometheus
+### 1. Install Prometheus
 
-From a scratch directory outside the Kueue repository, install [kube-prometheus](https://github.com/prometheus-operator/kube-prometheus):
+For a complete monitoring stack including Grafana and alerting, install
+[kube-prometheus](https://github.com/prometheus-operator/kube-prometheus):
 
 ```bash
 git clone https://github.com/prometheus-operator/kube-prometheus.git
@@ -31,9 +62,11 @@ kubectl apply -f manifests/
 kubectl wait --for=condition=Ready pods --all -n monitoring --timeout=300s
 ```
 
-## 2. Enable Kueue metrics scraping
+### 2. Make Kueue discoverable
 
-Apply the Kueue ServiceMonitor:
+Apply the Kueue
+[ServiceMonitor](https://prometheus-operator.dev/docs/getting-started/introduction/#related-resources)
+so Prometheus knows where to find Kueue's metrics endpoint:
 
 ```bash
 VERSION={{< param "version" >}}
@@ -46,7 +79,7 @@ Alternatively, if you're working from a Kueue source checkout, use:
 make prometheus
 ```
 
-## 3. Generate test data
+### 3. Generate test data
 
 Create a ClusterQueue and LocalQueue:
 
@@ -62,7 +95,7 @@ for i in {1..5}; do
 done
 ```
 
-## 4. Verify metrics
+### 4. Verify metrics
 
 Port-forward to the Prometheus service:
 
@@ -95,9 +128,7 @@ Open http://localhost:9090 in your browser and try a query:
 kueue_admitted_workloads_total
 ```
 
-For Grafana access, see the [kube-prometheus documentation](https://github.com/prometheus-operator/kube-prometheus#access-the-dashboards).
-
-## 5. Enable optional metrics
+### 5. Enable optional metrics
 
 To enable resource-level metrics like `kueue_cluster_queue_resource_usage`, edit the Kueue configuration:
 

@@ -35,6 +35,8 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
+	prometheusapi "github.com/prometheus/client_golang/api"
+	prometheusv1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	coordinationv1 "k8s.io/api/coordination/v1"
@@ -71,7 +73,7 @@ import (
 const (
 	defaultE2eTestAgnHostImageOld = "registry.k8s.io/e2e-test-images/agnhost:2.52@sha256:b173c7d0ffe3d805d49f4dfe48375169b7b8d2e1feb81783efd61eb9d08042e6"
 
-	defaultMetricsServiceName = "kueue-controller-manager-metrics-service"
+	DefaultMetricsServiceName = "kueue-controller-manager-metrics-service"
 )
 
 func GetKueueNamespace() string {
@@ -591,7 +593,7 @@ func GetKueueMetrics(ctx context.Context, cfg *rest.Config, restClient *rest.RES
 		"/bin/sh", "-c",
 		fmt.Sprintf(
 			"curl -s -k -H \"Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\" https://%s.%s.svc.cluster.local:8443/metrics",
-			defaultMetricsServiceName, kueueNS,
+			DefaultMetricsServiceName, kueueNS,
 		),
 	})
 	return string(metricsOutput), err
@@ -659,4 +661,30 @@ func GetKubernetesVersion(cfg *rest.Config) string {
 
 	gomega.Expect(err).To(gomega.Succeed())
 	return ver.String()
+}
+
+func WaitForPrometheusAvailability(ctx context.Context, k8sClient client.Client) {
+	ginkgo.GinkgoHelper()
+	key := types.NamespacedName{Namespace: "monitoring", Name: "prometheus-prometheus"}
+	ginkgo.By(fmt.Sprintf("Waiting for availability of StatefulSet: %q", key))
+	gomega.Eventually(func(g gomega.Gomega) {
+		sts := &appsv1.StatefulSet{}
+		g.Expect(k8sClient.Get(ctx, key, sts)).To(gomega.Succeed())
+		desiredReplicas := ptr.Deref(sts.Spec.Replicas, 1)
+		g.Expect(sts.Status.ReadyReplicas).To(gomega.Equal(desiredReplicas))
+	}, LongTimeout, Interval).Should(gomega.Succeed())
+}
+
+func CreatePrometheusClient(cfg *rest.Config) prometheusv1.API {
+	ginkgo.GinkgoHelper()
+	transport, err := rest.TransportFor(cfg)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	client, err := prometheusapi.NewClient(prometheusapi.Config{
+		Address:      fmt.Sprintf("%s/api/v1/namespaces/monitoring/services/prometheus-api:web/proxy", cfg.Host),
+		RoundTripper: transport,
+	})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return prometheusv1.NewAPI(client)
 }
