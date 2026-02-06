@@ -293,7 +293,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 
 			// In this test we use a jobset with SliceSize = 2 and SliceRequiredTopology = Rack
 			// Each pod requires 1 "extraResource" so the jobSet will use both nodes from a Rack.
-			// We simulate a node failure by tainting it with NoSchedule.
+			// We simulate a node failure by tainting it with NoExecute.
 			// The replacement mechanism seeks a replacement within the same Rack, but fails as no implementation is available.
 			// Consequently, the workload is evicted and rescheduled to a different Rack.
 			ginkgo.It("Should evict the workload if replacement is not possible due to taint", func() {
