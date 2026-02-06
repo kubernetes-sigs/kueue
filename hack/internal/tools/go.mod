@@ -27,7 +27,7 @@ require (
 	github.com/google/go-cmp v0.7.0
 	github.com/helm-unittest/helm-unittest v1.0.3
 	github.com/kubernetes-sigs/reference-docs/genref v0.28.0
-	github.com/mikefarah/yq/v4 v4.50.1
+	github.com/mikefarah/yq/v4 v4.52.2
 	github.com/norwoodj/helm-docs v1.14.2
 	github.com/onsi/ginkgo/v2 v2.28.1
 	go.uber.org/mock v0.6.0
@@ -496,7 +496,6 @@ require (
 	golang.org/x/time v0.14.0 // indirect
 	golang.org/x/tools v0.41.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
-	gomodules.xyz/jsonpatch/v2 v2.5.0 // indirect
 	google.golang.org/api v0.256.0 // indirect
 	google.golang.org/genproto v0.0.0-20251111163417-95abcf5c77ba // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20251111163417-95abcf5c77ba // indirect
