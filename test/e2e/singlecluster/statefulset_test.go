@@ -320,7 +320,7 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Scale up replicas to zero - retry as it may not be possible immediately", func() {
+			ginkgo.By("Scale up replicas to original size - retry as it may not be possible immediately", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
@@ -333,7 +333,7 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
-					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
+					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(3)), fmt.Sprintf("StatefulSet ready replicas: %+v", createdStatefulSet.Status.ReadyReplicas))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
