@@ -101,10 +101,6 @@ func (w *JobWebhook) Default(ctx context.Context, obj *batchv1.Job) error {
 	log.V(5).Info("Applying defaults")
 
 	jobframework.ApplyDefaultLocalQueue(job.Object(), w.queues.DefaultLocalQueueExist)
-	if err := copyRaySubmitterJobMetadata(ctx, job.Object(), w.client); err != nil {
-		return err
-	}
-
 	if err := jobframework.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
