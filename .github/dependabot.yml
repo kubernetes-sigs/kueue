@@ -5,7 +5,7 @@ updates:
   - package-ecosystem: "gomod"
     directories:
       - "/"
-      - "/hack/tools"
+      - "/hack/internal/tools"
       - "/site"
       - "/cmd/kueueviz/backend"
       - "/cmd/experimental/kueue-populator"
@@ -46,12 +46,12 @@ updates:
   - package-ecosystem: "docker"
     directories:
       - "/cmd/kueueviz/frontend"
-      - "/hack/testing/agnhost"
-      - "/hack/testing/cypress"
-      - "/hack/testing/depcheck"
-      - "/hack/testing/ray"
-      - "/hack/testing/secretreader"
-      - "/hack/testing/shellcheck"
+      - "/hack/agnhost"
+      - "/hack/cypress"
+      - "/hack/linkchecker"
+      - "/hack/depcheck"
+      - "/hack/shellcheck"
+      - "/hack/multikueue/secretreader"
     schedule:
       interval: "weekly"
     labels:
