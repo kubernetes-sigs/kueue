@@ -204,3 +204,12 @@ destructive behavior. If there were active or pending workloads in the `LocalQue
 automatically deleting it could disrupt users. The current "do nothing" approach
 is significantly safer, leaving the cleanup decision in the hands of an
 administrator who can verify the queue is no longer in use.
+
+### Advanced Configuration (Templates)
+
+Currently, the `kueue-populator` only supports configuring the name of the `LocalQueue`.
+In the future, if there is a need to support additional fields like `StopPolicy` or
+`AdmissionFairSharing`, a `LocalQueueTemplate` could be introduced. This would function
+similarly to a PodTemplate in a Deployment, allowing for a comprehensive blueprint
+for auto-generated queues. This complexity was omitted from the initial experimental
+version to prioritize simplicity.
