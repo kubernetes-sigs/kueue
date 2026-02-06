@@ -1265,7 +1265,7 @@ When the `TASTaintEviction` feature gate is enabled, Kueue treats tainted nodes 
   status: True
   reason: UnschedulableDueToUntoleratedNoScheduleTaint
   ```
-  so that the pods can be re-created for placement on other nodes.
+  This ensures that the pods are re-created by the Job controller for placement on other nodes, while keeping the original pods in Failed state for debuggability. Without this step, the pending pods would block the creation of replacement pods.
 
 ### Implicit defaulting of TAS annotations
 
