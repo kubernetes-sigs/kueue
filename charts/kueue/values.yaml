@@ -152,6 +152,7 @@ managerConfig:
       - "kubeflow.org/xgboostjob"
       - "kubeflow.org/jaxjob"
       - "workload.codeflare.dev/appwrapper"
+      - "sparkoperator.k8s.io/sparkapplication"
       - "pod"
       - "deployment"
       - "statefulset"

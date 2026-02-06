@@ -35,6 +35,7 @@ integrations:
   - "deployment"
   - "statefulset"
   - "leaderworkerset.x-k8s.io/leaderworkerset"
+  - "sparkoperator.k8s.io/sparkapplication"
 featureGates:
   LocalQueueMetrics: true
   ElasticJobsViaWorkloadSlices: true
