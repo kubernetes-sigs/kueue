@@ -11,6 +11,8 @@
     - [Risk: Existing <code>LocalQueue</code>s](#risk-existing-localqueues)
 - [Design Details](#design-details)
   - [Current Implementation (kueue-populator)](#current-implementation-kueue-populator)
+    - [LocalQueue creation](#localqueue-creation)
+    - [Topology-Aware scheduling configuration](#topology-aware-scheduling-configuration)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
     - [Integration tests](#integration-tests)
@@ -108,6 +110,8 @@ namespace, either created manually or by another process.
 
 The `kueue-populator` does not modify the `ClusterQueue` API. Instead, it is configured directly:
 
+#### LocalQueue creation
+
 -   `--local-queue-name`: The name of the LocalQueue to create (default: "default").
 -   `--managed-jobs-namespace-selector`: A global selector to restrict which
     namespaces are considered (default: excludes `kube-system`).
@@ -132,6 +136,12 @@ The `kueue-populator` does not modify the `ClusterQueue` API. Instead, it is con
 If multiple `ClusterQueue`s match the same namespace, the first one reconciled
 will successfully create the `LocalQueue`. Subsequent reconciliations for other
 `ClusterQueue`s will fail to "claim" the `LocalQueue` and will emit a warning.
+
+#### Topology-Aware scheduling configuration
+
+Topology-Aware scheduling is configured by one default ClusterQueue, ResourceFlavor and Topology, which are configurable by Helm.
+The `kueue-populator` Helm chart simplifies this setup by providing a `setup-hook` that automatically creates these resources.
+The configuration for these resources can be customized via `values.yaml`.
 
 ### Test Plan
 
