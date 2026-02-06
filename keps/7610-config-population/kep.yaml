@@ -1,0 +1,41 @@
+title: Config Population
+kep-number: 7610
+authors:
+  - "@j-skiba"
+status: provisional
+creation-date: 2025-11-12
+reviewers:
+  - "@kannon92"
+  - "@mimowo"
+  - "@kshalot"
+  - "@mwielgus"
+  - "@olekzabl"
+approvers:
+  - "@mimowo"
+
+see-also:
+  - "keps/2936-local-queue-defaulting"
+  - "https://github.com/kubernetes-sigs/kueue/issues/7347"
+
+# The target maturity stage in the current dev cycle for this KEP.
+stage: alpha
+
+# The most recent milestone for which work toward delivery of this KEP has been
+# done. This can be the current (upcoming) milestone, if it is being actively
+# worked on.
+latest-milestone: "v0.15"
+
+# The milestone at which this feature was, or is targeted to be, at each stage.
+milestone:
+  alpha: "v0.15"
+  beta: ""
+  stable: ""
+
+# The following PRR answers are required at alpha release
+# List the feature gate name and the components for which it must be enabled
+feature-gates: []
+disable-supported: true
+
+# The following PRR answers are required at beta release
+# metrics:
+#  - my_feature_metric
