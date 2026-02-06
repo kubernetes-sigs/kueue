@@ -1,4 +1,4 @@
-# KEP-7610: Create Default LocalQueues Based on NamespaceSelector
+# KEP-7610: Config Population
 
 <!-- toc -->
 - [Summary](#summary)
