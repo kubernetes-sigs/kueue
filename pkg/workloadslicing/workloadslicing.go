@@ -22,11 +22,14 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -389,4 +392,43 @@ func FindReplacedSliceTarget(preemptor *kueue.Workload, targets []*preemption.Ta
 		}
 	}
 	return targets, nil
+}
+
+// IsRunawaySlice returns true if the workload slice is considered runaway.
+// A workload slice is considered runaway if it is a new workload slice that
+// has not been admitted, when the old workload slice was already marked as finished.
+//
+// WorkloadSlice replacement is implemented as two sequential steps:
+// 1. Finish the old slice.
+// 2. Admit the new slice.
+//
+// As a result, a transient failure during new-slice admission can lead to a state where:
+//
+//	a) the old slice is marked as finished, and
+//	b) the new slice has not been admitted.
+//
+// While the scheduler is expected to reprocess the new slice, there is no guarantee
+// that the ClusterQueue state has not changed in the meantime, making the new slice
+// no longer admissible.
+//
+// To account for this, we give the scheduler a short grace period (1 second) to catch up
+// before treating the new slice as pending and suspending the Job.
+func IsRunawaySlice(ctx context.Context, clnt client.Client, clock clock.Clock, wl *kueue.Workload) (bool, error) {
+	replacementReference := ReplacementForKey(wl)
+	if replacementReference == nil {
+		return false, nil
+	}
+	tokens := strings.Split(string(*replacementReference), "/")
+	if len(tokens) != 2 {
+		return false, fmt.Errorf("invalid workload reference: %v", replacementReference)
+	}
+	replaced := &kueue.Workload{}
+	if err := client.IgnoreNotFound(clnt.Get(ctx, types.NamespacedName{Namespace: tokens[0], Name: tokens[1]}, replaced)); err != nil {
+		return false, fmt.Errorf("failed to get workload: %w", err)
+	}
+	finishedCondition := apimeta.FindStatusCondition(replaced.Status.Conditions, kueue.WorkloadFinished)
+	if finishedCondition == nil {
+		return false, nil
+	}
+	return clock.Since(finishedCondition.LastTransitionTime.Time) >= time.Second, nil
 }

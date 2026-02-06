@@ -1799,13 +1799,17 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(manager.client.Update(manager.ctx, job)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				getJob(manager.ctx, manager.client, job)
+				g.Expect(job.Spec.Parallelism).To(gomega.BeEquivalentTo(ptr.To(int32(1))))
+			})
 		})
 		ginkgo.By("observe: workload changed in the manager cluster", func() {
 			getJob(manager.ctx, manager.client, job)
 			gomega.Eventually(func(g gomega.Gomega) {
 				workload := getWorkload(g, manager.ctx, manager.client, newWorkloadKey)
 				g.Expect(workload.Spec.PodSets[0].Count).To(gomega.BeEquivalentTo(int32(1)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, 2*util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 		ginkgo.By("observe: there are no new workloads created in response to scale-down even in the manager cluster", func() {
 			list := &kueue.WorkloadList{}

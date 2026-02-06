@@ -1325,3 +1325,156 @@ func TestScaledDown(t *testing.T) {
 		})
 	}
 }
+
+func TestIsRunawaySlice(t *testing.T) {
+	clock := testingclock.NewFakeClock(time.Now().Truncate(time.Second))
+
+	type fields struct {
+		old      *kueue.Workload
+		getError bool
+	}
+	type want struct {
+		err     bool
+		runaway bool
+	}
+	tests := map[string]struct {
+		fields fields
+		wl     *kueue.Workload
+		want   want
+	}{
+		"Workload without replacement annotation": {
+			wl: &kueue.Workload{},
+		},
+		"Workload with invalid replacement annotation": {
+			wl: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						WorkloadSliceReplacementFor: "invalid-workload",
+					},
+				},
+			},
+			want: want{err: true},
+		},
+		"Old workload is not found": {
+			wl: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						WorkloadSliceReplacementFor: "default/old",
+					},
+				},
+			},
+		},
+		"Failure retrieving old workload": {
+			fields: fields{
+				getError: true,
+			},
+			wl: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						WorkloadSliceReplacementFor: "default/old",
+					},
+				},
+			},
+			want: want{err: true},
+		},
+		"Replaced workload is not finished": {
+			fields: fields{
+				old: &kueue.Workload{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "old",
+						Namespace: "default",
+					},
+				},
+			},
+			wl: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						WorkloadSliceReplacementFor: "default/old",
+					},
+				},
+			},
+		},
+		"Replaced workload finished but less than a second ago": {
+			fields: fields{
+				old: &kueue.Workload{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "old",
+						Namespace: "default",
+					},
+					Status: kueue.WorkloadStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:               kueue.WorkloadFinished,
+								Status:             metav1.ConditionTrue,
+								LastTransitionTime: metav1.NewTime(clock.Now()),
+								Reason:             kueue.WorkloadSliceReplaced,
+								Message:            "test",
+							},
+						},
+					},
+				},
+			},
+			wl: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						WorkloadSliceReplacementFor: "default/old",
+					},
+				},
+			},
+		},
+		"Runaway workload": {
+			fields: fields{
+				old: &kueue.Workload{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "old",
+						Namespace: "default",
+					},
+					Status: kueue.WorkloadStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:               kueue.WorkloadFinished,
+								Status:             metav1.ConditionTrue,
+								LastTransitionTime: metav1.NewTime(clock.Now().Add(-time.Second)),
+								Reason:             kueue.WorkloadSliceReplaced,
+								Message:            "test",
+							},
+						},
+					},
+				},
+			},
+			wl: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						WorkloadSliceReplacementFor: "default/old",
+					},
+				},
+			},
+			want: want{runaway: true},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			builder := testWorkloadClientBuilder()
+			if tt.fields.old != nil {
+				builder.WithObjects(tt.fields.old)
+			}
+			if tt.fields.getError {
+				builder.WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(ctx context.Context, client client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						return errors.New("test-get-error")
+					},
+				})
+			}
+			client := builder.Build()
+			got, err := IsRunawaySlice(ctx, client, clock, tt.wl)
+			if (err != nil) != tt.want.err {
+				t.Errorf("IsRunawaySlice() error = %v, wantErr %v", err, tt.want.err)
+				return
+			}
+			if got != tt.want.runaway {
+				t.Errorf("IsRunawaySlice() got = %v, want %v", got, tt.want.runaway)
+			}
+		})
+	}
+}
