@@ -5,7 +5,8 @@ authors:
 status: provisional
 creation-date: yyyy-mm-dd
 reviewers:
-  - todo
+  - "@ichekrygin"
+  - "@olekz"
 approvers:
   - "@mimowo"
   - "@mwielgus"
