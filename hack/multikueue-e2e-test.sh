@@ -62,15 +62,6 @@ function startup {
 
     cp "${SOURCE_DIR}/multikueue/manager-cluster.kind.yaml" "$ARTIFACTS"
 
-    # Enable the JobManagedBy feature gate for Kubernetes 1.31.
-    # In newer versions, this feature is in Beta and enabled by default.
-    IFS=. read -r -a varr <<< "$KIND_VERSION"
-    minor=$(( varr[1] ))
-    if [ "$minor" -eq 31 ]; then
-        echo "Enable JobManagedBy feature in manager's kind config"
-        $YQ e -i '.featureGates.JobManagedBy = true' "${ARTIFACTS}/manager-cluster.kind.yaml"
-    fi
-
     ensure_kind_cluster "$MANAGER_KIND_CLUSTER_NAME" "${ARTIFACTS}/manager-cluster.kind.yaml" "$MANAGER_KUBECONFIG" &
     ensure_kind_cluster "$WORKER1_KIND_CLUSTER_NAME" "$SOURCE_DIR/multikueue/worker-cluster.kind.yaml" "$WORKER1_KUBECONFIG" &
     ensure_kind_cluster "$WORKER2_KIND_CLUSTER_NAME" "$SOURCE_DIR/multikueue/worker-cluster.kind.yaml" "$WORKER2_KUBECONFIG" &
