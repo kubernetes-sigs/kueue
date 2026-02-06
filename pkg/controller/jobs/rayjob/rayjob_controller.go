@@ -19,7 +19,6 @@ package rayjob
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
@@ -34,7 +33,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -42,7 +40,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
-	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
 var (
@@ -106,12 +103,8 @@ func (r *rayJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 }
 
 func (r *rayJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	controllerName := strings.ToLower(newJob().GVK().Kind)
 	b := ctrl.NewControllerManagedBy(mgr).
-		For(newJob().Object()).Owns(&kueue.Workload{}).
-		WithOptions(controller.Options{
-			LogConstructor: roletracker.NewLogConstructor(r.jr.RoleTracker(), controllerName),
-		})
+		For(newJob().Object()).Owns(&kueue.Workload{})
 	c := mgr.GetClient()
 	b = setup(b, c)
 	return b.Complete(r)
