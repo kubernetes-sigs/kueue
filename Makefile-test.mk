@@ -426,6 +426,19 @@ ginkgo-top:
 setup-e2e-env: kustomize yq gomod-download dep-crds kind helm ginkgo ginkgo-top ## Setup environment for e2e tests without running tests.
 	@echo "Setting up environment for e2e tests"
 
+.PHONY: setup-multikueue-env
+setup-multikueue-env: setup-e2e-env kind-ray-project-mini-image-build ## Setup MultiKueue environment with manager and worker clusters.
+	@echo "Setting up MultiKueue environment..."
+	KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) \
+		ARTIFACTS="$(ARTIFACTS)" IMAGE_TAG=$(IMAGE_TAG) \
+		JOBSET_VERSION=$(JOBSET_VERSION) \
+		APPWRAPPER_VERSION=$(APPWRAPPER_VERSION) \
+		KUBEFLOW_VERSION=$(KUBEFLOW_VERSION) \
+		KUBEFLOW_MPI_VERSION=$(KUBEFLOW_MPI_VERSION) \
+		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
+		E2E_KIND_VERSION=$(E2E_KIND_VERSION) \
+		./hack/multikueue/setup-multikueue.sh
+
 .PHONY: test-e2e-kueueviz-local
 test-e2e-kueueviz-local: setup-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
 	CYPRESS_SCREENSHOTS_FOLDER=$(ARTIFACTS)/cypress/screenshots CYPRESS_VIDEOS_FOLDER=$(ARTIFACTS)/cypress/videos \
