@@ -47,6 +47,7 @@ Automating the creation of a default `LocalQueue` makes the administrator's
 experience much smoother. When a namespace is created or labeled to match a
 `ClusterQueue`'s selector, the corresponding `LocalQueue` will be provisioned
 automatically, making the namespace immediately ready for workload submission.
+This is done for the ease of integrating and deploying Kueue and LWS - https://github.com/kubernetes-sigs/lws/issues/665
 
 ### Goals
 
@@ -58,6 +59,7 @@ automatically, making the namespace immediately ready for workload submission.
   a conflict is detected.
 - Ensure that automatically created `LocalQueue`s are clearly identifiable via
   the `kueue.x-k8s.io/auto-generated` label for easy discovery and management.
+- Configure TAS with default `Topology`, `ResourceFlavor` and `ClusterQueue`.
 
 ### Non-Goals
 
@@ -70,24 +72,7 @@ automatically, making the namespace immediately ready for workload submission.
 
 ## Proposal
 
-### Design Pivot
-
-The original proposal suggested adding a `defaultLocalQueue` field to the
-`ClusterQueue` API. However, during implementation, the decision was made to
-move this functionality to a separate, standalone component named
-`kueue-populator`.
-
-**Reasoning:**
-1.  **Separation of Concerns:** This avoids mixing cluster configuration
-    management (creating resources) with the core Kueue responsibilities
-    (scheduling and quota management).
-2.  **API Bloat:** Keeping this logic external prevents adding "convenience"
-    fields to the core API that might not be universally required.
-3.  **Experimental Nature:** Implementing it as a separate tool allows for
-    faster iteration and validation without affecting the stability of the core
-    controller.
-
-### Current Architecture (kueue-populator)
+### Implementation Overview
 
 The `kueue-populator` is a standalone controller that:
 1.  Watches `Namespace` and `ClusterQueue` resources.
@@ -195,13 +180,20 @@ and events will be crucial.
 
 ## Alternatives
 
-### ClusterQueue API Field (Rejected)
-
 The original proposal suggested adding a `defaultLocalQueue` field to the
-`ClusterQueue` API to configure automatic LocalQueue creation. This approach was
-rejected to avoid API bloat and to maintain a clear separation of concerns
-between core Kueue (scheduling) and configuration management. The functionality
-was moved to the standalone `kueue-populator` component.
+`ClusterQueue` API. However, during implementation, the decision was made to
+move this functionality to a separate, standalone component named
+`kueue-populator`.
+
+**Reasoning:**
+1.  **Separation of Concerns:** This avoids mixing cluster configuration
+    management (creating resources) with the core Kueue responsibilities
+    (scheduling and quota management).
+2.  **API Bloat:** Keeping this logic external prevents adding "convenience"
+    fields to the core API that might not be universally required.
+3.  **Experimental Nature:** Implementing it as a separate tool allows for
+    faster iteration and validation without affecting the stability of the core
+    controller.
 
 ### Automatic Garbage Collection
 
