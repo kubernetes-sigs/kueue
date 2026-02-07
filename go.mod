@@ -14,7 +14,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.1
 	github.com/open-policy-agent/cert-controller v0.15.0
-	github.com/project-codeflare/appwrapper v1.1.2
+	github.com/project-codeflare/appwrapper v1.2.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2
 	github.com/ray-project/kuberay/ray-operator v1.5.1
