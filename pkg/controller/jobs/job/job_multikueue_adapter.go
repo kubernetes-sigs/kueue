@@ -34,7 +34,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
@@ -62,23 +61,17 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 	// the remote job exists
 	if err == nil {
-		if features.Enabled(features.MultiKueueBatchJobWithManagedBy) {
-			if fromObject(&localJob).IsSuspended() && !fromObject(&localJob).IsActive() {
-				// Ensure the job is unsuspended before updating its status; otherwise, it will fail when patching the spec.
-				log.V(2).Info("Skipping the sync since the local job is still suspended")
-				return nil
-			}
-			return clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
-				localJob.Status = remoteJob.Status
-				return true, nil
-			})
+		if fromObject(&localJob).IsSuspended() && !fromObject(&localJob).IsActive() {
+			// Ensure the job is unsuspended before updating its status; otherwise, it will fail when patching the spec.
+			log.V(2).Info("Skipping the sync since the local job is still suspended")
+			return nil
 		}
 
-		if _, _, remoteFinished := fromObject(&remoteJob).Finished(ctx); remoteFinished {
-			return clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
-				localJob.Status = remoteJob.Status
-				return true, nil
-			})
+		if err := clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
+			localJob.Status = remoteJob.Status
+			return true, nil
+		}); err != nil {
+			return err
 		}
 
 		if workloadslicing.Enabled(&localJob) {
@@ -148,10 +141,8 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	remoteJob.Labels[constants.PrebuiltWorkloadLabel] = workloadName
 	remoteJob.Labels[kueue.MultiKueueOriginLabel] = origin
 
-	if features.Enabled(features.MultiKueueBatchJobWithManagedBy) {
-		// clear the managedBy enables the batch/Job controller to take over
-		remoteJob.Spec.ManagedBy = nil
-	}
+	// clear the managedBy enables the batch/Job controller to take over
+	remoteJob.Spec.ManagedBy = nil
 
 	return remoteClient.Create(ctx, &remoteJob)
 }
@@ -164,10 +155,6 @@ func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient
 }
 
 func (b *multiKueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
-	if !features.Enabled(features.MultiKueueBatchJobWithManagedBy) {
-		return true, "", nil
-	}
-
 	job := batchv1.Job{}
 	err := c.Get(ctx, key, &job)
 	if err != nil {
