@@ -136,4 +136,8 @@ func SetDefaults_Configuration(cfg *Configuration) {
 			cfg.Resources.Transformations[idx].Strategy = ptr.To(cmp.Or(ptr.Deref(cfg.Resources.Transformations[idx].Strategy, ""), DefaultResourceTransformationStrategy))
 		}
 	}
+
+	if cfg.Controller != nil {
+		cfg.Controller.ParallelPreemption = cmp.Or(cfg.Controller.ParallelPreemption, ptr.To(false))
+	}
 }
