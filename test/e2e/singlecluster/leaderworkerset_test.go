@@ -19,6 +19,7 @@ package e2e
 import (
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -448,6 +449,8 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 						g.Expect(k8sClient.Update(ctx, createdLeaderWorkerSet)).To(gomega.Succeed())
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
+
+				time.Sleep(50 * time.Millisecond)
 
 				ginkgo.By("Scale down LeaderWorkerSet", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
