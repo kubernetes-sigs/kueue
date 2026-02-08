@@ -87,23 +87,27 @@ func (a *Assignment) UpdateForTASResult(result schdcache.TASAssignmentsResult) {
 func (a *Assignment) ComputeTASNetUsage(prevAdmission *kueue.Admission) workload.TASUsage {
 	result := make(workload.TASUsage)
 	for i, psa := range a.PodSets {
-		if psa.TopologyAssignment != nil {
-			if prevAdmission != nil && prevAdmission.PodSetAssignments[i].TopologyAssignment != nil {
-				continue
+		if psa.TopologyAssignment == nil || psa.TASFlavor == nil {
+			continue
+		}
+		if prevAdmission != nil && prevAdmission.PodSetAssignments[i].TopologyAssignment != nil {
+			continue
+		}
+		flvName := *psa.TASFlavor
+		// Only include resources assigned to the TAS flavor.
+		singlePodRequests := resources.Requests{}
+		for res, flvAssignment := range psa.Flavors {
+			if flvAssignment.Name == flvName {
+				singlePodRequests[res] = resources.ResourceValue(res, psa.Requests[res])
 			}
-			singlePodRequests := resources.NewRequests(psa.Requests).ScaledDown(int64(psa.Count))
-			for _, flv := range psa.Flavors {
-				if _, ok := result[flv.Name]; !ok {
-					result[flv.Name] = make(workload.TASFlavorUsage, 0)
-				}
-				for _, domain := range psa.TopologyAssignment.Domains {
-					result[flv.Name] = append(result[flv.Name], workload.TopologyDomainRequests{
-						Values:            domain.Values,
-						SinglePodRequests: singlePodRequests.Clone(),
-						Count:             domain.Count,
-					})
-				}
-			}
+		}
+		singlePodRequests.Divide(int64(psa.Count))
+		for _, domain := range psa.TopologyAssignment.Domains {
+			result[flvName] = append(result[flvName], workload.TopologyDomainRequests{
+				Values:            domain.Values,
+				SinglePodRequests: singlePodRequests.Clone(),
+				Count:             domain.Count,
+			})
 		}
 	}
 	return result
@@ -246,6 +250,7 @@ type PodSetAssignment struct {
 	Count    int32
 
 	TopologyAssignment     *tas.TopologyAssignment
+	TASFlavor              *kueue.ResourceFlavorReference
 	DelayedTopologyRequest *kueue.DelayedTopologyRequestState
 
 	FlavorAssignmentAttempts []FlavorAssignmentAttempt
