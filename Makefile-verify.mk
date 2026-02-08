@@ -53,9 +53,7 @@ PATHS_TO_VERIFY := config/components apis charts/kueue client-go site/ netlify.t
 ##   or in another included fragment (`Makefile-test.mk`, etc.) if it logically belongs there.
 ## - Then, wire it into the appropriate aggregator target below.
 verify: ## Ensure repo is clean after generation/formatting.
-	for i in {1..40}; do \
-	    $(MAKE) -j $(VERIFY_NPROCS) verify-checks ; \
-	done
+	$(MAKE) -j $(VERIFY_NPROCS) verify-checks
 	git --no-pager diff --exit-code $(PATHS_TO_VERIFY)
 	if git ls-files --exclude-standard --others $(PATHS_TO_VERIFY) | grep -q . ; then \
 		echo "ERROR: untracked files found under: $(PATHS_TO_VERIFY)" >&2; \
@@ -85,46 +83,104 @@ verify-tree-prereqs: verify-go-prereqs verify-docs-prereqs verify-helm-prereqs
 verify-checks: ## Phase 2 (parallel): checks that should run after generation completes.
 verify-checks: verify-ci-lint verify-lint-api verify-fmt-verify verify-shell-lint verify-toc-verify verify-helm-verify verify-helm-unit-test verify-npm-depcheck
 
-# ---- verify-* wrappers ---------------------------------------------------
-# Each wrapper ensures generation (verify-tree-prereqs) finishes BEFORE the
-# check target starts, using .WAIT (GNU Make >= 4.4).  Prerequisites listed
-# before .WAIT are built first; only after they ALL complete does Make
-# proceed to prerequisites listed after .WAIT.
+# ---- Shared check recipes -------------------------------------------------
+# Each recipe is stored in a variable so that both the lightweight standalone
+# target (for local dev) and the verify-* wrapper (for `make verify`) share
+# the exact same commands.  Only the prerequisites differ:
 #
-# This lets e.g. verify-helm-verify reuse the standalone helm-verify target
-# directly, while keeping standalone targets (ci-lint, helm-verify, …)
-# lightweight for local developer use.
+#   standalone  →  tool binary only          (fast, for local use)
+#   verify-*    →  verify-tree-prereqs + …   (full generation first)
 #
-# Without .WAIT the old recipe-less form:
+# A recipe-less wrapper like
 #
 #     verify-ci-lint: verify-tree-prereqs ci-lint   # WRONG – races under -j!
 #
 # lets ci-lint start while generate-code is still deleting / rewriting
-# client-go/ files.
+# client-go/ files, because Make builds sibling prerequisites in parallel.
+# Giving the wrapper its own recipe body is the only way to enforce ordering
+# without recursive $(MAKE).
+
+define _ci_lint_recipe
+find . \( -path ./site -o -path ./bin -o -path ./vendor \) -prune -false -o -name go.mod -exec dirname {} \; | xargs -I {} sh -c 'cd "{}" && $(GOLANGCI_LINT) run $(GOLANGCI_LINT_FIX) --timeout 15m0s --config "$(PROJECT_DIR)/.golangci.yaml"'
+endef
+
+define _lint_api_recipe
+$(GOLANGCI_LINT_KAL) run -v --config $(PROJECT_DIR)/.golangci-kal.yml $(GOLANGCI_LINT_FIX)
+endef
+
+define _fmt_verify_recipe
+@out=`$(GO_FMT) -l -d $$(find . \( -path ./vendor -o -path ./bin \) -prune -false -o -name '*.go' -print)`; \
+if [ -n "$$out" ]; then \
+    echo "$$out"; \
+    exit 1; \
+fi
+endef
+
+define _shell_lint_recipe
+$(PROJECT_DIR)/hack/shellcheck/verify.sh
+endef
+
+define _toc_verify_recipe
+./hack/verify-toc.sh
+endef
+
+define _helm_verify_recipe
+$(HELM) lint charts/kueue
+$(HELM) template charts/kueue > /dev/null
+$(HELM) template charts/kueue --set enableKueueViz=true --set enableCertManager=true --set enablePrometheus=true > /dev/null
+$(HELM) template charts/kueue --set managerConfig.controllerManagerConfigYaml="managedJobsNamespaceSelector:\n  matchExpressions:\n    - key: kubernetes.io/metadata.name\n      operator: In\n      values: [ kube-system ]" > /dev/null
+$(HELM) template charts/kueue --set controllerManager.manager.priorityClassName="system-cluster-critical" > /dev/null
+$(HELM) template charts/kueue --set controllerManager.nodeSelector.nodetype=infra --set 'controllerManager.tolerations[0].key=node-role.kubernetes.io/master' --set 'controllerManager.tolerations[0].operator=Exists' --set 'controllerManager.tolerations[0].effect=NoSchedule' > /dev/null
+$(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.backend.nodeSelector.nodetype=infra --set 'kueueViz.backend.tolerations[0].key=node-role.kubernetes.io/master' --set 'kueueViz.backend.tolerations[0].operator=Exists' --set 'kueueViz.backend.tolerations[0].effect=NoSchedule' > /dev/null
+$(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.frontend.nodeSelector.nodetype=infra --set 'kueueViz.frontend.tolerations[0].key=node-role.kubernetes.io/master' --set 'kueueViz.frontend.tolerations[0].operator=Exists' --set 'kueueViz.frontend.tolerations[0].effect=NoSchedule' > /dev/null
+$(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.backend.priorityClassName="system-cluster-critical" > /dev/null
+$(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.backend.priorityClassName="system-cluster-critical" > /dev/null
+endef
+
+define _helm_unit_test_recipe
+HELM_PLUGINS=$(BIN_DIR)/helm-plugins $(HELM) unittest charts/kueue --strict --debug
+endef
+
+define _npm_depcheck_recipe
+$(PROJECT_DIR)/hack/depcheck/verify.sh $(PROJECT_DIR)/cmd/kueueviz/frontend
+$(PROJECT_DIR)/hack/depcheck/verify.sh $(PROJECT_DIR)/test/e2e/kueueviz
+endef
+
+# ---- verify-* wrappers (generation prereqs + shared recipe) ---------------
 
 .PHONY: verify-ci-lint
-verify-ci-lint: verify-tree-prereqs gomod-verify .WAIT ci-lint ## CI-style golangci-lint (includes generation + go.mod checks)
+verify-ci-lint: verify-tree-prereqs gomod-verify golangci-lint ## CI-style golangci-lint (includes generation + go.mod checks)
+	$(_ci_lint_recipe)
 
 .PHONY: verify-lint-api
-verify-lint-api: verify-tree-prereqs gomod-verify .WAIT lint-api ## CI-style API lint (includes generation + go.mod checks)
+verify-lint-api: verify-tree-prereqs gomod-verify golangci-lint-kal ## CI-style API lint (includes generation + go.mod checks)
+	$(_lint_api_recipe)
 
 .PHONY: verify-fmt-verify
-verify-fmt-verify: verify-tree-prereqs .WAIT fmt-verify ## Verify formatting after generation
+verify-fmt-verify: verify-tree-prereqs ## Verify formatting after generation
+	$(_fmt_verify_recipe)
 
 .PHONY: verify-shell-lint
-verify-shell-lint: verify-tree-prereqs .WAIT shell-lint ## Shell lint after generation
+verify-shell-lint: verify-tree-prereqs ## Shell lint after generation
+	$(_shell_lint_recipe)
 
 .PHONY: verify-toc-verify
-verify-toc-verify: verify-tree-prereqs .WAIT toc-verify ## TOC verification after generation
+verify-toc-verify: verify-tree-prereqs mdtoc ## TOC verification after generation
+	$(_toc_verify_recipe)
 
 .PHONY: verify-helm-verify
-verify-helm-verify: verify-tree-prereqs .WAIT helm-verify ## Helm verification after generation
+verify-helm-verify: verify-tree-prereqs helm ## Helm verification after generation
+	$(_helm_verify_recipe)
 
 .PHONY: verify-helm-unit-test
-verify-helm-unit-test: verify-tree-prereqs .WAIT helm-unit-test ## Helm unit tests after generation
+verify-helm-unit-test: verify-tree-prereqs helm helm-unittest-plugin ## Helm unit tests after generation
+	$(_helm_unit_test_recipe)
 
 .PHONY: verify-npm-depcheck
-verify-npm-depcheck: verify-tree-prereqs prepare-release-branch .WAIT npm-depcheck ## Depcheck after generation
+verify-npm-depcheck: verify-tree-prereqs prepare-release-branch ## Depcheck after generation
+	$(_npm_depcheck_recipe)
+
+# ---- Standalone targets (lightweight, for local use) ----------------------
 
 .PHONY: gomod-verify
 gomod-verify: ## Verify go.mod / go.sum are tidy and unchanged.
@@ -135,7 +191,7 @@ gomod-verify: verify-go-prereqs
 .PHONY: ci-lint
 ci-lint: ## Run golangci-lint across all Go modules.
 ci-lint: golangci-lint
-	find . \( -path ./site -o -path ./bin -o -path ./vendor \) -prune -false -o -name go.mod -exec dirname {} \; | xargs -I {} sh -c 'cd "{}" && $(GOLANGCI_LINT) run $(GOLANGCI_LINT_FIX) --timeout 15m0s --config "$(PROJECT_DIR)/.golangci.yaml"'
+	$(_ci_lint_recipe)
 
 .PHONY: lint-fix
 lint-fix: ## Fix issues found by golangci-lint where possible.
@@ -144,7 +200,7 @@ lint-fix: ci-lint
 
 .PHONY: lint-api
 lint-api: golangci-lint-kal ## Run API-specific linting with custom config.
-	$(GOLANGCI_LINT_KAL) run -v --config $(PROJECT_DIR)/.golangci-kal.yml ${GOLANGCI_LINT_FIX}
+	$(_lint_api_recipe)
 
 .PHONY: lint-api-fix
 lint-api-fix: GOLANGCI_LINT_FIX=--fix
@@ -152,49 +208,27 @@ lint-api-fix: lint-api ## Fix API linting issues where possible.
 
 .PHONY: fmt-verify
 fmt-verify: ## Verify Go code formatting (no changes allowed).
-	@out=`$(GO_FMT) -l -d $$(find . \( -path ./vendor -o -path ./bin \) -prune -false -o -name '*.go' -print)`; \
-	if [ -n "$$out" ]; then \
-	    echo "$$out"; \
-	    exit 1; \
-	fi
+	$(_fmt_verify_recipe)
 
 .PHONY: shell-lint
 shell-lint: ## Run shell script linting (via shellcheck).
-	$(PROJECT_DIR)/hack/shellcheck/verify.sh
+	$(_shell_lint_recipe)
 
 .PHONY: toc-verify
 toc-verify: mdtoc ## Verify markdown TOCs are up-to-date.
-	./hack/verify-toc.sh
+	$(_toc_verify_recipe)
 
 .PHONY: helm-verify
 helm-verify: helm helm-lint ## Validate Helm chart rendering with various configuration combinations.
-# test default values
-	$(HELM) template charts/kueue > /dev/null
-# test nondefault options (kueueviz, prometheus, certmanager)
-	$(HELM) template charts/kueue --set enableKueueViz=true --set enableCertManager=true --set enablePrometheus=true > /dev/null
-# test added managedJobsNamespaceSelector option
-	$(HELM) template charts/kueue --set managerConfig.controllerManagerConfigYaml="managedJobsNamespaceSelector:\n  matchExpressions:\n    - key: kubernetes.io/metadata.name\n      operator: In\n      values: [ kube-system ]" > /dev/null
-# test priorityClassName option
-	$(HELM) template charts/kueue --set controllerManager.manager.priorityClassName="system-cluster-critical" > /dev/null
-# test controllerManager nodeSelector and tolerations
-	$(HELM) template charts/kueue --set controllerManager.nodeSelector.nodetype=infra --set 'controllerManager.tolerations[0].key=node-role.kubernetes.io/master' --set 'controllerManager.tolerations[0].operator=Exists' --set 'controllerManager.tolerations[0].effect=NoSchedule' > /dev/null
-# test kueueViz backend nodeSelector and tolerations
-	$(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.backend.nodeSelector.nodetype=infra --set 'kueueViz.backend.tolerations[0].key=node-role.kubernetes.io/master' --set 'kueueViz.backend.tolerations[0].operator=Exists' --set 'kueueViz.backend.tolerations[0].effect=NoSchedule' > /dev/null
-# test kueueViz frontend nodeSelector and tolerations
-	$(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.frontend.nodeSelector.nodetype=infra --set 'kueueViz.frontend.tolerations[0].key=node-role.kubernetes.io/master' --set 'kueueViz.frontend.tolerations[0].operator=Exists' --set 'kueueViz.frontend.tolerations[0].effect=NoSchedule' > /dev/null
-# test kueueViz priorityClassName options for backend
-	$(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.backend.priorityClassName="system-cluster-critical" > /dev/null
-# test kueueViz priorityClassName options for frontend
-	$(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.backend.priorityClassName="system-cluster-critical" > /dev/null
+	$(_helm_verify_recipe)
 
 .PHONY: helm-unit-test
 helm-unit-test: helm helm-unittest-plugin ## Run Helm unit tests for the kueue chart.
-	HELM_PLUGINS=$(BIN_DIR)/helm-plugins $(HELM) unittest charts/kueue --strict --debug
+	$(_helm_unit_test_recipe)
 
 .PHONY: npm-depcheck
 npm-depcheck: ## Verify frontend and e2e npm dependencies.
-	$(PROJECT_DIR)/hack/depcheck/verify.sh $(PROJECT_DIR)/cmd/kueueviz/frontend
-	$(PROJECT_DIR)/hack/depcheck/verify.sh $(PROJECT_DIR)/test/e2e/kueueviz
+	$(_npm_depcheck_recipe)
 
 .PHONY: i18n-verify
 i18n-verify: ## Verify localized docs are in sync with English. Usage: make i18n-verify [TARGET_LANG=zh-CN]

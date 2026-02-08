@@ -247,5 +247,5 @@ dep-crds: mpi-operator-crd kf-training-operator-crd kf-trainer-crd kf-trainer-ru
 KUEUECTL_DOCS = $(BIN_DIR)/kueuectl-docs
 
 .PHONY: kueuectl-docs
-kueuectl-docs:
+kueuectl-docs: generate-code ## kueuectl-docs imports generated packages (apis/config, client-go).
 	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(KUEUECTL_DOCS) ./cmd/kueuectl-docs/main.go
