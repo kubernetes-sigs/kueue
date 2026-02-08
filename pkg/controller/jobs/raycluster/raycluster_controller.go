@@ -154,7 +154,9 @@ func (j *RayCluster) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podse
 		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
 	}
 
-	j.Spec.Suspend = ptr.To(false)
+	if j.Spec.Suspend == nil {
+		j.Spec.Suspend = ptr.To(false)
+	}
 
 	// head
 	headPod := &j.Spec.HeadGroupSpec.Template
