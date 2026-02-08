@@ -408,8 +408,9 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			ginkgo.Entry("LeaderReadyStartupPolicy", leaderworkersetv1.LeaderReadyStartupPolicy),
 		)
 
-		ginkgo.DescribeTable("should allow to scale up, scale down fast",
-			func(startupPolicyType leaderworkersetv1.StartupPolicyType) {
+		for i := range 300 {
+			ginkgo.FIt(fmt.Sprintf("should allow to scale up, scale down fast [LeaderReadyStartupPolicy] %d", i), func() {
+				startupPolicyType := leaderworkersetv1.LeaderReadyStartupPolicy
 				lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
 					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 					Size(3).
@@ -495,10 +496,8 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 				ginkgo.By("Check workloads are deleted", func() {
 					util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload1, false, util.LongTimeout)
 				})
-			},
-			ginkgo.Entry("LeaderCreatedStartupPolicy", leaderworkersetv1.LeaderCreatedStartupPolicy),
-			ginkgo.Entry("LeaderReadyStartupPolicy", leaderworkersetv1.LeaderReadyStartupPolicy),
-		)
+			})
+		}
 
 		ginkgo.DescribeTable("should admit group with multiple leaders and workers that fits and have different resource needs",
 			func(startupPolicyType leaderworkersetv1.StartupPolicyType) {

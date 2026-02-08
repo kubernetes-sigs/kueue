@@ -145,6 +145,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 
 	eg.Go(func() error {
 		return parallelize.Until(ctx, len(toDelete), func(i int) error {
+			if err := workload.RemoveFinalizer(ctx, r.client, toDelete[i]); err != nil {
+				return err
+			}
 			return r.client.Delete(ctx, toDelete[i])
 		})
 	})
@@ -177,7 +180,7 @@ func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, exi
 		replicas = ptr.Deref(lws.Spec.Replicas, 1)
 	)
 
-	if lws.Status.Replicas > replicas {
+	if lws.Status.Replicas > replicas && isRollingUpdateWithSurge(lws) {
 		replicas = lws.Status.Replicas
 	}
 
@@ -195,6 +198,14 @@ func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, exi
 	}
 
 	return toCreate, toUpdate, slices.Collect(maps.Values(toDelete))
+}
+
+func isRollingUpdateWithSurge(lws *leaderworkersetv1.LeaderWorkerSet) bool {
+	if lws.Spec.RolloutStrategy.RollingUpdateConfiguration == nil {
+		return false
+	}
+	maxSurge := int32(lws.Spec.RolloutStrategy.RollingUpdateConfiguration.MaxSurge.IntValue())
+	return maxSurge > 0 && lws.Status.UpdatedReplicas < ptr.Deref(lws.Spec.Replicas, 1)
 }
 
 func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, workloadName string, index int) error {
