@@ -143,6 +143,12 @@ const (
 	// In TAS, treat node as failed if the node is not ready and the pods assigned to this node terminate.
 	TASReplaceNodeOnPodTermination featuregate.Feature = "TASReplaceNodeOnPodTermination"
 
+	// owner: @j-skiba
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	//
+	// In TAS, delete pending pods on the node if the node is unhealthy.
+	TASReplaceNodeOnPendingPods featuregate.Feature = "TASReplaceNodeOnPendingPods"
+
 	// owner: @PannagaRao
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/3589-manage-jobs-selectively
 	//
@@ -243,6 +249,12 @@ const (
 	//
 	// Finalizers are removed using a strict patch not to cause race conditions.
 	RemoveFinalizersWithStrictPatch featuregate.Feature = "RemoveFinalizersWithStrictPatch"
+
+	// owner: @j-skiba
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/8828
+	// Enable workload eviction when node is tainted and pods are not able to run.
+	TASTaintEviction featuregate.Feature = "TASTaintEviction"
 )
 
 func init() {
@@ -327,6 +339,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.Beta},
 	},
+	TASReplaceNodeOnPendingPods: {
+		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
+	},
 	ManagedJobsNamespaceSelectorAlwaysRespected: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
@@ -378,6 +393,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	RemoveFinalizersWithStrictPatch: {
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
+	},
+	TASTaintEviction: {
+		{Version: version.MustParse("0.16"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

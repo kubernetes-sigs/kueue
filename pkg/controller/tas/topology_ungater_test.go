@@ -723,6 +723,141 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"ungate replacement pod for unhealthy node": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
+								Count(2).
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultTestLevels).
+									Domains(
+										utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj(),
+										utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r2"}, 1).Obj(),
+									).
+									Obj()).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod1", "ns").UID("x").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("pod2-replacement", "ns").UID("y").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod1", "ns").UID("x").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("pod2-replacement", "ns").UID("y").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r2").
+					Obj(),
+			},
+			wantCounts: []counts{
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b1",
+						tasRackLabel:  "r1",
+					},
+					Count: 1,
+				},
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b1",
+						tasRackLabel:  "r2",
+					},
+					Count: 1,
+				},
+			},
+		},
+		"ungate replacement pod for unhealthy node (3 levels)": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
+								Count(2).
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{tasBlockLabel, tasRackLabel, corev1.LabelHostname}).
+									Domains(
+										utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1", "x1"}, 1).Obj(),
+										utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1", "x2"}, 1).Obj(),
+									).
+									Obj()).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod1", "ns").UID("x").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					NodeSelector(corev1.LabelHostname, "x1").
+					Obj(),
+				*testingpod.MakePod("pod2-replacement", "ns").UID("y").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod1", "ns").UID("x").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					NodeSelector(corev1.LabelHostname, "x1").
+					Obj(),
+				*testingpod.MakePod("pod2-replacement", "ns").UID("y").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					NodeSelector(corev1.LabelHostname, "x2").
+					Obj(),
+			},
+			wantCounts: []counts{
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel:        "b1",
+						tasRackLabel:         "r1",
+						corev1.LabelHostname: "x1",
+					},
+					Count: 1,
+				},
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel:        "b1",
+						tasRackLabel:         "r1",
+						corev1.LabelHostname: "x2",
+					},
+					Count: 1,
+				},
+			},
+		},
 		"ungate single pod; while there are pending expectations": {
 			expectUIDs: []types.UID{"x"},
 			workloads: []kueue.Workload{
