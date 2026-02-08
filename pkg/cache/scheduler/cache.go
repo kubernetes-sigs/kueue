@@ -76,6 +76,12 @@ func WithExcludedResourcePrefixes(excludedPrefixes []string) Option {
 	}
 }
 
+func WithIncludedResourcePrefixes(includedPrefixes []string) Option {
+	return func(c *Cache) {
+		c.workloadInfoOptions = append(c.workloadInfoOptions, workload.WithIncludedResourcePrefixes(includedPrefixes))
+	}
+}
+
 // WithResourceTransformations sets the resource transformations.
 func WithResourceTransformations(transforms []config.ResourceTransformation) Option {
 	return func(c *Cache) {

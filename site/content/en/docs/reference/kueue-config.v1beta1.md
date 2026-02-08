@@ -922,6 +922,13 @@ An empty Outputs combined with a <code>Replace</code> Strategy causes the Input 
    <p>ExcludedResourcePrefixes defines which resources should be ignored by Kueue</p>
 </td>
 </tr>
+<tr><td><code>includeResourcePrefixes</code> <B>[Required]</B><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>IncludedResourcePrefixes defines which resources should be included by Kueue</p>
+</td>
+</tr>
 <tr><td><code>transformations</code> <B>[Required]</B><br/>
 <a href="#config-kueue-x-k8s-io-v1beta1-ResourceTransformation"><code>[]ResourceTransformation</code></a>
 </td>
