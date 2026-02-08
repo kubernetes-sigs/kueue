@@ -48,6 +48,7 @@ updates:
       - "/cmd/kueueviz/frontend"
       - "/hack/agnhost"
       - "/hack/cypress"
+      - "/hack/linkchecker"
       - "/hack/depcheck"
       - "/hack/shellcheck"
       - "/hack/multikueue/secretreader"
