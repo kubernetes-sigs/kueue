@@ -23,6 +23,7 @@ As a batch administrator, you can learn how to:
   to Kueue objects.
 - [Administer cluster quotas](manage/administer_cluster_quotas) with ClusterQueues and LocalQueues.
 - Setup [All-or-nothing with ready Pods](manage/setup_wait_for_pods_ready).
+- Set up [observability](manage/observability) with Prometheus metrics.
 - As a batch administrator, you can learn how to
   [monitor pending workloads](manage/monitor_pending_workloads).
 - As a batch administrator, you can learn how to [run a Kueue managed Jobs with a custom WorkloadPriority](manage/run_job_with_workload_priority).
@@ -69,6 +70,7 @@ As a platform developer, you can learn how to:
 - [Integrate a custom workload with Kueue using built-in frameworks](dev/external_frameworks).
 - [Enable pprof endpoints](dev/enabling_pprof_endpoints).
 - [Develop a custom AdmissionCheck Controller](dev/develop-acc).
+- Set up a local [dev monitoring environment](dev/setup_dev_monitoring) with Prometheus.
 
 ## Troubleshooting
 
