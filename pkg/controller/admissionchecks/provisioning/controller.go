@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"strings"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -50,9 +51,11 @@ import (
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 const (
@@ -131,6 +134,12 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{}, nil
 	}
 
+	if workloadslicing.IsElasticWorkload(wl) {
+		if err := c.transferOwnership(ctx, wl); err != nil {
+			return reconcile.Result{}, err
+		}
+	}
+
 	provReqs := &autoscaling.ProvisioningRequestList{}
 	if err := c.client.List(ctx, provReqs, client.InNamespace(wl.Namespace), client.MatchingFields{RequestsOwnedByWorkloadKey: wl.Name}); client.IgnoreNotFound(err) != nil {
 		return reconcile.Result{}, err
@@ -161,7 +170,8 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{}, err
 	}
 
-	err = c.deleteUnusedProvisioningRequests(ctx, provReqs.Items, activeOrLastPRForChecks)
+	chainNames := c.getChainNames(ctx, wl)
+	err = c.deleteUnusedProvisioningRequests(ctx, wl, provReqs.Items, activeOrLastPRForChecks, chainNames, checkConfig)
 	if err != nil {
 		log.V(2).Error(err, "syncOwnedProvisionRequest failed to delete unused provisioning requests")
 		return reconcile.Result{}, err
@@ -205,7 +215,75 @@ func (c *Controller) activeOrLastPRForChecks(
 	return activeOrLastPRForChecks
 }
 
-func (c *Controller) deleteUnusedProvisioningRequests(ctx context.Context, ownedPRs []autoscaling.ProvisioningRequest, activeOrLastPRForChecks map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest) error {
+func (c *Controller) getChainNames(ctx context.Context, wl *kueue.Workload) sets.Set[string] {
+	names := sets.New(wl.Name)
+	if !workloadslicing.IsElasticWorkload(wl) {
+		return names
+	}
+	curr := wl
+	for {
+		oldRef := workloadslicing.ReplacementForKey(curr)
+		if oldRef == nil {
+			break
+		}
+		oldWl, err := workload.GetWorkloadFromReference(ctx, c.client, *oldRef)
+		if err != nil || oldWl == nil {
+			break
+		}
+		names.Insert(oldWl.Name)
+		curr = oldWl
+	}
+	return names
+}
+
+func (c *Controller) transferOwnership(ctx context.Context, wl *kueue.Workload) error {
+	oldWorkloadRef := workloadslicing.ReplacementForKey(wl)
+	if oldWorkloadRef == nil {
+		return nil
+	}
+	oldWl, err := workload.GetWorkloadFromReference(ctx, c.client, *oldWorkloadRef)
+	if err != nil {
+		return err
+	}
+	if oldWl == nil {
+		return nil
+	}
+
+	oldProvReqs := &autoscaling.ProvisioningRequestList{}
+	if err := c.client.List(ctx, oldProvReqs, client.InNamespace(wl.Namespace), client.MatchingFields{RequestsOwnedByWorkloadKey: oldWl.Name}); err != nil {
+		return err
+	}
+
+	for i := range oldProvReqs.Items {
+		pr := &oldProvReqs.Items[i]
+		if !metav1.IsControlledBy(pr, wl) {
+			log := ctrl.LoggerFrom(ctx)
+			log.V(3).Info("Transferring ownership of ProvisioningRequest", "pr", klog.KObj(pr), "from", oldWl.Name, "to", wl.Name)
+			err := clientutil.Patch(ctx, c.client, pr, func() (bool, error) {
+				if err := controllerutil.RemoveControllerReference(oldWl, pr, c.client.Scheme()); err != nil {
+					return false, err
+				}
+				if err := controllerutil.SetControllerReference(wl, pr, c.client.Scheme()); err != nil {
+					return false, err
+				}
+				return true, nil
+			})
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (c *Controller) deleteUnusedProvisioningRequests(
+	ctx context.Context,
+	wl *kueue.Workload,
+	ownedPRs []autoscaling.ProvisioningRequest,
+	activeOrLastPRForChecks map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest,
+	chainNames sets.Set[string],
+	checkConfig map[kueue.AdmissionCheckReference]*kueue.ProvisioningRequestConfig,
+) error {
 	log := ctrl.LoggerFrom(ctx)
 	prNames := sets.New[string]()
 	for _, pr := range activeOrLastPRForChecks {
@@ -213,7 +291,28 @@ func (c *Controller) deleteUnusedProvisioningRequests(ctx context.Context, owned
 	}
 	for _, pr := range ownedPRs {
 		req := &pr
-		if !prNames.Has(req.Name) {
+		if prNames.Has(req.Name) {
+			continue
+		}
+
+		// Check if it's a relevant transferred PR
+		isRelevant := false
+		for checkName := range checkConfig {
+			for name := range chainNames {
+				if name == wl.Name {
+					continue
+				}
+				if strings.HasPrefix(req.Name, getProvisioningRequestNamePrefix(name, checkName)) {
+					isRelevant = true
+					break
+				}
+			}
+			if isRelevant {
+				break
+			}
+		}
+
+		if !isRelevant {
 			if err := c.client.Delete(ctx, req); client.IgnoreNotFound(err) != nil {
 				log.V(5).Error(err, "deleting the request", "req", klog.KObj(req))
 				return err
@@ -281,6 +380,18 @@ func (c *Controller) syncOwnedProvisionRequest(
 			mergedPodSets, err := mergePodSets(wl, &prc.Spec)
 			if err != nil {
 				return err
+			}
+
+			if oldWorkloadName := workloadslicing.ReplacementForKey(wl); oldWorkloadName != nil {
+				oldWorkload, err := workload.GetWorkloadFromReference(ctx, c.client, *oldWorkloadName)
+				if err != nil {
+					return err
+				}
+				oldMergedPodSets, err := mergePodSets(oldWorkload, &prc.Spec)
+				if err != nil {
+					return err
+				}
+				mergedPodSets = calculateProvisioningDelta(mergedPodSets, oldMergedPodSets)
 			}
 
 			for _, mergedPodSet := range mergedPodSets {
@@ -420,7 +531,11 @@ func (c *Controller) syncProvisionRequestsPodTemplates(ctx context.Context, wl *
 }
 
 func (c *Controller) reqIsNeeded(wl *kueue.Workload, prc *kueue.ProvisioningRequestConfig) bool {
-	return len(requiredPodSets(wl.Spec.PodSets, prc.Spec.ManagedResources)) > 0
+	merged, err := mergePodSets(wl, &prc.Spec)
+	if err != nil {
+		return len(requiredPodSets(wl.Spec.PodSets, prc.Spec.ManagedResources)) > 0
+	}
+	return podSetsCount(merged) > 0
 }
 
 func requiredPodSets(podSets []kueue.PodSet, resources []corev1.ResourceName) []kueue.PodSetReference {
@@ -428,7 +543,7 @@ func requiredPodSets(podSets []kueue.PodSet, resources []corev1.ResourceName) []
 	users := make([]kueue.PodSetReference, 0, len(podSets))
 	for i := range podSets {
 		ps := &podSets[i]
-		if len(resources) == 0 || podUses(&ps.Template.Spec, resourcesSet) {
+		if ps.Count > 0 && (len(resources) == 0 || podUses(&ps.Template.Spec, resourcesSet)) {
 			users = append(users, ps.Name)
 		}
 	}
@@ -554,6 +669,9 @@ func (c *Controller) syncCheckStates(
 						checkState.Message = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed).Message
 					}
 				case isCapacityRevoked(pr):
+					if workloadslicing.IsElasticWorkload(wl) {
+						continue
+					}
 					if workload.IsActive(wl) && !workload.IsFinished(wl) {
 						// We mark the admission check as rejected to trigger workload deactivation.
 						// This is needed to prevent replacement pods being stuck in the pending phase indefinitely
@@ -851,6 +969,27 @@ type MergedPodSet struct {
 	Count            int32
 }
 
+func calculateProvisioningDelta(newSets, oldSets []MergedPodSet) []MergedPodSet {
+	var result []MergedPodSet
+	oldSetsMap := make(map[kueue.PodSetReference]MergedPodSet, len(oldSets))
+	for _, ps := range oldSets {
+		oldSetsMap[ps.Name] = ps
+	}
+
+	for _, newPs := range newSets {
+		if oldPs, found := oldSetsMap[newPs.Name]; !found {
+			// Case 1: Entirely new pod set, add it as is.
+			result = append(result, newPs)
+			// Case 2: Pod set exists in oldSets.
+		} else if newPs.Count > oldPs.Count {
+			deltaPs := newPs
+			deltaPs.Count = newPs.Count - oldPs.Count
+			result = append(result, deltaPs)
+		}
+	}
+	return result
+}
+
 func mergePodSets(
 	wl *kueue.Workload,
 	prcSpec *kueue.ProvisioningRequestConfigSpec,
@@ -923,4 +1062,13 @@ func areContainersEqual(ps1Containers []corev1.Container, ps2Containers []corev1
 		}
 	}
 	return true
+}
+
+func podSetsCount(podSets []MergedPodSet) int {
+	count := 0
+	for _, ps := range podSets {
+		count += int(ps.Count)
+	}
+	return count
+
 }

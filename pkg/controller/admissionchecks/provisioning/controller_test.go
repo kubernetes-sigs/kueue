@@ -45,6 +45,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -1881,6 +1882,322 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 			gotResult := controller.activeOrLastPRForChecks(ctx, workload, checkConfig, tc.requests)
 			if diff := cmp.Diff(tc.wantResult, gotResult, reqCmpOptions...); diff != "" {
 				t.Errorf("unexpected request %q (-want/+got):\n%s", name, diff)
+			}
+		})
+	}
+}
+
+func TestCalculateProvisioningDelta(t *testing.T) {
+	basePodSet := &kueue.PodSet{
+		Name:  "main",
+		Count: 2,
+		Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Name: "c",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("1"),
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	workerPodSet := &kueue.PodSet{
+		Name:  "worker",
+		Count: 3,
+		Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Name: "c",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceMemory: resource.MustParse("100Mi"),
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	cases := map[string]struct {
+		newSets []MergedPodSet
+		oldSets []MergedPodSet
+		want    []MergedPodSet
+	}{
+		"new pod set": {
+			newSets: []MergedPodSet{
+				{
+					Name: "main",
+
+					PodSet: basePodSet,
+					Count:  2,
+				},
+			},
+			oldSets: []MergedPodSet{},
+			want: []MergedPodSet{
+				{
+					Name:   "main",
+					PodSet: basePodSet,
+					Count:  2,
+				},
+			},
+		},
+		"no changes": {
+			newSets: []MergedPodSet{
+				{
+					Name:   "main",
+					PodSet: basePodSet,
+					Count:  2,
+				},
+			},
+			oldSets: []MergedPodSet{
+				{
+					Name:   "main",
+					PodSet: basePodSet,
+					Count:  2,
+				},
+			},
+			want: nil,
+		},
+		"count increased": {
+			newSets: []MergedPodSet{
+				{
+					Name:   "main",
+					PodSet: basePodSet,
+					Count:  3,
+				},
+			},
+			oldSets: []MergedPodSet{
+				{
+					Name:   "main",
+					PodSet: basePodSet,
+					Count:  2,
+				},
+			},
+			want: []MergedPodSet{
+				{
+					Name:   "main",
+					PodSet: basePodSet,
+					Count:  1,
+				},
+			},
+		},
+		"count decreased": {
+			newSets: []MergedPodSet{
+				{
+					Name:   "main",
+					PodSet: basePodSet,
+					Count:  1,
+				},
+			},
+			oldSets: []MergedPodSet{
+				{
+					Name:   "main",
+					PodSet: basePodSet,
+					Count:  2,
+				},
+			},
+			want: nil,
+		},
+		"multiple pod sets: one changed, one new, one same": {
+			newSets: []MergedPodSet{
+				{
+					Name:   "main",
+					PodSet: basePodSet,
+					Count:  2,
+				},
+				{
+					Name:   "worker",
+					PodSet: workerPodSet,
+					Count:  3,
+				},
+			},
+			oldSets: []MergedPodSet{
+				{
+					Name:   "main",
+					PodSet: basePodSet,
+					Count:  2,
+				},
+			},
+			want: []MergedPodSet{
+				{
+					Name:   "worker",
+					PodSet: workerPodSet,
+					Count:  3,
+				},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := calculateProvisioningDelta(tc.newSets, tc.oldSets)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("unexpected delta (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestTransferOwnership(t *testing.T) {
+	cases := map[string]struct {
+		oldWl       *kueue.Workload
+		newWl       *kueue.Workload
+		oldPrs      []autoscaling.ProvisioningRequest
+		wantOwnedBy map[string]string
+	}{
+		"transfer ownership from old workload to new workload": {
+			oldWl: utiltestingapi.MakeWorkload("old-wl", TestNamespace).UID("uid-old").Obj(),
+			newWl: utiltestingapi.MakeWorkload("new-wl", TestNamespace).UID("uid-new").
+				Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/old-wl").
+				Obj(),
+			oldPrs: []autoscaling.ProvisioningRequest{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: TestNamespace,
+						Name:      "pr1",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: kueue.GroupVersion.String(),
+								Kind:       "Workload",
+								Name:       "old-wl",
+								UID:        "uid-old",
+								Controller: ptr.To(true),
+							},
+						},
+					},
+				},
+			},
+			wantOwnedBy: map[string]string{"pr1": "new-wl"},
+		},
+		"no replacement annotation; do nothing": {
+			oldWl: utiltestingapi.MakeWorkload("old-wl", TestNamespace).UID("uid-old").Obj(),
+			newWl: utiltestingapi.MakeWorkload("new-wl", TestNamespace).UID("uid-new").Obj(),
+			oldPrs: []autoscaling.ProvisioningRequest{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: TestNamespace,
+						Name:      "pr1",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: kueue.GroupVersion.String(),
+								Kind:       "Workload",
+								Name:       "old-wl",
+								UID:        "uid-old",
+								Controller: ptr.To(true),
+							},
+						},
+					},
+				},
+			},
+			wantOwnedBy: map[string]string{"pr1": "old-wl"},
+		},
+		"multiple provisioning requests to transfer": {
+			oldWl: utiltestingapi.MakeWorkload("old-wl", TestNamespace).UID("uid-old").Obj(),
+			newWl: utiltestingapi.MakeWorkload("new-wl", TestNamespace).UID("uid-new").
+				Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/old-wl").
+				Obj(),
+			oldPrs: []autoscaling.ProvisioningRequest{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: TestNamespace,
+						Name:      "pr1",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: kueue.GroupVersion.String(),
+								Kind:       "Workload",
+								Name:       "old-wl",
+								UID:        "uid-old",
+								Controller: ptr.To(true),
+							},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: TestNamespace,
+						Name:      "pr2",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: kueue.GroupVersion.String(),
+								Kind:       "Workload",
+								Name:       "old-wl",
+								UID:        "uid-old",
+								Controller: ptr.To(true),
+							},
+						},
+					},
+				},
+			},
+			wantOwnedBy: map[string]string{"pr1": "new-wl", "pr2": "new-wl"},
+		},
+		"PR already owned by new workload": {
+			oldWl: utiltestingapi.MakeWorkload("old-wl", TestNamespace).UID("uid-old").Obj(),
+			newWl: utiltestingapi.MakeWorkload("new-wl", TestNamespace).UID("uid-new").
+				Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/old-wl").
+				Obj(),
+			oldPrs: []autoscaling.ProvisioningRequest{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: TestNamespace,
+						Name:      "pr1",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: kueue.GroupVersion.String(),
+								Kind:       "Workload",
+								Name:       "new-wl",
+								UID:        "uid-new",
+								Controller: ptr.To(true),
+							},
+						},
+					},
+				},
+			},
+			wantOwnedBy: map[string]string{"pr1": "new-wl"},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			builder, ctx := getClientBuilder(ctx)
+			if tc.oldWl != nil {
+				builder = builder.WithObjects(tc.oldWl)
+			}
+			if tc.newWl != nil {
+				builder = builder.WithObjects(tc.newWl)
+			}
+			for i := range tc.oldPrs {
+				builder = builder.WithObjects(&tc.oldPrs[i])
+			}
+			k8sclient := builder.Build()
+
+			controller, err := NewController(k8sclient, &utiltesting.EventRecorder{}, nil)
+			if err != nil {
+				t.Fatalf("Setting up the provisioning request controller: %v", err)
+			}
+
+			err = controller.transferOwnership(ctx, tc.newWl)
+			if err != nil {
+				t.Errorf("unexpected error from transferOwnership: %v", err)
+			}
+
+			for prName, wantOwnerName := range tc.wantOwnedBy {
+				gotPr := &autoscaling.ProvisioningRequest{}
+				if err := k8sclient.Get(ctx, types.NamespacedName{Namespace: TestNamespace, Name: prName}, gotPr); err != nil {
+					t.Errorf("unexpected error getting PR %q: %v", prName, err)
+				}
+				controllerRef := metav1.GetControllerOf(gotPr)
+				if controllerRef == nil || controllerRef.Name != wantOwnerName {
+					t.Errorf("PR %q owned by %v, want %q", prName, controllerRef, wantOwnerName)
+				}
 			}
 		})
 	}
