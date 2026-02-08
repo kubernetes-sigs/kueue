@@ -48,6 +48,7 @@ E2E_RUN_ONLY_ENV ?= false
 E2E_USE_HELM ?= false
 E2E_MODE ?= ci
 KUEUE_UPGRADE_FROM_VERSION ?= v0.14.8
+PROMETHEUS_OPERATOR_VERSION ?= v0.89.0
 
 # For local testing, we should allow user to use different kind cluster name
 # Default will delete default kind cluster
@@ -170,6 +171,9 @@ test-e2e-certmanager-upgrade: setup-e2e-env run-test-e2e-certmanager-upgrade-$(E
 .PHONY: test-e2e-dra
 test-e2e-dra: setup-e2e-env run-test-e2e-dra-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
+.PHONY: test-e2e-prometheus
+test-e2e-prometheus: setup-e2e-env run-test-e2e-prometheus-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
 run-test-e2e-singlecluster-%: K8S_VERSION = $(@:run-test-e2e-singlecluster-%=%)
 run-test-e2e-singlecluster-%:
 	@echo Running e2e for k8s ${K8S_VERSION}
@@ -284,6 +288,19 @@ run-test-e2e-dra-%:
 		E2E_MODE=$(E2E_MODE) \
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="dra" \
 		DRA_EXAMPLE_DRIVER_VERSION=$(DRA_EXAMPLE_DRIVER_VERSION) \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
+		./hack/e2e-test.sh
+
+run-test-e2e-prometheus-%: K8S_VERSION = $(@:run-test-e2e-prometheus-%=%)
+run-test-e2e-prometheus-%:
+	@echo Running prometheus e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
+		E2E_MODE=$(E2E_MODE) \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="prometheus" \
+		PROMETHEUS_OPERATOR_VERSION=$(PROMETHEUS_OPERATOR_VERSION) \
+		E2E_USE_HELM=$(E2E_USE_HELM) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		./hack/e2e-test.sh

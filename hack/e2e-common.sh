@@ -86,6 +86,10 @@ if [[ -n "${CLUSTERPROFILE_VERSION:-}" ]]; then
     export CLUSTERPROFILE_PLUGIN_IMAGE=us-central1-docker.pkg.dev/k8s-staging-images/kueue/secretreader-plugin:${CLUSTERPROFILE_PLUGIN_IMAGE_VERSION}
 fi
 
+if [[ -n "${PROMETHEUS_OPERATOR_VERSION:-}" ]]; then
+    export PROMETHEUS_OPERATOR_BUNDLE="https://github.com/prometheus-operator/prometheus-operator/releases/download/${PROMETHEUS_OPERATOR_VERSION}/bundle.yaml"
+fi
+
 if [[ -n "${DRA_EXAMPLE_DRIVER_VERSION:-}" ]]; then
     export DRA_EXAMPLE_DRIVER_REPO=https://github.com/kubernetes-sigs/dra-example-driver.git
 fi
@@ -352,6 +356,9 @@ function kind_load {
     if [[ -n ${CERTMANAGER_VERSION:-} ]]; then
         install_cert_manager "$2"
     fi
+    if [[ -n ${PROMETHEUS_OPERATOR_VERSION:-} ]]; then
+        install_prometheus_operator "$2"
+    fi
     if [[ -n ${CLUSTERPROFILE_VERSION:-} ]]; then
         install_multicluster "$2"
     fi
@@ -535,6 +542,21 @@ function install_lws {
 # $1 kubeconfig option
 function install_cert_manager {
     kubectl apply --kubeconfig="$1" --server-side -f "${CERTMANAGER_MANIFEST}"
+}
+
+# $1 kubeconfig option
+function install_prometheus_operator {
+    kubectl apply --kubeconfig="$1" --server-side -f "${PROMETHEUS_OPERATOR_BUNDLE}"
+    kubectl wait deploy/prometheus-operator -n default \
+        --for=condition=available --timeout=5m --kubeconfig="$1"
+    kubectl apply --kubeconfig="$1" --server-side \
+        -f "${ROOT_DIR}/test/e2e/config/prometheus/prometheus-setup.yaml"
+}
+
+function deploy_kueue_prometheus_config {
+    local kubeconfig=$1
+    $KUSTOMIZE build "${ROOT_DIR}/config/prometheus" | \
+        kubectl apply --kubeconfig="$kubeconfig" --server-side -f -
 }
 
 # $1 kubeconfig option
