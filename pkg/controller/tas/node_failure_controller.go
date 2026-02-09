@@ -551,11 +551,12 @@ func classifyTaints(taints []corev1.Taint, podSetsToCheck []kueue.PodSet) (untol
 
 func (r *nodeFailureReconciler) removeUnhealthyNodes(ctx context.Context, wl *kueue.Workload, nodeName string) error {
 	if workload.HasUnhealthyNode(wl, nodeName) {
-		patch := client.MergeFrom(wl.DeepCopy())
-		wl.Status.UnhealthyNodes = slices.DeleteFunc(wl.Status.UnhealthyNodes, func(n kueue.UnhealthyNode) bool {
-			return n.Name == nodeName
+		return workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+			wl.Status.UnhealthyNodes = slices.DeleteFunc(wl.Status.UnhealthyNodes, func(n kueue.UnhealthyNode) bool {
+				return n.Name == nodeName
+			})
+			return true, nil
 		})
-		return r.client.Status().Patch(ctx, wl, patch)
 	}
 	return nil
 }
