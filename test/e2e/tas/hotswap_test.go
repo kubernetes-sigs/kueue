@@ -724,7 +724,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 							Status: corev1.ConditionTrue,
 							Reason: "UnschedulableOnAssignedNode",
 						}, cmpopts.IgnoreFields(corev1.PodCondition{}, "LastTransitionTime", "Message", "LastProbeTime"))), "Victim pod should have TerminatedByKueue condition with reason UnschedulableOnAssignedNode")
-						
+
 						g.Expect(replacementPod).NotTo(gomega.BeNil(), "Replacement pod should appear")
 						replacementPodName = replacementPod.Name
 					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())

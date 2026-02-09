@@ -730,11 +730,10 @@ func TestNodeFailureReconciler(t *testing.T) {
 				if diff := cmp.Diff(tc.wantUnhealthyNodes, wl.Status.UnhealthyNodes, cmpopts.EquateEmpty()); diff != "" {
 					t.Errorf("Unexpected unhealthyNodes in status (-want/+got):\n%s", diff)
 				}
-				if diff := cmp.Diff(tc.wantRequeue, result.RequeueAfter); diff != "" {
-					t.Errorf("Unexpected RequeueAfter: want %s, got %s", tc.wantRequeue, result.RequeueAfter)
-				}
 			}
-
+			if diff := cmp.Diff(tc.wantRequeue, result.RequeueAfter); diff != "" {
+				t.Errorf("Unexpected RequeueAfter: want %s, got %s", tc.wantRequeue, result.RequeueAfter)
+			}
 			evictedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted)
 			if diff := cmp.Diff(tc.wantEvictedCond, evictedCond, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); diff != "" {
 				t.Errorf("Unexpected WorkloadEvicted condition (-want/+got):\n%s", diff)
