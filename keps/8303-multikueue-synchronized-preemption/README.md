@@ -70,6 +70,7 @@ Moreover, a general preemption gating/preemption signaling mechanism can be used
 
 ### Non-Goals
 
+- Optimize other inefficiencies of the MultiKueue admission mechanism, other than the concurrent preemption problem.
 - Optimize logic for choosing which worker cluster should be allowed to preempt, beyond a simple first-come-first-served approach (i.e. considering any "preemption cost").
 - Propose an analogous mechanism of borrowing orchestration.
 
