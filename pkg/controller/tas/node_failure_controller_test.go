@@ -610,7 +610,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 			wantPatchedPods:    []string{"pending-pod"},
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:               true,
+				features.TASReplaceNodeOnNodeTaints:     true,
 				features.TASReplaceNodeOnPodTermination: false,
 			},
 		},
@@ -668,7 +668,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantPatchedPods:    []string{"pending-pod-1"},
 			wantRemainingPods:  []string{"pending-pod-2"},
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:               true,
+				features.TASReplaceNodeOnNodeTaints:     true,
 				features.TASReplaceNodeOnPodTermination: true,
 			},
 		},
@@ -687,7 +687,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantUnhealthyNodes: nil,
 			wantRequeue:        1 * time.Second,
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:               true,
+				features.TASReplaceNodeOnNodeTaints:     true,
 				features.TASReplaceNodeOnPodTermination: true,
 			},
 		},
@@ -780,8 +780,8 @@ func TestNodeFailureReconciler(t *testing.T) {
 						break
 					}
 				}
-				if targetCond == nil || targetCond.Status != corev1.ConditionTrue || targetCond.Reason != "UnschedulableDueToUntoleratedNoScheduleTaint" {
-					t.Errorf("Expected TerminatedByKueue condition to be True with Reason UnschedulableDueToUntoleratedNoScheduleTaint, got %v", targetCond)
+				if targetCond == nil || targetCond.Status != corev1.ConditionTrue || targetCond.Reason != "UnschedulableOnAssignedNode" {
+					t.Errorf("Expected TerminatedByKueue condition to be True with Reason UnschedulableOnAssignedNode, got %v", targetCond)
 				}
 			}
 		})

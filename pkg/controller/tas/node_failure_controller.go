@@ -63,9 +63,6 @@ const (
 	podTerminationCheckPeriod                 = 1 * time.Second
 )
 
-
-
-
 type nodeHealthStatus int
 
 const (
@@ -74,6 +71,7 @@ const (
 	nodeKeepMonitoring
 )
 
+// nodeFailureReconciler reconciles Nodes to detect failures and update affected Workloads
 type nodeFailureReconciler struct {
 	client      client.Client
 	clock       clock.Clock
@@ -170,7 +168,7 @@ func (r *nodeFailureReconciler) Delete(e event.TypedDeleteEvent[*corev1.Node]) b
 }
 
 //+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
-//+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;delete
+//+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;update
 //+kubebuilder:rbac:groups="",resources=pods/status,verbs=patch;update
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;patch
 
@@ -365,6 +363,12 @@ func (r *nodeFailureReconciler) handleHealthyNode(ctx context.Context, node *cor
 		}
 
 		if status == nodeUnhealthy {
+			evictedNow, err := r.evictWorkloadIfNeeded(ctx, &wl, node.Name)
+			if err != nil {
+				workloadProcessingErrors = append(workloadProcessingErrors, err)
+				continue
+			}
+
 			podsToTerminate, totalPodsOnNode, err := r.getPodsToTerminate(ctx, node, &wl)
 			if err != nil {
 				log.Error(err, "Failed to get pods to terminate")
@@ -375,17 +379,11 @@ func (r *nodeFailureReconciler) handleHealthyNode(ctx context.Context, node *cor
 				log.V(3).Info("Terminating all pending pods on unhealthy node", "podCount", len(podsToTerminate))
 				r.terminatePods(ctx, podsToTerminate)
 			}
-			// evict workload when workload already has a different node marked for replacement
-			evictedNow, err := r.evictWorkloadIfNeeded(ctx, &wl, node.Name)
-			if err != nil {
-				workloadProcessingErrors = append(workloadProcessingErrors, err)
-				continue
-			}
-
 			if len(podsToTerminate) == 0 && totalPodsOnNode == 0 && !evictedNow {
-				log.V(3).Info("Node marked Unhealthy but no pods found on node, treating as KeepMonitoring")
+				log.V(4).Info("Node marked Unhealthy but no pods found on node, treating as KeepMonitoring")
 				keepMonitoring = true
 			}
+
 			if !evictedNow && !workload.IsEvicted(&wl) {
 				if err := r.addUnhealthyNode(ctx, &wl, node.Name); err != nil {
 					log.Error(err, "Failed to add node to unhealthyNodes")
@@ -417,7 +415,6 @@ func (r *nodeFailureReconciler) handleHealthyNode(ctx context.Context, node *cor
 }
 
 func (r *nodeFailureReconciler) isNodeUnhealthyForWorkload(ctx context.Context, node *corev1.Node, wl *kueue.Workload) (nodeHealthStatus, error) {
-
 	if !features.Enabled(features.TASReplaceNodeOnNodeTaints) {
 		return nodeHealthy, nil
 	}
@@ -456,7 +453,6 @@ func (r *nodeFailureReconciler) hasActivePodsOnNode(ctx context.Context, wl *kue
 
 	for _, pod := range podsOnNode {
 		if pod.DeletionTimestamp.IsZero() && !utilpod.IsTerminated(&pod) {
-			// We treat Gated pods as active/non-pending for now, to avoid aggressive termination.
 			if pod.Status.Phase != corev1.PodPending || len(pod.Spec.SchedulingGates) > 0 {
 				return true, nil
 			}

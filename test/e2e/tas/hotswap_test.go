@@ -734,7 +734,6 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 					gomega.Eventually(func(g gomega.Gomega) {
 						updatedPod := &corev1.Pod{}
 						g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: replacementPodName, Namespace: ns.Name}, updatedPod)).To(gomega.Succeed())
-						
 						foundArtificialGate := false
 						newGates := []corev1.PodSchedulingGate{}
 						for _, gate := range updatedPod.Spec.SchedulingGates {
