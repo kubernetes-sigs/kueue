@@ -243,7 +243,7 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.14"
-- name: TASTaintEviction
+- name: TASReplaceNodeOnNodeTaints
   versionedSpecs:
   - default: false
     lockToDefault: false

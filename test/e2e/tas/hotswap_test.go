@@ -276,13 +276,13 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 			})
 		})
 
-		ginkgo.Context("with TASTaintEviction enabled", func() {
+		ginkgo.Context("with TASReplaceNodeOnNodeTaints enabled", func() {
 			ginkgo.BeforeAll(func() {
 				util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 					if cfg.FeatureGates == nil {
 						cfg.FeatureGates = make(map[string]bool)
 					}
-					cfg.FeatureGates[string(features.TASTaintEviction)] = true
+					cfg.FeatureGates[string(features.TASReplaceNodeOnNodeTaints)] = true
 				})
 				util.WaitForKueueAvailability(ctx, k8sClient)
 			})
