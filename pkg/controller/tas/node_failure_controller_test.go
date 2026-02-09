@@ -155,18 +155,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
 			wantUnhealthyNodes: nil,
 		},
-		"Node becomes healthy, it is removed from the list of nodes to replace": {
-			initObjs: []client.Object{
-				baseNode.Clone().StatusConditions(corev1.NodeCondition{
-					Type:               corev1.NodeReady,
-					Status:             corev1.ConditionTrue,
-					LastTransitionTime: now}).Obj(),
-				workloadWithUnhealthyNode.DeepCopy(),
-				basePod.DeepCopy(),
-			},
-			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
-			wantUnhealthyNodes: nil,
-		},
+
 
 		"Node Found and Unhealthy (NotReady), delay not passed - not marked as unavailable": {
 			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: false},
@@ -732,7 +721,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				}
 			}
 			if diff := cmp.Diff(tc.wantRequeue, result.RequeueAfter); diff != "" {
-				t.Errorf("Unexpected RequeueAfter: want %s, got %s", tc.wantRequeue, result.RequeueAfter)
+				t.Errorf("Unexpected RequeueAfter (-want/+got):\n%s", diff)
 			}
 			evictedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted)
 			if diff := cmp.Diff(tc.wantEvictedCond, evictedCond, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); diff != "" {

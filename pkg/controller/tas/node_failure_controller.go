@@ -453,15 +453,8 @@ func (r *nodeFailureReconciler) hasActivePodsOnNode(ctx context.Context, wl *kue
 		return false, err
 	}
 
-	for _, pod := range podsOnNode {
-		if !pod.DeletionTimestamp.IsZero() || utilpod.IsTerminated(&pod) {
-			continue
-		}
-		if pod.Status.Phase != corev1.PodPending || len(pod.Spec.SchedulingGates) > 0 {
-			return true, nil
-		}
-	}
-	return false, nil
+	_, hasActive := classifyPods(podsOnNode)
+	return hasActive, nil
 }
 
 func (r *nodeFailureReconciler) getPodsToTerminate(ctx context.Context, node *corev1.Node, wl *kueue.Workload) ([]corev1.Pod, bool, error) {
@@ -478,16 +471,23 @@ func (r *nodeFailureReconciler) getPodsToTerminate(ctx context.Context, node *co
 
 	var podsToDelete []corev1.Pod
 	if len(untoleratedTaints) > 0 {
-		for _, pod := range podsOnNode {
-			if !pod.DeletionTimestamp.IsZero() || utilpod.IsTerminated(&pod) {
-				continue
-			}
-			if pod.Status.Phase == corev1.PodPending && len(pod.Spec.SchedulingGates) == 0 {
-				podsToDelete = append(podsToDelete, pod)
-			}
-		}
+		podsToDelete, _ = classifyPods(podsOnNode)
 	}
 	return podsToDelete, len(podsOnNode) > 0, nil
+}
+
+func classifyPods(pods []corev1.Pod) (podsToTerminate []corev1.Pod, hasActive bool) {
+	for _, pod := range pods {
+		if !pod.DeletionTimestamp.IsZero() || utilpod.IsTerminated(&pod) {
+			continue
+		}
+		if pod.Status.Phase == corev1.PodPending && len(pod.Spec.SchedulingGates) == 0 {
+			podsToTerminate = append(podsToTerminate, pod)
+		} else {
+			hasActive = true
+		}
+	}
+	return
 }
 
 func (r *nodeFailureReconciler) terminatePods(ctx context.Context, pods []corev1.Pod) {
