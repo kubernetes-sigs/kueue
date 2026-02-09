@@ -696,49 +696,62 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 					}
 				})
 
-				ginkgo.By("Removing the artificial scheduling gate from the replacement pod", func() {
+				var replacementPodName string
+				ginkgo.By("Wait for the victim pod to be Failed and the replacement pod to be created", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels{
 							"jobset.sigs.k8s.io/jobset-name": jobName,
 						})).To(gomega.Succeed())
-						g.Expect(pods.Items).To(gomega.HaveLen(numPods))
 
-						// Ensure the old pod is gone and replaced
-						replaced := false
-						for _, p := range pods.Items {
-							if _, ok := initialUIDs[string(p.UID)]; !ok {
-								replaced = true
-								break
-							}
-						}
-						g.Expect(replaced).To(gomega.BeTrue(), "Victim pod has not been replaced yet")
+						var victimPod *corev1.Pod
+						var replacementPod *corev1.Pod
 
-						foundGated := false
-						for _, p := range pods.Items {
-							found := false
-							for _, g := range p.Spec.SchedulingGates {
-								if g.Name == artificialGate {
-									found = true
-									break
+						for i := range pods.Items {
+							p := &pods.Items[i]
+							if p.Labels["batch.kubernetes.io/job-completion-index"] == "0" {
+								if _, ok := initialUIDs[string(p.UID)]; ok {
+									victimPod = p
+								} else {
+									replacementPod = p
 								}
 							}
-							if found {
-								foundGated = true
-								updatedPod := &corev1.Pod{}
-								g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&p), updatedPod)).To(gomega.Succeed())
-								newGates := []corev1.PodSchedulingGate{}
-								for _, gate := range updatedPod.Spec.SchedulingGates {
-									if gate.Name != artificialGate {
-										newGates = append(newGates, gate)
-									}
-								}
-								updatedPod.Spec.SchedulingGates = newGates
-								g.Expect(k8sClient.Update(ctx, updatedPod)).To(gomega.Succeed())
-							}
 						}
-						// Ensure no pods have the gate anymore
-						g.Expect(foundGated).To(gomega.BeFalse(), "Expected all pods to be ungated, found some with artificial gate")
+
+						g.Expect(victimPod).NotTo(gomega.BeNil(), "Victim pod should still exist")
+						g.Expect(victimPod.Status.Phase).To(gomega.Equal(corev1.PodFailed), "Victim pod should be Failed")
+						g.Expect(victimPod.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(corev1.PodCondition{
+							Type:   "TerminatedByKueue",
+							Status: corev1.ConditionTrue,
+							Reason: "UnschedulableDueToUntoleratedNoScheduleTaint",
+						}, cmpopts.IgnoreFields(corev1.PodCondition{}, "LastTransitionTime", "Message", "LastProbeTime"))))
+
+						g.Expect(replacementPod).NotTo(gomega.BeNil(), "Replacement pod should appear")
+						replacementPodName = replacementPod.Name
 					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Removing the artificial scheduling gate from the replacement pod", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						updatedPod := &corev1.Pod{}
+						g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: replacementPodName, Namespace: ns.Name}, updatedPod)).To(gomega.Succeed())
+						
+						foundArtificialGate := false
+						newGates := []corev1.PodSchedulingGate{}
+						for _, gate := range updatedPod.Spec.SchedulingGates {
+							if gate.Name == artificialGate {
+								foundArtificialGate = true
+							} else {
+								newGates = append(newGates, gate)
+							}
+						}
+
+						if foundArtificialGate {
+							updatedPod.Spec.SchedulingGates = newGates
+							g.Expect(k8sClient.Update(ctx, updatedPod)).To(gomega.Succeed())
+						} else {
+							// Gate already removed or not present
+						}
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
 				ginkgo.By("Check that the topology assignment is updated with the new node in the same block", func() {

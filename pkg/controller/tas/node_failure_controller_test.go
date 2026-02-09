@@ -139,6 +139,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 		wantEvictedCond    *metav1.Condition
 		wantDeletedPods    []string
 		wantRemainingPods  []string
+		wantPatchedPods    []string
 		featureGates       map[featuregate.Feature]bool
 	}{
 		"Node Found and Healthy - not marked as unavailable": {
@@ -587,7 +588,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				features.TASReplaceNodeOnNodeTaints: true,
 			},
 		},
-	"Node has untolerated NoSchedule taint, pod is Pending -> Unhealthy, pod deleted": {
+		"Node has untolerated NoSchedule taint, pod is Pending -> Unhealthy, pod patched": {
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
@@ -604,11 +605,10 @@ func TestNodeFailureReconciler(t *testing.T) {
 			},
 			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
-			wantDeletedPods:    []string{"pending-pod"},
+			wantPatchedPods:    []string{"pending-pod"},
 			featureGates: map[featuregate.Feature]bool{
 				features.TASReplaceNodeOnNodeTaints:               true,
 				features.TASReplaceNodeOnPodTermination: false,
-				features.TASReplaceNodeOnPendingPods:    true,
 			},
 		},
 		"Node has untolerated NoSchedule taint, pod is Pending -> Unhealthy, pod NOT deleted (gate disabled)": {
@@ -685,12 +685,11 @@ func TestNodeFailureReconciler(t *testing.T) {
 			},
 			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
-			wantDeletedPods:    []string{"pending-pod-1"},
+			wantPatchedPods:    []string{"pending-pod-1"},
 			wantRemainingPods:  []string{"pending-pod-2"},
 			featureGates: map[featuregate.Feature]bool{
 				features.TASReplaceNodeOnNodeTaints:               true,
 				features.TASReplaceNodeOnPodTermination: true,
-				features.TASReplaceNodeOnPendingPods:    true,
 			},
 		},
 		"Node has untolerated NoSchedule taint, pod is Gated -> Healthy (wait)": {
@@ -771,6 +770,26 @@ func TestNodeFailureReconciler(t *testing.T) {
 				pod := &corev1.Pod{}
 				if err := cl.Get(ctx, types.NamespacedName{Name: podName, Namespace: nsName}, pod); err != nil {
 					t.Errorf("Expected pod %s to exist, but it was deleted or missing: %v", podName, err)
+				}
+			}
+			for _, podName := range tc.wantPatchedPods {
+				pod := &corev1.Pod{}
+				if err := cl.Get(ctx, types.NamespacedName{Name: podName, Namespace: nsName}, pod); err != nil {
+					t.Errorf("Expected pod %s to exist, but it was deleted or missing: %v", podName, err)
+					continue
+				}
+				if pod.Status.Phase != corev1.PodFailed {
+					t.Errorf("Expected pod %s to be Failed, got %s", podName, pod.Status.Phase)
+				}
+				var targetCond *corev1.PodCondition
+				for i := range pod.Status.Conditions {
+					if pod.Status.Conditions[i].Type == "TerminatedByKueue" {
+						targetCond = &pod.Status.Conditions[i]
+						break
+					}
+				}
+				if targetCond == nil || targetCond.Status != corev1.ConditionTrue || targetCond.Reason != "UnschedulableDueToUntoleratedNoScheduleTaint" {
+					t.Errorf("Expected TerminatedByKueue condition to be True with Reason UnschedulableDueToUntoleratedNoScheduleTaint, got %v", targetCond)
 				}
 			}
 		})
