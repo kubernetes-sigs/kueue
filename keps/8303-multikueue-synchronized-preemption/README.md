@@ -202,12 +202,23 @@ const (
     ...
 )
 
+type PreemptionGateMode string
+
+const (
+  // The workload will never be able to preempt.
+  CannotPreemptMode PreemptionGateMode = "CannotPreempt"
+
+  // The workload signals that it requires preemption and has to be ungated to proceed.
+  OrchestratedPreemptionMode PreemptionGateMode = "OrchestratedPreemptionMode"
+)
+
+
 type WorkloadPreemptionGate struct {
     // Name of the gate.
     Name string
 
-    // Whether the preemption gate can be lifted by a controller.
-    Strict bool
+    // The preemption gate mode.
+    Mode PreemptionGateMode
 }
 
 type WorkloadStatus struct {
@@ -217,9 +228,9 @@ type WorkloadStatus struct {
 }
 ```
 
-The `Strict` field (provisional structure) on the preemption gate would control the behavior of the scheduler when handling the workload:
-* `true` - The admission process behave as if the workload can never preempt. Analogous to `kueue.x-k8s.io/cannot-preempt`.
-* `false` - The admission gate can be lifted by a controller, like in the proposed orchestration mechanism.
+The `Mode` field (provisional structure) on the preemption gate would control the behavior of the scheduler when handling the workload:
+* `CannotPreemptMode` - The admission process behave as if the workload can never preempt. Analogous to `kueue.x-k8s.io/cannot-preempt`.
+* `OrchestratedPreemptionMode` - The admission gate can be lifted by a controller, like in the proposed orchestration mechanism.
 
 This would allow to express the semantics of both `kueue.x-k8s.io/cannot-preempt` and `kueue.x-k8s.io/preemption-gated` using a single API.
 
