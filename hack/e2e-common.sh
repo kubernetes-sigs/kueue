@@ -286,9 +286,8 @@ function cluster_kind_load {
 function kind_load {
     kubectl config --kubeconfig="$2" use-context "kind-$1"
 
-    if kind_cluster_exists "$1"; then
-        cluster_kind_load "$1"
-    fi
+    cluster_kind_load "$1"
+
     if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:appwrapper || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         install_appwrapper "$1" "$2"
     fi
