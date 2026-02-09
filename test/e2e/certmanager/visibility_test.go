@@ -22,7 +22,6 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -115,13 +114,10 @@ var _ = ginkgo.Describe("Kueue secure visibility server", func() {
 
 			ginkgo.By("Delete the first job to release the quota", func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, firstJob, true)
-				wlKey := types.NamespacedName{
+				firstWl := &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
 					Namespace: firstJob.Namespace,
 					Name:      workloadjob.GetWorkloadNameForJob(firstJob.Name, firstJob.UID),
-				}
-				firstWl := &kueue.Workload{}
-				gomega.Expect(k8sClient.Get(ctx, wlKey, firstWl)).To(gomega.Succeed())
-
+				}}
 				// TODO(#1789): this is no longer needed when we fix the --orphan mode for Jobs
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, firstWl, true)
 			})
