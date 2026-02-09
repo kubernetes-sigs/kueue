@@ -63,29 +63,17 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 	// the remote job exists
 	if err == nil {
-		if features.Enabled(features.MultiKueueBatchJobWithManagedBy) {
-			if fromObject(&localJob).IsSuspended() && !fromObject(&localJob).IsActive() {
-				// Ensure the job is unsuspended before updating its status; otherwise, it will fail when patching the spec.
-				log.V(2).Info("Skipping the sync since the local job is still suspended")
-				return nil
-			}
-			// Elastic workload sync takes precedence over status updates.
-			if needElasticJobSync(log, workloadName, &localJob, &remoteJob) {
-				if err := syncElasticJob(ctx, remoteClient, log, workloadName, &localJob, &remoteJob); err != nil {
-					return err
-				}
-			}
-			return clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
-				localJob.Status = remoteJob.Status
-				return true, nil
-			})
+		if fromObject(&localJob).IsSuspended() && !fromObject(&localJob).IsActive() {
+			// Ensure the job is unsuspended before updating its status; otherwise, it will fail when patching the spec.
+			log.V(2).Info("Skipping the sync since the local job is still suspended")
+			return nil
 		}
 
-		if _, _, remoteFinished := fromObject(&remoteJob).Finished(ctx); remoteFinished {
-			return clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
-				localJob.Status = remoteJob.Status
-				return true, nil
-			})
+		if err := clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
+			localJob.Status = remoteJob.Status
+			return true, nil
+		}); err != nil {
+			return err
 		}
 
 		// Sync elastic workload if needed.
@@ -114,10 +102,8 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	remoteJob.Labels[constants.PrebuiltWorkloadLabel] = workloadName
 	remoteJob.Labels[kueue.MultiKueueOriginLabel] = origin
 
-	if features.Enabled(features.MultiKueueBatchJobWithManagedBy) {
-		// clear the managedBy enables the batch/Job controller to take over
-		remoteJob.Spec.ManagedBy = nil
-	}
+	// clear the managedBy enables the batch/Job controller to take over
+	remoteJob.Spec.ManagedBy = nil
 
 	return remoteClient.Create(ctx, &remoteJob)
 }
@@ -130,10 +116,6 @@ func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient
 }
 
 func (b *multiKueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
-	if !features.Enabled(features.MultiKueueBatchJobWithManagedBy) {
-		return true, "", nil
-	}
-
 	job := batchv1.Job{}
 	err := c.Get(ctx, key, &job)
 	if err != nil {
