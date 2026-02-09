@@ -282,7 +282,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:               true,
+				features.TASReplaceNodeOnNodeTaints:     true,
 				features.TASReplaceNodeOnPodTermination: false,
 			},
 		},
@@ -373,7 +373,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantUnhealthyNodes: nil,
 			wantRequeue:        1 * time.Second,
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:               true,
+				features.TASReplaceNodeOnNodeTaints:     true,
 				features.TASReplaceNodeOnPodTermination: true,
 			},
 		},
@@ -390,7 +390,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:               true,
+				features.TASReplaceNodeOnNodeTaints:     true,
 				features.TASReplaceNodeOnPodTermination: true,
 			},
 		},
@@ -406,7 +406,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:               true,
+				features.TASReplaceNodeOnNodeTaints:     true,
 				features.TASReplaceNodeOnPodTermination: true,
 			},
 		},
@@ -423,7 +423,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:               true,
+				features.TASReplaceNodeOnNodeTaints:     true,
 				features.TASReplaceNodeOnPodTermination: false,
 			},
 		},
@@ -463,7 +463,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantUnhealthyNodes: nil,
 			wantRequeue:        1 * time.Second,
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:               true,
+				features.TASReplaceNodeOnNodeTaints:     true,
 				features.TASReplaceNodeOnPodTermination: false,
 			},
 		},
@@ -502,7 +502,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:               true,
+				features.TASReplaceNodeOnNodeTaints:     true,
 				features.TASReplaceNodeOnPodTermination: false,
 			},
 		},
