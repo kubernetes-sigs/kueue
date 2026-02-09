@@ -16,32 +16,52 @@
     - [(alpha) <code>PreemptionGateTimeout</code> Configuration](#alpha-preemptiongatetimeout-configuration)
     - [(beta) Workload API](#beta-workload-api)
   - [MultiKueue Controller](#multikueue-controller)
+  - [Kueue Scheduler](#kueue-scheduler)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
-    - [Integration tests](#integration-tests)
+    - [Integration Tests](#integration-tests)
   - [Graduation Criteria](#graduation-criteria)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
+  - [Re-use the <code>kueue.x-k8s.io/cannot-preempt</code> annotation and its semantics](#re-use-the-kueuex-k8siocannot-preempt-annotation-and-its-semantics)
   - [Define a proper Workload API for alpha](#define-a-proper-workload-api-for-alpha)
+  - [Specify the preemption timeout per-ClusterQueue instead of globally](#specify-the-preemption-timeout-per-clusterqueue-instead-of-globally)
 <!-- /toc -->
 
 ## Summary
 
-Currently, when a high-priority workload is dispatched to multiple worker clusters in a MultiKueue setup, it can trigger preemptions on all of them simultaneously.
-However, since in the end the workload will only run on a single cluster, the preemptions on the other clusters are unnecessary and lead to wasted resources and disruptions.
+This KEP describes the need for an admission orchestration mechanism in MultiKueue.
+Since the admission process on worker clusters takes independently and without any global context,
+it might result in unnecessary disruptions or suboptimal placements.
 
-This KEP proposes a mechanism to synchronize preemptions in these cases and considers how this feature can be extended to other scenarios.
-It introduces a way for workloads to signal that they want to trigger a preemption and discusses the concept of "preemption gates" in the Workload API.
+In particular, when a high-priority workload is dispatched to multiple worker clusters in a MultiKueue setup, it can trigger preemptions on all of them simultaneously.
+Since in the end the workload will only run on a single cluster, the preemptions on the other clusters are unnecessary and lead to wasted resources and disruptions.
+
+The goal of this document is to outline the interplay of such a orchestration apparatus and existing Kueue features by proposing
+a way to handle the aforementioned case and considering how it can be extended to other scenarios. An implementable solution to the most
+disruptive case is presented, while laying a foundation for further discussion about the more subtle scenarios.
+Concretely, the KEP introduces a way for workloads to signal that they want to trigger a preemption and a way for the MultiKueue controller to use those signals
+to orchestrate preemptions in the system in a non-disruptive way.
 
 ## Motivation
 
-In a MultiKueue environment, a high-priority workload dispatched to multiple worker clusters can trigger simultaneous preemptions.
+In a MultiKueue environment, worker clusters are isolated from each other and make admission decisions independently.
+This can cause them to make decisions which make sense from a single cluster's perspective, but are suboptimal when
+taking the whole system (other workers) into account.
+
+For example, a high-priority workload can trigger simultaneous preemptions in multiple worker clusters.
 For instance, a workload sent to three clusters using the `AllAtOnce` strategy might initiate preemptions on all three.
 Since the workload can only be admitted to one cluster, the preemptions on the other two are unnecessary and lead to wasted resources by
-halting running workloads and then having to re-admit them. This problems grows with the amount of deployed worker clusters and should be taken into account by MultiKueue automatically.
+halting running workloads and then having to re-admit them.
 
-Moreover, a general preemption gating/synchronization mechanism can be used to handle other scenarios in the Kueue ecosystem.
+More generally, even a single preemption in a single worker might be undesireable if the workload could be admitted without preemptions
+in another cluster. The workload will likely be admitted before the preemption finishes, which unnecessarily disrupts the running jobs.
+
+Those problems grow with the amount of deployed worker clusters and illustrate the benefit of an orchestration layer in MultiKueue.
+The manager cluster could make more informed decisions about actions that might disrupt already admitted workloads.
+
+Moreover, a general preemption gating/preemption signaling mechanism can be used to handle other scenarios in the Kueue ecosystem.
 
 ### Goals
 
@@ -51,21 +71,15 @@ Moreover, a general preemption gating/synchronization mechanism can be used to h
 ### Non-Goals
 
 - Optimize logic for choosing which worker cluster should be allowed to preempt, beyond a simple first-come-first-served approach (i.e. considering any "preemption cost").
-- Propose an analogous mechanism of borrowing synchronization.
+- Propose any orchestration beyond the initial workload admission process after it's first insertion into a ClusterQueue.
+- Propose an analogous mechanism of borrowing orchestration.
 
 ## Proposal
 
-The proposed solution is to use the alpha `kueue.x-k8s.io/cannot-preempt` annotation proposed in KEP-8729 as the "preemption gate" and introduce a
+The proposed solution is to introduce a new alpha `kueue.x-k8s.io/preemption-gated` annotation as the mechanism controlling a workload's ability to preempt and introduce a
 `PreemptionGated` reason to the `QuotaReserved` condition in the Workload's status, which will be used to signal that it's ready to preempt but was gated.
 The manager cluster's MultiKueue controller that watches the replicated Workload objects will observe the condition and make a decision whether to remove the annotation from
 the replica, allowing it to proceed.
-
-The controllers responsible for dispatching workloads in a MultiKueue setup or creating virtual workloads for concurrent admission will be responsible for adding the
-appropriate preemption gates to the workloads they manage.
-
-If a preemption fails for some reason or the workload is not admitted after preemption, a **timeout mechanism** will ensure that the gate is eventually removed for other replica workloads so that
-another worker gets a chance to preempt. If a worker was ungated, the `PreemptionGateTimeout` elapsed and the workload is still pending, another worker can be considered for ungating.
-This prevents a single failing preemption from blocking all others.
 
 ```mermaid
 sequenceDiagram
@@ -93,6 +107,16 @@ sequenceDiagram
     end
 ```
 
+The preemption gate will not impact the scheduler's flavor assignment process and preserve the semantics of flavor fungibility.
+The gate being removed will requeue the workload with the ability to preempt in the upcoming scheduling cycles.
+
+The controllers responsible for dispatching workloads in a MultiKueue setup or creating virtual workloads for concurrent admission will be responsible for adding the
+preemption gate to the workloads they manage.
+
+If a preemption fails for some reason or the workload is not admitted after preemption, a **timeout mechanism** will ensure that the gate is eventually removed for other replica workloads so that
+another worker gets a chance to preempt. If a worker was ungated, the `PreemptionGateTimeout` elapsed and the workload is still pending, another worker can be considered for ungating.
+This prevents a single failing preemption from blocking all others.
+
 ### User Stories
 
 #### Story 1
@@ -108,10 +132,9 @@ I want that team's jobs to still be promptly admitted, but without causing distr
 1. The main risk of this proposal is the potential for deadlocks or starvation if the ungating logic is flawed.
 For example, if the preemption synchronization controller fails to ungate a workload or the preemption fails, it could be blocked indefinitely.
 This can be mitigated by implementing a timeout mechanism to re-queue the ungating decision.
-
-2. The limitation of using the alpha `kueue.x-k8s.io/cannot-preempt` annotation is that it will make it impossible for the users to express MultiKueue
-workloads that can **never** preempt.
-This is mitigated by properly documenting the supported capabilities of the feature and graduating to a proper API in the beta phase.
+1. The behavior of the proposed mechanism might be subtle in some scenarios and hard for the user to "predict".
+It presents a trade-off between quicker admission time and more optimal resource usage, which should be understood by the user.
+This can be mitigated by documenting the semantics of the feature and how it interplays with the rest of the Kueue system.
 
 ## Design Details
 
@@ -119,8 +142,9 @@ This is mitigated by properly documenting the supported capabilities of the feat
 
 #### (alpha) Workload Annotations
 
-The `kueue.x-k8s.io/cannot-preempt` annotation will be automatically assigned to all replicated MultiKueue workloads.
-The gating mechanism is consistent with the proposal in KEP-8729.
+The `kueue.x-k8s.io/preemption-gated` annotation will be automatically assigned to all replicated MultiKueue workloads.
+The gating mechanism is analogous to the `kueue.x-k8s.io/cannot-preempt` annotation in KEP-8729 - it will trigger similar
+code paths to signal a gated preemption, but not impact the decision to preempt (i.e. it will not try the next flavor to prefer "non-preemption" admissions).
 
 #### (alpha) Extending the `QuotaReserved` Condition
 
@@ -214,6 +238,17 @@ This controller will watch for workloads to change their `QuotaReserved` conditi
 
 Until the need arises, the controller will maintain the `PreviouslyUngatedAt` time in the Kueue controller manager's memory.
 
+The preemption gates will be re-applied and the `PreviouslyUngatedAt` time reset upon the workload's eviction, restarting the process of preemption
+orchestration.
+
+### Kueue Scheduler
+
+When encountering a workload with the `Preempt` assignment mode and a preemption gate, the scheduler will put that workload back into the
+queue according to the configured queueing strategy:
+
+* `BestEffortFIFO` - the workload is marked as inadmissible. An update (for example the gate being lifted), will requeue the workload.
+* `StrictFIFO` - the workload is put back into the heap. It will block the admission of other workloads in its ClusterQueue.
+
 ### Test Plan
 
 [x] I/we understand the owners of the involved components may require updates to
@@ -224,7 +259,7 @@ to implement this enhancement.
 - Unit tests will be added for the preemption gate logic in the workload controller.
 - Unit tests for the preemption synchronization controller, covering the ungating and timeout logic.
 
-#### Integration tests
+#### Integration Tests
 - Integration tests will be added to verify that preemption is blocked for gated workloads.
 - Integration tests for the MultiKueue scenario, ensuring that only one worker cluster attempts preemption at a time.
 - Integration tests for the Concurrent Admission scenario, ensuring that only one resource flavor attempts preemption at a time.
@@ -257,6 +292,36 @@ The main drawback of this proposal is the added complexity of the preemption syn
 
 ## Alternatives
 
+### Re-use the `kueue.x-k8s.io/cannot-preempt` annotation and its semantics
+
+KEP-8729 introduces the concept of workloads that cannot preempt. It introduces an alpha `kueue.x-k8s.io/cannot-preempt` annotation
+which prevents the marked workloads from relying on preemption to get admitted. This means that the workload will only consider placements
+that do not require preemption, even if flavor fungibility is configured with `whenCanPreempt: MayStopSearch`.
+
+The same annotation could be used instead of the new `kueue.x-k8s.io/preemption-gated`. This has the benefit of fully re-using another
+proposed mechanism without introducing any new concepts. It simplifies the initial orchestration implementation by focusing it solely
+on the ungating mechanism.
+
+**Reasons for discarding/deferring**
+
+There is a subtle semantical difference between `cannot-preempt` and `preemption-gated`:
+* `cannot-preempt` means that the workload should never consider placements that require preemption.
+* `preemption-gated` means that the workload should still consider placements that require preemption,
+but shouldn't execute them until allowed.
+
+For example, if two flavors (A & B, specified in this order) are defined alongside flavor fungibility set to `whenCanPreempt: MayStopSearch`, we'd expect the following behavior:
+
+|              	| Quota 	| `preemption-gated`         	| `cannot-preempt` 	|
+|--------------	|-------	|----------------------------	|------------------	|
+| **Flavor A** 	| Full  	| Signal Gate & Do Not Admit 	| Skip            	|
+| **Flavor B** 	| Free  	| Not considered             	| Assign & Admit   	|
+
+The behavior of `cannot-preempt` can be achieved by combining the `preemption-gated` annotation with the `whenCanPreempt: TryNextFlavor` configuration.
+This leaves more control in the user's hands and does not change the existing semantics of admission, reducing confusion.
+
+Moreover, reusing the `cannot-preempt` annotation will make it impossible for the users to express MultiKueue workloads that can **never** preempt,
+as the orchestrator controller cannot tell whether the `cannot-preempt` annotation was set by the user or itself.
+
 ### Define a proper Workload API for alpha
 
 Instead of relying on the annotations, preemption gates or a similar mechanism could be expressed as a Workload API.
@@ -264,6 +329,16 @@ Instead of relying on the annotations, preemption gates or a similar mechanism c
 **Reasons for discarding/deferring**
 
 1. Given the potential overlap between this KEP, KEP-8729 and KEP-8691, the shape of the API might not be obvious.
-1. There are few drawbacks from using the simplest possible solution (annotations) without API lock-in.
+1. There are few drawbacks from using the simplest possible solution (annotations) without API lock-in. 
 1. The MultiKueue preemption management is largely API independent and is the first priority. Gathering user feedback
 from this implementation will inform the correct API structure.
+
+### Specify the preemption timeout per-ClusterQueue instead of globally
+
+Instead of making the preemption timeout part of the Configuration API, it could be made more granular by including it
+in the ClusterQueue API.
+
+**Reasons for discarding/deferring**
+
+1. The preemption gating mechanism is heavily MultiKueue specific at the moment. For simplicity, the API changes will be
+scoped to MultiKueue constructs rather than spilling over to more general Kueue concepts like ClusterQueues.
