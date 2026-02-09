@@ -193,10 +193,12 @@ it manually.
 #### (alpha) `PreemptionGateTimeout` Configuration
 
 The `MultiKueue` `Configuration` struct will be extended with a `PreemptionGateTimeout` that defines
-the timeout of preemption, after which another worker replica can be ungated.
+the timeout of preemption, after which another worker replica can be ungated, measured since the previous ungating
+of the workload.
 
 ```go
 type MultiKueue struct {
+	// The timeout after which another worker cluster replica can be ungated, measured since the previous time a replica was ungated.
 	// Defaults to 5 minutes.
 	// +optional
 	PreemptionGateTimeout *metav1.Duration `json:"preemptionGateTimeout,omitempty"`
