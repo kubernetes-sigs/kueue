@@ -722,9 +722,9 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 						g.Expect(victimPod.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(corev1.PodCondition{
 							Type:   "TerminatedByKueue",
 							Status: corev1.ConditionTrue,
-							Reason: "UnschedulableDueToUntoleratedNoScheduleTaint",
-						}, cmpopts.IgnoreFields(corev1.PodCondition{}, "LastTransitionTime", "Message", "LastProbeTime"))))
-
+							Reason: "UnschedulableOnAssignedNode",
+						}, cmpopts.IgnoreFields(corev1.PodCondition{}, "LastTransitionTime", "Message", "LastProbeTime"))), "Victim pod should have TerminatedByKueue condition with reason UnschedulableOnAssignedNode")
+						
 						g.Expect(replacementPod).NotTo(gomega.BeNil(), "Replacement pod should appear")
 						replacementPodName = replacementPod.Name
 					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
@@ -747,8 +747,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 						if foundArtificialGate {
 							updatedPod.Spec.SchedulingGates = newGates
 							g.Expect(k8sClient.Update(ctx, updatedPod)).To(gomega.Succeed())
-						} else {
-							// Gate already removed or not present
+							g.Expect(foundArtificialGate).To(gomega.BeFalse(), "Still found artificial gate, retrying...")
 						}
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
