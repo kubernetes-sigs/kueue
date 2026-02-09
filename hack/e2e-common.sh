@@ -313,8 +313,10 @@ function cluster_create {
 }
 
 function prepare_docker_images {
-    docker pull "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA"
-    docker pull "$E2E_TEST_AGNHOST_IMAGE_WITH_SHA"
+    local platform="linux/$(uname -m)"
+    echo "PLATFORM=$platform"
+    docker pull --platform "$platform" "$E2E_TEST_AGNHOST_IMAGE_OLD"
+    docker pull --platform "$platform" "$E2E_TEST_AGNHOST_IMAGE"
 
     # We can load image by a digest but we cannot reference it by the digest that we pulled.
     # For more information https://github.com/kubernetes-sigs/kind/issues/2394#issuecomment-888713831.
@@ -425,19 +427,10 @@ function cluster_kind_load_image {
         return 1
     fi
     # filter out 'control-plane' node, use only worker nodes to load image
-    worker_nodes=$($KIND get nodes --name "$1" | grep -v 'control-plane')
+    worker_nodes=$($KIND get nodes --name "$1" | grep -v 'control-plane' | paste -sd "," -)
     if [[ -n "$worker_nodes" ]]; then
-        # Use docker save + ctr import directly to avoid the --all-platforms
-        # issue with multi-arch images in DinD environments.
-        # See: https://github.com/kubernetes-sigs/kind/issues/3795
-        echo "Loading image '$2' to cluster '$1'"
-        while IFS= read -r node; do
-            echo "  Loading image to node: $node"
-            if ! docker save "$2" | docker exec -i "$node" ctr --namespace=k8s.io images import --digests --snapshotter=overlayfs -; then
-                echo "Failed to load image '$2' to node '$node'"
-                return 1
-            fi
-        done <<< "$worker_nodes"
+        echo "kind load docker-image '$2' --name '$1' --nodes '$worker_nodes'"
+        $KIND load docker-image "$2" --name "$1" --nodes "$worker_nodes"
     fi
 }
 
