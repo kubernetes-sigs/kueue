@@ -205,6 +205,9 @@ const (
 type WorkloadPreemptionGate struct {
     // Name of the gate.
     Name string
+
+    // Whether the preemption gate can be lifted by a controller.
+    Strict bool
 }
 
 type WorkloadStatus struct {
@@ -213,6 +216,12 @@ type WorkloadStatus struct {
     PreemptionGates []WorkloadPreemptionGate
 }
 ```
+
+The `Strict` field (provisional structure) on the preemption gate would control the behavior of the scheduler when handling the workload:
+* `true` - The admission process behave as if the workload can never preempt. Analogous to `kueue.x-k8s.io/cannot-preempt`.
+* `false` - The admission gate can be lifted by a controller, like in the proposed orchestration mechanism.
+
+This would allow to express the semantics of both `kueue.x-k8s.io/cannot-preempt` and `kueue.x-k8s.io/preemption-gated` using a single API.
 
 The gating and signaling mechanisms would be changed to recognize the dedicated preemption gates, rather than the annotation.
 The annotation could still be used as a job-level user opt-in mechanism, and create a "user-annotated" preemption gate under the hood.
