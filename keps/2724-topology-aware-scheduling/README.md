@@ -52,6 +52,7 @@
   - [Cross-PodSet Topology Aware scheduling](#cross-podset-topology-aware-scheduling)
     - [Ensure leader and workers end up on the same flavor](#ensure-leader-and-workers-end-up-on-the-same-flavor)
   - [Enforcing the assignment](#enforcing-the-assignment)
+  - [Support for Elastic Workloads](#support-for-elastic-workloads)
   - [Balanced placement](#balanced-placement)
     - [Example](#example-2)
   - [Support for ProvisioningRequests](#support-for-provisioningrequests)
@@ -1432,6 +1433,13 @@ use the expectations mechanism. The expectations are set for when we are about
 to ungate a Pod. The expectation is fulfilled if the Pod is observed as ungated
 or the ungating request fails. We hold ungating if there are pending ungatings
 within the PodSet.
+
+### Support for Elastic Workloads
+
+TAS supports integration with ElasticJobsViaWorkloadSlices when the
+ElasticJobsViaWorkloadSlicesWithTAS feature gate is enabled. See
+[KEP-77: Dynamically Sized Jobs](../77-dynamically-sized-jobs#topology-aware-scheduling-integration)
+for details on supported modes and implementation.
 
 ### Balanced placement
 The balanced placement algorithm provides an alternative to the greedy packing strategies. Instead of iterating over the domains sorted from largest to smallest available space (or based on some other criteria) and trying to pack as many pods as possible to each domain until the request fits, it first finds the optimal set of domains that fit the request and then distributes the pods as evenly as possible across these domains. 

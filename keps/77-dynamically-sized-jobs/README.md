@@ -23,22 +23,26 @@
       - [Resource Flavors](#resource-flavors)
     - [Garbage Collection of Preempted Workload Slices](#garbage-collection-of-preempted-workload-slices)
   - [Pod Scheduling Gates](#pod-scheduling-gates)
+  - [Topology Aware Scheduling Integration](#topology-aware-scheduling-integration)
+    - [Pod Identification Across Slices](#pod-identification-across-slices)
+    - [Scale Up](#scale-up)
+    - [Scale Down](#scale-down)
   - [Limitations and Incompatibilities](#limitations-and-incompatibilities)
     - [PartialAdmission](#partialadmission)
 - [Phases for MVP (alpha)](#phases-for-mvp-alpha)
   - [Phase 1 - batchv1/Job WorkloadSlices Support in Single-Cluster Configuration.](#phase-1---batchv1job-workloadslices-support-in-single-cluster-configuration)
-    - [Scale Down](#scale-down)
-    - [Scale Up](#scale-up)
-  - [Phase 2 – RayCluster WorkloadSlice Support in Single-Cluster Configuration](#phase-2--raycluster-workloadslice-support-in-single-cluster-configuration)
     - [Scale Down](#scale-down-1)
     - [Scale Up](#scale-up-1)
+  - [Phase 2 – RayCluster WorkloadSlice Support in Single-Cluster Configuration](#phase-2--raycluster-workloadslice-support-in-single-cluster-configuration)
+    - [Scale Down](#scale-down-2)
+    - [Scale Up](#scale-up-2)
   - [Phase 3 – Enabling Workload Slicing for batch/v1.Job in Multi-Cluster Configuration](#phase-3--enabling-workload-slicing-for-batchv1job-in-multi-cluster-configuration)
 - [Additional Details](#additional-details)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
     - [Integration tests](#integration-tests)
-    - [Scale-down](#scale-down-2)
-    - [Scale-Down](#scale-down-3)
+    - [Scale-down](#scale-down-3)
+    - [Scale-Down](#scale-down-4)
     - [Resource Flavor Handling](#resource-flavor-handling)
   - [Graduation Criteria](#graduation-criteria)
   - [PodScheduling Readiness and ResourceQuota](#podscheduling-readiness-and-resourcequota)
@@ -275,6 +279,57 @@ const (
 )
 ```
 
+### Topology Aware Scheduling Integration
+
+When the ElasticJobsViaWorkloadSlicesWithTAS feature gate is enabled (requires
+both ElasticJobsViaWorkloadSlices and TopologyAwareScheduling), Kueue attempts
+to preserve topology locality across workload slice transitions during scaling
+operations.
+
+For the initial iteration (v0.17), only **unconstrained** topology mode is supported for scaling
+operations. Jobs with `kueue.x-k8s.io/elastic-job: "true"` that also specify required or preferred
+topology annotations are rejected at job creation via webhook validation. Support for
+required/preferred modes will be added in future iterations. During node repair (unhealthy nodes),
+both scale-up and scale-down operations are blocked until the nodes recover.
+
+#### Pod Identification Across Slices
+
+The `kueue.x-k8s.io/workload` annotation changes with each workload slice, which prevents
+TAS from finding all pods belonging to a job across slice transitions. To address this,
+a `kueue.x-k8s.io/workload-slice-name` annotation is added to pods when both features are
+enabled. This annotation contains the origin workload name in the slice chain (following
+`WorkloadSliceReplacementFor` annotations to find the root) and remains stable across slice
+transitions, allowing `TopologyUngater` to find all pods belonging to the job. The namespace
+scope in pod lookups ensures uniqueness across different namespaces.
+
+```golang
+const (
+    // WorkloadSliceNameAnnotation identifies the original workload name in a slice chain.
+    WorkloadSliceNameAnnotation = "kueue.x-k8s.io/workload-slice-name"
+)
+```
+
+#### Scale Up
+
+When a new workload slice replaces an old one during scale-up, the scheduler extracts
+the `TopologyAssignment` from the old slice and passes it to TAS. TAS attempts to place
+new pods in the same topology domain as existing pods. If the previous assignment is
+stale (e.g., nodes are unhealthy), TAS blocks the scale-up operation until the nodes recover.
+
+**Note:** This blocking behavior is a tentative plan for Alpha and will be re-evaluated before Beta.
+
+#### Scale Down
+
+During scale-down, the workload slice retains the existing topology assignment for the
+remaining pods. If unhealthy nodes are detected during the scale-down operation, the
+operation is blocked to prevent violating the expected minimum replica count. For example,
+if a job has 3 replicas with minCount=2 and one node becomes unhealthy (leaving 2 active
+pods), allowing scale-down to 2 replicas could result in only 1 active pod.
+
+**Note:** This blocking behavior is a tentative plan for Alpha and will be re-evaluated before Beta.
+
+See [KEP-2724: Topology Aware Scheduling](../2724-topology-aware-scheduling#support-for-elastic-workloads) for TAS details.
+
 ### Limitations and Incompatibilities
 
 This section captures all known limitations and incompatibilities introduced by, or resulting from, enabling the ElasticJobs feature.
@@ -487,6 +542,7 @@ Here’s a structured and detailed **Graduation Criteria** section for KEP-77: *
 * [x] Feature opt-in is supported via workload annotation (`kueue.x-k8s.io/elastic-job: "true"`).
 * [x] Documented enablement steps, slice behavior, and known limitations.
 * [x] Kueue-native Deployment support leveraging WorkloadSlices.
+* [x] Topology Aware Scheduling integration: elastic workloads with unconstrained topology preserve topology assignment during scale-up. Scale-down and required/preferred modes are not yet supported.
 
 #### Beta
 
@@ -509,6 +565,9 @@ Here’s a structured and detailed **Graduation Criteria** section for KEP-77: *
 * [ ] Re-evaluate the approach for removing PodSchedulingReadiness gate for admitted workload slices to use a dedicated controller rather than calling from Job reconciler (see 3. in [comment](https://github.com/kubernetes-sigs/kueue/pull/5510#issuecomment-3060737465)).
 * [ ] Re-evaluate integration frameworks leveraging `ElasticJobsViaWorkloadSlices`.
 * [ ] Re-evaluate `ElasticJobsViaWorkloadSlices` by leveraging the MultiKueue JobAdapter’s `Sync` routine for ElasticJobs-specific functionality, particularly in detecting `JobUpdate` events as described in [issue #7065](https://github.com/kubernetes-sigs/kueue/issues/7065).
+* [ ] TAS-integration: Validated in production-like environments with scale-up/scale-down cycles.
+* [ ] TAS-integration: Full integration with Topology-Aware Scheduling (support for required/preferred topology modes), or clear validation/rejection of unsupported options.
+* [ ] TAS-integration: Re-evaluate the approach to handling scale-ups and scale-downs during node repairing.
 
 #### GA (Stable)
 
