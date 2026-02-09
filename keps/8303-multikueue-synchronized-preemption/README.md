@@ -27,6 +27,7 @@
   - [Re-use the <code>kueue.x-k8s.io/cannot-preempt</code> annotation and its semantics](#re-use-the-kueuex-k8siocannot-preempt-annotation-and-its-semantics)
   - [Define a proper Workload API for alpha](#define-a-proper-workload-api-for-alpha)
   - [Specify the preemption timeout per-ClusterQueue instead of globally](#specify-the-preemption-timeout-per-clusterqueue-instead-of-globally)
+  - [Use dynamically calculated default for the preemption timeout](#use-dynamically-calculated-default-for-the-preemption-timeout)
 <!-- /toc -->
 
 ## Summary
@@ -205,10 +206,6 @@ type MultiKueue struct {
 }
 ```
 
-Alternatively, instead of a static default value, it could be based upon another timeout like a multiple of `terminationGracePeriodSeconds`
-which is given for the preempted workload's pods to gracefully terminate. Since, it would require a consistent configuration of that value
-between the worker and manager clusters, the proposal is to default to a static value for simplicity.
-
 #### (beta) Workload API
 
 After gathering user feedback and mapping out all potential use-cases, the annotations can be abandoned in favor of a dedicated API.
@@ -386,3 +383,14 @@ in the ClusterQueue API.
 
 1. The preemption gating mechanism is heavily MultiKueue specific at the moment. For simplicity, the API changes will be
 scoped to MultiKueue constructs rather than spilling over to more general Kueue concepts like ClusterQueues.
+
+### Use dynamically calculated default for the preemption timeout
+
+Instead of a static default value (arbitrarily set to 5 minutes in the proposal), it could be based upon another timeout
+like a multiple of `terminationGracePeriodSeconds` which is given for the preempted workload's pods to gracefully terminate.
+
+**Reasons for discarding/deferring**
+
+1. Using a value like `terminationGracePeriodSeconds` would require a consistent configuration of that value between the worker and manager clusters,
+or some way to read what the value is on the worker cluster (the worker clusters can have different grace periods).
+1. Regardless of which value is used as the baseline for the automated default, the logic would unnecessarily complicate the configuration of the feature.
