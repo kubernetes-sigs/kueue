@@ -17,6 +17,7 @@ approvers:
 
 see-also:
   - "/keps/1136-provisioning-request-support"
+  - "/keps/77-dynamically-sized-jobs"
 
 # The target maturity stage in the current dev cycle for this KEP.
 stage: beta
@@ -24,7 +25,7 @@ stage: beta
 # The most recent milestone for which work toward delivery of this KEP has been
 # done. This can be the current (upcoming) milestone, if it is being actively
 # worked on.
-latest-milestone: "v0.15"
+latest-milestone: "v0.17"
 
 # The milestone at which this feature was, or is targeted to be, at each stage.
 milestone:
