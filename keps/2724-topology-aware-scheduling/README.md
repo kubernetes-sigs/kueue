@@ -1263,6 +1263,8 @@ If `tolerationSeconds` is specified, Kueue waits for the duration before treatin
 - **NoSchedule**: Nodes with the `NoSchedule` effect taint, that is not tolerated by the workload, are considered unhealthy
 only if all pods of the workload that have topology assignment to that node are terminating, in the failed state,
 or if they are unscheduled. In this case, Kueue can trigger node replacement.
+
+Nodes with `.spec.unschedulable` set to true are treated as having `NoSchedule` taint.
   
 For workloads for which a single Node replacement is possible, and the pods bound to the node are unscheduled (no `spec.nodeName` set),
 because they cannot run due to a taint, Kueue marks the pods as `Failed` and adds the following condition to the pods:
