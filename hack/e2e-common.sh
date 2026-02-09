@@ -371,8 +371,6 @@ function cluster_kind_load {
 # $1 cluster
 # $2 kubeconfig
 function kind_load {
-    kubectl config --kubeconfig="$2" use-context "kind-$1"
-
     local e2e_cluster_name=$1
     local e2e_kubeconfig=$2
 
