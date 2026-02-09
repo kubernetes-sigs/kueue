@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/go-logr/logr"
 	batchv1 "k8s.io/api/batch/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -68,6 +69,12 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 				log.V(2).Info("Skipping the sync since the local job is still suspended")
 				return nil
 			}
+			// Elastic workload sync takes precedence over status updates.
+			if needElasticJobSync(log, workloadName, &localJob, &remoteJob) {
+				if err := syncElasticJob(ctx, remoteClient, log, workloadName, &localJob, &remoteJob); err != nil {
+					return err
+				}
+			}
 			return clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
 				localJob.Status = remoteJob.Status
 				return true, nil
@@ -81,50 +88,9 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 			})
 		}
 
-		if workloadslicing.Enabled(&localJob) {
-			oldParallelism := ptr.Deref(remoteJob.Spec.Parallelism, 0)
-			newParallelism := ptr.Deref(localJob.Spec.Parallelism, 0)
-			newWorkloadName := jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(localJob.GetName(), localJob.GetUID(), gvk, localJob.GetGeneration())
-
-			// Detect and skip stale local Workload updates caused by a Job scale-up event.
-			//
-			// During scale-up, a race condition may occur between the GenericJobReconciler
-			// and this controller. The GenericJobReconciler is responsible for creating a
-			// new Workload slice that reflects the updated Job spec. Once admitted, that
-			// new slice finalizes (Finishes) the old slice.
-			//
-			// If the current reconciliation observes the old Workload slice while the Job’s
-			// parallelism has already increased, the slice is considered stale. In this case,
-			// we skip syncing to avoid propagating outdated state to the remote clusters.
-			if oldParallelism < newParallelism && workloadName != newWorkloadName {
-				log.V(2).Info("Skipping stale ElasticWorkload sync",
-					"old.parallelism", oldParallelism,
-					"new.parallelism", newParallelism,
-					"workloadName", workloadName,
-					"newWorkloadName", newWorkloadName)
-				return nil
-			}
-
-			// Update remote job's workload slice name and parallelism if needed.
-			if err := clientutil.Patch(ctx, remoteClient, &remoteJob, func() (bool, error) {
-				// Update workload name label.
-				labelsChanged := false
-				if remoteJob.Labels == nil {
-					remoteJob.Labels = map[string]string{constants.PrebuiltWorkloadLabel: workloadName}
-					labelsChanged = true
-				} else {
-					if cur, ok := remoteJob.Labels[constants.PrebuiltWorkloadLabel]; !ok || cur != workloadName {
-						remoteJob.Labels[constants.PrebuiltWorkloadLabel] = workloadName
-						labelsChanged = true
-					}
-				}
-
-				// Update parallelism.
-				remoteJob.Spec.Parallelism = localJob.Spec.Parallelism
-				return oldParallelism != newParallelism || labelsChanged, nil
-			}); err != nil {
-				return fmt.Errorf("failed to patch remote job: %w", err)
-			}
+		// Sync elastic workload if needed.
+		if needElasticJobSync(log, workloadName, &localJob, &remoteJob) {
+			return syncElasticJob(ctx, remoteClient, log, workloadName, &localJob, &remoteJob)
 		}
 
 		return nil
@@ -202,4 +168,70 @@ func (*multiKueueAdapter) WorkloadKeyFor(o runtime.Object) (types.NamespacedName
 	}
 
 	return types.NamespacedName{Name: prebuiltWl, Namespace: job.Namespace}, nil
+}
+
+// needElasticJobSync determines if a remote Job requires synchronization due to elastic job features.
+// Returns true when elastic jobs via workload slices are enabled and workload slicing is enabled for the job,
+// and either the parallelism differs between local and remote Jobs, or the remote Job lacks the workload label.
+// Skips sync when detecting stale workload updates during scale-up by comparing workload names and parallelism.
+func needElasticJobSync(log logr.Logger, workloadName string, localJob, remoteJob *batchv1.Job) bool {
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) || !workloadslicing.Enabled(localJob) {
+		return false
+	}
+	oldParallelism := ptr.Deref(remoteJob.Spec.Parallelism, 0)
+	newParallelism := ptr.Deref(localJob.Spec.Parallelism, 0)
+	newWorkloadName := jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(localJob.GetName(), localJob.GetUID(), gvk, localJob.GetGeneration())
+
+	// Detect and skip stale local Workload updates caused by a Job scale-up event.
+	//
+	// During scale-up, a race condition may occur between the GenericJobReconciler
+	// and this controller. The GenericJobReconciler is responsible for creating a
+	// new Workload slice that reflects the updated Job spec. Once admitted, that
+	// new slice finalizes (Finishes) the old slice.
+	//
+	// If the current reconciliation observes the old Workload slice while the Job’s
+	// parallelism has already increased, the slice is considered stale. In this case,
+	// we return as if the sync is not needed to avoid propagating outdated state to the remote clusters.
+	if oldParallelism < newParallelism && workloadName != newWorkloadName {
+		log.V(2).Info("Skipping stale ElasticWorkload sync",
+			"old.parallelism", oldParallelism,
+			"new.parallelism", newParallelism,
+			"workloadName", workloadName,
+			"newWorkloadName", newWorkloadName)
+		return false
+	}
+	return oldParallelism != newParallelism || remoteJob.Labels == nil || remoteJob.Labels[constants.PrebuiltWorkloadLabel] != workloadName
+}
+
+// syncElasticJob updates the remote job's workload label and parallelism to match the local job configuration.
+// It patches the remote job only if the parallelism value or workload name label has changed.
+//
+// Note: this call should be gated by needElasticJobSync to ensure it's only executed when necessary,
+// and to perform check for stale workload updates during scale-up.
+func syncElasticJob(ctx context.Context, remoteClient client.Client, log logr.Logger, workloadName string, localJob, remoteJob *batchv1.Job) error {
+	oldParallelism := ptr.Deref(remoteJob.Spec.Parallelism, 0)
+	newParallelism := ptr.Deref(localJob.Spec.Parallelism, 0)
+
+	// Update a remote job's workload slice name and parallelism if needed.
+	if err := clientutil.Patch(ctx, remoteClient, remoteJob, func() (bool, error) {
+		// Update the workload name label.
+		labelsChanged := false
+		if remoteJob.Labels == nil {
+			remoteJob.Labels = map[string]string{constants.PrebuiltWorkloadLabel: workloadName}
+			labelsChanged = true
+		} else {
+			if cur, ok := remoteJob.Labels[constants.PrebuiltWorkloadLabel]; !ok || cur != workloadName {
+				remoteJob.Labels[constants.PrebuiltWorkloadLabel] = workloadName
+				labelsChanged = true
+			}
+		}
+
+		// Update parallelism.
+		remoteJob.Spec.Parallelism = localJob.Spec.Parallelism
+		return oldParallelism != newParallelism || labelsChanged, nil
+	}); err != nil {
+		return fmt.Errorf("failed to patch remote job: %w", err)
+	}
+
+	return nil
 }
