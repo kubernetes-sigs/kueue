@@ -30,7 +30,60 @@ if [[ "${E2E_MODE}" != "ci" && "${E2E_MODE}" != "dev" ]]; then
     exit 2
 fi
 
+# When set (truthy), external operators are forcefully re-installed_version even in E2E_MODE=dev.
+export E2E_ENFORCE_OPERATOR_UPDATE="${E2E_ENFORCE_OPERATOR_UPDATE:-false}"
+
 export KIND_VERSION="${E2E_KIND_VERSION/"kindest/node:v"/}"
+
+function e2e_is_truthy {
+    case "${1:-}" in
+        1|true|TRUE|True|yes|YES|Yes|y|Y|on|ON|On) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
+function e2e_deployment_exists {
+    local kubeconfig=${1:-}
+    local ns=$2
+    local deployment_name=$3
+
+    local -a kubectl_args=()
+    if [[ -n "${kubeconfig}" ]]; then
+        kubectl_args+=(--kubeconfig="${kubeconfig}")
+    fi
+
+    kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} -n "${ns}" get deployment "${deployment_name}" >/dev/null 2>&1
+}
+
+function e2e_image_ref_get_tag {
+    local img=${1:-}
+    img="${img%%@*}"
+    if [[ "${img}" == *":"* ]]; then
+        echo "${img##*:}"
+        return 0
+    fi
+    return 1
+}
+
+function e2e_versions_match {
+    local a=${1:-}
+    local b=${2:-}
+
+    [[ -n "${a}" && -n "${b}" ]] || return 1
+    [[ "${a}" == "${b}" ]] && return 0
+    [[ "${a#v}" == "${b#v}" ]] && return 0
+    return 1
+}
+
+function e2e_crd_exists {
+    local kubeconfig=${1:-}
+    local crd=$2
+    local -a kubectl_args=()
+    if [[ -n "${kubeconfig}" ]]; then
+        kubectl_args+=(--kubeconfig="${kubeconfig}")
+    fi
+    kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} get crd "${crd}" >/dev/null 2>&1
+}
 
 if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:appwrapper || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export APPWRAPPER_MANIFEST=${ROOT_DIR}/dep-crds/appwrapper/config/default
@@ -320,43 +373,46 @@ function cluster_kind_load {
 function kind_load {
     kubectl config --kubeconfig="$2" use-context "kind-$1"
 
+    local e2e_cluster_name=$1
+    local e2e_kubeconfig=$2
+
     if kind_cluster_exists "$1"; then
         cluster_kind_load "$1"
     fi
     if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:appwrapper || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
-        install_appwrapper "$1" "$2"
+        install_appwrapper "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
     if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
-        install_jobset "$1" "$2"
+        install_jobset "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
     if [[ -n ${KUBEFLOW_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jaxjob|pytorchjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         # In order for MPI-operator and Training-operator to work on the same cluster it is required that:
         # 1. 'kubeflow.org_mpijobs.yaml' is removed from base/crds/kustomization.yaml - https://github.com/kubeflow/training-operator/issues/1930
         # 2. Training-operator deployment is modified to enable all kubeflow jobs except for mpi -  https://github.com/kubeflow/training-operator/issues/1777
-        install_kubeflow "$1" "$2"
+        install_kubeflow "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
 
     if [[ -n ${KUBEFLOW_TRAINER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(tas|trainjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
-        install_kubeflow_trainer "$1" "$2"
+        install_kubeflow_trainer "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
 
     if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
-        install_mpi "$1" "$2"
+        install_mpi "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
     if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:leaderworkerset || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
-        install_lws "$1" "$2"
+        install_lws "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
     if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
-        install_kuberay "$1" "$2"
+        install_kuberay "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
     if [[ -n ${CERTMANAGER_VERSION:-} ]]; then
-        install_cert_manager "$2"
+        install_cert_manager "${e2e_kubeconfig}"
     fi
     if [[ -n ${CLUSTERPROFILE_VERSION:-} ]]; then
-        install_multicluster "$2"
+        install_multicluster "${e2e_kubeconfig}"
     fi
     if [[ -n ${DRA_EXAMPLE_DRIVER_VERSION:-} ]]; then
-        install_dra_example_driver "$1" "$2"
+        install_dra_example_driver "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
 }
 
@@ -471,28 +527,145 @@ function build_and_apply_kueue_manifests {
 # $1 cluster name
 # $2 kubeconfig option
 function install_appwrapper {
-    cluster_kind_load_image "${1}" "${APPWRAPPER_IMAGE}"
-    kubectl apply --kubeconfig="$2" --server-side -k "${APPWRAPPER_MANIFEST}"
+    local name=$1
+    local kubeconfig=${2:-}
+    local ns="${APPWRAPPER_DEPLOYMENT_NAMESPACE:-appwrapper-system}"
+    local deployment_name="${APPWRAPPER_CONTROLLER_MANAGER_DEPLOYMENT:-appwrapper-controller-manager}"
+    local expected_version="${APPWRAPPER_VERSION:-}"
+
+    if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
+        if e2e_deployment_exists "${kubeconfig}" "${ns}" "${deployment_name}"; then
+            local installed_version=""
+            local img=""
+            img=$(kubectl --kubeconfig="${kubeconfig}" -n "${ns}" get deployment "${deployment_name}" \
+                -o jsonpath='{.spec.template.spec.containers[?(@.name=="manager")].image}' 2>/dev/null || true)
+            installed_version=$(e2e_image_ref_get_tag "${img}" || true)
+            if [[ -n "${installed_version}" ]] && { [[ -z "${expected_version}" ]] || e2e_versions_match "${installed_version}" "${expected_version}"; }; then
+                echo "AppWrapper already installed (${installed_version}); skipping install (E2E_MODE=dev)."
+                return 0
+            fi
+            if [[ -n "${installed_version}" && -n "${expected_version}" ]]; then
+                echo "AppWrapper installed version (${installed_version}) does not match requested (${expected_version}); upgrading."
+            else
+                echo "AppWrapper already present; upgrading."
+            fi
+        else
+            echo "AppWrapper controller deployment not found; installing."
+        fi
+    fi
+
+    cluster_kind_load_image "${name}" "${APPWRAPPER_IMAGE}"
+    kubectl apply --kubeconfig="${kubeconfig}" --server-side -k "${APPWRAPPER_MANIFEST}"
+    kubectl wait --kubeconfig="${kubeconfig}" deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m
 }
 
 # $1 cluster name
 # $2 kubeconfig option
 function install_jobset {
-    cluster_kind_load_image "${1}" "${JOBSET_IMAGE}"
-    kubectl apply --kubeconfig="$2" --server-side -f "${JOBSET_MANIFEST}"
+    local name=$1
+    local kubeconfig=${2:-}
+    local ns="${JOBSET_DEPLOYMENT_NAMESPACE:-jobset-system}"
+    local deployment_name="${JOBSET_CONTROLLER_MANAGER_DEPLOYMENT:-jobset-controller-manager}"
+    local expected_version="${JOBSET_VERSION:-}"
+
+    if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
+        if e2e_deployment_exists "${kubeconfig}" "${ns}" "${deployment_name}"; then
+            local installed_version=""
+            local images=""
+            images=$(kubectl --kubeconfig="${kubeconfig}" -n "${ns}" get deployment "${deployment_name}" \
+                -o jsonpath='{.spec.template.spec.containers[*].image}' 2>/dev/null || true)
+            local img=""
+            for img in ${images}; do
+                if [[ "${img}" == *"jobset/jobset"* ]]; then
+                    installed_version=$(e2e_image_ref_get_tag "${img}" || true)
+                    break
+                fi
+            done
+            if [[ -n "${installed_version}" ]] && { [[ -z "${expected_version}" ]] || e2e_versions_match "${installed_version}" "${expected_version}"; }; then
+                echo "JobSet already installed (${installed_version}); skipping install (E2E_MODE=dev)."
+                return 0
+            fi
+            if [[ -n "${installed_version}" && -n "${expected_version}" ]]; then
+                echo "JobSet installed version (${installed_version}) does not match requested (${expected_version}); upgrading."
+            else
+                echo "JobSet already present; upgrading."
+            fi
+        else
+            echo "JobSet controller deployment not found; installing."
+        fi
+    fi
+
+    cluster_kind_load_image "${name}" "${JOBSET_IMAGE}"
+    kubectl apply --kubeconfig="${kubeconfig}" --server-side -f "${JOBSET_MANIFEST}"
+    kubectl wait --kubeconfig="${kubeconfig}" deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m
 }
 
 # $1 cluster name
 # $2 kubeconfig option
 function install_kubeflow {
-    cluster_kind_load_image "${1}" "${KUBEFLOW_IMAGE}"
-    kubectl apply --kubeconfig="$2" --server-side -k "${KUBEFLOW_MANIFEST_PATCHED}"
+    local name=$1
+    local kubeconfig=${2:-}
+    local ns="${KUBEFLOW_TRAINING_OPERATOR_NAMESPACE:-kubeflow}"
+    local deployment_name="${KUBEFLOW_TRAINING_OPERATOR_DEPLOYMENT:-training-operator}"
+    local expected_version="${KUBEFLOW_IMAGE_VERSION:-}"
+
+    if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
+        if e2e_deployment_exists "${kubeconfig}" "${ns}" "${deployment_name}"; then
+            local installed_version=""
+            local img=""
+            img=$(kubectl --kubeconfig="${kubeconfig}" -n "${ns}" get deployment "${deployment_name}" \
+                -o jsonpath='{.spec.template.spec.containers[?(@.name=="training-operator")].image}' 2>/dev/null || true)
+            installed_version=$(e2e_image_ref_get_tag "${img}" || true)
+            if [[ -n "${installed_version}" ]] && { [[ -z "${expected_version}" ]] || e2e_versions_match "${installed_version}" "${expected_version}"; }; then
+                echo "Kubeflow Training Operator already installed (${installed_version}); skipping install (E2E_MODE=dev)."
+                return 0
+            fi
+            if [[ -n "${installed_version}" && -n "${expected_version}" ]]; then
+                echo "Kubeflow Training Operator installed version (${installed_version}) does not match requested (${expected_version}); upgrading."
+            else
+                echo "Kubeflow Training Operator already present; upgrading."
+            fi
+        else
+            echo "Kubeflow Training Operator controller deployment not found; installing."
+        fi
+    fi
+
+    cluster_kind_load_image "${name}" "${KUBEFLOW_IMAGE}"
+    kubectl apply --kubeconfig="${kubeconfig}" --server-side -k "${KUBEFLOW_MANIFEST_PATCHED}"
+    kubectl wait --kubeconfig="${kubeconfig}" deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m
 }
 
 # $1 cluster name
 # $2 kubeconfig option
 function install_kubeflow_trainer {
-    cluster_kind_load_image "${1}" "${KF_TRAINER_IMAGE}"
+    local name=$1
+    local kubeconfig=${2:-}
+    local ns="${KUBEFLOW_TRAINER_NAMESPACE:-kubeflow-system}"
+    local deployment_name="${KUBEFLOW_TRAINER_DEPLOYMENT:-kubeflow-trainer-controller-manager}"
+    local expected_version="${KF_TRAINER_IMAGE_VERSION:-}"
+
+    if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
+        if e2e_deployment_exists "${kubeconfig}" "${ns}" "${deployment_name}"; then
+            local installed_version=""
+            local img=""
+            img=$(kubectl --kubeconfig="${kubeconfig}" -n "${ns}" get deployment "${deployment_name}" \
+                -o jsonpath='{.spec.template.spec.containers[?(@.name=="manager")].image}' 2>/dev/null || true)
+            installed_version=$(e2e_image_ref_get_tag "${img}" || true)
+            if [[ -n "${installed_version}" ]] && { [[ -z "${expected_version}" ]] || e2e_versions_match "${installed_version}" "${expected_version}"; }; then
+                echo "Kubeflow Trainer already installed (${installed_version}); skipping install (E2E_MODE=dev)."
+                return 0
+            fi
+            if [[ -n "${installed_version}" && -n "${expected_version}" ]]; then
+                echo "Kubeflow Trainer installed version (${installed_version}) does not match requested (${expected_version}); upgrading."
+            else
+                echo "Kubeflow Trainer already present; upgrading."
+            fi
+        else
+            echo "Kubeflow Trainer controller deployment not found; installing."
+        fi
+    fi
+
+    cluster_kind_load_image "${name}" "${KF_TRAINER_IMAGE}"
     (
         # Kustomize patches don't work on the Kustomization file itself, they work on the Kubernetes resources that the Kustomization generates.
         # So in case the jobset controller was already installed, we need to remove the resource from the kustomization file to avoid controller duplications
@@ -502,49 +675,234 @@ function install_kubeflow_trainer {
         if [[ -n ${JOBSET_VERSION:-} ]]; then
             $YQ eval 'del(.resources[] | select(. == "../../third-party/jobset"))' -i "$manifests_temp_dir/overlays/manager/kustomization.yaml"
         fi
-        kubectl apply --kubeconfig="$2" --server-side -k "$manifests_temp_dir/overlays/manager"
+        kubectl apply --kubeconfig="${kubeconfig}" --server-side -k "$manifests_temp_dir/overlays/manager"
     )
     # In order to install the training runtimes we need to wait for the ClusterTrainingRuntime webhook to be ready
-    kubectl wait --kubeconfig="$2" deploy/kubeflow-trainer-controller-manager -n kubeflow-system --for=condition=available --timeout=5m
-    kubectl apply --kubeconfig="$2" --server-side -k "${KUBEFLOW_TRAINER_MANIFEST}/overlays/runtimes"
+    kubectl wait --kubeconfig="${kubeconfig}" deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m
+    kubectl apply --kubeconfig="${kubeconfig}" --server-side -k "${KUBEFLOW_TRAINER_MANIFEST}/overlays/runtimes"
 }
 
 # $1 cluster name
 # $2 kubeconfig option
 function install_mpi {
-    cluster_kind_load_image "${1}" "${KUBEFLOW_MPI_IMAGE/#v}"
-    kubectl apply --kubeconfig="$2" --server-side -f "${KUBEFLOW_MPI_MANIFEST}"
+    local name=$1
+    local kubeconfig=${2:-}
+    local ns="${KUBEFLOW_MPI_OPERATOR_NAMESPACE:-mpi-operator}"
+    local deployment_name="${KUBEFLOW_MPI_OPERATOR_DEPLOYMENT:-mpi-operator}"
+    local expected_version="${KUBEFLOW_MPI_VERSION:-}"
+
+    if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
+        if e2e_deployment_exists "${kubeconfig}" "${ns}" "${deployment_name}"; then
+            local installed_version=""
+            local images=""
+            images=$(kubectl --kubeconfig="${kubeconfig}" -n "${ns}" get deployment "${deployment_name}" \
+                -o jsonpath='{.spec.template.spec.containers[*].image}' 2>/dev/null || true)
+            local img=""
+            for img in ${images}; do
+                if [[ "${img}" == *"mpi-operator"* ]]; then
+                    installed_version=$(e2e_image_ref_get_tag "${img}" || true)
+                    break
+                fi
+            done
+            if [[ -n "${installed_version}" ]] && { [[ -z "${expected_version}" ]] || e2e_versions_match "${installed_version}" "${expected_version}"; }; then
+                echo "Kubeflow MPI operator already installed (${installed_version}); skipping install (E2E_MODE=dev)."
+                return 0
+            fi
+            if [[ -n "${installed_version}" && -n "${expected_version}" ]]; then
+                echo "Kubeflow MPI operator installed version (${installed_version}) does not match requested (${expected_version}); upgrading."
+            else
+                echo "Kubeflow MPI operator already present; upgrading."
+            fi
+        else
+            echo "Kubeflow MPI operator controller deployment not found; installing."
+        fi
+    fi
+
+    cluster_kind_load_image "${name}" "${KUBEFLOW_MPI_IMAGE/#v}"
+    # NOTE: When reusing an existing cluster (E2E_MODE=dev), aggregated ClusterRoles may already have
+    # their `.rules` field managed by the `clusterrole-aggregation-controller`. The upstream MPI
+    # operator manifest can include `rules: []` for such ClusterRoles, which causes SSA conflicts.
+    #
+    # To keep installs idempotent without `--force-conflicts`, drop empty `rules: []` only for
+    # ClusterRoles that define an `aggregationRule`.
+    curl -sSL "${KUBEFLOW_MPI_MANIFEST}" \
+        | $YQ eval '(. | select(.kind == "ClusterRole" and has("aggregationRule"))) |= del(.rules | select(length == 0))' - \
+        | kubectl apply --kubeconfig="${kubeconfig}" --server-side -f -
+    kubectl wait --kubeconfig="${kubeconfig}" deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m || true
 }
 
 # $1 cluster name
 # $2 kubeconfig option
 function install_kuberay {
-    cluster_kind_load_image "${1}" "${KUBERAY_RAY_IMAGE}"
-    cluster_kind_load_image "${1}" "${KUBERAY_IMAGE}"
-    # create used instead of apply - https://github.com/ray-project/kuberay/issues/504
-    kubectl create --kubeconfig="$2" -k "${KUBERAY_MANIFEST}"
+    local name=$1
+    local kubeconfig=${2:-}
+    local ns="${KUBERAY_NAMESPACE:-default}"
+    local deployment_name="${KUBERAY_DEPLOYMENT:-kuberay-operator}"
+    local expected_version="${KUBERAY_VERSION:-}"
+    local force_reinstall=false
+    local -a kubectl_args=()
+    if [[ -n "${kubeconfig}" ]]; then
+        kubectl_args+=(--kubeconfig="${kubeconfig}")
+    fi
+
+    if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
+        if e2e_deployment_exists "${kubeconfig}" "${ns}" "${deployment_name}"; then
+            local installed_version=""
+            local img=""
+            img=$(kubectl --kubeconfig="${kubeconfig}" -n "${ns}" get deployment "${deployment_name}" \
+                -o jsonpath='{.spec.template.spec.containers[?(@.name=="kuberay-operator")].image}' 2>/dev/null || true)
+            installed_version=$(e2e_image_ref_get_tag "${img}" || true)
+            if [[ -n "${installed_version}" ]] && { [[ -z "${expected_version}" ]] || e2e_versions_match "${installed_version}" "${expected_version}"; }; then
+                echo "KubeRay operator already installed (${installed_version}); skipping install (E2E_MODE=dev)."
+                return 0
+            fi
+            if [[ -n "${installed_version}" && -n "${expected_version}" ]]; then
+                echo "KubeRay operator installed version (${installed_version}) does not match requested (${expected_version}); reinstalling."
+            else
+                echo "KubeRay operator already present; reinstalling."
+            fi
+            force_reinstall=true
+        else
+            echo "KubeRay operator deployment not found; installing."
+        fi
+    fi
+
+    cluster_kind_load_image "$name" "${KUBERAY_RAY_IMAGE}"
+    cluster_kind_load_image "$name" "${KUBERAY_IMAGE}"
+    # In E2E_MODE=dev we keep and reuse the kind cluster between runs.
+    #
+    # "kubectl create -k" is used instead of apply (https://github.com/ray-project/kuberay/issues/504),
+    # but it is not idempotent: it exits non-zero if any objects already exist.
+
+    if e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}" || e2e_is_truthy "${force_reinstall}"; then
+        kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} delete -k "${KUBERAY_MANIFEST}" --ignore-not-found=true
+    fi
+    kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} create -k "${KUBERAY_MANIFEST}"
+    kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} wait deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m || true
 }
 
 # $1 cluster name
 # $2 kubeconfig option
 function install_lws {
-    cluster_kind_load_image "${1}" "${LEADERWORKERSET_IMAGE/#v}"
-    kubectl apply --kubeconfig="$2" --server-side -f "${LEADERWORKERSET_MANIFEST}"
+    local name=$1
+    local kubeconfig=${2:-}
+    local ns="${LEADERWORKERSET_NAMESPACE:-lws-system}"
+    local deployment_name="${LEADERWORKERSET_DEPLOYMENT:-lws-controller-manager}"
+    local expected_version="${LEADERWORKERSET_VERSION:-}"
+
+    if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
+        if e2e_deployment_exists "${kubeconfig}" "${ns}" "${deployment_name}"; then
+            local installed_version=""
+            local images=""
+            images=$(kubectl --kubeconfig="${kubeconfig}" -n "${ns}" get deployment "${deployment_name}" \
+                -o jsonpath='{.spec.template.spec.containers[*].image}' 2>/dev/null || true)
+            local img=""
+            for img in ${images}; do
+                if [[ "${img}" == *"/lws:"* || "${img}" == *"/lws@"* || "${img}" == *"/lws"* ]]; then
+                    installed_version=$(e2e_image_ref_get_tag "${img}" || true)
+                    break
+                fi
+            done
+            if [[ -n "${installed_version}" ]] && { [[ -z "${expected_version}" ]] || e2e_versions_match "${installed_version}" "${expected_version}"; }; then
+                echo "LeaderWorkerSet already installed (${installed_version}); skipping install (E2E_MODE=dev)."
+                return 0
+            fi
+            if [[ -n "${installed_version}" && -n "${expected_version}" ]]; then
+                echo "LeaderWorkerSet installed version (${installed_version}) does not match requested (${expected_version}); upgrading."
+            else
+                echo "LeaderWorkerSet already present; upgrading."
+            fi
+        else
+            echo "LeaderWorkerSet controller deployment not found; installing."
+        fi
+    fi
+
+    cluster_kind_load_image "${name}" "${LEADERWORKERSET_IMAGE/#v}"
+    kubectl apply --kubeconfig="${kubeconfig}" --server-side -f "${LEADERWORKERSET_MANIFEST}"
+    kubectl wait --kubeconfig="${kubeconfig}" deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m || true
 }
 
 # $1 kubeconfig option
 function install_cert_manager {
-    kubectl apply --kubeconfig="$1" --server-side -f "${CERTMANAGER_MANIFEST}"
+    local kubeconfig=${1:-}
+    local ns="${CERTMANAGER_NAMESPACE:-cert-manager}"
+    local deployment_name="${CERTMANAGER_DEPLOYMENT:-cert-manager}"
+    local expected_version="${CERTMANAGER_VERSION:-}"
+
+    if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
+        if e2e_deployment_exists "${kubeconfig}" "${ns}" "${deployment_name}"; then
+            local installed_version=""
+            local img=""
+            img=$(kubectl --kubeconfig="${kubeconfig}" -n "${ns}" get deployment "${deployment_name}" \
+                -o jsonpath='{.spec.template.spec.containers[?(@.name=="cert-manager")].image}' 2>/dev/null || true)
+            if [[ -z "${img}" ]]; then
+                # Fallback: some manifests use container name "cert-manager-controller".
+                img=$(kubectl --kubeconfig="${kubeconfig}" -n "${ns}" get deployment "${deployment_name}" \
+                    -o jsonpath='{.spec.template.spec.containers[?(@.name=="cert-manager-controller")].image}' 2>/dev/null || true)
+            fi
+            installed_version=$(e2e_image_ref_get_tag "${img}" || true)
+            if [[ -n "${installed_version}" ]] && { [[ -z "${expected_version}" ]] || e2e_versions_match "${installed_version}" "${expected_version}"; }; then
+                echo "cert-manager already installed (${installed_version}); skipping install (E2E_MODE=dev)."
+                return 0
+            fi
+            if [[ -n "${installed_version}" && -n "${expected_version}" ]]; then
+                echo "cert-manager installed version (${installed_version}) does not match requested (${expected_version}); upgrading."
+            else
+                echo "cert-manager already present; upgrading."
+            fi
+        else
+            echo "cert-manager deployment not found; installing."
+        fi
+    fi
+
+    kubectl apply --kubeconfig="${kubeconfig}" --server-side -f "${CERTMANAGER_MANIFEST}"
+    kubectl wait --kubeconfig="${kubeconfig}" deploy/cert-manager -n "${ns}" --for=condition=available --timeout=5m
+    kubectl wait --kubeconfig="${kubeconfig}" deploy/cert-manager-webhook -n "${ns}" --for=condition=available --timeout=5m || true
+    kubectl wait --kubeconfig="${kubeconfig}" deploy/cert-manager-cainjector -n "${ns}" --for=condition=available --timeout=5m || true
 }
 
 # $1 kubeconfig option
 function install_multicluster {
-    kubectl apply --kubeconfig="$1" --server-side -f "${CLUSTERPROFILE_CRD}"
+    local kubeconfig=${1:-}
+    if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
+        if e2e_crd_exists "${kubeconfig}" "clusterprofiles.multicluster.x-k8s.io"; then
+            echo "ClusterProfile CRD already installed; skipping install (E2E_MODE=dev)."
+            return 0
+        fi
+        echo "ClusterProfile CRD not found; installing."
+    fi
+    kubectl apply --kubeconfig="${kubeconfig}" --server-side -f "${CLUSTERPROFILE_CRD}"
 }
 
 # $1 cluster name
 # $2 kubeconfig option
 function install_dra_example_driver {
+    local name=$1
+    local kubeconfig=${2:-}
+    local expected_version="${DRA_EXAMPLE_DRIVER_VERSION:-}"
+
+    if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
+        local installed_version=""
+        local images=""
+        images=$(kubectl --kubeconfig="${kubeconfig}" -n dra-example-driver get deployments \
+            -o jsonpath='{range .items[*]}{range .spec.template.spec.containers[*]}{.image}{"\n"}{end}{end}' 2>/dev/null || true)
+        local img=""
+        while IFS= read -r img; do
+            [[ -n "${img}" ]] || continue
+            if [[ "${img}" == *"dra-example-driver"* ]]; then
+                installed_version=$(e2e_image_ref_get_tag "${img}" || true)
+                [[ -n "${installed_version}" ]] && break
+            fi
+        done <<< "${images}"
+        if [[ -n "${installed_version}" ]] && { [[ -z "${expected_version}" ]] || e2e_versions_match "${installed_version}" "${expected_version}"; }; then
+            echo "DRA example driver already installed (${installed_version}); skipping install (E2E_MODE=dev)."
+            return 0
+        fi
+        if [[ -n "${installed_version}" && -n "${expected_version}" ]]; then
+            echo "DRA example driver installed version (${installed_version}) does not match requested (${expected_version}); upgrading."
+        fi
+    fi
+
     local dra_driver_temp_dir
     dra_driver_temp_dir=$(mktemp -d)
     # shellcheck disable=SC2064 # Intentionally expand now to capture the temp dir path
@@ -552,7 +910,11 @@ function install_dra_example_driver {
     git clone --depth 1 --branch "${DRA_EXAMPLE_DRIVER_VERSION}" "${DRA_EXAMPLE_DRIVER_REPO}" "$dra_driver_temp_dir"
 
     local dra_image_repo="dra-example-driver"
-    local dra_image_tag="local"
+    local dra_image_tag="${expected_version#v}"
+    dra_image_tag="${dra_image_tag//\//-}"
+    if [[ -z "${dra_image_tag}" ]]; then
+        dra_image_tag="local"
+    fi
 
     local go_version
     go_version=$(grep '^go ' "$dra_driver_temp_dir/go.mod" | awk '{print $2}' | cut -d. -f1,2)
@@ -567,12 +929,12 @@ function install_dra_example_driver {
         -f "$dra_driver_temp_dir/deployments/container/Dockerfile" \
         "$dra_driver_temp_dir"
 
-    cluster_kind_load_image "${1}" "${dra_image_repo}:${dra_image_tag}"
+    cluster_kind_load_image "${name}" "${dra_image_repo}:${dra_image_tag}"
 
     $HELM upgrade -i \
       --create-namespace \
       --namespace dra-example-driver \
-      --kubeconfig="$2" \
+      --kubeconfig="${kubeconfig}" \
       --set image.repository="${dra_image_repo}" \
       --set image.tag="${dra_image_tag}" \
       --set kubeletPlugin.containers.plugin.securityContext.privileged=true \
