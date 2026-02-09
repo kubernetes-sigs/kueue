@@ -143,8 +143,25 @@ This can be mitigated by documenting the semantics of the feature and how it int
 #### (alpha) Workload Annotations
 
 The `kueue.x-k8s.io/preemption-gated` annotation will be automatically assigned to all replicated MultiKueue workloads.
-The gating mechanism is analogous to the `kueue.x-k8s.io/cannot-preempt` annotation in KEP-8729 - it will trigger similar
-code paths to signal a gated preemption, but not impact the decision to preempt (i.e. it will not try the next flavor to prefer "non-preemption" admissions).
+Its value will mirror the [API proposed for the beta release](#beta-workload-api) and formatted as a comma-separated list of `<gate-name>:<mode>` structures, where
+mode can be either:
+
+* `ForbiddenPreemption` - The workload will never be able to preempt. This is identical to the `kueue.x-k8s.io/cannot-preempt` annotation from KEP-8729.
+* `OrchestratedPreemption` - The workload signals that it requires preemption and has to be ungated to proceed.
+
+For example:
+```yaml
+kind: Workload
+template:
+  metadata:
+    annotations:
+      kueue.x-k8s.io/preemption-gated: "multi-kueue:OrchestratedPreemption,user-defined:ForbiddenPreemption"
+...
+```
+
+This is done in order to test the proposed API structure alongisde the ungating mechanism.
+The `kueue.x-k8s.io/cannot-preempt` annotation defined in KEP-8729 would remain a Job-level user opt-in mechanism, while creating the `kueue.x-k8s.io/preemption-gated`
+annotation for the Workload under the hood.
 
 #### (alpha) Extending the `QuotaReserved` Condition
 
@@ -206,10 +223,10 @@ type PreemptionGateMode string
 
 const (
   // The workload will never be able to preempt.
-  CannotPreemptMode PreemptionGateMode = "CannotPreempt"
+  ForbiddenPreemptionMode PreemptionGateMode = "ForbiddenPreemption"
 
   // The workload signals that it requires preemption and has to be ungated to proceed.
-  OrchestratedPreemptionMode PreemptionGateMode = "OrchestratedPreemptionMode"
+  OrchestratedPreemptionMode PreemptionGateMode = "OrchestratedPreemption"
 )
 
 
@@ -349,7 +366,7 @@ Instead of relying on the annotations, preemption gates or a similar mechanism c
 **Reasons for discarding/deferring**
 
 1. Given the potential overlap between this KEP, KEP-8729 and KEP-8691, the shape of the API might not be obvious.
-1. There are few drawbacks from using the simplest possible solution (annotations) without API lock-in. 
+1. There are few drawbacks from using the simplest possible solution (annotations) without API lock-in.
 1. The MultiKueue preemption management is largely API independent and is the first priority. Gathering user feedback
 from this implementation will inform the correct API structure.
 
