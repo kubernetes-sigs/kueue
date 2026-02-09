@@ -352,10 +352,10 @@ but shouldn't execute them until allowed.
 
 For example, if two flavors (A & B, specified in this order) are defined alongside flavor fungibility set to `whenCanPreempt: MayStopSearch`, we'd expect the following behavior:
 
-|              	| Quota 	| `preemption-gated`         	| `cannot-preempt` 	|
-|--------------	|-------	|----------------------------	|------------------	|
-| **Flavor A** 	| Full  	| Signal Gate & Do Not Admit 	| Skip            	|
-| **Flavor B** 	| Free  	| Not considered             	| Assign & Admit   	|
+|              	| Quota 	| `preemption-gated`                 	| `cannot-preempt`      	|
+|--------------	|-------	|------------------------------------	|-----------------------	|
+| **Flavor A** 	| Full  	| Assign & Signal Gate               	| Skip (Cannot Preempt) 	|
+| **Flavor B** 	| Free  	| Not considered (Falvor A Assigned) 	| Assign & Admit        	|
 
 The behavior of `cannot-preempt` can be achieved by combining the `preemption-gated` annotation with the `whenCanPreempt: TryNextFlavor` configuration.
 This leaves more control in the user's hands and does not change the existing semantics of admission, reducing confusion.
