@@ -126,6 +126,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 	gatedPod := testingpod.MakePod("gated-pod", nsName).
 		Annotation(kueue.WorkloadAnnotation, wlName).
 		Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+		NodeSelector(corev1.LabelHostname, nodeName).
 		StatusPhase(corev1.PodPending).
 		Obj()
 	gatedPod.Spec.SchedulingGates = []corev1.PodSchedulingGate{{Name: kueue.TopologySchedulingGate}}
@@ -272,7 +273,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				{NamespacedName: types.NamespacedName{Name: nodeName}},
 				{NamespacedName: types.NamespacedName{Name: nodeName2}},
 			},
-			wantUnhealthyNodes: nil,
+			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 			wantEvictedCond: &metav1.Condition{
 				Type:    kueue.WorkloadEvicted,
 				Status:  metav1.ConditionTrue,
@@ -416,6 +417,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			},
 			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
+			wantRequeue:        1 * time.Second,
 			featureGates: map[featuregate.Feature]bool{
 				features.TASReplaceNodeOnNodeTaints:     true,
 				features.TASReplaceNodeOnPodTermination: true,
@@ -584,6 +586,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			},
 			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
 			wantUnhealthyNodes: nil,
+			wantRequeue:        1 * time.Second,
 			featureGates: map[featuregate.Feature]bool{
 				features.TASReplaceNodeOnNodeTaints: true,
 			},
@@ -611,29 +614,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				features.TASReplaceNodeOnPodTermination: false,
 			},
 		},
-		"Node has untolerated NoSchedule taint, pod is Pending -> Unhealthy, pod NOT deleted (gate disabled)": {
-			initObjs: []client.Object{
-				baseNode.Clone().StatusConditions(corev1.NodeCondition{
-					Type:               corev1.NodeReady,
-					Status:             corev1.ConditionTrue,
-					LastTransitionTime: now}).
-					Label(corev1.LabelHostname, nodeName).
-					Taints(corev1.Taint{Key: "foo", Effect: corev1.TaintEffectNoSchedule}).Obj(),
-				baseWorkload.DeepCopy(),
-				testingpod.MakePod("pending-pod", nsName).
-					Annotation(kueue.WorkloadAnnotation, wlName).
-					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
-					NodeSelector(corev1.LabelHostname, nodeName).
-					StatusPhase(corev1.PodPending).Obj(),
-			},
-			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
-			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
-			wantRemainingPods:  []string{"pending-pod"},
-			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnPodTermination: false,
-				features.TASReplaceNodeOnPendingPods:    false,
-			},
-		},
+
 		"Node has untolerated NoSchedule taint, pod is Pending and on node, TASReplaceNodeOnPendingPods enabled -> Unhealthy, pod deleted": {
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
@@ -653,9 +634,8 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 			wantDeletedPods:    []string{"pending-pod"},
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:               true,
+				features.TASReplaceNodeOnNodeTaints:     true,
 				features.TASReplaceNodeOnPodTermination: true,
-				features.TASReplaceNodeOnPendingPods:    true,
 			},
 		},
 		"Node has untolerated NoSchedule taint, multiple pending pods, only matching one deleted, TASReplaceNodeOnPendingPods enabled": {
@@ -746,13 +726,11 @@ func TestNodeFailureReconciler(t *testing.T) {
 				t.Fatalf("Failed to get workload %q: %v", wlName, err)
 			}
 
-			if len(tc.wantUnhealthyNodes) > 0 {
-				if diff := cmp.Diff(tc.wantUnhealthyNodes, wl.Status.UnhealthyNodes, cmpopts.EquateEmpty()); diff != "" {
-					t.Errorf("Unexpected unhealthyNodes in status (-want/+got):\n%s", diff)
-				}
+			if diff := cmp.Diff(tc.wantUnhealthyNodes, wl.Status.UnhealthyNodes, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected unhealthyNodes in status (-want/+got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tc.wantRequeue, result.RequeueAfter); diff != "" {
-				t.Errorf("Unexpected RequeueAfter (-want/+got):\n%s", diff)
+				t.Errorf("Unexpected RequeueAfter: want %s, got %s", tc.wantRequeue, result.RequeueAfter)
 			}
 
 			evictedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted)
@@ -763,7 +741,21 @@ func TestNodeFailureReconciler(t *testing.T) {
 			for _, podName := range tc.wantDeletedPods {
 				pod := &corev1.Pod{}
 				if err := cl.Get(ctx, types.NamespacedName{Name: podName, Namespace: nsName}, pod); err == nil {
-					t.Errorf("Expected pod %s to be deleted, but it still exists", podName)
+					// Check if it has deletion timestamp or is failed with TerminatedByKueue condition
+					if pod.Status.Phase != corev1.PodFailed {
+						t.Errorf("Expected pod %s to be Failed (simulating deletion/termination), but it is %s", podName, pod.Status.Phase)
+					}
+					// Verify condition
+					var targetCond *corev1.PodCondition
+					for i := range pod.Status.Conditions {
+						if pod.Status.Conditions[i].Type == "TerminatedByKueue" {
+							targetCond = &pod.Status.Conditions[i]
+							break
+						}
+					}
+					if targetCond == nil || targetCond.Status != corev1.ConditionTrue {
+						t.Errorf("Expected pod %s to have TerminatedByKueue condition", podName)
+					}
 				}
 			}
 			for _, podName := range tc.wantRemainingPods {
