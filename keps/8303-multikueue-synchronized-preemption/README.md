@@ -71,7 +71,6 @@ Moreover, a general preemption gating/preemption signaling mechanism can be used
 ### Non-Goals
 
 - Optimize logic for choosing which worker cluster should be allowed to preempt, beyond a simple first-come-first-served approach (i.e. considering any "preemption cost").
-- Propose any orchestration beyond the initial workload admission process after it's first insertion into a ClusterQueue.
 - Propose an analogous mechanism of borrowing orchestration.
 
 ## Proposal
