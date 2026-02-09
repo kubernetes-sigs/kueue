@@ -156,7 +156,6 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantUnhealthyNodes: nil,
 		},
 
-
 		"Node Found and Unhealthy (NotReady), delay not passed - not marked as unavailable": {
 			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: false},
 			initObjs: []client.Object{
