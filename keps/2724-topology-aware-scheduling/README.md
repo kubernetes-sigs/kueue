@@ -1274,6 +1274,8 @@ because they cannot run due to a taint, Kueue marks the pods as `Failed` and add
   This ensures that the pods are re-created by the Job controller for placement on other nodes, while keeping the original
   pods in Failed state for debuggability. Without this step, the pending pods would block the creation of replacement pods.
 
+  In addition, Kueue emits a Normal event with reason `PodTerminated` on the Pod to inform about the termination.
+
 ##### User stories
 
 ###### NoExecute
