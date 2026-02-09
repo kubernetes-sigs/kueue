@@ -745,7 +745,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			})
 
 			ginkgo.It("should respect TAS usage by admitted workloads after reboot; second workload created before reboot", framework.SlowSpec, func() {
-				var wl1, wl2, wl3 *kueue.Workload
+				var wl1, wl2 *kueue.Workload
 				ginkgo.By("creating wl1 which consumes the entire TAS capacity", func() {
 					wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
@@ -790,17 +790,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					util.FinishWorkloads(ctx, k8sClient, wl1)
 				})
 
-				ginkgo.By("create wl3 to ensure ClusterQueue is reconciled", func() {
-					wl3 = utiltestingapi.MakeWorkload("wl3", ns.Name).
-						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
-					wl3.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
-						Preferred: ptr.To(utiltesting.DefaultRackTopologyLevel),
-					}
-					util.MustCreate(ctx, k8sClient, wl3)
-				})
-
-				ginkgo.By("verify wl2 and wl3 get admitted", func() {
-					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2, wl3)
+				ginkgo.By("verify wl2 gets admitted", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
 				})
 			})
 
