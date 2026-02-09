@@ -386,7 +386,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
 	},
 	TASReplaceNodeOnNodeTaints: {
-		{Version: version.MustParse("0.16"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

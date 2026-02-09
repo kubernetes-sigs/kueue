@@ -511,7 +511,7 @@ func (r *nodeFailureReconciler) terminatePods(ctx context.Context, pods []corev1
 					{
 						Type:               "TerminatedByKueue",
 						Status:             corev1.ConditionTrue,
-						Reason:             "UnschedulableDueToUntoleratedNoScheduleTaint",
+						Reason:             "UnschedulableOnAssignedNode",
 						Message:            "Pod terminated by Kueue NodeFailureController due to node taint",
 						LastTransitionTime: metav1.NewTime(r.clock.Now()),
 					},
