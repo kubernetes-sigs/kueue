@@ -215,26 +215,24 @@ function kind_load {
 # $1 cluster
 # $2 image
 function cluster_kind_load_image {
-    # check if the command to get worker nodes could succeeded
-    if ! $KIND get nodes --name "$1" > /dev/null 2>&1; then
-        echo "Failed to retrieve nodes for cluster '$1'."
-        return 1
-    fi
     # filter out 'control-plane' node, use only worker nodes to load image
     worker_nodes=$($KIND get nodes --name "$1" | grep -v 'control-plane')
-    if [[ -n "$worker_nodes" ]]; then
-        # Use docker save + ctr import directly to avoid the --all-platforms
-        # issue with multi-arch images in DinD environments.
-        # See: https://github.com/kubernetes-sigs/kind/issues/3795
-        echo "Loading image '$2' to cluster '$1'"
-        while IFS= read -r node; do
-            echo "  Loading image to node: $node"
-            if ! docker save "$2" | docker exec -i "$node" ctr --namespace=k8s.io images import --digests --snapshotter=overlayfs -; then
-                echo "Failed to load image '$2' to node '$node'"
-                return 1
-            fi
-        done <<< "$worker_nodes"
+    if [[ -z "$worker_nodes" ]]; then
+        echo "No worker nodes found for cluster '$1'"
+        return 1
     fi
+
+    # Use docker save + ctr import directly to avoid the --all-platforms
+    # issue with multi-arch images in DinD environments.
+    # See: https://github.com/kubernetes-sigs/kind/issues/3795
+    echo "Loading image '$2' to cluster '$1'"
+    while IFS= read -r node; do
+        echo "  Loading image to node: $node"
+        if ! docker save "$2" | docker exec -i "$node" ctr --namespace=k8s.io images import --digests --snapshotter=overlayfs -; then
+            echo "Failed to load image '$2' to node '$node'"
+            return 1
+        fi
+    done <<< "$worker_nodes"
 }
 
 # $1 kubeconfig
