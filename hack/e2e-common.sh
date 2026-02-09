@@ -376,8 +376,8 @@ function kind_load {
     local e2e_cluster_name=$1
     local e2e_kubeconfig=$2
 
-    if kind_cluster_exists "$1"; then
-        cluster_kind_load "$1"
+    if kind_cluster_exists "${e2e_cluster_name}"; then
+        cluster_kind_load "${e2e_cluster_name}"
     fi
     if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:appwrapper || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         install_appwrapper "${e2e_cluster_name}" "${e2e_kubeconfig}"
