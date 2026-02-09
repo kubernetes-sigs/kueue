@@ -25,6 +25,7 @@ import (
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -157,4 +158,19 @@ func ContainersShape(containers []corev1.Container) (result []map[string]any) {
 
 func IsTerminated(p *corev1.Pod) bool {
 	return p.Status.Phase == corev1.PodFailed || p.Status.Phase == corev1.PodSucceeded
+}
+
+// BaseSSAPod creates a new object based on the input pod that
+// only contains the fields necessary to identify the original object.
+// The object can be used in as a base for Server-Side-Apply.
+func BaseSSAPod(p *corev1.Pod) *corev1.Pod {
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			UID:        p.UID,
+			Name:       p.Name,
+			Namespace:  p.Namespace,
+			Generation: p.Generation,
+		},
+		TypeMeta: p.TypeMeta,
+	}
 }
