@@ -1260,7 +1260,7 @@ or nodes with `NoSchedule` taint where all pods of the workload running on that 
 The pods on such nodes are expected to be terminated by the node controller. Once terminated, Kueue will attempt
 to replace the node if `TASFailedNodeReplacement` is enabled, and evict the workload if no replacement is possible.
 If `tolerationSeconds` is specified, Kueue waits for the duration before treating the node as unhealthy.
-- **NoSchedule**: Nodes with the `NoSchedule` taint, that is not tolerated by the workload, are considered unhealthy
+- **NoSchedule**: Nodes with the `NoSchedule` effect taint, that is not tolerated by the workload, are considered unhealthy
 only if all pods of the workload that have topology assignment to that node are terminating, in the failed state,
 or if they are unscheduled. In this case, Kueue can trigger node replacement.
   
