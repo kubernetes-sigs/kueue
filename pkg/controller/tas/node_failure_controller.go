@@ -448,12 +448,12 @@ func (r *nodeFailureReconciler) isNodeUnhealthyForWorkload(ctx context.Context, 
 }
 
 func (r *nodeFailureReconciler) hasActivePodsOnNode(ctx context.Context, wl *kueue.Workload, node *corev1.Node) (bool, error) {
-	podsOnNode, err := r.getPodsOnNode(ctx, wl, node)
+	podsAssignedToNode, err := r.getPodsAssignedToNode(ctx, wl, node)
 	if err != nil {
 		return false, err
 	}
 
-	_, hasActive := classifyPods(podsOnNode)
+	_, hasActive := classifyPods(podsAssignedToNode)
 	return hasActive, nil
 }
 
@@ -464,16 +464,16 @@ func (r *nodeFailureReconciler) getPodsToTerminate(ctx context.Context, node *co
 
 	untoleratedTaints, _ := classifyTaints(node.Spec.Taints, workload.PodSetsOnNode(wl, node.Name))
 
-	podsOnNode, err := r.getPodsOnNode(ctx, wl, node)
+	podsAssignedToNode, err := r.getPodsAssignedToNode(ctx, wl, node)
 	if err != nil {
 		return nil, false, err
 	}
 
 	var podsToDelete []corev1.Pod
 	if len(untoleratedTaints) > 0 {
-		podsToDelete, _ = classifyPods(podsOnNode)
+		podsToDelete, _ = classifyPods(podsAssignedToNode)
 	}
-	return podsToDelete, len(podsOnNode) > 0, nil
+	return podsToDelete, len(podsAssignedToNode) > 0, nil
 }
 
 func classifyPods(pods []corev1.Pod) (podsToTerminate []corev1.Pod, hasActive bool) {
@@ -571,7 +571,7 @@ func (r *nodeFailureReconciler) addUnhealthyNode(ctx context.Context, wl *kueue.
 	return nil
 }
 
-func isPodOnNode(pod *corev1.Pod, node *corev1.Node, levels []string) bool {
+func isPodAssignedToNode(pod *corev1.Pod, node *corev1.Node, levels []string) bool {
 	if pod.Spec.NodeName != "" {
 		return pod.Spec.NodeName == node.Name
 	}
@@ -589,7 +589,7 @@ func isPodOnNode(pod *corev1.Pod, node *corev1.Node, levels []string) bool {
 	return true
 }
 
-func (r *nodeFailureReconciler) getPodsOnNode(ctx context.Context, wl *kueue.Workload, node *corev1.Node) ([]corev1.Pod, error) {
+func (r *nodeFailureReconciler) getPodsAssignedToNode(ctx context.Context, wl *kueue.Workload, node *corev1.Node) ([]corev1.Pod, error) {
 	var podsForWl corev1.PodList
 	if err := r.client.List(ctx, &podsForWl, client.InNamespace(wl.Namespace), client.MatchingFields{indexer.WorkloadNameKey: wl.Name}); err != nil {
 		return nil, fmt.Errorf("list pods: %w", err)
@@ -600,7 +600,7 @@ func (r *nodeFailureReconciler) getPodsOnNode(ctx context.Context, wl *kueue.Wor
 		psaMap[wl.Status.Admission.PodSetAssignments[i].Name] = &wl.Status.Admission.PodSetAssignments[i]
 	}
 
-	var podsOnNode []corev1.Pod
+	var podsAssignedToNode []corev1.Pod
 	for _, pod := range podsForWl.Items {
 		psName := kueue.PodSetReference(pod.Labels[constants.PodSetLabel])
 		psa, found := psaMap[psName]
@@ -612,9 +612,9 @@ func (r *nodeFailureReconciler) getPodsOnNode(ctx context.Context, wl *kueue.Wor
 		if found && psa.TopologyAssignment != nil {
 			levels = psa.TopologyAssignment.Levels
 		}
-		if isPodOnNode(&pod, node, levels) {
-			podsOnNode = append(podsOnNode, pod)
+		if isPodAssignedToNode(&pod, node, levels) {
+			podsAssignedToNode = append(podsAssignedToNode, pod)
 		}
 	}
-	return podsOnNode, nil
+	return podsAssignedToNode, nil
 }
