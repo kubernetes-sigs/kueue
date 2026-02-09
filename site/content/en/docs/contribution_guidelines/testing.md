@@ -134,6 +134,11 @@ E2E_MODE=dev make kind-image-build test-multikueue-e2e
 E2E_MODE=dev GINKGO_ARGS="--until-it-fails" make kind-image-build  test-e2e
 ```
 
+{{% alert title="Note" color="primary" %}}
+When reusing a kept cluster in `E2E_MODE=dev`, external operators (MPI, KubeRay, etc.) are installed only once.
+To force re-installing them on every run, set `E2E_ENFORCE_OPERATOR_UPDATE=true`.
+{{% /alert %}}
+
 To delete the kept cluster(s) afterwards:
 - For regular e2e tests, run:
     ```shell
