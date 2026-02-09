@@ -283,7 +283,12 @@ orchestration.
 When encountering a workload with the `Preempt` assignment mode and a preemption gate, the scheduler will put that workload back into the
 queue according to the configured queueing strategy:
 
-* `BestEffortFIFO` - the workload is marked as inadmissible. An update (for example the gate being lifted), will requeue the workload.
+* `BestEffortFIFO` - the workload is marked as inadmissible and effectively cannot run until the gate is removed.
+An update (for example the gate being lifted) will requeue the workload. When it becomes the head of the ClusterQueue again and:
+    * Gate wasn't lifted - it's marked as inadmissible again.
+    * Gate was lifted - the preemption is perfomed if possible and still necessary.
+
+  In practice, this means that in the `BestEffortFIFO` strategy, newer workloads or workloads of lower priority can "leapfrog" the gated one.
 * `StrictFIFO` - the workload is put back into the heap. It will block the admission of other workloads in its ClusterQueue.
 
 ### Test Plan
