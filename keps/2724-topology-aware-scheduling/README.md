@@ -1269,7 +1269,7 @@ because they cannot run due to a taint, Kueue marks the pods as `Failed` and add
   ```yaml
   type: TerminatedByKueue
   status: True
-  reason: Unschedulable
+  reason: UnschedulableOnAssignedNode
   message: "..."
   ```
   This ensures that the pods are re-created by the Job controller for placement on other nodes, while keeping the original
