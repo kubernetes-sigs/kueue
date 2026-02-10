@@ -268,7 +268,7 @@ This controller will watch for workloads to change their `QuotaReserved` conditi
 1. Find a workload that contains:
     * `QuotaReserved` reason set to `PreemptionGated`.
     * The lowest `QuotaReserved` `LastTransitionTime`.
-    * The `kueue.x-k8s.io/cannot-preempt` annotation (to ignore already ungated workloads).
+    * The `kueue.x-k8s.io/preemption-gated` annotation with the `multi-kueue` gate (to ignore already ungated workloads).
 1. Ungate the workload and store `Now` in `PreviouslyUngatedAt`.
 1. Schedule a reconciliation in `PreemptionTimeout`.
 
@@ -313,7 +313,7 @@ The `PreemptionTimeout` will be configurable in the Kueue configuration.
 
 - **Alpha**:
   - Feature implemented behind the feature gate, disabled by default.
-  - Preemption gating is based upon the annotations proposed in KEP-8729.
+  - Preemption gating is based upon the proposed annotation.
   - Unit and integration tests are implemented.
 - **Beta**:
   - Feature gate is enabled by default.
