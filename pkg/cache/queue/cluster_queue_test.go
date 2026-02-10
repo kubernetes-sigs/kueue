@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 
@@ -262,6 +263,62 @@ func Test_AddFromLocalQueue(t *testing.T) {
 	cq.Delete(log, wl)
 	if added := cq.AddFromLocalQueue(queue); !added {
 		t.Error("workload should be added to the ClusterQueue")
+	}
+}
+
+func TestSnapshotDeterministicOrder(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	backoffUntil := now.Add(time.Hour)
+	lqName := kueue.LocalQueueName("foo")
+
+	cases := map[string]struct {
+		workloads             []*kueue.Workload
+		inadmissibleWorkloads []*kueue.Workload
+	}{
+		"heap only": {
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue(lqName).Creation(now).UID(types.UID("uid-1")).Obj(),
+				utiltestingapi.MakeWorkload("wl2", defaultNamespace).Queue(lqName).Creation(now).UID(types.UID("uid-2")).Obj(),
+				utiltestingapi.MakeWorkload("wl3", defaultNamespace).Queue(lqName).Creation(now).UID(types.UID("uid-3")).Obj(),
+			},
+		},
+		"heap and inadmissible": {
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue(lqName).Creation(now).UID(types.UID("uid-1")).Obj(),
+				utiltestingapi.MakeWorkload("wl2", defaultNamespace).Queue(lqName).Creation(now).UID(types.UID("uid-2")).Obj(),
+			},
+			inadmissibleWorkloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("wl3", defaultNamespace).Queue(lqName).Creation(now).UID(types.UID("uid-3")).
+					RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(backoffUntil))).
+					Condition(metav1.Condition{Type: kueue.WorkloadRequeued, Status: metav1.ConditionFalse}).
+					Obj(),
+				utiltestingapi.MakeWorkload("wl4", defaultNamespace).Queue(lqName).Creation(now).UID(types.UID("uid-4")).
+					RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(backoffUntil))).
+					Condition(metav1.Condition{Type: kueue.WorkloadRequeued, Status: metav1.ConditionFalse}).
+					Obj(),
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
+
+			for _, w := range tc.workloads {
+				cq.PushOrUpdate(workload.NewInfo(w))
+			}
+			for _, w := range tc.inadmissibleWorkloads {
+				cq.requeueIfNotPresent(log, workload.NewInfo(w), false)
+			}
+
+			firstSnap := cq.Snapshot()
+			for i := 1; i < 10; i++ {
+				if diff := cmp.Diff(firstSnap, cq.Snapshot()); diff != "" {
+					t.Errorf("Snapshot order changed on call %d (-first,+got):\n%s", i+1, diff)
+				}
+			}
+		})
 	}
 }
 
