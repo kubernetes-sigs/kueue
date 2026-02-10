@@ -284,9 +284,11 @@ apiServer:
 # $2 cluster kind config
 # $3 kubeconfig
 function cluster_create {
-    prepare_kubeconfig "$1" "$3"
-
+    local cluster="$1"
     local kind_config="$2"
+    local kubeconfig="$3"
+
+    prepare_kubeconfig "$cluster" "$kubeconfig"
 
     if [[ -n ${DRA_EXAMPLE_DRIVER_VERSION:-} ]]; then
         kind_config=$(patch_kind_config_for_dra "$2")
@@ -304,12 +306,12 @@ function cluster_create {
         cat "$kind_config"
     fi
 
-    $KIND create cluster --name "$1" --image "$E2E_KIND_VERSION" --config "$kind_config" --kubeconfig="$3" --wait 1m -v 5  > "$ARTIFACTS/$1-create.log" 2>&1 \
-    ||  { echo "unable to start the $1 cluster "; cat "$ARTIFACTS/$1-create.log" ; }
+    $KIND create cluster --name "$cluster" --image "$E2E_KIND_VERSION" --config "$kind_config" --kubeconfig="$kubeconfig" --wait 1m -v 5  > "$ARTIFACTS/$cluster-create.log" 2>&1 \
+    ||  { echo "unable to start the $cluster cluster "; cat "$ARTIFACTS/$cluster-create.log" ; }
 
-    kubectl config --kubeconfig="$3" use-context "kind-$1"
-    kubectl get nodes --kubeconfig="$3" > "$ARTIFACTS/$1-nodes.log" || true
-    kubectl describe pods --kubeconfig="$3" -n kube-system > "$ARTIFACTS/$1-system-pods.log" || true
+    kubectl config --kubeconfig="$kubeconfig" use-context "kind-$cluster"
+    kubectl get nodes --kubeconfig="$kubeconfig" > "$ARTIFACTS/$cluster-nodes.log" || true
+    kubectl describe pods --kubeconfig="$kubeconfig" -n kube-system > "$ARTIFACTS/$cluster-system-pods.log" || true
 }
 
 function prepare_docker_images {
