@@ -32,7 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -78,7 +78,7 @@ func newProvisioningConfigHelper(c client.Client) (*provisioningConfigHelper, er
 
 type Controller struct {
 	client      client.Client
-	record      record.EventRecorder
+	record      events.EventRecorder
 	helper      *provisioningConfigHelper
 	clock       clock.Clock
 	roleTracker *roletracker.RoleTracker
@@ -99,7 +99,7 @@ var _ reconcile.Reconciler = (*Controller)(nil)
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=provisioningrequestconfigs,verbs=get;list;watch
 
-func NewController(client client.Client, record record.EventRecorder, roleTracker *roletracker.RoleTracker) (*Controller, error) {
+func NewController(client client.Client, record events.EventRecorder, roleTracker *roletracker.RoleTracker) (*Controller, error) {
 	helper, err := newProvisioningConfigHelper(client)
 	if err != nil {
 		return nil, err
@@ -316,7 +316,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 				msg := fmt.Sprintf("Error creating ProvisioningRequest %q: %v", requestName, err)
 				return c.handleError(ctx, wl, ac, msg, err)
 			}
-			c.record.Eventf(wl, corev1.EventTypeNormal, "ProvisioningRequestCreated", "Created ProvisioningRequest: %q", req.Name)
+			c.record.Eventf(wl, nil, corev1.EventTypeNormal, "ProvisioningRequestCreated", "", "Created ProvisioningRequest: %q", req.Name)
 			activeOrLastPRForChecks[checkName] = req
 		}
 		if err := c.syncProvisionRequestsPodTemplates(ctx, wl, req); err != nil {
@@ -327,7 +327,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 }
 
 func (c *Controller) handleError(ctx context.Context, wl *kueue.Workload, ac *kueue.AdmissionCheckState, msg string, err error) error {
-	c.record.Eventf(wl, corev1.EventTypeWarning, "FailedCreate", api.TruncateEventMessage(msg))
+	c.record.Eventf(wl, nil, corev1.EventTypeWarning, "FailedCreate", "", api.TruncateEventMessage(msg))
 	patchErr := workload.PatchStatus(ctx, c.client, wl, kueue.ProvisioningRequestControllerName, func(wl *kueue.Workload) (bool, error) {
 		ac.Message = api.TruncateConditionMessage(msg)
 		ac.LastTransitionTime = metav1.NewTime(c.clock.Now())
@@ -615,7 +615,7 @@ func (c *Controller) syncCheckStates(
 	}
 	if updated {
 		for i := range recorderMessages {
-			c.record.Event(wl, corev1.EventTypeNormal, "AdmissionCheckUpdated", api.TruncateEventMessage(recorderMessages[i]))
+			c.record.Eventf(wl, nil, corev1.EventTypeNormal, "AdmissionCheckUpdated", "", api.TruncateEventMessage(recorderMessages[i]))
 		}
 	}
 	wlInfo.update(wl, c.clock)

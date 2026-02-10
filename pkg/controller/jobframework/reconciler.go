@@ -34,7 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
@@ -87,7 +87,7 @@ type WorkloadRetentionPolicy struct {
 // JobReconciler reconciles a GenericJob object
 type JobReconciler struct {
 	client                       client.Client
-	record                       record.EventRecorder
+	record                       events.EventRecorder
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
 	waitForPodsReady             bool
@@ -257,7 +257,7 @@ var defaultOptions = Options{
 
 func NewReconciler(
 	client client.Client,
-	record record.EventRecorder,
+	record events.EventRecorder,
 	opts ...Option) *JobReconciler {
 	options := ProcessOptions(opts...)
 
@@ -367,7 +367,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		if err != nil {
 			if errors.Is(err, ErrManagedOwnersChainLimitReached) {
 				errMsg := fmt.Sprintf("Terminated search for Kueue-managed Job because ancestor depth exceeded limit of %d", managedOwnersChainLimit)
-				r.record.Eventf(object, corev1.EventTypeWarning, ReasonJobNestingTooDeep, errMsg)
+				r.record.Eventf(object, nil, corev1.EventTypeWarning, ReasonJobNestingTooDeep, "", errMsg)
 				log.Error(err, errMsg)
 			}
 			return ctrl.Result{}, err
@@ -415,7 +415,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				log.Error(err, "suspending child job failed")
 				return ctrl.Result{}, err
 			}
-			r.record.Event(object, corev1.EventTypeNormal, ReasonSuspended, "Kueue managed child job suspended")
+			r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonSuspended, "", "Kueue managed child job suspended")
 		}
 		return ctrl.Result{}, nil
 	}
@@ -458,7 +458,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			return ctrl.Result{}, err
 		}
 
-		r.record.Eventf(object, corev1.EventTypeNormal, ReasonFinishedWorkload,
+		r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonFinishedWorkload, "",
 			"Workload '%s' is declared finished", workload.Key(wl))
 		return ctrl.Result{}, workload.RemoveFinalizer(ctx, r.client, wl)
 	}
@@ -488,7 +488,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			if err != nil && !apierrors.IsNotFound(err) {
 				return ctrl.Result{}, err
 			}
-			r.record.Eventf(object, corev1.EventTypeNormal, ReasonFinishedWorkload,
+			r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonFinishedWorkload, "",
 				"Workload '%s' is declared finished", workload.Key(wl))
 		}
 
@@ -711,7 +711,7 @@ func (r *JobReconciler) handleWorkloadAfterDeactivatedPolicy(ctx context.Context
 		if err := r.client.Delete(ctx, object, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
 			return 0, client.IgnoreNotFound(err)
 		}
-		r.record.Event(object, corev1.EventTypeNormal, ReasonDeleted,
+		r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonDeleted, "",
 			"Deleted job: deactivation retention period expired")
 		if err := r.finalizeJob(ctx, job); err != nil {
 			return 0, err
@@ -737,10 +737,10 @@ func (r *JobReconciler) recordAdmissionCheckUpdate(wl *kueue.Workload, job Gener
 	if message != "" {
 		if cJob, isComposable := job.(ComposableJob); isComposable {
 			cJob.ForEach(func(obj runtime.Object) {
-				r.record.Eventf(obj, corev1.EventTypeNormal, ReasonUpdatedAdmissionCheck, message)
+				r.record.Eventf(obj, nil, corev1.EventTypeNormal, ReasonUpdatedAdmissionCheck, "", message)
 			})
 		} else {
-			r.record.Eventf(object, corev1.EventTypeNormal, ReasonUpdatedAdmissionCheck, message)
+			r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonUpdatedAdmissionCheck, "", message)
 		}
 	}
 }
@@ -965,7 +965,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		}
 		if err == nil {
 			existedWls++
-			r.record.Eventf(object, corev1.EventTypeNormal, ReasonDeletedWorkload,
+			r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonDeletedWorkload, "",
 				"Deleted not matching Workload: %v", wlKey)
 		}
 	}
@@ -991,7 +991,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 }
 
 // UpdateWorkloadPriority updates workload priority if object's kueue.x-k8s.io/priority-class label changed.
-func UpdateWorkloadPriority(ctx context.Context, c client.Client, r record.EventRecorder, obj client.Object, wl *kueue.Workload, customPriorityClassFunc func() string) error {
+func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, wl *kueue.Workload, customPriorityClassFunc func() string) error {
 	jobPriorityClassName := WorkloadPriorityClassName(obj)
 	wlPriorityClassName := workload.PriorityClassName(wl)
 
@@ -1003,8 +1003,8 @@ func UpdateWorkloadPriority(ctx context.Context, c client.Client, r record.Event
 		if err := c.Update(ctx, wl); err != nil {
 			return fmt.Errorf("updating existing workload: %w", err)
 		}
-		r.Eventf(obj,
-			corev1.EventTypeNormal, ReasonUpdatedWorkload,
+		r.Eventf(obj, nil,
+			corev1.EventTypeNormal, ReasonUpdatedWorkload, "",
 			"Updated workload priority class: %v", klog.KObj(wl),
 		)
 	}
@@ -1157,7 +1157,7 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 		return nil, fmt.Errorf("updating existed workload: %w", err)
 	}
 
-	r.record.Eventf(object, corev1.EventTypeNormal, ReasonUpdatedWorkload,
+	r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonUpdatedWorkload, "",
 		"Updated not matching Workload for suspended job: %v", klog.KObj(wl))
 	return wl, nil
 }
@@ -1199,7 +1199,7 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 		}); err != nil {
 			return err
 		}
-		r.record.Event(object, corev1.EventTypeNormal, ReasonStarted, msg)
+		r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonStarted, "", msg)
 	}
 
 	return nil
@@ -1215,7 +1215,7 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 	if jws, implements := job.(JobWithCustomStop); implements {
 		stoppedNow, err := jws.Stop(ctx, r.client, info, stopReason, eventMsg)
 		if stoppedNow {
-			r.record.Event(object, corev1.EventTypeNormal, ReasonStopped, eventMsg)
+			r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonStopped, "", eventMsg)
 		}
 		return err
 	}
@@ -1229,7 +1229,7 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 		}
 		stoppedNow, err := jws.Stop(ctx, r.client, info, reason, eventMsg)
 		for _, objStoppedNow := range stoppedNow {
-			r.record.Event(objStoppedNow, corev1.EventTypeNormal, ReasonStopped, eventMsg)
+			r.record.Eventf(objStoppedNow, nil, corev1.EventTypeNormal, ReasonStopped, "", eventMsg)
 		}
 		return err
 	}
@@ -1248,7 +1248,7 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 		return err
 	}
 
-	r.record.Event(object, corev1.EventTypeNormal, ReasonStopped, eventMsg)
+	r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonStopped, "", eventMsg)
 	return nil
 }
 
@@ -1485,7 +1485,7 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	if err = r.client.Create(ctx, wl); err != nil {
 		return err
 	}
-	r.record.Eventf(object, corev1.EventTypeNormal, ReasonCreatedWorkload,
+	r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonCreatedWorkload, "",
 		"Created Workload: %v", workload.Key(wl))
 	return nil
 }
@@ -1574,7 +1574,7 @@ type ReconcilerSetup func(*builder.Builder, client.Client) *builder.Builder
 // NewGenericReconcilerFactory creates a new reconciler factory for a concrete GenericJob type.
 // newJob should return a new empty job.
 func NewGenericReconcilerFactory(newJob func() GenericJob, setup ...ReconcilerSetup) ReconcilerFactory {
-	return func(ctx context.Context, client client.Client, indexer client.FieldIndexer, record record.EventRecorder, opts ...Option) (JobReconcilerInterface, error) {
+	return func(ctx context.Context, client client.Client, indexer client.FieldIndexer, record events.EventRecorder, opts ...Option) (JobReconcilerInterface, error) {
 		return &genericReconciler{
 			jr:     NewReconciler(client, record, opts...),
 			newJob: newJob,

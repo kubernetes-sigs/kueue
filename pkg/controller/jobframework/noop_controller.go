@@ -20,7 +20,7 @@ import (
 	"context"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -44,7 +44,7 @@ func (r NoopReconciler) SetupWithManager(ctrl.Manager) error {
 }
 
 func NewNoopReconcilerFactory(gvk schema.GroupVersionKind) ReconcilerFactory {
-	return func(ctx context.Context, client client.Client, indexer client.FieldIndexer, record record.EventRecorder, opts ...Option) (JobReconcilerInterface, error) {
+	return func(ctx context.Context, client client.Client, indexer client.FieldIndexer, record events.EventRecorder, opts ...Option) (JobReconcilerInterface, error) {
 		return &NoopReconciler{gvk: gvk}, nil
 	}
 }

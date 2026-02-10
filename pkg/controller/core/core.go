@@ -85,7 +85,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 	}
 
 	workloadRec := NewWorkloadReconciler(mgr.GetClient(), qManager, cc,
-		mgr.GetEventRecorderFor(constants.WorkloadControllerName),
+		mgr.GetEventRecorder(constants.WorkloadControllerName),
 		WithWorkloadUpdateWatchers(qRec, cqRec),
 		WithWaitForPodsReady(waitForPodsReady(cfg.WaitForPodsReady)),
 		WithWorkloadRetention(workloadRetention(cfg.ObjectRetentionPolicies)),

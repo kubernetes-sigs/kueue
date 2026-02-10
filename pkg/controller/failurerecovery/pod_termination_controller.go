@@ -23,7 +23,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -57,7 +57,7 @@ type TerminatingPodReconciler struct {
 	client                         client.Client
 	clock                          clock.Clock
 	forcefulTerminationGracePeriod time.Duration
-	recorder                       record.EventRecorder
+	recorder                       events.EventRecorder
 	roleTracker                    *roletracker.RoleTracker
 }
 
@@ -95,7 +95,7 @@ var defaultOptions = TerminatingPodReconcilerOptions{
 
 func NewTerminatingPodReconciler(
 	client client.Client,
-	recorder record.EventRecorder,
+	recorder events.EventRecorder,
 	opts ...TerminatingPodReconcilerOption,
 ) *TerminatingPodReconciler {
 	options := defaultOptions
@@ -189,7 +189,7 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, err
 	}
 
-	r.recorder.Event(pod, corev1.EventTypeWarning, KueueForcefulTerminationReason, eventMessage)
+	r.recorder.Eventf(pod, nil, corev1.EventTypeWarning, KueueForcefulTerminationReason, "", eventMessage)
 
 	return ctrl.Result{}, nil
 }

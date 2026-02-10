@@ -206,7 +206,7 @@ func run() int {
 		queues,
 		cCache,
 		mgr.GetClient(),
-		mgr.GetEventRecorderFor(constants.AdmissionName),
+		mgr.GetEventRecorder(constants.AdmissionName),
 	)
 
 	if err := mgr.Add(sched); err != nil {

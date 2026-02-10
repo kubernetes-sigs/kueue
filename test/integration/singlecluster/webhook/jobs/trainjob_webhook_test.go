@@ -45,7 +45,7 @@ var _ = ginkgo.Describe("Trainjob Webhook", func() {
 					ctx,
 					mgr.GetClient(),
 					mgr.GetFieldIndexer(),
-					mgr.GetEventRecorderFor(constants.JobControllerName),
+					mgr.GetEventRecorder(constants.JobControllerName),
 					opts...); err != nil {
 					return err
 				}
