@@ -18,6 +18,7 @@ package certmanager
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -172,6 +173,57 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, workload)
 
 			ginkgo.By("checking that the quota reserved workload metric is present", func() {
+				expectedMetric := []string{
+					"kueue_quota_reserved_workloads_total",
+					clusterQueue.Name,
+				}
+				expectMetricsToBeAvailable(curlPod.Name, curlContainerName, [][]string{expectedMetric})
+			})
+		})
+		ginkgo.It("should continue to expose metrics after the secret is re-created", func() {
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, workload)
+			initialSecret := &corev1.Secret{}
+			ginkgo.By("fetching initial secret", func() {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{
+					Namespace: kueueNS, Name: certSecretName,
+				}, initialSecret)).To(gomega.Succeed())
+			})
+
+			var initialCertContent []byte
+			ginkgo.By("reading initial certificate content from curl-pod", func() {
+				certContent, _, err := util.KExecute(ctx, cfg, restClient, kueueNS, curlPod.Name, curlContainerName,
+					[]string{"/bin/sh", "-c", fmt.Sprintf("cat %s/ca.crt", certMountPath)})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				initialCertContent = certContent
+				gomega.Expect(initialCertContent).NotTo(gomega.BeEmpty())
+			})
+
+			ginkgo.By("deleting the secret", func() {
+				gomega.Expect(k8sClient.Delete(ctx, initialSecret)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("waiting for the secret to be re-created", func() {
+				recreatedSecret := &corev1.Secret{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKey{
+						Namespace: kueueNS, Name: certSecretName,
+					}, recreatedSecret)).To(gomega.Succeed())
+					g.Expect(recreatedSecret.UID).NotTo(gomega.Equal(initialSecret.UID), "Secret not recreated")
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying certificate content changed in curl-pod", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					newCertContent, _, err := util.KExecute(ctx, cfg, restClient, kueueNS, curlPod.Name, curlContainerName,
+						[]string{"/bin/sh", "-c", fmt.Sprintf("cat %s/ca.crt", certMountPath)})
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(initialCertContent).NotTo(gomega.BeEmpty())
+					g.Expect(newCertContent).NotTo(gomega.BeEmpty())
+					g.Expect(newCertContent).NotTo(gomega.Equal(initialCertContent), "Certificate content should have changed after secret recreation")
+				}, util.VeryLongTimeout, time.Second*30).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("checking that the metrics are still available", func() {
 				expectedMetric := []string{
 					"kueue_quota_reserved_workloads_total",
 					clusterQueue.Name,
