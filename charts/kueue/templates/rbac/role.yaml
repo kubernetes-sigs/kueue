@@ -24,7 +24,7 @@ metadata:
   name: '{{ include "kueue.fullname" . }}-manager-role'
 rules:
   - apiGroups:
-      - ""
+      - events.k8s.io
     resources:
       - events
     verbs:

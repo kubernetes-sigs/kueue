@@ -27,7 +27,7 @@ import (
 )
 
 func SetupControllers(mgr ctrl.Manager, queues *qcache.Manager, cache *schdcache.Cache, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker) (string, error) {
-	recorder := mgr.GetEventRecorderFor(TASResourceFlavorController)
+	recorder := mgr.GetEventRecorder(TASResourceFlavorController)
 	topologyRec := newTopologyReconciler(mgr.GetClient(), queues, cache, roleTracker)
 	if ctrlName, err := topologyRec.setupWithManager(mgr, cfg); err != nil {
 		return ctrlName, err

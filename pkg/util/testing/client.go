@@ -25,7 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -80,7 +80,7 @@ type EventRecorder struct {
 	RecordedEvents []EventRecord
 }
 
-var _ record.EventRecorder = (*EventRecorder)(nil)
+var _ events.EventRecorder = (*EventRecorder)(nil)
 
 func SortEvents(ei, ej EventRecord) bool {
 	if ei.Key.String() != ej.Key.String() {
@@ -102,7 +102,7 @@ func (tr *EventRecorder) Event(object runtime.Object, eventType, reason, message
 	tr.generateEvent(object, eventType, reason, message)
 }
 
-func (tr *EventRecorder) Eventf(object runtime.Object, eventType, reason, messageFmt string, args ...any) {
+func (tr *EventRecorder) Eventf(object runtime.Object, related runtime.Object, eventType, reason, action, messageFmt string, args ...any) {
 	tr.AnnotatedEventf(object, nil, eventType, reason, messageFmt, args...)
 }
 

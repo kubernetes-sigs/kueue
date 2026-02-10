@@ -115,7 +115,7 @@ func managerSetup(options ...managerSetupOption) framework.ManagerSetup {
 				ctx,
 				mgr.GetClient(),
 				mgr.GetFieldIndexer(),
-				mgr.GetEventRecorderFor(constants.JobControllerName))
+				mgr.GetEventRecorder(constants.JobControllerName))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = job.SetupIndexes(ctx, mgr.GetFieldIndexer())
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -134,14 +134,14 @@ func managerSetup(options ...managerSetupOption) framework.ManagerSetup {
 
 		reconciler, err := provisioning.NewController(
 			mgr.GetClient(),
-			mgr.GetEventRecorderFor("kueue-provisioning-request-controller"), nil)
+			mgr.GetEventRecorder("kueue-provisioning-request-controller"), nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		err = reconciler.SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if opts.runScheduler {
-			sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName))
+			sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorder(constants.AdmissionName))
 			err = sched.Start(ctx)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}

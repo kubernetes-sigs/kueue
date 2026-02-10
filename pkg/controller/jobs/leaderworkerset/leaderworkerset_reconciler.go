@@ -27,7 +27,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -64,7 +64,7 @@ type workloadToCreate struct {
 type Reconciler struct {
 	client                       client.Client
 	logName                      string
-	record                       record.EventRecorder
+	record                       events.EventRecorder
 	labelKeysToCopy              []string
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
@@ -73,7 +73,7 @@ type Reconciler struct {
 
 const controllerName = "leaderworkerset"
 
-func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexer, eventRecorder record.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
+func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexer, eventRecorder events.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
 	options := jobframework.ProcessOptions(opts...)
 
 	return &Reconciler{
@@ -213,7 +213,7 @@ func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, lws *leaderwork
 		return err
 	}
 	r.record.Eventf(
-		lws, corev1.EventTypeNormal, jobframework.ReasonCreatedWorkload,
+		lws, nil, corev1.EventTypeNormal, jobframework.ReasonCreatedWorkload, "",
 		"Created Workload: %v", workload.Key(createdWorkload),
 	)
 	return nil
