@@ -1252,7 +1252,7 @@ to only one, by setting the `TASFailedNodeReplacementFailFast` feature gate to `
 
 #### Tainted nodes treatment
 
-We introduce the `TASReplaceNodeOnNodeTaints` feature gate from v0.17 as Beta, and backport to v0.15 and v0.16 as Alpha.
+We introduce the `TASReplaceNodeOnNodeTaints` feature gate from v0.17 as Beta, and backport to v0.15.5 and v0.16.2 as Alpha.
 When enabled, Kueue treats tainted nodes as unhealthy. This applies to nodes with `NoExecute` taint,
 or nodes with `NoSchedule` taint where all pods of the workload running on that node are failing, terminating, or in unscheduled state.
 
