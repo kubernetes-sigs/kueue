@@ -63,7 +63,11 @@ spec:
                     cpu: "1"
 ```
 
-### c. Limitations
+### c. Suspend control
+
+Kueue controls the `spec.suspend` field of the RayJob. When a RayJob is admitted by Kueue, Kueue will unsuspend it by setting `spec.suspend` to `false`, regardless of its previous value.
+
+### d. Limitations
 
 - A Kueue managed RayJob cannot use an existing RayCluster.
 - The RayCluster should be deleted at the end of the job execution, `spec.ShutdownAfterJobFinishes` should be `true`.

@@ -69,7 +69,11 @@ spec:
                   cpu: "1"
 ```
 
-### c. 限制事项 {#c-limitations}
+### c. Suspend 控制 {#c-suspend-control}
+
+Kueue 控制由 RayService 创建的 RayCluster 的 `spec.suspend` 字段。当 RayCluster 被 Kueue 接纳时，Kueue 会通过将 `spec.suspend` 设置为 `false` 来取消暂停，无论其之前的值是什么。
+
+### d. 限制事项 {#c-limitations}
 - 有限的 Worker Group：由于 Kueue 工作负载最多可以有 8 个 PodSet,
   所以`spec.rayClusterConfig.workerGroupSpecs` 的最大数量为 7。
 - 内建自动扩缩禁用：Kueue 管理 RayService 的资源分配，因此，集群的内部自动扩缩机制需要禁用。
