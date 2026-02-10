@@ -315,6 +315,7 @@ rules:
   resources:
   - rayclusters
   - rayjobs
+  - rayservices
   verbs:
   - delete
   - get
@@ -327,6 +328,7 @@ rules:
   resources:
   - rayclusters/finalizers
   - rayjobs/finalizers
+  - rayservices/finalizers
   verbs:
   - get
   - update
@@ -335,6 +337,7 @@ rules:
   resources:
   - rayclusters/status
   - rayjobs/status
+  - rayservices/status
   verbs:
   - get
   - patch

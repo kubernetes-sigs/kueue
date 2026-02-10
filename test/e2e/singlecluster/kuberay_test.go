@@ -17,24 +17,29 @@ limitations under the License.
 package e2e
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/yaml"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
+	workloadrayservice "sigs.k8s.io/kueue/pkg/controller/jobs/rayservice"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
+	testingrayservice "sigs.k8s.io/kueue/pkg/util/testingjobs/rayservice"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util"
@@ -60,6 +65,100 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 			}
 		}
 		return podNames
+	}
+
+	// dumpDebugInfoOnFailure prints debug information (YAMLs and logs) when a test fails
+	dumpDebugInfoOnFailure := func(namespace string) {
+		if !ginkgo.CurrentSpecReport().Failed() {
+			return
+		}
+
+		// Print RayServices
+		rayServiceList := &rayv1.RayServiceList{}
+		if err := k8sClient.List(ctx, rayServiceList, client.InNamespace(namespace)); err != nil {
+			fmt.Fprintf(ginkgo.GinkgoWriter, "Failed to list RayServices: %v\n", err)
+		} else {
+			for _, rs := range rayServiceList.Items {
+				rs.ManagedFields = nil
+				rsYAML, err := yaml.Marshal(rs)
+				if err != nil {
+					fmt.Fprintf(ginkgo.GinkgoWriter, "Failed to marshal RayService %s: %v\n", rs.Name, err)
+					continue
+				}
+				fmt.Fprintf(ginkgo.GinkgoWriter, "=== RayService %s/%s YAML ===\n%s\n", rs.Namespace, rs.Name, string(rsYAML))
+			}
+		}
+
+		// Print Workloads
+		workloadList := &kueue.WorkloadList{}
+		if err := k8sClient.List(ctx, workloadList, client.InNamespace(namespace)); err != nil {
+			fmt.Fprintf(ginkgo.GinkgoWriter, "Failed to list Workloads: %v\n", err)
+		} else {
+			for _, wl := range workloadList.Items {
+				wl.ManagedFields = nil
+				wlYAML, err := yaml.Marshal(wl)
+				if err != nil {
+					fmt.Fprintf(ginkgo.GinkgoWriter, "Failed to marshal Workload %s: %v\n", wl.Name, err)
+					continue
+				}
+				fmt.Fprintf(ginkgo.GinkgoWriter, "=== Workload %s/%s YAML ===\n%s\n", wl.Namespace, wl.Name, string(wlYAML))
+			}
+		}
+
+		// Print Jobs
+		jobList := &batchv1.JobList{}
+		if err := k8sClient.List(ctx, jobList, client.InNamespace(namespace)); err != nil {
+			fmt.Fprintf(ginkgo.GinkgoWriter, "Failed to list Jobs: %v\n", err)
+		} else {
+			for _, job := range jobList.Items {
+				job.ManagedFields = nil
+				jobYAML, err := yaml.Marshal(job)
+				if err != nil {
+					fmt.Fprintf(ginkgo.GinkgoWriter, "Failed to marshal Job %s: %v\n", job.Name, err)
+					continue
+				}
+				fmt.Fprintf(ginkgo.GinkgoWriter, "=== Job %s/%s YAML ===\n%s\n", job.Namespace, job.Name, string(jobYAML))
+			}
+		}
+
+		// Print Pods in namespace
+		podList := &corev1.PodList{}
+		if err := k8sClient.List(ctx, podList, client.InNamespace(namespace)); err != nil {
+			fmt.Fprintf(ginkgo.GinkgoWriter, "Failed to list Pods: %v\n", err)
+		} else {
+			for _, pod := range podList.Items {
+				pod.ManagedFields = nil
+				podYAML, err := yaml.Marshal(pod)
+				if err != nil {
+					fmt.Fprintf(ginkgo.GinkgoWriter, "Failed to marshal Pod %s: %v\n", pod.Name, err)
+					continue
+				}
+				fmt.Fprintf(ginkgo.GinkgoWriter, "=== Pod %s/%s YAML ===\n%s\n", pod.Namespace, pod.Name, string(podYAML))
+			}
+		}
+
+		// Print logs for all pods in the cluster with "ray" or "kueue" in their name
+		allPodList := &corev1.PodList{}
+		if err := k8sClient.List(ctx, allPodList); err != nil {
+			fmt.Fprintf(ginkgo.GinkgoWriter, "Failed to list all Pods in cluster: %v\n", err)
+		} else {
+			for _, pod := range allPodList.Items {
+				podNameLower := strings.ToLower(pod.Name)
+				if !strings.Contains(podNameLower, "ray") && !strings.Contains(podNameLower, "kueue") {
+					continue
+				}
+				for _, container := range pod.Spec.Containers {
+					logs, err := util.GetPodLogs(ctx, cfg, &pod, container.Name)
+					if err != nil {
+						fmt.Fprintf(ginkgo.GinkgoWriter, "Failed to get logs for Pod %s/%s container %s: %v\n",
+							pod.Namespace, pod.Name, container.Name, err)
+						continue
+					}
+					fmt.Fprintf(ginkgo.GinkgoWriter, "=== Logs for Pod %s/%s container %s ===\n%s\n",
+						pod.Namespace, pod.Name, container.Name, logs)
+				}
+			}
+		}
 	}
 
 	ginkgo.BeforeEach(func() {
@@ -390,6 +489,156 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 				g.Expect(createdRayCluster.Status.DesiredWorkerReplicas).To(gomega.Equal(int32(1)))
 				g.Expect(createdRayCluster.Status.ReadyWorkerReplicas).To(gomega.Equal(int32(1)))
 				g.Expect(createdRayCluster.Status.AvailableWorkerReplicas).To(gomega.Equal(int32(1)))
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should run a RayService if admitted", func() {
+		kuberayTestImage := util.GetKuberayTestImage()
+
+		// Create ConfigMap with a simple Ray Serve application
+		configMap := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "rayservice-hello",
+				Namespace: ns.Name,
+			},
+			Data: map[string]string{
+				"hello_serve.py": `from ray import serve
+
+@serve.deployment
+class HelloWorld:
+    def __call__(self, request):
+        return "Hello, World!"
+
+app = HelloWorld.bind()`,
+			},
+		}
+
+		// serveConfigV2 configuration for the simple serve app
+		serveConfigV2 := `applications:
+  - name: hello_app
+    import_path: hello_serve:app
+    route_prefix: /
+    deployments:
+      - name: HelloWorld
+        num_replicas: 1
+        max_replicas_per_node: 1
+        ray_actor_options:
+          num_cpus: 0.2`
+
+		rayService := testingrayservice.MakeService("rayservice-hello", ns.Name).
+			Suspend(true).
+			Queue(localQueueName).
+			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "300m").
+			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "300m").
+			Image(rayv1.HeadNode, kuberayTestImage).
+			Image(rayv1.WorkerNode, kuberayTestImage).
+			WithServeConfigV2(serveConfigV2).
+			Obj()
+
+		// Add object-store-memory to head rayStartParams
+		rayService.Spec.RayClusterSpec.HeadGroupSpec.RayStartParams["object-store-memory"] = "100000000"
+
+		// Add PYTHONPATH environment variable and volume/volumeMount to head node
+		rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Env = []corev1.EnvVar{
+			{
+				Name:  "PYTHONPATH",
+				Value: "/home/ray/samples:$PYTHONPATH",
+			},
+		}
+		rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Volumes = []corev1.Volume{
+			{
+				Name: "code-sample",
+				VolumeSource: corev1.VolumeSource{
+					ConfigMap: &corev1.ConfigMapVolumeSource{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: "rayservice-hello",
+						},
+						Items: []corev1.KeyToPath{
+							{
+								Key:  "hello_serve.py",
+								Path: "hello_serve.py",
+							},
+						},
+					},
+				},
+			},
+		}
+		rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{
+			{
+				Name:      "code-sample",
+				MountPath: "/home/ray/samples",
+			},
+		}
+
+		// Configure worker group with minReplicas and maxReplicas
+		rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].GroupName = "small-group"
+		rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].MinReplicas = ptr.To[int32](1)
+		rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].MaxReplicas = ptr.To[int32](2)
+
+		// Add PYTHONPATH environment variable and volume/volumeMount to worker node
+		rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env = []corev1.EnvVar{
+			{
+				Name:  "PYTHONPATH",
+				Value: "/home/ray/samples:$PYTHONPATH",
+			},
+		}
+		rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Volumes = []corev1.Volume{
+			{
+				Name: "code-sample",
+				VolumeSource: corev1.VolumeSource{
+					ConfigMap: &corev1.ConfigMapVolumeSource{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: "rayservice-hello",
+						},
+						Items: []corev1.KeyToPath{
+							{
+								Key:  "hello_serve.py",
+								Path: "hello_serve.py",
+							},
+						},
+					},
+				},
+			},
+		}
+		rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{
+			{
+				Name:      "code-sample",
+				MountPath: "/home/ray/samples",
+			},
+		}
+
+		// Print debug info on test failure
+		ginkgo.DeferCleanup(func() {
+			dumpDebugInfoOnFailure(ns.Name)
+		})
+
+		ginkgo.By("Creating the ConfigMap", func() {
+			gomega.Expect(k8sClient.Create(ctx, configMap)).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Creating the RayService", func() {
+			gomega.Expect(k8sClient.Create(ctx, rayService)).Should(gomega.Succeed())
+		})
+
+		wlLookupKey := types.NamespacedName{Name: workloadrayservice.GetWorkloadNameForRayService(rayService.Name, rayService.UID), Namespace: ns.Name}
+		createdWorkload := &kueue.Workload{}
+		ginkgo.By("Checking workload is created", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Checking workload is admitted", func() {
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createdWorkload)
+		})
+
+		ginkgo.By("Checking the RayService is running", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdRayService := &rayv1.RayService{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayService), createdRayService)).To(gomega.Succeed())
+				g.Expect(createdRayService.Spec.RayClusterSpec.Suspend).To(gomega.Equal(ptr.To(false)))
+				g.Expect(createdRayService.Status.ServiceStatus).To(gomega.Equal(rayv1.Running))
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
