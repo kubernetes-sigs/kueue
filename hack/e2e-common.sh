@@ -513,7 +513,15 @@ function build_and_apply_kueue_manifests {
     build_output=$($KUSTOMIZE build "$2")
     # shellcheck disable=SC2001 # bash parameter substitution does not work on macOS
     build_output=$(echo "$build_output" | sed "s/kueue-system/$KUEUE_NAMESPACE/g")
-    echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side -f -
+
+    # Use --force-conflicts when Kueue is already deployed to handle SSA conflicts when reapplying.
+    local force_conflicts=""
+    if kubectl get deployment kueue-controller-manager -n "${KUEUE_NAMESPACE}" --kubeconfig="$1" >/dev/null 2>&1; then
+        echo "Kueue controller already exists, using --force-conflicts"
+        force_conflicts="--force-conflicts"
+    fi
+
+    echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side $force_conflicts -f -
 }
 
 # $1 cluster name
