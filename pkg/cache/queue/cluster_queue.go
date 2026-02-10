@@ -17,6 +17,7 @@ limitations under the License.
 package queue
 
 import (
+	"cmp"
 	"context"
 	"slices"
 	"sync"
@@ -107,7 +108,7 @@ type ClusterQueue struct {
 	// QueueInadmissibleWorkloads is called.
 	queueInadmissibleCycle int64
 
-	lessFunc func(a, b *workload.Info) bool
+	compareFunc func(a, b *workload.Info) int
 
 	queueingStrategy kueue.QueueingStrategy
 
@@ -189,13 +190,15 @@ func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.
 		opt(options)
 	}
 	sw := stickyWorkload{}
-	lessFunc := queueOrderingFunc(ctx, client, wo, options.fsResWeights, options.enableAdmissionFs, options.afsEntryPenalties, options.afsConsumedResources, &sw)
+	compareFunc := queueOrderingFunc(ctx, client, wo, options.fsResWeights, options.enableAdmissionFs, options.afsEntryPenalties, options.afsConsumedResources, &sw)
+	// Derive lessFunc from compareFunc for the heap.
+	lessFunc := func(a, b *workload.Info) bool { return compareFunc(a, b) < 0 }
 	return &ClusterQueue{
 		heap:                      *heap.New(workloadKey, lessFunc),
 		inadmissibleWorkloads:     make(inadmissibleWorkloads),
 		finishedWorkloads:         sets.New[workload.Reference](),
 		queueInadmissibleCycle:    -1,
-		lessFunc:                  lessFunc,
+		compareFunc:               compareFunc,
 		rwm:                       sync.RWMutex{},
 		clock:                     clock,
 		afsEntryPenalties:         options.afsEntryPenalties,
@@ -509,16 +512,11 @@ func (c *ClusterQueue) DumpInadmissible() ([]workload.Reference, bool) {
 	return elements, true
 }
 
-// Snapshot returns a copy of the current workloads in the heap of
-// this ClusterQueue.
+// Snapshot returns a copy of pending workloads in queue order.
+// The ordering is deterministic and consistent with the scheduler's heap order.
 func (c *ClusterQueue) Snapshot() []*workload.Info {
 	elements := c.totalElements()
-	slices.SortFunc(elements, func(a, b *workload.Info) int {
-		if c.lessFunc(a, b) {
-			return -1
-		}
-		return 1
-	})
+	slices.SortFunc(elements, c.compareFunc)
 	return elements
 }
 
@@ -530,6 +528,8 @@ func (c *ClusterQueue) Info(key workload.Reference) *workload.Info {
 	return c.heap.GetByKey(key)
 }
 
+// totalElements returns all pending workloads (heap + inadmissible + inflight).
+// The returned order is non-deterministic; callers should sort if needed.
 func (c *ClusterQueue) totalElements() []*workload.Info {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
@@ -582,16 +582,16 @@ func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.
 			reason == RequeueReasonPreemptionFailed)
 }
 
-// queueOrderingFunc returns a function used by the clusterQueue heap algorithm
-// to sort workloads. The function sorts workloads based on their priority.
-// When priorities are equal, it uses the workload's creation or eviction
-// time.
-func queueOrderingFunc(ctx context.Context, c client.Client, wo workload.Ordering, fsResWeights map[corev1.ResourceName]float64, enableAdmissionFs bool, afsEntryPenalties *queueafs.AfsEntryPenalties, afsConsumedResources *queueafs.AfsConsumedResources, sw *stickyWorkload) func(a, b *workload.Info) bool {
+// queueOrderingFunc returns a comparison function used to sort workloads.
+// It returns -1 if a should come before b, 1 if b should come before a, and 0 if equal.
+// The function sorts workloads based on their priority. When priorities are equal,
+// it uses the workload's creation or eviction time, with UID as a final tie-breaker.
+func queueOrderingFunc(ctx context.Context, cl client.Client, wo workload.Ordering, fsResWeights map[corev1.ResourceName]float64, enableAdmissionFs bool, afsEntryPenalties *queueafs.AfsEntryPenalties, afsConsumedResources *queueafs.AfsConsumedResources, sw *stickyWorkload) func(a, b *workload.Info) int {
 	log := ctrl.LoggerFrom(ctx)
-	return func(a, b *workload.Info) bool {
+	return func(a, b *workload.Info) int {
 		if enableAdmissionFs {
-			lqAUsage, errA := a.CalcLocalQueueFSUsage(ctx, c, fsResWeights, afsEntryPenalties, afsConsumedResources)
-			lqBUsage, errB := b.CalcLocalQueueFSUsage(ctx, c, fsResWeights, afsEntryPenalties, afsConsumedResources)
+			lqAUsage, errA := a.CalcLocalQueueFSUsage(ctx, cl, fsResWeights, afsEntryPenalties, afsConsumedResources)
+			lqBUsage, errB := b.CalcLocalQueueFSUsage(ctx, cl, fsResWeights, afsEntryPenalties, afsConsumedResources)
 			switch {
 			case errA != nil:
 				log.V(2).Error(errA, "Error determining LocalQueue usage")
@@ -600,8 +600,8 @@ func queueOrderingFunc(ctx context.Context, c client.Client, wo workload.Orderin
 			default:
 				log.V(3).Info("Resource usage from LocalQueue", "localQueue", klog.KRef(a.Obj.Namespace, string(a.Obj.Spec.QueueName)), "usage", lqAUsage)
 				log.V(3).Info("Resource usage from LocalQueue", "localQueue", klog.KRef(b.Obj.Namespace, string(b.Obj.Spec.QueueName)), "usage", lqBUsage)
-				if lqAUsage != lqBUsage {
-					return lqAUsage < lqBUsage
+				if cmpResult := cmp.Compare(lqAUsage, lqBUsage); cmpResult != 0 {
+					return cmpResult
 				}
 			}
 		}
@@ -610,25 +610,32 @@ func queueOrderingFunc(ctx context.Context, c client.Client, wo workload.Orderin
 			if logV := log.V(5); logV.Enabled() {
 				logV.Info("Prioritizing sticky workload", "workload", workload.Key(a.Obj))
 			}
-			return true
+			return -1
 		}
 		if sw.matches(workload.Key(b.Obj)) {
 			if logV := log.V(5); logV.Enabled() {
 				logV.Info("Prioritizing sticky workload", "workload", workload.Key(b.Obj))
 			}
-			return false
+			return 1
 		}
 
 		p1 := utilpriority.Priority(a.Obj)
 		p2 := utilpriority.Priority(b.Obj)
-
-		if p1 != p2 {
-			return p1 > p2
+		// Higher priority comes first (reverse order).
+		if cmpResult := cmp.Compare(p2, p1); cmpResult != 0 {
+			return cmpResult
 		}
 
 		tA := wo.GetQueueOrderTimestamp(a.Obj)
 		tB := wo.GetQueueOrderTimestamp(b.Obj)
-		return !tB.Before(tA)
+		if !tA.Equal(tB) {
+			if tA.Before(tB) {
+				return -1
+			}
+			return 1
+		}
+		// UID tie-breaker ensures deterministic ordering when timestamps are equal.
+		return cmp.Compare(a.Obj.UID, b.Obj.UID)
 	}
 }
 
