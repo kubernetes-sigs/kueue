@@ -39,7 +39,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -213,7 +212,13 @@ func (j *RayJob) buildPodSetsFromRayJobSpec() ([]kueue.PodSet, error) {
 func (j *RayJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	// If RayClusterName is set in status, try to fetch the RayCluster and get PodSets from it
+	// Always build PodSets from RayJob spec first
+	podSets, err := j.buildPodSetsFromRayJobSpec()
+	if err != nil {
+		return nil, err
+	}
+
+	// If RayClusterName is set in status, try to fetch the RayCluster and update PodSets from it
 	if j.Status.RayClusterName != "" {
 		var rayClusterObj rayv1.RayCluster
 		err := reconciler.client.Get(ctx, types.NamespacedName{
@@ -229,26 +234,49 @@ func (j *RayJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 				return nil, fmt.Errorf("failed to get RayCluster %s: %w", j.Status.RayClusterName, err)
 			}
 		} else {
-			// Convert to raycluster.RayCluster and get PodSets
-			rc := (*raycluster.RayCluster)(&rayClusterObj)
-			podSets, err := rc.PodSets(ctx)
-			if err != nil {
-				return nil, fmt.Errorf("failed to get PodSets from RayCluster %s: %w", j.Status.RayClusterName, err)
+			// Create a map of podSets from RayJob spec for quick lookup by name
+			podSetMap := make(map[kueue.PodSetReference]*kueue.PodSet)
+			for i := range podSets {
+				// Skip submitter PodSet as it's not in RayCluster
+				if podSets[i].Name != submitterJobPodSetName {
+					podSetMap[podSets[i].Name] = &podSets[i]
+				}
 			}
-			// submitter Job
-			podSets, err = j.addSubmitterPodSet(podSets)
-			if err != nil {
-				return nil, err
+
+			// Iterate through RayCluster's worker groups and update the count in matching podSets
+			for i := range rayClusterObj.Spec.WorkerGroupSpecs {
+				wgs := &rayClusterObj.Spec.WorkerGroupSpecs[i]
+				podSetName := kueue.NewPodSetReference(wgs.GroupName)
+
+				podSet, exists := podSetMap[podSetName]
+				if !exists {
+					return nil, fmt.Errorf("PodSet name mismatch: RayCluster %s has worker group %s which is not found in RayJob %s spec", j.Status.RayClusterName, wgs.GroupName, j.Name)
+				}
+
+				// Calculate the count based on RayCluster's worker group replicas
+				count := int32(1)
+				if wgs.Replicas != nil {
+					count = *wgs.Replicas
+				}
+				if wgs.NumOfHosts > 1 {
+					count *= wgs.NumOfHosts
+				}
+
+				// Update the count in the PodSet only if it's different
+				if podSet.Count != count {
+					log.V(2).Info("Updated RayJob PodSet worker count from RayCluster",
+						"rayJob", j.Name,
+						"rayCluster", j.Status.RayClusterName,
+						"workerGroup", wgs.GroupName,
+						"oldCount", podSet.Count,
+						"newCount", count)
+					podSet.Count = count
+				}
 			}
-			log.V(3).Info("Return RayJob PodSets from RayCluster",
-				"rayJob", j.Name,
-				"rayCluster", j.Status.RayClusterName)
-			return podSets, nil
 		}
 	}
 
-	// Fall back to building PodSets from RayJob spec
-	return j.buildPodSetsFromRayJobSpec()
+	return podSets, nil
 }
 
 func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
