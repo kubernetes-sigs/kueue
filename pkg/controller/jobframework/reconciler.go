@@ -631,7 +631,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	if WorkloadSliceEnabled(job) {
 		// Start workload-slice schedule-gated pods (if any).
 		log.V(3).Info("Job running with admitted workload slice, start pods.")
-		return ctrl.Result{}, workloadslicing.StartWorkloadSlicePods(ctx, r.client, object)
+		return ctrl.Result{}, workloadslicing.StartWorkloadSlicePods(ctx, r.client, wl)
 	}
 
 	// workload is admitted and job is running, nothing to do.
@@ -1287,15 +1287,18 @@ func prepareWorkloadSlice(ctx context.Context, clnt client.Client, job GenericJo
 
 	switch len(workloadSlices) {
 	case 0:
-		// No active workloads found for this job - noop.
+		// First workload - set origin name to itself.
+		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, kueue.WorkloadSliceNameAnnotation, wl.Name)
 		return nil
 	case 1:
-		// One active workload found for this job - typically, we are in a scale-up event, where previous
-		// workload is the "old" slice.
+		// Scale-up event - link to old slice and carry origin name.
 		oldSlice := workloadSlices[0]
-		// Annotate new workload slice with the preemptible (old) workload slice.
 		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(&oldSlice)))
-
+		originName := oldSlice.Annotations[kueue.WorkloadSliceNameAnnotation]
+		if originName == "" {
+			originName = oldSlice.Name
+		}
+		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, kueue.WorkloadSliceNameAnnotation, originName)
 		return nil
 	default:
 		// Any other slices length is invalid. I.E, we expect to have at most 1 "current/old" workload slice.
@@ -1376,6 +1379,12 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
 			info.Annotations[kueue.WorkloadAnnotation] = w.Name
+		}
+		// Set workload slice name annotation on pods for elastic workloads.
+		// This enables pod lookup by annotation instead of owner reference,
+		// supporting JobSet and other workloads where pods are not immediate children.
+		if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+			info.Annotations[kueue.WorkloadSliceNameAnnotation] = workloadslicing.SliceName(w)
 		}
 
 		info.Labels[constants.PodSetLabel] = string(psAssignment.Name)

@@ -1011,31 +1011,36 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 func Test_StartWorkloadSlicePods(t *testing.T) {
 	clientBuilder := func() *fake.ClientBuilder {
 		return fake.NewClientBuilder().WithScheme(scheme.Scheme).
-			WithIndex(&corev1.Pod{}, indexer.OwnerReferenceUID, indexer.IndexOwnerUID)
+			WithIndex(&corev1.Pod{}, indexer.WorkloadSliceNameKey, indexer.IndexPodWorkloadSliceName)
 	}
-	testPod := func(name, resourceVersion string, owner client.Object, schedulingGates ...corev1.PodSchedulingGate) corev1.Pod {
+	testPod := func(name, resourceVersion, sliceName string, schedulingGates ...corev1.PodSchedulingGate) corev1.Pod {
 		return corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-				OwnerReferences: []metav1.OwnerReference{
-					{
-						APIVersion: owner.GetObjectKind().GroupVersionKind().GroupVersion().String(),
-						Kind:       owner.GetObjectKind().GroupVersionKind().Kind,
-						Name:       owner.GetName(),
-						UID:        owner.GetUID(),
-					},
-				},
+				Name:            name,
+				Namespace:       "default",
 				ResourceVersion: resourceVersion,
+				Annotations: map[string]string{
+					kueue.WorkloadSliceNameAnnotation: sliceName,
+				},
 			},
 			Spec: corev1.PodSpec{
 				SchedulingGates: schedulingGates,
 			},
 		}
 	}
+	testWorkload := &kueue.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-workload",
+			Namespace: "default",
+			Annotations: map[string]string{
+				kueue.WorkloadSliceNameAnnotation: "test-slice",
+			},
+		},
+	}
 
 	type args struct {
-		clnt   client.Client
-		object client.Object
+		clnt client.Client
+		wl   *kueue.Workload
 	}
 	tests := map[string]struct {
 		args     args
@@ -1049,14 +1054,14 @@ func Test_StartWorkloadSlicePods(t *testing.T) {
 						return errors.New("test-list-pods-error")
 					},
 				}).Build(),
-				object: testJobObject,
+				wl: testWorkload,
 			},
 			wantErr: true,
 		},
 		"NoPods": {
 			args: args{
-				clnt:   clientBuilder().Build(),
-				object: testJobObject,
+				clnt: clientBuilder().Build(),
+				wl:   testWorkload,
 			},
 		},
 		"ProcessPods": {
@@ -1064,34 +1069,26 @@ func Test_StartWorkloadSlicePods(t *testing.T) {
 				clnt: clientBuilder().WithLists(&corev1.PodList{
 					Items: []corev1.Pod{
 						// Un-gated pod should remain un-gated, i.e., no change.
-						testPod("test-one", "100", testJobObject),
+						testPod("test-one", "100", "test-slice"),
 						// Gated pod - gate should be removed.
-						testPod("test-two", "200", testJobObject, corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}),
+						testPod("test-two", "200", "test-slice", corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}),
 						// Gated with some other gate -
-						testPod("test-three", "300", testJobObject, corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}, corev1.PodSchedulingGate{Name: kueue.TopologySchedulingGate}),
-						// Other gated pod (not for this job)
-						testPod("other-pod", "400", &batchv1.Job{
-							ObjectMeta: metav1.ObjectMeta{
-								Name: "other-job",
-							},
-						}, corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}),
+						testPod("test-three", "300", "test-slice", corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}, corev1.PodSchedulingGate{Name: kueue.TopologySchedulingGate}),
+						// Other gated pod (not for this workload slice)
+						testPod("other-pod", "400", "other-slice", corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}),
 					},
 				}).Build(),
-				object: testJobObject,
+				wl: testWorkload,
 			},
 			wantPods: &corev1.PodList{
 				Items: []corev1.Pod{
-					testPod("test-one", "100", testJobObject),
+					testPod("test-one", "100", "test-slice"),
 					// Gated pod - gate removed (resource version increase).
-					testPod("test-two", "201", testJobObject),
+					testPod("test-two", "201", "test-slice"),
 					// Gated with some other gate - other gate remains (resource version increased).
-					testPod("test-three", "301", testJobObject, corev1.PodSchedulingGate{Name: kueue.TopologySchedulingGate}),
-					// Other gated pod (not for this job) - no change.
-					testPod("other-pod", "400", &batchv1.Job{
-						ObjectMeta: metav1.ObjectMeta{
-							Name: "other-job",
-						},
-					}, corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}),
+					testPod("test-three", "301", "test-slice", corev1.PodSchedulingGate{Name: kueue.TopologySchedulingGate}),
+					// Other gated pod (not for this workload slice) - no change.
+					testPod("other-pod", "400", "other-slice", corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}),
 				},
 			},
 		},
@@ -1099,7 +1096,7 @@ func Test_StartWorkloadSlicePods(t *testing.T) {
 			args: args{
 				clnt: clientBuilder().WithLists(&corev1.PodList{
 					Items: []corev1.Pod{
-						testPod("test", "100", testJobObject, corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}),
+						testPod("test", "100", "test-slice", corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}),
 					},
 				}).WithInterceptorFuncs(interceptor.Funcs{
 					Patch: func(_ context.Context, _ client.WithWatch, _ client.Object, _ client.Patch, _ ...client.PatchOption) error {
@@ -1107,15 +1104,72 @@ func Test_StartWorkloadSlicePods(t *testing.T) {
 					},
 				}).
 					Build(),
-				object: testJobObject,
+				wl: testWorkload,
 			},
 			wantErr: true,
+		},
+		"BackwardsCompatibility_FallbackToOwnerReference": {
+			args: args{
+				// Client with both indexes for backwards compatibility
+				clnt: fake.NewClientBuilder().WithScheme(scheme.Scheme).
+					WithIndex(&corev1.Pod{}, indexer.WorkloadSliceNameKey, indexer.IndexPodWorkloadSliceName).
+					WithIndex(&corev1.Pod{}, indexer.OwnerReferenceUID, indexer.IndexOwnerUID).
+					WithLists(&corev1.PodList{
+						Items: []corev1.Pod{
+							// Pod without annotation but with owner reference (old pod)
+							{
+								ObjectMeta: metav1.ObjectMeta{
+									Name:            "old-pod",
+									Namespace:       "default",
+									ResourceVersion: "100",
+									OwnerReferences: []metav1.OwnerReference{
+										{UID: "job-uid-123"},
+									},
+								},
+								Spec: corev1.PodSpec{
+									SchedulingGates: []corev1.PodSchedulingGate{{Name: kueue.ElasticJobSchedulingGate}},
+								},
+							},
+						},
+					}).Build(),
+				// Workload with owner reference to job
+				wl: &kueue.Workload{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-workload",
+						Namespace: "default",
+						Annotations: map[string]string{
+							kueue.WorkloadSliceNameAnnotation: "test-slice",
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{UID: "job-uid-123"},
+						},
+					},
+				},
+			},
+			wantPods: &corev1.PodList{
+				Items: []corev1.Pod{
+					// Pod should have gate removed (resource version increased)
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:            "old-pod",
+							Namespace:       "default",
+							ResourceVersion: "101",
+							OwnerReferences: []metav1.OwnerReference{
+								{UID: "job-uid-123"},
+							},
+						},
+						Spec: corev1.PodSpec{
+							SchedulingGates: nil,
+						},
+					},
+				},
+			},
 		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			if err := StartWorkloadSlicePods(ctx, tt.args.clnt, tt.args.object); (err != nil) != tt.wantErr {
+			if err := StartWorkloadSlicePods(ctx, tt.args.clnt, tt.args.wl); (err != nil) != tt.wantErr {
 				t.Errorf("StartWorkloadSlicePods() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if tt.wantPods == nil {
