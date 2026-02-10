@@ -91,8 +91,6 @@ export E2E_TEST_AGNHOST_IMAGE=${E2E_TEST_AGNHOST_IMAGE_WITH_SHA%%@*}
 # $1 cluster name
 # $2 kubeconfig
 function cluster_cleanup {
-    kubectl config --kubeconfig="$2" use-context "kind-$1"
-    
     $KIND export logs "$ARTIFACTS" --name "$1" || true
     kubectl describe pods --kubeconfig="$2" -n kueue-system > "$ARTIFACTS/$1-kueue-system-pods.log" || true
     kubectl describe pods --kubeconfig="$2" > "$ARTIFACTS/$1-default-pods.log" || true
