@@ -155,13 +155,8 @@ export E2E_TEST_AGNHOST_IMAGE=${E2E_TEST_AGNHOST_IMAGE_WITH_SHA%%@*}
 
 
 # $1 cluster name
-# $2 kubeconfig
 function cluster_cleanup {
-    local name=$1
-    local kubeconfig=$2
-
-    kubectl config --kubeconfig="$kubeconfig" use-context "kind-${name}"
-    $KIND delete cluster --name "$name"
+    $KIND delete cluster --name "$1"
 }
 
 # $1 cluster name
@@ -218,7 +213,7 @@ function ensure_kind_cluster {
     # CI mode: always start from a clean cluster.
     if kind_cluster_exists "$name"; then
         echo "Deleting existing kind cluster for a clean CI run: $name"
-        cluster_cleanup "$name" "$kubeconfig"
+        cluster_cleanup "$name"
     fi
     cluster_create "$name" "$cfg" "$kubeconfig"
 }

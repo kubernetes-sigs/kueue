@@ -42,9 +42,9 @@ function cleanup {
     wait
 
     if e2e_should_delete_cluster; then
-        cluster_cleanup "$MANAGER_KIND_CLUSTER_NAME" "$MANAGER_KUBECONFIG" &
-        cluster_cleanup "$WORKER1_KIND_CLUSTER_NAME" "$WORKER1_KUBECONFIG" &
-        cluster_cleanup "$WORKER2_KIND_CLUSTER_NAME" "$WORKER2_KUBECONFIG" &
+        cluster_cleanup "$MANAGER_KIND_CLUSTER_NAME" &
+        cluster_cleanup "$WORKER1_KIND_CLUSTER_NAME" &
+        cluster_cleanup "$WORKER2_KIND_CLUSTER_NAME" &
         wait
         return 0
     fi
