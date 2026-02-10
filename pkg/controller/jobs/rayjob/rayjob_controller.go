@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -42,6 +43,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -218,59 +220,65 @@ func (j *RayJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 		return nil, err
 	}
 
-	// If RayClusterName is set in status, try to fetch the RayCluster and update PodSets from it
-	if j.Status.RayClusterName != "" {
-		var rayClusterObj rayv1.RayCluster
-		err := reconciler.client.Get(ctx, types.NamespacedName{
-			Namespace: j.Namespace,
-			Name:      j.Status.RayClusterName,
-		}, &rayClusterObj)
-		if err != nil {
-			// Check if the error is a NotFound error
-			if apierrors.IsNotFound(err) {
-				log.V(2).Info("RayCluster does not exist, falling back to RayJob spec",
-					"rayCluster", j.Status.RayClusterName)
+	// Only update podSets from RayCluster if:
+	// 1. The job is workload slicing enabled
+	// 2. AND the job has enableInTreeAutoscaling
+	if workloadslicing.Enabled(j.Object()) && ptr.Deref(j.Spec.RayClusterSpec.EnableInTreeAutoscaling, false) {
+		// If RayClusterName is set in status, try to fetch the RayCluster and update PodSets from it
+		if j.Status.RayClusterName != "" {
+			var rayClusterObj rayv1.RayCluster
+			err := reconciler.client.Get(ctx, types.NamespacedName{
+				Namespace: j.Namespace,
+				Name:      j.Status.RayClusterName,
+			}, &rayClusterObj)
+			if err != nil {
+				// Check if the error is a NotFound error
+				if apierrors.IsNotFound(err) {
+					log.V(2).Info("RayCluster does not exist, falling back to RayJob spec",
+						"rayCluster", j.Status.RayClusterName)
+				} else {
+					return nil, fmt.Errorf("failed to get RayCluster %s: %w", j.Status.RayClusterName, err)
+				}
 			} else {
-				return nil, fmt.Errorf("failed to get RayCluster %s: %w", j.Status.RayClusterName, err)
-			}
-		} else {
-			// Create a map of podSets from RayJob spec for quick lookup by name
-			podSetMap := make(map[kueue.PodSetReference]*kueue.PodSet)
-			for i := range podSets {
-				// Skip submitter PodSet as it's not in RayCluster
-				if podSets[i].Name != submitterJobPodSetName {
-					podSetMap[podSets[i].Name] = &podSets[i]
-				}
-			}
-
-			// Iterate through RayCluster's worker groups and update the count in matching podSets
-			for i := range rayClusterObj.Spec.WorkerGroupSpecs {
-				wgs := &rayClusterObj.Spec.WorkerGroupSpecs[i]
-				podSetName := kueue.NewPodSetReference(wgs.GroupName)
-
-				podSet, exists := podSetMap[podSetName]
-				if !exists {
-					return nil, fmt.Errorf("PodSet name mismatch: RayCluster %s has worker group %s which is not found in RayJob %s spec", j.Status.RayClusterName, wgs.GroupName, j.Name)
+				// Create a map of podSets from RayJob spec for quick lookup by name
+				podSetMap := make(map[kueue.PodSetReference]*kueue.PodSet)
+				for i := range podSets {
+					// Skip submitter PodSet as it's not in RayCluster
+					if podSets[i].Name != submitterJobPodSetName {
+						podSetMap[podSets[i].Name] = &podSets[i]
+					}
 				}
 
-				// Calculate the count based on RayCluster's worker group replicas
-				count := int32(1)
-				if wgs.Replicas != nil {
-					count = *wgs.Replicas
-				}
-				if wgs.NumOfHosts > 1 {
-					count *= wgs.NumOfHosts
-				}
+				// Iterate through RayCluster's worker groups and update the count in matching podSets
+				for i := range rayClusterObj.Spec.WorkerGroupSpecs {
+					wgs := &rayClusterObj.Spec.WorkerGroupSpecs[i]
+					podSetName := kueue.NewPodSetReference(wgs.GroupName)
 
-				// Update the count in the PodSet only if it's different
-				if podSet.Count != count {
-					log.V(2).Info("Updated RayJob PodSet worker count from RayCluster",
-						"rayJob", j.Name,
-						"rayCluster", j.Status.RayClusterName,
-						"workerGroup", wgs.GroupName,
-						"oldCount", podSet.Count,
-						"newCount", count)
-					podSet.Count = count
+					podSet, exists := podSetMap[podSetName]
+					if !exists {
+						return nil, fmt.Errorf("PodSet name mismatch: RayCluster %s has worker group %s which is not found in RayJob %s spec", j.Status.RayClusterName, wgs.GroupName, j.Name)
+					}
+
+					if wgs.Replicas == nil {
+						continue
+					}
+
+					// Calculate the count based on RayCluster's worker group replicas
+					count := *wgs.Replicas
+					if wgs.NumOfHosts > 1 {
+						count *= wgs.NumOfHosts
+					}
+
+					// Update the count in the PodSet only if it's different
+					if podSet.Count != count {
+						log.V(2).Info("Updated RayJob PodSet worker count from RayCluster",
+							"rayJob", j.Name,
+							"rayCluster", j.Status.RayClusterName,
+							"workerGroup", wgs.GroupName,
+							"oldCount", podSet.Count,
+							"newCount", count)
+						podSet.Count = count
+					}
 				}
 			}
 		}
