@@ -305,6 +305,8 @@ function cluster_create {
     ||  { echo "unable to start the $cluster cluster "; cat "$ARTIFACTS/$cluster-create.log" ; }
 
     kubectl config --kubeconfig="$kubeconfig" use-context "kind-$cluster"
+    # wait for nodes to become ready before loading images or deploying components
+    kubectl wait --kubeconfig="$kubeconfig" --for=condition=Ready node --all --timeout=300s
     kubectl get nodes --kubeconfig="$kubeconfig" > "$ARTIFACTS/$cluster-nodes.log" || true
     kubectl describe pods --kubeconfig="$kubeconfig" -n kube-system > "$ARTIFACTS/$cluster-system-pods.log" || true
 }
