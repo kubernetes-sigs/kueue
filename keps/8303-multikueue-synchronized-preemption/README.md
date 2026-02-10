@@ -11,10 +11,9 @@
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [API Definition](#api-definition)
-    - [(alpha) Workload Annotations](#alpha-workload-annotations)
-    - [(alpha) Extending the <code>QuotaReserved</code> Condition](#alpha-extending-the-quotareserved-condition)
-    - [(alpha) <code>PreemptionGateTimeout</code> Configuration](#alpha-preemptiongatetimeout-configuration)
-    - [(beta) Workload API](#beta-workload-api)
+    - [Workload API](#workload-api)
+    - [Extending the <code>QuotaReserved</code> Condition](#extending-the-quotareserved-condition)
+    - [<code>SingleClusterPreemptionTimeout</code> Configuration](#singleclusterpreemptiontimeout-configuration)
   - [MultiKueue Controller](#multikueue-controller)
   - [Kueue Scheduler](#kueue-scheduler)
   - [Test Plan](#test-plan)
@@ -77,9 +76,9 @@ Moreover, a general preemption gating/preemption signaling mechanism can be used
 
 ## Proposal
 
-The proposed solution is to introduce a new alpha `kueue.x-k8s.io/preemption-gated` annotation as the mechanism controlling a workload's ability to preempt and introduce a
+The proposed solution is to extend the Workload API with the concept of `PreemptionGate`s as the mechanism controlling a workload's ability to preempt and introduce a
 `PreemptionGated` reason to the `QuotaReserved` condition in the Workload's status, which will be used to signal that it's ready to preempt but was gated.
-The manager cluster's MultiKueue controller that watches the replicated Workload objects will observe the condition and make a decision whether to remove the annotation from
+The manager cluster's MultiKueue controller that watches the replicated Workload objects will observe the condition and make a decision whether to open the gate in
 the replica, allowing it to proceed.
 
 ```mermaid
@@ -108,14 +107,12 @@ sequenceDiagram
     end
 ```
 
-The preemption gate will not impact the scheduler's flavor assignment process and preserve the semantics of flavor fungibility.
-The gate being removed will requeue the workload with the ability to preempt in the upcoming scheduling cycles.
+The proposal is to preserve as much of the existing admission semantics as possible, for example respecting the selected [`FlavorFungibility`](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#flavorfungibility) - the preemption gate will not impact the scheduler's flavor assignment process and preserve the semantics of flavor fungibility.
 
-The controllers responsible for dispatching workloads in a MultiKueue setup or creating virtual workloads for concurrent admission will be responsible for adding the
-preemption gate to the workloads they manage.
+The controller responsible for dispatching workloads in a MultiKueue setup will be responsible for adding the preemption gate to the workloads they manage.
 
 If a preemption fails for some reason or the workload is not admitted after preemption, a **timeout mechanism** will ensure that the gate is eventually removed for other replica workloads so that
-another worker gets a chance to preempt. If a worker was ungated, the `PreemptionGateTimeout` elapsed and the workload is still pending, another worker can be considered for ungating.
+another worker gets a chance to preempt. If a worker was ungated, the `SingleClusterPreemptionTimeout` elapsed and the workload is still pending, another worker can be considered for ungating.
 This prevents a single failing preemption from blocking all others.
 
 ### User Stories
@@ -141,30 +138,78 @@ This can be mitigated by documenting the semantics of the feature and how it int
 
 ### API Definition
 
-#### (alpha) Workload Annotations
+#### Workload API
 
-The `kueue.x-k8s.io/preemption-gated` annotation will be automatically assigned to all replicated MultiKueue workloads.
-Its value will mirror the [API proposed for the beta release](#beta-workload-api) and formatted as a comma-separated list of `<gate-name>:<mode>` structures, where
-mode can be either:
+The proposal is to add the `PreemptionGate` and `PreemptionGateState` structures to `WorkloadSpec` and `WorkloadStatus` respectively.
+There are several advantages to extending both the `spec` and `status`:
 
-* `ForbiddenPreemption` - The workload will never be able to preempt. This is identical to the `kueue.x-k8s.io/cannot-preempt` annotation from KEP-8729.
-* `OrchestratedPreemption` - The workload signals that it requires preemption and has to be ungated to proceed.
+1. It preserves the semantics of both fields:
+    * `spec` - pre-condition directive from the controller that a workload should be gated.
+    * `status` - the observed state of the gates.
+1. It split between the request and the grant creates a security boundary.
+    * In cases the user wants to define a custom gate manually, they won't require the permission to edit the status.
+1. It gives the "created born" guarantee that avoids race conditions.
+    * The presence of the gate in the spec allows for the workload can be created atomically with the gate.
+    * This avoids race conditions between when the status of the gate is created and the Kueue scheduling cycle.
+
+The API will be defined as follows:
+
+```go
+type PreemptionGate struct {
+  Name string `json:"name"`
+}
+
+type WorkloadSpec struct {
+  // ...
+  PreemptionGates []PreemptionGate `json:"preemptionGates,omitempty"`
+}
+
+type GateState string
+
+const (
+  // GateStateOpen means that the gate is not active.
+  GateStateOpen GateState = "Open"
+
+  // GateStateClosed means that the gate is active.
+  GateStateClosed GateState = "Closed"
+)
+
+type PreemptionGateState struct {
+  // name identifies the preemption gate.
+  // +required
+  Name string `json:"name"`
+
+  // state of the preemption gate. One of
+  // +kubebuilder:validation:Enum=Open;Closed
+  // +required
+  State GateState `json:"state"`
+
+  // lastTransitionTime is the last time the gate transitioned from one status to another.
+  // +required
+  // +kubebuilder:validation:Type=string
+  // +kubebuilder:validation:Format=date-time
+  LastTransitionTime metav1.Time `json:"lastTransitionTime,omitempty,omitzero"`
+}
+
+type WorkloadStatus struct {
+    // ...
+    PreemptionGates []PreemptionGateState `json:"preemptionGates,omitempty"`
+}
+```
+
+The `kueue.x-k8s.io/multikueue` preemption gate will be automatically assigned to all replicated MultiKueue workloads.
 
 For example:
 ```yaml
 kind: Workload
-template:
-  metadata:
-    annotations:
-      kueue.x-k8s.io/preemption-gated: "multi-kueue:OrchestratedPreemption,user-defined:ForbiddenPreemption"
-...
+// ...
+spec:
+  preemptionGates:
+  - name: kueue.x-k8s.io/multikueue
+// ...
 ```
 
-This is done in order to test the proposed API structure alongisde the ungating mechanism.
-The `kueue.x-k8s.io/cannot-preempt` annotation defined in KEP-8729 would remain a Job-level user opt-in mechanism, while creating the `kueue.x-k8s.io/preemption-gated`
-annotation for the Workload under the hood.
-
-#### (alpha) Extending the `QuotaReserved` Condition
+#### Extending the `QuotaReserved` Condition
 
 The `QuotaReserved` Condition will be extended to be able to signalize that the quota cannot be reserved due to a preemption gate.
 
@@ -172,18 +217,18 @@ The `QuotaReserved` Condition will be extended to be able to signalize that the 
 
 const (
   ...
-	// WorkloadQuotaReserved means that the Workload has reserved quota a ClusterQueue.
+  // WorkloadQuotaReserved means that the Workload has reserved quota a ClusterQueue.
   // The possible reasons for this condition are:
-	// - "PreemptionGated": the workload could not preempt due to a preemption gate.
-	WorkloadQuotaReserved = "QuotaReserved"
+  // - "PreemptionGated": the workload could not preempt due to a preemption gate.
+  WorkloadQuotaReserved = "QuotaReserved"
   ...
 )
 
 // Reasons for the WorkloadQuotaReserved condition.
 const (
-	// PreemptionGated indicates the Workload could free up quota via
-	// preemption, but was prevented from doing so by a preemption gate.
-	PreemptionGated string = "PreemptionGated"
+  // PreemptionGated indicates the Workload could free up quota via
+  // preemption, but was prevented from doing so by a preemption gate.
+  PreemptionGated string = "PreemptionGated"
 )
 ```
 
@@ -191,67 +236,20 @@ By using the `QuotaReserved` condition rather than a new one, the existing mecha
 (for example when re-queuing the workload) will overwrite the `PreemptionGated` condition reason instead of having to manage
 it manually.
 
-#### (alpha) `PreemptionGateTimeout` Configuration
+#### `SingleClusterPreemptionTimeout` Configuration
 
-The `MultiKueue` `Configuration` struct will be extended with a `PreemptionGateTimeout` that defines
+The `MultiKueue` `Configuration` struct will be extended with a `SingleClusterPreemptionTimeout` that defines
 the timeout of preemption, after which another worker replica can be ungated, measured since the previous ungating
 of the workload.
 
 ```go
 type MultiKueue struct {
-	// The timeout after which another worker cluster replica can be ungated, measured since the previous time a replica was ungated.
-	// Defaults to 5 minutes.
-	// +optional
-	PreemptionGateTimeout *metav1.Duration `json:"preemptionGateTimeout,omitempty"`
+  // The timeout after which another worker cluster replica can be ungated, measured since the previous time a replica was ungated.
+  // Defaults to 5 minutes.
+  // +optional
+  SingleClusterPreemptionTimeout *metav1.Duration `json:"singleClusterPreemptionTimeout,omitempty"`
 }
 ```
-
-#### (beta) Workload API
-
-After gathering user feedback and mapping out all potential use-cases, the annotations can be abandoned in favor of a dedicated API.
-For example:
-
-```go
-const (
-    MultiKueuePreemptionGate = "kueue.x-k8s.io/multi-kueue"
-    OtherPreemptionGate = "kueue.x-k8s.io/other"
-    ...
-)
-
-type PreemptionGateMode string
-
-const (
-  // The workload will never be able to preempt.
-  ForbiddenPreemptionMode PreemptionGateMode = "ForbiddenPreemption"
-
-  // The workload signals that it requires preemption and has to be ungated to proceed.
-  OrchestratedPreemptionMode PreemptionGateMode = "OrchestratedPreemption"
-)
-
-
-type WorkloadPreemptionGate struct {
-    // Name of the gate.
-    Name string
-
-    // The preemption gate mode.
-    Mode PreemptionGateMode
-}
-
-type WorkloadStatus struct {
-    // ...
-    // PreemptionGates is a list of gates that must be removed before a workload can preempt.
-    PreemptionGates []WorkloadPreemptionGate
-}
-```
-
-The `Mode` field (provisional structure) on the preemption gate would control the behavior of the scheduler when handling the workload:
-* `CannotPreemptMode` - The admission process behave as if the workload can never preempt. Analogous to `kueue.x-k8s.io/cannot-preempt`.
-* `OrchestratedPreemptionMode` - The admission gate can be lifted by a controller, like in the proposed orchestration mechanism.
-
-This would allow to express the semantics of both `kueue.x-k8s.io/cannot-preempt` and `kueue.x-k8s.io/preemption-gated` using a single API.
-
-The gating and signaling mechanisms would be changed to recognize the dedicated preemption gates, rather than the annotation.
-The annotation could still be used as a job-level user opt-in mechanism, and create a "user-annotated" preemption gate under the hood.
 
 ### MultiKueue Controller
 
@@ -262,20 +260,15 @@ modified. Therefore, the following design can be expected to not change signific
 A manager-level preemption synchronization controller will be responsible for ungating the replicated workloads.
 This controller will watch for workloads to change their `QuotaReserved` conditions and idempotently react to such changes:
 
+1. Calculate `PreviouslyUngatedAt` as the maximum `LastTransitionTime` on `Open` gates `kueue.x-k8s.io/multikueue` across the replicated workloads.
 1. Calculate `Now - PreviouslyUngatedAt`, i.e. `timeSinceUngate`.
-1. If `timeSinceUngate < PreemptionTimeout`:
-    1. Schedule reconciliation in `PreemptionTimeout - timeSinceUngate` seconds to prevent a hypothetical deadlock (lost reconciles) and return.
+1. If `timeSinceUngate < SingleClusterPreemptionTimeout`:
+    1. Schedule reconciliation in `SingleClusterPreemptionTimeout - timeSinceUngate` seconds to prevent a hypothetical deadlock (lost reconciles) and return.
 1. Find a workload that contains:
     * `QuotaReserved` reason set to `PreemptionGated`.
     * The lowest `QuotaReserved` `LastTransitionTime`.
-    * The `kueue.x-k8s.io/preemption-gated` annotation with the `multi-kueue` gate (to ignore already ungated workloads).
-1. Ungate the workload and store `Now` in `PreviouslyUngatedAt`.
-1. Schedule a reconciliation in `PreemptionTimeout`.
-
-Until the need arises, the controller will maintain the `PreviouslyUngatedAt` time in the Kueue controller manager's memory.
-
-The preemption gates will be re-applied and the `PreviouslyUngatedAt` time reset upon the workload's eviction, restarting the process of preemption
-orchestration.
+    * Closed `kueue.x-k8s.io/multikueue` gate (to ignore already ungated workloads).
+1. Schedule a reconciliation in `SingleClusterPreemptionTimeout`.
 
 ### Kueue Scheduler
 
@@ -309,7 +302,7 @@ to implement this enhancement.
 
 The feature will be introduced behind a `SynchronizedPreemption` feature gate.
 
-The `PreemptionTimeout` will be configurable in the Kueue configuration.
+The `SingleClusterPreemptionTimeout` will be configurable in the Kueue configuration.
 
 - **Alpha**:
   - Feature implemented behind the feature gate, disabled by default.
