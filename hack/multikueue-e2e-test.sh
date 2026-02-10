@@ -86,8 +86,10 @@ kind_load "$MANAGER_KIND_CLUSTER_NAME" "$MANAGER_KUBECONFIG" &
 kind_load "$WORKER1_KIND_CLUSTER_NAME" "$WORKER1_KUBECONFIG" &
 kind_load "$WORKER2_KIND_CLUSTER_NAME" "$WORKER2_KUBECONFIG" &
 wait # for libraries installation
-# Merge kubeconfigs to one file to be used in tests now
-export KUBECONFIG="$MANAGER_KUBECONFIG:$WORKER1_KUBECONFIG:$WORKER2_KUBECONFIG"
+echo "Add contexts to default kubeconfig"
+$KIND export kubeconfig --name "$MANAGER_KIND_CLUSTER_NAME"
+$KIND export kubeconfig --name "$WORKER1_KIND_CLUSTER_NAME"
+$KIND export kubeconfig --name "$WORKER2_KIND_CLUSTER_NAME"
 kueue_deploy
 
 if [ "$E2E_RUN_ONLY_ENV" = "true" ]; then
