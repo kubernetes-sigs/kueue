@@ -169,13 +169,14 @@ func main() {
 		FilterProvider: filters.WithAuthenticationAndAuthorization,
 	}
 
+	var metricsCertWatcher *certwatcher.CertWatcher
 	if cfg.InternalCertManagement == nil || !*cfg.InternalCertManagement.Enable {
 		metricsCertPath := "/etc/kueue/metrics/certs"
 		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
 			"metrics-cert-path", metricsCertPath)
 
 		var err error
-		metricsCertWatcher, err := certwatcher.New(
+		metricsCertWatcher, err = certwatcher.New(
 			filepath.Join(metricsCertPath, "tls.crt"),
 			filepath.Join(metricsCertPath, "tls.key"),
 		)
@@ -276,6 +277,13 @@ func main() {
 	if err != nil {
 		setupLog.Error(err, "Unable to setup server version fetcher")
 		os.Exit(1)
+	}
+
+	if metricsCertWatcher != nil {
+		if err := mgr.Add(metricsCertWatcher); err != nil {
+			setupLog.Error(err, "Unable to start metrics certificate watcher")
+			os.Exit(1)
+		}
 	}
 
 	if err := setupProbeEndpoints(mgr, certsReady); err != nil {
