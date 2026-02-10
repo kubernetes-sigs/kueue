@@ -55,18 +55,23 @@ func TestMultiKueueAdapter(t *testing.T) {
 	}{
 		"sync creates missing remote statefulset": {
 			managersStatefulSets: []appsv1.StatefulSet{
-				*utiltestingstatefulset.MakeStatefulSet("statefulset1", TestNamespace).Obj(),
+				*utiltestingstatefulset.MakeStatefulSet("statefulset1", TestNamespace).
+					UID("manager-uid").
+					Obj(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "statefulset1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 			wantManagersStatefulSets: []appsv1.StatefulSet{
-				*utiltestingstatefulset.MakeStatefulSet("statefulset1", TestNamespace).Obj(),
+				*utiltestingstatefulset.MakeStatefulSet("statefulset1", TestNamespace).
+					UID("manager-uid").
+					Obj(),
 			},
 			wantWorkerStatefulSets: []appsv1.StatefulSet{
 				*utiltestingstatefulset.MakeStatefulSet("statefulset1", TestNamespace).
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-uid").
 					Obj(),
 			},
 		},
