@@ -47,6 +47,7 @@ const (
 	ConsistentDuration      = 1 * time.Second
 	ShortInterval           = 10 * time.Millisecond
 	Interval                = time.Millisecond * 250
+	LongInterval            = time.Second * 1
 )
 
 var (
