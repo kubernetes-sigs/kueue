@@ -26,7 +26,7 @@ cleanup() {
   echo "Cleaning up kueueviz processes"
   kill $BACKEND_PID $FRONTEND_PID
   cluster_collect_artifacts "$KIND_CLUSTER_NAME" ""
-  cluster_cleanup "$KIND_CLUSTER_NAME" ""
+  cluster_cleanup "$KIND_CLUSTER_NAME"
 }
 
 # Set trap to clean up on exit
