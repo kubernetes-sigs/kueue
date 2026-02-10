@@ -1264,6 +1264,13 @@ If `tolerationSeconds` is specified, Kueue waits for the duration before treatin
 only if all pods of the workload that have topology assignment to that node are terminating, in the failed state,
 or if they are unscheduled. In this case, Kueue can trigger node replacement.
 
+  While `NoSchedule` taint does not evict running pods (unlike `NoExecute`), Kueue triggers recovery for unscheduled or failed pods.
+  If a workload is assigned to a node that is tainted with `NoSchedule`, the pods will remain in a pending state because
+  the Kubernetes scheduler will not schedule them on that node.
+
+  Kueue also performs node replacement if pods fail or terminate after `NoSchedule` is assigned. Since the taint may indicate
+  an underlying node problem, replacement ensures the workload is not blocked by the unavailable node.
+
 For workloads for which a single Node replacement is possible, and the pods bound to the node are unscheduled (no `spec.nodeName` set),
 because they cannot run due to a taint, Kueue marks the pods as `Failed` and adds the following condition to the pods:
   ```yaml
