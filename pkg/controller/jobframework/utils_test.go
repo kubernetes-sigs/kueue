@@ -16,62 +16,6 @@ import (
 func TestSanitizePodSets(t *testing.T) {
 	testCases := map[string]struct {
 		podSets         []kueue.PodSet
-		expectedPodSets []kueue.PodSet
-	}{
-		"multiple pod sets with duplicates": {
-			podSets: []kueue.PodSet{
-				*utiltestingapi.MakePodSet("ps1", 1).
-					Containers(*utiltesting.MakeContainer().
-						Name("c1").
-						WithEnvVar(corev1.EnvVar{Name: "ENV1", Value: "value1"}).
-						WithEnvVar(corev1.EnvVar{Name: "ENV1", Value: "value2"}).
-						Obj()).
-					Obj(),
-				*utiltestingapi.MakePodSet("ps2", 1).
-					Containers(*utiltesting.MakeContainer().
-						Name("c2").
-						WithEnvVar(corev1.EnvVar{Name: "ENV2", Value: "value3"}).
-						WithEnvVar(corev1.EnvVar{Name: "ENV2", Value: "value4"}).
-						Obj()).
-					Obj(),
-			},
-			expectedPodSets: []kueue.PodSet{
-				*utiltestingapi.MakePodSet("ps1", 1).
-					Containers(*utiltesting.MakeContainer().
-						Name("c1").
-						WithEnvVar(corev1.EnvVar{Name: "ENV1", Value: "value2"}).
-						Obj()).
-					Obj(),
-				*utiltestingapi.MakePodSet("ps2", 1).
-					Containers(*utiltesting.MakeContainer().
-						Name("c2").
-						WithEnvVar(corev1.EnvVar{Name: "ENV2", Value: "value4"}).
-						Obj()).
-					Obj(),
-			},
-		},
-		"empty pod sets": {
-			podSets:         []kueue.PodSet{},
-			expectedPodSets: []kueue.PodSet{},
-		},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			features.SetEnable(features.SanitizePodSets, true)
-
-			jobframework.SanitizePodSets(tc.podSets)
-
-			if diff := cmp.Diff(tc.expectedPodSets, tc.podSets); diff != "" {
-				t.Errorf("unexpected difference: %s", diff)
-			}
-		})
-	}
-}
-
-func TestSanitizePodSet(t *testing.T) {
-	testCases := map[string]struct {
-		podSets         []kueue.PodSet
 		featureEnabled  bool
 		expectedPodSets []kueue.PodSet
 	}{
