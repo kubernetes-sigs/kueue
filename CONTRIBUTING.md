@@ -78,6 +78,6 @@ Kueue treats `pkg/features/kube_features.go` as the source of truth for every fe
 make generate-featuregates
 ```
 
-This command builds (and caches) Kubernetes' `compatibility_lifecycle` tool from a pinned Kubernetes git ref derived from the `k8s.io/code-generator` version in `hack/internal/tools/go.mod` (Dependabot-managed), then uses it to regenerate `test/compatibility_lifecycle/reference/versioned_feature_list.yaml` and copies the result to `site/data/featuregates/versioned_feature_list.yaml`. The docs under `site/content/*/docs/installation/_index.md` consume that YAML through the `feature-gates-table` shortcode, so no manual table edits are required.
+This command builds (and caches) Kubernetes' `compatibility_lifecycle` tool from a pinned Kubernetes git ref derived from the `k8s.io/code-generator` version in `hack/tools/go.mod` (Dependabot-managed), then uses it to regenerate `test/compatibility_lifecycle/reference/versioned_feature_list.yaml` and copies the result to `site/data/featuregates/versioned_feature_list.yaml`. The docs under `site/content/*/docs/installation/_index.md` consume that YAML through the `feature-gates-table` shortcode, so no manual table edits are required.
 
 CI enforces that the YAML and documentation stay in sync. Or simply rely on `make verify`, which now calls the verification target automatically.

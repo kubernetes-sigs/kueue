@@ -30,7 +30,7 @@ HELM="$ROOT_DIR/bin/helm"
 # Ensure tools are built
 echo "Ensuring tools are available..."
 cd "$ROOT_DIR"
-# Pass explicit versions to bypass broken 'go list' in hack/internal/tools
+# Pass explicit versions to bypass broken 'go list' in hack/tools
 make kind helm KIND_VERSION=v0.24.0 HELM_VERSION=v3.16.2
 cd "$SCRIPT_DIR/.."
 
