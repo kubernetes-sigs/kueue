@@ -160,7 +160,7 @@ func queueInadmissibleWorkloads(ctx context.Context, c *ClusterQueue, client cli
 // QueueInadmissibleWorkloads moves all inadmissibleWorkloads in
 // corresponding ClusterQueues to heap. If at least one workload queued,
 // we will broadcast the event.
-func (m *Manager) QueueInadmissibleWorkloads(ctx context.Context, cqNames sets.Set[kueue.ClusterQueueReference]) {
+func QueueInadmissibleWorkloads(ctx context.Context, m *Manager, cqNames sets.Set[kueue.ClusterQueueReference]) {
 	m.Lock()
 	defer m.Unlock()
 	if len(cqNames) == 0 {

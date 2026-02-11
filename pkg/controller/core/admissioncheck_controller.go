@@ -138,7 +138,7 @@ func (r *AdmissionCheckReconciler) Create(e event.TypedCreateEvent[*kueue.Admiss
 	log := r.logger()
 	log.WithValues("admissionCheck", klog.KObj(e.Object)).V(5).Info("Create event")
 	if cqNames := r.cache.AddOrUpdateAdmissionCheck(log, e.Object); len(cqNames) > 0 {
-		r.qManager.QueueInadmissibleWorkloads(context.Background(), cqNames)
+		qcache.QueueInadmissibleWorkloads(context.Background(), r.qManager, cqNames)
 	}
 	return true
 }
@@ -151,7 +151,7 @@ func (r *AdmissionCheckReconciler) Update(e event.TypedUpdateEvent[*kueue.Admiss
 		return true
 	}
 	if cqNames := r.cache.AddOrUpdateAdmissionCheck(log, e.ObjectNew); len(cqNames) > 0 {
-		r.qManager.QueueInadmissibleWorkloads(context.Background(), cqNames)
+		qcache.QueueInadmissibleWorkloads(context.Background(), r.qManager, cqNames)
 	}
 	return false
 }
@@ -162,7 +162,7 @@ func (r *AdmissionCheckReconciler) Delete(e event.TypedDeleteEvent[*kueue.Admiss
 	log.WithValues("admissionCheck", klog.KObj(e.Object)).V(5).Info("Delete event")
 
 	if cqNames := r.cache.DeleteAdmissionCheck(log, e.Object); len(cqNames) > 0 {
-		r.qManager.QueueInadmissibleWorkloads(context.Background(), cqNames)
+		qcache.QueueInadmissibleWorkloads(context.Background(), r.qManager, cqNames)
 	}
 	return true
 }
