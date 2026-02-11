@@ -378,7 +378,7 @@ func TestQueueInadmissibleWorkloads(t *testing.T) {
 			// Reset the counter before testing. Setup operations also trigger the log.
 			moveWorkloadsLogCount = 0
 
-			manager.QueueInadmissibleWorkloads(ctx, tc.cqNames)
+			QueueInadmissibleWorkloads(ctx, manager, tc.cqNames)
 
 			if diff := cmp.Diff(tc.wantInadmissible, manager.DumpInadmissible()); diff != "" {
 				t.Errorf("Unexpected inadmissible workloads (-want +got):\n%s", diff)

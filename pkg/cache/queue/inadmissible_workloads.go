@@ -22,9 +22,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -89,7 +91,7 @@ func requeueWorkloadsCQ(ctx context.Context, m *Manager, cq *ClusterQueue) bool 
 	if cq.HasParent() {
 		return requeueWorkloadsCohort(ctx, m, cq.Parent())
 	}
-	return QueueInadmissibleWorkloads(ctx, cq, m.client)
+	return queueInadmissibleWorkloads(ctx, cq, m.client)
 }
 
 // moveWorkloadsCohorts checks for a cycle, the moves all inadmissible
@@ -114,7 +116,7 @@ func requeueWorkloadsCohort(ctx context.Context, m *Manager, cohort *cohort) boo
 func requeueWorkloadsCohortSubtree(ctx context.Context, m *Manager, cohort *cohort) bool {
 	queued := false
 	for _, clusterQueue := range cohort.ChildCQs() {
-		queued = QueueInadmissibleWorkloads(ctx, clusterQueue, m.client) || queued
+		queued = queueInadmissibleWorkloads(ctx, clusterQueue, m.client) || queued
 	}
 	for _, childCohort := range cohort.ChildCohorts() {
 		queued = requeueWorkloadsCohortSubtree(ctx, m, childCohort) || queued
@@ -122,9 +124,9 @@ func requeueWorkloadsCohortSubtree(ctx context.Context, m *Manager, cohort *coho
 	return queued
 }
 
-// QueueInadmissibleWorkloads moves all workloads from inadmissibleWorkloads to heap.
+// queueInadmissibleWorkloads moves all workloads from inadmissibleWorkloads to heap.
 // If at least one workload is moved, returns true, otherwise returns false.
-func QueueInadmissibleWorkloads(ctx context.Context, c *ClusterQueue, client client.Client) bool {
+func queueInadmissibleWorkloads(ctx context.Context, c *ClusterQueue, client client.Client) bool {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	log := ctrl.LoggerFrom(ctx)
@@ -148,4 +150,40 @@ func QueueInadmissibleWorkloads(ctx context.Context, c *ClusterQueue, client cli
 	c.inadmissibleWorkloads.replaceAll(newInadmissibleWorkloads)
 	log.V(5).Info("Moved all workloads from inadmissibleWorkloads back to heap", "clusterQueue", c.name)
 	return moved
+}
+
+// QueueInadmissibleWorkloads moves all inadmissibleWorkloads in
+// corresponding ClusterQueues to heap. If at least one workload queued,
+// we will broadcast the event.
+func QueueInadmissibleWorkloads(ctx context.Context, m *Manager, cqNames sets.Set[kueue.ClusterQueueReference]) {
+	m.Lock()
+	defer m.Unlock()
+	if len(cqNames) == 0 {
+		return
+	}
+
+	// Track processed cohort roots to avoid requeuing the same hierarchy
+	// multiple times when multiple CQs in cqNames share a root.
+	processedRoots := sets.New[kueue.CohortReference]()
+	var queued bool
+	for name := range cqNames {
+		cq := m.hm.ClusterQueue(name)
+		if cq == nil {
+			continue
+		}
+		if cq.HasParent() && !hierarchy.HasCycle(cq.Parent()) {
+			rootName := cq.Parent().getRootUnsafe().GetName()
+			if processedRoots.Has(rootName) {
+				continue
+			}
+			processedRoots.Insert(rootName)
+		}
+		if requeueWorkloadsCQ(ctx, m, cq) {
+			queued = true
+		}
+	}
+
+	if queued {
+		m.Broadcast()
+	}
 }
