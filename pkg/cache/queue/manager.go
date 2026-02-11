@@ -24,7 +24,6 @@ import (
 
 	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -688,42 +687,6 @@ func (m *Manager) QueueAssociatedInadmissibleWorkloadsAfter(ctx context.Context,
 	}
 
 	if requeueWorkloadsCQ(ctx, m, cq) {
-		m.Broadcast()
-	}
-}
-
-// QueueInadmissibleWorkloads moves all inadmissibleWorkloads in
-// corresponding ClusterQueues to heap. If at least one workload queued,
-// we will broadcast the event.
-func (m *Manager) QueueInadmissibleWorkloads(ctx context.Context, cqNames sets.Set[kueue.ClusterQueueReference]) {
-	m.Lock()
-	defer m.Unlock()
-	if len(cqNames) == 0 {
-		return
-	}
-
-	// Track processed cohort roots to avoid requeuing the same hierarchy
-	// multiple times when multiple CQs in cqNames share a root.
-	processedRoots := sets.New[kueue.CohortReference]()
-	var queued bool
-	for name := range cqNames {
-		cq := m.hm.ClusterQueue(name)
-		if cq == nil {
-			continue
-		}
-		if cq.HasParent() && !hierarchy.HasCycle(cq.Parent()) {
-			rootName := cq.Parent().getRootUnsafe().GetName()
-			if processedRoots.Has(rootName) {
-				continue
-			}
-			processedRoots.Insert(rootName)
-		}
-		if requeueWorkloadsCQ(ctx, m, cq) {
-			queued = true
-		}
-	}
-
-	if queued {
 		m.Broadcast()
 	}
 }
