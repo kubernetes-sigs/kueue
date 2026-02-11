@@ -80,7 +80,7 @@ Moreover, a general preemption gating/preemption signaling mechanism can be used
 
 The proposed solution is to extend the Workload API with the concept of `PreemptionGate`s as the mechanism controlling a workload's ability to preempt and introduce a
 new `QuotaReservationBlocked` condition in the Workload's status, which will be used to signal that it's ready to preempt but was gated.
-The manager cluster's MultiKueue controller that watches the replicated Workload objects will observe the condition and make a decision whether to open the gate in
+The manager cluster's MultiKueue controller that watches the replicated Workload objects will observe the condition and make a decision whether to disactivate the gate in
 the replica, allowing it to proceed.
 
 ```mermaid
@@ -110,8 +110,10 @@ sequenceDiagram
 ```
 
 The proposal is to preserve as much of the existing admission semantics as possible, for example respecting the selected [`FlavorFungibility`](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#flavorfungibility) - the preemption gate will not impact the scheduler's flavor assignment process and preserve the semantics of flavor fungibility.
+Among other things, in practice this means that:
+* A `StrictFIFO` queue will be blocked by a gated workload as long as gate is active.
 
-The controller responsible for dispatching workloads in a MultiKueue setup will be responsible for adding the preemption gate to the workloads they manage.
+The controller responsible for dispatching workloads in MultiKueue will be responsible for adding the preemption gate to the workloads they manage.
 
 If a preemption fails for some reason or the workload is not admitted after preemption, a **timeout mechanism** will ensure that the gate is eventually removed for other replica workloads so that
 another worker gets a chance to preempt. If a worker was ungated, the `SingleClusterPreemptionTimeout` elapsed and the workload is still pending, another worker can be considered for ungating.
@@ -169,11 +171,11 @@ type WorkloadSpec struct {
 type GateState string
 
 const (
-  // GateStateOpen means that the gate is not active.
-  GateStateOpen GateState = "Open"
+  // GateStateActive means that the gate is active.
+  GateStateActive GateState = "Active"
 
-  // GateStateClosed means that the gate is active.
-  GateStateClosed GateState = "Closed"
+  // GateStateInactive means that the gate is not active.
+  GateStateInactive GateState = "Inactive"
 )
 
 type PreemptionGateState struct {
@@ -182,7 +184,7 @@ type PreemptionGateState struct {
   Name string `json:"name"`
 
   // state of the preemption gate. One of
-  // +kubebuilder:validation:Enum=Open;Closed
+  // +kubebuilder:validation:Enum=Active;Inactive
   // +required
   State GateState `json:"state"`
 
@@ -264,15 +266,15 @@ A manager-level preemption synchronization controller will be responsible for un
 This controller will watch for workloads to change their `QuotaReservationBlocked` conditions and idempotently react to such changes:
 
 1. Return if any of the replicated workloads already has `QuotaReserved: true`.
-1. Calculate `PreviouslyUngatedAt` as the maximum `LastTransitionTime` on `Open` gates `kueue.x-k8s.io/multikueue` across the replicated workloads.
+1. Calculate `PreviouslyUngatedAt` as the maximum `LastTransitionTime` on `Inactive` gates `kueue.x-k8s.io/multikueue` across the replicated workloads.
 1. Calculate `Now - PreviouslyUngatedAt`, i.e. `timeSinceUngate`.
 1. If `timeSinceUngate < SingleClusterPreemptionTimeout`:
     1. Schedule reconciliation in `SingleClusterPreemptionTimeout - timeSinceUngate` seconds to prevent a hypothetical deadlock (lost reconciles) and return.
 1. Find a workload that contains:
     * `QuotaReservationBlocked` reason set to `PreemptionGated`.
     * The lowest `QuotaReservationBlocked` `LastTransitionTime`.
-    * Open `kueue.x-k8s.io/multikueue` gate (to ignore already ungated workloads).
-1. Mark the `kueue.x-k8s.io/multikueue` gate of the found workload as `Closed`.
+    * Active `kueue.x-k8s.io/multikueue` gate (to ignore already ungated workloads).
+1. Mark the `kueue.x-k8s.io/multikueue` gate of the found workload as `Inactive`.
 1. Schedule a reconciliation in `SingleClusterPreemptionTimeout`.
 
 ### Kueue Scheduler
@@ -407,7 +409,7 @@ it manually, eliminating the risk of inconsistent states (e.g. `QuotaReserved: t
 
 Instead of creating a new `Condition`/extending an existing one, the `PreemptionGateState` could have a `LastTriggeredAt` field.
 This has the advantage of being gate-specific rather Workload-level, allowing to trace which gate was triggered (in cases where
-one gate is open and another one is closed, only the closed one would update `LastTriggeredAt`).
+one gate is inactive and another one is active, only the active one would update `LastTriggeredAt`).
 
 **Reasons for discarding/deferring**
 
