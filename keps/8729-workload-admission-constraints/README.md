@@ -10,6 +10,7 @@
     - [Story 1](#story-1)
     - [Story 2](#story-2)
     - [Story 3](#story-3)
+    - [Story 4](#story-4)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [Feature Gate](#feature-gate)
@@ -92,13 +93,32 @@ As @mwielgus nicely put it, the **“Gentle Giant”** is a helpful analogy. It 
 Such a job is patient rather than aggressive: it is willing to wait for capacity to become available naturally and only then begin execution. In this model, priority expresses *stability guarantees*, not impatience or urgency.
 
 #### Story 3
-**Improve multi-cluster workload placement**
 
-As a MultiKueue developer, I want to improve multi-cluster workload placement by avoiding race-based admission that can lead to unnecessary preemption across clusters.
+**Enable workload owners to express multi-cluster admission intent**
 
-Today MultiKueue dispatching is race-driven: workloads are sent to multiple clusters, and the first cluster to admit the workload wins, regardless of placement quality. This can result in workloads being admitted using borrowing or preemption on one cluster, even when another cluster could admit the same workload without either. In some cases, workloads may even be preempted on clusters that ultimately do not run them.
+As a workload owner using MultiKueue, I want to express admission constraints that apply consistently at both the 
+MultiKueue manager level and the worker-cluster level, so that my workload avoids unnecessary disruption such as 
+borrowing or preemption when alternative placements exist.
 
-By expressing scheduling preferences as admission constraints, a dispatcher can prefer higher-quality placements first (for example, no borrowing, no preemption), reducing unnecessary preemption and making placement decisions more deterministic.
+Today, MultiKueue dispatching is largely race-driven: workloads are sent to multiple clusters, and the first cluster 
+to admit the workload wins, regardless of placement quality. This can result in workloads being admitted using 
+borrowing or preemption on one cluster, even when another cluster could admit the same workload without either.
+
+By expressing scheduling intent as admission constraints that are honored uniformly across MultiKueue and worker 
+clusters, a workload owner can ensure that higher-quality placements, for example, avoiding borrowing or preemption, are attempted first. 
+This reduces unnecessary disruption and makes placement behavior more predictable, without requiring global placement optimization.
+
+#### Story 4
+
+**Structure multi-cluster admission attempts to reduce race effects**
+
+As a MultiKueue developer, I want the dispatcher to structure admission attempts in phases so that constraint-respecting 
+placements are evaluated before relaxing constraints, reducing race-driven disruption across clusters.
+
+There is an ongoing parallel effort in [KEP-8303: MultiKueue Synchronized Preemptions](https://github.com/kubernetes-sigs/kueue/pull/8985) 
+that has significant overlap with this story. 
+While this story can be viewed as complementary, it is possible that both efforts will converge, 
+and that the functionality described here may ultimately be merged into or absorbed by KEP-8303
 
 ### Risks and Mitigations
 
