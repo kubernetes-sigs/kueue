@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -88,11 +89,11 @@ func (iw *inadmissibleWorkloads) replaceAll(newMap map[workload.Reference]*workl
 // WARNING: must hold a read-lock on the manager when calling,
 // or otherwise risk encountering an infinite loop if a Cohort
 // cycle is introduced.
-func (m *Manager) requeueWorkloadsCQ(ctx context.Context, cq *ClusterQueue) bool {
+func requeueWorkloadsCQ(ctx context.Context, m *Manager, cq *ClusterQueue) bool {
 	if cq.HasParent() {
-		return m.requeueWorkloadsCohort(ctx, cq.Parent())
+		return requeueWorkloadsCohort(ctx, m, cq.Parent())
 	}
-	return cq.QueueInadmissibleWorkloads(ctx, m.client)
+	return QueueInadmissibleWorkloads(ctx, cq, m.client)
 }
 
 // moveWorkloadsCohorts checks for a cycle, the moves all inadmissible
@@ -102,7 +103,7 @@ func (m *Manager) requeueWorkloadsCQ(ctx context.Context, cq *ClusterQueue) bool
 // WARNING: must hold a read-lock on the manager when calling,
 // or otherwise risk encountering an infinite loop if a Cohort
 // cycle is introduced.
-func (m *Manager) requeueWorkloadsCohort(ctx context.Context, cohort *cohort) bool {
+func requeueWorkloadsCohort(ctx context.Context, m *Manager, cohort *cohort) bool {
 	log := ctrl.LoggerFrom(ctx)
 
 	if hierarchy.HasCycle(cohort) {
@@ -117,7 +118,7 @@ func (m *Manager) requeueWorkloadsCohort(ctx context.Context, cohort *cohort) bo
 func requeueWorkloadsCohortSubtree(ctx context.Context, m *Manager, cohort *cohort) bool {
 	queued := false
 	for _, clusterQueue := range cohort.ChildCQs() {
-		queued = clusterQueue.QueueInadmissibleWorkloads(ctx, m.client) || queued
+		queued = QueueInadmissibleWorkloads(ctx, clusterQueue, m.client) || queued
 	}
 	for _, childCohort := range cohort.ChildCohorts() {
 		queued = requeueWorkloadsCohortSubtree(ctx, m, childCohort) || queued
@@ -127,7 +128,7 @@ func requeueWorkloadsCohortSubtree(ctx context.Context, m *Manager, cohort *coho
 
 // QueueInadmissibleWorkloads moves all workloads from inadmissibleWorkloads to heap.
 // If at least one workload is moved, returns true, otherwise returns false.
-func (c *ClusterQueue) QueueInadmissibleWorkloads(ctx context.Context, client client.Client) bool {
+func QueueInadmissibleWorkloads(ctx context.Context, c *ClusterQueue, client client.Client) bool {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	log := ctrl.LoggerFrom(ctx)
