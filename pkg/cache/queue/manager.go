@@ -251,7 +251,7 @@ func (m *Manager) AddOrUpdateCohort(ctx context.Context, cohort *kueue.Cohort) {
 
 	m.hm.AddCohort(cohortName)
 	m.hm.UpdateCohortEdge(cohortName, cohort.Spec.ParentName)
-	if m.requeueWorkloadsCohort(ctx, m.hm.Cohort(cohortName)) {
+	if requeueWorkloadsCohort(ctx, m, m.hm.Cohort(cohortName)) {
 		m.Broadcast()
 	}
 }
@@ -299,7 +299,7 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 		}
 	}
 
-	queued := m.requeueWorkloadsCQ(ctx, cqImpl)
+	queued := requeueWorkloadsCQ(ctx, m, cqImpl)
 	m.reportPendingWorkloads(kueue.ClusterQueueReference(cq.Name), cqImpl)
 
 	// needs to be iterated over again here incase inadmissible workloads were added by requeueWorkloadsCQ
@@ -337,7 +337,7 @@ func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue
 
 	// TODO(#8): Selectively move workloads based on the exact event.
 	// If any workload becomes admissible or the queue becomes active.
-	if (specUpdated && m.requeueWorkloadsCQ(ctx, cqImpl)) || (!oldActive && cqImpl.Active()) {
+	if (specUpdated && requeueWorkloadsCQ(ctx, m, cqImpl)) || (!oldActive && cqImpl.Active()) {
 		m.reportPendingWorkloads(cqName, cqImpl)
 		if features.Enabled(features.LocalQueueMetrics) {
 			for _, q := range m.localQueues {
@@ -687,7 +687,7 @@ func (m *Manager) QueueAssociatedInadmissibleWorkloadsAfter(ctx context.Context,
 		return
 	}
 
-	if m.requeueWorkloadsCQ(ctx, cq) {
+	if requeueWorkloadsCQ(ctx, m, cq) {
 		m.Broadcast()
 	}
 }
@@ -718,7 +718,7 @@ func (m *Manager) QueueInadmissibleWorkloads(ctx context.Context, cqNames sets.S
 			}
 			processedRoots.Insert(rootName)
 		}
-		if m.requeueWorkloadsCQ(ctx, cq) {
+		if requeueWorkloadsCQ(ctx, m, cq) {
 			queued = true
 		}
 	}
