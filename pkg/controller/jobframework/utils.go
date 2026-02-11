@@ -47,7 +47,7 @@ func SanitizePodSets(podSets []kueue.PodSet) {
 }
 
 // SanitizePodSet sanitizes a single PodSet by removing duplicate environment
-// variables from all containers in its pod template, but only if the
+// variables from all containers and initContainers in its pod template, but only if the
 // SanitizePodSets feature gate is enabled.
 func SanitizePodSet(podSet *kueue.PodSet) {
 	if !features.Enabled(features.SanitizePodSets) {
@@ -55,13 +55,11 @@ func SanitizePodSet(podSet *kueue.PodSet) {
 	}
 
 	for containerIndex := range podSet.Template.Spec.Containers {
-		container := &podSet.Template.Spec.Containers[containerIndex]
-		sanitizeContainer(container)
+		sanitizeContainer(&podSet.Template.Spec.Containers[containerIndex])
 	}
 
 	for containerIndex := range podSet.Template.Spec.InitContainers {
-		container := &podSet.Template.Spec.InitContainers[containerIndex]
-		sanitizeContainer(container)
+		sanitizeContainer(&podSet.Template.Spec.InitContainers[containerIndex])
 	}
 }
 
