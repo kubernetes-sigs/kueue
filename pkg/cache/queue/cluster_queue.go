@@ -27,7 +27,6 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -374,35 +373,6 @@ func (c *ClusterQueue) forgetInflightByKey(key workload.Reference) {
 	if c.inflight != nil && workload.Key(c.inflight.Obj) == key {
 		c.inflight = nil
 	}
-}
-
-// QueueInadmissibleWorkloads moves all workloads from inadmissibleWorkloads to heap.
-// If at least one workload is moved, returns true, otherwise returns false.
-func (c *ClusterQueue) QueueInadmissibleWorkloads(ctx context.Context, client client.Client) bool {
-	c.rwm.Lock()
-	defer c.rwm.Unlock()
-	log := ctrl.LoggerFrom(ctx)
-	c.queueInadmissibleCycle = c.popCycle
-	if c.inadmissibleWorkloads.empty() {
-		return false
-	}
-	log.V(2).Info("Resetting the head of the ClusterQueue", "clusterQueue", c.name)
-	inadmissibleWorkloads := make(map[workload.Reference]*workload.Info)
-	moved := false
-	c.inadmissibleWorkloads.forEach(func(key workload.Reference, wInfo *workload.Info) bool {
-		ns := corev1.Namespace{}
-		err := client.Get(ctx, types.NamespacedName{Name: wInfo.Obj.Namespace}, &ns)
-		if err != nil || !c.namespaceSelector.Matches(labels.Set(ns.Labels)) || !c.backoffWaitingTimeExpired(wInfo) {
-			inadmissibleWorkloads[key] = wInfo
-		} else {
-			moved = c.heap.PushIfNotPresent(wInfo) || moved
-		}
-		return true
-	})
-
-	c.inadmissibleWorkloads.replaceAll(inadmissibleWorkloads)
-	log.V(5).Info("Moved all workloads from inadmissibleWorkloads back to heap", "clusterQueue", c.name)
-	return moved
 }
 
 // PendingTotal returns the total number of pending workloads.
