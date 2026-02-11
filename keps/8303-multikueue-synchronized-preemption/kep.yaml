@@ -3,7 +3,7 @@ kep-number: 8303
 authors:
   - "@kshalot"
 status: provisional
-creation-date: yyyy-mm-dd
+creation-date: 2026-02-04
 reviewers:
   - "@ichekrygin"
   - "@olekz"
