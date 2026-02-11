@@ -59,6 +59,12 @@ func (iw inadmissibleWorkloads) empty() bool {
 	return len(iw) == 0
 }
 
+// hasKey returns true if the workload exists in the inadmissible workloads map.
+func (iw inadmissibleWorkloads) hasKey(key workload.Reference) bool {
+	_, ok := iw[key]
+	return ok
+}
+
 // forEach iterates over all inadmissible workloads and calls the provided function.
 // The iteration can be stopped early by returning false from the function.
 func (iw inadmissibleWorkloads) forEach(f func(key workload.Reference, wInfo *workload.Info) bool) {
