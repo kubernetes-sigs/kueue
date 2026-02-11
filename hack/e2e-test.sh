@@ -32,7 +32,7 @@ function cleanup {
     cluster_collect_artifacts "$KIND_CLUSTER_NAME" ""
 
     if e2e_should_delete_cluster; then
-        cluster_cleanup "$KIND_CLUSTER_NAME" ""
+        cluster_cleanup "$KIND_CLUSTER_NAME"
     else
         echo "Keeping kind cluster '$KIND_CLUSTER_NAME' (E2E_MODE=${E2E_MODE})."
         echo "To delete it:"

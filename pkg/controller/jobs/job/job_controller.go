@@ -330,8 +330,7 @@ func (j *Job) PodsReady(ctx context.Context) bool {
 
 func (j *Job) CanDefaultManagedBy() bool {
 	jobSpecManagedBy := j.Spec.ManagedBy
-	return features.Enabled(features.MultiKueueBatchJobWithManagedBy) &&
-		features.Enabled(features.MultiKueue) &&
+	return features.Enabled(features.MultiKueue) &&
 		(jobSpecManagedBy == nil || *jobSpecManagedBy == batchv1.JobControllerName)
 }
 

@@ -24,7 +24,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -1173,10 +1172,8 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 	log := ctrl.LoggerFrom(ctx)
 	if features.Enabled(features.MultiKueue) {
 		_, isComposable := job.(ComposableJob)
-		isBatchJobWithoutManagedBy := job.GVK() == batchv1.SchemeGroupVersion.WithKind("Job") &&
-			!features.Enabled(features.MultiKueueBatchJobWithManagedBy)
 
-		if isComposable || isBatchJobWithoutManagedBy {
+		if isComposable {
 			skip, err := admissioncheck.ShouldSkipLocalExecution(ctx, r.client, wl)
 			if err != nil {
 				log.V(3).Info("Failed to check for MultiKueue admission check", "workload", klog.KObj(wl), "error", err)

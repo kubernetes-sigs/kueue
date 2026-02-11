@@ -113,6 +113,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "0.17"
 - name: MultiKueueClusterProfile
   versionedSpecs:
   - default: false
