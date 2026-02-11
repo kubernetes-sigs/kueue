@@ -20,7 +20,7 @@ VERIFY_NPROCS ?= 8
 # The final step of `make verify` enforces that these paths have:
 # - no unstaged/staged diffs (`git diff --exit-code`)
 # - no untracked files (e.g. newly generated files not added to git)
-PATHS_TO_VERIFY := config/components apis charts/kueue client-go site/ netlify.toml
+PATHS_TO_VERIFY := config/components apis charts/kueue client-go keps site/ netlify.toml
 
 .PHONY: verify
 ## Main target used by CI and local development.
@@ -67,7 +67,7 @@ verify-go-prereqs: generate-code generate-mocks
 
 .PHONY: verify-docs-prereqs
 verify-docs-prereqs: ## Prerequisites for docs/site checks.
-verify-docs-prereqs: generate-apiref generate-kueuectl-docs generate-metrics-tables generate-featuregates sync-hugo-version
+verify-docs-prereqs: generate-apiref generate-kueuectl-docs generate-metrics-tables generate-featuregates sync-hugo-version toc-update
 
 .PHONY: verify-helm-prereqs
 verify-helm-prereqs: ## Prerequisites for Helm checks.
@@ -81,7 +81,7 @@ verify-tree-prereqs: verify-go-prereqs verify-docs-prereqs verify-helm-prereqs
 ## Read-only verification targets that should not mutate the repo.
 ## Add new check-only targets here.
 verify-checks: ## Phase 2 (parallel): checks that should run after generation completes.
-verify-checks: verify-ci-lint verify-lint-api verify-fmt-verify verify-shell-lint verify-toc-verify verify-helm-verify verify-helm-unit-test verify-npm-depcheck
+verify-checks: verify-ci-lint verify-lint-api verify-fmt-verify verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck
 
 # ---- Shared check recipes -------------------------------------------------
 # Each recipe is stored in a variable so that both the lightweight standalone
@@ -118,10 +118,6 @@ endef
 
 define _shell_lint_recipe
 $(PROJECT_DIR)/hack/shellcheck/verify.sh
-endef
-
-define _toc_verify_recipe
-./hack/verify-toc.sh
 endef
 
 define _helm_verify_recipe
@@ -163,10 +159,6 @@ verify-fmt-verify: verify-tree-prereqs ## Verify formatting after generation
 .PHONY: verify-shell-lint
 verify-shell-lint: verify-tree-prereqs ## Shell lint after generation
 	$(_shell_lint_recipe)
-
-.PHONY: verify-toc-verify
-verify-toc-verify: verify-tree-prereqs mdtoc ## TOC verification after generation
-	$(_toc_verify_recipe)
 
 .PHONY: verify-helm-verify
 verify-helm-verify: verify-tree-prereqs helm ## Helm verification after generation
@@ -213,10 +205,6 @@ fmt-verify: ## Verify Go code formatting (no changes allowed).
 .PHONY: shell-lint
 shell-lint: ## Run shell script linting (via shellcheck).
 	$(_shell_lint_recipe)
-
-.PHONY: toc-verify
-toc-verify: mdtoc ## Verify markdown TOCs are up-to-date.
-	$(_toc_verify_recipe)
 
 .PHONY: helm-verify
 helm-verify: helm helm-lint ## Validate Helm chart rendering with various configuration combinations.
