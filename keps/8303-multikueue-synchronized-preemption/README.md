@@ -300,7 +300,7 @@ to implement this enhancement.
 
 ### Graduation Criteria
 
-The feature will be introduced behind a `SynchronizedPreemption` feature gate.
+The feature will be introduced behind a `MultiKueueOrchestratedPreemption` feature gate.
 
 The `SingleClusterPreemptionTimeout` will be configurable in the Kueue configuration.
 
