@@ -431,13 +431,12 @@ func (c *ClusterQueue) pendingActiveInLocalQueue(lqRef utilqueue.LocalQueueRefer
 // workloads that were already tried and are waiting for cluster conditions
 // to change to potentially become admissible.
 func (c *ClusterQueue) pendingInadmissibleInLocalQueue(lqRef utilqueue.LocalQueueReference) (inadmissible int) {
-	c.inadmissibleWorkloads.forEach(func(_ workload.Reference, wl *workload.Info) bool {
+	for _, wl := range c.inadmissibleWorkloads {
 		wlLqKey := utilqueue.KeyFromWorkload(wl.Obj)
 		if wlLqKey == lqRef {
 			inadmissible++
 		}
-		return true
-	})
+	}
 	return
 }
 
@@ -500,10 +499,10 @@ func (c *ClusterQueue) Dump() ([]workload.Reference, bool) {
 func (c *ClusterQueue) DumpInadmissible() ([]workload.Reference, bool) {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
-	if len(c.inadmissibleWorkloads) == 0 {
+	if c.inadmissibleWorkloads.empty() {
 		return nil, false
 	}
-	elements := make([]workload.Reference, 0, len(c.inadmissibleWorkloads))
+	elements := make([]workload.Reference, 0, c.inadmissibleWorkloads.len())
 	for _, info := range c.inadmissibleWorkloads {
 		elements = append(elements, workload.Key(info.Obj))
 	}
@@ -534,7 +533,7 @@ func (c *ClusterQueue) Info(key workload.Reference) *workload.Info {
 func (c *ClusterQueue) totalElements() []*workload.Info {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
-	totalLen := c.heap.Len() + len(c.inadmissibleWorkloads)
+	totalLen := c.heap.Len() + c.inadmissibleWorkloads.len()
 	elements := make([]*workload.Info, 0, totalLen)
 	elements = append(elements, c.heap.List()...)
 	for _, e := range c.inadmissibleWorkloads {

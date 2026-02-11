@@ -59,18 +59,14 @@ func (iw inadmissibleWorkloads) empty() bool {
 	return len(iw) == 0
 }
 
-// forEach iterates over all inadmissible workloads and calls the provided function.
-// The iteration can be stopped early by returning false from the function.
-func (iw inadmissibleWorkloads) forEach(f func(key workload.Reference, wInfo *workload.Info) bool) {
-	for key, wInfo := range iw {
-		if !f(key, wInfo) {
-			return
-		}
-	}
+// hasKey returns true if the workload exists in the inadmissible workloads map.
+func (iw inadmissibleWorkloads) hasKey(key workload.Reference) bool {
+	_, ok := iw[key]
+	return ok
 }
 
 // replaceAll replaces all inadmissible workloads with the provided map.
-func (iw *inadmissibleWorkloads) replaceAll(newMap map[workload.Reference]*workload.Info) {
+func (iw *inadmissibleWorkloads) replaceAll(newMap inadmissibleWorkloads) {
 	*iw = newMap
 }
 
@@ -137,20 +133,19 @@ func QueueInadmissibleWorkloads(ctx context.Context, c *ClusterQueue, client cli
 		return false
 	}
 	log.V(2).Info("Resetting the head of the ClusterQueue", "clusterQueue", c.name)
-	inadmissibleWorkloads := make(map[workload.Reference]*workload.Info)
+	newInadmissibleWorkloads := make(inadmissibleWorkloads)
 	moved := false
-	c.inadmissibleWorkloads.forEach(func(key workload.Reference, wInfo *workload.Info) bool {
+	for key, wInfo := range c.inadmissibleWorkloads {
 		ns := corev1.Namespace{}
 		err := client.Get(ctx, types.NamespacedName{Name: wInfo.Obj.Namespace}, &ns)
 		if err != nil || !c.namespaceSelector.Matches(labels.Set(ns.Labels)) || !c.backoffWaitingTimeExpired(wInfo) {
-			inadmissibleWorkloads[key] = wInfo
+			newInadmissibleWorkloads.insert(key, wInfo)
 		} else {
 			moved = c.heap.PushIfNotPresent(wInfo) || moved
 		}
-		return true
-	})
+	}
 
-	c.inadmissibleWorkloads.replaceAll(inadmissibleWorkloads)
+	c.inadmissibleWorkloads.replaceAll(newInadmissibleWorkloads)
 	log.V(5).Info("Moved all workloads from inadmissibleWorkloads back to heap", "clusterQueue", c.name)
 	return moved
 }
