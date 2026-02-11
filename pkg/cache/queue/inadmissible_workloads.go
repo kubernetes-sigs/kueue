@@ -70,7 +70,7 @@ func (iw inadmissibleWorkloads) forEach(f func(key workload.Reference, wInfo *wo
 }
 
 // replaceAll replaces all inadmissible workloads with the provided map.
-func (iw *inadmissibleWorkloads) replaceAll(newMap map[workload.Reference]*workload.Info) {
+func (iw *inadmissibleWorkloads) replaceAll(newMap inadmissibleWorkloads) {
 	*iw = newMap
 }
 
