@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -641,6 +642,26 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 2)
 				util.ExpectQuotaReservedWorkloadsTotalMetric(prodClusterQ, "", 4)
 				util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 4)
+
+				ginkgo.By("when PriorityBoost is enabled, workload with effective priority is admitted over a lower-priority pending workload", func() {
+					if !features.Enabled(features.PriorityBoost) {
+						features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PriorityBoost, true)
+					}
+					wlEffectivePrio := utiltestingapi.MakeWorkload("wl-effective-priority", ns.Name).
+						Queue(kueue.LocalQueueName(prodQueue.Name)).
+						Request(corev1.ResourceCPU, "2").
+						Priority(0).
+						Annotation(constants.PriorityBoostAnnotationKey, "50").
+						Obj()
+					// Create the boosted workload first; it cannot fit yet (only 1 CPU free) so it
+					// goes inadmissible alongside wlLow.  Finishing wlMid1 frees 2 CPU, causing
+					// both wlLow and wlEffectivePrio to be re-queued.  Because the scheduler heap
+					// now orders by EffectivePriority, wlEffectivePrio (eff=50) is picked before
+					// wlLow (eff=0) and gets the admission slot.
+					util.MustCreate(ctx, k8sClient, wlEffectivePrio)
+					util.FinishWorkloads(ctx, k8sClient, wlMid1)
+					util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wlEffectivePrio)
+				})
 			})
 		})
 

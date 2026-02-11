@@ -664,8 +664,8 @@ func queueOrderingFunc(ctx context.Context, cl client.Client, wo workload.Orderi
 			return 1
 		}
 
-		p1 := utilpriority.Priority(a.Obj)
-		p2 := utilpriority.Priority(b.Obj)
+		p1 := utilpriority.EffectivePriority(a.Obj)
+		p2 := utilpriority.EffectivePriority(b.Obj)
 		// Higher priority comes first (reverse order).
 		if cmpResult := cmp.Compare(p2, p1); cmpResult != 0 {
 			return cmpResult

@@ -24,6 +24,7 @@ import (
 	"k8s.io/component-base/featuregate"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -38,11 +39,11 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 	candidate := utiltestingapi.MakeWorkload("candidate", metav1.NamespaceDefault)
 
 	testCases := map[string]struct {
-		features  map[featuregate.Feature]bool
-		preemptor *kueue.Workload
-		candidate *kueue.Workload
-		policy    kueue.PreemptionPolicy
-		want      bool
+		featureGates map[featuregate.Feature]bool
+		preemptor    *kueue.Workload
+		candidate    *kueue.Workload
+		policy       kueue.PreemptionPolicy
+		want         bool
 	}{
 		"LowerPriority: preemptor has higher priority": {
 			preemptor: preemptor.Clone().Priority(10).Obj(),
@@ -75,7 +76,7 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 			want:      true, // candidate is newer
 		},
 		"LowerOrNewerEqualPriority with SchedulerTimestampPreemptionBuffer: preemptor has same priority, older timestamp (within 5min buffer)": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.SchedulerTimestampPreemptionBuffer: true,
 			},
 			preemptor: preemptor.Clone().Priority(10).Creation(now).Obj(),
@@ -84,7 +85,7 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 			want:      false, // candidate is newer but within buffer
 		},
 		"LowerOrNewerEqualPriority with SchedulerTimestampPreemptionBuffer: preemptor has same priority, older timestamp (outside 5min buffer)": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.SchedulerTimestampPreemptionBuffer: true,
 			},
 			preemptor: preemptor.Clone().Priority(10).Creation(now).Obj(),
@@ -104,11 +105,65 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 			policy:    kueue.PreemptionPolicyNever,
 			want:      false,
 		},
+		"LowerPriority: boost makes low-priority immune to medium-priority preemption": {
+			featureGates: map[featuregate.Feature]bool{
+				features.PriorityBoost: true,
+			},
+			preemptor: utiltestingapi.MakeWorkload("preemptor", "ns").Priority(200).Obj(),
+			candidate: utiltestingapi.MakeWorkload("candidate", "ns").Priority(100).
+				Annotation(controllerconstants.PriorityBoostAnnotationKey, "150").Obj(),
+			policy: kueue.PreemptionPolicyLowerPriority,
+			want:   false,
+		},
+		"LowerPriority: boost on preemptor enables preemption of higher raw priority": {
+			featureGates: map[featuregate.Feature]bool{
+				features.PriorityBoost: true,
+			},
+			preemptor: utiltestingapi.MakeWorkload("preemptor", "ns").Priority(100).
+				Annotation(controllerconstants.PriorityBoostAnnotationKey, "200").Obj(),
+			candidate: utiltestingapi.MakeWorkload("candidate", "ns").Priority(200).Obj(),
+			policy:    kueue.PreemptionPolicyLowerPriority,
+			want:      true,
+		},
+		"LowerOrNewerEqualPriority: boost equalizes priorities, older preemptor can preempt newer candidate": {
+			featureGates: map[featuregate.Feature]bool{
+				features.PriorityBoost: true,
+			},
+			preemptor: utiltestingapi.MakeWorkload("preemptor", "ns").Priority(100).
+				Annotation(controllerconstants.PriorityBoostAnnotationKey, "100").
+				Creation(now).Obj(),
+			candidate: utiltestingapi.MakeWorkload("candidate", "ns").Priority(200).
+				Creation(now.Add(time.Second)).Obj(),
+			policy: kueue.PreemptionPolicyLowerOrNewerEqualPriority,
+			want:   true,
+		},
+		"LowerOrNewerEqualPriority: equal effective priority, newer preemptor cannot preempt older candidate": {
+			featureGates: map[featuregate.Feature]bool{
+				features.PriorityBoost: true,
+			},
+			preemptor: utiltestingapi.MakeWorkload("preemptor", "ns").Priority(100).
+				Annotation(controllerconstants.PriorityBoostAnnotationKey, "100").
+				Creation(now.Add(time.Second)).Obj(),
+			candidate: utiltestingapi.MakeWorkload("candidate", "ns").Priority(200).
+				Creation(now).Obj(),
+			policy: kueue.PreemptionPolicyLowerOrNewerEqualPriority,
+			want:   false,
+		},
+		"Any: always satisfies regardless of priority or boost": {
+			featureGates: map[featuregate.Feature]bool{
+				features.PriorityBoost: true,
+			},
+			preemptor: utiltestingapi.MakeWorkload("preemptor", "ns").Priority(50).Obj(),
+			candidate: utiltestingapi.MakeWorkload("candidate", "ns").Priority(100).
+				Annotation(controllerconstants.PriorityBoostAnnotationKey, "200").Obj(),
+			policy: kueue.PreemptionPolicyAny,
+			want:   true,
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			for feature, enabled := range tc.features {
+			for feature, enabled := range tc.featureGates {
 				features.SetFeatureGateDuringTest(t, feature, enabled)
 			}
 			ordering := workload.Ordering{}

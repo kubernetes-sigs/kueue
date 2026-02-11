@@ -306,12 +306,13 @@ func (i *Info) Update(log logr.Logger, wl *kueue.Workload) {
 }
 
 // computeSchedulingHash returns a deterministic hash of the workload's
-// scheduling-relevant shape: workload priority, pod spec (via SpecShape),
-// effective count, minCount, and topologyRequest per PodSet.
+// scheduling-relevant shape: effective workload priority, pod spec (via
+// SpecShape), effective count, minCount, and topologyRequest per PodSet.
 func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []PodSetResources) string {
 	if !features.Enabled(features.SchedulingEquivalenceHashing) {
 		return SchedulingHashUnknown
 	}
+	effectivePriority := priority.EffectivePriority(wl)
 	podSetShapes := make([]map[string]any, 0, len(wl.Spec.PodSets))
 	for i, ps := range wl.Spec.PodSets {
 		effectiveCount := ps.Count
@@ -328,7 +329,7 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 	}
 	shape := map[string]any{
 		"podSets":  podSetShapes,
-		"priority": wl.Spec.Priority,
+		"priority": effectivePriority,
 	}
 	shapeJSON, err := json.Marshal(shape)
 	if err != nil {
@@ -1692,6 +1693,6 @@ func PriorityChanged(old, new *kueue.Workload) bool {
 		PriorityClassName(old) != PriorityClassName(new) {
 		return true
 	}
-	// Check if priority value changed (for WorkloadPriorityClass value updates).
-	return priority.Priority(old) != priority.Priority(new)
+	// Check if effective priority changed (for WorkloadPriorityClass value updates or priority-boost annotation).
+	return priority.EffectivePriority(old) != priority.EffectivePriority(new)
 }

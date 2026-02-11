@@ -19,6 +19,7 @@ package preemption
 import (
 	"context"
 	"fmt"
+	"math"
 	"slices"
 	"testing"
 	"time"
@@ -29,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/component-base/featuregate"
 	clocktesting "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -4549,9 +4551,9 @@ func TestCandidatesOrdering(t *testing.T) {
 	wlHighUsageLqDifCQ.LocalQueueFSUsage = ptr.To(1.0)
 
 	cases := map[string]struct {
-		candidates                  []workload.Info
-		wantCandidates              []workload.Reference
-		admissionFairSharingEnabled bool
+		candidates     []workload.Info
+		wantCandidates []workload.Reference
+		featureGates   map[featuregate.Feature]bool
 	}{
 		"workloads sorted by priority": {
 			candidates: []workload.Info{
@@ -4565,6 +4567,53 @@ func TestCandidatesOrdering(t *testing.T) {
 					Obj()),
 			},
 			wantCandidates: []workload.Reference{"low", "high"},
+		},
+		"workloads sorted by effective priority with boost": {
+			candidates: []workload.Info{
+				*workload.NewInfo(utiltestingapi.MakeWorkload("high-boost", "").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+					Priority(10).
+					Annotation(controllerconstants.PriorityBoostAnnotationKey, "100").
+					Obj()),
+				*workload.NewInfo(utiltestingapi.MakeWorkload("low-boost", "").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+					Priority(10).
+					Annotation(controllerconstants.PriorityBoostAnnotationKey, "5").
+					Obj()),
+			},
+			wantCandidates: []workload.Reference{"low-boost", "high-boost"},
+			featureGates:   map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"workload missing priority boost defaults to zero": {
+			candidates: []workload.Info{
+				*workload.NewInfo(utiltestingapi.MakeWorkload("missing-boost", "").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+					Priority(10).
+					Obj()),
+				*workload.NewInfo(utiltestingapi.MakeWorkload("has-boost", "").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+					Priority(10).
+					Annotation(controllerconstants.PriorityBoostAnnotationKey, "5").
+					Obj()),
+			},
+			wantCandidates: []workload.Reference{"missing-boost", "has-boost"},
+			featureGates:   map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"invalid priority boost defaults to zero": {
+			candidates: []workload.Info{
+				*workload.NewInfo(utiltestingapi.MakeWorkload("invalid-boost", "").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+					Priority(10).
+					Annotation(controllerconstants.PriorityBoostAnnotationKey, "invalid").
+					Obj()),
+				*workload.NewInfo(utiltestingapi.MakeWorkload("valid-boost", "").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+					Priority(10).
+					Annotation(controllerconstants.PriorityBoostAnnotationKey, "5").
+					Obj()),
+			},
+			wantCandidates: []workload.Reference{"invalid-boost", "valid-boost"},
+			featureGates:   map[featuregate.Feature]bool{features.PriorityBoost: true},
 		},
 		"evicted workload first": {
 			candidates: []workload.Info{
@@ -4614,23 +4663,26 @@ func TestCandidatesOrdering(t *testing.T) {
 				*wlLowUsageLq,
 				*wlMidUsageLq,
 			},
-			wantCandidates:              []workload.Reference{"mid_lq_usage", "low_lq_usage"},
-			admissionFairSharingEnabled: true,
+			wantCandidates: []workload.Reference{"mid_lq_usage", "low_lq_usage"},
+			featureGates:   map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
 		},
 		"workloads from different CQ are sorted based on priority and timestamp": {
 			candidates: []workload.Info{
 				*wlMidUsageLq,
 				*wlHighUsageLqDifCQ,
 			},
-			wantCandidates:              []workload.Reference{"high_lq_usage_different_cq", "mid_lq_usage"},
-			admissionFairSharingEnabled: true,
+			wantCandidates: []workload.Reference{"high_lq_usage_different_cq", "mid_lq_usage"},
+			featureGates:   map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
 		}}
 
 	_, log := utiltesting.ContextWithLog(t)
 	for _, tc := range cases {
-		features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, tc.admissionFairSharingEnabled)
+		for fg, enable := range tc.featureGates {
+			features.SetFeatureGateDuringTest(t, fg, enable)
+		}
+		admissionFairSharingEnabled := tc.featureGates != nil && tc.featureGates[features.AdmissionFairSharing]
 		slices.SortFunc(tc.candidates, func(a, b workload.Info) int {
-			return preemptioncommon.CandidatesOrdering(log, tc.admissionFairSharingEnabled, &a, &b, kueue.ClusterQueueReference(preemptorCq), now)
+			return preemptioncommon.CandidatesOrdering(log, admissionFairSharingEnabled, &a, &b, kueue.ClusterQueueReference(preemptorCq), now)
 		})
 		got := utilslices.Map(tc.candidates, func(c *workload.Info) workload.Reference {
 			return workload.Reference(c.Obj.Name)
@@ -4684,5 +4736,110 @@ func TestPreemptionMessage(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("preemptionMessage(preemptor=kueue.Workload{UID:%v, Labels:%v}, reason=%q) returned %q, want %q", tc.preemptor.UID, tc.preemptor.Labels, tc.reason, got, tc.want)
 		}
+	}
+}
+
+func TestPriorityInfo(t *testing.T) {
+	cases := []struct {
+		name          string
+		wl            *kueue.Workload
+		wantEffective int64
+		wantBase      int32
+		wantBoost     int32
+		featureGates  map[featuregate.Feature]bool
+	}{
+		{
+			name:          "empty workload",
+			wl:            &kueue.Workload{},
+			wantEffective: 0,
+			wantBase:      0,
+			wantBoost:     0,
+			featureGates:  map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		{
+			name:          "workload with priority only",
+			wl:            &kueue.Workload{Spec: kueue.WorkloadSpec{Priority: ptr.To[int32](100)}},
+			wantEffective: 100,
+			wantBase:      100,
+			wantBoost:     0,
+			featureGates:  map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		{
+			name: "workload with priority and positive boost",
+			wl: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "50"},
+				},
+				Spec: kueue.WorkloadSpec{Priority: ptr.To[int32](200)},
+			},
+			wantEffective: 250,
+			wantBase:      200,
+			wantBoost:     50,
+			featureGates:  map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		{
+			name: "workload with priority and negative boost",
+			wl: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "-30"},
+				},
+				Spec: kueue.WorkloadSpec{Priority: ptr.To[int32](100)},
+			},
+			wantEffective: 70,
+			wantBase:      100,
+			wantBoost:     -30,
+			featureGates:  map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		{
+			name: "workload with invalid boost annotation falls back to zero",
+			wl: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "not-a-number"},
+				},
+				Spec: kueue.WorkloadSpec{Priority: ptr.To[int32](100)},
+			},
+			wantEffective: 100,
+			wantBase:      100,
+			wantBoost:     0,
+			featureGates:  map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		{
+			name: "workload with effective priority above int32 max",
+			wl: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "1"},
+				},
+				Spec: kueue.WorkloadSpec{Priority: ptr.To[int32](math.MaxInt32)},
+			},
+			wantEffective: int64(math.MaxInt32) + 1,
+			wantBase:      math.MaxInt32,
+			wantBoost:     1,
+			featureGates:  map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		{
+			name: "feature disabled: boost annotation ignored",
+			wl: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "50"},
+				},
+				Spec: kueue.WorkloadSpec{Priority: ptr.To[int32](100)},
+			},
+			wantEffective: 100,
+			wantBase:      100,
+			wantBoost:     0,
+			featureGates:  map[featuregate.Feature]bool{features.PriorityBoost: false},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for fg, enable := range tc.featureGates {
+				features.SetFeatureGateDuringTest(t, fg, enable)
+			}
+			gotEff, gotBase, gotBoost := priorityInfo(tc.wl)
+			if gotEff != tc.wantEffective || gotBase != tc.wantBase || gotBoost != tc.wantBoost {
+				t.Errorf("priorityInfo() = (%d, %d, %d), want (%d, %d, %d)",
+					gotEff, gotBase, gotBoost, tc.wantEffective, tc.wantBase, tc.wantBoost)
+			}
+		})
 	}
 }

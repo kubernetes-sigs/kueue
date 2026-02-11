@@ -28,8 +28,8 @@ import (
 const timestampPreemptionBuffer = 5 * time.Minute
 
 func SatisfiesPreemptionPolicy(preemptor, candidate *kueue.Workload, workloadOrdering workload.Ordering, policy kueue.PreemptionPolicy) bool {
-	preemptorPriority := priority.Priority(preemptor)
-	candidatePriority := priority.Priority(candidate)
+	preemptorPriority := priority.EffectivePriority(preemptor)
+	candidatePriority := priority.EffectivePriority(candidate)
 
 	lowerPriority := preemptorPriority > candidatePriority
 	if policy == kueue.PreemptionPolicyLowerPriority {

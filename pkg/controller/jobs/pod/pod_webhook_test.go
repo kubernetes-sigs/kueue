@@ -86,7 +86,7 @@ func TestDefault(t *testing.T) {
 	testCases := map[string]struct {
 		enableTopologyAwareScheduling bool
 
-		features                     map[featuregate.Feature]bool
+		featureGates                 map[featuregate.Feature]bool
 		initObjects                  []client.Object
 		pod                          *corev1.Pod
 		defaultLqExist               bool
@@ -99,7 +99,7 @@ func TestDefault(t *testing.T) {
 		wantErr                      error
 	}{
 		"pod with suspend by parent annotation shouldn't skip finalizer when SkipFinalizersForPodsSuspendedByParent disabled": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.SkipFinalizersForPodsSuspendedByParent: false,
 			},
 			initObjects: []client.Object{defaultNamespace},
@@ -116,7 +116,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"pod with suspend by parent annotation should skip finalizer when SkipFinalizersForPodsSuspendedByParent enabled": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.SkipFinalizersForPodsSuspendedByParent: true,
 			},
 			initObjects: []client.Object{defaultNamespace},
@@ -553,7 +553,7 @@ func TestDefault(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			for feature, enabled := range tc.features {
+			for feature, enabled := range tc.featureGates {
 				features.SetFeatureGateDuringTest(t, feature, enabled)
 			}
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
