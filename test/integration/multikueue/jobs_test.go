@@ -1802,7 +1802,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			gomega.Eventually(func(g gomega.Gomega) {
 				getJob(manager.ctx, manager.client, job)
 				g.Expect(job.Spec.Parallelism).To(gomega.BeEquivalentTo(ptr.To(int32(1))))
-			})
+			}).Should(gomega.Succeed())
 		})
 		ginkgo.By("observe: workload changed in the manager cluster", func() {
 			getJob(manager.ctx, manager.client, job)
