@@ -1441,3 +1441,304 @@ var _ = ginkgo.Describe("Scheduler with AdmissionFairSharing = nil", ginkgo.Labe
 		})
 	})
 })
+
+var _ = ginkgo.Describe("Cohorts", func() {
+	var (
+		defaultFlavor *kueue.ResourceFlavor
+		flavor1       *kueue.ResourceFlavor
+		flavor2       *kueue.ResourceFlavor
+		ns            *corev1.Namespace
+
+		cohorts = make(map[string]*kueue.Cohort)
+		cqs     = make(map[string]*kueue.ClusterQueue)
+		lqs     = make(map[string]*kueue.LocalQueue)
+	)
+
+	var createCohort = func(cohort *kueue.Cohort) *kueue.Cohort {
+		util.MustCreate(ctx, k8sClient, cohort)
+		cohorts[cohort.Name] = cohort
+		return cohort
+	}
+
+	var createQueue = func(cq *kueue.ClusterQueue) *kueue.ClusterQueue {
+		util.MustCreate(ctx, k8sClient, cq)
+		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+		cqs[cq.Name] = cq
+
+		lq := utiltestingapi.MakeLocalQueue(cq.Name, ns.Name).ClusterQueue(cq.Name).Obj()
+		util.MustCreate(ctx, k8sClient, lq)
+		util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
+		lqs[lq.Name] = lq
+		return cq
+	}
+
+	ginkgo.When("creating, modifying and removing", func() {
+		ginkgo.BeforeEach(func() {
+			fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(
+				&config.AdmissionFairSharing{
+					UsageHalfLifeTime: metav1.Duration{
+						Duration: 1 * time.Second,
+					},
+					UsageSamplingInterval: metav1.Duration{
+						Duration: 1 * time.Second,
+					},
+				},
+			))
+			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
+			util.MustCreate(ctx, k8sClient, defaultFlavor)
+			flavor1 = utiltestingapi.MakeResourceFlavor("flavor1").Obj()
+			util.MustCreate(ctx, k8sClient, flavor1)
+			flavor2 = utiltestingapi.MakeResourceFlavor("flavor2").Obj()
+			util.MustCreate(ctx, k8sClient, flavor2)
+
+			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		})
+
+		ginkgo.AfterEach(func() {
+			for _, lq := range lqs {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+			}
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			for _, cq := range cqs {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			}
+			for _, cohort := range cohorts {
+				metrics.ClearCohortMetrics(cohort.Name)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
+			}
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor1, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor2, true)
+			fwk.StopManager(ctx)
+		})
+
+		ginkgo.It("follows reporting correct metrics", func() {
+			ginkgo.By("Creating initial ClusterQueue cqa, with no cohort", func() {
+				createQueue(utiltestingapi.MakeClusterQueue("cqa").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+							Resource(corev1.ResourceCPU, "10").
+							Resource(corev1.ResourceMemory, "10Gi").
+							Obj(),
+					).Obj())
+
+				// no metrics for the ch1 cohort
+				util.ExpectCohortNominalQuotaGaugeMetricCleaned("ch1", defaultFlavor.Name, corev1.ResourceCPU.String())
+				util.ExpectCohortNominalQuotaGaugeMetricCleaned("ch1", defaultFlavor.Name, corev1.ResourceMemory.String())
+			})
+
+			ginkgo.By("Setting cqa cohort to ch1", func() {
+				var cq kueue.ClusterQueue
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqs["cqa"]), &cq)).To(gomega.Succeed())
+				cq.Spec.CohortName = "ch1"
+				gomega.Expect(k8sClient.Update(ctx, &cq)).To(gomega.Succeed())
+
+				util.ExpectCohortNominalQuotaGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 10_000)
+				util.ExpectCohortNominalQuotaGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceMemory.String(), 1.073741824e+10)
+			})
+
+			ginkgo.By("Creating ClusterQueue cqb and cohort ch1", func() {
+				createCohort(utiltestingapi.MakeCohort("ch1").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+							Resource(corev1.ResourceCPU, "15").
+							Resource(corev1.ResourceMemory, "15Gi").
+							Obj(),
+					).Obj())
+
+				createQueue(utiltestingapi.MakeClusterQueue("cqb").
+					Cohort("ch1").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+							Resource(corev1.ResourceCPU, "5").
+							Resource(corev1.ResourceMemory, "5Gi").
+							Obj(),
+					).Obj())
+
+				// combined values of resources of cqa(10 cpu, 10Gi) and cqb(5 cpu, 5Gi) and ch1 cohort(15 cpu, 15Gi)
+				util.ExpectCohortNominalQuotaGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 30_000)
+				util.ExpectCohortNominalQuotaGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceMemory.String(), 3*1.073741824e+10)
+			})
+
+			ginkgo.By("Creating ClusterQueues cqd and cqe and its parent cohort ch2", func() {
+				createCohort(utiltestingapi.MakeCohort("ch2").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+							Resource(corev1.ResourceCPU, "10").
+							Resource(corev1.ResourceMemory, "10Gi").
+							Obj(),
+					).Obj())
+
+				createQueue(utiltestingapi.MakeClusterQueue("cqd").
+					Cohort("ch2").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+							Resource(corev1.ResourceCPU, "5").
+							Resource(corev1.ResourceMemory, "5Gi").
+							Obj(),
+					).Obj())
+
+				createQueue(utiltestingapi.MakeClusterQueue("cqe").
+					Cohort("ch2").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+							Resource(corev1.ResourceCPU, "5").
+							Resource(corev1.ResourceMemory, "5Gi").
+							Obj(),
+					).Obj())
+
+				// combined values of resources of cqd(5 cpu, 5Gi) and cqe(5 cpu, 5Gi) and ch2 cohort(10 cpu, 10Gi)
+				util.ExpectCohortNominalQuotaGaugeMetric("ch2", defaultFlavor.Name, corev1.ResourceCPU.String(), 20_000)
+				util.ExpectCohortNominalQuotaGaugeMetric("ch2", defaultFlavor.Name, corev1.ResourceMemory.String(), 2*1.073741824e+10)
+			})
+
+			ginkgo.By("Creating root cohort with 20 CPUs and 5 GPU, and make ch1 and ch2 children of root", func() {
+				createCohort(utiltestingapi.MakeCohort("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+							Resource(corev1.ResourceCPU, "20").
+							Resource("nvidia.com/gpu", "5").
+							Obj(),
+					).Obj())
+
+				var ch1, ch2 kueue.Cohort
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "ch1"}, &ch1)).To(gomega.Succeed())
+				ch1.Spec.ParentName = "root"
+				gomega.Expect(k8sClient.Update(ctx, &ch1)).To(gomega.Succeed())
+
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "ch2"}, &ch2)).To(gomega.Succeed())
+				ch2.Spec.ParentName = "root"
+				gomega.Expect(k8sClient.Update(ctx, &ch2)).To(gomega.Succeed())
+
+				// combined values of resources of ch1(30 cpu, 30Gi) and ch2(20 cpu, 20Gi) and root cohort(20 cpu, 5 gpu)
+				util.ExpectCohortNominalQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 50_000)
+				util.ExpectCohortNominalQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceMemory.String(), 5*1.073741824e+10)
+				util.ExpectCohortNominalQuotaGaugeMetric("root", flavor1.Name, corev1.ResourceCPU.String(), 20_000)
+				util.ExpectCohortNominalQuotaGaugeMetric("root", flavor1.Name, "nvidia.com/gpu", 5)
+
+				util.ExpectCohortNominalQuotaGaugeMetricCleaned("root", flavor2.Name, corev1.ResourceCPU.String())
+				util.ExpectCohortNominalQuotaGaugeMetricCleaned("root", flavor2.Name, corev1.ResourceMemory.String())
+			})
+
+			ginkgo.By("Creating cohort ch3 with 5 CPUs and 1 GPU, and make it child of root, but without any ClusterQueue", func() {
+				createCohort(utiltestingapi.MakeCohort("ch3").
+					Parent("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+							Resource(corev1.ResourceCPU, "5").
+							Resource("nvidia.com/gpu", "1").
+							Obj(),
+					).Obj())
+
+				util.ExpectCohortNominalQuotaGaugeMetric("ch3", flavor1.Name, corev1.ResourceCPU.String(), 5_000)
+				util.ExpectCohortNominalQuotaGaugeMetric("ch3", flavor1.Name, "nvidia.com/gpu", 1)
+
+				util.ExpectCohortNominalQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 50_000)
+				util.ExpectCohortNominalQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceMemory.String(), 5*1.073741824e+10)
+				util.ExpectCohortNominalQuotaGaugeMetric("root", flavor1.Name, corev1.ResourceCPU.String(), 25_000)
+				util.ExpectCohortNominalQuotaGaugeMetric("root", flavor1.Name, "nvidia.com/gpu", 6)
+			})
+
+			ginkgo.By("Creating ClusterQueue cqg as child of cohort ch3, with 1 CPU and 1Gi", func() {
+				createQueue(utiltestingapi.MakeClusterQueue("cqg").
+					Cohort("ch3").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(flavor2.Name).
+							Resource(corev1.ResourceCPU, "1").
+							Resource(corev1.ResourceMemory, "1Gi").
+							Obj(),
+					).Obj())
+
+				// combined values of resources of cqg(1 cpu, 1Gi) and ch3 cohort(5 cpu, 1 gpu)
+				util.ExpectCohortNominalQuotaGaugeMetric("ch3", flavor1.Name, corev1.ResourceCPU.String(), 5_000)
+				util.ExpectCohortNominalQuotaGaugeMetric("ch3", flavor1.Name, "nvidia.com/gpu", 1)
+				util.ExpectCohortNominalQuotaGaugeMetric("ch3", flavor2.Name, corev1.ResourceCPU.String(), 1_000)
+				util.ExpectCohortNominalQuotaGaugeMetric("ch3", flavor2.Name, corev1.ResourceMemory.String(), 1.073741824e+09)
+
+				// updated combined values of resources of ch1(30 cpu, 30Gi) and ch2(20 cpu, 20Gi) and ch3(6 cpu, 1 gpu) and root cohort(20 cpu, 5 gpu)
+				util.ExpectCohortNominalQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 50_000)
+				util.ExpectCohortNominalQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceMemory.String(), 5*1.073741824e+10)
+				util.ExpectCohortNominalQuotaGaugeMetric("root", flavor1.Name, corev1.ResourceCPU.String(), 25_000)
+				util.ExpectCohortNominalQuotaGaugeMetric("root", flavor1.Name, "nvidia.com/gpu", 6)
+				util.ExpectCohortNominalQuotaGaugeMetric("root", flavor2.Name, corev1.ResourceCPU.String(), 1_000)
+				util.ExpectCohortNominalQuotaGaugeMetric("root", flavor2.Name, corev1.ResourceMemory.String(), 1.073741824e+09)
+			})
+
+			ginkgo.By("Deleting ClusterQueue cqg", func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, cqs["cqg"], true)
+
+				// updated values for ch3 with cqg removed, and root with ch3 updated
+				util.ExpectCohortNominalQuotaGaugeMetric("ch3", flavor1.Name, corev1.ResourceCPU.String(), 5_000)
+				util.ExpectCohortNominalQuotaGaugeMetric("ch3", flavor1.Name, "nvidia.com/gpu", 1)
+				util.ExpectCohortNominalQuotaGaugeMetricCleaned("ch3", flavor2.Name, corev1.ResourceCPU.String())
+				util.ExpectCohortNominalQuotaGaugeMetricCleaned("ch3", flavor2.Name, corev1.ResourceMemory.String())
+
+				util.ExpectCohortNominalQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 50_000)
+				util.ExpectCohortNominalQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceMemory.String(), 5*1.073741824e+10)
+				util.ExpectCohortNominalQuotaGaugeMetric("root", flavor1.Name, corev1.ResourceCPU.String(), 25_000)
+				util.ExpectCohortNominalQuotaGaugeMetric("root", flavor1.Name, "nvidia.com/gpu", 6)
+
+				// ch3 and root metrics for flavor2 with cqg removed
+				util.ExpectCohortNominalQuotaGaugeMetricCleaned("root", flavor2.Name, corev1.ResourceCPU.String())
+				util.ExpectCohortNominalQuotaGaugeMetricCleaned("root", flavor2.Name, corev1.ResourceMemory.String())
+			})
+
+			ginkgo.By("Re-assign cohort ch2 cluster queues to ch3 and deleting cohort ch2", func() {
+				var cqD, cqE kueue.ClusterQueue
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqs["cqd"]), &cqD)).To(gomega.Succeed())
+				cqD.Spec.CohortName = "ch3"
+				gomega.Expect(k8sClient.Update(ctx, &cqD)).To(gomega.Succeed())
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqs["cqe"]), &cqE)).To(gomega.Succeed())
+				cqE.Spec.CohortName = "ch3"
+				gomega.Expect(k8sClient.Update(ctx, &cqE)).To(gomega.Succeed())
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, cohorts["ch2"], true)
+
+				// ch2 metrics removed
+				util.ExpectCohortNominalQuotaGaugeMetricCleaned("ch2", defaultFlavor.Name, corev1.ResourceCPU.String())
+				util.ExpectCohortNominalQuotaGaugeMetricCleaned("ch2", defaultFlavor.Name, corev1.ResourceMemory.String())
+
+				// updated values for ch3 with cqd and cqe added, and root with ch3 updated
+				util.ExpectCohortNominalQuotaGaugeMetric("ch3", defaultFlavor.Name, corev1.ResourceCPU.String(), 10_000)
+				util.ExpectCohortNominalQuotaGaugeMetric("ch3", defaultFlavor.Name, corev1.ResourceMemory.String(), 1*1.073741824e+10)
+
+				util.ExpectCohortNominalQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 40_000)
+				util.ExpectCohortNominalQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceMemory.String(), 4*1.073741824e+10)
+				util.ExpectCohortNominalQuotaGaugeMetric("root", flavor1.Name, corev1.ResourceCPU.String(), 25_000)
+				util.ExpectCohortNominalQuotaGaugeMetric("root", flavor1.Name, "nvidia.com/gpu", 6)
+			})
+
+			ginkgo.By("Changing ch1 quota to 15 CPUs", func() {
+				var ch1 kueue.Cohort
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "ch1"}, &ch1)).To(gomega.Succeed())
+
+				ch1Flavors := ch1.Spec.ResourceGroups[0].Flavors
+
+				ch1Flavors[0] = kueue.FlavorQuotas{
+					Name: kueue.ResourceFlavorReference(defaultFlavor.Name),
+					Resources: []kueue.ResourceQuota{
+						{
+							Name:         corev1.ResourceCPU,
+							NominalQuota: resource.MustParse("20"),
+						},
+						{
+							Name:         corev1.ResourceMemory,
+							NominalQuota: resource.MustParse("15Gi"),
+						},
+					},
+				}
+
+				ch1.Spec.ResourceGroups[0].Flavors = ch1Flavors
+				gomega.Expect(k8sClient.Update(ctx, &ch1)).To(gomega.Succeed())
+
+				util.ExpectCohortNominalQuotaGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 35_000)
+				util.ExpectCohortNominalQuotaGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceMemory.String(), 3*1.073741824e+10)
+
+				// root metrics updated with new quotas of ch1
+				util.ExpectCohortNominalQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 45_000)
+				util.ExpectCohortNominalQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceMemory.String(), 4*1.073741824e+10)
+				util.ExpectCohortNominalQuotaGaugeMetric("root", flavor1.Name, corev1.ResourceCPU.String(), 25_000)
+				util.ExpectCohortNominalQuotaGaugeMetric("root", flavor1.Name, "nvidia.com/gpu", 6)
+			})
+		})
+	})
+})
