@@ -270,7 +270,8 @@ This controller will watch for workloads to change their `QuotaReservationBlocke
 1. Find a workload that contains:
     * `QuotaReservationBlocked` reason set to `PreemptionGated`.
     * The lowest `QuotaReservationBlocked` `LastTransitionTime`.
-    * Closed `kueue.x-k8s.io/multikueue` gate (to ignore already ungated workloads).
+    * Open `kueue.x-k8s.io/multikueue` gate (to ignore already ungated workloads).
+1. Mark the `kueue.x-k8s.io/multikueue` gate of the found workload as `Closed`.
 1. Schedule a reconciliation in `SingleClusterPreemptionTimeout`.
 
 ### Kueue Scheduler
