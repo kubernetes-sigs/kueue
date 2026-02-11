@@ -80,7 +80,7 @@ Moreover, a general preemption gating/preemption signaling mechanism can be used
 
 The proposed solution is to extend the Workload API with the concept of `PreemptionGate`s as the mechanism controlling a workload's ability to preempt and introduce a
 new `QuotaReservationBlocked` condition in the Workload's status, which will be used to signal that it's ready to preempt but was gated.
-The manager cluster's MultiKueue controller that watches the replicated Workload objects will observe the condition and make a decision whether to disactivate the gate in
+The manager cluster's MultiKueue controller that watches the replicated Workload objects will observe the condition and make a decision whether to deactivate the gate in
 the replica, allowing it to proceed.
 
 ```mermaid
