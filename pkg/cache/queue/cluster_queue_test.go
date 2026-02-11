@@ -293,8 +293,8 @@ func Test_DeleteFromLocalQueue(t *testing.T) {
 	if cq.PendingTotal() != wantPending {
 		t.Errorf("clusterQueue's workload number not right, want %v, got %v", wantPending, cq.PendingTotal())
 	}
-	if len(cq.inadmissibleWorkloads) != len(inadmissibleWorkloads) {
-		t.Errorf("clusterQueue's workload number in inadmissibleWorkloads not right, want %v, got %v", len(inadmissibleWorkloads), len(cq.inadmissibleWorkloads))
+	if cq.inadmissibleWorkloads.len() != len(inadmissibleWorkloads) {
+		t.Errorf("clusterQueue's workload number in inadmissibleWorkloads not right, want %v, got %v", len(inadmissibleWorkloads), cq.inadmissibleWorkloads.len())
 	}
 
 	cq.DeleteFromLocalQueue(log, qImpl, nil)
@@ -634,7 +634,7 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 				t.Error("failed to requeue nonexistent workload")
 			}
 
-			_, gotInadmissible := cq.inadmissibleWorkloads[workload.Key(wl)]
+			gotInadmissible := cq.inadmissibleWorkloads.hasKey(workload.Key(wl))
 			if diff := cmp.Diff(tc.wantInadmissible, gotInadmissible); diff != "" {
 				t.Errorf("Unexpected inadmissible status (-want,+got):\n%s", diff)
 			}
@@ -863,7 +863,7 @@ func TestStrictFIFORequeueIfNotPresent(t *testing.T) {
 				t.Error("failed to requeue nonexistent workload")
 			}
 
-			_, gotInadmissible := cq.inadmissibleWorkloads[workload.Key(wl)]
+			gotInadmissible := cq.inadmissibleWorkloads.hasKey(workload.Key(wl))
 			if test.wantInadmissible != gotInadmissible {
 				t.Errorf("Got inadmissible after requeue %t, want %t", gotInadmissible, test.wantInadmissible)
 			}
