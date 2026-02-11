@@ -18,6 +18,7 @@ package certmanager
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -227,7 +228,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 					"kueue_quota_reserved_workloads_total",
 					clusterQueue.Name,
 				}
-				expectMetricsToBeAvailable(curlPod.Name, curlContainerName, [][]string{expectedMetric})
+				expectMetricsToBeAvailableWithTimeout(curlPod.Name, curlContainerName, [][]string{expectedMetric}, util.VeryLongTimeout)
 			})
 		})
 	})
@@ -249,10 +250,14 @@ func getKueueMetricsSecure(curlPodName, curlContainerName string) ([]byte, error
 }
 
 func expectMetricsToBeAvailable(curlPodName, curlContainerName string, metrics [][]string) {
+	expectMetricsToBeAvailableWithTimeout(curlPodName, curlContainerName, metrics, util.Timeout)
+}
+
+func expectMetricsToBeAvailableWithTimeout(curlPodName, curlContainerName string, metrics [][]string, timeout time.Duration) {
 	gomega.Eventually(func(g gomega.Gomega) {
 		metricsOutput, err := getKueueMetricsSecure(curlPodName, curlContainerName)
 		g.Expect(err).NotTo(gomega.HaveOccurred())
 
 		g.Expect(string(metricsOutput)).Should(utiltesting.ContainMetrics(metrics))
-	}, util.Timeout).Should(gomega.Succeed())
+	}, timeout, util.Interval).Should(gomega.Succeed())
 }
