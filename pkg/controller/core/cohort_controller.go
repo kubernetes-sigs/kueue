@@ -154,6 +154,7 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if err := r.client.Get(ctx, req.NamespacedName, &cohort); err != nil {
 		if apierrors.IsNotFound(err) {
 			log.V(2).Info("Cohort is being deleted")
+			r.cache.ClearCohortMetrics(log, kueue.CohortReference(req.Name))
 			r.cache.DeleteCohort(kueue.CohortReference(req.Name))
 			r.qManager.DeleteCohort(kueue.CohortReference(req.Name))
 		}
@@ -164,6 +165,7 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if err := r.cache.AddOrUpdateCohort(&cohort); err != nil {
 		log.V(2).Error(err, "Error adding or updating cohort in the cache")
 	}
+	r.cache.RecordCohortMetrics(log, kueue.CohortReference(req.Name))
 	r.qManager.AddOrUpdateCohort(ctx, &cohort)
 
 	err := r.updateCohortStatusIfChanged(ctx, &cohort)
