@@ -500,13 +500,14 @@ func (c *ClusterQueue) Dump() ([]workload.Reference, bool) {
 func (c *ClusterQueue) DumpInadmissible() ([]workload.Reference, bool) {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
-	if len(c.inadmissibleWorkloads) == 0 {
+	if c.inadmissibleWorkloads.empty() {
 		return nil, false
 	}
-	elements := make([]workload.Reference, 0, len(c.inadmissibleWorkloads))
-	for _, info := range c.inadmissibleWorkloads {
+	elements := make([]workload.Reference, 0, c.inadmissibleWorkloads.len())
+	c.inadmissibleWorkloads.forEach(func(_ workload.Reference, info *workload.Info) bool {
 		elements = append(elements, workload.Key(info.Obj))
-	}
+		return true
+	})
 	return elements, true
 }
 
@@ -534,12 +535,13 @@ func (c *ClusterQueue) Info(key workload.Reference) *workload.Info {
 func (c *ClusterQueue) totalElements() []*workload.Info {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
-	totalLen := c.heap.Len() + len(c.inadmissibleWorkloads)
+	totalLen := c.heap.Len() + c.inadmissibleWorkloads.len()
 	elements := make([]*workload.Info, 0, totalLen)
 	elements = append(elements, c.heap.List()...)
-	for _, e := range c.inadmissibleWorkloads {
+	c.inadmissibleWorkloads.forEach(func(_ workload.Reference, e *workload.Info) bool {
 		elements = append(elements, e)
-	}
+		return true
+	})
 	if c.inflight != nil {
 		elements = append(elements, c.inflight)
 	}
