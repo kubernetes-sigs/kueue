@@ -54,7 +54,7 @@ CLUSTERPROFILE_PLUGIN_IMAGE_VERSION ?= 0.0.1
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 BIN_DIR ?= $(PROJECT_DIR)/bin
 ARTIFACTS ?= $(BIN_DIR)
-TOOLS_DIR := $(PROJECT_DIR)/hack/internal/tools
+TOOLS_DIR := $(PROJECT_DIR)/hack/tools
 MOCKS_DIR := internal/mocks
 
 # Use distroless as minimal base image to package the manager binary
@@ -480,7 +480,7 @@ ray-project-mini-image-build:
 		--build-arg RAY_VERSION=$(RAY_VERSION) \
 		$(PUSH) \
 		$(IMAGE_BUILD_EXTRA_OPTS) \
-		-f ./hack/internal/test-images/ray/Dockerfile ./ \
+		-f ./hack/testing/ray/Dockerfile ./ \
 
 # The step is required for local e2e test run
 .PHONY: kind-ray-project-mini-image-build
@@ -496,7 +496,7 @@ secretreader-plugin-image-build:
 		--platform=$(PLATFORMS) \
 		--build-arg PLUGIN_VERSION=$(CLUSTERPROFILE_VERSION) \
 		$(PUSH) \
-		-f hack/multikueue/secretreader/Dockerfile ./ \
+		-f hack/testing/secretreader/Dockerfile ./ \
 
 # The step is required for local e2e test run
 .PHONY: kind-secretreader-plugin-image-build

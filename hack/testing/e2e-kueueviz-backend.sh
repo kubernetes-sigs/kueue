@@ -17,8 +17,8 @@
 set -e
 
 SOURCE_DIR="$(cd "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-ROOT_DIR="$SOURCE_DIR/.."
-# shellcheck source=hack/e2e-common.sh
+ROOT_DIR="$SOURCE_DIR/../.."
+# shellcheck source=hack/testing/e2e-common.sh
 source "${SOURCE_DIR}/e2e-common.sh"
 echo ROOT_DIR="${ROOT_DIR}" SOURCE_DIR="${SOURCE_DIR}" KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}"
 
@@ -71,18 +71,18 @@ fi
 
 # Check if the workspace volume is empty
 if [ -z "$WORKSPACE_VOLUME" ]; then
-  WORKSPACE_VOLUME=$(dirname "${SOURCE_DIR}")
+  WORKSPACE_VOLUME="${ROOT_DIR}"
 fi
 echo "Workspace Volume: $WORKSPACE_VOLUME"
 
-# if CYPRESS_IMAGE_NAME is not set, extract it from ./hack/cypress/Dockerfile
+# if CYPRESS_IMAGE_NAME is not set, extract it from ./hack/testing/cypress/Dockerfile
 if [ -z "$CYPRESS_IMAGE_NAME" ]; then
-  CYPRESS_IMAGE_NAME=$(grep '^FROM' "${ROOT_DIR}/hack/cypress/Dockerfile" | awk '{print $2}')
+  CYPRESS_IMAGE_NAME=$(grep '^FROM' "${ROOT_DIR}/hack/testing/cypress/Dockerfile" | awk '{print $2}')
 fi
 
 # Start KueueViz frontend and cypress in a container
 echo "Current container information: CONTAINER_ID=${CONTAINER_ID} WORKSPACE_VOLUME=${WORKSPACE_VOLUME}"
-docker run -i --entrypoint /workspace/hack/e2e-kueueviz-frontend.sh \
+docker run -i --entrypoint /workspace/hack/testing/e2e-kueueviz-frontend.sh \
            -e CYPRESS_SCREENSHOTS_FOLDER="${CYPRESS_SCREENSHOTS_FOLDER}" \
            -e CYPRESS_VIDEOS_FOLDER="${CYPRESS_VIDEOS_FOLDER}" \
            -e PROJECT_DIR="/workspace" -w /workspace --network host \
