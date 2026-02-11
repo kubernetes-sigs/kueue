@@ -93,7 +93,7 @@ func requeueWorkloadsCQ(ctx context.Context, m *Manager, cq *ClusterQueue) bool 
 	if cq.HasParent() {
 		return requeueWorkloadsCohort(ctx, m, cq.Parent())
 	}
-	return QueueInadmissibleWorkloads(ctx, cq, m.client)
+	return queueInadmissibleWorkloads(ctx, cq, m.client)
 }
 
 // moveWorkloadsCohorts checks for a cycle, the moves all inadmissible
@@ -118,7 +118,7 @@ func requeueWorkloadsCohort(ctx context.Context, m *Manager, cohort *cohort) boo
 func requeueWorkloadsCohortSubtree(ctx context.Context, m *Manager, cohort *cohort) bool {
 	queued := false
 	for _, clusterQueue := range cohort.ChildCQs() {
-		queued = QueueInadmissibleWorkloads(ctx, clusterQueue, m.client) || queued
+		queued = queueInadmissibleWorkloads(ctx, clusterQueue, m.client) || queued
 	}
 	for _, childCohort := range cohort.ChildCohorts() {
 		queued = requeueWorkloadsCohortSubtree(ctx, m, childCohort) || queued
@@ -126,9 +126,9 @@ func requeueWorkloadsCohortSubtree(ctx context.Context, m *Manager, cohort *coho
 	return queued
 }
 
-// QueueInadmissibleWorkloads moves all workloads from inadmissibleWorkloads to heap.
+// queueInadmissibleWorkloads moves all workloads from inadmissibleWorkloads to heap.
 // If at least one workload is moved, returns true, otherwise returns false.
-func QueueInadmissibleWorkloads(ctx context.Context, c *ClusterQueue, client client.Client) bool {
+func queueInadmissibleWorkloads(ctx context.Context, c *ClusterQueue, client client.Client) bool {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	log := ctrl.LoggerFrom(ctx)
