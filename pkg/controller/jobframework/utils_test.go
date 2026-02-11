@@ -71,73 +71,85 @@ func TestSanitizePodSets(t *testing.T) {
 
 func TestSanitizePodSet(t *testing.T) {
 	testCases := map[string]struct {
-		podSet         kueue.PodSet
-		featureEnabled bool
-		expectedPodSet kueue.PodSet
+		podSets         []kueue.PodSet
+		featureEnabled  bool
+		expectedPodSets []kueue.PodSet
 	}{
 
 		"disabled feature gate": {
 			featureEnabled: false,
-			podSet: *utiltestingapi.MakePodSet("test", 1).
-				Containers(*utiltesting.MakeContainer().
-					Name("c1").
-					WithEnvVar(corev1.EnvVar{Name: "ENV1", Value: "value1"}).
-					WithEnvVar(corev1.EnvVar{Name: "ENV1", Value: "value2"}).
-					Obj()).
-				Obj(),
-			expectedPodSet: *utiltestingapi.MakePodSet("test", 1).
-				Containers(*utiltesting.MakeContainer().
-					Name("c1").
-					WithEnvVar(corev1.EnvVar{Name: "ENV1", Value: "value1"}).
-					WithEnvVar(corev1.EnvVar{Name: "ENV1", Value: "value2"}).
-					Obj()).
-				Obj(),
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("test", 1).
+					Containers(*utiltesting.MakeContainer().
+						Name("c1").
+						WithEnvVar(corev1.EnvVar{Name: "ENV1", Value: "value1"}).
+						WithEnvVar(corev1.EnvVar{Name: "ENV1", Value: "value2"}).
+						Obj()).
+					Obj(),
+			},
+			expectedPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("test", 1).
+					Containers(*utiltesting.MakeContainer().
+						Name("c1").
+						WithEnvVar(corev1.EnvVar{Name: "ENV1", Value: "value1"}).
+						WithEnvVar(corev1.EnvVar{Name: "ENV1", Value: "value2"}).
+						Obj()).
+					Obj(),
+			},
 		},
 		"enabled feature gate, init containers and containers": {
 			featureEnabled: true,
-			podSet: *utiltestingapi.MakePodSet("test", 1).
-				Containers(*utiltesting.MakeContainer().
-					Name("c1").
-					WithEnvVar(corev1.EnvVar{Name: "ENV1", Value: "value1"}).
-					WithEnvVar(corev1.EnvVar{Name: "ENV1", Value: "value2"}).
-					Obj()).
-				InitContainers(*utiltesting.MakeContainer().
-					Name("init1").
-					WithEnvVar(corev1.EnvVar{Name: "ENV2", Value: "value3"}).
-					WithEnvVar(corev1.EnvVar{Name: "ENV2", Value: "value4"}).
-					Obj()).
-				Obj(),
-			expectedPodSet: *utiltestingapi.MakePodSet("test", 1).
-				Containers(*utiltesting.MakeContainer().
-					Name("c1").
-					WithEnvVar(corev1.EnvVar{Name: "ENV1", Value: "value2"}).
-					Obj()).
-				InitContainers(*utiltesting.MakeContainer().
-					Name("init1").
-					WithEnvVar(corev1.EnvVar{Name: "ENV2", Value: "value4"}).
-					Obj()).
-				Obj(),
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("test", 1).
+					Containers(*utiltesting.MakeContainer().
+						Name("c1").
+						WithEnvVar(corev1.EnvVar{Name: "ENV1", Value: "value1"}).
+						WithEnvVar(corev1.EnvVar{Name: "ENV1", Value: "value2"}).
+						Obj()).
+					InitContainers(*utiltesting.MakeContainer().
+						Name("init1").
+						WithEnvVar(corev1.EnvVar{Name: "ENV2", Value: "value3"}).
+						WithEnvVar(corev1.EnvVar{Name: "ENV2", Value: "value4"}).
+						Obj()).
+					Obj(),
+			},
+			expectedPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("test", 1).
+					Containers(*utiltesting.MakeContainer().
+						Name("c1").
+						WithEnvVar(corev1.EnvVar{Name: "ENV1", Value: "value2"}).
+						Obj()).
+					InitContainers(*utiltesting.MakeContainer().
+						Name("init1").
+						WithEnvVar(corev1.EnvVar{Name: "ENV2", Value: "value4"}).
+						Obj()).
+					Obj(),
+			},
 		},
 		"enabled feature gate, containers only": {
 			featureEnabled: true,
-			podSet: *utiltestingapi.MakePodSet("test", 1).
-				Containers(*utiltesting.MakeContainer().
-					Name("c1").
-					WithEnvVar(corev1.EnvVar{Name: "ENV1", Value: "value1"}).
-					WithEnvVar(corev1.EnvVar{Name: "ENV1", Value: "value2"}).
-					Obj()).
-				Obj(),
-			expectedPodSet: *utiltestingapi.MakePodSet("test", 1).
-				Containers(*utiltesting.MakeContainer().
-					Name("c1").
-					WithEnvVar(corev1.EnvVar{Name: "ENV1", Value: "value2"}).
-					Obj()).
-				Obj(),
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("test", 1).
+					Containers(*utiltesting.MakeContainer().
+						Name("c1").
+						WithEnvVar(corev1.EnvVar{Name: "ENV1", Value: "value1"}).
+						WithEnvVar(corev1.EnvVar{Name: "ENV1", Value: "value2"}).
+						Obj()).
+					Obj(),
+			},
+			expectedPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("test", 1).
+					Containers(*utiltesting.MakeContainer().
+						Name("c1").
+						WithEnvVar(corev1.EnvVar{Name: "ENV1", Value: "value2"}).
+						Obj()).
+					Obj(),
+			},
 		},
-		"empty pod set": {
-			featureEnabled: true,
-			podSet:         kueue.PodSet{},
-			expectedPodSet: kueue.PodSet{},
+		"empty podsets": {
+			featureEnabled:  true,
+			podSets:         []kueue.PodSet{},
+			expectedPodSets: []kueue.PodSet{},
 		},
 	}
 
@@ -145,9 +157,9 @@ func TestSanitizePodSet(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetEnable(features.SanitizePodSets, tc.featureEnabled)
 
-			jobframework.SanitizePodSet(&tc.podSet)
+			jobframework.SanitizePodSets(tc.podSets)
 
-			if diff := cmp.Diff(tc.expectedPodSet, tc.podSet); diff != "" {
+			if diff := cmp.Diff(tc.expectedPodSets, tc.podSets); diff != "" {
 				t.Errorf("unexpected difference: %s", diff)
 			}
 		})
