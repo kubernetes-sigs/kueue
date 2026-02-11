@@ -125,7 +125,7 @@ As a MultiKueue administrator, I want to maximize the resource usage of my syste
 One team in my company regularly submits high priority jobs to the clusters, which causes system-wide
 preemptions across many workers, halting the progress of jobs of other teams.
 
-I want that team's jobs to still be promptly admitted, but without causing distruptions.
+I want that team's jobs to still be promptly admitted, but without causing unnecessary and avoidable disruptions.
 
 ### Risks and Mitigations
 
@@ -299,7 +299,6 @@ to implement this enhancement.
 #### Integration Tests
 - Integration tests will be added to verify that preemption is blocked for gated workloads.
 - Integration tests for the MultiKueue scenario, ensuring that only one worker cluster attempts preemption at a time.
-- Integration tests for the Concurrent Admission scenario, ensuring that only one resource flavor attempts preemption at a time.
 
 ### Graduation Criteria
 
