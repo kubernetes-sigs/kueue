@@ -26,11 +26,12 @@
 
 ## Summary
 
-Introduce an optional, externally-populated **preemption cost signal** on `Workload`
+Introduce an optional, user-provided preemption cost signal via
+`Job` annotation `kueue.x-k8s.io/preemption-cost`, copied onto `Workload`,
 and make Kueue consider this signal when ordering preemption candidates.
 
-When multiple preemption candidates have the **same workload priority**, Kueue
-should prefer preempting the candidate with the **lower** preemption cost.
+Preemption ordering uses an **effective priority for preemption**:
+`workloadPriority - preemptionCost`.
 
 This enables cluster operators to steer preemption toward workloads for which
 preemption is expected to be less disruptive (e.g. based on checkpointing, phase
@@ -44,17 +45,18 @@ without checkpoint). Kueue today makes preemption decisions primarily based on
 cluster queue, fairness configuration, workload priority, and recency; it has no
 mechanism to incorporate these runtime cost signals.
 
-This KEP adds a generic mechanism to accept an external signal and use it to
-reduce wasted work and improve overall system efficiency.
+This KEP adds a generic mechanism to accept a user-facing signal and use it to
+reduce wasted work and improve overall system efficiency, with an optional
+reference external controller that can populate the signal automatically.
 
 ### Goals
 
-- Add a new optional `Workload` field that can be set by an external controller
-  to express preemption cost.
-- Use preemption cost as a **tie-breaker among equal-priority preemption
-  candidates**.
-- Provide a reference implementation of an external controller that populates
-  the field (simple, policy-neutral example).
+- Add a new optional `Job` annotation (`kueue.x-k8s.io/preemption-cost`) that
+  is copied to `Workload` and used to express preemption cost.
+- Use preemption cost in an **effective priority for preemption**
+  (`workloadPriority - preemptionCost`) for candidate ordering.
+- Provide a reference external controller that automatically computes and sets
+  `kueue.x-k8s.io/preemption-cost` on `Job`.
 
 ### Non-Goals
 
@@ -65,8 +67,9 @@ reduce wasted work and improve overall system efficiency.
 
 ## Proposal
 
-Add an optional preemption cost signal on `Workload.status` and incorporate it
-into the preemption candidate ordering logic.
+Add an optional preemption cost signal as a `Job` annotation
+(`kueue.x-k8s.io/preemption-cost`) that is copied to `Workload`, and
+incorporate it into preemption candidate ordering logic.
 
 ### User Stories
 
@@ -78,82 +81,64 @@ into the preemption candidate ordering logic.
 
 ### Ordering semantics
 
-For preemption candidate ordering, Kueue currently compares candidates by:
-
-- whether already evicted
-- whether in a different ClusterQueue than the preemptor
-- (optional) local queue fair-sharing usage
-- **workload priority**
-- quota reservation time (more recent first)
-- UID for deterministic ordering
-
-This KEP adds one step:
-
-- If (and only if) two candidates have **equal priority**, compare their
-  preemption cost and prefer **lower** cost first.
+For preemption candidate ordering, Kueue uses priorities; with this KEP it uses
+an **effective priority for preemption** expressed as:
+`workloadPriority - preemptionCost`.
 
 ### Defaulting and backward compatibility
 
-- If a workload has no preemption cost set, it is treated as **zero** cost.
-  - This preserves existing behavior when the field is unused (all costs equal).
-- The feature is “opt-in by signal”: behavior changes only when an external
-  controller populates the field.
+- If a job/workload has no preemption cost annotation set, it is treated as
+  **zero** cost.
+  - This preserves existing behavior when the annotation is unused.
+- The feature is “opt-in by signal”: behavior changes only when users or
+  platform automation set the annotation.
 
 ### Risks and Mitigations
 
-- **Risk**: External controller writes unexpected values, causing undesirable
+- **Risk**: Users/platform automation set unexpected values, causing undesirable
   ordering.
   - **Mitigation**: Document semantics clearly; recommend bounded ranges;
-    preserve deterministic ordering; keep priority as primary signal.
-- **Risk**: Multiple writers to the same status field could conflict.
-  - **Mitigation**: Document that a single controller should own the field; use
-    merge patch on status updates; recommend a dedicated field manager.
+    preserve deterministic ordering.
+- **Risk**: Annotation value is invalid or out of expected range.
+  - **Mitigation**: Treat invalid/unparsable values as zero and emit a warning
+    event/log.
 
 ## Design Details
 
 ### API changes
 
-Add a new optional field to `WorkloadStatus`:
+Add a new optional annotation on `Job`:
 
-- `status.preemptionCost`: `resource.Quantity`
+- `kueue.x-k8s.io/preemption-cost: "<int>"`
   - **Semantics**: unitless score, higher means more expensive to preempt.
   - **Unset**: equivalent to zero.
+  - **Alpha behavior**: if the value is invalid/unparsable, it is treated as
+    zero.
 
-Go API (illustrative):
+Kueue copies this annotation to the corresponding `Workload` and the scheduler
+uses the value from the `Workload` object during preemption.
 
-```golang
-import "k8s.io/apimachinery/pkg/api/resource"
-
-type WorkloadStatus struct {
-  // ... existing fields ...
-
-  // preemptionCost is an optional, externally populated signal that indicates
-  // how expensive it is to preempt this Workload.
-  //
-  // Higher values mean more expensive to preempt.
-  // If unset, it is treated as 0.
-  //
-  // +optional
-  PreemptionCost *resource.Quantity `json:"preemptionCost,omitempty"`
-}
-```
-
-YAML example:
+YAML example (`Job`):
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta2
-kind: Workload
+apiVersion: batch/v1
+kind: Job
 metadata:
   name: example
   namespace: default
-status:
-  # Higher values mean more expensive to preempt. Unset means 0.
-  preemptionCost: "250"
+  annotations:
+    # Higher values mean more expensive to preempt. Unset means 0.
+    kueue.x-k8s.io/preemption-cost: "250"
+spec:
+  suspend: true
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: main
+        image: busybox
+        command: ["sh", "-c", "echo hello && sleep 3600"]
 ```
-
-Rationale for `status`:
-- Cost is derived from runtime state and external observation; it is not a user
-  intent like `spec`.
 
 ### Scheduler changes
 
@@ -161,47 +146,72 @@ Update preemption candidate ordering in:
 
 - `pkg/scheduler/preemption/common/CandidatesOrdering`
 
-to compare `status.preemptionCost` after priority comparison (and therefore only
-when priority is equal).
+to use effective priority for preemption:
+`workloadPriority - preemptionCost`, where preemption cost is read from
+`Workload` annotation `kueue.x-k8s.io/preemption-cost` (default `0`).
 
 ### Reference controller
 
-Provide a reference controller that:
+Provide a reference external controller that:
 
-- Watches `Workload` objects.
-- Computes `status.preemptionCost` from simple signals available on the Workload.
+- Watches `Job` objects managed by Kueue.
+- Computes preemption cost using a simple, policy-neutral heuristic.
+- Writes/updates `metadata.annotations["kueue.x-k8s.io/preemption-cost"]` on
+  the `Job`.
+
+Kueue then propagates this annotation to `Workload`, and scheduler preemption
+logic uses the propagated value.
 
 Reference algorithm (example):
-- Define cost as a base plus the number of evictions with reason `Preempted`
-  recorded in `status.schedulingStats.evictions[]`.
 
-This example demonstrates how to integrate with the signal and encourages users
-to implement richer policies as needed.
+- Start with base cost `0`.
+- Add `1` for each prior eviction with reason `Preempted` observed for the
+  corresponding Workload.
+- Optionally add a bounded phase-based increment (for example, running
+  workloads can receive a higher cost than initializing workloads).
+
+The reference implementation is intentionally simple and demonstrates how
+platform teams can plug in richer, organization-specific logic.
 
 ### Observability
 
-No new scheduler metrics are required initially. The reference controller should
-log updates at a low verbosity level and expose reconciliation errors.
+No new scheduler metrics are required initially.
+
+- Kueue should log invalid preemption cost annotation values at a low verbosity
+  level.
+- The reference controller should log annotation updates and expose
+  reconciliation errors.
 
 ### Security, Privacy, and RBAC
 
-The reference controller requires permissions to:
+Scheduler side: no additional RBAC is required beyond existing permissions for
+reading `Workload` objects used by preemption logic.
 
-- `get`, `list`, `watch` `workloads`
-- `patch` `workloads/status`
+Reference controller requires permissions to:
+
+- `get`, `list`, `watch` `jobs.batch`
+- `patch` `jobs.batch`
+- `get`, `list`, `watch` `workloads.kueue.x-k8s.io`
 
 ### Test Plan
 
 #### Unit tests
 
 - Extend existing unit tests for preemption candidate ordering to validate:
-  - equal priority + different cost => lower cost comes first
-  - different priority => priority ordering unchanged (cost ignored)
+  - effective priority for preemption uses `priority - preemptionCost`
+  - missing or invalid annotation values are treated as zero
+- Add unit tests for the reference controller:
+  - computes expected cost for representative Job/Workload states
+  - writes `kueue.x-k8s.io/preemption-cost` annotation idempotently
+  - handles update conflicts/retries
 
 #### Integration/E2E tests
 
-- Optional follow-up: run a small integration scenario where a controller sets
-  the cost and confirm preemption selection order.
+- Optional follow-up: run a small integration scenario with two same-priority
+  Jobs and different `kueue.x-k8s.io/preemption-cost` values, and confirm
+  preemption selection order.
+- Add integration coverage where the reference controller updates Job
+  annotations and preemption order changes accordingly.
 
 ## Implementation History
 
