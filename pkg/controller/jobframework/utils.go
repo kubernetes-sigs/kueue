@@ -50,17 +50,29 @@ func SanitizePodSets(podSets []kueue.PodSet) {
 // variables from all containers in its pod template, but only if the
 // SanitizePodSets feature gate is enabled.
 func SanitizePodSet(podSet *kueue.PodSet) {
-	if features.Enabled(features.SanitizePodSets) {
-		for containerIndex := range podSet.Template.Spec.Containers {
-			container := &podSet.Template.Spec.Containers[containerIndex]
-			envVarGroups := orderedgroups.NewOrderedGroups[string, corev1.EnvVar]()
-			for _, envVar := range container.Env {
-				envVarGroups.Insert(envVar.Name, envVar)
-			}
-			container.Env = make([]corev1.EnvVar, 0, len(container.Env))
-			for _, envVars := range envVarGroups.InOrder {
-				container.Env = append(container.Env, envVars[len(envVars)-1])
-			}
-		}
+	if !features.Enabled(features.SanitizePodSets) {
+		return
+	}
+
+	for containerIndex := range podSet.Template.Spec.Containers {
+		container := &podSet.Template.Spec.Containers[containerIndex]
+		sanitizeContainer(container)
+	}
+
+	for containerIndex := range podSet.Template.Spec.InitContainers {
+		container := &podSet.Template.Spec.InitContainers[containerIndex]
+		sanitizeContainer(container)
+	}
+}
+
+// sanitizeContainer removes duplicate environment variables from the given container.
+func sanitizeContainer(container *corev1.Container) {
+	envVarGroups := orderedgroups.NewOrderedGroups[string, corev1.EnvVar]()
+	for _, envVar := range container.Env {
+		envVarGroups.Insert(envVar.Name, envVar)
+	}
+	container.Env = make([]corev1.EnvVar, 0, len(container.Env))
+	for _, envVars := range envVarGroups.InOrder {
+		container.Env = append(container.Env, envVars[len(envVars)-1])
 	}
 }
