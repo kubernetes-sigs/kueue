@@ -251,7 +251,7 @@ func (m *Manager) AddOrUpdateCohort(ctx context.Context, cohort *kueue.Cohort) {
 
 	m.hm.AddCohort(cohortName)
 	m.hm.UpdateCohortEdge(cohortName, cohort.Spec.ParentName)
-	if m.requeueWorkloadsCohort(ctx, m.hm.Cohort(cohortName)) {
+	if requeueWorkloadsCohort(ctx, m, m.hm.Cohort(cohortName)) {
 		m.Broadcast()
 	}
 }
@@ -299,7 +299,7 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 		}
 	}
 
-	queued := m.requeueWorkloadsCQ(ctx, cqImpl)
+	queued := requeueWorkloadsCQ(ctx, m, cqImpl)
 	m.reportPendingWorkloads(kueue.ClusterQueueReference(cq.Name), cqImpl)
 
 	// needs to be iterated over again here incase inadmissible workloads were added by requeueWorkloadsCQ
@@ -337,7 +337,7 @@ func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue
 
 	// TODO(#8): Selectively move workloads based on the exact event.
 	// If any workload becomes admissible or the queue becomes active.
-	if (specUpdated && m.requeueWorkloadsCQ(ctx, cqImpl)) || (!oldActive && cqImpl.Active()) {
+	if (specUpdated && requeueWorkloadsCQ(ctx, m, cqImpl)) || (!oldActive && cqImpl.Active()) {
 		m.reportPendingWorkloads(cqName, cqImpl)
 		if features.Enabled(features.LocalQueueMetrics) {
 			for _, q := range m.localQueues {
@@ -687,7 +687,7 @@ func (m *Manager) QueueAssociatedInadmissibleWorkloadsAfter(ctx context.Context,
 		return
 	}
 
-	if m.requeueWorkloadsCQ(ctx, cq) {
+	if requeueWorkloadsCQ(ctx, m, cq) {
 		m.Broadcast()
 	}
 }
@@ -718,7 +718,7 @@ func (m *Manager) QueueInadmissibleWorkloads(ctx context.Context, cqNames sets.S
 			}
 			processedRoots.Insert(rootName)
 		}
-		if m.requeueWorkloadsCQ(ctx, cq) {
+		if requeueWorkloadsCQ(ctx, m, cq) {
 			queued = true
 		}
 	}
@@ -726,58 +726,6 @@ func (m *Manager) QueueInadmissibleWorkloads(ctx context.Context, cqNames sets.S
 	if queued {
 		m.Broadcast()
 	}
-}
-
-// requeueWorkloadsCQ moves all workloads in the same
-// cohort with this ClusterQueue from inadmissibleWorkloads to heap. If the
-// cohort of this ClusterQueue is empty, it just moves all workloads in this
-// ClusterQueue. If at least one workload is moved, returns true, otherwise
-// returns false.
-// The events listed below could make workloads in the same cohort admissible.
-// Then requeueWorkloadsCQ need to be invoked.
-// 1. delete events for any admitted workload in the cohort.
-// 2. add events of any cluster queue in the cohort.
-// 3. update events of any cluster queue in the cohort.
-// 4. update of cohort.
-//
-// WARNING: must hold a read-lock on the manager when calling,
-// or otherwise risk encountering an infinite loop if a Cohort
-// cycle is introduced.
-func (m *Manager) requeueWorkloadsCQ(ctx context.Context, cq *ClusterQueue) bool {
-	if cq.HasParent() {
-		return m.requeueWorkloadsCohort(ctx, cq.Parent())
-	}
-	return cq.QueueInadmissibleWorkloads(ctx, m.client)
-}
-
-// moveWorkloadsCohorts checks for a cycle, the moves all inadmissible
-// workloads in the Cohort tree. If a cycle exists, or no workloads were
-// moved, it returns false.
-//
-// WARNING: must hold a read-lock on the manager when calling,
-// or otherwise risk encountering an infinite loop if a Cohort
-// cycle is introduced.
-func (m *Manager) requeueWorkloadsCohort(ctx context.Context, cohort *cohort) bool {
-	log := ctrl.LoggerFrom(ctx)
-
-	if hierarchy.HasCycle(cohort) {
-		log.V(2).Info("Attempted to move workloads from Cohort which has cycle", "cohort", cohort.GetName())
-		return false
-	}
-	root := cohort.getRootUnsafe()
-	log.V(2).Info("Attempting to move workloads", "cohort", cohort.Name, "root", root.Name)
-	return requeueWorkloadsCohortSubtree(ctx, m, root)
-}
-
-func requeueWorkloadsCohortSubtree(ctx context.Context, m *Manager, cohort *cohort) bool {
-	queued := false
-	for _, clusterQueue := range cohort.ChildCQs() {
-		queued = clusterQueue.QueueInadmissibleWorkloads(ctx, m.client) || queued
-	}
-	for _, childCohort := range cohort.ChildCohorts() {
-		queued = requeueWorkloadsCohortSubtree(ctx, m, childCohort) || queued
-	}
-	return queued
 }
 
 // UpdateWorkload updates the workload to the corresponding queue or adds it if
