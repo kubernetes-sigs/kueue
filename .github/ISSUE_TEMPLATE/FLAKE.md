@@ -11,8 +11,6 @@ Links to specific failures in Prow are appreciated.
 
 **Which test is flaking?**:
 
-**First observed in** (PR or commit, if known):
-
 **Link to failed CI job or steps to reproduce locally**:
 
 **Failure message or logs**:
