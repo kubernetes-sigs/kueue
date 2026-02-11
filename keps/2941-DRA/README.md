@@ -44,6 +44,7 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Workload Processing Flow](#workload-processing-flow)
   - [Architecture Details](#architecture-details)
     - [Queue Manager Extensions](#queue-manager-extensions)
+  - [MultiKueue Integration](#multikueue-integration)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
@@ -580,6 +581,10 @@ Processing Flow:
 4. Scheduler Access: Scheduler gets workload with DRA resources already calculated and validated
 
 This architecture separates concerns between DRA processing (controller) and queue management (scheduler), enabling robust error handling and retry logic for DRA-specific operations.
+
+### MultiKueue Integration
+
+DRA workloads are supported with MultiKueue through the existing workload synchronization mechanism. ResourceClaimTemplates must be deployed on worker clusters by users; they are not automatically synced.
 
 ### Test Plan
 

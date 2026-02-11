@@ -20,6 +20,10 @@ set -o pipefail
 
 SOURCE_DIR="$(cd "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 ROOT_DIR="$SOURCE_DIR/.."
+
+# E2E_TARGET_FOLDER allows running different test suites (multikueue, multikueue-dra)
+E2E_TARGET_FOLDER=${E2E_TARGET_FOLDER:-multikueue}
+
 export MANAGER_KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}-manager
 export WORKER1_KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}-worker1
 export WORKER2_KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}-worker2
@@ -62,6 +66,13 @@ function startup {
 
     cp "${SOURCE_DIR}/multikueue/manager-cluster.kind.yaml" "$ARTIFACTS"
 
+    IFS=. read -r -a varr <<< "$KIND_VERSION"
+    minor=$(( varr[1] ))
+    if [ "$minor" -eq 31 ]; then
+        echo "Enable JobManagedBy feature in manager's kind config"
+        $YQ e -i '.featureGates.JobManagedBy = true' "${ARTIFACTS}/manager-cluster.kind.yaml"
+    fi
+
     ensure_kind_cluster "$MANAGER_KIND_CLUSTER_NAME" "${ARTIFACTS}/manager-cluster.kind.yaml" "$MANAGER_KUBECONFIG" &
     ensure_kind_cluster "$WORKER1_KIND_CLUSTER_NAME" "$SOURCE_DIR/multikueue/worker-cluster.kind.yaml" "$WORKER1_KUBECONFIG" &
     ensure_kind_cluster "$WORKER2_KIND_CLUSTER_NAME" "$SOURCE_DIR/multikueue/worker-cluster.kind.yaml" "$WORKER2_KUBECONFIG" &
@@ -103,5 +114,5 @@ if [ "$E2E_RUN_ONLY_ENV" = "true" ]; then
 fi
 
 # shellcheck disable=SC2086
-$GINKGO $GINKGO_ARGS --junit-report=junit.xml --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/multikueue/...
+$GINKGO $GINKGO_ARGS --junit-report=junit.xml --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/${E2E_TARGET_FOLDER}/...
 "$ROOT_DIR/bin/ginkgo-top" -i "$ARTIFACTS/e2e.json" > "$ARTIFACTS/e2e-top.yaml"
