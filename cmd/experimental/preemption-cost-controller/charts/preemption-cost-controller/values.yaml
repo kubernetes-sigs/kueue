@@ -1,0 +1,13 @@
+preemptionCostController:
+  image:
+    repository: us-central1-docker.pkg.dev/k8s-staging-images/kueue/preemption-cost-controller
+    tag: main
+    pullPolicy: Always
+  imagePullSecrets: []
+  config:
+    enableRunningPhaseIncrement: false
+    runningPhaseIncrement: 1
+    maxCost: 100000
+
+kueue:
+  enabled: false

@@ -4444,6 +4444,50 @@ func TestCandidatesOrdering(t *testing.T) {
 			},
 			wantCandidates: []workload.Reference{"low", "high"},
 		},
+		"workloads sorted by effective preemption priority": {
+			candidates: []workload.Info{
+				*workload.NewInfo(utiltestingapi.MakeWorkload("high-cost", "").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+					Priority(10).
+					Annotation(controllerconstants.PreemptionCostAnnotationKey, "100").
+					Obj()),
+				*workload.NewInfo(utiltestingapi.MakeWorkload("low-cost", "").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+					Priority(10).
+					Annotation(controllerconstants.PreemptionCostAnnotationKey, "5").
+					Obj()),
+			},
+			wantCandidates: []workload.Reference{"high-cost", "low-cost"},
+		},
+		"workload missing preemption cost defaults to zero": {
+			candidates: []workload.Info{
+				*workload.NewInfo(utiltestingapi.MakeWorkload("missing-cost", "").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+					Priority(10).
+					Obj()),
+				*workload.NewInfo(utiltestingapi.MakeWorkload("has-cost", "").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+					Priority(10).
+					Annotation(controllerconstants.PreemptionCostAnnotationKey, "5").
+					Obj()),
+			},
+			wantCandidates: []workload.Reference{"has-cost", "missing-cost"},
+		},
+		"invalid preemption cost defaults to zero": {
+			candidates: []workload.Info{
+				*workload.NewInfo(utiltestingapi.MakeWorkload("invalid-cost", "").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+					Priority(10).
+					Annotation(controllerconstants.PreemptionCostAnnotationKey, "invalid").
+					Obj()),
+				*workload.NewInfo(utiltestingapi.MakeWorkload("valid-cost", "").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+					Priority(10).
+					Annotation(controllerconstants.PreemptionCostAnnotationKey, "5").
+					Obj()),
+			},
+			wantCandidates: []workload.Reference{"valid-cost", "invalid-cost"},
+		},
 		"evicted workload first": {
 			candidates: []workload.Info{
 				*workload.NewInfo(utiltestingapi.MakeWorkload("other", "").

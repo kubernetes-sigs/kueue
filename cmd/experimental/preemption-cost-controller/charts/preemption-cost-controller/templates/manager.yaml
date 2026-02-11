@@ -1,0 +1,132 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-preemption-cost-controller
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-preemption-cost-controller-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - get
+  - list
+  - watch
+  - patch
+- apiGroups:
+  - kueue.x-k8s.io
+  resources:
+  - workloads
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-preemption-cost-controller-role-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-preemption-cost-controller-role
+subjects:
+- kind: ServiceAccount
+  name: {{ .Release.Name }}-preemption-cost-controller
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-preemption-cost-controller-config
+  namespace: {{ .Release.Namespace }}
+data:
+  controller_manager_config.yaml: |
+    enableRunningPhaseIncrement: {{ .Values.preemptionCostController.config.enableRunningPhaseIncrement }}
+    runningPhaseIncrement: {{ .Values.preemptionCostController.config.runningPhaseIncrement }}
+    maxCost: {{ .Values.preemptionCostController.config.maxCost }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-preemption-cost-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: preemption-cost-controller
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    control-plane: preemption-cost-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      control-plane: preemption-cost-controller
+      app.kubernetes.io/name: preemption-cost-controller
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        control-plane: preemption-cost-controller
+        app.kubernetes.io/name: preemption-cost-controller
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}-preemption-cost-controller
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - args:
+        - "--config=/etc/kueue/controller_manager_config.yaml"
+        - "--zap-log-level=2"
+        image: "{{ .Values.preemptionCostController.image.repository }}:{{ .Values.preemptionCostController.image.tag }}"
+        imagePullPolicy: {{ .Values.preemptionCostController.image.pullPolicy }}
+        name: manager
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 100m
+            memory: 100Mi
+          requests:
+            cpu: 100m
+            memory: 100Mi
+        volumeMounts:
+        - mountPath: /etc/kueue
+          name: manager-config
+      {{- with .Values.preemptionCostController.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 10
+      volumes:
+      - configMap:
+          name: {{ .Release.Name }}-preemption-cost-controller-config
+        name: manager-config

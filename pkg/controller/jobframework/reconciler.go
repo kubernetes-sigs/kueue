@@ -1119,6 +1119,10 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 		return false, nil
 	}
 
+	if wl.Annotations[controllerconsts.PreemptionCostAnnotationKey] != job.Object().GetAnnotations()[controllerconsts.PreemptionCostAnnotationKey] {
+		return false, nil
+	}
+
 	getPodSets, err := JobPodSets(ctx, job)
 	if err != nil {
 		return false, err
@@ -1149,6 +1153,14 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 		return nil, fmt.Errorf("can't construct workload for update: %w", err)
 	}
 	wl.Spec = newWl.Spec
+	if preemptionCost, found := newWl.Annotations[controllerconsts.PreemptionCostAnnotationKey]; found {
+		if wl.Annotations == nil {
+			wl.Annotations = make(map[string]string)
+		}
+		wl.Annotations[controllerconsts.PreemptionCostAnnotationKey] = preemptionCost
+	} else if wl.Annotations != nil {
+		delete(wl.Annotations, controllerconsts.PreemptionCostAnnotationKey)
+	}
 	if err = r.client.Update(ctx, wl); err != nil {
 		return nil, fmt.Errorf("updating existed workload: %w", err)
 	}

@@ -209,6 +209,19 @@ Used on: [Plain Pods](/docs/tasks/run/plain_pods/).
 
 The annotation key is used to indicate the integration name of the Pod owner.
 
+### kueue.x-k8s.io/preemption-cost
+
+Type: Annotation
+
+Example: `kueue.x-k8s.io/preemption-cost: "250"`
+
+Used on: [batch/Job](/docs/tasks/run/jobs/) and [Workload](/docs/concepts/workload/).
+
+The annotation is an optional unitless score where higher values mean a workload is more expensive to preempt.
+For preemption candidate ordering, Kueue uses effective preemption priority:
+`workloadPriority - preemptionCost`.
+When set on a Job, Kueue copies this annotation to the corresponding Workload.
+If the value is missing or invalid, it is treated as `0`.
 
 ### kueue.x-k8s.io/prebuilt-workload-name
 

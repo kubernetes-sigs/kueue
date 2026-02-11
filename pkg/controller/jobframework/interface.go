@@ -217,13 +217,18 @@ func PrebuiltWorkloadFor(job GenericJob) (string, bool) {
 }
 
 func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKeysToCopy []string) *kueue.Workload {
+	annotations := admissioncheck.FilterProvReqAnnotations(obj.GetAnnotations())
+	if preemptionCost, found := obj.GetAnnotations()[constants.PreemptionCostAnnotationKey]; found {
+		annotations[constants.PreemptionCostAnnotationKey] = preemptionCost
+	}
+
 	return &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
 			Namespace:   obj.GetNamespace(),
 			Labels:      maps.FilterKeys(obj.GetLabels(), labelKeysToCopy),
 			Finalizers:  []string{kueue.ResourceInUseFinalizerName},
-			Annotations: admissioncheck.FilterProvReqAnnotations(obj.GetAnnotations()),
+			Annotations: annotations,
 		},
 		Spec: kueue.WorkloadSpec{
 			QueueName:                   QueueNameForObject(obj),
