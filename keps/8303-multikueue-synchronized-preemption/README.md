@@ -24,7 +24,7 @@
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
   - [Re-use the <code>kueue.x-k8s.io/cannot-preempt</code> annotation and its semantics](#re-use-the-kueuex-k8siocannot-preempt-annotation-and-its-semantics)
-  - [Define a proper Workload API for alpha](#define-a-proper-workload-api-for-alpha)
+  - [Create a new alpha annotation <code>kueue.x-k8s.io/preemption-gated</code>](#create-a-new-alpha-annotation-kueuex-k8siopreemption-gated)
   - [Specify the preemption timeout per-ClusterQueue instead of globally](#specify-the-preemption-timeout-per-clusterqueue-instead-of-globally)
   - [Use dynamically calculated default for the preemption timeout](#use-dynamically-calculated-default-for-the-preemption-timeout)
 <!-- /toc -->
@@ -209,6 +209,9 @@ spec:
 // ...
 ```
 
+The structure of the API is inspired both by the [`AdmissionCheckState` API](https://github.com/kubernetes-sigs/kueue/blob/a4692d942d656caee4bce019abc563da76ab3bb4/apis/kueue/v1beta2/workload_types.go#L741-L784) in `Workload` status
+and the [`schedulingGate` API](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.26/#podschedulinggate-v1-core) in the `Pod` spec.
+
 #### Extending the `QuotaReserved` Condition
 
 The `QuotaReserved` Condition will be extended to be able to signalize that the quota cannot be reserved due to a preemption gate.
@@ -306,13 +309,12 @@ The `SingleClusterPreemptionTimeout` will be configurable in the Kueue configura
 
 - **Alpha**:
   - Feature implemented behind the feature gate, disabled by default.
-  - Preemption gating is based upon the proposed annotation.
   - Unit and integration tests are implemented.
 - **Beta**:
   - Feature gate is enabled by default.
   - The feature has been tested in a production-like environment.
   - User feedback was gathered and emerging use-cases are taken into consideration.
-  - The Kueue APIs are extended with preemption gating structures in favor of Workload annotations.
+  - The Kueue APIs are finalized and potentially extended, based upon the alpha experience.
 - **Stable**:
   - The feature is considered stable and the feature gate is removed.
 
@@ -356,16 +358,16 @@ This leaves more control in the user's hands and does not change the existing se
 Moreover, reusing the `cannot-preempt` annotation will make it impossible for the users to express MultiKueue workloads that can **never** preempt,
 as the orchestrator controller cannot tell whether the `cannot-preempt` annotation was set by the user or itself.
 
-### Define a proper Workload API for alpha
+### Create a new alpha annotation `kueue.x-k8s.io/preemption-gated`
 
-Instead of relying on the annotations, preemption gates or a similar mechanism could be expressed as a Workload API.
+Instead of defining a dedicated API in the alpha phase, an annotation could be used temporarily to gather feedback and inform the shape
+of the final API. This is advantageous given the potential overlap between this KEP, KEP-8729 and KEP-8691, making the scope of preemption gating
+less clear.
 
 **Reasons for discarding/deferring**
 
-1. Given the potential overlap between this KEP, KEP-8729 and KEP-8691, the shape of the API might not be obvious.
-1. There are few drawbacks from using the simplest possible solution (annotations) without API lock-in.
-1. The MultiKueue preemption management is largely API independent and is the first priority. Gathering user feedback
-from this implementation will inform the correct API structure.
+1. The proposed API makes use of familiar K8s/Kueue constructs, which makes it easy to process and reason about by the users and contributors alike.
+1. The proposed API is complex enough that fitting it into an annotation would be inconvenient.
 
 ### Specify the preemption timeout per-ClusterQueue instead of globally
 
