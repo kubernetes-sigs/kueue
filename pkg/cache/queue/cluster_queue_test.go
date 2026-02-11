@@ -516,7 +516,7 @@ func TestClusterQueueImpl(t *testing.T) {
 
 			if test.queueInadmissibleWorkloads {
 				if diff := cmp.Diff(test.wantInadmissibleWorkloadsRequeued,
-					QueueInadmissibleWorkloads(ctx, cq, cl)); diff != "" {
+					queueInadmissibleWorkloads(ctx, cq, cl)); diff != "" {
 					t.Errorf("Unexpected requeuing of inadmissible workloads (-want,+got):\n%s", diff)
 				}
 			}
@@ -549,7 +549,7 @@ func TestQueueInadmissibleWorkloadsDuringScheduling(t *testing.T) {
 
 	// Simulate requeuing during scheduling attempt.
 	head := cq.Pop()
-	QueueInadmissibleWorkloads(ctx, cq, cl)
+	queueInadmissibleWorkloads(ctx, cq, cl)
 	cq.requeueIfNotPresent(log, head, false)
 
 	activeWorkloads, _ = cq.Dump()
