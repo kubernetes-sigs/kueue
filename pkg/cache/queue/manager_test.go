@@ -263,7 +263,7 @@ func TestRequeueWorkloadsCohortCycle(t *testing.T) {
 
 	// This method is where we do a cycle check. We call it to ensure
 	// it behaves properly when a cycle exists
-	if manager.requeueWorkloadsCohort(ctx, manager.hm.Cohort("cohort-a")) {
+	if requeueWorkloadsCohort(ctx, manager, manager.hm.Cohort("cohort-a")) {
 		t.Fatal("Expected moveWorkloadsCohort to return false")
 	}
 	if diff := cmp.Diff(expectedAssigned, manager.workloadAssignedQueues); diff != "" {
