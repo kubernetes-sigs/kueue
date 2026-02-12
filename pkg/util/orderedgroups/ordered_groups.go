@@ -16,7 +16,7 @@ limitations under the License.
 
 package orderedgroups
 
-// Represents a mapping of group keys to grouped items and tracks their insertion order for deterministic iteration.
+// OrderedGroups represents a mapping of group keys to grouped items and tracks their insertion order for deterministic iteration.
 type OrderedGroups[K comparable, V any] struct {
 	groups         map[K][]V
 	insertionOrder []K
@@ -29,7 +29,7 @@ func NewOrderedGroups[K comparable, V any]() *OrderedGroups[K, V] {
 	}
 }
 
-// Inserts an element to the group. If the group does not exist yet, tracks it's insertion order.
+// Insert inserts an element to the group. If the group does not exist yet, tracks it's insertion order.
 func (om *OrderedGroups[K, V]) Insert(key K, value V) {
 	if _, ok := om.groups[key]; !ok {
 		om.insertionOrder = append(om.insertionOrder, key)
@@ -37,7 +37,7 @@ func (om *OrderedGroups[K, V]) Insert(key K, value V) {
 	om.groups[key] = append(om.groups[key], value)
 }
 
-// Iterates over the collected groups in order of insertion.
+// InOrder iterates over the collected groups in order of insertion.
 func (om *OrderedGroups[K, V]) InOrder(yield func(K, []V) bool) {
 	for _, k := range om.insertionOrder {
 		if !yield(k, om.groups[k]) {
