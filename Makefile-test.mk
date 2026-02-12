@@ -119,16 +119,6 @@ test-multikueue-integration: compile-crd-manifests gomod-download envtest ginkgo
 	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS_MULTIKUEUE) --race --junit-report=multikueue-junit.xml --json-report=multikueue-integration.json --output-interceptor-mode=none --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET_MULTIKUEUE)
 	$(BIN_DIR)/ginkgo-top -i $(ARTIFACTS)/multikueue-integration.json > $(ARTIFACTS)/multikueue-integration-top.yaml
 
-SINGLECLUSTER-E2E_TARGETS := $(addprefix run-test-e2e-singlecluster-,$(E2E_KIND_VERSION:kindest/node:v%=%))
-
-# DRA e2e tests require k8s 1.34+
-DRA_MIN_K8S_VERSION := 1.34
-ifeq ($(shell printf '%s\n' "$(E2E_K8S_VERSION)" "$(DRA_MIN_K8S_VERSION)" | sort -V | head -n1),$(DRA_MIN_K8S_VERSION))
-MULTIKUEUE-DRA-E2E_TARGETS := $(addprefix run-test-e2e-multikueue-dra-,$(E2E_KIND_VERSION:kindest/node:v%=%))
-else
-MULTIKUEUE-DRA-E2E_TARGETS :=
-endif
-
 ## Label Taxonomy:
 ##   Features: appwrapper,certs,deployment,job,fairsharing,jaxjob,jobset,kuberay,kueuectl,leaderworkerset,metrics,pod,pytorchjob,statefulset,tas,trainjob,visibility,e2e_v1beta1
 ##
@@ -138,7 +128,7 @@ endif
 ##   Run only jobset and trainjob tests: GINKGO_ARGS="--label-filter=feature:jobset,feature:trainjob" make test-e2e
 test-e2e: E2E_NPROCS := 2
 .PHONY: test-e2e
-test-e2e: setup-e2e-env kueuectl kind-ray-project-mini-image-build $(SINGLECLUSTER-E2E_TARGETS) $(MULTIKUEUE-DRA-E2E_TARGETS)
+test-e2e: setup-e2e-env kueuectl kind-ray-project-mini-image-build run-test-e2e-singlecluster-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-helm
 test-e2e-helm: E2E_USE_HELM=true
