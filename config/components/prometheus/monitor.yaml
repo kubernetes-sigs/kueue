@@ -11,21 +11,7 @@ spec:
       scheme: https
       bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
       tlsConfig:
-        # We use the placeholders directly here so 'replacements' can find them
-        serverName: $(SERVICE_NAME).$(SERVICE_NAMESPACE).svc 
-        insecureSkipVerify: false
-        ca:
-          secret:
-            name: metrics-server-cert
-            key: ca.crt
-        cert:
-          secret:
-            name: metrics-server-cert
-            key: tls.crt
-        keySecret:
-          name: metrics-server-cert
-          key: tls.key
-        
+        insecureSkipVerify: true
   selector:
     matchLabels:
       app.kubernetes.io/component: metrics-service
