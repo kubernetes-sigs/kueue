@@ -19,6 +19,7 @@ package queue
 import (
 	"context"
 	"errors"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -1489,6 +1490,43 @@ func TestHeadsCancelled(t *testing.T) {
 	heads := manager.Heads(ctx)
 	if len(heads) != 0 {
 		t.Errorf("GetHeads returned elements, expected none")
+	}
+}
+
+// TestHeadsCancelledNoLostWakeup verifies that cancellation does not leave Heads
+// stuck in cond.Wait due to a missed broadcast from CleanUpOnContext.
+func TestHeadsCancelledNoLostWakeup(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	manager := NewManager(utiltesting.NewFakeClient(), nil)
+
+	prevProcs := runtime.GOMAXPROCS(2)
+	defer runtime.GOMAXPROCS(prevProcs)
+
+	const iterations = 1000
+	for i := 0; i < iterations; i++ {
+		headsCtx, cancel := context.WithCancel(ctx)
+		headsDone := make(chan []workload.Info, 1)
+
+		go manager.CleanUpOnContext(headsCtx)
+		go func() {
+			headsDone <- manager.Heads(headsCtx)
+		}()
+
+		// Increase the chance of cancellation racing with the transition to Wait.
+		for j := 0; j < 3; j++ {
+			runtime.Gosched()
+			time.Sleep(0)
+		}
+		cancel()
+
+		select {
+		case heads := <-headsDone:
+			if len(heads) != 0 {
+				t.Fatalf("iteration %d: GetHeads returned elements, expected none", i)
+			}
+		case <-time.After(500 * time.Millisecond):
+			t.Fatalf("iteration %d: Heads got stuck after context cancellation", i)
+		}
 	}
 }
 
