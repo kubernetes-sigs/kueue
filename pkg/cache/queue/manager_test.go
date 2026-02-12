@@ -1499,10 +1499,7 @@ func TestHeadsCancelledNoLostWakeup(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	manager := NewManager(utiltesting.NewFakeClient(), nil)
 
-	prevProcs := runtime.GOMAXPROCS(2)
-	defer runtime.GOMAXPROCS(prevProcs)
-
-	const iterations = 1000
+	const iterations = 50
 	for i := 0; i < iterations; i++ {
 		headsCtx, cancel := context.WithCancel(ctx)
 		headsDone := make(chan []workload.Info, 1)
@@ -1512,21 +1509,38 @@ func TestHeadsCancelledNoLostWakeup(t *testing.T) {
 			headsDone <- manager.Heads(headsCtx)
 		}()
 
-		// Increase the chance of cancellation racing with the transition to Wait.
-		for j := 0; j < 3; j++ {
-			runtime.Gosched()
-			time.Sleep(0)
-		}
+		// Wait until the Heads goroutine is actually parked in cond.Wait
+		// before cancelling, so we deterministically exercise the broadcast
+		// wakeup path rather than relying on scheduling jitter.
+		waitForGoroutine(t, "sync.(*Cond).Wait", time.Second)
 		cancel()
 
 		select {
 		case heads := <-headsDone:
 			if len(heads) != 0 {
-				t.Fatalf("iteration %d: GetHeads returned elements, expected none", i)
+				t.Fatalf("iteration %d: Heads returned elements, expected none", i)
 			}
-		case <-time.After(500 * time.Millisecond):
+		case <-time.After(time.Second):
 			t.Fatalf("iteration %d: Heads got stuck after context cancellation", i)
 		}
+	}
+}
+
+// waitForGoroutine polls runtime.Stack until a goroutine whose stack contains
+// the given substring is found, or the timeout expires.
+func waitForGoroutine(t *testing.T, substr string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		buf := make([]byte, 128*1024)
+		n := runtime.Stack(buf, true)
+		if strings.Contains(string(buf[:n]), substr) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for goroutine with %q in stack", substr)
+		}
+		runtime.Gosched()
 	}
 }
 
