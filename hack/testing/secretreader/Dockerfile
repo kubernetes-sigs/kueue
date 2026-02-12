@@ -1,4 +1,4 @@
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26-alpine AS builder
 ARG PLUGIN_VERSION
 RUN go install sigs.k8s.io/cluster-inventory-api/cmd/secretreader-plugin@${PLUGIN_VERSION}
 
