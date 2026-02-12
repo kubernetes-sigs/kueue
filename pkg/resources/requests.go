@@ -41,6 +41,10 @@ func NewRequests(rl corev1.ResourceList) Requests {
 	return r
 }
 
+func NewRequestsFromPodSpec(podSpec *corev1.PodSpec) Requests {
+	return NewRequests(resourcehelpers.PodRequests(&corev1.Pod{Spec: *podSpec}, resourcehelpers.PodResourcesOptions{}))
+}
+
 // NewRequestsFromPodTemplate computes resource requests directly from a PodTemplateSpec,
 // bypassing quota filtering. Use for physical placement calculations.
 func NewRequestsFromPodTemplate(template *corev1.PodTemplateSpec) Requests {
