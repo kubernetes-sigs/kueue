@@ -129,5 +129,5 @@ See [Prometheus Metrics](/docs/reference/metrics#optional-metrics) for the full 
 
 ## What's next
 
-- See [Prometheus Metrics](/docs/reference/metrics) for a complete list of available metrics.
+- See [Common Grafana Queries](/docs/tasks/manage/observability/common_grafana_queries) for PromQL queries to monitor Kueue in Grafana.
 - See [Setup Prometheus](/docs/tasks/manage/observability/setup_prometheus) for production setup instructions.

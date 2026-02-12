@@ -1,7 +1,7 @@
 ---
 title: "Common Grafana Queries"
 date: 2026-02-03
-weight: 14
+weight: 2
 description: >
   Common PromQL queries for monitoring Kueue in Grafana.
 ---
@@ -18,7 +18,7 @@ Make sure the following conditions are met:
 - The kubectl command-line tool has communication with your cluster.
 - [Kueue is installed](/docs/installation).
 - [kube-prometheus](https://github.com/prometheus-operator/kube-prometheus) is installed.
-- Kueue Prometheus metrics are enabled (see [Configure Prometheus](/docs/tasks/manage/productization/prometheus)).
+- Kueue Prometheus metrics are enabled (see [Setup Prometheus](/docs/tasks/manage/observability/setup_prometheus)).
 
 ## Quota utilization
 
