@@ -18,15 +18,16 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-# cd to the root path
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-cd "${ROOT}"
+SOURCE_DIR="$(cd "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+ROOT_DIR="$SOURCE_DIR/../../.."
+
+cd "${ROOT_DIR}"
 
 echo "Updating tables of contents if necessary..."
 # Update tables of contents if necessary.
 find keps -name '*.md' \
-    | grep -Fxvf hack/.notableofcontents \
-    | xargs "${ROOT}/bin/mdtoc" --inplace --max-depth=5  || (
+    | grep -Fxvf "${SOURCE_DIR}/.notableofcontents" \
+    | xargs "${ROOT_DIR}/bin/mdtoc" --inplace --max-depth=5  || (
       echo "Failed generating TOC. If this failed silently and you are on mac, try 'brew install grep'"
       exit 1
     )
