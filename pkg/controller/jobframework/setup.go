@@ -119,7 +119,7 @@ func (m *integrationManager) setupControllerAndWebhook(ctx context.Context, mgr 
 		ctx,
 		mgr.GetClient(),
 		mgr.GetFieldIndexer(),
-		mgr.GetEventRecorderFor(fmt.Sprintf("%s-%s-controller", name, options.ManagerName)),
+		mgr.GetEventRecorder(fmt.Sprintf("%s-%s-controller", name, options.ManagerName)),
 		opts...,
 	); err != nil {
 		return fmt.Errorf("%s: %w", fwkNamePrefix, err)
@@ -132,7 +132,7 @@ func (m *integrationManager) setupControllerAndWebhook(ctx context.Context, mgr 
 			ctx,
 			mgr.GetClient(),
 			mgr.GetFieldIndexer(),
-			mgr.GetEventRecorderFor(fmt.Sprintf("%s-%s-controller", name, options.ManagerName)),
+			mgr.GetEventRecorder(fmt.Sprintf("%s-%s-controller", name, options.ManagerName)),
 			opts...,
 		); err != nil {
 			return fmt.Errorf("%s: %w", fwkNamePrefix, err)

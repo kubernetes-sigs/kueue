@@ -30,7 +30,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	resourcehelpers "k8s.io/component-helpers/resource"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -1381,7 +1381,7 @@ func EvictWithRetryOnConflictForPatch() EvictOption {
 	}
 }
 
-func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, wl *kueue.Workload, reason, msg string, underlyingCause kueue.EvictionUnderlyingCause, clock clock.Clock, tracker *roletracker.RoleTracker, options ...EvictOption) error {
+func Evict(ctx context.Context, c client.Client, recorder events.EventRecorder, wl *kueue.Workload, reason, msg string, underlyingCause kueue.EvictionUnderlyingCause, clock clock.Clock, tracker *roletracker.RoleTracker, options ...EvictOption) error {
 	opts := DefaultEvictOptions()
 	for _, opt := range options {
 		opt(opts)
@@ -1489,7 +1489,7 @@ func resetUnhealthyNodes(w *kueue.Workload) {
 	w.Status.UnhealthyNodes = nil
 }
 
-func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, message string, underlyingCause kueue.EvictionUnderlyingCause, tracker *roletracker.RoleTracker) {
+func reportEvictedWorkload(recorder events.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, message string, underlyingCause kueue.EvictionUnderlyingCause, tracker *roletracker.RoleTracker) {
 	priorityClassName := PriorityClassName(wl)
 	metrics.ReportEvictedWorkloads(cqName, reason, string(underlyingCause), priorityClassName, tracker)
 	if podsReadyToEvictionTime := workloadsWithPodsReadyToEvictedTime(wl); podsReadyToEvictionTime != nil {
@@ -1508,7 +1508,7 @@ func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cq
 	if reason == kueue.WorkloadDeactivated && underlyingCause != "" {
 		eventReason = ReasonWithCause(eventReason, string(underlyingCause))
 	}
-	recorder.Event(wl, corev1.EventTypeNormal, eventReason, message)
+	recorder.Eventf(wl, nil, corev1.EventTypeNormal, eventReason, "", message)
 }
 
 func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference, tracker *roletracker.RoleTracker) {

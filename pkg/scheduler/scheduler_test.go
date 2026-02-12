@@ -32,7 +32,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/component-base/metrics/testutil"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
@@ -8657,9 +8657,8 @@ func TestLastSchedulingContext(t *testing.T) {
 					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 
 				cl := clientBuilder.Build()
-				broadcaster := record.NewBroadcaster()
-				recorder := broadcaster.NewRecorder(scheme,
-					corev1.EventSource{Component: constants.AdmissionName})
+				broadcaster := events.NewBroadcaster(&events.EventSinkImpl{Interface: nil})
+				recorder := broadcaster.NewRecorder(scheme, constants.AdmissionName)
 				cqCache := schdcache.New(cl)
 				qManager := qcache.NewManager(cl, cqCache)
 				// Workloads are loaded into queues or clusterQueues as we add them.
@@ -8853,8 +8852,8 @@ func TestRequeueAndUpdate(t *testing.T) {
 					return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResourceName, obj, patch, opts...)
 				},
 			}).WithObjects(objs...).WithStatusSubresource(objs...).Build()
-			broadcaster := record.NewBroadcaster()
-			recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
+			broadcaster := events.NewBroadcaster(&events.EventSinkImpl{Interface: nil})
+			recorder := broadcaster.NewRecorder(scheme, constants.AdmissionName)
 			cqCache := schdcache.New(cl)
 			qManager := qcache.NewManager(cl, cqCache)
 			scheduler := New(qManager, cqCache, cl, recorder)

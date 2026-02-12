@@ -24,7 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -186,7 +186,8 @@ func TestValidateCreate(t *testing.T) {
 			if err := SetupIndexes(ctx, indexer); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)
 			}
-			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
+			broadcaster := events.NewBroadcaster(&events.EventSinkImpl{Interface: nil})
+			recorder := broadcaster.NewRecorder(kClient.Scheme(), "test")
 			_, _ = NewReconciler(ctx, kClient, indexer, recorder)
 			_, gotErr := webhook.ValidateCreate(ctx, tc.trainJob)
 

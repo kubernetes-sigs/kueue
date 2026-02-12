@@ -27,7 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
@@ -199,7 +199,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexer, _ record.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
+func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexer, _ events.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
 	options := jobframework.ProcessOptions(opts...)
 
 	return &Reconciler{

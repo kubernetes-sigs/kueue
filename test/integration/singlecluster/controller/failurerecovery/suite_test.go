@@ -63,7 +63,7 @@ var _ = ginkgo.AfterSuite(func() {
 func managerSetup(_ context.Context, mgr manager.Manager) {
 	terminatingPodReconciler := failurerecovery.NewTerminatingPodReconciler(
 		mgr.GetClient(),
-		mgr.GetEventRecorderFor(constants.PodTerminationControllerName),
+		mgr.GetEventRecorder(constants.PodTerminationControllerName),
 		failurerecovery.WithForcefulTerminationGracePeriod(time.Millisecond),
 	)
 

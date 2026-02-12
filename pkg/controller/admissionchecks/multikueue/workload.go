@@ -30,7 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -71,7 +71,7 @@ type wlReconciler struct {
 	deletedWlCache    *utilmaps.SyncMap[string, *kueue.Workload]
 	eventsBatchPeriod time.Duration
 	adapters          map[string]jobframework.MultiKueueAdapter
-	recorder          record.EventRecorder
+	recorder          events.EventRecorder
 	clock             clock.Clock
 	dispatcherName    string
 	roleTracker       *roletracker.RoleTracker
@@ -396,7 +396,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 				return reconcile.Result{}, err
 			}
 
-			w.recorder.Eventf(group.local, corev1.EventTypeNormal, "MultiKueue", acs.Message)
+			w.recorder.Eventf(group.local, nil, corev1.EventTypeNormal, "MultiKueue", "", acs.Message)
 			return reconcile.Result{}, nil
 		}
 	}
@@ -775,7 +775,7 @@ func (w *wlReconciler) Generic(_ event.GenericEvent) bool {
 }
 
 func newWlReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelper, cRec *clustersReconciler, origin string,
-	recorder record.EventRecorder, workerLostTimeout, eventsBatchPeriod time.Duration,
+	recorder events.EventRecorder, workerLostTimeout, eventsBatchPeriod time.Duration,
 	adapters map[string]jobframework.MultiKueueAdapter, dispatcherName string, roleTracker *roletracker.RoleTracker,
 	options ...Option,
 ) *wlReconciler {
@@ -957,7 +957,7 @@ func (w *wlReconciler) syncReservingRemoteState(ctx context.Context, group *wlGr
 	}
 
 	if needsACUpdate {
-		w.recorder.Eventf(group.local, corev1.EventTypeNormal, "MultiKueue", acs.Message)
+		w.recorder.Eventf(group.local, nil, corev1.EventTypeNormal, "MultiKueue", "", acs.Message)
 		w.enqueueComponentWorkloads(ctx, group.local)
 	}
 

@@ -90,7 +90,7 @@ func managerAndSchedulerSetup(transformations []config.ResourceTransformation) f
 		err = workloadjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName))
+		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorder(constants.AdmissionName))
 		err = sched.Start(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}

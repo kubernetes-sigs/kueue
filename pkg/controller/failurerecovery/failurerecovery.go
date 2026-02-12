@@ -27,7 +27,7 @@ import (
 func SetupControllers(mgr manager.Manager, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker) (string, error) {
 	tpRec := NewTerminatingPodReconciler(
 		mgr.GetClient(),
-		mgr.GetEventRecorderFor(constants.PodTerminationControllerName),
+		mgr.GetEventRecorder(constants.PodTerminationControllerName),
 		WithRoleTracker(roleTracker),
 	)
 	return tpRec.SetupWithManager(mgr, cfg)

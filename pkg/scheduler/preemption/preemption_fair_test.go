@@ -27,7 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	clocktesting "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 
@@ -914,9 +914,13 @@ func TestFairPreemptions(t *testing.T) {
 				}
 			}
 
-			broadcaster := record.NewBroadcaster()
+			broadcaster := events.NewBroadcaster(
+				&events.EventSinkImpl{
+					Interface: nil,
+				},
+			)
 			scheme := runtime.NewScheme()
-			recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
+			recorder := broadcaster.NewRecorder(scheme, constants.AdmissionName)
 			preemptor := New(cl, workload.Ordering{}, recorder, &config.FairSharing{
 				PreemptionStrategies: tc.strategies,
 			}, false, clocktesting.NewFakeClock(now), nil)

@@ -5,6 +5,7 @@ version: "2"
 linters:
   enable:
     - copyloopvar
+    - depguard
     - dupword
     - durationcheck
     - fatcontext
@@ -24,6 +25,12 @@ linters:
     - unconvert
     - forbidigo
   settings:
+    depguard:
+      rules:
+        main:
+          deny:
+            - pkg: k8s.io/client-go/tools/record
+              desc: Should be replaced with 'k8s.io/client-go/tools/events' package
     gocritic:
       enabled-checks:
         - dupImport
@@ -100,9 +107,6 @@ linters:
       - linters:
           - staticcheck
         text: 'SA1019: features.* is deprecated: planned to be removed in .*'
-      - linters:
-          - staticcheck
-        text: 'SA1019: mgr.GetEventRecorderFor is deprecated: this uses the old events API and will be removed in a future release. Please use GetEventRecorder instead.'
       - linters:
           - fatcontext
         path: ^test/*

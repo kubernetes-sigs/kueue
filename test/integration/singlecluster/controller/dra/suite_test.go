@@ -133,7 +133,7 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 			queues,
 			cCache,
 			mgr.GetClient(),
-			mgr.GetEventRecorderFor("kueue-admission"),
+			mgr.GetEventRecorder("kueue-admission"),
 		)
 		err = mgr.Add(sched)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
