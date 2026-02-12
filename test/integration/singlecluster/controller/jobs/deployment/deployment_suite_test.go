@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package replicaset
+package deployment
 
 import (
 	"context"
@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/deployment"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/deployment/replicaset"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	"sigs.k8s.io/kueue/pkg/webhooks"
@@ -50,7 +51,8 @@ func TestAPIs(t *testing.T) {
 	gomega.RegisterFailHandler(ginkgo.Fail)
 
 	ginkgo.RunSpecs(t,
-		"Replicaset Controller Suite",
+		"Deployment"+
+			" Controller Suite",
 	)
 }
 
@@ -66,13 +68,22 @@ var _ = ginkgo.AfterSuite(func() {
 
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
-		reconciler, err := replicaset.NewReconciler(ctx,
+		rsReconciler, err := replicaset.NewReconciler(ctx,
 			mgr.GetClient(),
 			mgr.GetFieldIndexer(),
 			mgr.GetEventRecorderFor(constants.JobControllerName),
 			opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(reconciler.SetupWithManager(mgr)).NotTo(gomega.HaveOccurred())
+		gomega.Expect(rsReconciler.SetupWithManager(mgr)).NotTo(gomega.HaveOccurred())
+
+		deploymentReconciler, err := deployment.NewReconciler(ctx,
+			mgr.GetClient(),
+			mgr.GetFieldIndexer(),
+			mgr.GetEventRecorderFor(constants.JobControllerName),
+			opts...)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(deploymentReconciler.SetupWithManager(mgr)).NotTo(gomega.HaveOccurred())
+
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(indexer.Setup(ctx, mgr.GetFieldIndexer())).NotTo(gomega.HaveOccurred())
 		gomega.Expect(replicaset.SetupIndexes(ctx, mgr.GetFieldIndexer())).NotTo(gomega.HaveOccurred())

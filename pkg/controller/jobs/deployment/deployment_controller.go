@@ -29,7 +29,7 @@ import (
 )
 
 var (
-	gvk = appsv1.SchemeGroupVersion.WithKind("Deployment")
+	GroupVersionKind = appsv1.SchemeGroupVersion.WithKind("Deployment")
 )
 
 const (
@@ -39,12 +39,12 @@ const (
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
 		SetupIndexes:                    SetupIndexes,
-		NewReconciler:                   jobframework.NewNoopReconcilerFactory(gvk),
-		GVK:                             gvk,
+		NewReconciler:                   jobframework.NewNoopReconcilerFactory(GroupVersionKind),
+		GVK:                             GroupVersionKind,
 		SetupWebhook:                    SetupWebhook,
 		JobType:                         &appsv1.Deployment{},
 		AddToScheme:                     appsv1.AddToScheme,
-		ImplicitlyEnabledFrameworkNames: []string{"pod"},
+		ImplicitlyEnabledFrameworkNames: []string{"pod", "replicaset"},
 	}))
 }
 
@@ -62,7 +62,7 @@ func (d *Deployment) Object() client.Object {
 }
 
 func (d *Deployment) GVK() schema.GroupVersionKind {
-	return gvk
+	return GroupVersionKind
 }
 
 func SetupIndexes(context.Context, client.FieldIndexer) error {

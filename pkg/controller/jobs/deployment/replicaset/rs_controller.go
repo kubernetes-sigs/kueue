@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/utils/ptr"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -207,8 +206,6 @@ func (r *ReplicaSet) IsTopLevel() bool {
 }
 
 func (r *ReplicaSet) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, stopReason jobframework.StopReason, eventMsg string) (bool, error) {
-	log := ctrl.LoggerFrom(ctx)
-	log.Info("Listing pods")
 	if err := c.List(ctx, r.pods, client.InNamespace(r.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(r.GetUID())}); err != nil {
 		return false, fmt.Errorf("failed to list job pods: %w", err)
 	}
