@@ -302,14 +302,14 @@ func TestSnapshotDeterministicOrder(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			ctx, log := utiltesting.ContextWithLog(t)
+			ctx, _ := utiltesting.ContextWithLog(t)
 			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
 
 			for _, w := range tc.workloads {
 				cq.PushOrUpdate(workload.NewInfo(w))
 			}
 			for _, w := range tc.inadmissibleWorkloads {
-				cq.requeueIfNotPresent(log, workload.NewInfo(w), false)
+				cq.requeueIfNotPresent(workload.NewInfo(w), false)
 			}
 
 			firstSnap := cq.Snapshot()
