@@ -149,8 +149,6 @@ There are several advantages to extending both the `spec` and `status`:
 1. It preserves the semantics of both fields:
     * `spec` - pre-condition directive from the controller that a workload should be gated.
     * `status` - the observed state of the gates.
-1. The split between the request and the grant creates a security boundary.
-    * In cases the user wants to define a custom gate manually, they won't require the permission to edit the status.
 1. It gives the "created blocked" guarantee that avoids race conditions.
     * The presence of the gate in the spec allows for the workload can be created atomically with the gate.
     * This avoids race conditions between when the status of the gate is created and the Kueue scheduling cycle.
