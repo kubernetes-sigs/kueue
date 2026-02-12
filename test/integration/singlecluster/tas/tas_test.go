@@ -61,7 +61,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(nil))
+		fwk.StartManager(ctx, cfg, managerSetup())
 	})
 
 	ginkgo.AfterAll(func() {
@@ -783,7 +783,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("restart controllers", func() {
 					fwk.StopManager(ctx)
-					fwk.StartManager(ctx, cfg, managerSetup(nil))
+					fwk.StartManager(ctx, cfg, managerSetup())
 				})
 
 				ginkgo.By("verify wl2 is still not admitted", func() {
@@ -3565,7 +3565,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("restart Kueue manager", func() {
 					fwk.StopManager(ctx)
-					fwk.StartManager(ctx, cfg, managerSetup(nil))
+					fwk.StartManager(ctx, cfg, managerSetup())
 				})
 
 				ginkgo.By("verify admission for the workload", func() {
@@ -4628,11 +4628,11 @@ var _ = ginkgo.Describe("Topology Aware Scheduling – Resource Transformation: 
 
 	ginkgo.BeforeAll(func() {
 		// Starts the manager with a single retain transformation: 1 CPU → 1 cpu_credits
-		fwk.StartManager(ctx, cfg, managerSetup([]config.ResourceTransformation{{
+		fwk.StartManager(ctx, cfg, managerSetup(config.ResourceTransformation{
 			Input:    corev1.ResourceCPU,
 			Strategy: ptr.To(config.Retain),
 			Outputs:  corev1.ResourceList{cpuCredits: resource.MustParse("1")},
-		}}))
+		}))
 	})
 
 	ginkgo.AfterAll(func() {
