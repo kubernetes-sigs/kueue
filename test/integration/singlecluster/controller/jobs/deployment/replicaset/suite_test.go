@@ -50,7 +50,7 @@ func TestAPIs(t *testing.T) {
 	gomega.RegisterFailHandler(ginkgo.Fail)
 
 	ginkgo.RunSpecs(t,
-		"ReplicaSet Controller Suite",
+		"Replicaset Controller Suite",
 	)
 }
 
@@ -77,7 +77,7 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 		gomega.Expect(indexer.Setup(ctx, mgr.GetFieldIndexer())).NotTo(gomega.HaveOccurred())
 		gomega.Expect(replicaset.SetupIndexes(ctx, mgr.GetFieldIndexer())).NotTo(gomega.HaveOccurred())
 		gomega.Expect(replicaset.SetupWebhook(mgr, opts...)).NotTo(gomega.HaveOccurred())
-		failedWebhook, err := webhooks.Setup(mgr)
+		failedWebhook, err := webhooks.Setup(mgr, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 	}
 }
@@ -97,7 +97,7 @@ func managerAndControllersSetup(
 		cCache := schdcache.New(mgr.GetClient())
 		queues := qcache.NewManager(mgr.GetClient(), cCache)
 
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		if enableScheduler {
