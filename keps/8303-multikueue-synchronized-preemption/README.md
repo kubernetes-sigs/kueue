@@ -283,7 +283,7 @@ This controller will watch for workloads to change their `QuotaReservationBlocke
 
 ### Kueue Scheduler
 
-When encountering a workload with the `Preempt` assignment mode and a preemption gate, the scheduler will put that workload back into the
+When encountering a workload with the `Preempt` assignment mode and an active preemption gate, the scheduler will put that workload back into the
 queue according to the configured queueing strategy:
 
 * `BestEffortFIFO` - the workload is marked as inadmissible and effectively cannot run until the gate is removed.
