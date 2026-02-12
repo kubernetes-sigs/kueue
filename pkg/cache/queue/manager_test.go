@@ -1500,7 +1500,7 @@ func TestHeadsCancelledNoLostWakeup(t *testing.T) {
 	manager := NewManager(utiltesting.NewFakeClient(), nil)
 
 	const iterations = 50
-	for i := 0; i < iterations; i++ {
+	for i := range iterations {
 		headsCtx, cancel := context.WithCancel(ctx)
 		headsDone := make(chan []workload.Info, 1)
 
