@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Copyright 2025 The Kubernetes Authors.
+# Copyright 2026 The Kubernetes Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,18 +18,11 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-KUBERNETES_SIGS_KUEUE_PATH="$(git rev-parse --show-toplevel)"
-declare -r KUBERNETES_SIGS_KUEUE_PATH
-
-cd "$KUBERNETES_SIGS_KUEUE_PATH"
-
-KUBERNETES_SIGS_KUEUE_UPSTREAM_REMOTE=${KUBERNETES_SIGS_KUEUE_UPSTREAM_REMOTE:-upstream}
-KUBERNETES_SIGS_KUEUE_FORK_REMOTE=${KUBERNETES_SIGS_KUEUE_FORK_REMOTE:-origin}
-KUBERNETES_SIGS_KUEUE_MAIN_REPO_ORG=${KUBERNETES_SIGS_KUEUE_MAIN_REPO_ORG:-$(git remote get-url "$KUBERNETES_SIGS_KUEUE_UPSTREAM_REMOTE" | awk '{gsub(/http[s]:\/\/|git@/,"")}1' | awk -F'[@:./]' 'NR==1{print $3}')}
-KUBERNETES_SIGS_KUEUE_MAIN_REPO_NAME=${KUBERNETES_SIGS_KUEUE_MAIN_REPO_NAME:-$(git remote get-url "$KUBERNETES_SIGS_KUEUE_UPSTREAM_REMOTE" | awk '{gsub(/http[s]:\/\/|git@/,"")}1' | awk -F'[@:./]' 'NR==1{print $4}')}
+ROOT_PATH="$(git rev-parse --show-toplevel)"
+declare -r ROOT_PATH
 
 # shellcheck source=hack/utils.sh
-source "${KUBERNETES_SIGS_KUEUE_PATH}/hack/utils.sh"
+source "${ROOT_PATH}/hack/utils.sh"
 
 if [[ -v KUBERNETES_REPOS_PATH ]]; then
   KUBERNETES_REPOS_PATH=$(resolve_path "${KUBERNETES_REPOS_PATH}")
@@ -38,7 +31,7 @@ if [[ -v KUBERNETES_REPOS_PATH ]]; then
     exit 1
   fi
 else
-  KUBERNETES_REPOS_PATH="$(resolve_path "${KUBERNETES_SIGS_KUEUE_PATH}/../../kubernetes")"
+  KUBERNETES_REPOS_PATH="$(resolve_path "${ROOT_PATH}/../../kubernetes")"
 fi
 declare -r KUBERNETES_REPOS_PATH
 
@@ -66,6 +59,7 @@ STARTING_BRANCH=$(git symbolic-ref --short HEAD)
 declare -r STARTING_BRANCH
 declare -r REBASE_MAGIC=".git/rebase-apply"
 DRY_RUN=${DRY_RUN:-""}
+
 KUBERNETES_TEST_INFRA_UPSTREAM_REMOTE=${KUBERNETES_TEST_INFRA_UPSTREAM_REMOTE:-upstream}
 KUBERNETES_TEST_INFRA_FORK_REMOTE=${KUBERNETES_TEST_INFRA_FORK_REMOTE:-origin}
 KUBERNETES_TEST_INFRA_MAIN_REPO_ORG=${KUBERNETES_TEST_INFRA_MAIN_REPO_ORG:-$(git remote get-url "$KUBERNETES_TEST_INFRA_UPSTREAM_REMOTE" | awk '{gsub(/http[s]:\/\/|git@/,"")}1' | awk -F'[@:./]' 'NR==1{print $3}')}
@@ -82,12 +76,12 @@ if ! command -v gh > /dev/null; then
 fi
 
 if [[ "$#" -ne 1 ]]; then
-  echo "${0} <version>"
+  echo "${0} <k8s-version>"
   echo
-  echo "  Create test infra PR"
+  echo "  Create Bump k8s version PR"
   echo
   echo "  Example:"
-  echo "    $0 v0.13.2"
+  echo "    $0 v1.35"
   echo
   echo "  Set the DRY_RUN environment var to skip git push and creating PR."
   echo "  When DRY_RUN is set the script will leave you in a branch containing the commits."
@@ -113,42 +107,15 @@ if [[ -e "${REBASE_MAGIC}" ]]; then
   exit 1
 fi
 
-declare -r RELEASE_VERSION="$1"
+export NEW_VERSION="$1"
 
-if [[ ! "$RELEASE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "!!! Invalid release version. It should be semantic version like v0.13.2"
+if [[ ! "$NEW_VERSION" =~ ^[0-9]+\.[0-9]+$ ]]; then
+  echo "!!! Invalid new version. It should be semantic version like 1.35"
   exit 1
 fi
 
-IFS='.' read -r MAJOR MINOR PATCH <<< "${RELEASE_VERSION#v}"
-
-if ! [ "$PATCH" -eq 0 ]; then
-  echo "!!! This is patch release. Nothing to do."
-  exit 1
-fi
-
-declare -r MAJOR_MINOR="$MAJOR.$MINOR"
-
-LAST_SUPPORT_MINOR=$((MINOR - 1))
-if [ "$LAST_SUPPORT_MINOR" -lt 0 ]; then
-  LAST_SUPPORT_MINOR=0  # Prevent negative minors
-fi
-
-RELEASE_ISSUE_NAME="Release ${RELEASE_VERSION}"
-
-RELEASE_ISSUE_NUMBER=$(gh issue list --repo="${KUBERNETES_SIGS_KUEUE_MAIN_REPO_ORG}/${KUBERNETES_SIGS_KUEUE_MAIN_REPO_NAME}" --search "in:title ${RELEASE_ISSUE_NAME}" | awk '{print $1}' || true)
-if [ -z "$RELEASE_ISSUE_NUMBER" ]; then
-  echo "!!! No release issue found for version ${RELEASE_VERSION}. Please create 'Release ${RELEASE_VERSION}' issue first."
-  exit 1
-fi
-
-RELEASE_ISSUE=$(gh issue view "${RELEASE_ISSUE_NUMBER}" --repo="${KUBERNETES_SIGS_KUEUE_MAIN_REPO_ORG}/${KUBERNETES_SIGS_KUEUE_MAIN_REPO_NAME}" --json body || true)
-if [ -z "$RELEASE_ISSUE" ]; then
-  echo "!!! No release issue found for version ${RELEASE_VERSION}. Please create 'Release ${RELEASE_VERSION}' issue first."
-  exit 1
-fi
-
-RELEASE_ISSUE_BODY=$(echo "${RELEASE_ISSUE}" | jq -r '.body')
+echo "+++ Fetching remote..."
+git fetch "${KUBERNETES_TEST_INFRA_UPSTREAM_REMOTE}"
 
 clean_branches=()
 function cleanup {
@@ -178,7 +145,25 @@ function cleanup {
     fi
   done
 }
+
 trap cleanup EXIT
+
+function update_version() {
+  echo "Updating E2E_K8S_VERSION to ${NEW_VERSION} in all YAML files..."
+  for file in *.yaml; do
+    if [ -f "$file" ]; then
+      yq eval '
+        (
+          select(has("periodics")) | .periodics[] | select(.name | test("-1-[0-9][0-9]$") | not) | .spec.containers[].env[] | select(.name == "E2E_K8S_VERSION") | .value
+        ) |= (env(NEW_VERSION) | . style="double") |
+        (
+          select(has("presubmits")) | .presubmits[][ ] | select(.name | test("-1-[0-9][0-9]$") | not) | .spec.containers[].env[] | select(.name == "E2E_K8S_VERSION") | .value
+        ) |= (env(NEW_VERSION) | . style="double")
+      ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+      echo "  Updated: $file"
+    fi
+  done
+}
 
 # $1 - base branch
 # $2 - local branch
@@ -187,40 +172,7 @@ function prepare_local_branch() {
   echo "+++ Creating local branch $2"
   git checkout -b "$2" "${KUBERNETES_TEST_INFRA_UPSTREAM_REMOTE}/$1"
   clean_branches+=("$2")
-
-  local release_config_pattern="*release-*-*.yaml"
-
-  find . -type f -name "$release_config_pattern" -maxdepth 1 | while read -r file; do
-    # Extract version (adjust for full path)
-    base="${file##*/}"  # Get basename to ignore path
-    version=$(echo "$base" | grep -oE '[0-9]+-[0-9]+')
-
-    IFS='-' read -r major_f minor_f <<< "${version#v}"
-    if [ "$major_f" -lt "$MAJOR" ] || { [ "$major_f" -eq "$MAJOR" ] && [ "$minor_f" -lt "$LAST_SUPPORT_MINOR" ]; }; then
-      echo "$file has version $major_f.$minor_f, which is lower than the latest supported $MAJOR.$MINOR."
-      rm "$file"
-    fi
-  done
-
-  local release_branch="release-$MAJOR.$MINOR"
-  local release_suffix="release-$MAJOR-$MINOR"
-
-  local periodics_file_name="kueue-periodics-$release_suffix.yaml"
-  local presubmits_file_name="kueue-presubmits-$release_suffix.yaml"
-
-  cp kueue-periodics-main.yaml "$periodics_file_name"
-  cp kueue-presubmits-main.yaml "$presubmits_file_name"
-
-  # Update periodics file: base_ref, name, and testgrid-tab-name
-  yq eval "(.periodics[].extra_refs[].base_ref) = \"$release_branch\"" -i "$periodics_file_name"
-  yq eval "(.periodics[].name) |= sub(\"-main\", \"-$release_suffix\")" -i "$periodics_file_name"
-  yq eval "(.periodics[].annotations[\"testgrid-tab-name\"]) |= sub(\"-main\", \"-$release_suffix\")" -i "$periodics_file_name"
-
-  # Update presubmits file: branches, name, and testgrid-tab-name
-  yq eval "(.presubmits.kubernetes-sigs/kueue.[].branches[]) |= sub(\"\^main\", \"^$release_branch\")" -i "$presubmits_file_name"
-  yq eval "(.presubmits.kubernetes-sigs/kueue.[].name) |= sub(\"-main\", \"-$release_suffix\")" -i "$presubmits_file_name"
-  yq eval "(.presubmits.kubernetes-sigs/kueue.[].annotations[\"testgrid-tab-name\"]) |= sub(\"-main\", \"-$release_suffix\")" -i "$presubmits_file_name"
-
+  update_version
   git add .
   git commit -m "$3"
 }
@@ -231,20 +183,9 @@ function prepare_local_branch() {
 function make_pr() {
   local rel
   rel="$(basename "$1")"
-
   echo
   echo "+++ Creating a pull request on GitHub at ${GITHUB_USER}:$2 for ${rel}"
-
-  pr_text=$(cat <<EOF
-#### What this PR does / why we need it:
-$3.
-
-#### Which issue(s) this PR fixes:
-Part of ${KUBERNETES_SIGS_KUEUE_MAIN_REPO_ORG}/${KUBERNETES_SIGS_KUEUE_MAIN_REPO_NAME}#${RELEASE_ISSUE_NUMBER}
-EOF
-)
-
-   gh pr create --title="$3" --body="${pr_text}" --head "${GITHUB_USER}:$2" --base "${rel}" --repo="${KUBERNETES_TEST_INFRA_MAIN_REPO_ORG}/${KUBERNETES_TEST_INFRA_MAIN_REPO_NAME}"
+  gh pr create --title="$3" --head "${GITHUB_USER}:$2" --base "${rel}" --repo="${KUBERNETES_TEST_INFRA_MAIN_REPO_ORG}/${KUBERNETES_TEST_INFRA_MAIN_REPO_NAME}"
 }
 
 # $1 - base branch
@@ -267,26 +208,18 @@ function push_and_create_pr() {
   fi
 }
 
-CI_BRANCH="kueue-ci-${MAJOR_MINOR}"
-declare -r CI_BRANCH
-CI_BRANCH_UNIQUE="${CI_BRANCH}-$(date +%s)"
-declare -r CI_BRANCH_UNIQUE
-CI_PR_NAME="Kueue: CI for ${MAJOR_MINOR}"
-declare -r CI_PR_NAME
+BUMP_K8S_VERSION_BRANCH="kueue-bump-k8s-version-to-${NEW_VERSION}"
+declare -r BUMP_K8S_VERSION_BRANCH
+BUMP_K8S_VERSION_BRANCH_UNIQUE="${BUMP_K8S_VERSION_BRANCH}-$(date +%s)"
+declare -r BUMP_K8S_VERSION_BRANCH_UNIQUE
+BUMP_K8S_VERSION_PR_NAME="Kueue: Bump k8s version to ${NEW_VERSION}"
+declare -r BUMP_K8S_VERSION_PR_NAME
 
-prepare_local_branch master "${CI_BRANCH_UNIQUE}" "${CI_PR_NAME}"
+prepare_local_branch master "${BUMP_K8S_VERSION_BRANCH_UNIQUE}" "${BUMP_K8S_VERSION_PR_NAME}"
 
 if [[ -n "${DRY_RUN}" ]]; then
   echo "!!! Skipping git push, PR creation and update issue because you set DRY_RUN."
   exit 0
 fi
 
-push_and_create_pr master "${CI_BRANCH}" "${CI_BRANCH_UNIQUE}" "${CI_PR_NAME}"
-
-CI_PR_NUMBER=$(gh pr list --repo="${KUBERNETES_TEST_INFRA_MAIN_REPO_ORG}/${KUBERNETES_TEST_INFRA_MAIN_REPO_NAME}" | grep "${CI_PR_NAME}" | awk '{print $1}' || true)
-if [ -n "$CI_PR_NUMBER" ]; then
-  NEW_RELEASE_ISSUE_BODY=${RELEASE_ISSUE_BODY//<!-- CI_PULL -->/${KUBERNETES_TEST_INFRA_MAIN_REPO_ORG}/${KUBERNETES_TEST_INFRA_MAIN_REPO_NAME}#${CI_PR_NUMBER}}
-  gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${NEW_RELEASE_ISSUE_BODY}" --repo="${KUBERNETES_SIGS_KUEUE_MAIN_REPO_ORG}/${KUBERNETES_SIGS_KUEUE_MAIN_REPO_NAME}" || {
-    echo "!!! Failed to edit release issue \"${RELEASE_ISSUE_NAME}\": gh issue edit command failed."
-  }
-fi
+push_and_create_pr master "${BUMP_K8S_VERSION_BRANCH}" "${BUMP_K8S_VERSION_BRANCH_UNIQUE}" "${BUMP_K8S_VERSION_PR_NAME}"
