@@ -18,7 +18,7 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 BIN_DIR="${REPO_ROOT}/bin"
 COMPAT_LIFECYCLE_BIN="${BIN_DIR}/compatibility-lifecycle"
 COMPAT_LIFECYCLE_BIN_STAMP="${BIN_DIR}/compatibility-lifecycle.version"
