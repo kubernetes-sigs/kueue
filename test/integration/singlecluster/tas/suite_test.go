@@ -78,7 +78,7 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
-func managerSetup(resourceTransformations []config.ResourceTransformation) func(ctx context.Context, mgr manager.Manager) {
+func managerSetup(resourceTransformations ...config.ResourceTransformation) func(ctx context.Context, mgr manager.Manager) {
 	return func(ctx context.Context, mgr manager.Manager) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
