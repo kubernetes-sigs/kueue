@@ -155,6 +155,8 @@ There are several advantages to extending both the `spec` and `status`:
 1. It gives the "created blocked" guarantee that avoids race conditions.
     * The presence of the gate in the spec allows for the workload can be created atomically with the gate.
     * This avoids race conditions between when the status of the gate is created and the Kueue scheduling cycle.
+    * **Note**: The case where the `status.PreemptionGateStates` is empty, but `spec.PreemptionGates` is present still
+    has to be accounted for to make absolutely sure newly created workloads are gated.
 
 The API will be defined as follows:
 
