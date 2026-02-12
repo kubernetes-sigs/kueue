@@ -268,7 +268,6 @@ modified. Therefore, the following design can be expected to not change signific
 A manager-level preemption synchronization controller will be responsible for ungating the replicated workloads.
 This controller will watch for workloads to change their `QuotaReservationBlocked` conditions and idempotently react to such changes:
 
-1. Return if any of the replicated workloads already has `QuotaReserved: true`.
 1. Calculate `PreviouslyUngatedAt` as the maximum `LastTransitionTime` on `Inactive` gates `kueue.x-k8s.io/multikueue` across the replicated workloads.
 1. Calculate `Now - PreviouslyUngatedAt`, i.e. `timeSinceUngate`.
 1. If `timeSinceUngate < SingleClusterPreemptionTimeout`:
