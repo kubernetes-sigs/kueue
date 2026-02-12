@@ -258,6 +258,9 @@ type MultiKueue struct {
 
 ### MultiKueue Controller
 
+When a workload is submitted to MultiKueue, it will be automatically assigned the `kueue.x-k8s.io/multikueue` preemption gate
+via its `spec`. This will prevent any of the replicas from triggering a preemption until allowed by the manager controller.
+
 The logic of the controller governing preemption, running within the manager cluster, will be mostly API-agnostic.
 The only part subject to change with the evolution of this proposal is how the workload will be ungated, e.g. which field will have to be
 modified. Therefore, the following design can be expected to not change significantly over the course of development.
