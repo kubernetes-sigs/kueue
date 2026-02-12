@@ -14,3 +14,6 @@ varReference:
 - kind: Certificate
   group: cert-manager.io
   path: spec/dnsNames
+- kind: ServiceMonitor
+  group: monitoring.coreos.com
+  path: spec/endpoints/tlsConfig/serverName
