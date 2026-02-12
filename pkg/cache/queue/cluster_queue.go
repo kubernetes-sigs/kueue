@@ -84,6 +84,12 @@ func (s *stickyWorkload) set(workload workload.Reference) {
 	s.workloadName = workload
 }
 
+func logStickyWorkloadSelectionIfVerbose(log logr.Logger, wl *kueue.Workload) {
+	if logV := log.V(5); logV.Enabled() {
+		logV.Info("Prioritizing sticky workload", "workload", workload.Key(wl))
+	}
+}
+
 type ClusterQueue struct {
 	hierarchy.ClusterQueue[*cohort]
 	name              kueue.ClusterQueueReference
@@ -606,16 +612,14 @@ func queueOrderingFunc(ctx context.Context, cl client.Client, wo workload.Orderi
 			}
 		}
 
-		if sw.matches(workload.Key(a.Obj)) {
-			if logV := log.V(5); logV.Enabled() {
-				logV.Info("Prioritizing sticky workload", "workload", workload.Key(a.Obj))
+		aSticky := sw.matches(workload.Key(a.Obj))
+		bSticky := sw.matches(workload.Key(b.Obj))
+		if aSticky != bSticky {
+			if aSticky {
+				logStickyWorkloadSelectionIfVerbose(log, a.Obj)
+				return -1
 			}
-			return -1
-		}
-		if sw.matches(workload.Key(b.Obj)) {
-			if logV := log.V(5); logV.Enabled() {
-				logV.Info("Prioritizing sticky workload", "workload", workload.Key(b.Obj))
-			}
+			logStickyWorkloadSelectionIfVerbose(log, b.Obj)
 			return 1
 		}
 
