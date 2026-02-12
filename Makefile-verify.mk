@@ -18,7 +18,11 @@ GO_FMT ?= gofmt
 VERIFY_NPROCS ?= 8
 # Output sync mode for parallel verification. Set to empty to disable.
 # Requires GNU Make 4.0+. Values: target, line, recurse, or empty.
-VERIFY_OUTPUT_SYNC ?= target
+ifeq ($(shell uname),Darwin)
+    VERIFY_OUTPUT_SYNC ?=
+else
+    VERIFY_OUTPUT_SYNC ?= target
+endif
 # Paths whose content is expected to be fully reproducible from sources.
 # The final step of `make verify` enforces that these paths have:
 # - no unstaged/staged diffs (`git diff --exit-code`)
