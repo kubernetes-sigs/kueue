@@ -3888,7 +3888,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				// A single PodSet requests both CPU and GPU with TAS. In this CQ no single flavor
 				// has both (tas-cpu has CPU only, tas-gpu has GPU only), so the flavor assigner
 				// fails with "insufficient quota". If the assigner ever assigned different flavors
-				// per resource, TAS would fail with "more than one flavor assigned" (onlyFlavor).
+				// per resource, TAS would fail with "more than one flavor assigned" (onlyTASFlavor).
 				// Either way, the workload must not be admitted so it never gets TopologyAssignment.
 				var wl *kueue.Workload
 				ginkgo.By("creating a workload with one PodSet requesting both CPU and GPU and TAS", func() {

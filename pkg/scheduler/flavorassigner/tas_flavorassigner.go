@@ -92,7 +92,7 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 		return nil, errors.New("workload requires Topology, but there is no TAS cache information")
 	}
 	podCount := psAssignment.Count
-	tasFlvr, err := onlyFlavor(psAssignment.Flavors)
+	tasFlvr, err := onlyTASFlavor(psAssignment.Flavors, cq.TASFlavors)
 	if err != nil {
 		return nil, err
 	}
@@ -101,9 +101,6 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 		// For ProvisioningRequest, delay TAS on first scheduling pass only (topology assigned after provisioning).
 		psAssignment.DelayedTopologyRequest = ptr.To(kueue.DelayedTopologyRequestStatePending)
 		return nil, nil
-	}
-	if cq.TASFlavors[*tasFlvr] == nil {
-		return nil, errors.New("workload requires Topology, but there is no TAS cache information for the assigned flavor")
 	}
 	podSet := &wl.Obj.Spec.PodSets[podSetIndex]
 	// Use PodSpec directly for TAS placement, not quota-filtered admission values.
@@ -135,14 +132,20 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 	}, nil
 }
 
-func onlyFlavor(ra ResourceAssignment) (*kueue.ResourceFlavorReference, error) {
-	if len(ra) == 0 {
-		return nil, errors.New("no flavor assigned")
+func onlyTASFlavor(
+	resourceAssignment ResourceAssignment,
+	tasFlavors map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot,
+) (*kueue.ResourceFlavorReference, error) {
+	flavors := sets.New[kueue.ResourceFlavorReference]()
+
+	for _, flavorAssignment := range resourceAssignment {
+		if tasFlavors[flavorAssignment.Name] != nil {
+			flavors.Insert(flavorAssignment.Name)
+		}
 	}
 
-	flavors := sets.New[kueue.ResourceFlavorReference]()
-	for _, v := range ra {
-		flavors.Insert(v.Name)
+	if flavors.Len() == 0 {
+		return nil, errors.New("no TAS flavor assigned")
 	}
 
 	if flavors.Len() == 1 {
@@ -154,7 +157,7 @@ func onlyFlavor(ra ResourceAssignment) (*kueue.ResourceFlavorReference, error) {
 	for i, n := range list {
 		names[i] = string(n)
 	}
-	return nil, fmt.Errorf("more than one flavor assigned: %s", strings.Join(names, ", "))
+	return nil, fmt.Errorf("more than one TAS flavor assigned: %s", strings.Join(names, ", "))
 }
 
 func checkPodSetAndFlavorMatchForTAS(cq *schdcache.ClusterQueueSnapshot, ps *kueue.PodSet, flavor *kueue.ResourceFlavor) *string {
@@ -167,6 +170,10 @@ func checkPodSetAndFlavorMatchForTAS(cq *schdcache.ClusterQueueSnapshot, ps *kue
 		}
 		// PodSet explicitly requires TAS, so we need to check if the flavor supports it.
 		if flavor.Spec.TopologyName == nil {
+			if cq.TASFlavors[kueue.ResourceFlavorReference(flavor.Name)] == nil {
+				// This flavor is virtual and so does not require TopologyName
+				return nil
+			}
 			return ptr.To(fmt.Sprintf("Flavor %q does not support TopologyAwareScheduling", flavor.Name))
 		}
 		s := cq.TASFlavors[kueue.ResourceFlavorReference(flavor.Name)]
