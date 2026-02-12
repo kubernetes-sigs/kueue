@@ -3980,7 +3980,7 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 			}),
 			wantErr: "workload requires Topology, but there is no TAS cache information",
 		},
-		"workload requires Topology, but there is no TAS cache information for the assigned flavor": {
+		"workload requires Topology, but there is no TAS flavor assigned": {
 			cq: schdcache.ClusterQueueSnapshot{
 				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{"tas": nil},
 			},
@@ -4004,7 +4004,38 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 					},
 				},
 			}),
-			wantErr: "workload requires Topology, but there is no TAS cache information for the assigned flavor",
+			wantErr: "no TAS flavor assigned",
+		},
+		"more than one TAS flavor assigned (onlyTASFlavor fails); RepresentativeMode must be NoFit": {
+			cq: schdcache.ClusterQueueSnapshot{
+				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{
+					"flavor-a": {},
+					"flavor-b": {},
+				},
+			},
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU:    {Name: "flavor-a", Mode: Fit, TriedFlavorIdx: 0},
+						corev1.ResourceMemory: {Name: "flavor-b", Mode: Fit, TriedFlavorIdx: 0},
+					},
+					Count:  1,
+					Status: *NewStatus(),
+				}},
+			},
+			workload: *workload.NewInfo(&kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							Request(corev1.ResourceCPU, "1").
+							Request(corev1.ResourceMemory, "1Gi").
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Obj(),
+					},
+				},
+			}),
+			wantErr: "more than one TAS flavor assigned: flavor-a, flavor-b",
 		},
 	}
 
