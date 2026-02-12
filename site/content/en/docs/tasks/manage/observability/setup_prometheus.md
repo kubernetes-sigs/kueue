@@ -101,6 +101,6 @@ See [Prometheus Metrics](/docs/reference/metrics#optional-metrics) for the full 
 
 ## What's next
 
-- See [Prometheus Metrics](/docs/reference/metrics) for a complete list of available metrics.
+- See [Common Grafana Queries](/docs/tasks/manage/observability/common_grafana_queries) for PromQL queries to monitor Kueue in Grafana.
 - See [Configure Prometheus with TLS](/docs/tasks/manage/productization/prometheus) for advanced TLS configuration using cert-manager.
 - See [Setup Dev Monitoring](/docs/tasks/dev/setup_dev_monitoring) for a local development setup with Prometheus.
