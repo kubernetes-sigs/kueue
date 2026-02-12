@@ -226,6 +226,10 @@ helm-unit-test: helm helm-unittest-plugin ## Run Helm unit tests for the kueue c
 npm-depcheck: ## Verify frontend and e2e npm dependencies.
 	$(_npm_depcheck_recipe)
 
+.PHONY: verify-website-links
+verify-website-links: ## Check for broken internal links on the public website.
+	$(PROJECT_DIR)/hack/testing/linkchecker/verify.sh
+
 .PHONY: i18n-verify
 i18n-verify: ## Verify localized docs are in sync with English. Usage: make i18n-verify [TARGET_LANG=zh-CN]
 	@if [ -n "$(TARGET_LANG)" ]; then \
