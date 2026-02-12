@@ -125,7 +125,7 @@ fi
 endef
 
 define _shell_lint_recipe
-$(PROJECT_DIR)/hack/shellcheck/verify.sh
+$(PROJECT_DIR)/hack/testing/shellcheck/verify.sh
 endef
 
 define _helm_verify_recipe
@@ -146,8 +146,8 @@ HELM_PLUGINS=$(BIN_DIR)/helm-plugins $(HELM) unittest charts/kueue --strict --de
 endef
 
 define _npm_depcheck_recipe
-$(PROJECT_DIR)/hack/depcheck/verify.sh $(PROJECT_DIR)/cmd/kueueviz/frontend
-$(PROJECT_DIR)/hack/depcheck/verify.sh $(PROJECT_DIR)/test/e2e/kueueviz
+$(PROJECT_DIR)/hack/testing/depcheck/verify.sh $(PROJECT_DIR)/cmd/kueueviz/frontend
+$(PROJECT_DIR)/hack/testing/depcheck/verify.sh $(PROJECT_DIR)/test/e2e/kueueviz
 endef
 
 # ---- verify-* wrappers (generation prereqs + shared recipe) ---------------

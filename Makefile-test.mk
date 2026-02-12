@@ -191,7 +191,7 @@ run-test-e2e-singlecluster-%:
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
-		./hack/e2e-test.sh
+		./hack/testing/e2e-test.sh
 
 run-test-multikueue-e2e-%: K8S_VERSION = $(@:run-test-multikueue-e2e-%=%)
 run-test-multikueue-e2e-%:
@@ -211,7 +211,7 @@ run-test-multikueue-e2e-%:
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
-		./hack/multikueue-e2e-test.sh
+		./hack/testing/e2e-multikueue-test.sh
 
 run-test-tas-e2e-%: K8S_VERSION = $(@:run-test-tas-e2e-%=%)
 run-test-tas-e2e-%:
@@ -225,11 +225,11 @@ run-test-tas-e2e-%:
 		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
 		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
 		KUBEFLOW_TRAINER_VERSION=$(KUBEFLOW_TRAINER_VERSION) \
-		KIND_CLUSTER_FILE="tas-kind-cluster.yaml" E2E_TARGET_FOLDER="tas" \
+		KIND_CLUSTER_FILE="kind-cluster-tas.yaml" E2E_TARGET_FOLDER="tas" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
-		./hack/e2e-test.sh
+		./hack/testing/e2e-test.sh
 
 run-test-e2e-customconfigs-%: K8S_VERSION = $(@:run-test-e2e-customconfigs-%=%)
 run-test-e2e-customconfigs-%:
@@ -244,7 +244,7 @@ run-test-e2e-customconfigs-%:
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
-		./hack/e2e-test.sh
+		./hack/testing/e2e-test.sh
 
 run-test-e2e-certmanager-%: K8S_VERSION = $(@:run-test-e2e-certmanager-%=%)
 run-test-e2e-certmanager-%:
@@ -258,7 +258,7 @@ run-test-e2e-certmanager-%:
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
-		./hack/e2e-test.sh
+		./hack/testing/e2e-test.sh
 
 run-test-e2e-upgrade-%: K8S_VERSION = $(@:run-test-e2e-upgrade-%=%)
 run-test-e2e-upgrade-%:
@@ -271,7 +271,7 @@ run-test-e2e-upgrade-%:
 		KUEUE_UPGRADE_FROM_VERSION=$(KUEUE_UPGRADE_FROM_VERSION) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
-		./hack/e2e-test.sh
+		./hack/testing/e2e-test.sh
 
 run-test-e2e-certmanager-upgrade-%: K8S_VERSION = $(@:run-test-e2e-certmanager-upgrade-%=%)
 run-test-e2e-certmanager-upgrade-%:
@@ -285,7 +285,7 @@ run-test-e2e-certmanager-upgrade-%:
 		CERTMANAGER_VERSION=$(CERTMANAGER_VERSION) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
-		./hack/e2e-test.sh
+		./hack/testing/e2e-test.sh
 
 run-test-e2e-dra-%: K8S_VERSION = $(@:run-test-e2e-dra-%=%)
 run-test-e2e-dra-%:
@@ -298,7 +298,7 @@ run-test-e2e-dra-%:
 		DRA_EXAMPLE_DRIVER_VERSION=$(DRA_EXAMPLE_DRIVER_VERSION) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
-		./hack/e2e-test.sh
+		./hack/testing/e2e-test.sh
 
 run-test-e2e-multikueue-dra-%: K8S_VERSION = $(@:run-test-e2e-multikueue-dra-%=%)
 run-test-e2e-multikueue-dra-%:
@@ -312,7 +312,7 @@ run-test-e2e-multikueue-dra-%:
 		E2E_TARGET_FOLDER="multikueue-dra" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
-		./hack/multikueue-e2e-test.sh
+		./hack/testing/e2e-multikueue-test.sh
 
 # Run e2e tests against k/k main (latest CI build) with WAS enabled
 K8S_MAIN_NODE_IMAGE ?= k8s-main:latest
@@ -344,7 +344,7 @@ run-test-e2e-k8s-main-was:
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		WAS_ENABLED=true \
-		./hack/e2e-test.sh
+		./hack/testing/e2e-test.sh
 
 SCALABILITY_RUNNER := $(BIN_DIR)/performance-scheduler-runner
 .PHONY: performance-scheduler-runner
@@ -395,7 +395,7 @@ test-performance-scheduler-once: gotestsum run-performance-scheduler
 PERFORMANCE_RETRY_COUNT?=2
 .PHONY: test-performance-scheduler
 test-performance-scheduler:
-	ARTIFACTS="$(ARTIFACTS)/$@" ./hack/performance-retry.sh $(PERFORMANCE_RETRY_COUNT) test-performance-scheduler-once
+	ARTIFACTS="$(ARTIFACTS)/$@" ./hack/testing/performance-test.sh $(PERFORMANCE_RETRY_COUNT) test-performance-scheduler-once
 
 .PHONY: run-performance-scheduler-in-cluster
 run-performance-scheduler-in-cluster: envtest performance-scheduler-runner
@@ -431,7 +431,7 @@ test-tas-performance-scheduler-once: gotestsum run-tas-performance-scheduler
 
 .PHONY: test-tas-performance-scheduler
 test-tas-performance-scheduler:
-	ARTIFACTS="$(ARTIFACTS)/$@" ./hack/performance-retry.sh $(PERFORMANCE_RETRY_COUNT) test-tas-performance-scheduler-once
+	ARTIFACTS="$(ARTIFACTS)/$@" ./hack/testing/performance-test.sh $(PERFORMANCE_RETRY_COUNT) test-tas-performance-scheduler-once
 
 .PHONY: run-tas-performance-scheduler-in-cluster
 run-tas-performance-scheduler-in-cluster: envtest performance-scheduler-runner
@@ -456,7 +456,7 @@ setup-e2e-env: kustomize yq gomod-download dep-crds kind helm ginkgo ginkgo-top 
 test-e2e-kueueviz-local: setup-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
 	CYPRESS_SCREENSHOTS_FOLDER=$(ARTIFACTS)/cypress/screenshots CYPRESS_VIDEOS_FOLDER=$(ARTIFACTS)/cypress/videos \
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
-	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) ${PROJECT_DIR}/hack/e2e-kueueviz-local.sh
+	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) ${PROJECT_DIR}/hack/testing/e2e-kueueviz-local.sh
 
 .PHONY: test-e2e-kueueviz
 test-e2e-kueueviz: setup-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
@@ -464,4 +464,4 @@ test-e2e-kueueviz: setup-e2e-env ## Run end-to-end tests for kueueviz without ru
 	CYPRESS_SCREENSHOTS_FOLDER=$(ARTIFACTS)/cypress/screenshots CYPRESS_VIDEOS_FOLDER=$(ARTIFACTS)/cypress/videos \
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
 	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) \
-	${PROJECT_DIR}/hack/e2e-kueueviz-backend.sh
+	${PROJECT_DIR}/hack/testing/e2e-kueueviz-backend.sh

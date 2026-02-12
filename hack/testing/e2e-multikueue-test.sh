@@ -19,7 +19,7 @@ set -o nounset
 set -o pipefail
 
 SOURCE_DIR="$(cd "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-ROOT_DIR="$SOURCE_DIR/.."
+ROOT_DIR="$SOURCE_DIR/../.."
 
 # E2E_TARGET_FOLDER allows running different test suites (multikueue, multikueue-dra)
 E2E_TARGET_FOLDER=${E2E_TARGET_FOLDER:-multikueue}
@@ -32,7 +32,7 @@ export MANAGER_KUBECONFIG="${ARTIFACTS}/kubeconfig-$MANAGER_KIND_CLUSTER_NAME"
 export WORKER1_KUBECONFIG="${ARTIFACTS}/kubeconfig-$WORKER1_KIND_CLUSTER_NAME"
 export WORKER2_KUBECONFIG="${ARTIFACTS}/kubeconfig-$WORKER2_KIND_CLUSTER_NAME"
 
-# shellcheck source=hack/e2e-common.sh
+# shellcheck source=hack/testing/e2e-common.sh
 source "${SOURCE_DIR}/e2e-common.sh"
 
 function cleanup {
