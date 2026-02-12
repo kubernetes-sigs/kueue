@@ -30,6 +30,7 @@ import (
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	sparkv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
 	kftrainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
@@ -189,6 +190,9 @@ func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config, 
 	err = inventoryv1alpha1.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
+	err = sparkv1beta2.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
 	client, err := client.NewWithWatch(cfg, client.Options{Scheme: scheme.Scheme})
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 	return client, cfg, nil
@@ -334,6 +338,15 @@ func WaitForLeaderWorkerSetAvailability(ctx context.Context, k8sClient client.Cl
 func WaitForKubeFlowTrainingOperatorAvailability(ctx context.Context, k8sClient client.Client) {
 	kftoKey := types.NamespacedName{Namespace: "kubeflow", Name: "training-operator"}
 	waitForDeploymentAvailability(ctx, k8sClient, kftoKey, true)
+}
+
+func WaitForSparkOperatorAvailability(ctx context.Context, k8sClient client.Client) {
+	sparkctrKey := types.NamespacedName{Namespace: "spark-operator", Name: "spark-operator-controller"}
+	waitForDeploymentAvailability(ctx, k8sClient, sparkctrKey)
+	verifyNoControllerRestarts(ctx, k8sClient, sparkctrKey)
+	sparkwhKey := types.NamespacedName{Namespace: "spark-operator", Name: "spark-operator-webhook"}
+	waitForDeploymentAvailability(ctx, k8sClient, sparkwhKey)
+	verifyNoControllerRestarts(ctx, k8sClient, sparkwhKey)
 }
 
 func WaitForKubeFlowMPIOperatorAvailability(ctx context.Context, k8sClient client.Client) {

@@ -130,6 +130,10 @@ if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:leaderworker
     export LEADERWORKERSET_IMAGE=registry.k8s.io/lws/lws:${LEADERWORKERSET_VERSION}
 fi
 
+if [[ -n ${SPARKOPERATOR_VERSION:-} ]]; then
+    export SPARKOPERATOR_IMAGE="ghcr.io/kubeflow/spark-operator/controller:${SPARKOPERATOR_VERSION#v}"
+fi
+
 if [[ -n "${CERTMANAGER_VERSION:-}" ]]; then
     export CERTMANAGER_MANIFEST="https://github.com/cert-manager/cert-manager/releases/download/${CERTMANAGER_VERSION}/cert-manager.yaml"
 fi
@@ -349,6 +353,9 @@ function prepare_docker_images {
         local current_image="${IMAGE_TAG%:*}:${KUEUE_UPGRADE_FROM_VERSION}"
         docker pull "${current_image}"
     fi
+    if [[ -n ${SPARKOPERATOR_VERSION:-} ]]; then
+        docker pull "${SPARKOPERATOR_IMAGE}"
+    fi
 }
 
 # $1 cluster
@@ -398,6 +405,9 @@ function kind_load {
     fi
     if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         install_kuberay "${e2e_cluster_name}" "${e2e_kubeconfig}"
+    fi
+    if [[ -n ${SPARKOPERATOR_VERSION:-} ]]; then
+        install_sparkoperator "$1" "$2"
     fi
     if [[ -n ${CERTMANAGER_VERSION:-} ]]; then
         install_cert_manager "${e2e_kubeconfig}"
@@ -820,6 +830,19 @@ function install_lws {
     cluster_kind_load_image "${name}" "${LEADERWORKERSET_IMAGE/#v}"
     kubectl apply --kubeconfig="${kubeconfig}" --server-side -f "${LEADERWORKERSET_MANIFEST}"
     kubectl wait --kubeconfig="${kubeconfig}" deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m || true
+}
+
+# $1 cluster name
+# $2 kubeconfig option
+function install_sparkoperator {
+    cluster_kind_load_image "${1}" "${SPARKOPERATOR_IMAGE}"
+    ${HELM} repo add spark-operator https://kubeflow.github.io/spark-operator
+    ${HELM} repo update
+    ${HELM} install spark-operator spark-operator/spark-operator \
+    --namespace spark-operator \
+    --create-namespace \
+    --set image.tag="${SPARKOPERATOR_VERSION#v}" \
+    --set 'spark.jobNamespaces[0]='
 }
 
 # $1 kubeconfig option

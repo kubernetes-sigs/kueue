@@ -45,6 +45,13 @@ echo "Creating Kind cluster..."
 "$KIND" delete cluster --name "$KIND_CLUSTER_NAME" 2>/dev/null || true
 "$KIND" create cluster --name "$KIND_CLUSTER_NAME"
 
+echo "Buildind and loading Kueue image..."
+cd "$ROOT_DIR"
+make kind-image-build
+KUEUE_IMAGE_TAG="us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:$GIT_TAG"
+"$KIND" load docker-image "$KUEUE_IMAGE_TAG" --name "$KIND_CLUSTER_NAME"
+cd "$SCRIPT_DIR/.."
+
 echo "Building and loading kueue-populator image..."
 make kind-image-build
 IMAGE_TAG="us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-populator:$GIT_TAG"
@@ -58,6 +65,8 @@ echo "Installing kueue-populator with Topology and ResourceFlavor..."
   --namespace kueue-system \
   --create-namespace \
   --set kueue.enabled=true  \
+  --set kueue.controllerManager.manager.image.tag="$GIT_TAG" \
+  --set kueue.controllerManager.manager.image.pullPolicy=IfNotPresent \
   --set image.tag="$GIT_TAG" \
   --set image.pullPolicy=IfNotPresent \
   --set kueuePopulator.config.topology.levels[0].nodeLabel="cloud.google.com/gke-nodepool" \
