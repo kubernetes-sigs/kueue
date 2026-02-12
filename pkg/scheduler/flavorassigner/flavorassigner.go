@@ -91,8 +91,18 @@ func (a *Assignment) ComputeTASNetUsage(prevAdmission *kueue.Admission) workload
 			if prevAdmission != nil && prevAdmission.PodSetAssignments[i].TopologyAssignment != nil {
 				continue
 			}
-			singlePodRequests := resources.NewRequests(psa.Requests).ScaledDown(int64(psa.Count))
-			for _, flv := range psa.Flavors {
+			tasRequests := make(corev1.ResourceList, len(psa.Requests))
+			for resourceName, quantity := range psa.Requests {
+				if resourceName == "cpu_credits" {
+					continue
+				}
+				tasRequests[resourceName] = quantity
+			}
+			singlePodRequests := resources.NewRequests(tasRequests).ScaledDown(int64(psa.Count))
+			for resourceName, flv := range psa.Flavors {
+				if resourceName == "cpu_credits" {
+					continue
+				}
 				if _, ok := result[flv.Name]; !ok {
 					result[flv.Name] = make(workload.TASFlavorUsage, 0)
 				}
@@ -258,7 +268,7 @@ func (psa *PodSetAssignment) RepresentativeMode() FlavorAssignmentMode {
 		return Fit
 	}
 	if psa.Status.IsError() {
-		// e.g. onlyFlavor failed in WorkloadsTopologyRequests, or TAS request build failed
+		// e.g. onlyTASFlavor failed in WorkloadsTopologyRequests, or TAS request build failed
 		return NoFit
 	}
 	if len(psa.Flavors) == 0 {
