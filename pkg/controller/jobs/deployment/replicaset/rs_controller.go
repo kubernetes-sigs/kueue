@@ -19,10 +19,13 @@ package replicaset
 import (
 	"context"
 	"fmt"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -33,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -65,6 +69,7 @@ func init() {
 // ReplicaSet adapts apps/v1 ReplicaSet to Kueue's jobframework.GenericJob and TopLevelJob.
 type ReplicaSet struct {
 	*appsv1.ReplicaSet
+	pods      *corev1.PodList
 	suspended bool
 }
 
@@ -72,6 +77,7 @@ type ReplicaSet struct {
 var (
 	_ jobframework.GenericJob        = (*ReplicaSet)(nil)
 	_ jobframework.TopLevelJob       = (*ReplicaSet)(nil)
+	_ jobframework.JobWithCustomLoad = (*ReplicaSet)(nil)
 	_ jobframework.JobWithCustomStop = (*ReplicaSet)(nil)
 )
 
@@ -82,6 +88,17 @@ func NewJob() jobframework.GenericJob {
 	}
 }
 
+func (r *ReplicaSet) Load(ctx context.Context, c client.Client, key *types.NamespacedName) (removeFinalizers bool, err error) {
+	if err := c.Get(ctx, *key, r.ReplicaSet); err != nil {
+		return errors.IsNotFound(err), client.IgnoreNotFound(err)
+	}
+	if !r.ReplicaSet.DeletionTimestamp.IsZero() {
+		return true, nil
+	}
+	r.pods = &corev1.PodList{}
+	return false, c.List(ctx, r.pods, client.MatchingFields{indexer.OwnerReferenceUID: string(r.GetUID())})
+}
+
 // NewReconciler constructs a controller-runtime reconciler for ReplicaSet objects.
 var NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob)
 
@@ -90,17 +107,28 @@ func (r *ReplicaSet) Object() client.Object { return r.ReplicaSet }
 
 // IsSuspended always returns false since ReplicaSet cannot be suspended.
 func (r *ReplicaSet) IsSuspended() bool {
-	return r.suspended
+	return false
 }
 
 // IsActive always returns true since ReplicaSet has no inactive state distinct from suspension.
 func (r *ReplicaSet) IsActive() bool {
-	return !r.suspended
+	for i := range r.pods.Items {
+		p := r.pods.Items[i]
+
+		// Pods that are not in the Running phase are never considered Active.
+		if p.Status.Phase != corev1.PodRunning {
+			continue
+		}
+
+		if !pod.IsDeleted(&p, time.Now()) {
+			return true
+		}
+	}
+	return false
 }
 
 // Suspend is a no-op for ReplicaSet, which does not support suspension.
 func (r *ReplicaSet) Suspend() {
-	r.suspended = true
 }
 
 // GVK returns apps/v1, Kind=ReplicaSet.
@@ -181,20 +209,18 @@ func (r *ReplicaSet) IsTopLevel() bool {
 func (r *ReplicaSet) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, stopReason jobframework.StopReason, eventMsg string) (bool, error) {
 	log := ctrl.LoggerFrom(ctx)
 	log.Info("Listing pods")
-	list := &corev1.PodList{}
-	if err := c.List(ctx, list, client.InNamespace(r.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(r.GetUID())}); err != nil {
+	if err := c.List(ctx, r.pods, client.InNamespace(r.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(r.GetUID())}); err != nil {
 		return false, fmt.Errorf("failed to list job pods: %w", err)
 	}
-	for i := range list.Items {
-		pod := &list.Items[i]
+	for i := range r.pods.Items {
+		pod := &r.pods.Items[i]
 		if len(pod.Spec.SchedulingGates) > 0 {
 			continue
 		}
-		if err := client.IgnoreNotFound(c.Delete(ctx, &list.Items[i])); err != nil {
+		if err := client.IgnoreNotFound(c.Delete(ctx, &r.pods.Items[i])); err != nil {
 			return false, fmt.Errorf("failed to delete pod: %w", err)
 		}
 	}
-	r.suspended = true
 	return true, nil
 }
 

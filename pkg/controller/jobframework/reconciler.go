@@ -283,7 +283,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}()
 
 	dropFinalizers := false
-	if cJob, isComposable := job.(ComposableJob); isComposable {
+	if cJob, isCustom := job.(JobWithCustomLoad); isCustom {
 		dropFinalizers, err = cJob.Load(ctx, r.client, &req.NamespacedName)
 	} else {
 		err = r.client.Get(ctx, req.NamespacedName, object)
@@ -640,9 +640,10 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// 8. handle job is unsuspended.
 	if !workload.IsAdmitted(wl) {
 		// The job must be suspended if the workload is not yet admitted,
-		// unless this job is workload-slicing enabled. In workload-slicing we rely
-		// on pod-scheduling gate(s) to pause workload slice pods during the workload admission process.
-		if WorkloadSliceEnabled(job) {
+		// unless this job is workload-slicing enabled.
+		// For ElasticJobsViaWorkloadSlices we check if this workload is
+		// a new slice during the scale-up, in such case we don't suspend the job.
+		if WorkloadSliceEnabled(job) && workloadslicing.ReplacementForKey(wl) != nil {
 			return ctrl.Result{}, nil
 		}
 		log.V(2).Info("Running job is not admitted by a cluster queue, suspending")

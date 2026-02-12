@@ -241,6 +241,9 @@ func EnsureWorkloadSlices(
 		oldWorkloadKey := workload.Key(&oldWorkload)
 		newWorkloadAdmittedAsReplacement := workload.HasQuotaReservation(&newWorkload) &&
 			replacementKey != nil && *replacementKey == oldWorkloadKey
+		// If the old workload slice lost quota reservation or was evicted, and
+		// the new workload is a replacement, we finish the old workload slice as out of sync,
+		// and mark the new workload as the only workload reference, i.e., no longer a replacement.
 		shouldFinishOldSlice := !workload.HasQuotaReservation(&oldWorkload) ||
 			workload.IsEvicted(&oldWorkload) ||
 			newWorkloadAdmittedAsReplacement
@@ -251,6 +254,7 @@ func EnsureWorkloadSlices(
 			if err := workload.Finish(ctx, clnt, &oldWorkload, reason, message, clk, tracker); err != nil {
 				return nil, true, err
 			}
+			delete(newWorkload.Annotations, WorkloadSliceReplacementFor)
 		}
 
 		// We consider the new workload slice only when evaluating against the incoming job (pod sets).
