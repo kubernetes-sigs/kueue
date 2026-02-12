@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package jobframework_test
+package jobframework
 
 import (
 	"testing"
@@ -23,7 +23,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -117,7 +116,7 @@ func TestSanitizePodSets(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			_ = features.SetEnable(features.SanitizePodSets, tc.featureEnabled)
 
-			jobframework.SanitizePodSets(tc.podSets)
+			SanitizePodSets(tc.podSets)
 
 			if diff := cmp.Diff(tc.expectedPodSets, tc.podSets); diff != "" {
 				t.Errorf("unexpected difference: %s", diff)
