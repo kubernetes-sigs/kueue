@@ -152,7 +152,7 @@ generate: generate-mocks generate-apiref generate-code generate-kueuectl-docs ge
 .PHONY: generate-code
 generate-code: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations and client-go libraries.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./apis/..."
-	TOOLS_DIR=${TOOLS_DIR} ./hack/update-codegen.sh $(GO_CMD)
+	$(TOOLS_DIR)/code-generator/generate.sh $(GO_CMD)
 
 .PHONY: generate-mocks
 generate-mocks: mockgen ## Generate mockgen mocks
@@ -176,7 +176,7 @@ gomod-download-tools: ## Download Go module dependencies (tools)
 
 .PHONY: toc-update
 toc-update: mdtoc
-	./hack/update-toc.sh
+	$(TOOLS_DIR)/mdtoc/generate.sh
 
 .PHONY: helm-lint
 helm-lint: helm ## Run Helm chart lint test.
@@ -458,7 +458,7 @@ generate-apiref: genref
 
 .PHONY: generate-featuregates
 generate-featuregates: ## Regenerate feature-gate YAML and site data.
-	$(PROJECT_DIR)/hack/update-featuregates.sh
+	$(TOOLS_DIR)/compatibility-lifecycle/generate.sh
 
 .PHONY: generate-kueuectl-docs
 generate-kueuectl-docs: kueuectl-docs
