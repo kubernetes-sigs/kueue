@@ -17,6 +17,7 @@ limitations under the License.
 package e2e
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/onsi/ginkgo/v2"
@@ -156,7 +157,8 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 		})
 	})
 
-	ginkgo.It("Should run a rayjob with InTreeAutoscaling", func() {
+	for i := range 200 {
+	ginkgo.FIt(fmt.Sprintf("Should run a rayjob with InTreeAutoscaling %d", i), func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		// Create ConfigMap with Python script
@@ -359,6 +361,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
+	}
 
 	ginkgo.It("Should run a RayCluster on worker if admitted", func() {
 		kuberayTestImage := util.GetKuberayTestImage()
