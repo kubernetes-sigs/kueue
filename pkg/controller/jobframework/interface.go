@@ -119,11 +119,19 @@ type JobWithCustomValidation interface {
 	ValidateOnUpdate(ctx context.Context, oldJob GenericJob) (field.ErrorList, error)
 }
 
-// ComposableJob interface should be implemented by generic jobs that
-// are composed out of multiple API objects.
-type ComposableJob interface {
-	// Load loads all members of the composable job. If removeFinalizers == true, workload and job finalizers should be removed.
+// JobWithCustomLoad loads a job object and any additional attributes
+// (for example, pods) when necessary.
+type JobWithCustomLoad interface {
+	// Load retrieves the job identified by key. Some Jobs require extra
+	// steps that go beyond a simple GetObject() (for example, fetching pods
+	// or related objects).
 	Load(ctx context.Context, c client.Client, key *types.NamespacedName) (removeFinalizers bool, err error)
+}
+
+// ComposableJob interface should be implemented by generic jobs that
+// are composed out of multiple API objects and are also loadable.
+type ComposableJob interface {
+	JobWithCustomLoad
 	// Run unsuspends all members of the ComposableJob and injects the node affinity with podSet
 	// counts extracting from workload to all members of the ComposableJob.
 	Run(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, r record.EventRecorder, msg string) error
