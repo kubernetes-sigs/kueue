@@ -4,7 +4,7 @@
   command = "npm install && hugo --gc --minify"
 
 [build.environment]
-  HUGO_VERSION = "0.155.2"
+  HUGO_VERSION = "0.155.3"
 
 [context.production.environment]
   HUGO_ENV = "production"
