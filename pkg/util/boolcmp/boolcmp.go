@@ -14,13 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package cmp
+package boolcmp
 
-// CompareBool compares two boolean values and returns:
+// Compare compares two boolean values and returns:
 // - 0 if they are equal
 // - -1 if a is true and b is false
 // - 1 if a is false and b is true
-func CompareBool(a, b bool) int {
+func Compare(a, b bool) int {
 	if a == b {
 		return 0
 	}
@@ -30,18 +30,4 @@ func CompareBool(a, b bool) int {
 	}
 
 	return 1
-}
-
-// LazyOr evaluates the provided functions in order and returns the first non-zero value.
-// It returns the zero value if all functions return zero values.
-// This is useful for implementing short-circuit evaluation in comparison functions.
-func LazyOr[T comparable](funcs ...func() T) T {
-	var zero T
-	for _, fn := range funcs {
-		n := fn()
-		if n != zero {
-			return n
-		}
-	}
-	return zero
 }

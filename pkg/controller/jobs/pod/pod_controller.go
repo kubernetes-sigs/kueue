@@ -49,9 +49,10 @@ import (
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/util/boolcmp"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
-	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
+	"sigs.k8s.io/kueue/pkg/util/lazyor"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -866,9 +867,9 @@ func lastActiveTime(clock clock.Clock, p *corev1.Pod) time.Time {
 // - creation timestamp (newer pods are first)
 func sortInactivePods(clock clock.Clock, inactivePods []corev1.Pod) {
 	slices.SortFunc(inactivePods, func(pi, pj corev1.Pod) int {
-		return cmputil.LazyOr(
+		return lazyor.Eval(
 			func() int {
-				return cmputil.CompareBool(
+				return boolcmp.Compare(
 					slices.Contains(pi.Finalizers, podconstants.PodFinalizer),
 					slices.Contains(pj.Finalizers, podconstants.PodFinalizer),
 				)
@@ -890,17 +891,17 @@ func sortInactivePods(clock clock.Clock, inactivePods []corev1.Pod) {
 func sortActivePods(activePods []corev1.Pod) {
 	// Sort active pods by creation timestamp
 	slices.SortFunc(activePods, func(pi, pj corev1.Pod) int {
-		return cmputil.LazyOr(
+		return lazyor.Eval(
 			func() int {
 				// Prefer to keep pods that have a finalizer.
-				return cmputil.CompareBool(
+				return boolcmp.Compare(
 					slices.Contains(pi.Finalizers, podconstants.PodFinalizer),
 					slices.Contains(pj.Finalizers, podconstants.PodFinalizer),
 				)
 			},
 			func() int {
 				// Prefer to keep pods that aren't gated.
-				return cmputil.CompareBool(
+				return boolcmp.Compare(
 					isGated(&pj),
 					isGated(&pi),
 				)

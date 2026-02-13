@@ -14,13 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package cmp
+package boolcmp
 
 import (
 	"testing"
 )
 
-func TestCompareBool(t *testing.T) {
+func TestCompare(t *testing.T) {
 	cases := map[string]struct {
 		a   bool
 		b   bool
@@ -50,9 +50,9 @@ func TestCompareBool(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			result := CompareBool(tc.a, tc.b)
+			result := Compare(tc.a, tc.b)
 			if result != tc.exp {
-				t.Errorf("CompareBool(%t, %t) = %d; want %d", tc.a, tc.b, result, tc.exp)
+				t.Errorf("Compare(%t, %t) = %d; want %d", tc.a, tc.b, result, tc.exp)
 			}
 		})
 	}

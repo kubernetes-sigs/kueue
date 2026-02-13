@@ -26,7 +26,8 @@ import (
 	"k8s.io/klog/v2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
+	"sigs.k8s.io/kueue/pkg/util/boolcmp"
+	"sigs.k8s.io/kueue/pkg/util/lazyor"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -39,15 +40,15 @@ import (
 // 3. Workloads with lower priority first.
 // 4. Workloads admitted more recently first.
 func CandidatesOrdering(log logr.Logger, afsEnabled bool, a, b *workload.Info, cq kueue.ClusterQueueReference, now time.Time) int {
-	return cmputil.LazyOr(
+	return lazyor.Eval(
 		func() int {
-			return cmputil.CompareBool(
+			return boolcmp.Compare(
 				workload.IsEvicted(a.Obj),
 				workload.IsEvicted(b.Obj),
 			)
 		},
 		func() int {
-			return cmputil.CompareBool(
+			return boolcmp.Compare(
 				b.ClusterQueue == cq,
 				a.ClusterQueue == cq,
 			)

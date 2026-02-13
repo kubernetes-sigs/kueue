@@ -128,10 +128,6 @@ linters:
         text: 'var-naming: avoid package names that conflict with Go standard library package names'
       - linters:
           - revive
-        path: 'pkg/util/cmp/'
-        text: 'var-naming: avoid package names that conflict with Go standard library package names'
-      - linters:
-          - revive
         path: 'pkg/util/heap/'
         text: 'var-naming: avoid package names that conflict with Go standard library package names'
       - linters:

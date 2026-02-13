@@ -37,7 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
-	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
+	"sigs.k8s.io/kueue/pkg/util/lazyor"
 	"sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -118,7 +118,7 @@ func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject
 	// integration or e2e tests where the original and scaled-up workloads are created
 	// in rapid succession.
 	slices.SortFunc(list.Items, func(a, b kueue.Workload) int {
-		return cmputil.LazyOr(
+		return lazyor.Eval(
 			func() int {
 				return a.CreationTimestamp.Compare(b.CreationTimestamp.Time)
 			},
