@@ -81,8 +81,9 @@ golangci-lint-kal: golangci-lint ## Build golangci-lint-kal from custom configur
 	cd hack/kal-linter; $(GOLANGCI_LINT) custom; mv bin/golangci-lint-kube-api-linter $(BIN_DIR)
 
 .PHONY: controller-gen
-controller-gen: ## Download controller-gen locally if necessary.
-	@GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION)
+controller-gen: gomod-download-tools ## Download controller-gen locally if necessary.
+	@echo "→ Downloading controller-gen locally if necessary..."
+	GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION)
 
 .PHONY: kustomize
 kustomize: ## Download kustomize locally if necessary.
