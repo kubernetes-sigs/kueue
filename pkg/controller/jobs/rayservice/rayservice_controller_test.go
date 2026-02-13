@@ -487,7 +487,6 @@ func TestIsActive(t *testing.T) {
 		"active - running": {
 			rayService: (*RayService)(&rayv1.RayService{
 				Status: rayv1.RayServiceStatuses{
-					//nolint:staticcheck //SA1019: Status.ServiceStatus is deprecated but still functional
 					ServiceStatus: rayv1.Running,
 				},
 			}),
@@ -496,7 +495,6 @@ func TestIsActive(t *testing.T) {
 		"not active - empty service status": {
 			rayService: (*RayService)(&rayv1.RayService{
 				Status: rayv1.RayServiceStatuses{
-					//nolint:staticcheck //SA1019: Status.ServiceStatus is deprecated but still functional
 					ServiceStatus: "",
 				},
 			}),
@@ -528,7 +526,6 @@ func TestPodsReady(t *testing.T) {
 		"pods ready - running": {
 			rayService: (*RayService)(&rayv1.RayService{
 				Status: rayv1.RayServiceStatuses{
-					//nolint:staticcheck //SA1019: Status.ServiceStatus is deprecated but still functional
 					ServiceStatus: rayv1.Running,
 				},
 			}),
@@ -537,7 +534,6 @@ func TestPodsReady(t *testing.T) {
 		"pods not ready - empty status": {
 			rayService: (*RayService)(&rayv1.RayService{
 				Status: rayv1.RayServiceStatuses{
-					//nolint:staticcheck //SA1019: Status.ServiceStatus is deprecated but still functional
 					ServiceStatus: "",
 				},
 			}),
