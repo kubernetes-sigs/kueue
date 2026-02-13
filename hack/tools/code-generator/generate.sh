@@ -20,12 +20,12 @@ set -o pipefail
 
 GO_CMD=${1:-go}
 CURRENT_DIR=$(dirname "${BASH_SOURCE[0]}")
-TOOLS_DIR=$(realpath "${CURRENT_DIR}/../../..")
-KUEUE_ROOT=$(realpath "${CURRENT_DIR}/../..")
+TOOLS_DIR=$(realpath "${CURRENT_DIR}/..")
+KUEUE_ROOT=$(realpath "${CURRENT_DIR}/../../..")
 KUEUE_PKG="sigs.k8s.io/kueue"
 CODEGEN_PKG=$(cd "${TOOLS_DIR}"; $GO_CMD list -m -mod=readonly -f "{{.Dir}}" k8s.io/code-generator)
 
-cd "$CURRENT_DIR/.."
+cd "${KUEUE_ROOT}"
 
 # shellcheck source=/dev/null
 source "${CODEGEN_PKG}/kube_codegen.sh"
