@@ -605,6 +605,24 @@ files:
             namespaceSelector:
               {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
             {{- end }}
+        onFileCondition: '.kind == "MutatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-ray-io-v1-rayservice"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+            namespaceSelector:
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+            {{- end }}
+        onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-ray-io-v1-rayservice"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+            namespaceSelector:
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+            {{- end }}
         onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-workload-codeflare-dev-v1beta2-appwrapper"'
   - path: ./config/components/kueueviz/*.yaml
