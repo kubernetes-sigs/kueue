@@ -96,16 +96,16 @@ func (*multiKueueAdapter) GetEmptyList() client.ObjectList {
 	return &appsv1.StatefulSetList{}
 }
 
-func (*multiKueueAdapter) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
+func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedName, error) {
 	statefulSet, isStatefulSet := o.(*appsv1.StatefulSet)
 	if !isStatefulSet {
-		return types.NamespacedName{}, errors.New("not a statefulset")
+		return nil, errors.New("not a statefulset")
 	}
 
 	prebuiltWl, hasPrebuiltWorkload := statefulSet.Labels[constants.PrebuiltWorkloadLabel]
 	if !hasPrebuiltWorkload {
-		return types.NamespacedName{}, fmt.Errorf("no prebuilt workload found for statefulset: %s", klog.KObj(statefulSet))
+		return nil, fmt.Errorf("no prebuilt workload found for statefulset: %s", klog.KObj(statefulSet))
 	}
 
-	return types.NamespacedName{Name: prebuiltWl, Namespace: statefulSet.Namespace}, nil
+	return []types.NamespacedName{{Name: prebuiltWl, Namespace: statefulSet.Namespace}}, nil
 }

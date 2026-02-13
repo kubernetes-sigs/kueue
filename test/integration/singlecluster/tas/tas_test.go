@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -307,7 +308,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			// https://github.com/kubernetes-sigs/kueue/issues/8653
 			ginkgo.By("hack to requeue workload", func() {
 				cqs := sets.New[kueue.ClusterQueueReference]("cluster-queue")
-				qManager.QueueInadmissibleWorkloads(ctx, cqs)
+				qcache.QueueInadmissibleWorkloads(ctx, qManager, cqs)
 			})
 
 			ginkgo.By("expect TAS pod to admit", func() {
@@ -352,7 +353,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			// https://github.com/kubernetes-sigs/kueue/issues/8653
 			ginkgo.By("hack to requeue workload", func() {
 				cqs := sets.New[kueue.ClusterQueueReference]("cluster-queue")
-				qManager.QueueInadmissibleWorkloads(ctx, cqs)
+				qcache.QueueInadmissibleWorkloads(ctx, qManager, cqs)
 			})
 
 			ginkgo.By("expect TAS pod to admit", func() {
@@ -745,7 +746,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			})
 
 			ginkgo.It("should respect TAS usage by admitted workloads after reboot; second workload created before reboot", framework.SlowSpec, func() {
-				var wl1, wl2, wl3 *kueue.Workload
+				var wl1, wl2 *kueue.Workload
 				ginkgo.By("creating wl1 which consumes the entire TAS capacity", func() {
 					wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
@@ -790,17 +791,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					util.FinishWorkloads(ctx, k8sClient, wl1)
 				})
 
-				ginkgo.By("create wl3 to ensure ClusterQueue is reconciled", func() {
-					wl3 = utiltestingapi.MakeWorkload("wl3", ns.Name).
-						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
-					wl3.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
-						Preferred: ptr.To(utiltesting.DefaultRackTopologyLevel),
-					}
-					util.MustCreate(ctx, k8sClient, wl3)
-				})
-
-				ginkgo.By("verify wl2 and wl3 get admitted", func() {
-					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2, wl3)
+				ginkgo.By("verify wl2 gets admitted", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
 				})
 			})
 
@@ -3445,6 +3437,44 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							},
 						}),
 					))
+				})
+			})
+
+			ginkgo.It("should not admit workload when PodSet gets more than one TAS flavor (TAS request build fails)", func() {
+				// A single PodSet requests both CPU and GPU with TAS. In this CQ no single flavor
+				// has both (tas-cpu has CPU only, tas-gpu has GPU only), so the flavor assigner
+				// fails with "insufficient quota". If the assigner ever assigned different flavors
+				// per resource, TAS would fail with "more than one flavor assigned" (onlyFlavor).
+				// Either way, the workload must not be admitted so it never gets TopologyAssignment.
+				var wl *kueue.Workload
+				ginkgo.By("creating a workload with one PodSet requesting both CPU and GPU and TAS", func() {
+					wl = utiltestingapi.MakeWorkload("tas-multi-flavor-pending", ns.Name).
+						Queue(kueue.LocalQueueName(localQueue.Name)).
+						PodSets(*utiltestingapi.MakePodSet("main", 1).
+							Request(corev1.ResourceCPU, "2").
+							Request(gpuResName, "2").
+							RequiredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
+							Obj(),
+						).Obj()
+					util.MustCreate(ctx, k8sClient, wl)
+				})
+
+				ginkgo.By("verify the workload remains pending and is not admitted", func() {
+					util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+					gomega.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
+				})
+
+				ginkgo.By("verify QuotaReserved condition reports flavor/TAS-related failure", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+						cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+						g.Expect(cond).ToNot(gomega.BeNil())
+						g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+						g.Expect(cond.Reason).To(gomega.Equal("Pending"))
+						// With this CQ, no single flavor fits both CPU and GPU, so flavor assigner fails with "couldn't assign flavors".
+						g.Expect(cond.Message).To(gomega.ContainSubstring("couldn't assign flavors"))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
 		})

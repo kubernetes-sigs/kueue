@@ -39,7 +39,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -263,6 +262,72 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
+			ginkgo.It("Should preserve custom finalizers when workload terminates", func() {
+				pod := testingpod.MakePod(podName, ns.Name).Queue("test-queue").Obj()
+				gomega.Expect(k8sClient.Create(ctx, pod)).Should(gomega.Succeed())
+
+				createdPod := &corev1.Pod{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, lookupKey, createdPod)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Expect(createdPod.Finalizers).
+					To(gomega.ContainElement(constants.ManagedByKueueLabelKey), "Pod should have finalizer")
+
+				ginkgo.By("checking that workload is created for pod with the queue name")
+				createdWorkload := &kueue.Workload{}
+				wlLookupKey := types.NamespacedName{
+					Name:      podcontroller.GetWorkloadNameForPod(pod.Name, pod.UID),
+					Namespace: ns.Name,
+				}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				ginkgo.By("checking the pod is unsuspended when workload is assigned")
+				clusterQueue := utiltestingapi.MakeClusterQueue("cluster-queue").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj(),
+					).Obj()
+				admission := utiltestingapi.MakeAdmission(clusterQueue.Name).
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "default", "1").
+						Count(createdWorkload.Spec.PodSets[0].Count).
+						Obj(),
+					).Obj()
+				util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, lookupKey, createdPod)).Should(gomega.Succeed())
+					g.Expect(createdPod.Spec.SchedulingGates).Should(gomega.BeEmpty())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				ginkgo.By("adding custom finalizer to the pod and setting the pod as succeeded")
+				customFinalizer := "my.custom/finalizer"
+
+				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdPod)).Should(gomega.Succeed())
+				updatedPod := createdPod.DeepCopy()
+
+				updatedPod.Finalizers = append(updatedPod.Finalizers, customFinalizer)
+
+				util.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, updatedPod)
+				gomega.Expect(k8sClient.Patch(ctx, updatedPod, client.MergeFrom(createdPod))).Should(gomega.Succeed())
+
+				ginkgo.By("waiting for the workload to finish")
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+					g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				ginkgo.By("checking that the custom finalizer is preserved")
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, lookupKey, createdPod)).Should(gomega.Succeed())
+					g.Expect(createdPod.Finalizers).NotTo(gomega.ContainElement(constants.ManagedByKueueLabelKey))
+					g.Expect(createdPod.Finalizers).To(gomega.ContainElement(customFinalizer))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
 			ginkgo.When("A workload is evicted", func() {
 				const finalizerName = "kueue.x-k8s.io/integration-test"
 				var pod *corev1.Pod
@@ -355,41 +420,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 			})
 
 			ginkgo.When("Pod owner is managed by Kueue", func() {
-				ginkgo.It("Should skip the pod with MultiKueueBatchJobWithManagedBy by off", func() {
-					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueBatchJobWithManagedBy, false)
-					job := testingjob.MakeJob("parent-job", ns.Name).Queue(kueue.LocalQueueName(lq.Name)).Obj()
-					util.MustCreate(ctx, k8sClient, job)
-
-					pod := testingpod.MakePod(podName, ns.Name).Queue(lq.Name).Obj()
-					gomega.Expect(controllerutil.SetControllerReference(job, pod, k8sClient.Scheme())).To(gomega.Succeed())
-					util.MustCreate(ctx, k8sClient, pod)
-
-					createdPod := &corev1.Pod{}
-					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, lookupKey, createdPod)).Should(gomega.Succeed())
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-					gomega.Expect(createdPod.Spec.SchedulingGates).NotTo(
-						gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}),
-						"Pod shouldn't have scheduling gate",
-					)
-
-					gomega.Expect(createdPod.Labels).NotTo(
-						gomega.HaveKeyWithValue(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue),
-						"Pod shouldn't have the label",
-					)
-
-					gomega.Expect(createdPod.Finalizers).NotTo(gomega.ContainElement(constants.ManagedByKueueLabelKey),
-						"Pod shouldn't have finalizer")
-
-					wlLookupKey := types.NamespacedName{Name: podcontroller.GetWorkloadNameForPod(createdPod.Name, createdPod.UID), Namespace: ns.Name}
-					ginkgo.By(fmt.Sprintf("checking that workload '%s' is not created", wlLookupKey))
-					createdWorkload := &kueue.Workload{}
-
-					gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
-				})
-				ginkgo.It("Should skip the pod with MultiKueueBatchJobWithManagedBy on", func() {
-					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueBatchJobWithManagedBy, true)
+				ginkgo.It("Should skip the pod when owner is managed by Kueue", func() {
 					job := testingjob.MakeJob("parent-job", ns.Name).Queue(kueue.LocalQueueName(lq.Name)).Obj()
 					util.MustCreate(ctx, k8sClient, job)
 

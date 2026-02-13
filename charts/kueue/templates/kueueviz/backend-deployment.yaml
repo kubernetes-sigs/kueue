@@ -55,13 +55,8 @@ spec:
           {{- end }}
           image: '{{ .Values.kueueViz.backend.image.repository }}:{{ .Values.kueueViz.backend.image.tag | default .Chart.AppVersion }}'
           imagePullPolicy: '{{ .Values.kueueViz.backend.image.pullPolicy }}'
+          resources:
+            {{- toYaml .Values.kueueViz.backend.resources | nindent 12 }}
           ports:
             - containerPort: 8080
-          resources:
-            limits:
-              cpu: 500m
-              memory: 512Mi
-            requests:
-              cpu: 500m
-              memory: 512Mi
 {{- end }}

@@ -1785,7 +1785,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				remoteJob := job.DeepCopy()
 				getJob(worker1.ctx, worker1.client, remoteJob)
 				g.Expect(remoteJob.Spec.Suspend).To(gomega.Equal(ptr.To(false)))
-				g.Expect(remoteJob.Spec.Parallelism).To(gomega.BeEquivalentTo(ptr.To(int32(1))))
+				g.Expect(remoteJob.Spec.Parallelism).To(gomega.BeEquivalentTo(ptr.To(int32(2))))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -1874,6 +1874,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			}, gomega.Equal(completedJobCondition))))
 		})
 	})
+
 	ginkgo.It("Should redo the admission process once the workload loses Admission in the worker cluster", func() {
 		job := testingjob.MakeJob("job", managerNs.Name).
 			ManagedBy(kueue.MultiKueueControllerName).

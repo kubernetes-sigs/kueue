@@ -1,3 +1,38 @@
+## v0.15.4
+
+Changes since `v0.15.3`:
+
+## Changes by Kind
+
+### Feature
+
+- KueueViz backend and frontend resource requests/limits are now configurable via Helm values (kueueViz.backend.resources and kueueViz.frontend.resources). (#8982, @david-gang)
+
+### Bug or Regression
+
+- Fix a bug where finished or deactivated workloads blocked ClusterQueue deletion and finalizer removal. (#8940, @sohankunkerkar)
+- LeaderWorkerSet: Fix the bug where rolling updates with maxSurge could get stuck. (#8887, @PannagaRao)
+- LeaderWorkerSet: Fixed bug that doesn't allow to delete Pod after LeaderWorkerSet delete (#8883, @mbobrovskyi)
+- Metrics certificate is now reloaded when certificate data is updated. (#9100, @MaysaMacedo)
+- MultiKueue & ElasticJobs: fix the bug that the new size of a Job was not reflected on the worker cluster. (#9044, @ichekrygin)
+- Observability: Fix Prometheus ServiceMonitor selector and RBAC to enable metrics scraping. (#8979, @IrvingMg)
+- PodIntegration: Fix the bug that Kueue would occasionally remove the custom finalizers when
+  removing the `kueue.x-k8s.io/managed` finalizer. (#8905, @mykysha)
+- RayJob integration: Make RayJob top level workload managed by Kueue when autoscaling via
+  ElasticJobsViaWorkloadSlices is enabled.
+
+  If you are an alpha user of the ElasticJobsViaWorkloadSlices feature for RayJobs, then upgrading Kueue may impact running live jobs which have autoscaling / workload slicing enabled. For example, if you upgrade Kueue, before
+  scaling-up completes,  the new pods will be stuck in SchedulingGated state. After Kueue version update, cluster admins probably should migrate from the old RayJob with ElasticJobsViaWorkloadSlices to the new one (recreating). (#9070, @mimowo)
+- TAS: Fix a bug that TAS ignored resources excluded by excludeResourcePrefixes for node placement. (#8991, @sohankunkerkar)
+- TAS: Fixed a bug that pending workloads could be stuck, not being considered by the Kueue's scheduler,
+  after the restart of Kueue. The workloads would be considered for scheduling again after any update to their
+  ClusterQueue. (#9057, @sohankunkerkar)
+- TAS: Fixed handling of the scenario where a Topology instance is re-created (for example, to add a new Topology level).
+  Previously, this would cause cache corruption, leading to issues such as:
+  1. Scheduling a workload on nodes that are fully occupied by already running workloads.
+  2. Scheduling two or more pods of the same workload on the same node (even when the node cannot host both). (#8765, @mimowo)
+- TAS: Lower verbosity of expected missing pod index label logs. (#8702, @IrvingMg)
+
 ## v0.15.3
 
 Changes since `v0.15.2`:

@@ -34,7 +34,6 @@ INTEGRATION_TARGET_MULTIKUEUE ?= ./test/integration/multikueue/...
 # Verbosity level for apiserver logging.
 # The logging is disabled if 0.
 INTEGRATION_API_LOG_LEVEL ?= 0
-INTEGRATION_OUTPUT_OPTIONS ?= --output-interceptor-mode=none 
 
 # Folder where the e2e tests are located.
 E2E_TARGET ?= ./test/e2e/...
@@ -47,7 +46,9 @@ E2E_KIND_VERSION ?= kindest/node:v$(E2E_K8S_FULL_VERSION)
 E2E_RUN_ONLY_ENV ?= false
 E2E_USE_HELM ?= false
 E2E_MODE ?= ci
-KUEUE_UPGRADE_FROM_VERSION ?= v0.14.4
+KUEUE_UPGRADE_FROM_VERSION ?= v0.14.8
+# When truthy, force re-installing external operators (MPI, Ray, etc.) on each run, even in E2E_MODE=dev.
+E2E_ENFORCE_OPERATOR_UPDATE ?= false
 
 # For local testing, we should allow user to use different kind cluster name
 # Default will delete default kind cluster
@@ -97,7 +98,7 @@ test-integration: compile-crd-manifests gomod-download envtest ginkgo dep-crds k
 	KUEUE_BIN=$(BIN_DIR) \
 	ENVTEST_K8S_VERSION=$(ENVTEST_K8S_VERSION) \
 	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) API_LOG_LEVEL=$(INTEGRATION_API_LOG_LEVEL) \
-	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS) --race --junit-report=junit.xml --json-report=integration.json $(INTEGRATION_OUTPUT_OPTIONS) --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
+	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS) --race --junit-report=junit.xml --json-report=integration.json --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
 	$(BIN_DIR)/ginkgo-top -i $(ARTIFACTS)/integration.json > $(ARTIFACTS)/integration-top.yaml
 
 .PHONY: test-integration-baseline
@@ -115,7 +116,7 @@ test-multikueue-integration: compile-crd-manifests gomod-download envtest ginkgo
 	KUEUE_BIN=$(BIN_DIR) \
 	ENVTEST_K8S_VERSION=$(ENVTEST_K8S_VERSION) \
 	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) API_LOG_LEVEL=$(INTEGRATION_API_LOG_LEVEL) \
-	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS_MULTIKUEUE) --race --junit-report=multikueue-junit.xml --json-report=multikueue-integration.json $(INTEGRATION_OUTPUT_OPTIONS) --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET_MULTIKUEUE)
+	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS_MULTIKUEUE) --race --junit-report=multikueue-junit.xml --json-report=multikueue-integration.json --output-interceptor-mode=none --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET_MULTIKUEUE)
 	$(BIN_DIR)/ginkgo-top -i $(ARTIFACTS)/multikueue-integration.json > $(ARTIFACTS)/multikueue-integration-top.yaml
 
 ## Label Taxonomy:
@@ -170,10 +171,166 @@ test-e2e-certmanager-upgrade: setup-e2e-env run-test-e2e-certmanager-upgrade-$(E
 .PHONY: test-e2e-dra
 test-e2e-dra: setup-e2e-env run-test-e2e-dra-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
+.PHONY: test-e2e-multikueue-dra
+test-e2e-multikueue-dra: setup-e2e-env run-test-e2e-multikueue-dra-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
 run-test-e2e-singlecluster-%: K8S_VERSION = $(@:run-test-e2e-singlecluster-%=%)
 run-test-e2e-singlecluster-%:
 	@echo Running e2e for k8s ${K8S_VERSION}
 	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
+		E2E_MODE=$(E2E_MODE) \
+		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
+		APPWRAPPER_VERSION=$(APPWRAPPER_VERSION) \
+		JOBSET_VERSION=$(JOBSET_VERSION) \
+		KUBEFLOW_VERSION=$(KUBEFLOW_VERSION) \
+		KUBEFLOW_TRAINER_VERSION=$(KUBEFLOW_TRAINER_VERSION) \
+		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
+		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster" \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
+		E2E_USE_HELM=$(E2E_USE_HELM) \
+		./hack/testing/e2e-test.sh
+
+run-test-multikueue-e2e-%: K8S_VERSION = $(@:run-test-multikueue-e2e-%=%)
+run-test-multikueue-e2e-%:
+	@echo Running multikueue e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
+		E2E_MODE=$(E2E_MODE) \
+		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
+		APPWRAPPER_VERSION=$(APPWRAPPER_VERSION) \
+		JOBSET_VERSION=$(JOBSET_VERSION) KUBEFLOW_VERSION=$(KUBEFLOW_VERSION) \
+		KUBEFLOW_MPI_VERSION=$(KUBEFLOW_MPI_VERSION) \
+		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
+		KUBEFLOW_TRAINER_VERSION=$(KUBEFLOW_TRAINER_VERSION) \
+		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
+		CLUSTERPROFILE_VERSION=$(CLUSTERPROFILE_VERSION) \
+		CLUSTERPROFILE_PLUGIN_IMAGE_VERSION=$(CLUSTERPROFILE_PLUGIN_IMAGE_VERSION) \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
+		E2E_USE_HELM=$(E2E_USE_HELM) \
+		./hack/testing/e2e-multikueue-test.sh
+
+run-test-tas-e2e-%: K8S_VERSION = $(@:run-test-tas-e2e-%=%)
+run-test-tas-e2e-%:
+	@echo Running tas e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
+		E2E_MODE=$(E2E_MODE) \
+		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
+		JOBSET_VERSION=$(JOBSET_VERSION) KUBEFLOW_VERSION=$(KUBEFLOW_VERSION) KUBEFLOW_MPI_VERSION=$(KUBEFLOW_MPI_VERSION) \
+		APPWRAPPER_VERSION=$(APPWRAPPER_VERSION) \
+		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
+		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
+		KUBEFLOW_TRAINER_VERSION=$(KUBEFLOW_TRAINER_VERSION) \
+		KIND_CLUSTER_FILE="kind-cluster-tas.yaml" E2E_TARGET_FOLDER="tas" \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
+		E2E_USE_HELM=$(E2E_USE_HELM) \
+		./hack/testing/e2e-test.sh
+
+run-test-e2e-customconfigs-%: K8S_VERSION = $(@:run-test-e2e-customconfigs-%=%)
+run-test-e2e-customconfigs-%:
+	@echo Running customconfigs e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
+		E2E_MODE=$(E2E_MODE) \
+		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="customconfigs" \
+		JOBSET_VERSION=$(JOBSET_VERSION) APPWRAPPER_VERSION=$(APPWRAPPER_VERSION) \
+		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
+		E2E_USE_HELM=$(E2E_USE_HELM) \
+		./hack/testing/e2e-test.sh
+
+run-test-e2e-certmanager-%: K8S_VERSION = $(@:run-test-e2e-certmanager-%=%)
+run-test-e2e-certmanager-%:
+	@echo Running certmanager e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
+		E2E_MODE=$(E2E_MODE) \
+		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="certmanager" \
+		CERTMANAGER_VERSION=$(CERTMANAGER_VERSION) \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
+		E2E_USE_HELM=$(E2E_USE_HELM) \
+		./hack/testing/e2e-test.sh
+
+run-test-e2e-upgrade-%: K8S_VERSION = $(@:run-test-e2e-upgrade-%=%)
+run-test-e2e-upgrade-%:
+	@echo Running upgrade e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
+		E2E_MODE=$(E2E_MODE) \
+		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="upgrade" \
+		KUEUE_UPGRADE_FROM_VERSION=$(KUEUE_UPGRADE_FROM_VERSION) \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
+		./hack/testing/e2e-test.sh
+
+run-test-e2e-certmanager-upgrade-%: K8S_VERSION = $(@:run-test-e2e-certmanager-upgrade-%=%)
+run-test-e2e-certmanager-upgrade-%:
+	@echo Running upgrade e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
+		E2E_MODE=$(E2E_MODE) \
+		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="upgrade" \
+		KUEUE_UPGRADE_FROM_VERSION=$(KUEUE_UPGRADE_FROM_VERSION) \
+		CERTMANAGER_VERSION=$(CERTMANAGER_VERSION) \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
+		./hack/testing/e2e-test.sh
+
+run-test-e2e-dra-%: K8S_VERSION = $(@:run-test-e2e-dra-%=%)
+run-test-e2e-dra-%:
+	@echo Running DRA e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
+		E2E_MODE=$(E2E_MODE) \
+		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="dra" \
+		DRA_EXAMPLE_DRIVER_VERSION=$(DRA_EXAMPLE_DRIVER_VERSION) \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
+		./hack/testing/e2e-test.sh
+
+run-test-e2e-multikueue-dra-%: K8S_VERSION = $(@:run-test-e2e-multikueue-dra-%=%)
+run-test-e2e-multikueue-dra-%:
+	@echo Running multikueue DRA e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
+		E2E_MODE=$(E2E_MODE) \
+		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
+		JOBSET_VERSION=$(JOBSET_VERSION) \
+		DRA_EXAMPLE_DRIVER_VERSION=$(DRA_EXAMPLE_DRIVER_VERSION) \
+		E2E_TARGET_FOLDER="multikueue-dra" \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
+		./hack/testing/e2e-multikueue-test.sh
+
+# Run e2e tests against k/k main (latest CI build) with WAS enabled
+K8S_MAIN_NODE_IMAGE ?= k8s-main:latest
+.PHONY: test-e2e-k8s-main-was
+test-e2e-k8s-main-was: setup-e2e-env kueuectl kind-k8s-main-image-build kind-ray-project-mini-image-build run-test-e2e-k8s-main-was
+
+.PHONY: kind-k8s-main-image-build
+kind-k8s-main-image-build: kind
+	@echo "Fetching latest Kubernetes CI build version..."
+	$(eval K8S_CI_VERSION := $(shell curl -sL https://dl.k8s.io/ci/latest.txt))
+	@echo "Building kind node image from k/k main: $(K8S_CI_VERSION)"
+	$(KIND) build node-image --image=$(K8S_MAIN_NODE_IMAGE) \
+		"https://dl.k8s.io/ci/$(K8S_CI_VERSION)/kubernetes-server-linux-$(shell go env GOARCH).tar.gz"
+
+.PHONY: run-test-e2e-k8s-main-was
+run-test-e2e-k8s-main-was:
+	@echo Running e2e for k8s main with WAS enabled
+	E2E_KIND_VERSION="$(K8S_MAIN_NODE_IMAGE)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
 		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
 		E2E_MODE=$(E2E_MODE) \
 		APPWRAPPER_VERSION=$(APPWRAPPER_VERSION) \
@@ -186,106 +343,8 @@ run-test-e2e-singlecluster-%:
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
-		./hack/e2e-test.sh
-
-run-test-multikueue-e2e-%: K8S_VERSION = $(@:run-test-multikueue-e2e-%=%)
-run-test-multikueue-e2e-%:
-	@echo Running multikueue e2e for k8s ${K8S_VERSION}
-	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
-		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
-		E2E_MODE=$(E2E_MODE) \
-		APPWRAPPER_VERSION=$(APPWRAPPER_VERSION) \
-		JOBSET_VERSION=$(JOBSET_VERSION) KUBEFLOW_VERSION=$(KUBEFLOW_VERSION) \
-		KUBEFLOW_MPI_VERSION=$(KUBEFLOW_MPI_VERSION) \
-		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
-		KUBEFLOW_TRAINER_VERSION=$(KUBEFLOW_TRAINER_VERSION) \
-		CLUSTERPROFILE_VERSION=$(CLUSTERPROFILE_VERSION) \
-		CLUSTERPROFILE_PLUGIN_IMAGE_VERSION=$(CLUSTERPROFILE_PLUGIN_IMAGE_VERSION) \
-		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
-		E2E_USE_HELM=$(E2E_USE_HELM) \
-		./hack/multikueue-e2e-test.sh
-
-run-test-tas-e2e-%: K8S_VERSION = $(@:run-test-tas-e2e-%=%)
-run-test-tas-e2e-%:
-	@echo Running tas e2e for k8s ${K8S_VERSION}
-	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
-		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
-		E2E_MODE=$(E2E_MODE) \
-		JOBSET_VERSION=$(JOBSET_VERSION) KUBEFLOW_VERSION=$(KUBEFLOW_VERSION) KUBEFLOW_MPI_VERSION=$(KUBEFLOW_MPI_VERSION) \
-		APPWRAPPER_VERSION=$(APPWRAPPER_VERSION) \
-		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
-		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
-		KUBEFLOW_TRAINER_VERSION=$(KUBEFLOW_TRAINER_VERSION) \
-		KIND_CLUSTER_FILE="tas-kind-cluster.yaml" E2E_TARGET_FOLDER="tas" \
-		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
-		E2E_USE_HELM=$(E2E_USE_HELM) \
-		./hack/e2e-test.sh
-
-run-test-e2e-customconfigs-%: K8S_VERSION = $(@:run-test-e2e-customconfigs-%=%)
-run-test-e2e-customconfigs-%:
-	@echo Running customconfigs e2e for k8s ${K8S_VERSION}
-	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
-		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
-		E2E_MODE=$(E2E_MODE) \
-		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="customconfigs" \
-		JOBSET_VERSION=$(JOBSET_VERSION) APPWRAPPER_VERSION=$(APPWRAPPER_VERSION) \
-		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
-		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
-		E2E_USE_HELM=$(E2E_USE_HELM) \
-		./hack/e2e-test.sh
-
-run-test-e2e-certmanager-%: K8S_VERSION = $(@:run-test-e2e-certmanager-%=%)
-run-test-e2e-certmanager-%:
-	@echo Running certmanager e2e for k8s ${K8S_VERSION}
-	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
-		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
-		E2E_MODE=$(E2E_MODE) \
-		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="certmanager" \
-		CERTMANAGER_VERSION=$(CERTMANAGER_VERSION) \
-		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
-		E2E_USE_HELM=$(E2E_USE_HELM) \
-		./hack/e2e-test.sh
-
-run-test-e2e-upgrade-%: K8S_VERSION = $(@:run-test-e2e-upgrade-%=%)
-run-test-e2e-upgrade-%:
-	@echo Running upgrade e2e for k8s ${K8S_VERSION}
-	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
-		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
-		E2E_MODE=$(E2E_MODE) \
-		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="upgrade" \
-		KUEUE_UPGRADE_FROM_VERSION=$(KUEUE_UPGRADE_FROM_VERSION) \
-		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
-		./hack/e2e-test.sh
-
-run-test-e2e-certmanager-upgrade-%: K8S_VERSION = $(@:run-test-e2e-certmanager-upgrade-%=%)
-run-test-e2e-certmanager-upgrade-%:
-	@echo Running upgrade e2e for k8s ${K8S_VERSION}
-	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
-		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
-		E2E_MODE=$(E2E_MODE) \
-		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="upgrade" \
-		KUEUE_UPGRADE_FROM_VERSION=$(KUEUE_UPGRADE_FROM_VERSION) \
-		CERTMANAGER_VERSION=$(CERTMANAGER_VERSION) \
-		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
-		./hack/e2e-test.sh
-
-run-test-e2e-dra-%: K8S_VERSION = $(@:run-test-e2e-dra-%=%)
-run-test-e2e-dra-%:
-	@echo Running DRA e2e for k8s ${K8S_VERSION}
-	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
-		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
-		E2E_MODE=$(E2E_MODE) \
-		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="dra" \
-		DRA_EXAMPLE_DRIVER_VERSION=$(DRA_EXAMPLE_DRIVER_VERSION) \
-		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
-		./hack/e2e-test.sh
+		WAS_ENABLED=true \
+		./hack/testing/e2e-test.sh
 
 SCALABILITY_RUNNER := $(BIN_DIR)/performance-scheduler-runner
 .PHONY: performance-scheduler-runner
@@ -314,15 +373,14 @@ ifdef SCALABILITY_SCRAPE_URL
 SCALABILITY_SCRAPE_ARGS +=  --metricsScrapeURL=$(SCALABILITY_SCRAPE_URL)
 endif
 
-SCALABILITY_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/performance/scheduler/default_generator_config.yaml
+SCALABILITY_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/performance/scheduler/configs/baseline/generator.yaml
 
-SCALABILITY_RUN_DIR := $(ARTIFACTS)/run-performance-scheduler
 .PHONY: run-performance-scheduler
 run-performance-scheduler: envtest performance-scheduler-runner minimalkueue
-	mkdir -p $(SCALABILITY_RUN_DIR)
+	mkdir -p $(ARTIFACTS)
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	$(SCALABILITY_RUNNER) \
-		--o $(SCALABILITY_RUN_DIR) \
+		--o $(ARTIFACTS) \
 		--crds=$(PROJECT_DIR)/config/components/crd/bases \
 		--generatorConfig=$(SCALABILITY_GENERATOR_CONFIG) \
 		--minimalKueue=$(MINIMALKUEUE_RUNNER) $(SCALABILITY_EXTRA_ARGS) $(SCALABILITY_SCRAPE_ARGS)
@@ -330,22 +388,59 @@ run-performance-scheduler: envtest performance-scheduler-runner minimalkueue
 .PHONY: test-performance-scheduler-once
 test-performance-scheduler-once: gotestsum run-performance-scheduler
 	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) ./test/performance/scheduler/checker  \
-		--summary=$(SCALABILITY_RUN_DIR)/summary.yaml \
-		--cmdStats=$(SCALABILITY_RUN_DIR)/minimalkueue.stats.yaml \
-		--range=$(PROJECT_DIR)/test/performance/scheduler/default_rangespec.yaml
+		--summary=$(ARTIFACTS)/summary.yaml \
+		--cmdStats=$(ARTIFACTS)/minimalkueue.stats.yaml \
+		--range=$(PROJECT_DIR)/test/performance/scheduler/configs/baseline/rangespec.yaml
 
 PERFORMANCE_RETRY_COUNT?=2
 .PHONY: test-performance-scheduler
 test-performance-scheduler:
-	ARTIFACTS=$(ARTIFACTS) ./hack/performance-retry.sh $(PERFORMANCE_RETRY_COUNT)
+	ARTIFACTS="$(ARTIFACTS)/$@" ./hack/testing/performance-test.sh $(PERFORMANCE_RETRY_COUNT) test-performance-scheduler-once
 
 .PHONY: run-performance-scheduler-in-cluster
 run-performance-scheduler-in-cluster: envtest performance-scheduler-runner
-	mkdir -p $(ARTIFACTS)/run-performance-scheduler-in-cluster
+	mkdir -p "$(ARTIFACTS)/$@"
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	$(SCALABILITY_RUNNER) \
-		--o $(ARTIFACTS)/run-performance-scheduler-in-cluster \
+		--o "$(ARTIFACTS)/$@" \
 		--generatorConfig=$(SCALABILITY_GENERATOR_CONFIG) \
+		--qps=1000 --burst=2000 --timeout=15m $(SCALABILITY_SCRAPE_ARGS)
+
+##@ Scheduler Performance Testing with TAS
+
+SCALABILITY_TAS_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/performance/scheduler/configs/tas/generator.yaml
+SCALABILITY_TAS_RANGE_FILE ?= $(PROJECT_DIR)/test/performance/scheduler/configs/tas/rangespec.yaml
+
+.PHONY: run-tas-performance-scheduler
+run-tas-performance-scheduler: envtest performance-scheduler-runner minimalkueue
+	mkdir -p $(ARTIFACTS)
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
+	$(SCALABILITY_RUNNER) \
+		--o $(ARTIFACTS) \
+		--crds=$(PROJECT_DIR)/config/components/crd/bases \
+		--generatorConfig=$(SCALABILITY_TAS_GENERATOR_CONFIG) \
+		--minimalKueue=$(MINIMALKUEUE_RUNNER) \
+		--enableTAS=true $(SCALABILITY_EXTRA_ARGS) $(SCALABILITY_SCRAPE_ARGS)
+
+.PHONY: test-tas-performance-scheduler-once
+test-tas-performance-scheduler-once: gotestsum run-tas-performance-scheduler
+	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) ./test/performance/scheduler/checker  \
+		--summary=$(ARTIFACTS)/summary.yaml \
+		--cmdStats=$(ARTIFACTS)/minimalkueue.stats.yaml \
+		--range=$(SCALABILITY_TAS_RANGE_FILE)
+
+.PHONY: test-tas-performance-scheduler
+test-tas-performance-scheduler:
+	ARTIFACTS="$(ARTIFACTS)/$@" ./hack/testing/performance-test.sh $(PERFORMANCE_RETRY_COUNT) test-tas-performance-scheduler-once
+
+.PHONY: run-tas-performance-scheduler-in-cluster
+run-tas-performance-scheduler-in-cluster: envtest performance-scheduler-runner
+	mkdir -p "$(ARTIFACTS)/$@"
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
+	$(SCALABILITY_RUNNER) \
+		--o "$(ARTIFACTS)/$@" \
+		--generatorConfig=$(SCALABILITY_TAS_GENERATOR_CONFIG) \
+		--enableTAS=true \
 		--qps=1000 --burst=2000 --timeout=15m $(SCALABILITY_SCRAPE_ARGS)
 
 .PHONY: ginkgo-top
@@ -361,7 +456,7 @@ setup-e2e-env: kustomize yq gomod-download dep-crds kind helm ginkgo ginkgo-top 
 test-e2e-kueueviz-local: setup-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
 	CYPRESS_SCREENSHOTS_FOLDER=$(ARTIFACTS)/cypress/screenshots CYPRESS_VIDEOS_FOLDER=$(ARTIFACTS)/cypress/videos \
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
-	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) ${PROJECT_DIR}/hack/e2e-kueueviz-local.sh
+	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) ${PROJECT_DIR}/hack/testing/e2e-kueueviz-local.sh
 
 .PHONY: test-e2e-kueueviz
 test-e2e-kueueviz: setup-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
@@ -369,4 +464,4 @@ test-e2e-kueueviz: setup-e2e-env ## Run end-to-end tests for kueueviz without ru
 	CYPRESS_SCREENSHOTS_FOLDER=$(ARTIFACTS)/cypress/screenshots CYPRESS_VIDEOS_FOLDER=$(ARTIFACTS)/cypress/videos \
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
 	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) \
-	${PROJECT_DIR}/hack/e2e-kueueviz-backend.sh
+	${PROJECT_DIR}/hack/testing/e2e-kueueviz-backend.sh

@@ -4006,6 +4006,37 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 			}),
 			wantErr: "workload requires Topology, but there is no TAS cache information for the assigned flavor",
 		},
+		"more than one flavor assigned (onlyFlavor fails); RepresentativeMode must be NoFit": {
+			cq: schdcache.ClusterQueueSnapshot{
+				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{
+					"flavor-a": nil,
+					"flavor-b": nil,
+				},
+			},
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU:    {Name: "flavor-a", Mode: Fit, TriedFlavorIdx: 0},
+						corev1.ResourceMemory: {Name: "flavor-b", Mode: Fit, TriedFlavorIdx: 0},
+					},
+					Count:  1,
+					Status: *NewStatus(),
+				}},
+			},
+			workload: *workload.NewInfo(&kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							Request(corev1.ResourceCPU, "1").
+							Request(corev1.ResourceMemory, "1Gi").
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Obj(),
+					},
+				},
+			}),
+			wantErr: "more than one flavor assigned: flavor-a, flavor-b",
+		},
 	}
 
 	for name, tc := range cases {
@@ -4014,8 +4045,16 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 			if len(tasReqs) != 0 {
 				t.Errorf("expected no TAS requests, got: %+v", tasReqs)
 			}
-			if diff := cmp.Diff(tc.wantErr, tc.assignment.PodSets[0].Status.err.Error()); diff != "" {
-				t.Errorf("Error mismatch (-want +got):\n%s", diff)
+			errMsg := ""
+			if tc.assignment.PodSets[0].Status.err != nil {
+				errMsg = tc.assignment.PodSets[0].Status.err.Error()
+			}
+			if tc.wantErr != "" && errMsg != tc.wantErr {
+				t.Errorf("Error mismatch (-want +got):\n%s", cmp.Diff(tc.wantErr, errMsg))
+			}
+			// When TAS request build fails, the assignment should be unfit so the workload is not admitted.
+			if got := tc.assignment.RepresentativeMode(); got != NoFit {
+				t.Errorf("RepresentativeMode() = %v, want NoFit (workload must not be admitted when TAS request build fails)", got)
 			}
 		})
 	}

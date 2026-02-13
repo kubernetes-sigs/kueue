@@ -34,6 +34,14 @@ func New[E ordered](items ...E) Set[E] {
 	return ss
 }
 
+// Clear empties the set.
+// It is preferable to replace the set with a newly constructed set,
+// but not all callers can do that (when there are other references to the map).
+func (s Set[T]) Clear() Set[T] {
+	clear(s)
+	return s
+}
+
 // KeySet creates a Set[E] from a keys of a map[E](? extends interface{}).
 func KeySet[E ordered, A any](theMap map[E]A) Set[E] {
 	ret := Set[E]{}

@@ -19,5 +19,6 @@ limitations under the License.
 // +groupName=visibility.kueue.x-k8s.io
 // +k8s:openapi-gen=true
 // +k8s:conversion-gen=sigs.k8s.io/kueue/apis/visibility/v1beta2
+// +k8s:openapi-model-package=io.k8s.kueue.visibility.v1beta1
 
 package v1beta1

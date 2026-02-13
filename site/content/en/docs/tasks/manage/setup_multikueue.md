@@ -120,7 +120,7 @@ Manager cluster configuration:
 
 {{< include "examples/multikueue/tas/manager-setup.yaml" "yaml" >}}
 
-For a complete setup guide including local development with Kind, see the [Setup MultiKueue with Topology-Aware Scheduling](/docs/tasks/dev/setup_multikueue_tas/) guide.
+For a complete setup guide including local development with Kind, see the [Setup MultiKueue with Topology-Aware Scheduling](/docs/tasks/dev/setup_multikueue_development_environment/) guide.
 
 ## (Optional) Setup MultiKueue with Open Cluster Management
 
@@ -198,6 +198,15 @@ Where:
 The `ClusterProfile`s have to be provisioned within the Kueue system namespace (`kueue-system` by default).
 
 {{% /alert %}}
+
+#### Cluster management platform inventory
+
+When using a cluster management platform that supports the automatic generation and synchronization of a cluster inventory, the `ClusterProfile` objects are
+managed directly by the platform and do not require that the user sets them up manually.
+
+To enable the generation of an inventory, refer to the cluster management platform's documentation:
+* Open Cluster Management:
+  * [Full walkthrough of MultiKueue setup with ClusterProfile](https://open-cluster-management.io/docs/scenarios/clusterprofile-access-providers/).
 
 #### Manually created cluster inventory
 

@@ -20,11 +20,14 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -71,8 +74,6 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 	if len(cq.TASFlavors) == 0 {
 		return nil, errors.New("workload requires Topology, but there is no TAS cache information")
 	}
-	psResources := wl.TotalRequests[podSetIndex]
-	singlePodRequests := psResources.SinglePodRequests()
 	podCount := psAssignment.Count
 	tasFlvr, err := onlyFlavor(psAssignment.Flavors)
 	if err != nil {
@@ -88,6 +89,8 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 		return nil, errors.New("workload requires Topology, but there is no TAS cache information for the assigned flavor")
 	}
 	podSet := &wl.Obj.Spec.PodSets[podSetIndex]
+	// Use PodSpec directly for TAS placement, not quota-filtered admission values.
+	singlePodRequests := resources.NewRequestsFromPodSpec(&podSet.Template.Spec)
 	var podSetUpdates []*kueue.PodSetUpdate
 	for _, ac := range wl.Obj.Status.AdmissionChecks {
 		if ac.State == kueue.CheckStateReady {
@@ -115,18 +118,25 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 }
 
 func onlyFlavor(ra ResourceAssignment) (*kueue.ResourceFlavorReference, error) {
-	var result *kueue.ResourceFlavorReference
+	if len(ra) == 0 {
+		return nil, errors.New("no flavor assigned")
+	}
+
+	flavors := sets.New[kueue.ResourceFlavorReference]()
 	for _, v := range ra {
-		if result == nil {
-			result = &v.Name
-		} else if *result != v.Name {
-			return nil, fmt.Errorf("more than one flavor assigned: %s, %s", v.Name, *result)
-		}
+		flavors.Insert(v.Name)
 	}
-	if result != nil {
-		return result, nil
+
+	if flavors.Len() == 1 {
+		return ptr.To(sets.List(flavors)[0]), nil
 	}
-	return nil, errors.New("no flavor assigned")
+
+	list := sets.List(flavors)
+	names := make([]string, len(list))
+	for i, n := range list {
+		names[i] = string(n)
+	}
+	return nil, fmt.Errorf("more than one flavor assigned: %s", strings.Join(names, ", "))
 }
 
 func checkPodSetAndFlavorMatchForTAS(cq *schdcache.ClusterQueueSnapshot, ps *kueue.PodSet, flavor *kueue.ResourceFlavor) *string {

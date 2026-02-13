@@ -171,7 +171,10 @@ import os
 
 ray.init()
 
-@ray.remote
+# Explicitly request 1 CPU per task to ensure deterministic resource demand.
+# Without num_cpus, Ray may detect high logical CPU count from the host
+# and not trigger autoscaling.
+@ray.remote(num_cpus=1)
 def my_task(x, s):
     import time
     time.sleep(s)
@@ -181,10 +184,12 @@ def my_task(x, s):
 print([ray.get(my_task.remote(i, 1)) for i in range(4)])
 
 # run tasks in parallel to trigger autoscaling (scaling up)
-print(ray.get([my_task.remote(i, 4) for i in range(16)]))
+# Use longer sleep (8s) to give autoscaler time to detect demand,
+# create workload slices, and schedule new workers.
+print(ray.get([my_task.remote(i, 8) for i in range(16)]))
 
 # run tasks in sequence to trigger scaling down
-print([ray.get(my_task.remote(i, 1)) for i in range(16)])`,
+print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 			},
 		}
 
@@ -295,12 +300,13 @@ print([ray.get(my_task.remote(i, 1)) for i in range(16)])`,
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("Waiting for 2 workloads", func() {
-			// 2 workloads: one for the ray cluster, another for the submitter job created by the ray job
+		// RayJob is top level job, the submitter job created by RayJob will not create its own workload, there will be only 1 workload
+		ginkgo.By("Waiting for 1 workloads", func() {
+			// 1 workload for the ray cluster
 			gomega.Eventually(func(g gomega.Gomega) {
 				workloadList := &kueue.WorkloadList{}
 				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				g.Expect(workloadList.Items).To(gomega.HaveLen(2), "Expected exactly 2 workloads")
+				g.Expect(workloadList.Items).To(gomega.HaveLen(1), "Expected exactly 1 workload")
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -321,12 +327,12 @@ print([ray.get(my_task.remote(i, 1)) for i in range(16)])`,
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("Waiting for at least 3 total workloads due to scaling up creating another workload", func() {
-			// Use >= 3 since finished slices from intermediate scaling decisions are retained.
+		ginkgo.By("Waiting for at least 2 total workloads due to scaling up creating another workload", func() {
+			// Use >= 2 since finished slices from intermediate scaling decisions are retained.
 			gomega.Eventually(func(g gomega.Gomega) {
 				workloadList := &kueue.WorkloadList{}
 				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				g.Expect(len(workloadList.Items)).To(gomega.BeNumerically(">=", 3), "Expected at least 3 workloads")
+				g.Expect(len(workloadList.Items)).To(gomega.BeNumerically(">=", 2), "Expected at least 2 workloads")
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 

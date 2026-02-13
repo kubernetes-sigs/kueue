@@ -257,6 +257,10 @@ func (psa *PodSetAssignment) RepresentativeMode() FlavorAssignmentMode {
 	if psa.Status.IsFit() {
 		return Fit
 	}
+	if psa.Status.IsError() {
+		// e.g. onlyFlavor failed in WorkloadsTopologyRequests, or TAS request build failed
+		return NoFit
+	}
 	if len(psa.Flavors) == 0 {
 		return NoFit
 	}

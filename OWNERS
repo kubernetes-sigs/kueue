@@ -42,3 +42,8 @@ filters:
   "Makefile-(verify|test)\\.mk$":
     approvers:
       - test-approvers
+
+  # Linter configs
+  "^\\.golangci.*\\.ya?ml$":
+    approvers:
+      - test-approvers

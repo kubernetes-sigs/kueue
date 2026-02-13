@@ -208,25 +208,25 @@ func (a *Adapter) GetEmptyList() client.ObjectList {
 	return list
 }
 
-// WorkloadKeyFor returns the key of the workload of interest for the given object.
+// WorkloadKeysFor returns the keys of the workloads of interest for the given object.
 // It checks the labels of the object for the prebuilt workload label and
 // returns the namespaced name of the workload.
-func (a *Adapter) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
+func (a *Adapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedName, error) {
 	unstructuredObj, isUnstructured := o.(*unstructured.Unstructured)
 	if !isUnstructured {
-		return types.NamespacedName{}, fmt.Errorf("not an unstructured object, got type: %T", o)
+		return nil, fmt.Errorf("not an unstructured object, got type: %T", o)
 	}
 
 	objGVK := unstructuredObj.GroupVersionKind()
 	if objGVK.Group != a.gvk.Group || objGVK.Version != a.gvk.Version || objGVK.Kind != a.gvk.Kind {
-		return types.NamespacedName{}, fmt.Errorf("unexpected GVK: expected %s, got %s for object %s", a.gvk, objGVK, klog.KObj(unstructuredObj))
+		return nil, fmt.Errorf("unexpected GVK: expected %s, got %s for object %s", a.gvk, objGVK, klog.KObj(unstructuredObj))
 	}
 
 	labels := unstructuredObj.GetLabels()
 	prebuiltWl, hasPrebuiltWorkload := labels[constants.PrebuiltWorkloadLabel]
 	if !hasPrebuiltWorkload {
-		return types.NamespacedName{}, fmt.Errorf("no prebuilt workload found for %s: %s", a.gvk.Kind, klog.KObj(unstructuredObj))
+		return nil, fmt.Errorf("no prebuilt workload found for %s: %s", a.gvk.Kind, klog.KObj(unstructuredObj))
 	}
 
-	return types.NamespacedName{Name: prebuiltWl, Namespace: unstructuredObj.GetNamespace()}, nil
+	return []types.NamespacedName{{Name: prebuiltWl, Namespace: unstructuredObj.GetNamespace()}}, nil
 }

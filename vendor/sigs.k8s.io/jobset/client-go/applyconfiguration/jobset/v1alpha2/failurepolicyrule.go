@@ -20,12 +20,37 @@ import (
 
 // FailurePolicyRuleApplyConfiguration represents a declarative configuration of the FailurePolicyRule type for use
 // with apply.
+//
+// FailurePolicyRule defines a FailurePolicyAction to be executed if a child job
+// fails due to a reason listed in OnJobFailureReasons and a message pattern
+// listed in OnJobFailureMessagePatterns. The rule must match both the job
+// failure reason and the job failure message. The rules are evaluated in
+// order and the first matching rule is executed.
 type FailurePolicyRuleApplyConfiguration struct {
-	Name                        *string                             `json:"name,omitempty"`
-	Action                      *jobsetv1alpha2.FailurePolicyAction `json:"action,omitempty"`
-	OnJobFailureReasons         []string                            `json:"onJobFailureReasons,omitempty"`
-	OnJobFailureMessagePatterns []string                            `json:"onJobFailureMessagePatterns,omitempty"`
-	TargetReplicatedJobs        []string                            `json:"targetReplicatedJobs,omitempty"`
+	// name of the failure policy rule.
+	// The name is defaulted to 'failurePolicyRuleN' where N is the index of the failure policy rule.
+	// The name must match the regular expression "^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$".
+	Name *string `json:"name,omitempty"`
+	// action to take if the rule is matched.
+	Action *jobsetv1alpha2.FailurePolicyAction `json:"action,omitempty"`
+	// onJobFailureReasons is a list of job failures reasons.
+	// The requirement is satisfied
+	// if at least one reason matches the list. An empty list matches any job
+	// failure reason.
+	OnJobFailureReasons []string `json:"onJobFailureReasons,omitempty"`
+	// onJobFailureMessagePatterns is a requirement on the job failure messages.
+	// The requirement is satisfied
+	// if at least one pattern (regex) matches the job failure message. An
+	// empty list matches any job failure message.
+	// The syntax of the regular expressions accepted is the same general
+	// syntax used by Perl, Python, and other languages. More precisely, it is
+	// the syntax accepted by RE2 and described at https://golang.org/s/re2syntax,
+	// except for \C. For an overview of the syntax, see
+	// https://pkg.go.dev/regexp/syntax.
+	OnJobFailureMessagePatterns []string `json:"onJobFailureMessagePatterns,omitempty"`
+	// targetReplicatedJobs are the names of the replicated jobs the operator applies to.
+	// An empty list will apply to all replicatedJobs.
+	TargetReplicatedJobs []string `json:"targetReplicatedJobs,omitempty"`
 }
 
 // FailurePolicyRuleApplyConfiguration constructs a declarative configuration of the FailurePolicyRule type for use with

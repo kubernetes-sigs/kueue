@@ -78,7 +78,7 @@ golangci-lint: ## Download golangci-lint locally if necessary.
 
 .PHONY: golangci-lint-kal
 golangci-lint-kal: golangci-lint ## Build golangci-lint-kal from custom configuration.
-	cd hack/kal-linter; $(GOLANGCI_LINT) custom; mv bin/golangci-lint-kube-api-linter $(BIN_DIR)
+	cd hack/testing/kal-linter; $(GOLANGCI_LINT) custom; mv bin/golangci-lint-kube-api-linter $(BIN_DIR)
 
 .PHONY: controller-gen
 controller-gen: ## Download controller-gen locally if necessary.
@@ -241,5 +241,5 @@ dep-crds: mpi-operator-crd kf-training-operator-crd kf-trainer-crd kf-trainer-ru
 KUEUECTL_DOCS = $(BIN_DIR)/kueuectl-docs
 
 .PHONY: kueuectl-docs
-kueuectl-docs:
+kueuectl-docs: generate-code ## kueuectl-docs imports generated packages (apis/config, client-go).
 	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(KUEUECTL_DOCS) ./cmd/kueuectl-docs/main.go

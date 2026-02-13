@@ -29,8 +29,8 @@ KUBERNETES_SIGS_KUEUE_MAIN_REPO_ORG=${KUBERNETES_SIGS_KUEUE_MAIN_REPO_ORG:-$(git
 KUBERNETES_SIGS_KUEUE_MAIN_REPO_NAME=${KUBERNETES_SIGS_KUEUE_MAIN_REPO_NAME:-$(git remote get-url "$KUBERNETES_SIGS_KUEUE_UPSTREAM_REMOTE" | awk '{gsub(/http[s]:\/\/|git@/,"")}1' | awk -F'[@:./]' 'NR==1{print $4}')}
 KUBERNETES_SIGS_KUEUE_MAIN_REPO="${KUBERNETES_SIGS_KUEUE_MAIN_REPO_ORG}/${KUBERNETES_SIGS_KUEUE_MAIN_REPO_NAME}"
 
-# shellcheck source=hack/releasing/common.sh
-source "${KUBERNETES_SIGS_KUEUE_PATH}/hack/releasing/common.sh"
+# shellcheck source=hack/utils.sh
+source "${KUBERNETES_SIGS_KUEUE_PATH}/hack/utils.sh"
 
 if [[ -v KUBERNETES_REPOS_PATH ]]; then
   KUBERNETES_REPOS_PATH=$(resolve_path "${KUBERNETES_REPOS_PATH}")

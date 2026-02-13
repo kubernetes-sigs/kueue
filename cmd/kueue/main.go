@@ -75,6 +75,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	"sigs.k8s.io/kueue/pkg/util/cert"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
+	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/tlsconfig"
 	"sigs.k8s.io/kueue/pkg/util/useragent"
@@ -126,13 +127,17 @@ func main() {
 	var featureGates string
 	flag.StringVar(&featureGates, "feature-gates", "", "A set of key=value pairs that describe feature gates for alpha/experimental features.")
 
-	opts := zap.Options{
+	customLogProcessor := zaplog.WrapCore(utillogging.NewCustomLogProcessor)
+
+	zapOptions := zap.Options{
 		TimeEncoder: zapcore.RFC3339NanoTimeEncoder,
-		ZapOpts:     []zaplog.Option{zaplog.AddCaller()},
+		ZapOpts:     []zaplog.Option{zaplog.AddCaller(), customLogProcessor},
 	}
-	opts.BindFlags(flag.CommandLine)
+	zapOptions.BindFlags(flag.CommandLine)
 	flag.Parse()
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	logger := zap.New(zap.UseFlagOptions(&zapOptions))
+	ctrl.SetLogger(logger)
 
 	options, cfg, err := apply(configFile)
 	if err != nil {
@@ -189,13 +194,14 @@ func main() {
 
 	config.AddWebhookSettingsTo(&options, &cfg)
 
+	var metricsCertWatcher *certwatcher.CertWatcher
 	if cfg.InternalCertManagement == nil || !*cfg.InternalCertManagement.Enable {
 		metricsCertPath := "/etc/kueue/metrics/certs"
 		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
 			"metrics-cert-path", metricsCertPath)
 
 		var err error
-		metricsCertWatcher, err := certwatcher.New(
+		metricsCertWatcher, err = certwatcher.New(
 			filepath.Join(metricsCertPath, "tls.crt"),
 			filepath.Join(metricsCertPath, "tls.key"),
 		)
@@ -304,6 +310,13 @@ func main() {
 	if err != nil {
 		setupLog.Error(err, "Unable to setup server version fetcher")
 		os.Exit(1)
+	}
+
+	if metricsCertWatcher != nil {
+		if err := mgr.Add(metricsCertWatcher); err != nil {
+			setupLog.Error(err, "Unable to start metrics certificate watcher")
+			os.Exit(1)
+		}
 	}
 
 	if err := setupProbeEndpoints(mgr, certsReady); err != nil {

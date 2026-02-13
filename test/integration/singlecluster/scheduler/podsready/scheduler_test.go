@@ -451,29 +451,36 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 	})
 
 	ginkgo.It("Should move the evicted workload at the end of the queue", framework.SlowSpec, func() {
-		// We wait 1 second between each workload creation calls. Therefore, we need to add this time to timeout.
-		podsReadyTimeout = util.TinyTimeout + 2*time.Second
+		// We wait 1 second between each workload creation call, including after the last one.
+		// Add this time to the timeout.
+		podsReadyTimeout = util.TinyTimeout + 3*time.Second
 		requeueingBackoffLimitCount = ptr.To[int32](2)
 
 		localQueueName := "eviction-lq"
 
-		// the workloads are created with a 5 cpu resource requirement to ensure only one can fit at a given time,
-		// letting them all to time out, we should see a circular buffer admission pattern
+		// The workloads are created with a 5 cpu resource requirement to ensure only one can fit at a given time.
+		// Letting them all time out, we should see a circular buffer admission pattern.
 		wl1 := utiltestingapi.MakeWorkload("prod1", ns.Name).Queue(kueue.LocalQueueName(localQueueName)).Request(corev1.ResourceCPU, "5").Obj()
 		wl2 := utiltestingapi.MakeWorkload("prod2", ns.Name).Queue(kueue.LocalQueueName(localQueueName)).Request(corev1.ResourceCPU, "5").Obj()
 		wl3 := utiltestingapi.MakeWorkload("prod3", ns.Name).Queue(kueue.LocalQueueName(localQueueName)).Request(corev1.ResourceCPU, "5").Obj()
 
-		ginkgo.By("create the workloads", func() {
+		// Create all workloads before the LocalQueue so that CreationTimestamps are set
+		// before any admission happens. The wait after wl3 ensures that wl1's
+		// EvictionTimestamp lands in a strictly later second than wl3's CreationTimestamp,
+		// avoiding non-deterministic UID-based tie-breaking at second-level precision.
+		ginkgo.By("create all workloads before the local queue", func() {
 			util.MustCreate(ctx, k8sClient, wl1)
 			util.WaitForNextSecondAfterCreation(wl1)
 			util.MustCreate(ctx, k8sClient, wl2)
 			util.WaitForNextSecondAfterCreation(wl2)
 			util.MustCreate(ctx, k8sClient, wl3)
+			util.WaitForNextSecondAfterCreation(wl3)
 		})
 
 		ginkgo.By("create the local queue to start admission", func() {
 			lq := utiltestingapi.MakeLocalQueue(localQueueName, ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
 			util.MustCreate(ctx, k8sClient, lq)
+			util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
 		})
 
 		ginkgo.By("waiting for the first workload to be admitted", func() {

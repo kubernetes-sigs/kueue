@@ -36,9 +36,9 @@ func (fr FlavorResource) String() string {
 
 type FlavorResourceQuantities map[FlavorResource]int64
 
-func (q FlavorResourceQuantities) MarshalJSON() ([]byte, error) {
-	temp := make(map[string]int64, len(q))
-	for flavourResource, num := range q {
+func (frq FlavorResourceQuantities) MarshalJSON() ([]byte, error) {
+	temp := make(map[string]int64, len(frq))
+	for flavourResource, num := range frq {
 		temp[flavourResource.String()] = num
 	}
 	return json.Marshal(temp)

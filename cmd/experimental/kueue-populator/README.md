@@ -41,7 +41,7 @@ You can also install the `kueue-populator` using the provided Helm chart.
 
 ```bash
 helm install kueue-populator oci://registry.k8s.io/kueue/charts/kueue-populator \
-  --version 0.16.0 \
+  --version 0.16.1 \
   --namespace kueue-system \
   --create-namespace \
   --wait

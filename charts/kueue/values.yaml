@@ -221,11 +221,21 @@ kueueViz:
     imagePullSecrets: []
     # -- Enable PriorityClass for KueueViz dashboard backend deployments
     priorityClassName:
+    # -- KueueViz backend pod resources
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 500m
+        memory: 512Mi
     # -- Environment variables for KueueViz backend deployment
     env:
       - name: KUEUEVIZ_ALLOWED_ORIGINS
         value: "https://frontend.kueueviz.local"
     ingress:
+      # -- Enable KueueViz dashboard backend ingress
+      enabled: true
       # -- KueueViz dashboard backend ingress annotations
       annotations:
         nginx.ingress.kubernetes.io/rewrite-target: "/"
@@ -254,11 +264,21 @@ kueueViz:
     imagePullSecrets: []
     # -- Enable PriorityClass for KueueViz dashboard frontend deployments
     priorityClassName:
+    # -- KueueViz frontend pod resources
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 500m
+        memory: 512Mi
     # -- Environment variables for KueueViz frontend deployment
     env:
       - name: REACT_APP_WEBSOCKET_URL
         value: "wss://backend.kueueviz.local"
     ingress:
+      # -- Enable KueueViz dashboard frontend ingress
+      enabled: true
       # -- KueueViz dashboard frontend ingress annotations
       annotations:
         nginx.ingress.kubernetes.io/rewrite-target: "/"

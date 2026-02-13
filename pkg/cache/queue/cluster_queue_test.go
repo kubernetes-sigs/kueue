@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 
@@ -265,6 +266,62 @@ func Test_AddFromLocalQueue(t *testing.T) {
 	}
 }
 
+func TestSnapshotDeterministicOrder(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	backoffUntil := now.Add(time.Hour)
+	lqName := kueue.LocalQueueName("foo")
+
+	cases := map[string]struct {
+		workloads             []*kueue.Workload
+		inadmissibleWorkloads []*kueue.Workload
+	}{
+		"heap only": {
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue(lqName).Creation(now).UID(types.UID("uid-1")).Obj(),
+				utiltestingapi.MakeWorkload("wl2", defaultNamespace).Queue(lqName).Creation(now).UID(types.UID("uid-2")).Obj(),
+				utiltestingapi.MakeWorkload("wl3", defaultNamespace).Queue(lqName).Creation(now).UID(types.UID("uid-3")).Obj(),
+			},
+		},
+		"heap and inadmissible": {
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue(lqName).Creation(now).UID(types.UID("uid-1")).Obj(),
+				utiltestingapi.MakeWorkload("wl2", defaultNamespace).Queue(lqName).Creation(now).UID(types.UID("uid-2")).Obj(),
+			},
+			inadmissibleWorkloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("wl3", defaultNamespace).Queue(lqName).Creation(now).UID(types.UID("uid-3")).
+					RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(backoffUntil))).
+					Condition(metav1.Condition{Type: kueue.WorkloadRequeued, Status: metav1.ConditionFalse}).
+					Obj(),
+				utiltestingapi.MakeWorkload("wl4", defaultNamespace).Queue(lqName).Creation(now).UID(types.UID("uid-4")).
+					RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(backoffUntil))).
+					Condition(metav1.Condition{Type: kueue.WorkloadRequeued, Status: metav1.ConditionFalse}).
+					Obj(),
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
+
+			for _, w := range tc.workloads {
+				cq.PushOrUpdate(workload.NewInfo(w))
+			}
+			for _, w := range tc.inadmissibleWorkloads {
+				cq.requeueIfNotPresent(log, workload.NewInfo(w), false)
+			}
+
+			firstSnap := cq.Snapshot()
+			for i := 1; i < 10; i++ {
+				if diff := cmp.Diff(firstSnap, cq.Snapshot()); diff != "" {
+					t.Errorf("Snapshot order changed on call %d (-first,+got):\n%s", i+1, diff)
+				}
+			}
+		})
+	}
+}
+
 func Test_DeleteFromLocalQueue(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()))
@@ -293,8 +350,8 @@ func Test_DeleteFromLocalQueue(t *testing.T) {
 	if cq.PendingTotal() != wantPending {
 		t.Errorf("clusterQueue's workload number not right, want %v, got %v", wantPending, cq.PendingTotal())
 	}
-	if len(cq.inadmissibleWorkloads) != len(inadmissibleWorkloads) {
-		t.Errorf("clusterQueue's workload number in inadmissibleWorkloads not right, want %v, got %v", len(inadmissibleWorkloads), len(cq.inadmissibleWorkloads))
+	if cq.inadmissibleWorkloads.len() != len(inadmissibleWorkloads) {
+		t.Errorf("clusterQueue's workload number in inadmissibleWorkloads not right, want %v, got %v", len(inadmissibleWorkloads), cq.inadmissibleWorkloads.len())
 	}
 
 	cq.DeleteFromLocalQueue(log, qImpl, nil)
@@ -459,7 +516,7 @@ func TestClusterQueueImpl(t *testing.T) {
 
 			if test.queueInadmissibleWorkloads {
 				if diff := cmp.Diff(test.wantInadmissibleWorkloadsRequeued,
-					cq.QueueInadmissibleWorkloads(ctx, cl)); diff != "" {
+					queueInadmissibleWorkloads(ctx, cq, cl)); diff != "" {
 					t.Errorf("Unexpected requeuing of inadmissible workloads (-want,+got):\n%s", diff)
 				}
 			}
@@ -492,7 +549,7 @@ func TestQueueInadmissibleWorkloadsDuringScheduling(t *testing.T) {
 
 	// Simulate requeuing during scheduling attempt.
 	head := cq.Pop()
-	cq.QueueInadmissibleWorkloads(ctx, cl)
+	queueInadmissibleWorkloads(ctx, cq, cl)
 	cq.requeueIfNotPresent(log, head, false)
 
 	activeWorkloads, _ = cq.Dump()
@@ -634,7 +691,7 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 				t.Error("failed to requeue nonexistent workload")
 			}
 
-			_, gotInadmissible := cq.inadmissibleWorkloads[workload.Key(wl)]
+			gotInadmissible := cq.inadmissibleWorkloads.hasKey(workload.Key(wl))
 			if diff := cmp.Diff(tc.wantInadmissible, gotInadmissible); diff != "" {
 				t.Errorf("Unexpected inadmissible status (-want,+got):\n%s", diff)
 			}
@@ -863,7 +920,7 @@ func TestStrictFIFORequeueIfNotPresent(t *testing.T) {
 				t.Error("failed to requeue nonexistent workload")
 			}
 
-			_, gotInadmissible := cq.inadmissibleWorkloads[workload.Key(wl)]
+			gotInadmissible := cq.inadmissibleWorkloads.hasKey(workload.Key(wl))
 			if test.wantInadmissible != gotInadmissible {
 				t.Errorf("Got inadmissible after requeue %t, want %t", gotInadmissible, test.wantInadmissible)
 			}
