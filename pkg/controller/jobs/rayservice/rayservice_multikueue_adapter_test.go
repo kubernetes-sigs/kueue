@@ -110,6 +110,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 						constants.PrebuiltWorkloadLabel: "wl1",
 						kueue.MultiKueueOriginLabel:     "origin1",
 					}
+					//nolint:staticcheck //SA1019: Status.ServiceStatus is deprecated but still functional
 					svc.Status.ServiceStatus = rayv1.Running
 					return *svc
 				}(),
@@ -121,6 +122,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			wantManagersRayServices: []rayv1.RayService{
 				func() rayv1.RayService {
 					svc := baseRayServiceBuilder()
+					//nolint:staticcheck //SA1019: Status.ServiceStatus is deprecated but still functional
 					svc.Status.ServiceStatus = rayv1.Running
 					return *svc
 				}(),
@@ -132,6 +134,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 						constants.PrebuiltWorkloadLabel: "wl1",
 						kueue.MultiKueueOriginLabel:     "origin1",
 					}
+					//nolint:staticcheck //SA1019: Status.ServiceStatus is deprecated but still functional
 					svc.Status.ServiceStatus = rayv1.Running
 					return *svc
 				}(),

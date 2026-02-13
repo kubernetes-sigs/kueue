@@ -643,6 +643,7 @@ app = HelloWorld.bind()`,
 				createdRayService := &rayv1.RayService{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayService), createdRayService)).To(gomega.Succeed())
 				g.Expect(createdRayService.Spec.RayClusterSpec.Suspend).To(gomega.Equal(ptr.To(false)))
+				//nolint:staticcheck //SA1019: Status.ServiceStatus is deprecated but still functional
 				g.Expect(createdRayService.Status.ServiceStatus).To(gomega.Equal(rayv1.Running))
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})

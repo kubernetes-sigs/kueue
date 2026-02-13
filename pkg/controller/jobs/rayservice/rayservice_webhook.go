@@ -41,12 +41,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
-var (
-	headGroupSpecsPath   = field.NewPath("spec", "rayClusterSpec", "headGroupSpec")
-	headGroupMetaPath    = headGroupSpecsPath.Child("template", "metadata")
-	workerGroupSpecsPath = field.NewPath("spec", "rayClusterSpec", "workerGroupSpecs")
-)
-
 type RayServiceWebhook struct {
 	client                       client.Client
 	queues                       *qcache.Manager
@@ -132,7 +126,7 @@ func isAnElasticJob(job *rayv1.RayService) bool {
 	return features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.Enabled(job.GetObjectMeta())
 }
 
-func (w *RayServiceWebhook) validateCreate(ctx context.Context, job *rayv1.RayService) (field.ErrorList, error) {
+func (w *RayServiceWebhook) validateCreate(_ context.Context, job *rayv1.RayService) (field.ErrorList, error) {
 	var allErrors field.ErrorList
 	kueueJob := (*RayService)(job)
 
