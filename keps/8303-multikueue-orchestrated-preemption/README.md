@@ -39,9 +39,10 @@ it might result in unnecessary disruptions or suboptimal placements.
 In particular, when a high-priority workload is dispatched to multiple worker clusters in a MultiKueue setup, it can trigger preemptions on all of them simultaneously.
 Since in the end the workload will only run on a single cluster, the preemptions on the other clusters are unnecessary and lead to wasted resources and disruptions.
 
-The goal of this document is to outline the interplay of such a orchestration apparatus and existing Kueue features by proposing
-a way to handle the aforementioned case and considering how it can be extended to other scenarios. An implementable solution to the most
-disruptive case is presented, while laying a foundation for further discussion about the more subtle scenarios.
+The goal of this document is to outline the interplay of such an orchestration apparatus and existing Kueue features by proposing
+a way to handle the aforementioned concurrent preemption case and considering how it can be extended to other scenarios.
+A solution to the most disruptive case is presented, while laying a foundation for further discussion about the more subtle scenarios.
+
 Concretely, the KEP introduces a way for workloads to signal that they want to trigger a preemption and a way for the MultiKueue controller to use those signals
 to orchestrate preemptions in the system in a non-disruptive way.
 
@@ -421,3 +422,15 @@ it manually, eliminating the risk of inconsistent states (e.g. `QuotaReserved: t
 
 1. This approach is inflexible. If a similar reason for the `QuotaReserved` condition is needed in the future (for example
 `BorrowingGated`), the conditions could overwrite each other which would lead to information loss and bugs.
+
+#### Use the Gate's Presence As Active
+
+To avoid the split-brain scenario with the gate being present both in the `spec` and `status`, an approach similar to a
+`Pod`s `schedulingGates` could be used - the presence of a gate means that it is active and it is deactivated by being removed
+from the `spec`.
+
+**Reasons for discarding/deferring**
+
+1. In contrast to `schedulingGates` which are removed and not re-added, `preemptionGates` can be activated again (for example due
+to workload eviction). Removing them would require some hard-coded logic which maintains a specific gate, leading to a less
+explicit and less declarative API.
