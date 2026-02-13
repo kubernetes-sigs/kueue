@@ -1,4 +1,4 @@
-# KEP-8303: MultiKueue Synchronized Preemption
+# KEP-8303: MultiKueue Orchestrated Preemption
 
 <!-- toc -->
 - [Summary](#summary)
@@ -131,7 +131,7 @@ I want that team's jobs to still be promptly admitted, but without causing unnec
 ### Risks and Mitigations
 
 1. The main risk of this proposal is the potential for deadlocks or starvation if the ungating logic is flawed.
-For example, if the preemption synchronization controller fails to ungate a workload or the preemption fails, it could be blocked indefinitely.
+For example, if the preemption orchestration controller fails to ungate a workload or the preemption fails, it could be blocked indefinitely.
 This can be mitigated by implementing a timeout mechanism to re-queue the ungating decision.
 1. The behavior of the proposed mechanism might be subtle in some scenarios and hard for the user to "predict".
 It presents a trade-off between quicker admission time and more optimal resource usage, which should be understood by the user.
@@ -246,7 +246,7 @@ The logic of the controller governing preemption, running within the manager clu
 The only part subject to change with the evolution of this proposal is how the workload will be ungated, e.g. which field will have to be
 modified. Therefore, the following design can be expected to not change significantly over the course of development.
 
-A manager-level preemption synchronization controller will be responsible for ungating the replicated workloads.
+A manager-level preemption orchestration controller will be responsible for ungating the replicated workloads.
 This controller will watch for workloads to change their `LastTriggeredTime` and idempotently react to such changes:
 
 1. Return if preemptions are known to be unnecessary.
@@ -282,7 +282,7 @@ to implement this enhancement.
 
 #### Unit Tests
 - Unit tests will be added for the preemption gate logic in the workload controller.
-- Unit tests for the preemption synchronization controller, covering the ungating and timeout logic.
+- Unit tests for the preemption orchestration controller, covering the ungating and timeout logic.
 
 #### Integration Tests
 - Integration tests will be added to verify that preemption is blocked for gated workloads.
@@ -311,7 +311,7 @@ The `SingleClusterPreemptionTimeout` will be configurable in the Kueue configura
 
 ## Drawbacks
 
-The main drawback of this proposal is the added complexity of the preemption synchronization controller. This controller needs to be robust and reliable to avoid deadlocks and starvation.
+The main drawback of this proposal is the added complexity of the preemption orchestration controller. This controller needs to be robust and reliable to avoid deadlocks and starvation.
 
 ## Alternatives
 
