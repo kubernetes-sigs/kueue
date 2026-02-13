@@ -59,7 +59,6 @@ MDTOC = $(BIN_DIR)/mdtoc
 HELM_DOCS = $(BIN_DIR)/helm-docs
 MOCKGEN = $(BIN_DIR)/mockgen
 
-HELM_UNITTEST_PLUGIN_ROOT = $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/helm-unittest/helm-unittest)
 MPI_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/kubeflow/mpi-operator)
 KF_TRAINING_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/kubeflow/training-operator)
 KF_TRAINER_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/kubeflow/trainer/v2)
