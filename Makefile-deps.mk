@@ -143,18 +143,24 @@ mockgen: ## Download mockgen locally if necessary.
 
 .PHONY: mpi-operator-crd
 mpi-operator-crd: ## Copy the CRDs from the mpi-operator to the dep-crds directory.
+mpi-operator-crd: gomod-download
+	@echo "→ Copying the CRDs from the mpi-operator to the dep-crds directory..."
 	mkdir -p $(EXTERNAL_CRDS_DIR)/mpi-operator/
 	cp -f $(MPI_ROOT)/manifests/base/* $(EXTERNAL_CRDS_DIR)/mpi-operator/
 
 .PHONY: kf-training-operator-crd
 kf-training-operator-crd: ## Copy the CRDs from the training-operator to the dep-crds directory.
-	## Removing kubeflow.org_mpijobs.yaml is required as the version of MPIJob is conflicting between training-operator and mpi-operator - in integration tests.
+kf-training-operator-crd: gomod-download
+	@echo "→ Copying the CRDs from the training-operator to the dep-crds directory..."
+	@## Removing kubeflow.org_mpijobs.yaml is required as the version of MPIJob is conflicting between training-operator and mpi-operator - in integration tests.
 	mkdir -p $(EXTERNAL_CRDS_DIR)/training-operator-crds/
 	find $(KF_TRAINING_ROOT)/manifests/base/crds/* -type f -not -name "kubeflow.org_mpijobs.yaml" -exec cp -pf {} $(EXTERNAL_CRDS_DIR)/training-operator-crds/ \;
 
 .PHONY: kf-training-operator-manifests
 kf-training-operator-manifests: ## Copy whole manifests folder from the training-operator to the dep-crds directory.
-	## Full version of the manifest is required for e2e multikueue tests.
+kf-training-operator-manifests: gomod-download
+	@echo "→ Copying whole manifests folder from the training-operator to the dep-crds directory..."
+	@## Full version of the manifest is required for e2e multikueue tests.
 	if [ -d "$(EXTERNAL_CRDS_DIR)/training-operator" ]; then \
 		chmod -R u+w "$(EXTERNAL_CRDS_DIR)/training-operator" && \
 		rm -rf "$(EXTERNAL_CRDS_DIR)/training-operator"; \
@@ -164,16 +170,22 @@ kf-training-operator-manifests: ## Copy whole manifests folder from the training
 
 .PHONY: kf-trainer-runtimes
 kf-trainer-runtimes: ## Copy the kubeflow trainer runtimes manifests to the dep-crds directory.
+kf-trainer-runtimes: gomod-download
+	@echo "→ Copying the kubeflow trainer runtimes manifests to the dep-crds directory..."
 	mkdir -p $(EXTERNAL_CRDS_DIR)/kf-trainer-runtimes/
 	cp -rf $(KF_TRAINER_ROOT)/manifests/base/runtimes/*_distributed.yaml $(EXTERNAL_CRDS_DIR)/kf-trainer-runtimes/
 
 .PHONY: kf-trainer-crd 
 kf-trainer-crd: ## Copy the CRDs of the kubeflow trainer to the dep-crds directory.
+kf-trainer-crd: gomod-download
+	@echo "→ Copying the CRDs of the kubeflow trainer to the dep-crds directory..."
 	mkdir -p $(EXTERNAL_CRDS_DIR)/kf-trainer-crds/
 	cp -rf $(KF_TRAINER_ROOT)/manifests/base/crds/* $(EXTERNAL_CRDS_DIR)/kf-trainer-crds/
 
 .PHONY: kf-trainer-manifests
 kf-trainer-manifests: ## Copy whole manifests folder of the kubeflow trainer to the dep-crds directory.
+kf-trainer-manifests: gomod-download
+	@echo "→ Copying whole manifests folder of the kubeflow trainer to the dep-crds directory..."
 	if [ -d "$(EXTERNAL_CRDS_DIR)/kf-trainer" ]; then \
 		chmod -R u+w "$(EXTERNAL_CRDS_DIR)/kf-trainer" && \
 		rm -rf "$(EXTERNAL_CRDS_DIR)/kf-trainer"; \
@@ -183,12 +195,16 @@ kf-trainer-manifests: ## Copy whole manifests folder of the kubeflow trainer to 
 
 .PHONY: ray-operator-crd
 ray-operator-crd: ## Copy the CRDs from the ray-operator to the dep-crds directory.
+ray-operator-crd: gomod-download
+	@echo "→ Copying the CRDs from the ray-operator to the dep-crds directory..."
 	mkdir -p $(EXTERNAL_CRDS_DIR)/ray-operator-crds/
 	cp -f $(RAY_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/ray-operator-crds/
 
 .PHONY: ray-operator-manifests
 ray-operator-manifests: ## Copy the whole manifests content from the ray-operator to the dep-crds directory.
-	## Full version of the manifest is required for e2e multikueue tests.
+ray-operator-manifests: gomod-download
+	@echo "→ Copying the whole manifests content from the ray-operator to the dep-crds directory..."
+	@## Full version of the manifest is required for e2e multikueue tests.
 	if [ -d "$(EXTERNAL_CRDS_DIR)/ray-operator" ]; then \
 		chmod -R u+w "$(EXTERNAL_CRDS_DIR)/ray-operator" && \
 		rm -rf "$(EXTERNAL_CRDS_DIR)/ray-operator"; \
@@ -201,22 +217,29 @@ ray-operator-manifests: ## Copy the whole manifests content from the ray-operato
 
 .PHONY: jobset-operator-crd
 jobset-operator-crd: ## Copy the CRDs from the jobset-operator to the dep-crds directory.
+jobset-operator-crd: gomod-download
+	@echo "→ Copying the CRDs from the jobset-operator to the dep-crds directory..."
 	mkdir -p $(EXTERNAL_CRDS_DIR)/jobset-operator/
 	cp -f $(JOBSET_ROOT)/config/components/crd/bases/* $(EXTERNAL_CRDS_DIR)/jobset-operator/
 
 .PHONY: cluster-autoscaler-crd
 cluster-autoscaler-crd: ## Copy the CRDs from the cluster-autoscaler to the dep-crds directory.
+cluster-autoscaler-crd: gomod-download
+	@echo "→ Copying the CRDs from the cluster-autoscaler to the dep-crds directory..."
 	mkdir -p $(EXTERNAL_CRDS_DIR)/cluster-autoscaler/
 	cp -f $(CLUSTER_AUTOSCALER_ROOT)/config/crd/* $(EXTERNAL_CRDS_DIR)/cluster-autoscaler/
 
 .PHONY: appwrapper-crd
 appwrapper-crd: ## Copy the CRDs from the appwrapper to the dep-crds directory.
+appwrapper-crd: gomod-download
+	@echo "→ Copying the CRDs from the appwrapper to the dep-crds directory..."
 	mkdir -p $(EXTERNAL_CRDS_DIR)/appwrapper-crds/
 	cp -f $(APPWRAPPER_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/appwrapper-crds/
 
 .PHONY: appwrapper-manifests
 appwrapper-manifests: kustomize ## Copy whole manifests folder from the appwrapper controller to the dep-crds directory.
-	## Full version of the manifest required for e2e tests.
+	@echo "→ Copy the CRDs from the appwrapper to the dep-crds directory...."
+	@## Full version of the manifest required for e2e tests.
 	if [ -d "$(EXTERNAL_CRDS_DIR)/appwrapper" ]; then \
 		chmod -R u+w "$(EXTERNAL_CRDS_DIR)/appwrapper" && \
 		rm -rf "$(EXTERNAL_CRDS_DIR)/appwrapper"; \
@@ -227,11 +250,15 @@ appwrapper-manifests: kustomize ## Copy whole manifests folder from the appwrapp
 
 .PHONY: leaderworkerset-operator-crd
 leaderworkerset-operator-crd: ## Copy the CRDs from the leaderworkerset-operator to the dep-crds directory.
+leaderworkerset-operator-crd: gomod-download
+	@echo "→ Copying the CRDs from the leaderworkerset-operator to the dep-crds directory..."
 	mkdir -p $(EXTERNAL_CRDS_DIR)/leaderworkerset-operator/
 	cp -f $(LEADERWORKERSET_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/leaderworkerset-operator/
 
 .PHONY: clusterprofile-crd
 clusterprofile-crd: ## Copy the CRDs from the clusterprofile to the dep-crds directory.
+clusterprofile-crd: gomod-download
+	@echo "→ Copy the CRDs from the clusterprofile to the dep-crds directory."
 	mkdir -p $(EXTERNAL_CRDS_DIR)/clusterprofile/
 	cp -f $(CLUSTERPROFILE_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/clusterprofile/
 
