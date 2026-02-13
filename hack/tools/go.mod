@@ -1,4 +1,4 @@
-module sigs.k8s.io/kueue/internal/tools
+module sigs.k8s.io/kueue/tools
 
 go 1.25.0
 
