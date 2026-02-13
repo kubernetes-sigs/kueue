@@ -348,8 +348,10 @@ func assignGatedPodsToDomains(
 	psReq *kueue.PodSetTopologyRequest,
 	offset int32,
 	maxRank int32) []podWithDomain {
-	if rankToGatedPod, ok := readRanksIfAvailable(log, psa, pods, psReq, offset, maxRank); ok {
-		return assignGatedPodsToDomainsByRanks(psa, rankToGatedPod)
+	if rankToPod, ok := readRanksIfAvailable(log, psa, pods, psReq, offset, maxRank); ok {
+		if verifyDomainsForRanks(log, psa, rankToPod) {
+			return assignGatedPodsToDomainsByRanks(psa, rankToPod)
+		}
 	}
 	return assignGatedPodsToDomainsGreedy(log, psa, pods)
 }
@@ -439,9 +441,6 @@ func readRanksIfAvailable(log logr.Logger,
 		} else {
 			log.Error(err, "failed to read rank information from pods")
 		}
-		return nil, false
-	}
-	if !verifyDomainsForRanks(log, psa, result) {
 		return nil, false
 	}
 	return result, true
