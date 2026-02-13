@@ -110,8 +110,6 @@ sequenceDiagram
 ```
 
 The proposal is to preserve as much of the existing admission semantics as possible, for example respecting the selected [`FlavorFungibility`](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#flavorfungibility) - the preemption gate will not impact the scheduler's flavor assignment process and preserve the semantics of flavor fungibility.
-Among other things, in practice this means that:
-* A `StrictFIFO` queue will be blocked by a gated workload as long as gate is active.
 
 The controller responsible for dispatching workloads in MultiKueue will be responsible for adding the preemption gate to the workloads they manage.
 
@@ -202,8 +200,8 @@ type PreemptionGateState struct {
 }
 
 type WorkloadStatus struct {
-    // ...
-    PreemptionGates []PreemptionGateState `json:"preemptionGates,omitempty"`
+  // ...
+  PreemptionGates []PreemptionGateState `json:"preemptionGates,omitempty"`
 }
 ```
 
@@ -264,8 +262,12 @@ This controller will watch for workloads to change their `LastTriggeredTime` and
 
 ### Kueue Scheduler
 
-When encountering a workload with the `Preempt` assignment mode and an active preemption gate, the scheduler will put that workload back into the
-queue according to the configured queueing strategy:
+The way the scheduler chooses the queue heads and the assignment mode it chooses for the heads
+is not impacted by this design at all. The flavor assigner does not consider the gate at all,
+the gate is only handled after all assignments have been made.
+
+When a head of a queue is given the `Preempt` assignment mode and it has an active preemption gate,
+the scheduler will treat it as inadmissible and put that workload back into the queue according to the configured queueing strategy:
 
 * `BestEffortFIFO` - the workload is marked as inadmissible and effectively cannot run until the gate is removed.
 An update (for example the gate being lifted) will requeue the workload. When it becomes the head of the ClusterQueue again and:
@@ -273,6 +275,11 @@ An update (for example the gate being lifted) will requeue the workload. When it
     * Gate was lifted - the preemption is perfomed if possible and still necessary.
 
   In practice, this means that in the `BestEffortFIFO` strategy, newer workloads or workloads of lower priority can "leapfrog" the gated one.
+
+  When the gate is deactiated, the workload will rely on the defined preemption policy to choose its preemption targets. Most notably:
+    * `LowerPriority` - equal priority workloads that have overtaken the ungated workload will continue running.
+    This impacts the first-in-first-out semantics, as newer workloads will block the older one.
+    * `LowerOrNewerEqualPriority` - equal priority workloads that have overtaken the ungated workload can be preempted.
 * `StrictFIFO` - the workload is put back into the heap. It will block the admission of other workloads in its ClusterQueue.
 
 ### Test Plan
