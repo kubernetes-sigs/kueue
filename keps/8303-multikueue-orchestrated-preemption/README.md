@@ -267,6 +267,39 @@ The way the scheduler chooses the queue heads and the assignment mode it chooses
 is not impacted by this design at all. The flavor assigner does not consider the gate at all,
 the gate is only handled after all assignments have been made.
 
+This means that the order of flavor defined in a `ClusterQueue`'s [`ResourceGroups`](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#resource-groups)
+can have an impact on whether the preemption gate is triggered or not, depending on the specified `FlavorFungibility` and quota availability.
+
+For example, with the following configuration:
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+spec:
+  resourceGroups:
+  - coveredResources: [...]
+    flavors:
+    - name: "FlavorA"
+      ...
+    - name: "FlavorB"
+      ...
+```
+
+We'll observe the following behaviour:
+
+| **Flavor A** 	| **Flavor B** 	| **`whenCanPreempt: MayStopSearch`**    	| **`whenCanPreempt: TryNextFlavor`**    	|
+|--------------	|--------------	|----------------------------------------	|----------------------------------------	|
+| Can fit      	| Can fit      	| **Flavor**: A; **Gate**: Not triggered 	| **Flavor**: A; **Gate**: Not triggered 	|
+| Can fit      	| Can't fit    	| **Flavor**: A; **Gate**: Not triggered 	| **Flavor**: A; **Gate**: Not triggered 	|
+| Can fit      	| Can preempt  	| **Flavor**: A; **Gate**: Not triggered 	| **Flavor**: A; **Gate**: Not triggered 	|
+| Can preempt  	| Can fit      	| **Flavor**: A; **Gate**: Triggered     	| **Flavor**: B; **Gate**: Not triggered 	|
+| Can preempt  	| Can't fit    	| **Flavor**: A; **Gate**: Triggered     	| **Flavor**: A; **Gate**: Triggered     	|
+| Can preempt  	| Can preempt  	| **Flavor**: A; **Gate**: Triggered     	| **Flavor**: A; **Gate**: Triggered     	|
+| Can't fit    	| Can fit      	| **Flavor**: B; **Gate**: Not triggered 	| **Flavor**: B; **Gate**: Not triggered 	|
+| Can't fit    	| Can't fit    	| **Flavor**: A; **Gate**: Not triggered 	| **Flavor**: A; **Gate**: Not triggered 	|
+| Can't fit    	| Can preempt  	| **Flavor**: B; **Gate**: Triggered     	| **Flavor**: B; **Gate**: Triggered     	|
+
+---
+
 When a head of a queue is given the `Preempt` assignment mode and it has an active preemption gate,
 the scheduler will treat it as inadmissible and put that workload back into the queue according to the configured queueing strategy:
 
