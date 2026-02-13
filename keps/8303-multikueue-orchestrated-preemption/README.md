@@ -28,6 +28,7 @@
   - [Use dynamically calculated default for the preemption timeout](#use-dynamically-calculated-default-for-the-preemption-timeout)
     - [Create the <code>QuotaReservationBlocked</code> Condition](#create-the-quotareservationblocked-condition)
     - [Extending the <code>QuotaReserved</code> <code>Condition</code>](#extending-the-quotareserved-condition)
+    - [Use the Gate's Presence As Active](#use-the-gates-presence-as-active)
 <!-- /toc -->
 
 ## Summary
