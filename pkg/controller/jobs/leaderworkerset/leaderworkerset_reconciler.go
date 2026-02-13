@@ -26,6 +26,7 @@ import (
 	"github.com/go-logr/logr"
 	"golang.org/x/sync/errgroup"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
@@ -147,7 +148,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return parallelize.Until(ctx, len(toDelete), func(i int) error {
 			// Remove the finalizer before deleting to ensure prompt cleanup,
 			// consistent with how the job framework reconciler deletes workloads.
-			if err := workload.RemoveFinalizer(ctx, r.client, toDelete[i]); err != nil {
+			if err := workload.RemoveFinalizer(ctx, r.client, toDelete[i]); err != nil && !apierrors.IsNotFound(err) {
 				return err
 			}
 			return r.client.Delete(ctx, toDelete[i])
