@@ -145,6 +145,9 @@ fi
 
 if [[ -n "${KUEUE_UPGRADE_FROM_VERSION:-}" ]]; then
     export KUEUE_OLD_VERSION_MANIFEST="https://github.com/kubernetes-sigs/kueue/releases/download/${KUEUE_UPGRADE_FROM_VERSION}/manifests.yaml"
+    # Use the released image from registry.k8s.io (not the staging registry)
+    # so upgrade tests don't break when staging images expire.
+    export KUEUE_OLD_VERSION_IMAGE="registry.k8s.io/kueue/kueue:${KUEUE_UPGRADE_FROM_VERSION}"
 fi
 
 # agnhost image to use for testing.
@@ -346,8 +349,7 @@ function prepare_docker_images {
         docker pull "${LEADERWORKERSET_IMAGE}"
     fi
     if [[ -n ${KUEUE_UPGRADE_FROM_VERSION:-} ]]; then
-        local current_image="${IMAGE_TAG%:*}:${KUEUE_UPGRADE_FROM_VERSION}"
-        docker pull "${current_image}"
+        docker pull "${KUEUE_OLD_VERSION_IMAGE}"
     fi
 }
 
@@ -357,8 +359,7 @@ function cluster_kind_load {
     cluster_kind_load_image "$1" "${E2E_TEST_AGNHOST_IMAGE}"
     cluster_kind_load_image "$1" "$IMAGE_TAG"
     if [[ -n ${KUEUE_UPGRADE_FROM_VERSION:-} ]]; then
-        local old_image="${IMAGE_TAG%:*}:${KUEUE_UPGRADE_FROM_VERSION}"
-        cluster_kind_load_image "$1" "${old_image}"
+        cluster_kind_load_image "$1" "${KUEUE_OLD_VERSION_IMAGE}"
     fi
     if [[ -n "${CLUSTERPROFILE_VERSION:-}" ]]; then
         cluster_kind_load_image "$1" "${CLUSTERPROFILE_PLUGIN_IMAGE}"
@@ -1006,20 +1007,20 @@ EOF
 # $1 kubeconfig
 function upgrade_test_flow {
     local old_version="${KUEUE_UPGRADE_FROM_VERSION}"
-    local old_image="${IMAGE_TAG%:*}:${old_version}"
 
     echo "Upgrade Test: $old_version -> current"
-    echo "Old image: $old_image"
+    echo "Old image: $KUEUE_OLD_VERSION_IMAGE"
     echo "New image: $IMAGE_TAG"
     
-    # Step 1: Install old version
+    # Step 1: Install old version using the released image from registry.k8s.io
     echo "Installing $old_version..."
     echo "  Manifest URL: ${KUEUE_OLD_VERSION_MANIFEST}"
     echo "  Downloading and modifying manifests..."
     
-    # Download and modify manifests inline
+    # Download manifests, rewrite the image reference to match the pre-loaded
+    # image, and set imagePullPolicy to IfNotPresent so kind uses it directly.
     curl -sL "${KUEUE_OLD_VERSION_MANIFEST}" | \
-      sed "s|registry.k8s.io/kueue/kueue:${old_version}|${old_image}|g" | \
+      sed "s|registry.k8s.io/kueue/kueue:${old_version}|${KUEUE_OLD_VERSION_IMAGE}|g" | \
       sed 's|imagePullPolicy: Always|imagePullPolicy: IfNotPresent|g' | \
       kubectl apply --server-side -f -
 
