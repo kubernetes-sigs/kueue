@@ -433,7 +433,6 @@ func readRanksIfAvailable(log logr.Logger,
 	if psReq == nil || psReq.PodIndexLabel == nil {
 		return nil, false
 	}
-
 	result, err := readRanksForLabels(psa, pods, psReq, offset, maxRank)
 	if err != nil {
 		if errors.Is(err, utilpod.ErrLabelNotFound) {
