@@ -704,6 +704,10 @@ func (m *Manager) UpdateWorkload(log logr.Logger, w *kueue.Workload, opts ...wor
 // Heads.
 func (m *Manager) CleanUpOnContext(ctx context.Context) {
 	<-ctx.Done()
+	// Hold the same lock used by cond.Wait to avoid lost wakeups between
+	// checking ctx.Done() in Heads and entering Wait.
+	m.Lock()
+	defer m.Unlock()
 	m.Broadcast()
 }
 

@@ -19,6 +19,7 @@ package queue
 import (
 	"context"
 	"errors"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -1489,6 +1490,57 @@ func TestHeadsCancelled(t *testing.T) {
 	heads := manager.Heads(ctx)
 	if len(heads) != 0 {
 		t.Errorf("GetHeads returned elements, expected none")
+	}
+}
+
+// TestHeadsCancelledNoLostWakeup verifies that cancellation does not leave Heads
+// stuck in cond.Wait due to a missed broadcast from CleanUpOnContext.
+func TestHeadsCancelledNoLostWakeup(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	manager := NewManager(utiltesting.NewFakeClient(), nil)
+
+	const iterations = 50
+	for i := range iterations {
+		headsCtx, cancel := context.WithCancel(ctx)
+		headsDone := make(chan []workload.Info, 1)
+
+		go manager.CleanUpOnContext(headsCtx)
+		go func() {
+			headsDone <- manager.Heads(headsCtx)
+		}()
+
+		// Wait until the Heads goroutine is actually parked in cond.Wait
+		// before cancelling, so we deterministically exercise the broadcast
+		// wakeup path rather than relying on scheduling jitter.
+		waitForGoroutine(t, "sync.(*Cond).Wait", time.Second)
+		cancel()
+
+		select {
+		case heads := <-headsDone:
+			if len(heads) != 0 {
+				t.Fatalf("iteration %d: Heads returned elements, expected none", i)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("iteration %d: Heads got stuck after context cancellation", i)
+		}
+	}
+}
+
+// waitForGoroutine polls runtime.Stack until a goroutine whose stack contains
+// the given substring is found, or the timeout expires.
+func waitForGoroutine(t *testing.T, substr string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		buf := make([]byte, 128*1024)
+		n := runtime.Stack(buf, true)
+		if strings.Contains(string(buf[:n]), substr) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for goroutine with %q in stack", substr)
+		}
+		runtime.Gosched()
 	}
 }
 
