@@ -159,7 +159,8 @@ func TestUpdateClusterQueue(t *testing.T) {
 	}
 	// Setup.
 	cl := utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace))
-	manager := NewManagerForUnitTests(cl, nil)
+	manager, watcher := NewManagerForUnitTestsWithRequeuer(cl, nil)
+
 	for _, cq := range clusterQueues {
 		if err := manager.AddClusterQueue(ctx, cq); err != nil {
 			t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
@@ -214,6 +215,8 @@ func TestUpdateClusterQueue(t *testing.T) {
 		t.Errorf("Unexpected ClusterQueues in cohorts (-want,+got):\n%s", diff)
 	}
 
+	watcher.ProcessRequeues(ctx)
+
 	// Verify that all workloads are active after the update.
 	inadmissibleWorkloads = manager.DumpInadmissible()
 	if diff := cmp.Diff(map[kueue.ClusterQueueReference][]workload.Reference(nil), inadmissibleWorkloads); diff != "" {
@@ -242,7 +245,7 @@ func TestRequeueWorkloadsCohortCycle(t *testing.T) {
 	expectedAssigned := map[workload.Reference]queue.LocalQueueReference{defaultNamespace + "/a": defaultNamespace + "/foo"}
 	// Setup.
 	cl := utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace))
-	manager := NewManagerForUnitTests(cl, nil)
+	manager, requeuer := NewManagerForUnitTestsWithRequeuer(cl, nil)
 	for _, cohort := range cohorts {
 		manager.AddOrUpdateCohort(ctx, cohort)
 	}
@@ -264,9 +267,9 @@ func TestRequeueWorkloadsCohortCycle(t *testing.T) {
 
 	// This method is where we do a cycle check. We call it to ensure
 	// it behaves properly when a cycle exists
-	if requeueWorkloadsCohort(ctx, manager, manager.hm.Cohort("cohort-a")) {
-		t.Fatal("Expected moveWorkloadsCohort to return false")
-	}
+	NotifyRetryInadmissible(manager, sets.New[kueue.ClusterQueueReference]("cq1"))
+	requeuer.ProcessRequeues(ctx)
+
 	if diff := cmp.Diff(expectedAssigned, manager.workloadAssignedQueues); diff != "" {
 		t.Errorf("Unexpected assigned workloads (-want,+got):\n%s", diff)
 	}
@@ -353,7 +356,7 @@ func TestQueueInadmissibleWorkloads(t *testing.T) {
 			ctx := logr.NewContext(context.Background(), logger)
 
 			cl := utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace))
-			manager := NewManagerForUnitTests(cl, nil)
+			manager, watcher := NewManagerForUnitTestsWithRequeuer(cl, nil)
 
 			for _, cohort := range tc.cohorts {
 				manager.AddOrUpdateCohort(ctx, cohort)
@@ -379,8 +382,7 @@ func TestQueueInadmissibleWorkloads(t *testing.T) {
 			// Reset the counter before testing. Setup operations also trigger the log.
 			moveWorkloadsLogCount = 0
 
-			QueueInadmissibleWorkloads(ctx, manager, tc.cqNames)
-
+			watcher.ProcessRequeues(ctx)
 			if diff := cmp.Diff(tc.wantInadmissible, manager.DumpInadmissible()); diff != "" {
 				t.Errorf("Unexpected inadmissible workloads (-want +got):\n%s", diff)
 			}
@@ -897,8 +899,8 @@ func TestRequeueWorkloadStrictFIFO(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.workload.Name, func(t *testing.T) {
 			cl := utiltesting.NewFakeClient()
-			manager := NewManagerForUnitTests(cl, nil)
 			ctx, log := utiltesting.ContextWithLog(t)
+			manager := NewManagerForUnitTests(cl, nil)
 			if err := manager.AddClusterQueue(ctx, cq); err != nil {
 				t.Fatalf("Failed adding cluster queue %s: %v", cq.Name, err)
 			}

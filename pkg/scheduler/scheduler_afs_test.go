@@ -589,7 +589,6 @@ func TestScheduleForAFS(t *testing.T) {
 					WithStatusSubresource(&kueue.Workload{}).
 					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 				cl := clientBuilder.Build()
-
 				cqCache := schdcache.New(cl, schdcache.WithFairSharing(tc.enableFairSharing), schdcache.WithAdmissionFairSharing(afsConfig))
 				qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithAdmissionFairSharing(afsConfig))
 

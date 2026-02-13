@@ -17,15 +17,80 @@ limitations under the License.
 package queue
 
 import (
+	"context"
+	"time"
+
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
-// NewManagerForUnitTests is a factory for Unit Tests.
-func NewManagerForUnitTests(client client.Client, checker StatusChecker, options ...Option) *Manager {
-	return NewManager(client, checker, options...)
+const (
+	requeueBatchPeriodIntegrationTests = 1 * time.Millisecond
+)
+
+// testInadmissibleWorkloadRequeuer buffers requeue events
+// to be processed synchronously, for use in unit tests.
+type testInadmissibleWorkloadRequeuer struct {
+	manager *Manager
+	cqs     sets.Set[kueue.ClusterQueueReference]
+	cohorts sets.Set[kueue.CohortReference]
 }
 
-// NewManagerForIntegrationTests is a factory for Integration Tests.
+func (w *testInadmissibleWorkloadRequeuer) notifyClusterQueue(cqName kueue.ClusterQueueReference) {
+	w.cqs.Insert(cqName)
+}
+
+func (w *testInadmissibleWorkloadRequeuer) notifyCohort(cohortName kueue.CohortReference) {
+	w.cohorts.Insert(cohortName)
+}
+
+// ProcessRequeues requeues all the inadmissible workloads
+// belonging to Cohorts/Queues which were notified.
+func (w *testInadmissibleWorkloadRequeuer) ProcessRequeues(ctx context.Context) {
+	for cqName := range w.cqs {
+		requeueWorkloadsCQ(ctx, w.manager, cqName)
+	}
+	for cohortName := range w.cohorts {
+		requeueWorkloadsCohort(ctx, w.manager, cohortName)
+	}
+	w.cqs.Clear()
+	w.cohorts.Clear()
+}
+
+// NewManagerForUnitTestsWithRequeuer creates a new Manager for testing purposes, pre-configured with a testInadmissibleWorkloadRequeuer.
+func NewManagerForUnitTestsWithRequeuer(client client.Client, checker StatusChecker, options ...Option) (*Manager, *testInadmissibleWorkloadRequeuer) {
+	watcher := &testInadmissibleWorkloadRequeuer{
+		cqs:     sets.New[kueue.ClusterQueueReference](),
+		cohorts: sets.New[kueue.CohortReference](),
+	}
+	options = append(options, func(m *Manager) {
+		m.inadmissibleWorkloadRequeuer = watcher
+	})
+	m := NewManager(client, checker, options...)
+	watcher.manager = m
+	return m, watcher
+}
+
+// NewManagerForUnitTests creates a new Manager for testing purposes.
+func NewManagerForUnitTests(client client.Client, checker StatusChecker, options ...Option) *Manager {
+	manager, _ := NewManagerForUnitTestsWithRequeuer(client, checker, options...)
+	return manager
+}
+
+// NewManagerForIntegrationTests is a factory for Integration Tests, setting the
+// batch period to a much lower value (requeueBatchPeriodIntegrationTests).
 func NewManagerForIntegrationTests(client client.Client, checker StatusChecker, options ...Option) *Manager {
-	return NewManager(client, checker, options...)
+	requeuer := &inadmissibleWorkloadRequeuer{
+		eventCh:     make(chan event.TypedGenericEvent[requeueRequest], 1024),
+		batchPeriod: requeueBatchPeriodIntegrationTests,
+	}
+	options = append(options, func(m *Manager) {
+		m.inadmissibleWorkloadRequeuer = requeuer
+	})
+	m := NewManager(client, checker, options...)
+	requeuer.qManager = m
+	return m
 }

@@ -8661,7 +8661,7 @@ func TestLastSchedulingContext(t *testing.T) {
 				recorder := broadcaster.NewRecorder(scheme,
 					corev1.EventSource{Component: constants.AdmissionName})
 				cqCache := schdcache.New(cl)
-				qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+				qManager, watcher := qcache.NewManagerForUnitTestsWithRequeuer(cl, cqCache)
 				// Workloads are loaded into queues or clusterQueues as we add them.
 				for _, q := range queues {
 					if err := qManager.AddLocalQueue(ctx, &q); err != nil {
@@ -8726,6 +8726,7 @@ func TestLastSchedulingContext(t *testing.T) {
 					}
 					qManager.QueueAssociatedInadmissibleWorkloadsAfter(ctx, workload.Key(&wl), nil)
 				}
+				watcher.ProcessRequeues(ctx)
 
 				scheduler.schedule(ctx)
 				wg.Wait()
