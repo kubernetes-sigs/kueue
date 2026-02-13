@@ -23,7 +23,7 @@ CURRENT_DIR=$(dirname "${BASH_SOURCE[0]}")
 TOOLS_DIR=$(realpath "${CURRENT_DIR}/..")
 KUEUE_ROOT=$(realpath "${CURRENT_DIR}/../../..")
 KUEUE_PKG="sigs.k8s.io/kueue"
-CODEGEN_PKG=$(cd "${TOOLS_DIR}"; $GO_CMD list -m -mod=readonly -f "{{.Dir}}" k8s.io/code-generator)
+CODEGEN_PKG=$(cd "${TOOLS_DIR}"; go mod download; $GO_CMD list -m -mod=readonly -f "{{.Dir}}" k8s.io/code-generator)
 
 cd "${KUEUE_ROOT}"
 
