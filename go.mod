@@ -43,7 +43,7 @@ require (
 	sigs.k8s.io/dra-example-driver v0.2.1
 	sigs.k8s.io/jobset v0.11.0
 	sigs.k8s.io/lws v0.8.0
-	sigs.k8s.io/structured-merge-diff/v6 v6.3.2-0.20260122202528-d9cc6641c482
+	sigs.k8s.io/structured-merge-diff/v6 v6.3.2
 	sigs.k8s.io/yaml v1.6.0
 )
 

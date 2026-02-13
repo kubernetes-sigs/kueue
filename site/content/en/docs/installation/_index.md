@@ -98,6 +98,8 @@ We can follow [Prometheus Operator Installing guide](https://prometheus-operator
 kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/prometheus.yaml
 ```
 
+For more detailed setup instructions and optional metrics configuration, see the [Observability guide](/docs/tasks/manage/observability/).
+
 ### Add API Priority and Fairness configuration for the visibility API
 
 See [Configure API Priority and Fairness](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/#configure-api-priority-and-fairness) for more details.

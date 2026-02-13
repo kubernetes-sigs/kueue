@@ -24,32 +24,14 @@ import (
 	"testing"
 	"time"
 
-	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
-	kftrainerapi "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
-	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
-	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
-	appsv1 "k8s.io/api/apps/v1"
-	authenticationv1 "k8s.io/api/authentication/v1"
-	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
-	rbacv1 "k8s.io/api/rbac/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	versionutil "k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
-	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
-	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -76,169 +58,6 @@ var (
 	worker1RestClient *rest.RESTClient
 	worker2RestClient *rest.RESTClient
 )
-
-func policyRule(group, resource string, verbs ...string) rbacv1.PolicyRule {
-	return rbacv1.PolicyRule{
-		APIGroups: []string{group},
-		Resources: []string{resource},
-		Verbs:     verbs,
-	}
-}
-
-// kubeconfigForMultiKueueSA - returns the content of a kubeconfig that could be used by a multikueue manager to connect to a worker.
-//
-// In the target cluster it will create:
-// - one ClusterRole <prefix>-cr allowing all the multikueue related operations.
-// - one ServiceAccount <prefix>-sa, bound to <prefix>-cr, from which an authentication token is generated.
-//
-// The resulting kubeconfig is composed based on the provided restConfig with two notable changes:
-// - the authentication is done with a token generated for <prefix>-sa.
-// - the server URL is set to https://<clusterName>-control-plane:6443.
-func kubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig *rest.Config, ns string, prefix string, clusterName string) ([]byte, error) {
-	roleName := prefix + "-role"
-	resourceVerbs := []string{"create", "update", "patch", "delete", "get", "list", "watch"}
-	cr := &rbacv1.ClusterRole{
-		ObjectMeta: metav1.ObjectMeta{Name: roleName},
-		Rules: []rbacv1.PolicyRule{
-			policyRule(batchv1.SchemeGroupVersion.Group, "jobs", resourceVerbs...),
-			policyRule(batchv1.SchemeGroupVersion.Group, "jobs/status", "get"),
-			policyRule(jobset.SchemeGroupVersion.Group, "jobsets", resourceVerbs...),
-			policyRule(jobset.SchemeGroupVersion.Group, "jobsets/status", "get"),
-			policyRule(kueue.SchemeGroupVersion.Group, "workloads", resourceVerbs...),
-			policyRule(kueue.SchemeGroupVersion.Group, "workloads/status", "get", "patch", "update"),
-			policyRule(kftraining.SchemeGroupVersion.Group, "tfjobs", resourceVerbs...),
-			policyRule(kftraining.SchemeGroupVersion.Group, "tfjobs/status", "get"),
-			policyRule(kftraining.SchemeGroupVersion.Group, "paddlejobs", resourceVerbs...),
-			policyRule(kftraining.SchemeGroupVersion.Group, "paddlejobs/status", "get"),
-			policyRule(kftraining.SchemeGroupVersion.Group, "pytorchjobs", resourceVerbs...),
-			policyRule(kftraining.SchemeGroupVersion.Group, "pytorchjobs/status", "get"),
-			policyRule(kftraining.SchemeGroupVersion.Group, "xgboostjobs", resourceVerbs...),
-			policyRule(kftraining.SchemeGroupVersion.Group, "xgboostjobs/status", "get"),
-			policyRule(kftraining.SchemeGroupVersion.Group, "jaxjobs", resourceVerbs...),
-			policyRule(kftraining.SchemeGroupVersion.Group, "jaxjobs/status", "get"),
-			policyRule(awv1beta2.GroupVersion.Group, "appwrappers", resourceVerbs...),
-			policyRule(awv1beta2.GroupVersion.Group, "appwrappers/status", "get"),
-			policyRule(kfmpi.SchemeGroupVersion.Group, "mpijobs", resourceVerbs...),
-			policyRule(kfmpi.SchemeGroupVersion.Group, "mpijobs/status", "get"),
-			policyRule(rayv1.SchemeGroupVersion.Group, "rayjobs", resourceVerbs...),
-			policyRule(rayv1.SchemeGroupVersion.Group, "rayjobs/status", "get"),
-			policyRule(corev1.SchemeGroupVersion.Group, "pods", resourceVerbs...),
-			policyRule(corev1.SchemeGroupVersion.Group, "pods/status", "get"),
-			policyRule(appsv1.SchemeGroupVersion.Group, "statefulsets", resourceVerbs...),
-			policyRule(appsv1.SchemeGroupVersion.Group, "statefulsets/status", "get"),
-			policyRule(leaderworkersetv1.SchemeGroupVersion.Group, "leaderworkersets", resourceVerbs...),
-			policyRule(leaderworkersetv1.SchemeGroupVersion.Group, "leaderworkersets/status", "get"),
-			policyRule(rayv1.SchemeGroupVersion.Group, "rayclusters", resourceVerbs...),
-			policyRule(rayv1.SchemeGroupVersion.Group, "rayclusters/status", "get"),
-			policyRule(kftrainerapi.SchemeGroupVersion.Group, "trainjobs", resourceVerbs...),
-			policyRule(kftrainerapi.SchemeGroupVersion.Group, "trainjobs/status", "get"),
-		},
-	}
-	err := c.Create(ctx, cr)
-	if err != nil {
-		return nil, err
-	}
-
-	saName := prefix + "-sa"
-	sa := &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: ns,
-			Name:      saName,
-		},
-	}
-	err = c.Create(ctx, sa)
-	if err != nil {
-		return nil, err
-	}
-
-	crb := &rbacv1.ClusterRoleBinding{
-		ObjectMeta: metav1.ObjectMeta{Name: prefix + "-crb"},
-		RoleRef: rbacv1.RoleRef{
-			APIGroup: rbacv1.SchemeGroupVersion.Group,
-			Kind:     "ClusterRole",
-			Name:     roleName,
-		},
-		Subjects: []rbacv1.Subject{
-			{
-				Kind:      "ServiceAccount",
-				Name:      saName,
-				Namespace: ns,
-			},
-		},
-	}
-	err = c.Create(ctx, crb)
-	if err != nil {
-		return nil, err
-	}
-
-	// get the token
-	token := &authenticationv1.TokenRequest{
-		Spec: authenticationv1.TokenRequestSpec{
-			// The 1h expiration duration is the default value.
-			// It is explicitly mentioned for documentation purposes.
-			ExpirationSeconds: ptr.To[int64](3600),
-		},
-	}
-	err = c.SubResource("token").Create(ctx, sa, token)
-	if err != nil {
-		return nil, err
-	}
-
-	cfg := clientcmdapi.Config{
-		Kind:       "config",
-		APIVersion: "v1",
-		Clusters: map[string]*clientcmdapi.Cluster{
-			"default-cluster": {
-				Server:                   util.GetClusterServerAddress(clusterName),
-				CertificateAuthorityData: restConfig.CAData,
-			},
-		},
-		AuthInfos: map[string]*clientcmdapi.AuthInfo{
-			"default-user": {
-				Token: token.Status.Token,
-			},
-		},
-		Contexts: map[string]*clientcmdapi.Context{
-			"default-context": {
-				Cluster:  "default-cluster",
-				AuthInfo: "default-user",
-			},
-		},
-		CurrentContext: "default-context",
-	}
-	return clientcmd.Write(cfg)
-}
-
-func cleanKubeconfigForMultiKueueSA(ctx context.Context, c client.Client, ns string, prefix string) error {
-	roleName := prefix + "-role"
-
-	err := c.Delete(ctx, &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: roleName}})
-	if client.IgnoreNotFound(err) != nil {
-		return err
-	}
-
-	err = c.Delete(ctx, &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: prefix + "-sa"}})
-	if client.IgnoreNotFound(err) != nil {
-		return err
-	}
-
-	err = c.Delete(ctx, &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: prefix + "-crb"}})
-	if client.IgnoreNotFound(err) != nil {
-		return err
-	}
-
-	return nil
-}
-
-func makeMultiKueueSecret(ctx context.Context, c client.Client, namespace string, name string, kubeconfig []byte) error {
-	secret := utiltesting.MakeSecret(name, namespace).Data("kubeconfig", kubeconfig).Obj()
-	return c.Create(ctx, secret)
-}
-
-func cleanMultiKueueSecret(ctx context.Context, c client.Client, namespace string, name string) error {
-	secret := utiltesting.MakeSecret(name, namespace).Obj()
-	return client.IgnoreNotFound(c.Delete(ctx, secret))
-}
 
 func TestAPIs(t *testing.T) {
 	suiteName := "End To End MultiKueue Suite"
@@ -272,13 +91,21 @@ var _ = ginkgo.BeforeSuite(func() {
 
 	ctx = ginkgo.GinkgoT().Context()
 
-	worker1KConfig, err = kubeconfigForMultiKueueSA(ctx, k8sWorker1Client, worker1Cfg, kueueNS, "mksa", worker1ClusterName)
+	worker1KConfig, err = util.KubeconfigForMultiKueueSA(ctx, k8sWorker1Client, worker1Cfg, kueueNS, "mksa", worker1ClusterName, util.DefaultMultiKueueRules())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(makeMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue1", worker1KConfig)).To(gomega.Succeed())
+	gomega.Expect(util.MakeMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue1", worker1KConfig)).To(gomega.Succeed())
+	ginkgo.DeferCleanup(func() {
+		gomega.Expect(util.CleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue1")).To(gomega.Succeed())
+		gomega.Expect(util.CleanKubeconfigForMultiKueueSA(ctx, k8sWorker1Client, kueueNS, "mksa")).To(gomega.Succeed())
+	})
 
-	worker2KConfig, err = kubeconfigForMultiKueueSA(ctx, k8sWorker2Client, worker2Cfg, kueueNS, "mksa", worker2ClusterName)
+	worker2KConfig, err = util.KubeconfigForMultiKueueSA(ctx, k8sWorker2Client, worker2Cfg, kueueNS, "mksa", worker2ClusterName, util.DefaultMultiKueueRules())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(makeMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue2", worker2KConfig)).To(gomega.Succeed())
+	gomega.Expect(util.MakeMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue2", worker2KConfig)).To(gomega.Succeed())
+	ginkgo.DeferCleanup(func() {
+		gomega.Expect(util.CleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue2")).To(gomega.Succeed())
+		gomega.Expect(util.CleanKubeconfigForMultiKueueSA(ctx, k8sWorker2Client, kueueNS, "mksa")).To(gomega.Succeed())
+	})
 
 	waitForAvailableStart := time.Now()
 	util.WaitForKueueAvailability(ctx, k8sManagerClient)
@@ -316,12 +143,4 @@ var _ = ginkgo.BeforeSuite(func() {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	managerK8SVersion, err = kubeversion.FetchServerVersion(discoveryClient)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-})
-
-var _ = ginkgo.AfterSuite(func() {
-	gomega.Expect(cleanKubeconfigForMultiKueueSA(ctx, k8sWorker1Client, kueueNS, "mksa")).To(gomega.Succeed())
-	gomega.Expect(cleanKubeconfigForMultiKueueSA(ctx, k8sWorker2Client, kueueNS, "mksa")).To(gomega.Succeed())
-
-	gomega.Expect(cleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue1")).To(gomega.Succeed())
-	gomega.Expect(cleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue2")).To(gomega.Succeed())
 })

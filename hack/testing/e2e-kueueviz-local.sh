@@ -17,8 +17,8 @@
 set -e
 
 SOURCE_DIR="$(cd "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-ROOT_DIR="$SOURCE_DIR/.."
-# shellcheck source=hack/e2e-common.sh
+ROOT_DIR="$SOURCE_DIR/../.."
+# shellcheck source=hack/testing/e2e-common.sh
 source "${SOURCE_DIR}/e2e-common.sh"
 
 # Function to clean up background processes

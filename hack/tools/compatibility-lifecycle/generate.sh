@@ -18,14 +18,14 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 BIN_DIR="${REPO_ROOT}/bin"
 COMPAT_LIFECYCLE_BIN="${BIN_DIR}/compatibility-lifecycle"
 COMPAT_LIFECYCLE_BIN_STAMP="${BIN_DIR}/compatibility-lifecycle.version"
 K8S_REPO_URL="${K8S_REPO_URL:-https://github.com/kubernetes/kubernetes.git}"
 K8S_REPO_REF="${K8S_REPO_REF:-}"
 if [[ -z "${K8S_REPO_REF}" ]]; then
-  TOOLS_DIR="${REPO_ROOT}/hack/internal/tools"
+  TOOLS_DIR="${REPO_ROOT}/hack/tools"
   CODEGEN_VERSION="$(cd "${TOOLS_DIR}" && go list -m -f '{{.Version}}' k8s.io/code-generator)"
   if [[ -z "${CODEGEN_VERSION}" ]]; then
     echo "failed to determine k8s.io/code-generator version from ${TOOLS_DIR}/go.mod" >&2

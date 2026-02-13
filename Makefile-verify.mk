@@ -16,11 +16,18 @@
 
 GO_FMT ?= gofmt
 VERIFY_NPROCS ?= 8
+# Output sync mode for parallel verification. Set to empty to disable.
+# Requires GNU Make 4.0+. Values: target, line, recurse, or empty.
+ifeq ($(shell uname),Darwin)
+    VERIFY_OUTPUT_SYNC ?=
+else
+    VERIFY_OUTPUT_SYNC ?= target
+endif
 # Paths whose content is expected to be fully reproducible from sources.
 # The final step of `make verify` enforces that these paths have:
 # - no unstaged/staged diffs (`git diff --exit-code`)
 # - no untracked files (e.g. newly generated files not added to git)
-PATHS_TO_VERIFY := config/components apis charts/kueue client-go site/ netlify.toml
+PATHS_TO_VERIFY := config/components apis charts/kueue client-go keps site/ netlify.toml
 
 .PHONY: verify
 ## Main target used by CI and local development.
@@ -37,6 +44,7 @@ PATHS_TO_VERIFY := config/components apis charts/kueue client-go site/ netlify.t
 ##
 ## Notes:
 ## - The work is parallelized. Override parallelism with `VERIFY_NPROCS=<n> make verify`.
+## - Output is grouped by target to make failures easier to find. Disable with `VERIFY_OUTPUT_SYNC= make verify`.
 ##
 ## How to extend `make verify`
 ##
@@ -53,7 +61,7 @@ PATHS_TO_VERIFY := config/components apis charts/kueue client-go site/ netlify.t
 ##   or in another included fragment (`Makefile-test.mk`, etc.) if it logically belongs there.
 ## - Then, wire it into the appropriate aggregator target below.
 verify: ## Ensure repo is clean after generation/formatting.
-	$(MAKE) -j $(VERIFY_NPROCS) verify-checks
+	$(MAKE) -j $(VERIFY_NPROCS) $(if $(VERIFY_OUTPUT_SYNC),--output-sync=$(VERIFY_OUTPUT_SYNC)) verify-checks
 	git --no-pager diff --exit-code $(PATHS_TO_VERIFY)
 	if git ls-files --exclude-standard --others $(PATHS_TO_VERIFY) | grep -q . ; then \
 		echo "ERROR: untracked files found under: $(PATHS_TO_VERIFY)" >&2; \
@@ -67,7 +75,7 @@ verify-go-prereqs: generate-code generate-mocks
 
 .PHONY: verify-docs-prereqs
 verify-docs-prereqs: ## Prerequisites for docs/site checks.
-verify-docs-prereqs: generate-apiref generate-kueuectl-docs generate-metrics-tables generate-featuregates sync-hugo-version
+verify-docs-prereqs: generate-apiref generate-kueuectl-docs generate-metrics-tables generate-featuregates sync-hugo-version toc-update
 
 .PHONY: verify-helm-prereqs
 verify-helm-prereqs: ## Prerequisites for Helm checks.
@@ -81,7 +89,7 @@ verify-tree-prereqs: verify-go-prereqs verify-docs-prereqs verify-helm-prereqs
 ## Read-only verification targets that should not mutate the repo.
 ## Add new check-only targets here.
 verify-checks: ## Phase 2 (parallel): checks that should run after generation completes.
-verify-checks: verify-ci-lint verify-lint-api verify-fmt-verify verify-shell-lint verify-toc-verify verify-helm-verify verify-helm-unit-test verify-npm-depcheck
+verify-checks: verify-ci-lint verify-lint-api verify-fmt-verify verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck
 
 # ---- Shared check recipes -------------------------------------------------
 # Each recipe is stored in a variable so that both the lightweight standalone
@@ -117,11 +125,7 @@ fi
 endef
 
 define _shell_lint_recipe
-$(PROJECT_DIR)/hack/shellcheck/verify.sh
-endef
-
-define _toc_verify_recipe
-./hack/verify-toc.sh
+$(PROJECT_DIR)/hack/testing/shellcheck/verify.sh
 endef
 
 define _helm_verify_recipe
@@ -142,8 +146,8 @@ HELM_PLUGINS=$(BIN_DIR)/helm-plugins $(HELM) unittest charts/kueue --strict --de
 endef
 
 define _npm_depcheck_recipe
-$(PROJECT_DIR)/hack/depcheck/verify.sh $(PROJECT_DIR)/cmd/kueueviz/frontend
-$(PROJECT_DIR)/hack/depcheck/verify.sh $(PROJECT_DIR)/test/e2e/kueueviz
+$(PROJECT_DIR)/hack/testing/depcheck/verify.sh $(PROJECT_DIR)/cmd/kueueviz/frontend
+$(PROJECT_DIR)/hack/testing/depcheck/verify.sh $(PROJECT_DIR)/test/e2e/kueueviz
 endef
 
 # ---- verify-* wrappers (generation prereqs + shared recipe) ---------------
@@ -163,10 +167,6 @@ verify-fmt-verify: verify-tree-prereqs ## Verify formatting after generation
 .PHONY: verify-shell-lint
 verify-shell-lint: verify-tree-prereqs ## Shell lint after generation
 	$(_shell_lint_recipe)
-
-.PHONY: verify-toc-verify
-verify-toc-verify: verify-tree-prereqs mdtoc ## TOC verification after generation
-	$(_toc_verify_recipe)
 
 .PHONY: verify-helm-verify
 verify-helm-verify: verify-tree-prereqs helm ## Helm verification after generation
@@ -214,10 +214,6 @@ fmt-verify: ## Verify Go code formatting (no changes allowed).
 shell-lint: ## Run shell script linting (via shellcheck).
 	$(_shell_lint_recipe)
 
-.PHONY: toc-verify
-toc-verify: mdtoc ## Verify markdown TOCs are up-to-date.
-	$(_toc_verify_recipe)
-
 .PHONY: helm-verify
 helm-verify: helm helm-lint ## Validate Helm chart rendering with various configuration combinations.
 	$(_helm_verify_recipe)
@@ -229,6 +225,10 @@ helm-unit-test: helm helm-unittest-plugin ## Run Helm unit tests for the kueue c
 .PHONY: npm-depcheck
 npm-depcheck: ## Verify frontend and e2e npm dependencies.
 	$(_npm_depcheck_recipe)
+
+.PHONY: verify-website-links
+verify-website-links: ## Check for broken internal links on the public website.
+	$(PROJECT_DIR)/hack/testing/linkchecker/verify.sh
 
 .PHONY: i18n-verify
 i18n-verify: ## Verify localized docs are in sync with English. Usage: make i18n-verify [TARGET_LANG=zh-CN]

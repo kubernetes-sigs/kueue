@@ -1,19 +1,23 @@
 ---
-title: "Configure Prometheus"
+title: "Configure Prometheus with TLS"
 date: 2025-03-14
 weight: 2
 description: >
-  Prometheus Support
+  Configure Prometheus with TLS using cert-manager
 ---
 
+{{% alert title="Note" color="primary" %}}
+For basic Prometheus setup without TLS, see [Setup Prometheus](/docs/tasks/manage/observability/setup_prometheus).
+This page covers advanced TLS configuration with cert-manager.
+{{% /alert %}}
 
-This page shows how you configure Kueue to use prometheus metrics.
+This page shows how to configure Kueue to use Prometheus metrics with TLS encryption.
 
 The page is intended for a [batch administrator](/docs/tasks#batch-administrator).
 
 ## Before you begin
 
-Make sure you the following conditions are set:
+Make sure the following conditions are met:
 
 - A Kubernetes cluster is running.
 - The kubectl command-line tool has communication with your cluster.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Copyright 2022 The Kubernetes Authors.
+# Copyright 2026 The Kubernetes Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,15 +18,13 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-# cd to the root path
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-cd "${ROOT}"
+DOCKER="${DOCKER:-docker}"
+CURRENT_DIR=$(dirname "${BASH_SOURCE[0]}")
 
-echo "Checking table of contents are up to date..."
-# Verify tables of contents are up-to-date
-find keps -name '*.md' \
-    | grep -Fxvf hack/.notableofcontents \
-    | xargs "${ROOT}/bin/mdtoc" --inplace --max-depth=5 --dryrun || (
-      echo "Table of content not up to date. If this failed silently and you are on mac, try 'brew install grep'"
-      exit 1
-    )
+echo "Building linkchecker Docker image..."
+"${DOCKER}" build --load -f "${CURRENT_DIR}/Dockerfile" -t linkchecker "${CURRENT_DIR}"
+
+echo "Running linkchecker..."
+"${DOCKER}" run --rm linkchecker --no-warnings --ignore-url='^mailto:' --ignore-url='^tel:' https://kueue.sigs.k8s.io/
+
+echo "Link check completed successfully"
