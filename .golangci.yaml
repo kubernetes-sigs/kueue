@@ -152,10 +152,6 @@ linters:
         text: 'var-naming: avoid package names that conflict with Go standard library package names'
       - linters:
           - revive
-        path: 'pkg/util/testingjobs/'
-        text: 'var-naming: avoid package names that conflict with Go standard library package names'
-      - linters:
-          - revive
         path: 'pkg/version/'
         text: 'var-naming: avoid package names that conflict with Go standard library package names'
       - linters:
