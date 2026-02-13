@@ -94,7 +94,7 @@ func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetu
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		cCache := schdcache.New(mgr.GetClient())
-		queues := qcache.NewManager(mgr.GetClient(), cCache)
+		queues := qcache.NewManagerForIntegrationTests(mgr.GetClient(), cCache)
 
 		configuration := &config.Configuration{}
 		mgr.GetScheme().Default(configuration)

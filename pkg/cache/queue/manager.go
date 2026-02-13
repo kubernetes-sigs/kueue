@@ -139,6 +139,9 @@ type Manager struct {
 	roleTracker *roletracker.RoleTracker
 }
 
+// NewManager is a factory function for cache.queue.Manager. It
+// should only be used by main. For unit or integration tests,
+// see test_util.go.
 func NewManager(client client.Client, checker StatusChecker, options ...Option) *Manager {
 	m := &Manager{
 		clock:                  realClock,
