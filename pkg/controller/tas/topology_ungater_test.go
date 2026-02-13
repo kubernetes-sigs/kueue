@@ -1035,7 +1035,7 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
-		"ranks: replacement pod assigned incorrectly when previous pod is removed and another pod is already running (bug)": {
+		"ranks: fallback to greedy when replacement pod conflicts with already running pod": {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
