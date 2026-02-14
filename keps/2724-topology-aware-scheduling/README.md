@@ -14,11 +14,13 @@
     - [Story 5](#story-5)
     - [Story 6](#story-6)
     - [Story 7](#story-7)
+    - [Story 8](#story-8)
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
     - [Integration support](#integration-support)
       - [Job](#job)
       - [JobSet](#jobset)
       - [LeaderWorkerSet](#leaderworkerset)
+      - [LeaderWorkerSet](#leaderworkerset-1)
       - [MPIJob with runLauncherAsWorker](#mpijob-with-runlauncherasworker)
     - [Support for the &quot;auto&quot; mode](#support-for-the-auto-mode)
     - [PodSetAssignment is per lowest-topology level](#podsetassignment-is-per-lowest-topology-level)
@@ -198,6 +200,13 @@ in LeaderWorkerSet to run within a "rack".
 Similar to [Story 1](#story-1), but I want Leader and its Workers across multiple PodSets within a single Workload
 for MPIJob with runLauncherAsWorker (`.spec.runLauncherAsWorker`) which should be scheduled considering
 Pod index order.
+
+#### Story 8
+
+Similar to [Story 7](#story-7), but I want Leader and its Workers across multiple PodSets within a single Workload
+for LeaderWorkerSet with multiple PodTemplates (`.spec.leaderWorkerTemplate.leaderTemplate` and `.spec.leaderWorkerTemplate.workerTemplate`) 
+which should be scheduled considering Pod index order even if [Cross-PodSet Topology Aware scheduling](#cross-podset-topology-aware-scheduling)
+is __NOT__ enabled.
 
 ### Notes/Constraints/Caveats (Optional)
 
@@ -427,6 +436,7 @@ to omit the annotation `kueue.x-k8s.io/podset-slice-size`, as the default
 value for it in case of JobSet is `parallelism`.
 
 ##### LeaderWorkerSet
+###### Co-locate Leader with Workers
 
 According to [Story 6](#story-6) we noticed that some users would like to
 co-locate Leader with Workers within the same replica in LeaderWorkerSet.
@@ -483,6 +493,47 @@ spec:
 
 In this example there are 2 replicas with 2 workers and 1 leader each.
 Each group of leader and 2 workers should be placed in a rack.
+
+##### LeaderWorkerSet
+###### Respect Pod Index order within Workers
+According to [Story 8](#story-8), even if the [Cross-PodSet Topology Aware scheduling](#cross-podset-topology-aware-scheduling) is __NOT__ enabled,
+Worker Pods should be scheduled with Pod Index order consideration.
+
+**Example**:
+
+```yaml
+apiVersion: leaderworkerset.x-k8s.io/v1
+kind: LeaderWorkerSet
+metadata:
+  name: tas-example-lws
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+spec:
+  replicas: 2
+  leaderWorkerTemplate:
+    leaderTemplate:
+      spec:
+        containers:
+          - name: leader
+            image: registry.k8s.io/e2e-test-images/agnhost:2.53
+            args: ["pause"]
+    size: 3
+    workerTemplate:
+      spec:
+        containers:
+          - name: leader
+            image: registry.k8s.io/e2e-test-images/agnhost:2.53
+            args: ["pause"]
+```
+
+When the above LeaderWorkerSet is submitted, Kueue LeaderWorkerSet integration webhook adds
+`kueue.x-k8s.io/pod-index-offset: "1"` annotation to `.spec.leaderWorkerTemplate.workerTemplate.metadata.annotations`
+because Worker pods will get 1-2 index annotation values in `leaderworkerset.sigs.k8s.io/worker-index`.
+
+On the other hands, `kueue.x-k8s.io/pod-index-offset` annotation is not added and offset management is delegated to the PodSet Group mechanism
+when `kueue.x-k8s.io/podset-group-name` is specified.
+
+Additionally, if LeaderWorkerSet doesn't have a separate Leader template, the offset management is not added.
 
 ##### MPIJob with runLauncherAsWorker
 
