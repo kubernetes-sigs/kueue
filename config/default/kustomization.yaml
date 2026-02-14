@@ -111,6 +111,7 @@ patches:
 #    kind: Deployment
 
 #replacements:
+# [CERTMANAGER] To enable cert-manager, uncomment all sections with 'CERTMANAGER' prefix.
   # 1. Replace $(METRICS_SERVICE_NAME)
 #  - source:
 #      kind: Service
