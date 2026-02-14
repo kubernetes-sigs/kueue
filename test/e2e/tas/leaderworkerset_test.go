@@ -25,10 +25,12 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	leaderworkersettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
@@ -79,6 +81,98 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 			const (
 				replicas = int32(2)
 				size     = int32(3)
+			)
+
+			podsTotalCount := replicas * size
+
+			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
+				Replicas(replicas).
+				Size(size).
+				Queue(localQueue.Name).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
+						},
+					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:  "c",
+								Image: util.GetAgnHostImage(),
+								Args:  util.BehaviorWaitForDeletion,
+								Resources: corev1.ResourceRequirements{
+									Limits: map[corev1.ResourceName]resource.Quantity{
+										extraResource: resource.MustParse("1"),
+									},
+									Requests: map[corev1.ResourceName]resource.Quantity{
+										extraResource: resource.MustParse("1"),
+									},
+								},
+							},
+						},
+					},
+				}).
+				TerminationGracePeriod(1).
+				Obj()
+			ginkgo.By("Creating a LeaderWorkerSet", func() {
+				util.MustCreate(ctx, k8sClient, lws)
+			})
+
+			ginkgo.By("Waiting for replicas to be ready", func() {
+				createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
+					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(replicas))
+					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			pods := &corev1.PodList{}
+			ginkgo.By("ensure all pods are scheduled", func() {
+				listOpts := &client.ListOptions{
+					FieldSelector: fields.OneTermNotEqualSelector("spec.nodeName", ""),
+				}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
+					g.Expect(pods.Items).Should(gomega.HaveLen(int(podsTotalCount)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verify the assignment of pods are as expected with rank-based ordering", func() {
+				gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				gotAssignment := make(map[string]string, podsTotalCount)
+				for _, pod := range pods.Items {
+					index := fmt.Sprintf("%s/%s", pod.Labels[leaderworkersetv1.GroupIndexLabelKey], pod.Labels[leaderworkersetv1.WorkerIndexLabelKey])
+					gotAssignment[index] = pod.Spec.NodeName
+				}
+				gomega.Expect(gotAssignment).Should(gomega.Or(
+					gomega.BeComparableTo(map[string]string{
+						"0/0": "kind-worker",
+						"0/1": "kind-worker2",
+						"0/2": "kind-worker3",
+						"1/0": "kind-worker5",
+						"1/1": "kind-worker6",
+						"1/2": "kind-worker7",
+					}),
+					gomega.BeComparableTo(map[string]string{
+						"1/0": "kind-worker",
+						"1/1": "kind-worker2",
+						"1/2": "kind-worker3",
+						"0/0": "kind-worker5",
+						"0/1": "kind-worker6",
+						"0/2": "kind-worker7",
+					}),
+				))
+			})
+		})
+	})
+
+	ginkgo.When("creating a LeaderWorkerSet with Leader and Workers which doesn't have grouping annotation", func() {
+		ginkgo.It("should place worker pods based on the ranks-ordering", func() {
+			const (
+				replicas = int32(1)
+				size     = int32(5)
 			)
 
 			podsTotalCount := replicas * size
@@ -175,7 +269,13 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 			})
 
 			ginkgo.By("verify the assignment of pods are as expected with rank-based ordering", func() {
-				gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabelsSelector{
+					// The rank-orders aren't guaranteed across Leader and Workers
+					// since this LWS doesn't have PodSet Group annotation.
+					Selector: labels.SelectorFromSet(map[string]string{
+						constants.PodSetLabel: "worker",
+					}),
+				})).To(gomega.Succeed())
 				gotAssignment := make(map[string]string, podsTotalCount)
 				for _, pod := range pods.Items {
 					index := fmt.Sprintf("%s/%s", pod.Labels[leaderworkersetv1.GroupIndexLabelKey], pod.Labels[leaderworkersetv1.WorkerIndexLabelKey])
@@ -183,25 +283,20 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 				}
 				gomega.Expect(gotAssignment).Should(gomega.Or(
 					gomega.BeComparableTo(map[string]string{
-						"0/0": "kind-worker",
-						"0/1": "kind-worker2",
-						"0/2": "kind-worker3",
-						"1/0": "kind-worker5",
-						"1/1": "kind-worker6",
-						"1/2": "kind-worker7",
+						"0/1": "kind-worker",
+						"0/2": "kind-worker2",
+						"0/3": "kind-worker3",
+						"0/4": "kind-worker4",
 					}),
 					gomega.BeComparableTo(map[string]string{
-						"1/0": "kind-worker",
-						"1/1": "kind-worker2",
-						"1/2": "kind-worker3",
-						"0/0": "kind-worker5",
-						"0/1": "kind-worker6",
-						"0/2": "kind-worker7",
+						"0/1": "kind-worker5",
+						"0/2": "kind-worker6",
+						"0/3": "kind-worker7",
+						"0/4": "kind-worker8",
 					}),
 				))
 			})
-		},
-		)
+		})
 	})
 
 	ginkgo.When("creating a LeaderWorkerSet with leader grouped with workers with the same resource requests", func() {
