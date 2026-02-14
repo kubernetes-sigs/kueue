@@ -283,7 +283,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}()
 
 	dropFinalizers := false
-	if cJob, isComposable := job.(ComposableJob); isComposable {
+	if cJob, isCustom := job.(JobWithCustomLoad); isCustom {
 		dropFinalizers, err = cJob.Load(ctx, r.client, &req.NamespacedName)
 	} else {
 		err = r.client.Get(ctx, req.NamespacedName, object)

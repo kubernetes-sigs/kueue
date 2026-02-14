@@ -52,11 +52,6 @@ var (
 // This function is essential for enabling workload slice-aware scheduling
 // behavior in Kueue-managed Jobs, allowing for fine-grained control over
 // resource allocation and scheduling decisions.
-//
-// Parameters:
-//   - job: Pointer to the Job object to be modified.
-//
-// Note: This function modifies the Job's pod template in-place.
 func applyWorkloadSliceSchedulingGate(job *Job) {
 	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) || !workloadslicing.Enabled(job.Object()) {
 		return
