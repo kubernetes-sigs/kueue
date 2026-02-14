@@ -165,8 +165,14 @@ fmt: ## Run go fmt against code.
 	$(GO_CMD) fmt ./...
 
 .PHONY: gomod-download
-gomod-download:
+gomod-download: ## Download Go module dependencies (main)
+	@echo "→ Downloading main dependencies..."
 	$(GO_CMD) mod download
+
+.PHONY: gomod-download-tools
+gomod-download-tools: ## Download Go module dependencies (tools)
+	@echo "→ Downloading tools dependencies..."
+	cd $(TOOLS_DIR) && $(GO_CMD) mod download
 
 .PHONY: toc-update
 toc-update: mdtoc
