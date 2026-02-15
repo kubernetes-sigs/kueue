@@ -640,10 +640,12 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// 8. handle job is unsuspended.
 	if !workload.IsAdmitted(wl) {
 		// The job must be suspended if the workload is not yet admitted,
-		// unless this job is workload-slicing enabled. In workload-slicing we rely
-		// on pod-scheduling gate(s) to pause workload slice pods during the workload admission process.
+		// unless this job is workload-slicing enabled.
 		if WorkloadSliceEnabled(job) {
-			return ctrl.Result{}, nil
+			runawaySlice, err := workloadslicing.IsRunawaySlice(ctx, r.client, r.clock, wl)
+			if !runawaySlice || err != nil {
+				return ctrl.Result{RequeueAfter: time.Second}, err
+			}
 		}
 		log.V(2).Info("Running job is not admitted by a cluster queue, suspending")
 		err := r.stopJob(ctx, job, wl, StopReasonNotAdmitted, "Not admitted by cluster queue")
