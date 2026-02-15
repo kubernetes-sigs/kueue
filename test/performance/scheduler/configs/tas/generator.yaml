@@ -26,10 +26,10 @@ resourceFlavor:
   topologyName: "default-topology"
 
 # Workload generation (Required, Preferred, and Balanced patterns)
-# Total workloads per queue: 50 + 30 + 20 + 30 + 20 + 15 + 10 = 175 workloads
-# Total workloads: 2 cohorts × 3 queues × 175 workloads = 1,050 workloads
-# CPU requirement per queue: 8,320 CPU (total 49,920 CPU across 6 queues)
-# Cluster capacity: 640 nodes × 96 CPU = 61,440 CPU (fits with ~23% headroom)
+# Total workloads per queue: 50 + 50 + 170 + 50 + 220 + 190 + 170 = 900 workloads
+# Total workloads: 2 cohorts × 3 queues × 900 workloads = 5,400 workloads
+# CPU requirement per queue: 46,720 CPU (total 280,320 CPU across 6 queues, staggered via runtimes)
+# Cluster capacity: 640 nodes × 96 CPU = 61,440 CPU (concurrent usage fits due to workload turnover)
 cohorts:
   - className: cohort
     count: 2
@@ -54,7 +54,7 @@ cohorts:
           tasLevel: "cloud.provider.com/topology-rack"
 
       # Medium workloads: 8 pods × 4 CPU = 32 CPU per workload
-      - count: 30
+      - count: 50
         creationIntervalMs: 500
         workloads:
         - className: medium-required-rack
@@ -66,7 +66,7 @@ cohorts:
           tasLevel: "cloud.provider.com/topology-rack"
 
       # Large workloads: 16 pods × 8 CPU = 128 CPU per workload
-      - count: 20
+      - count: 170
         creationIntervalMs: 1000
         workloads:
         - className: large-required-rack
@@ -78,7 +78,7 @@ cohorts:
           tasLevel: "cloud.provider.com/topology-rack"
 
       # Preferred topology workloads: Try rack, fall back to block if needed
-      - count: 30
+      - count: 50
         creationIntervalMs: 300
         workloads:
         - className: small-preferred-rack
@@ -90,7 +90,7 @@ cohorts:
           tasLevel: "cloud.provider.com/topology-rack"
 
       # Preferred block topology: Try block level first
-      - count: 20
+      - count: 220
         creationIntervalMs: 400
         workloads:
         - className: medium-preferred-block
@@ -103,7 +103,7 @@ cohorts:
 
       # Balanced placement: Distribute pods across multiple racks evenly
       # 16 pods with sliceSize=4 means 4 slices, each with 4 pods
-      - count: 15
+      - count: 190
         creationIntervalMs: 600
         workloads:
         - className: medium-balanced-rack
@@ -117,7 +117,7 @@ cohorts:
 
       # Balanced placement with larger slices
       # 32 pods with sliceSize=8 means 4 slices, each with 8 pods
-      - count: 10
+      - count: 170
         creationIntervalMs: 800
         workloads:
         - className: large-balanced-rack

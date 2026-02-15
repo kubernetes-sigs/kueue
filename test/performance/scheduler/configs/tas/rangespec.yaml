@@ -4,7 +4,7 @@
 # numbers only once we have enough execution history on CI. The provisional thresholds avoid
 # flaky CI failures in the mean time.
 #
-# Configuration: 640 nodes, ~1,050 workloads, required/preferred/balanced topology
+# Configuration: 640 nodes, ~5,400 workloads, required/preferred/balanced topology
 
 # Command execution limits
 cmd:
