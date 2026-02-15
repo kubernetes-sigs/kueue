@@ -15,19 +15,11 @@
     - [<code>SingleClusterPreemptionTimeout</code> Configuration](#singleclusterpreemptiontimeout-configuration)
   - [MultiKueue Controller](#multikueue-controller)
   - [Kueue Scheduler](#kueue-scheduler)
-  - [Test Plan](#test-plan)
-    - [Unit Tests](#unit-tests)
-    - [Integration Tests](#integration-tests)
-  - [Graduation Criteria](#graduation-criteria)
-- [Implementation History](#implementation-history)
-- [Drawbacks](#drawbacks)
-- [Alternatives](#alternatives)
-  - [Re-use the <code>kueue.x-k8s.io/cannot-preempt</code> annotation and its semantics](#re-use-the-kueuex-k8siocannot-preempt-annotation-and-its-semantics)
   - [Create a new alpha annotation <code>kueue.x-k8s.io/preemption-gated</code>](#create-a-new-alpha-annotation-kueuex-k8siopreemption-gated)
   - [Specify the preemption timeout per-ClusterQueue instead of globally](#specify-the-preemption-timeout-per-clusterqueue-instead-of-globally)
   - [Use dynamically calculated default for the preemption timeout](#use-dynamically-calculated-default-for-the-preemption-timeout)
-    - [Create the <code>QuotaReservationBlocked</code> Condition](#create-the-quotareservationblocked-condition)
-    - [Extending the <code>QuotaReserved</code> <code>Condition</code>](#extending-the-quotareserved-condition)
+  - [Create the <code>QuotaReservationBlocked</code> Condition](#create-the-quotareservationblocked-condition)
+  - [Extending the <code>QuotaReserved</code> <code>Condition</code>](#extending-the-quotareserved-condition)
     - [Use the Gate's Presence As Active](#use-the-gates-presence-as-active)
 <!-- /toc -->
 
@@ -450,7 +442,7 @@ for yet another `Condition`.
 1. So far in the design, there is no immediate need to surface this information to the user. Adding this could be treated as an
 orthogonal addition and considered separately.
 
-#### Extending the `QuotaReserved` `Condition`
+### Extending the `QuotaReserved` `Condition`
 
 Similarly to [adding a new `Condition`](#extending-the-quotareserved-condition), rather than creating a new `Condition`,
 `QuotaReserved` could be extended with a new reason signaling that preemption was gated.
