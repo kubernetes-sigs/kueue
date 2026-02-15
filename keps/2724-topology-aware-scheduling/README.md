@@ -15,9 +15,11 @@
     - [Story 6](#story-6)
     - [Story 7](#story-7)
     - [Story 8](#story-8)
+    - [Story 9](#story-9)
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
     - [Integration support](#integration-support)
       - [Job](#job)
+      - [Job with multi-level scheduling](#job-with-multi-level-scheduling)
       - [JobSet](#jobset)
       - [LeaderWorkerSet](#leaderworkerset)
       - [LeaderWorkerSet](#leaderworkerset-1)
@@ -53,12 +55,14 @@
       - [Since v0.15](#since-v015)
   - [Two-level Topology Aware scheduling](#two-level-topology-aware-scheduling)
     - [Example](#example-1)
+  - [Multi-level Topology Aware scheduling](#multi-level-topology-aware-scheduling)
+    - [Example](#example-2)
   - [Cross-PodSet Topology Aware scheduling](#cross-podset-topology-aware-scheduling)
     - [Ensure leader and workers end up on the same flavor](#ensure-leader-and-workers-end-up-on-the-same-flavor)
   - [Enforcing the assignment](#enforcing-the-assignment)
   - [Support for Elastic Workloads](#support-for-elastic-workloads)
   - [Balanced placement](#balanced-placement)
-    - [Example](#example-2)
+    - [Example](#example-3)
   - [Support for ProvisioningRequests](#support-for-provisioningrequests)
     - [Determining the need for second pass](#determining-the-need-for-second-pass)
     - [Targeting the newly provisioned nodes](#targeting-the-newly-provisioned-nodes)
@@ -82,7 +86,7 @@
     - [Rename the topologyAssignment.domains.values field as levelValues](#rename-the-topologyassignmentdomainsvalues-field-as-levelvalues)
   - [Drop dedicated TAS label](#drop-dedicated-tas-label)
   - [MostFreeCapacity algorithm](#mostfreecapacity-algorithm)
-    - [Example](#example-3)
+    - [Example](#example-4)
   - [TopologyAssignmentSlices as separate CRD instances](#topologyassignmentslices-as-separate-crd-instances)
 <!-- /toc -->
 
@@ -212,6 +216,13 @@ for LeaderWorkerSet with multiple PodTemplates (`.spec.leaderWorkerTemplate.lead
 which should be scheduled considering Pod index order even if [Cross-PodSet Topology Aware scheduling](#cross-podset-topology-aware-scheduling)
 is __NOT__ enabled.
 
+#### Story 9
+
+Similar to [Story 1](#story-1), but I want a Job's Pods to be placed across a
+multi-layer topology based on user-specified constraints. For example, I want
+to ensure that a Job is scheduled onto the same data center, in multiples
+of 64 on the same "block", and in multiples of 16 on the same "rack".
+
 ### Notes/Constraints/Caveats (Optional)
 
 #### Integration support
@@ -250,6 +261,42 @@ spec:
 
 In this example we indicate that all Pods created by the Job should be contained
 within the same "rack".
+
+##### Job with multi-level scheduling
+
+According to [Story 8](#story-8), some users would like to place Pods of a Job
+across multi-layer topologies.
+
+```yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  namespace: tas-example-job
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+spec:
+  parallelism: 128
+  completions: 128
+  template:
+    metadata:
+      annotations:
+        kueue.x-k8s.io/podset-required-topology: cloud.provider.com/datacenter
+        kueue.x-k8s.io/podset-slice-size: "64"
+        kueue.x-k8s.io/podset-slice-required-topology: cloud.provider.com/aizone
+        kueue.x-k8s.io/podset-slice-size-1: "32"
+        kueue.x-k8s.io/podset-slice-required-topology-1: cloud.provider.com/block
+        kueue.x-k8s.io/podset-slice-size-2: "16"
+        kueue.x-k8s.io/podset-slice-required-topology-2: cloud.provider.com/rack
+    spec:
+      containers:
+      - name: worker
+        image: registry.k8s.io/e2e-test-images/agnhost:2.53
+```
+
+This example ensures the Job is placed within a data center symmetrically,
+while leaving room for the user to tune the "multiple-of" knob on each layer.
+This setup achieves "gang-of-gang-of-gang" semantics in complex NVIDIA
+GB200/GB300 topology architectures.
 
 ##### JobSet
 
@@ -831,6 +878,26 @@ const (
   // This annotation is required if `kueue.x-k8s.io/podset-slice-required-topology`
   // is defined
   PodSetSliceSizeAnnotation = "kueue.x-k8s.io/podset-slice-size"
+
+  // PodSetSliceRequiredTopologyAnnotation1 indicates the topology level required
+  // by the second slice layer (first additional layer). Each group from the
+  // parent slice layer is further subdivided into groups of size
+  // PodSetSliceSizeAnnotation1, each constrained to the indicated topology domain.
+  PodSetSliceRequiredTopologyAnnotation1 = "kueue.x-k8s.io/podset-slice-required-topology-1"
+
+  // PodSetSliceSizeAnnotation1 describes the requested size of the second
+  // slice layer (first additional layer).
+  PodSetSliceSizeAnnotation1 = "kueue.x-k8s.io/podset-slice-size-1"
+
+  // PodSetSliceRequiredTopologyAnnotation2 indicates the topology level required
+  // by the third slice layer (second additional layer). Each group from the
+  // parent slice layer is further subdivided into groups of size
+  // PodSetSliceSizeAnnotation2, each constrained to the indicated topology domain.
+  PodSetSliceRequiredTopologyAnnotation2 = "kueue.x-k8s.io/podset-slice-required-topology-2"
+
+  // PodSetSliceSizeAnnotation2 describes the requested size of the third
+  // slice layer (second additional layer).
+  PodSetSliceSizeAnnotation2 = "kueue.x-k8s.io/podset-slice-size-2"
 )
 ```
 
@@ -862,6 +929,12 @@ the rules is deactivated):
   specified its own default. See [Slice size validation](#slice-size-validation))
 - The value of `kueue.x-k8s.io/podset-slice-size` has to be a numeric value greater or equal
   than 1. It has to evenly divide the size of a PodSet.
+- The above 2 `podset-slice-*` rules apply to additional slice layers (`kueue.x-k8s.io/podset-slice-required-topology-[X]`)
+  as well. `[X]` can be up to `2`.
+- The value of `kueue.x-k8s.io/podset-slice-size-[X]` must evenly divide the
+  slice size of the parent layer (i.e., `podset-slice-size` for the first
+  additional layer, or the preceding `podset-slice-size-[X-1]` for subsequent layers).
+- Additional slice layers must be specified in order of increasing topology depth.
 - If `kueue.x-k8s.io/podset-group-name` is specified, the `kueue.x-k8s.io/podset-required-topology`
   or `kueue.x-k8s.io/podset-preferred-topology` has to also be specified in all other
   PodTemplates included in the PodSet Group and it has to have the same value.
@@ -876,6 +949,10 @@ sensible default to fallback to.
 However, in case of the JobSet we expect that the most frequent use-case will be to
 define PodSet Slice as a single Job, thus if `kueue.x-k8s.io/podset-slice-size`
 is not defined for JobSet it defaults to `parallelism`.
+
+For additional slice layers `kueue.x-k8s.io/podset-slice-required-topology-[X]`, its
+corresponding `kueue.x-k8s.io/podset-slice-size-[X]` is required. No defaulting logic
+is applied here even for JobSet.
 
 ### Internal APIs
 
@@ -947,6 +1024,33 @@ type PodSetTopologyRequest struct {
   //
   // +optional
   PodSetSliceSize *int32 `json:"podSetSliceSize,omitempty"`
+
+  // additionalSliceLayers defines additional layers of recursive slice
+  // subdivision beyond the first slice layer (podSetSliceRequiredTopology /
+  // podSetSliceSize). Each layer further subdivides the parent layer's
+  // groups into smaller groups constrained to a finer topology domain.
+  // At most 2 additional layers are supported (for a total of 3 slice layers).
+  //
+  // +optional
+  // +listType=atomic
+  // +kubebuilder:validation:MaxItems=2
+  AdditionalSliceLayers []SliceLayer `json:"additionalSliceLayers,omitempty"`
+}
+
+// SliceLayer defines a single additional slice subdivision layer.
+type SliceLayer struct {
+  // topology indicates the topology level required for this slice layer.
+  //
+  // +required
+  // +kubebuilder:validation:MinLength=1
+  // +kubebuilder:validation:MaxLength=63
+  Topology string `json:"topology"`
+
+  // size indicates the number of pods in each group at this slice layer.
+  //
+  // +required
+  // +kubebuilder:validation:Minimum=1
+  Size int32 `json:"size"`
 }
 ```
 
@@ -1478,6 +1582,46 @@ Explanation:
 - `LeastFreeCapacity` - We prioritized 3rd node, because it is a tight fit among all domains that could fit 2 slices.
 
 It is worth noting that the tight fit mentioned above does not guarantee that no free capacity will be left within the assigned domains.
+
+### Multi-level Topology Aware scheduling
+
+> [!NOTE]
+> For the alpha implementation, the multi-level code path and API surface are
+> kept separate from two-level scheduling. In a future iteration, we plan to
+> unify them behind a single internal data structure.
+
+In consideration of [Story 8](#story-8), multi-level scheduling extends two-level
+scheduling to support more than two levels of topology constraints (e.g.,
+datacenter → block → rack → host). Up to 2 additional slice layers
+(`AdditionalSliceLayers`) can be specified beyond the first slice layer, for a
+total of 3 slice layers. Each additional layer must reference a topology level
+strictly lower (deeper) than the previous layer, and its size must evenly divide
+the parent layer's size. This feature is gated by `TASMultiLayerTopology`
+(alpha, disabled by default since v0.17).
+
+In two-level scheduling, below the outermost slice level the algorithm
+distributes individual pods (unit size = 1). With multi-level, a
+`sliceSizeAtLevel` map records the required group size at each intermediate
+level. During the downward traversal, the algorithm looks up this map to
+distribute pods in correctly-sized groups rather than individually. Before
+assigning groups at a given inner level, the algorithm recomputes `sliceState`
+on the child domains as `state / innerSliceSize`, since the `sliceState`
+populated during phase 1 reflects only the outermost slice size. The same
+sorting and selection logic (BestFit / LeastFreeCapacity) is applied at each
+level.
+
+#### Example
+
+Consider a topology with 3 levels: block → rack → host. A block contains 2
+racks, and each rack contains 4 hosts. Each host can accommodate 8 pods. The
+PodSet has 64 pods with `sliceSize=32` at the block level and one additional
+slice layer with `sliceSize=16` at the rack level.
+
+| Phase | Level | Action                                                                                                                                                                       |
+|-------|-------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 1     | block | Each block has capacity 64 pods. `sliceState` = 64/32 = 2 slices per block. Select the block with the best fit - one block hosts all 64 pods (2 slices).                     |
+| 2     | rack  | `sliceSizeAtLevel` gives 16 at the rack level. Recompute child `sliceState` = 32/16 = 2. Distribute 64 pods across 2 racks in groups of 16: each rack gets 32 pods (2 × 16). |
+| 3     | host  | No further slice layer, so `sliceSizeAtLevel` = 1. Distribute 32 pods per rack across 4 hosts individually: each host gets 8 pods.                                           |
 
 ### Cross-PodSet Topology Aware scheduling
 

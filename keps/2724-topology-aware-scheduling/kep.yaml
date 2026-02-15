@@ -46,6 +46,7 @@ feature-gates:
   - name: TASReplaceNodeOnPodTermination
   - name: TASBalancedPlacement
   - name: TASReplaceNodeOnNodeTaints
+  - name: TASMultiLayerTopology
 disable-supported: true
 
 # The following PRR answers are required at beta release
