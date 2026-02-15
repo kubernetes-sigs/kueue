@@ -122,7 +122,7 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		cCache := schdcache.New(mgr.GetClient())
-		queues := qcache.NewManager(mgr.GetClient(), cCache)
+		queues := qcache.NewManagerForIntegrationTests(mgr.GetClient(), cCache)
 
 		// Core controllers
 		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil)

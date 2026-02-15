@@ -7497,7 +7497,7 @@ func TestSchedule(t *testing.T) {
 				cl := clientBuilder.Build()
 				recorder := &utiltesting.EventRecorder{}
 				cqCache := schdcache.New(cl)
-				qManager := qcache.NewManager(cl, cqCache)
+				qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 				// Workloads are loaded into queues or clusterQueues as we add them.
 				for _, q := range allQueues {
 					if err := qManager.AddLocalQueue(ctx, &q); err != nil {
@@ -8661,7 +8661,7 @@ func TestLastSchedulingContext(t *testing.T) {
 				recorder := broadcaster.NewRecorder(scheme,
 					corev1.EventSource{Component: constants.AdmissionName})
 				cqCache := schdcache.New(cl)
-				qManager := qcache.NewManager(cl, cqCache)
+				qManager, watcher := qcache.NewManagerForUnitTestsWithRequeuer(cl, cqCache)
 				// Workloads are loaded into queues or clusterQueues as we add them.
 				for _, q := range queues {
 					if err := qManager.AddLocalQueue(ctx, &q); err != nil {
@@ -8726,6 +8726,7 @@ func TestLastSchedulingContext(t *testing.T) {
 					}
 					qManager.QueueAssociatedInadmissibleWorkloadsAfter(ctx, workload.Key(&wl), nil)
 				}
+				watcher.ProcessRequeues(ctx)
 
 				scheduler.schedule(ctx)
 				wg.Wait()
@@ -8856,7 +8857,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 			broadcaster := record.NewBroadcaster()
 			recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
 			cqCache := schdcache.New(cl)
-			qManager := qcache.NewManager(cl, cqCache)
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 			scheduler := New(qManager, cqCache, cl, recorder)
 			if err := qManager.AddLocalQueue(ctx, q1); err != nil {
 				t.Fatalf("Inserting queue %s/%s in manager: %v", q1.Namespace, q1.Name, err)
@@ -9239,7 +9240,7 @@ func TestSchedulerWhenWorkloadModifiedConcurrently(t *testing.T) {
 				recorder := &utiltesting.EventRecorder{}
 
 				cqCache := schdcache.New(cl)
-				qManager := qcache.NewManager(cl, cqCache)
+				qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 
 				cqCache.AddOrUpdateResourceFlavor(log, rf.DeepCopy())
 				if err := cqCache.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {

@@ -287,7 +287,7 @@ func TestDefault(t *testing.T) {
 
 			kClient := utiltesting.NewClientBuilder().WithObjects(testNamespace.Obj()).Build()
 			cqCache := schdcache.New(kClient)
-			queueManager := qcache.NewManager(kClient, cqCache)
+			queueManager := qcache.NewManagerForUnitTests(kClient, cqCache)
 
 			cq := testClusterQueue.Clone()
 			if tc.withMultiKueueAdmissionCheck {

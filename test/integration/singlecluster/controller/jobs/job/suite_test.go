@@ -103,7 +103,7 @@ func managerAndControllersSetup(
 		mgr.GetScheme().Default(configuration)
 
 		cCache := schdcache.New(mgr.GetClient())
-		queues := qcache.NewManager(mgr.GetClient(), cCache)
+		queues := qcache.NewManagerForIntegrationTests(mgr.GetClient(), cCache)
 
 		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
