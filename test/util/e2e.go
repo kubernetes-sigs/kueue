@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -46,6 +47,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -636,4 +638,29 @@ func GetKubernetesVersion(cfg *rest.Config) string {
 
 	gomega.Expect(err).To(gomega.Succeed())
 	return ver.String()
+}
+
+// GetPodLogs retrieves the logs for a specific container in a pod.
+func GetPodLogs(ctx context.Context, cfg *rest.Config, pod *corev1.Pod, containerName string) (string, error) {
+	clientset, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return "", fmt.Errorf("failed to create clientset: %w", err)
+	}
+
+	req := clientset.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{
+		Container: containerName,
+	})
+
+	podLogs, err := req.Stream(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to get log stream: %w", err)
+	}
+	defer podLogs.Close()
+
+	logs, err := io.ReadAll(podLogs)
+	if err != nil {
+		return "", fmt.Errorf("failed to read logs: %w", err)
+	}
+
+	return string(logs), nil
 }
