@@ -267,7 +267,7 @@ The way the scheduler chooses the queue heads and the assignment mode it chooses
 is not impacted by this design at all. The flavor assigner does not consider the gate at all,
 the gate is only handled after all assignments have been made.
 
-This means that the order of flavor defined in a `ClusterQueue`'s [`ResourceGroups`](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#resource-groups)
+This means that the order of flavors defined in a `ClusterQueue`'s [`ResourceGroups`](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#resource-groups)
 can have an impact on whether the preemption gate is triggered or not, depending on the specified `FlavorFungibility` and quota availability.
 
 For example, with the following configuration:
@@ -310,7 +310,7 @@ An update (for example the gate being lifted) will requeue the workload. When it
 
   In practice, this means that in the `BestEffortFIFO` strategy, newer workloads or workloads of lower priority can "leapfrog" the gated one.
 
-  When the gate is deactiated, the workload will rely on the defined preemption policy to choose its preemption targets. Most notably:
+  When the gate is deactivated, the workload will rely on the defined preemption policy to choose its preemption targets. Most notably:
     * `LowerPriority` - equal priority workloads that have overtaken the ungated workload will continue running.
     This impacts the first-in-first-out semantics, as newer workloads will block the older one.
     * `LowerOrNewerEqualPriority` - equal priority workloads that have overtaken the ungated workload can be preempted.
@@ -379,7 +379,7 @@ For example, if two flavors (A & B, specified in this order) are defined alongsi
 |              	| Quota 	| `preemption-gated`                 	| `cannot-preempt`      	|
 |--------------	|-------	|------------------------------------	|-----------------------	|
 | **Flavor A** 	| Full  	| Assign & Signal Gate               	| Skip (Cannot Preempt) 	|
-| **Flavor B** 	| Free  	| Not considered (Falvor A Assigned) 	| Assign & Admit        	|
+| **Flavor B** 	| Free  	| Not considered (Flavor A Assigned) 	| Assign & Admit        	|
 
 The behavior of `cannot-preempt` can be achieved by combining the `preemption-gated` annotation with the `whenCanPreempt: TryNextFlavor` configuration.
 This leaves more control in the user's hands and does not change the existing semantics of admission, reducing confusion.
@@ -419,7 +419,7 @@ like a multiple of `terminationGracePeriodSeconds` which is given for the preemp
 or some way to read what the value is on the worker cluster (the worker clusters can have different grace periods).
 1. Regardless of which value is used as the baseline for the automated default, the logic would unnecessarily complicate the configuration of the feature.
 
-#### Create the `QuotaReservationBlocked` Condition
+### Create the `QuotaReservationBlocked` Condition
 
 Instead of using `LastTriggeredTime`, a new `QuotaReservationBlocked` Condition could be added to signalize that the quota cannot be reserved due to a preemption gate.
 
