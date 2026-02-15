@@ -25,6 +25,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -36,6 +37,8 @@ import (
 	statefulsettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 )
 
+const testUID = types.UID("sts")
+
 var (
 	baseCmpOpts = cmp.Options{
 		cmpopts.EquateEmpty(),
@@ -45,6 +48,7 @@ var (
 
 func TestReconciler(t *testing.T) {
 	now := time.Now()
+	wlName := GetWorkloadName(testUID, "sts")
 	cases := map[string]struct {
 		stsKey          client.ObjectKey
 		statefulSet     *appsv1.StatefulSet
@@ -59,120 +63,203 @@ func TestReconciler(t *testing.T) {
 			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
 			pods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					ManagedByKueueLabel().
+					Label(podconstants.GroupNameLabel, wlName).
+					OwnerReference("sts", gvk).
 					KueueFinalizer().
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
 				*testingjobspod.MakePod("pod2", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					ManagedByKueueLabel().
+					Label(podconstants.GroupNameLabel, wlName).
+					OwnerReference("sts", gvk).
 					KueueFinalizer().
 					StatusPhase(corev1.PodFailed).
 					Obj(),
 				*testingjobspod.MakePod("pod3", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					ManagedByKueueLabel().
+					Label(podconstants.GroupNameLabel, wlName).
+					OwnerReference("sts", gvk).
 					KueueFinalizer().
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					ManagedByKueueLabel().
+					Label(podconstants.GroupNameLabel, wlName).
+					OwnerReference("sts", gvk).
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
 				*testingjobspod.MakePod("pod2", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					ManagedByKueueLabel().
+					Label(podconstants.GroupNameLabel, wlName).
+					OwnerReference("sts", gvk).
 					StatusPhase(corev1.PodFailed).
 					Obj(),
 				*testingjobspod.MakePod("pod3", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					ManagedByKueueLabel().
+					Label(podconstants.GroupNameLabel, wlName).
+					OwnerReference("sts", gvk).
 					Obj(),
 			},
 		},
 		"statefulset with finished pods": {
 			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID(string(testUID)).
 				Replicas(0).
 				Queue("lq").
 				DeepCopy(),
 			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID(string(testUID)).
 				Replicas(0).
 				Queue("lq").
 				DeepCopy(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(wlName, "ns").
+					OwnerReference(gvk, "sts", string(testUID)).
+					Obj(),
+			},
 			pods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					Label("app", "sts-pod").
+					Label(podconstants.GroupNameLabel, wlName).
+					ManagedByKueueLabel().
+					OwnerReference("sts", gvk).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					KueueFinalizer().
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
 				*testingjobspod.MakePod("pod2", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					Label("app", "sts-pod").
+					Label(podconstants.GroupNameLabel, wlName).
+					ManagedByKueueLabel().
+					OwnerReference("sts", gvk).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					KueueFinalizer().
 					StatusPhase(corev1.PodFailed).
 					Obj(),
 				*testingjobspod.MakePod("pod3", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					Label("app", "sts-pod").
+					Label(podconstants.GroupNameLabel, wlName).
+					ManagedByKueueLabel().
+					OwnerReference("sts", gvk).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					KueueFinalizer().
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					Label("app", "sts-pod").
+					Label(podconstants.GroupNameLabel, wlName).
+					ManagedByKueueLabel().
+					OwnerReference("sts", gvk).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
 				*testingjobspod.MakePod("pod2", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					Label("app", "sts-pod").
+					Label(podconstants.GroupNameLabel, wlName).
+					ManagedByKueueLabel().
+					OwnerReference("sts", gvk).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					StatusPhase(corev1.PodFailed).
 					Obj(),
 				*testingjobspod.MakePod("pod3", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					Label("app", "sts-pod").
+					Label(podconstants.GroupNameLabel, wlName).
+					ManagedByKueueLabel().
+					OwnerReference("sts", gvk).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					KueueFinalizer().
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(wlName, "ns").
 					Obj(),
 			},
 		},
 		"statefulset with update revision": {
 			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID(string(testUID)).
 				Queue("lq").
 				CurrentRevision("1").
 				UpdateRevision("2").
 				DeepCopy(),
 			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID(string(testUID)).
 				Queue("lq").
 				CurrentRevision("1").
 				UpdateRevision("2").
 				DeepCopy(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(wlName, "ns").
+					OwnerReference(gvk, "sts", string(testUID)).
+					Obj(),
+			},
 			pods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					Label("app", "sts-pod").
+					Label(podconstants.GroupNameLabel, wlName).
 					Label(appsv1.ControllerRevisionHashLabelKey, "1").
+					ManagedByKueueLabel().
+					OwnerReference("sts", gvk).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Gate(podconstants.SchedulingGateName).
 					KueueFinalizer().
 					Obj(),
 				*testingjobspod.MakePod("pod2", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					Label("app", "sts-pod").
+					Label(podconstants.GroupNameLabel, wlName).
 					Label(appsv1.ControllerRevisionHashLabelKey, "1").
+					ManagedByKueueLabel().
+					OwnerReference("sts", gvk).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					KueueFinalizer().
 					Obj(),
 				*testingjobspod.MakePod("pod3", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					Label("app", "sts-pod").
+					Label(podconstants.GroupNameLabel, wlName).
 					Label(appsv1.ControllerRevisionHashLabelKey, "2").
+					ManagedByKueueLabel().
+					OwnerReference("sts", gvk).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Gate(podconstants.SchedulingGateName).
 					KueueFinalizer().
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					Label("app", "sts-pod").
+					Label(podconstants.GroupNameLabel, wlName).
 					Label(appsv1.ControllerRevisionHashLabelKey, "1").
+					ManagedByKueueLabel().
+					OwnerReference("sts", gvk).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Obj(),
 				*testingjobspod.MakePod("pod2", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					Label("app", "sts-pod").
+					Label(podconstants.GroupNameLabel, wlName).
 					Label(appsv1.ControllerRevisionHashLabelKey, "1").
+					ManagedByKueueLabel().
+					OwnerReference("sts", gvk).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Obj(),
 				*testingjobspod.MakePod("pod3", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					Label("app", "sts-pod").
+					Label(podconstants.GroupNameLabel, wlName).
 					Label(appsv1.ControllerRevisionHashLabelKey, "2").
+					ManagedByKueueLabel().
+					OwnerReference("sts", gvk).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Gate(podconstants.SchedulingGateName).
 					KueueFinalizer().
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(wlName, "ns").
+					OwnerReference(gvk, "sts", string(testUID)).
 					Obj(),
 			},
 		},
@@ -183,7 +270,7 @@ func TestReconciler(t *testing.T) {
 				Queue("lq").
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload(GetWorkloadName("sts"), "ns").
+				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID("sts-uid"), "sts"), "ns").
 					Obj(),
 			},
 			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
@@ -191,7 +278,7 @@ func TestReconciler(t *testing.T) {
 				Queue("lq").
 				DeepCopy(),
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload(GetWorkloadName("sts"), "ns").
+				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID("sts-uid"), "sts"), "ns").
 					OwnerReference(gvk, "sts", "sts-uid").
 					Obj(),
 			},
@@ -203,7 +290,7 @@ func TestReconciler(t *testing.T) {
 				Queue("lq").
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload(GetWorkloadName("sts"), "ns").
+				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID("sts-uid"), "sts"), "ns").
 					Obj(),
 			},
 			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
@@ -211,7 +298,7 @@ func TestReconciler(t *testing.T) {
 				Queue("lq").
 				DeepCopy(),
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload(GetWorkloadName("sts"), "ns").
+				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID("sts-uid"), "sts"), "ns").
 					OwnerReference(gvk, "sts", "sts-uid").
 					Obj(),
 			},
@@ -224,7 +311,7 @@ func TestReconciler(t *testing.T) {
 				Replicas(0).
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload(GetWorkloadName("sts"), "ns").
+				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID("sts-uid"), "sts"), "ns").
 					OwnerReference(gvk, "sts", "sts-uid").
 					Obj(),
 			},
@@ -234,28 +321,107 @@ func TestReconciler(t *testing.T) {
 				Replicas(0).
 				DeepCopy(),
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload(GetWorkloadName("sts"), "ns").
+				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID("sts-uid"), "sts"), "ns").
+					Obj(),
+			},
+		},
+		"statefulset not found with orphaned pods (no ownerRef)": {
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			pods: []corev1.Pod{
+				*testingjobspod.MakePod("sts-0", "ns").
+					ManagedByKueueLabel().
+					Label(podconstants.GroupNameLabel, wlName).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					KueueFinalizer().
+					StatusPhase(corev1.PodSucceeded).
+					Obj(),
+				*testingjobspod.MakePod("sts-1", "ns").
+					ManagedByKueueLabel().
+					Label(podconstants.GroupNameLabel, wlName).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					KueueFinalizer().
+					StatusPhase(corev1.PodFailed).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("sts-0", "ns").
+					ManagedByKueueLabel().
+					Label(podconstants.GroupNameLabel, wlName).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					StatusPhase(corev1.PodSucceeded).
+					Obj(),
+				*testingjobspod.MakePod("sts-1", "ns").
+					ManagedByKueueLabel().
+					Label(podconstants.GroupNameLabel, wlName).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					StatusPhase(corev1.PodFailed).
+					Obj(),
+			},
+		},
+		"statefulset not found with orphaned pods should not match wrong name pattern": {
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			pods: []corev1.Pod{
+				*testingjobspod.MakePod("other-pod-xyz", "ns").
+					ManagedByKueueLabel().
+					Label(podconstants.GroupNameLabel, wlName).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					KueueFinalizer().
+					Obj(),
+				*testingjobspod.MakePod("sts-notanumber", "ns").
+					ManagedByKueueLabel().
+					Label(podconstants.GroupNameLabel, wlName).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					KueueFinalizer().
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("other-pod-xyz", "ns").
+					ManagedByKueueLabel().
+					Label(podconstants.GroupNameLabel, wlName).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					KueueFinalizer().
+					Obj(),
+				*testingjobspod.MakePod("sts-notanumber", "ns").
+					ManagedByKueueLabel().
+					Label(podconstants.GroupNameLabel, wlName).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					KueueFinalizer().
 					Obj(),
 			},
 		},
 		"should finalize deleted pod": {
 			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID(string(testUID)).
 				Replicas(0).
 				Queue("lq").
 				DeepCopy(),
 			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID(string(testUID)).
 				Replicas(0).
 				Queue("lq").
 				DeepCopy(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(wlName, "ns").
+					OwnerReference(gvk, "sts", string(testUID)).
+					Obj(),
+			},
 			pods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					Label("app", "sts-pod").
+					Label(podconstants.GroupNameLabel, wlName).
+					ManagedByKueueLabel().
+					OwnerReference("sts", gvk).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					KueueFinalizer().
 					DeletionTimestamp(now).
 					Obj(),
 			},
 			wantPods: nil,
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(wlName, "ns").
+					Obj(),
+			},
 		},
 	}
 	for name, tc := range cases {
@@ -317,7 +483,7 @@ func TestReconciler(t *testing.T) {
 			}
 
 			if diff := cmp.Diff(tc.wantWorkloads, gotWorkloadList.Items, baseCmpOpts...); diff != "" {
-				t.Errorf("Pods after reconcile (-want,+got):\n%s", diff)
+				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
 			}
 		})
 	}
