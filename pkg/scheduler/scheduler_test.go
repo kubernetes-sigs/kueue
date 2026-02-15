@@ -173,7 +173,6 @@ func TestSchedule(t *testing.T) {
 	}
 	cases := map[string]struct {
 		// Features
-		disableLendingLimit               bool
 		disablePartialAdmission           bool
 		enableFairSharing                 bool
 		enableElasticJobsViaWorkloadSlice bool
@@ -1165,71 +1164,6 @@ func TestSchedule(t *testing.T) {
 			},
 			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"lend-b": {"lend/b"},
-			},
-		},
-		"lendingLimit should not affect assignments when feature disabled": {
-			disableLendingLimit: true,
-			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("a", "lend").
-					Request(corev1.ResourceCPU, "2").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission("lend-b").
-						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "2000m").
-							Obj()).
-						Obj(), now).
-					Obj(),
-				*utiltestingapi.MakeWorkload("b", "lend").
-					Queue("lend-b-queue").
-					Request(corev1.ResourceCPU, "3").
-					Obj(),
-			},
-			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("a", "lend").
-					Request(corev1.ResourceCPU, "2").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission("lend-b").
-						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "2000m").
-							Obj()).
-						Obj(), now).
-					Obj(),
-				*utiltestingapi.MakeWorkload("b", "lend").
-					Queue("lend-b-queue").
-					Request(corev1.ResourceCPU, "3").
-					Condition(metav1.Condition{
-						Type:               kueue.WorkloadQuotaReserved,
-						Status:             metav1.ConditionTrue,
-						Reason:             "QuotaReserved",
-						Message:            "Quota reserved in ClusterQueue lend-b",
-						LastTransitionTime: metav1.NewTime(now),
-					}).
-					Condition(metav1.Condition{
-						Type:               kueue.WorkloadAdmitted,
-						Status:             metav1.ConditionTrue,
-						Reason:             "Admitted",
-						Message:            "The workload is admitted",
-						LastTransitionTime: metav1.NewTime(now),
-					}).
-					Admission(
-						utiltestingapi.MakeAdmission("lend-b").
-							PodSets(utiltestingapi.MakePodSetAssignment("main").
-								Assignment(corev1.ResourceCPU, "default", "3").
-								Count(1).
-								Obj()).
-							Obj(),
-					).
-					Obj(),
-			},
-			wantAssignments: map[workload.Reference]kueue.Admission{
-				"lend/a": *utiltestingapi.MakeAdmission("lend-b").
-					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-						Assignment(corev1.ResourceCPU, "default", "2000m").
-						Obj()).
-					Obj(),
-				"lend/b": *utiltestingapi.MakeAdmission("lend-b").
-					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-						Assignment(corev1.ResourceCPU, "default", "3000m").
-						Obj()).
-					Obj(),
 			},
 		},
 		// Cohorts in UPPERCASE, ClusterQueues in lowercase.
@@ -7707,9 +7641,6 @@ func TestSchedule(t *testing.T) {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
 				metrics.AdmissionCyclePreemptionSkips.Reset()
-				if tc.disableLendingLimit {
-					features.SetFeatureGateDuringTest(t, features.LendingLimit, false)
-				}
 				if tc.disablePartialAdmission {
 					features.SetFeatureGateDuringTest(t, features.PartialAdmission, false)
 				}

@@ -199,7 +199,6 @@ func TestAssignFlavors(t *testing.T) {
 		secondaryClusterQueueUsage          resources.FlavorResourceQuantities
 		wantRepMode                         FlavorAssignmentMode
 		wantAssignment                      Assignment
-		disableLendingLimit                 bool
 		enableFairSharing                   bool
 		simulationResult                    map[resources.FlavorResource]simulationResultForFlavor
 		elasticJobsViaWorkloadSlicesEnabled bool
@@ -3304,9 +3303,6 @@ func TestAssignFlavors(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
-			if tc.disableLendingLimit {
-				features.SetFeatureGateDuringTest(t, features.LendingLimit, false)
-			}
 			for fg, enabled := range tc.featureGates {
 				features.SetFeatureGateDuringTest(t, fg, enabled)
 			}
