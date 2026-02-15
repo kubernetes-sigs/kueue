@@ -32,7 +32,7 @@
 ## Summary
 
 This KEP proposes extending Fair Sharing to account for heterogeneous ResourceFlavors
-when computing Dominant Resource Share (DRS), by applying configurable per-(flavor, resource)
+when computing Dominant Resource Share (DRS). This is done by applying configurable per-(flavor, resource)
 weights to borrowing/lendable aggregation.
 
 ## Motivation
@@ -54,6 +54,8 @@ which can skew admission ordering and Fair Sharing preemption decisions in heter
 - Change quota semantics (nominal/borrowing/lending limits) outside of how DRS is computed.
 
 ## Proposal
+
+### Overview
 
 - **API**: Add `ResourceFlavor.spec.resourceWeights`, a per-resource scalar multiplier.
 - **Behavior**: Compute DRS using weights per $(flavor, resource)$ when aggregating borrowing and lendable capacity across flavors. This weighted DRS is then used anywhere Fair Sharing compares DRS (for example admission ordering within a cohort and Fair Sharing preemption).
@@ -79,7 +81,7 @@ capacity to contribute less to Fair Sharing DRS than borrowing of scarce/premium
 
 **Problem I see with today’s flavor-agnostic DRS**
 
-At $T_0$, Team-B is using all `h100-reserved` GPUs and has 5000 pending workloads. Team-A submits 8000 workloads that tolerate both `h100-reserved` and `a10-spot`. Team-A preempts 10 Team-B workloads to reach its `h100-reserved` nominal quota, and borrows all `a10-spot` GPUs.
+At $T_0$, Team-B is using all 100 `h100-reserved` GPUs and has 5000 pending workloads. Team-A submits 8000 workloads that tolerate both `h100-reserved` and `a10-spot`. Team-A preempts 10 Team-B workloads to reach its `h100-reserved` nominal quota, and borrows all `a10-spot` GPUs.
 
 At $T_1$, Team-A’s 10 `h100-reserved` workloads complete. I expect Team-A’s next workloads to be scheduled on `h100-reserved` (within its nominal quota of 10), but Team-B’s workloads get scheduled first. Because DRS is flavor-agnostic, Team-A’s large borrowing of `a10-spot` inflates its `nvidia.com/gpu` DRS, disfavoring it in Fair Sharing admission ordering. The same DRS is also used by Fair Sharing preemption rules, which can block Team-A from reclaiming `h100-reserved` even when it is trying to stay within nominal quota.
 
@@ -206,6 +208,7 @@ this enhancement.
 
 - API field available, documented, and defaulted to no-op (1.0).
 - DRS implementation weighted as described; unit tests added.
+- This change is opt-in via ResourceFlavor.spec.resourceWeights; when unset, behavior is unchanged. So, no feature gate is required.
 
 #### Beta
 
