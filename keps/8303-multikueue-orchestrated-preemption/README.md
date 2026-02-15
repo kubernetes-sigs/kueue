@@ -180,10 +180,10 @@ type PreemptionGateState struct {
   State GateState `json:"state"`
 
   // lastTriggeredTime is the last time the gate was triggered, i.e. prevented a workload from preempting.
-  // +required
+  // +optional
   // +kubebuilder:validation:Type=string
   // +kubebuilder:validation:Format=date-time
-  LastTriggeredTime metav1.Time `json:"lastTriggeredTime,omitempty,omitzero"`
+  LastTriggeredTime *metav1.Time `json:"lastTriggeredTime,omitempty"`
 
   // lastTransitionTime is the last time the gate transitioned from one status to another.
   // +required
