@@ -1149,6 +1149,19 @@ func ExpectJobToBeCompleted(ctx context.Context, c client.Client, job *batchv1.J
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 
+// CountAdmittedWorkloads returns the number of admitted workloads in the given namespace
+func CountAdmittedWorkloads(ctx context.Context, k8sClient client.Client, g gomega.Gomega, namespace string) int {
+	workloads := &kueue.WorkloadList{}
+	g.Expect(k8sClient.List(ctx, workloads, &client.ListOptions{Namespace: namespace})).To(gomega.Succeed())
+	count := 0
+	for i := range workloads.Items {
+		if workload.IsAdmitted(&workloads.Items[i]) {
+			count++
+		}
+	}
+	return count
+}
+
 func UpdateReclaimablePods(ctx context.Context, c client.Client, wl *kueue.Workload, reclaimablePods []kueue.ReclaimablePod) {
 	ginkgo.GinkgoHelper()
 	createdWl := &kueue.Workload{}
