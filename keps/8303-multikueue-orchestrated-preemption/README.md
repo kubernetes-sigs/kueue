@@ -144,8 +144,9 @@ There are several advantages to extending both the `spec` and `status`:
 1. It gives the "created blocked" guarantee that avoids race conditions.
     * The presence of the gate in the spec allows for the workload can be created atomically with the gate.
     * This avoids race conditions between when the status of the gate is created and the Kueue scheduling cycle.
-    * **Note**: The case where the `status.PreemptionGateStates` is empty, but `spec.PreemptionGates` is present still
-    has to be accounted for to make absolutely sure newly created workloads are gated.
+    * **Important**: The case where the `status.PreemptionGateStates` is empty, but `spec.PreemptionGates` is present still
+    has to be accounted for to make absolutely sure newly created workloads are gated. **Preemption gates without status are
+    active by default**.
 
 The API will be defined as follows:
 
@@ -233,6 +234,7 @@ type MultiKueue struct {
 
 When a workload is submitted to MultiKueue, its remote replicas will automatically be assigned the `kueue.x-k8s.io/multikueue` preemption gate
 via its `spec`. This will prevent any of the replicas from triggering a preemption until allowed by the manager controller.
+The `status` of the remote workloads will be updated with the `PreemptionGateState` by a workload controller running on the worker clusters.
 
 A manager-level preemption orchestration controller will be responsible for ungating the replicated workloads.
 This controller will watch for workloads to change their `LastTriggeredTime` and idempotently react to such changes:
