@@ -172,16 +172,22 @@ func IndexOwnerUID(obj client.Object) []string {
 }
 
 // IndexPodWorkloadSliceName indexes pods by their workload slice name annotation.
+// Uses WorkloadSliceNameAnnotation if present, otherwise falls back to WorkloadAnnotation
+// for non-elastic workloads.
 func IndexPodWorkloadSliceName(obj client.Object) []string {
 	pod, ok := obj.(*corev1.Pod)
 	if !ok {
 		return nil
 	}
-	value, found := pod.Annotations[kueue.WorkloadSliceNameAnnotation]
-	if !found {
-		return nil
+	// Prefer workload slice name annotation for elastic workloads
+	if value, found := pod.Annotations[kueue.WorkloadSliceNameAnnotation]; found {
+		return []string{value}
 	}
-	return []string{value}
+	// Fall back to workload annotation for non-elastic workloads
+	if value, found := pod.Annotations[kueue.WorkloadAnnotation]; found {
+		return []string{value}
+	}
+	return nil
 }
 
 func IndexWorkloadAdmissionCheck(obj client.Object) []string {

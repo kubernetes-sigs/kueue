@@ -38,15 +38,16 @@ import (
 
 // PodSetTestCase defines a test case for a single podset in the consolidated test.
 type PodSetTestCase struct {
-	podSetName      string
-	topologyRequest *kueue.PodSetTopologyRequest
-	requests        resources.Requests
-	count           int32
-	tolerations     []corev1.Toleration
-	nodeSelector    map[string]string
-	podSetGroupName *string
-	wantAssignment  *tas.TopologyAssignment
-	wantReason      string
+	podSetName         string
+	topologyRequest    *kueue.PodSetTopologyRequest
+	requests           resources.Requests
+	count              int32
+	tolerations        []corev1.Toleration
+	nodeSelector       map[string]string
+	podSetGroupName    *string
+	previousAssignment *kueue.TopologyAssignment
+	wantAssignment     *tas.TopologyAssignment
+	wantReason         string
 }
 
 func TestFindTopologyAssignments(t *testing.T) {
@@ -5983,6 +5984,201 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 		},
+		"elastic workload scale up: delta-only placement preserves previous assignment": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x3").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained: ptr.To(true),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 4,
+				previousAssignment: tas.V1Beta2From(&tas.TopologyAssignment{
+					Levels: []string{corev1.LabelHostname},
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 2, Values: []string{"x1"}},
+					},
+				}),
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: []string{corev1.LabelHostname},
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 2, Values: []string{"x1"}},
+						{Count: 2, Values: []string{"x2"}},
+					},
+				},
+			}},
+			enableFeatureGates: []featuregate.Feature{features.ElasticJobsViaWorkloadSlices, features.ElasticJobsViaWorkloadSlicesWithTAS},
+		},
+		"elastic workload scale up: spread across multiple nodes preserved": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x3").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained: ptr.To(true),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 4,
+				previousAssignment: tas.V1Beta2From(&tas.TopologyAssignment{
+					Levels: []string{corev1.LabelHostname},
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 1, Values: []string{"x1"}},
+						{Count: 1, Values: []string{"x2"}},
+					},
+				}),
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: []string{corev1.LabelHostname},
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 1, Values: []string{"x1"}},
+						{Count: 1, Values: []string{"x2"}},
+						{Count: 2, Values: []string{"x3"}},
+					},
+				},
+			}},
+			enableFeatureGates: []featuregate.Feature{features.ElasticJobsViaWorkloadSlices, features.ElasticJobsViaWorkloadSlicesWithTAS},
+		},
+		"elastic workload scale down: truncates assignment": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained: ptr.To(true),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 3,
+				previousAssignment: tas.V1Beta2From(&tas.TopologyAssignment{
+					Levels: []string{corev1.LabelHostname},
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 3, Values: []string{"x1"}},
+						{Count: 2, Values: []string{"x2"}},
+					},
+				}),
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: []string{corev1.LabelHostname},
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 3, Values: []string{"x1"}},
+					},
+				},
+			}},
+			enableFeatureGates: []featuregate.Feature{features.ElasticJobsViaWorkloadSlices, features.ElasticJobsViaWorkloadSlicesWithTAS},
+		},
+		"elastic workload same count: reuses previous assignment exactly": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained: ptr.To(true),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 3,
+				previousAssignment: tas.V1Beta2From(&tas.TopologyAssignment{
+					Levels: []string{corev1.LabelHostname},
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 2, Values: []string{"x1"}},
+						{Count: 1, Values: []string{"x2"}},
+					},
+				}),
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: []string{corev1.LabelHostname},
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 2, Values: []string{"x1"}},
+						{Count: 1, Values: []string{"x2"}},
+					},
+				},
+			}},
+			enableFeatureGates: []featuregate.Feature{features.ElasticJobsViaWorkloadSlices, features.ElasticJobsViaWorkloadSlicesWithTAS},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -6036,8 +6232,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 							},
 						},
 					},
-					SinglePodRequests: ps.requests,
-					Count:             ps.count,
+					SinglePodRequests:  ps.requests,
+					Count:              ps.count,
+					PreviousAssignment: ps.previousAssignment,
 				}
 				if ps.podSetGroupName != nil {
 					tasInput.PodSetGroupName = ps.podSetGroupName
