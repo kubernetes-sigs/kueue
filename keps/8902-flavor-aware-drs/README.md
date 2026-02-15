@@ -38,8 +38,7 @@ weights to borrowing/lendable aggregation.
 ## Motivation
 
 Today, DRS aggregates borrowing by **resource type** across flavors. This treats all
-`nvidia.com/gpu` as equivalent regardless of the underlying flavor (for example H100 vs A10),
-which can skew admission ordering and Fair Sharing preemption decisions in heterogeneous clusters.
+`nvidia.com/gpu` as equivalent regardless of the underlying flavor’s value (for example, H100 being more powerful/scarce than A10, or reserved capacity being more valuable than spot), which can skew admission ordering and Fair Sharing preemption decisions in heterogeneous clusters.
 
 ### Goals
 
@@ -89,11 +88,11 @@ In effect, borrowing cheap A10 GPUs counts the same as borrowing premium H100 GP
 
 **How this KEP helps**
 
-With flavor-aware weights, the admin can configure per-(flavor, resource) weights so that A10 borrowing
+With flavor-aware weights, the admin can configure weights so that A10 borrowing
 contributes less to DRS than H100 borrowing, for example:
 
-- $w(a10\_spot, nvidia.com/gpu) = 1.0$
-- $w(h100\_reserved, nvidia.com/gpu) = 8.0$
+- $w(a10-spot, nvidia.com/gpu) = 1.0$
+- $w(h100-reserved, nvidia.com/gpu) = 8.0$
  
 This expresses that H100 GPUs are ~8x more valuable than A10 GPUs, and prevents
 opportunistic borrowing of many A10 GPUs from inflating DRS as if Team-A had borrowed the
