@@ -70,6 +70,10 @@ linters:
         - name: empty-lines
         - name: increment-decrement
         - name: var-naming
+          arguments:
+            - []
+            - []
+            - - skip-package-name-collision-with-go-std: true
         - name: redundant-import-alias
         - name: use-any
         - name: use-waitgroup-go
@@ -110,54 +114,6 @@ linters:
           - revive
         path: 'util/*'
         text: 'var-naming: avoid meaningless package names'
-      - linters:
-          - revive
-        path: 'cmd/kueuectl/app/list/'
-        text: 'var-naming: avoid package names that conflict with Go standard library package names'
-      - linters:
-          - revive
-        path: 'cmd/kueuectl/app/testing/'
-        text: 'var-naming: avoid package names that conflict with Go standard library package names'
-      - linters:
-          - revive
-        path: 'cmd/kueuectl/app/version/'
-        text: 'var-naming: avoid package names that conflict with Go standard library package names'
-      - linters:
-          - revive
-        path: 'pkg/metrics/'
-        text: 'var-naming: avoid package names that conflict with Go standard library package names'
-      - linters:
-          - revive
-        path: 'pkg/util/cmp/'
-        text: 'var-naming: avoid package names that conflict with Go standard library package names'
-      - linters:
-          - revive
-        path: 'pkg/util/heap/'
-        text: 'var-naming: avoid package names that conflict with Go standard library package names'
-      - linters:
-          - revive
-        path: 'pkg/util/maps/'
-        text: 'var-naming: avoid package names that conflict with Go standard library package names'
-      - linters:
-          - revive
-        path: 'pkg/util/slices/'
-        text: 'var-naming: avoid package names that conflict with Go standard library package names'
-      - linters:
-          - revive
-        path: 'pkg/util/strings/'
-        text: 'var-naming: avoid package names that conflict with Go standard library package names'
-      - linters:
-          - revive
-        path: 'pkg/util/testing/'
-        text: 'var-naming: avoid package names that conflict with Go standard library package names'
-      - linters:
-          - revive
-        path: 'pkg/version/'
-        text: 'var-naming: avoid package names that conflict with Go standard library package names'
-      - linters:
-          - revive
-        path: 'test/integration/singlecluster/importer/'
-        text: 'var-naming: avoid package names that conflict with Go standard library package names'
     paths:
       - bin
       - vendor
