@@ -2589,7 +2589,7 @@ func TestReconcile(t *testing.T) {
 				recorder := &utiltesting.EventRecorder{}
 
 				cqCache := schdcache.New(cl)
-				qManager := qcache.NewManager(cl, cqCache)
+				qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 				reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, tc.reconcilerOpts...)
 				// use a fake clock with jitter = 0 to be able to assert on the requeueAt.
 				reconciler.clock = fakeClock
@@ -2879,7 +2879,7 @@ func TestWorkloadDeletion(t *testing.T) {
 			cl := clientBuilder.Build()
 			recorder := &utiltesting.EventRecorder{}
 			cqCache := schdcache.New(cl)
-			qManager := qcache.NewManager(cl, cqCache)
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 
 			mockWatcher := mockWorkloadUpdateWatcher(qManager)
 
