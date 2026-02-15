@@ -449,6 +449,13 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			expectCohortWeightedShare(cohortSecondLeft.Name, 3.0*1000.0/14.0)
 			expectCohortWeightedShare(cohortSecondRight.Name, 3.0*1000.0/14.0)
 			expectCohortWeightedShare(cohortBank.Name, 0.0)
+
+			util.ExpectCohortNominalQuotaGaugeMetric(cohortFirstLeft.Name, defaultFlavor.Name, corev1.ResourceCPU.String(), 4_000)
+			util.ExpectCohortNominalQuotaGaugeMetric(cohortSecondLeft.Name, defaultFlavor.Name, corev1.ResourceCPU.String(), 2_000)
+			util.ExpectCohortNominalQuotaGaugeMetric(cohortSecondRight.Name, defaultFlavor.Name, corev1.ResourceCPU.String(), 2_000)
+			util.ExpectCohortNominalQuotaGaugeMetric(cohortFirstRight.Name, defaultFlavor.Name, corev1.ResourceCPU.String(), 10_000)
+			util.ExpectCohortNominalQuotaGaugeMetric(cohortBank.Name, defaultFlavor.Name, corev1.ResourceCPU.String(), 10_000)
+			util.ExpectCohortNominalQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 14_000)
 		})
 		ginkgo.It("preempts workloads to enforce fair share", framework.SlowSpec, func() {
 			// below are Cohorts and their fair
@@ -515,6 +522,13 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			util.ExpectReservingActiveWorkloadsMetric(chemistryQueue, 2)
 			util.ExpectReservingActiveWorkloadsMetric(physicsQueue, 2)
 			util.ExpectReservingActiveWorkloadsMetric(llmQueue, 4)
+
+			util.ExpectCohortNominalQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 12_000)
+			util.ExpectCohortNominalQuotaGaugeMetric("research", defaultFlavor.Name, corev1.ResourceCPU.String(), 0)
+			util.ExpectCohortNominalQuotaGaugeMetric("chemistry", defaultFlavor.Name, corev1.ResourceCPU.String(), 0)
+			util.ExpectCohortNominalQuotaGaugeMetric("physics", defaultFlavor.Name, corev1.ResourceCPU.String(), 0)
+			util.ExpectCohortNominalQuotaGaugeMetric("llm", defaultFlavor.Name, corev1.ResourceCPU.String(), 0)
+			util.ExpectCohortNominalQuotaGaugeMetric("best-effort", defaultFlavor.Name, corev1.ResourceCPU.String(), 0)
 		})
 	})
 
