@@ -383,9 +383,6 @@ For example, if two flavors (A & B, specified in this order) are defined alongsi
 | **Flavor A** 	| Full  	| Assign & Signal Gate               	| Skip (Cannot Preempt) 	|
 | **Flavor B** 	| Free  	| Not considered (Flavor A Assigned) 	| Assign & Admit        	|
 
-The behavior of `cannot-preempt` can be achieved by combining the `preemption-gated` annotation with the `whenCanPreempt: TryNextFlavor` configuration.
-This leaves more control in the user's hands and does not change the existing semantics of admission, reducing confusion.
-
 Moreover, reusing the `cannot-preempt` annotation will make it impossible for the users to express MultiKueue workloads that can **never** preempt,
 as the orchestrator controller cannot tell whether the `cannot-preempt` annotation was set by the user or itself.
 
