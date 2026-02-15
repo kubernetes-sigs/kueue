@@ -900,6 +900,185 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"ranks: fallback to greedy when replacement pod conflicts with already running pod": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+						Request(corev1.ResourceCPU, "1").
+						PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+						SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
+						SubGroupCount(ptr.To[int32](1)).
+						Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
+								Count(2).
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{tasBlockLabel, tasRackLabel, corev1.LabelHostname}).
+									Domains(
+										utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1", "n2"}, 1).Obj(), // node2
+										utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1", "n3"}, 1).Obj(), // node3
+									).
+									Obj()).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("p0-replacement", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(batchv1.JobCompletionIndexAnnotation, "0"). // rank 0
+					Label(jobset.JobIndexKey, "0").
+					Label(jobset.ReplicatedJobReplicas, "1").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					Obj(),
+				*testingpod.MakePod("p1-running", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(batchv1.JobCompletionIndexAnnotation, "1"). // rank 1
+					Label(jobset.JobIndexKey, "0").
+					Label(jobset.ReplicatedJobReplicas, "1").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					NodeSelector(corev1.LabelHostname, "n2").
+					Obj(),
+			},
+			cmpNS: true,
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("p0-replacement", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Label(jobset.JobIndexKey, "0").
+					Label(jobset.ReplicatedJobReplicas, "1").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					NodeSelector(corev1.LabelHostname, "n3").
+					Obj(),
+				*testingpod.MakePod("p1-running", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(batchv1.JobCompletionIndexAnnotation, "1").
+					Label(jobset.JobIndexKey, "0").
+					Label(jobset.ReplicatedJobReplicas, "1").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					NodeSelector(corev1.LabelHostname, "n2").
+					Obj(),
+			},
+			wantCounts: []counts{
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel:        "b1",
+						tasRackLabel:         "r1",
+						corev1.LabelHostname: "n2",
+					},
+					Count: 1,
+				},
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel:        "b1",
+						tasRackLabel:         "r1",
+						corev1.LabelHostname: "n3",
+					},
+					Count: 1,
+				},
+			},
+		},
+		// A pod that is being deleted conflicts with a new pod that needs to be ungated.
+		// That happens when a node is NotReady and a pod is deleted, the pod stays is Terminating state for a while and a replacement pod is gated for scheduling.
+		"ranks: terminating pod conflicts with new gated pod, falls back to greedy": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+						Request(corev1.ResourceCPU, "1").
+						PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+						Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
+								Count(2).
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultTestLevels).
+									Domains(
+										utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj(),
+										utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r2"}, 1).Obj(),
+									).
+									Obj()).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("p0-terminating", "ns").UID("x").
+					KueueFinalizer().
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Delete().
+					Obj(),
+				*testingpod.MakePod("p0-new", "ns").UID("y").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					Obj(),
+				*testingpod.MakePod("p1", "ns").UID("z").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(batchv1.JobCompletionIndexAnnotation, "1").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					Obj(),
+			},
+			cmpNS: true,
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("p0-new", "ns").UID("y").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r2").
+					Obj(),
+				*testingpod.MakePod("p0-terminating", "ns").UID("x").
+					KueueFinalizer().
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Delete().
+					Obj(),
+				*testingpod.MakePod("p1", "ns").UID("z").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(batchv1.JobCompletionIndexAnnotation, "1").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					Obj(),
+			},
+			wantCounts: []counts{
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b1",
+						tasRackLabel:  "r1",
+					},
+					Count: 1,
+				},
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b1",
+						tasRackLabel:  "r2",
+					},
+					Count: 1,
+				},
+			},
+		},
 		"ranks: ungate pods according to their ranks for LeaderWorkerSet - for all Pods": {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).

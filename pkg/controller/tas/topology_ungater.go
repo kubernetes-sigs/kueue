@@ -348,8 +348,10 @@ func assignGatedPodsToDomains(
 	psReq *kueue.PodSetTopologyRequest,
 	offset int32,
 	maxRank int32) []podWithDomain {
-	if rankToGatedPod, ok := readRanksIfAvailable(log, psa, pods, psReq, offset, maxRank); ok {
-		return assignGatedPodsToDomainsByRanks(psa, rankToGatedPod)
+	if rankToPod, ok := readRanksIfAvailable(log, psa, pods, psReq, offset, maxRank); ok {
+		if verifyDomainsForRanks(log, psa, rankToPod) {
+			return assignGatedPodsToDomainsByRanks(psa, rankToPod)
+		}
 	}
 	return assignGatedPodsToDomainsGreedy(log, psa, pods)
 }
@@ -455,7 +457,6 @@ func readRanksForLabels(
 	if psReq.SubGroupIndexLabel != nil {
 		singleJobSize = podSetSize / int(*psReq.SubGroupCount)
 	}
-
 	for _, pod := range pods {
 		podIndex, err := utilpod.ReadUIntFromLabelBelowBound(pod, *psReq.PodIndexLabel, int(maxRank))
 		if err != nil {
@@ -499,4 +500,41 @@ func isAdmittedByTAS(w *kueue.Workload) bool {
 			func(psa kueue.PodSetAssignment) bool {
 				return psa.TopologyAssignment != nil
 			})
+}
+
+func verifyDomainsForRanks(
+	log logr.Logger,
+	psa *kueue.PodSetAssignment,
+	rankToPod map[int]*corev1.Pod) bool {
+	totalPodCount := 0
+	for count := range utiltas.PodCounts(psa.TopologyAssignment) {
+		totalPodCount += int(count)
+	}
+	rankToDomainID := make([]utiltas.TopologyDomainID, totalPodCount)
+	index := int32(0)
+	for domain := range utiltas.InternalSeqFrom(psa.TopologyAssignment) {
+		for s := range domain.Count {
+			rankToDomainID[index+s] = utiltas.DomainID(domain.Values)
+		}
+		index += domain.Count
+	}
+
+	for rank, pod := range rankToPod {
+		if utilpod.HasGate(pod, kueue.TopologySchedulingGate) {
+			continue
+		}
+		if rank >= len(rankToDomainID) {
+			continue
+		}
+		expectedDomainID := rankToDomainID[rank]
+		levelKeys := psa.TopologyAssignment.Levels
+		podLevelValues := utiltas.LevelValues(levelKeys, pod.Spec.NodeSelector)
+		podDomainID := utiltas.DomainID(podLevelValues)
+
+		if expectedDomainID != podDomainID {
+			log.V(3).Info("Topology assignment mismatch for running pod", "pod", klog.KObj(pod), "rank", rank, "expectedDomainID", expectedDomainID, "actualDomainID", podDomainID)
+			return false
+		}
+	}
+	return true
 }
