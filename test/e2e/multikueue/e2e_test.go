@@ -1325,11 +1325,12 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						ReplicaType:   kftraining.PyTorchJobReplicaTypeMaster,
 						ReplicaCount:  1,
 						RestartPolicy: "Never",
+						Image:         util.GetAgnHostImage(),
+						Args:          util.BehaviorExitFast,
 					},
 				).
 				RequestAndLimit(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "1").
 				RequestAndLimit(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceMemory, "1600M").
-				Image(kftraining.PyTorchJobReplicaTypeMaster, util.GetAgnHostImage(), util.BehaviorExitFast).
 				Obj()
 
 			ginkgo.By("Creating the PyTorchJob", func() {
