@@ -31,19 +31,15 @@
 
 ## Summary
 
-This KEP proposes extending Fair Sharing to account for heterogeneous ResourceFlavors
-when computing Dominant Resource Share (DRS). This is done by applying configurable per-(flavor, resource)
-weights to borrowing/lendable aggregation.
+This KEP proposes extending Fair Sharing to account for heterogeneous ResourceFlavors when computing Dominant Resource Share (DRS). This is done by applying configurable per-(flavor, resource) weights to borrowing/lendable aggregation.
 
 ## Motivation
 
-Today, DRS aggregates borrowing by **resource type** across flavors. This treats all
-`nvidia.com/gpu` as equivalent regardless of the underlying flavor’s value (for example, H100 being more powerful/scarce than A10, or reserved capacity being more valuable than spot), which can skew admission ordering and Fair Sharing preemption decisions in heterogeneous clusters.
+Today, DRS aggregates borrowing by **resource type** across flavors. This treats all `nvidia.com/gpu` as equivalent regardless of the underlying flavor’s value (for example, H100 being more powerful/scarce than A10, or reserved capacity being more valuable than spot), which can skew admission ordering and Fair Sharing preemption decisions in heterogeneous clusters.
 
 ### Goals
 
-- Allow administrators to express relative value/cost differences between flavors for a
-  given resource type.
+- Allow administrators to express relative value/cost differences between flavors for a given resource type.
 - Make DRS and Fair Sharing decisions reflect weighted borrowing across flavors.
 - Preserve existing behavior when weights are not configured (default weight = 1.0).
 - Keep the algorithm deterministic (stable tie-breaking remains unchanged).
@@ -65,8 +61,7 @@ Today, DRS aggregates borrowing by **resource type** across flavors. This treats
 
 #### Story 1
 
-As a cluster admin managing heterogeneous GPUs, I want borrowing of cheap/opportunistic GPU
-capacity to contribute less to Fair Sharing DRS than borrowing of scarce/premium GPU capacity.
+As a cluster admin managing heterogeneous GPUs, I want borrowing of cheap/opportunistic GPU capacity to contribute less to Fair Sharing DRS than borrowing of scarce/premium GPU capacity.
 
 **Setup**
 
@@ -88,21 +83,17 @@ In effect, borrowing cheap A10 GPUs counts the same as borrowing premium H100 GP
 
 **How this KEP helps**
 
-With flavor-aware weights, the admin can configure weights so that A10 borrowing
-contributes less to DRS than H100 borrowing, for example:
+With flavor-aware weights, the admin can configure weights so that A10 borrowing contributes less to DRS than H100 borrowing, for example:
 
 - $w(a10-spot, nvidia.com/gpu) = 1.0$
 - $w(h100-reserved, nvidia.com/gpu) = 8.0$
  
-This expresses that H100 GPUs are ~8x more valuable than A10 GPUs, and prevents
-opportunistic borrowing of many A10 GPUs from inflating DRS as if Team-A had borrowed the
-same amount of premium H100 GPUs.
+This expresses that H100 GPUs are ~8x more valuable than A10 GPUs, and prevents opportunistic borrowing of many A10 GPUs from inflating DRS as if Team-A had borrowed the same amount of premium H100 GPUs.
 
 
 ### Risks and Mitigations
 
-- **Risk**: Misconfiguration (extreme weights) can lead to surprising dominant-resource
-  choices and more aggressive preemption for specific resources.
+- **Risk**: Misconfiguration (extreme weights) can lead to surprising dominant-resource choices and more aggressive preemption for specific resources.
   - **Mitigation**: Document best practices and validate weights are > 0.
 - **Risk**: Changing DRS semantics changes preemption ordering when weights are configured.
   - **Mitigation**: The change is opt-in via `resourceWeights` and defaults to no-op.
@@ -113,8 +104,7 @@ same amount of premium H100 GPUs.
 
 Extend `ResourceFlavorSpec` with a new optional field:
 
-- `spec.resourceWeights`: a map from resource name (for example `nvidia.com/gpu`) to a
-  multiplier (a positive scalar weight). The name `resourceWeights` is chosen to be consistent with the naming used in Admission Fair Sharing.
+- `spec.resourceWeights`: a map from resource name (for example `nvidia.com/gpu`) to a multiplier (a positive scalar weight). The name `resourceWeights` is chosen to be consistent with the naming used in Admission Fair Sharing.
   - **Type**: `map[corev1.ResourceName]resource.Quantity` (serialized as a string quantity), so decimals are supported (for example `"8"`, `"0.5"`).
   - Values are treated as **dimensionless scalars** (not resource amounts).
 - A missing map or missing entry implies a multiplier of **1.0** for that (flavor, resource) pair.
@@ -182,9 +172,7 @@ This proposal keeps the existing Fair Sharing weighting behavior, and only chang
 
 ### Test Plan
 
-[ ] I/we understand the owners of the involved components may require updates to existing
-tests to make this code solid enough prior to committing the changes necessary to implement
-this enhancement.
+[ ] I/we understand the owners of the involved components may require updates to existing tests to make this code solid enough prior to committing the changes necessary to implement this enhancement.
 
 ##### Prerequisite testing updates
 
@@ -228,9 +216,7 @@ this enhancement.
 ### Single weight per ResourceFlavor
 
 A single scalar per flavor cannot express “premium GPU but standard CPU/memory” flavors
-without inflating CPU/memory borrow/lendable calculations. Per-resource weights are needed
-to avoid distorting dominance for other resources when only a subset (for example GPUs)
-should be treated as premium.
+without inflating CPU/memory borrow/lendable calculations. Per-resource weights are needed to avoid distorting dominance for other resources when only a subset (for example GPUs) should be treated as premium.
 
 ### Weighting elsewhere (ClusterQueue, ResourceGroup)
 
