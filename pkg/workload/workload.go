@@ -1286,6 +1286,44 @@ func HasTopologyAssignmentWithUnhealthyNode(w *kueue.Workload) bool {
 	return false
 }
 
+// IsAdmittedByTAS checks if a workload is admitted by TAS.
+func IsAdmittedByTAS(w *kueue.Workload) bool {
+	return w.Status.Admission != nil && IsAdmitted(w) &&
+		slices.ContainsFunc(w.Status.Admission.PodSetAssignments,
+			func(psa kueue.PodSetAssignment) bool {
+				return psa.TopologyAssignment != nil
+			})
+}
+
+// PodSetsOnNode returns the PodSets of a workload that are assigned to a specific node.
+func PodSetsOnNode(w *kueue.Workload, nodeName string) []kueue.PodSet {
+	if w.Status.Admission == nil {
+		return nil
+	}
+	var result []kueue.PodSet
+	for _, psa := range w.Status.Admission.PodSetAssignments {
+		if psa.TopologyAssignment == nil || !tas.IsLowestLevelHostname(psa.TopologyAssignment.Levels) {
+			continue
+		}
+		assigned := false
+		for val := range tas.LowestLevelValues(psa.TopologyAssignment) {
+			if val == nodeName {
+				assigned = true
+				break
+			}
+		}
+		if assigned {
+			for _, ps := range w.Spec.PodSets {
+				if ps.Name == psa.Name {
+					result = append(result, ps)
+					break
+				}
+			}
+		}
+	}
+	return result
+}
+
 func CreatePodsReadyCondition(status metav1.ConditionStatus, reason, message string, clock clock.Clock) metav1.Condition {
 	return metav1.Condition{
 		Type:               kueue.WorkloadPodsReady,
