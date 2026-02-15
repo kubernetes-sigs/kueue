@@ -206,12 +206,6 @@ func (j *TFJobWrapper) StatusConditions(c kftraining.JobCondition) *TFJobWrapper
 	return j
 }
 
-func (j *TFJobWrapper) Image(replicaType kftraining.ReplicaType, image string, args []string) *TFJobWrapper {
-	j.Spec.TFReplicaSpecs[replicaType].Template.Spec.Containers[0].Image = image
-	j.Spec.TFReplicaSpecs[replicaType].Template.Spec.Containers[0].Args = args
-	return j
-}
-
 // ManagedBy adds a managedby.
 func (j *TFJobWrapper) ManagedBy(c string) *TFJobWrapper {
 	j.Spec.RunPolicy.ManagedBy = &c

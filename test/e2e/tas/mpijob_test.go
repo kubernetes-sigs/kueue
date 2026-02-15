@@ -97,6 +97,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", func() {
 						Annotations: map[string]string{
 							kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultRackTopologyLevel,
 						},
+						Image: util.GetAgnHostImage(),
+						Args:  util.BehaviorExitFast,
 					},
 					testingmpijob.MPIJobReplicaSpecRequirement{
 						ReplicaType:   kfmpi.MPIReplicaTypeWorker,
@@ -105,10 +107,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", func() {
 						Annotations: map[string]string{
 							kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 						},
+						Image: util.GetAgnHostImage(),
+						Args:  util.BehaviorExitFast,
 					},
 				).
-				Image(kfmpi.MPIReplicaTypeLauncher, util.GetAgnHostImage(), util.BehaviorExitFast).
-				Image(kfmpi.MPIReplicaTypeWorker, util.GetAgnHostImage(), util.BehaviorExitFast).
 				RequestAndLimit(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "200m").
 				RequestAndLimit(kfmpi.MPIReplicaTypeWorker, extraResource, "1").
 				Obj()
@@ -172,6 +174,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", func() {
 						Annotations: map[string]string{
 							kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultRackTopologyLevel,
 						},
+						Image: util.GetAgnHostImage(),
+						Args:  util.BehaviorExitFast,
 					},
 					testingmpijob.MPIJobReplicaSpecRequirement{
 						ReplicaType:   kfmpi.MPIReplicaTypeWorker,
@@ -180,10 +184,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", func() {
 						Annotations: map[string]string{
 							kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 						},
+						Image: util.GetAgnHostImage(),
+						Args:  util.BehaviorExitFast,
 					},
 				).
-				Image(kfmpi.MPIReplicaTypeLauncher, util.GetAgnHostImage(), util.BehaviorExitFast).
-				Image(kfmpi.MPIReplicaTypeWorker, util.GetAgnHostImage(), util.BehaviorExitFast).
 				RequestAndLimit(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "200m").
 				RequestAndLimit(kfmpi.MPIReplicaTypeWorker, extraResource, "1").
 				Obj()
@@ -256,6 +260,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", func() {
 							kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 							kueue.PodSetGroupName:                  "same-group",
 						},
+						Image: util.GetAgnHostImage(),
+						Args:  util.BehaviorExitFast,
 					},
 					testingmpijob.MPIJobReplicaSpecRequirement{
 						ReplicaType:   kfmpi.MPIReplicaTypeWorker,
@@ -265,10 +271,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", func() {
 							kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 							kueue.PodSetGroupName:                  "same-group",
 						},
+						Image: util.GetAgnHostImage(),
+						Args:  util.BehaviorExitFast,
 					},
 				).
-				Image(kfmpi.MPIReplicaTypeLauncher, util.GetAgnHostImage(), util.BehaviorExitFast).
-				Image(kfmpi.MPIReplicaTypeWorker, util.GetAgnHostImage(), util.BehaviorExitFast).
 				RequestAndLimit(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "200m").
 				RequestAndLimit(kfmpi.MPIReplicaTypeWorker, extraResource, "1").
 				Obj()
