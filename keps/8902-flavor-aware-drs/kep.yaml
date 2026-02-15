@@ -1,9 +1,9 @@
 title: Flavor-Aware Dominant Resource Share (DRS)
 kep-number: 8902
 authors:
-  - "@mukund-murali"
+  - "@mukund-wayve"
 status: provisional
-creation-date: 2026-02-14
+creation-date: 2026-02-15
 reviewers:
   - "@mimowo"
   - "@tenzen-y"

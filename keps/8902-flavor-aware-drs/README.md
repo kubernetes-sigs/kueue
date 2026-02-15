@@ -35,25 +35,27 @@ This KEP proposes extending Fair Sharing to account for heterogeneous ResourceFl
 
 ## Motivation
 
-Today, DRS aggregates borrowing by **resource type** across flavors. This treats all `nvidia.com/gpu` as equivalent regardless of the underlying flavor’s value (for example, H100 being more powerful/scarce than A10, or reserved capacity being more valuable than spot), which can skew admission ordering and Fair Sharing preemption decisions in heterogeneous clusters.
+Today, DRS aggregates borrowing by resource type across flavors, so borrowing 500 cheap a10-spot GPUs increases a ClusterQueue’s nvidia.com/gpu DRS the same way as borrowing 500 premium h100-reserved GPUs. As a result, a ClusterQueue that opportunistically borrows spot/cheap GPUs can be deprioritized for admission and lose reclaim/preemption opportunities when it later tries to run within its nominal quota on premium/reserved GPUs (as in User Story 1).
 
 ### Goals
 
 - Allow administrators to express relative value/cost differences between flavors for a given resource type.
-- Make DRS and Fair Sharing decisions reflect weighted borrowing across flavors.
-- Preserve existing behavior when weights are not configured (default weight = 1.0).
+- Make DRS and Fair Sharing decisions reflect the configured per-(flavor, resource) value differences when comparing resource shares across flavors.
+- Allow configuring weights per **(ResourceFlavor, resource)** so that only selected resources (for example `nvidia.com/gpu`) are treated as premium while CPU/memory can remain unweighted.
+- Preserve existing behavior when weights are not configured (default multiplier = 1.0).
 - Keep the algorithm deterministic (stable tie-breaking remains unchanged).
 
 ### Non-Goals
 
 - Change quota semantics (nominal/borrowing/lending limits) outside of how DRS is computed.
+- Introduce cross-resource-type weighting (for example favoring GPUs over CPU/memory); this KEP only differentiates **flavors within a resource type**.
 
 ## Proposal
 
 ### Overview
 
-- **API**: Add `ResourceFlavor.spec.resourceWeights`, a per-resource scalar multiplier.
-- **Behavior**: Compute DRS using weights per $(flavor, resource)$ when aggregating borrowing and lendable capacity across flavors. This weighted DRS is then used anywhere Fair Sharing compares DRS (for example admission ordering within a cohort and Fair Sharing preemption).
+- **API**: Add `ResourceFlavor.spec.resourceWeights`, a map from resource name (for example `nvidia.com/gpu`) to a **dimensionless scalar multiplier**. This lets admins express that some flavors are more valuable than others for a given resource type (for example `h100-reserved` vs `a10-spot` GPUs).
+- **Behavior**: When computing DRS, apply the configured multiplier for each $(ResourceFlavor, resource)$ pair so that borrowing on more valuable flavors contributes more to the computed share than borrowing on cheaper flavors. This affects behavior **wherever DRS is used**, including **admission ordering** and **Fair Sharing preemption**.
 - **Backward compatibility**: When weights are unset, the default multiplier is $1.0$, preserving existing behavior.
 - **Details**: Full API spec change, DRS definitions and formulas are described in **Design Details**.
 
@@ -68,27 +70,23 @@ As a cluster admin managing heterogeneous GPUs, I want borrowing of cheap/opport
 - A cohort has two ResourceFlavors that provide `nvidia.com/gpu` capacity:
   - `h100-reserved`: 100 GPUs (premium, scarce)
   - `a10-spot`: 500 GPUs (cheap, opportunistic)
-- There are two ClusterQueues (CQs), one per team.
-  - Team-A has nominal quota for `h100-reserved` (10 GPUs) and **no nominal quota** for `a10-spot` (0 GPUs), but can borrow as much as available.
-  - Team-B has nominal quota for `h100-reserved` (90 GPUs) and does not tolerate A10s.
+- There are two ClusterQueues (CQs), one per team:
+
+| ClusterQueue | `h100-reserved` nominalQuota | `a10-spot` nominalQuota | `a10-spot` flavor & borrowing |
+| --- | ---: | ---: | --- |
+| Team-A | 10 | 0 | Has `a10-spot` flavor; can borrow all available |
+| Team-B | 90 | 0 | No `a10-spot` flavor |
 - Assumptions: Fair Sharing is enabled, and cohort preemption is configured to allow reclaiming nominal quota as described below.
 
 **Problem I see with today’s flavor-agnostic DRS**
 
-At $T_0$, Team-B is using all 100 `h100-reserved` GPUs and has 5000 pending workloads. Team-A submits 8000 workloads that tolerate both `h100-reserved` and `a10-spot`. Team-A preempts 10 Team-B workloads to reach its `h100-reserved` nominal quota, and borrows all `a10-spot` GPUs.
+Team-A can opportunistically borrow many `a10-spot` GPUs, but later wants to schedule within its nominal quota on the premium `h100-reserved` flavor. Because DRS is flavor-agnostic, borrowing cheap/spot GPUs increases the `nvidia.com/gpu` share the same way as borrowing premium/reserved GPUs.
 
-At $T_1$, Team-A’s 10 `h100-reserved` workloads complete. I expect Team-A’s next workloads to be scheduled on `h100-reserved` (within its nominal quota of 10), but Team-B’s workloads get scheduled first. Because DRS is flavor-agnostic, Team-A’s large borrowing of `a10-spot` inflates its `nvidia.com/gpu` DRS, disfavoring it in Fair Sharing admission ordering. The same DRS is also used by Fair Sharing preemption rules, which can block Team-A from reclaiming `h100-reserved` even when it is trying to stay within nominal quota.
+This can (a) deprioritize Team-A in Fair Sharing admission ordering when competing for `h100-reserved`, and (b) reduce its ability to reclaim `h100-reserved` via Fair Sharing preemption even when it is trying to stay within nominal quota.
 
-In effect, borrowing cheap A10 GPUs counts the same as borrowing premium H100 GPUs, which makes Team-A disproportionately disfavored when attempting to use `h100-reserved`.
+**Desired outcome**
 
-**How this KEP helps**
-
-With flavor-aware weights, the admin can configure weights so that A10 borrowing contributes less to DRS than H100 borrowing, for example:
-
-- $w(a10-spot, nvidia.com/gpu) = 1.0$
-- $w(h100-reserved, nvidia.com/gpu) = 8.0$
- 
-This expresses that H100 GPUs are ~8x more valuable than A10 GPUs, and prevents opportunistic borrowing of many A10 GPUs from inflating DRS as if Team-A had borrowed the same amount of premium H100 GPUs.
+Borrowing cheap/spot GPU capacity should contribute less to DRS than borrowing premium/reserved GPU capacity, so that opportunistic use of `a10-spot` does not penalize using `h100-reserved` within nominal quota.
 
 
 ### Risks and Mitigations
@@ -115,12 +113,24 @@ Example:
 apiVersion: kueue.x-k8s.io/v1beta2
 kind: ResourceFlavor
 metadata:
-  name: h100-gpu
+  name: h100-gpu-reserved
 spec:
   nodeLabels:
     accelerator: nvidia-h100
   resourceWeights:
     nvidia.com/gpu: "8"
+    cpu: "1"
+    memory: "1"
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: a10-gpu-spot
+spec:
+  nodeLabels:
+    accelerator: nvidia-a10
+  resourceWeights:
+    nvidia.com/gpu: "1"
     cpu: "1"
     memory: "1"
 ```
@@ -172,7 +182,7 @@ This proposal keeps the existing Fair Sharing weighting behavior, and only chang
 
 ### Test Plan
 
-[ ] I/we understand the owners of the involved components may require updates to existing tests to make this code solid enough prior to committing the changes necessary to implement this enhancement.
+[x] I/we understand the owners of the involved components may require updates to existing tests to make this code solid enough prior to committing the changes necessary to implement this enhancement.
 
 ##### Prerequisite testing updates
 
