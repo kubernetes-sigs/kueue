@@ -25,7 +25,7 @@
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
-  - [Option A: single weight per ResourceFlavor](#option-a-single-weight-per-resourceflavor)
+  - [Single weight per ResourceFlavor](#single-weight-per-resourceflavor)
   - [Weighting elsewhere (ClusterQueue, ResourceGroup)](#weighting-elsewhere-clusterqueue-resourcegroup)
 <!-- /toc -->
 
