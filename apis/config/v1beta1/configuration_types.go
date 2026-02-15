@@ -223,6 +223,16 @@ type ControllerConfigurationSpec struct {
 	// Defaults to 2 minutes if not set.
 	// +optional
 	CacheSyncTimeout *time.Duration `json:"cacheSyncTimeout,omitempty"`
+
+	// ParallelPreemption enables parallel preemption by releasing quota immediately
+	// when a workload is evicted due to preemption, rather than waiting for the
+	// preemptee pods to terminate. This allows multiple preempting workloads to be
+	// admitted simultaneously without waiting for sequential pod termination.
+	// The Kubernetes scheduler independently manages node resources, so newly admitted
+	// pods will naturally wait for terminating pods to release node capacity.
+	// Defaults to false.
+	// +optional
+	ParallelPreemption *bool `json:"parallelPreemption,omitempty"`
 }
 
 // WaitForPodsReady defines configuration for the Wait For Pods Ready feature,
