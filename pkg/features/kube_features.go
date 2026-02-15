@@ -347,6 +347,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	SanitizePodSets: {
 		{Version: version.MustParse("0.13"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.19
 	},
 	MultiKueueAllowInsecureKubeconfigs: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
