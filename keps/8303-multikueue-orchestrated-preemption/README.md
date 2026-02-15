@@ -304,9 +304,11 @@ When a head of a queue is given the `Preempt` assignment mode and it has an acti
 the scheduler will treat it as inadmissible and put that workload back into the queue according to the configured queueing strategy:
 
 * `BestEffortFIFO` - the workload is marked as inadmissible and effectively cannot run until the gate is removed.
-An update (for example the gate being lifted) will requeue the workload. When it becomes the head of the ClusterQueue again and:
-    * Gate wasn't lifted - it's marked as inadmissible again.
-    * Gate was lifted - the preemption is perfomed if possible and still necessary.
+An update (for example the gate being lifted) will requeue the workload.
+When it becomes the head of the ClusterQueue again, the workload will be part of the assignment process again, which
+might or might not require preemption. In particular, if:
+    * Gate wasn't lifted - it's marked as inadmissible if it still requires preemption. Might be admitted otherwise.
+    * Gate was lifted - the preemption is perfomed if required. Might be admitted without preemption if possible.
 
   In practice, this means that in the `BestEffortFIFO` strategy, newer workloads or workloads of lower priority can "leapfrog" the gated one.
 
