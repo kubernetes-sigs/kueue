@@ -139,6 +139,10 @@ if [[ -n "${CLUSTERPROFILE_VERSION:-}" ]]; then
     export CLUSTERPROFILE_PLUGIN_IMAGE=us-central1-docker.pkg.dev/k8s-staging-images/kueue/secretreader-plugin:${CLUSTERPROFILE_PLUGIN_IMAGE_VERSION}
 fi
 
+if [[ -n "${PROMETHEUS_OPERATOR_VERSION:-}" ]]; then
+    export PROMETHEUS_OPERATOR_BUNDLE="https://github.com/prometheus-operator/prometheus-operator/releases/download/${PROMETHEUS_OPERATOR_VERSION}/bundle.yaml"
+fi
+
 if [[ -n "${DRA_EXAMPLE_DRIVER_VERSION:-}" ]]; then
     export DRA_EXAMPLE_DRIVER_REPO=https://github.com/kubernetes-sigs/dra-example-driver.git
 fi
@@ -404,6 +408,9 @@ function kind_load {
     fi
     if [[ -n ${CERTMANAGER_VERSION:-} ]]; then
         install_cert_manager "${e2e_kubeconfig}"
+    fi
+    if [[ -n ${PROMETHEUS_OPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:prometheus || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+        install_prometheus_operator "${e2e_kubeconfig}"
     fi
     if [[ -n ${CLUSTERPROFILE_VERSION:-} ]]; then
         install_multicluster "${e2e_kubeconfig}"
@@ -862,6 +869,22 @@ function install_cert_manager {
     kubectl wait --kubeconfig="${kubeconfig}" deploy/cert-manager -n "${ns}" --for=condition=available --timeout=5m
     kubectl wait --kubeconfig="${kubeconfig}" deploy/cert-manager-webhook -n "${ns}" --for=condition=available --timeout=5m || true
     kubectl wait --kubeconfig="${kubeconfig}" deploy/cert-manager-cainjector -n "${ns}" --for=condition=available --timeout=5m || true
+}
+
+function install_prometheus_operator {
+    local kubeconfig=${1:-}
+    kubectl apply --kubeconfig="${kubeconfig}" --server-side -f "${PROMETHEUS_OPERATOR_BUNDLE}"
+    kubectl wait deploy/prometheus-operator -n default \
+        --for=condition=available --timeout=5m --kubeconfig="${kubeconfig}"
+    kubectl apply --kubeconfig="${kubeconfig}" --server-side \
+        -f "${ROOT_DIR}/test/e2e/config/prometheus/prometheus-setup.yaml"
+}
+
+# $1 kubeconfig option
+function deploy_kueue_prometheus_config {
+    local kubeconfig=${1:-}
+    $KUSTOMIZE build "${ROOT_DIR}/config/prometheus" | \
+        kubectl apply --kubeconfig="${kubeconfig}" --server-side -f -
 }
 
 # $1 kubeconfig option
