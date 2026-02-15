@@ -7826,54 +7826,24 @@ func TestEntryOrdering(t *testing.T) {
 	for _, tc := range []struct {
 		name             string
 		input            []entry
-		prioritySorting  bool
 		workloadOrdering workload.Ordering
 		wantOrder        []string
 	}{
 		{
-			name:             "Priority sorting is enabled (default) using pods-ready Eviction timestamp (default)",
+			name:             "Priority sorting using pods-ready Eviction timestamp (default)",
 			input:            input,
-			prioritySorting:  true,
 			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
 			wantOrder:        []string{"new_high_pri", "old", "recently_evicted", "new", "high_pri_borrowing", "old_borrowing", "evicted_borrowing", "new_borrowing", "high_pri_borrowing_more"},
 		},
 		{
-			name:             "Priority sorting is enabled (default) using pods-ready Creation timestamp",
+			name:             "Priority sorting using pods-ready Creation timestamp",
 			input:            input,
-			prioritySorting:  true,
 			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.CreationTimestamp},
 			wantOrder:        []string{"new_high_pri", "recently_evicted", "old", "new", "high_pri_borrowing", "old_borrowing", "evicted_borrowing", "new_borrowing", "high_pri_borrowing_more"},
 		},
 		{
-			name:             "Priority sorting is disabled using pods-ready Eviction timestamp",
-			input:            input,
-			prioritySorting:  false,
-			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
-			wantOrder:        []string{"old", "recently_evicted", "new", "new_high_pri", "old_borrowing", "evicted_borrowing", "high_pri_borrowing", "new_borrowing", "high_pri_borrowing_more"},
-		},
-		{
-			name:             "Priority sorting is disabled using pods-ready Creation timestamp",
-			input:            input,
-			prioritySorting:  false,
-			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.CreationTimestamp},
-			wantOrder:        []string{"recently_evicted", "old", "new", "new_high_pri", "old_borrowing", "evicted_borrowing", "high_pri_borrowing", "new_borrowing", "high_pri_borrowing_more"},
-		},
-		{
-			name:            "Some workloads are preempted; Priority sorting is disabled",
-			input:           inputForOrderingPreemptedWorkloads,
-			prioritySorting: false,
-			wantOrder: []string{
-				"old-mid-recently-preempted-in-queue",
-				"old-mid-not-preempted-yet",
-				"old-mid-recently-reclaimed-while-borrowing",
-				"preemptor",
-				"old-mid-more-recently-reclaimed-while-borrowing",
-			},
-		},
-		{
-			name:            "Some workloads are preempted; Priority sorting is enabled",
-			input:           inputForOrderingPreemptedWorkloads,
-			prioritySorting: true,
+			name:  "Some workloads are preempted",
+			input: inputForOrderingPreemptedWorkloads,
 			wantOrder: []string{
 				"preemptor",
 				"old-mid-recently-preempted-in-queue",
@@ -7884,7 +7854,6 @@ func TestEntryOrdering(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.PrioritySortingWithinCohort, tc.prioritySorting)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			iter := makeIterator(ctx, tc.input, tc.workloadOrdering, false)
 			order := make([]string, len(tc.input))

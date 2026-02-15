@@ -219,9 +219,8 @@ ClusterQueue 借用配额。
 
 {{% alert title="注意" color="primary" %}}
 在 cohort 中，Kueue 优先安排将适合 under `nominalQuota` 的工作负载。
-默认情况下，如果多个工作负载需要 `borrowing`，Kueue 将尝试安排优先级更高的工作负载
+如果多个工作负载需要 `borrowing`，Kueue 将尝试安排优先级更高的工作负载
 [priority](/docs/concepts/workload#priority) 首先。
-如果 feature gate `PrioritySortingWithinCohort=false` 设置，Kueue 将尝试安排最早的 `.metadata.creationTimestamp` 的工作负载。
 {{% /alert %}}
 
 你可以设置一个 [`flavorFungibility`](/docs/concepts/cluster_queue#flavorfungibility) 来影响一些规格选择和借用的语义。

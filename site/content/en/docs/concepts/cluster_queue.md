@@ -240,8 +240,7 @@ semantics:
 
 {{% alert title="Note" color="primary" %}}
 Within a Cohort, Kueue prioritizes scheduling workloads that will fit under `nominalQuota`.
-By default, if multiple workloads require `borrowing`, Kueue will try to schedule workloads with higher [priority](/docs/concepts/workload#priority) first.
-If the feature gate `PrioritySortingWithinCohort=false` is set, Kueue will try to schedule workloads with the earliest `.metadata.creationTimestamp`.
+If multiple workloads require `borrowing`, Kueue will try to schedule workloads with higher [priority](/docs/concepts/workload#priority) first.
 {{% /alert %}}
 
 You can influence some semantics of flavor selection and borrowing

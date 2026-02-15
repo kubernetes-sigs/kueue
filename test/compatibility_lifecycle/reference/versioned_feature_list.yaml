@@ -161,6 +161,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.6"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "0.17"
 - name: PropagateBatchJobLabelsToWorkload
   versionedSpecs:
   - default: true

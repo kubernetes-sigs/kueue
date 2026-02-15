@@ -25,7 +25,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -173,12 +172,10 @@ func (e *entryComparer) less(a, b *entry, parentCohort kueue.CohortReference) bo
 	}
 
 	// 2: Priority
-	if features.Enabled(features.PrioritySortingWithinCohort) {
-		p1 := priority.Priority(a.Obj)
-		p2 := priority.Priority(b.Obj)
-		if p1 != p2 {
-			return p1 > p2
-		}
+	p1 := priority.Priority(a.Obj)
+	p2 := priority.Priority(b.Obj)
+	if p1 != p2 {
+		return p1 > p2
 	}
 
 	// 3: FIFO
