@@ -305,7 +305,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", func() {
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			// TODO: Once we resolve this bug https://github.com/kubernetes-sigs/kueue/issues/8635,
+			// TODO: Once we resolve this bug https://github.com/kubernetes-sigs/kueue/issues/3400,
 			// we can verify the following Pods node assignments.
 			// ginkgo.By("verify the assignment of all pods (launcher + workers) with rank-based ordering within the same block", func() {
 			//	 gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
