@@ -265,26 +265,19 @@ func newPodSet(name kueue.PodSetReference, count int32, template *corev1.PodTemp
 }
 
 func podSets(lws *leaderworkersetv1.LeaderWorkerSet) ([]kueue.PodSet, error) {
-	podSets := make([]kueue.PodSet, 0, 2)
-
-	defaultPodSetName := kueue.DefaultPodSetName
-	defaultPodSetCount := ptr.Deref(lws.Spec.LeaderWorkerTemplate.Size, 1)
-
+	leaderTemplate := &lws.Spec.LeaderWorkerTemplate.WorkerTemplate
 	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
-		defaultPodSetName = workerPodSetName
-		defaultPodSetCount--
+		leaderTemplate = lws.Spec.LeaderWorkerTemplate.LeaderTemplate
+	}
 
-		leaderPodSet, err := newPodSet(leaderPodSetName, 1, lws.Spec.LeaderWorkerTemplate.LeaderTemplate, nil)
-		if err != nil {
-			return nil, err
-		}
-
-		podSets = append(podSets, *leaderPodSet)
+	leaderPodSet, err := newPodSet(leaderPodSetName, 1, leaderTemplate, nil)
+	if err != nil {
+		return nil, err
 	}
 
 	workerPodSet, err := newPodSet(
-		defaultPodSetName,
-		defaultPodSetCount,
+		workerPodSetName,
+		ptr.Deref(lws.Spec.LeaderWorkerTemplate.Size, 1)-1,
 		&lws.Spec.LeaderWorkerTemplate.WorkerTemplate,
 		ptr.To(leaderworkersetv1.WorkerIndexLabelKey),
 	)
@@ -292,9 +285,7 @@ func podSets(lws *leaderworkersetv1.LeaderWorkerSet) ([]kueue.PodSet, error) {
 		return nil, err
 	}
 
-	podSets = append(podSets, *workerPodSet)
-
-	return podSets, nil
+	return []kueue.PodSet{*leaderPodSet, *workerPodSet}, nil
 }
 
 var _ predicate.Predicate = (*Reconciler)(nil)
