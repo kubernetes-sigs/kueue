@@ -30,4 +30,4 @@ latest-milestone: "v0.17"
 milestone:
   alpha: "v0.17"
 
-disable-supported: true
+disable-supported: true  # opt-in via resourceWeights; unset => default 1.0 (no behavior change)
