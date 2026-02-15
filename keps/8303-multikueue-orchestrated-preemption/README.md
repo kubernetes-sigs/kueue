@@ -216,7 +216,7 @@ and the [`schedulingGate` API](https://kubernetes.io/docs/reference/generated/ku
 
 #### `SingleClusterPreemptionTimeout` Configuration
 
-The `MultiKueue` `Configuration` struct will be extended with a `SingleClusterPreemptionTimeout` that defines
+The `MultiKueue` field in the `Configuration` struct will be extended with a `SingleClusterPreemptionTimeout` that defines
 the timeout of preemption, after which another worker replica can be ungated, measured since the previous ungating
 of the workload.
 
@@ -231,12 +231,8 @@ type MultiKueue struct {
 
 ### MultiKueue Controller
 
-When a workload is submitted to MultiKueue, it will be automatically assigned the `kueue.x-k8s.io/multikueue` preemption gate
+When a workload is submitted to MultiKueue, its remote replicas will automatically be assigned the `kueue.x-k8s.io/multikueue` preemption gate
 via its `spec`. This will prevent any of the replicas from triggering a preemption until allowed by the manager controller.
-
-The logic of the controller governing preemption, running within the manager cluster, will be mostly API-agnostic.
-The only part subject to change with the evolution of this proposal is how the workload will be ungated, e.g. which field will have to be
-modified. Therefore, the following design can be expected to not change significantly over the course of development.
 
 A manager-level preemption orchestration controller will be responsible for ungating the replicated workloads.
 This controller will watch for workloads to change their `LastTriggeredTime` and idempotently react to such changes:
@@ -246,8 +242,8 @@ This controller will watch for workloads to change their `LastTriggeredTime` and
 1. Calculate `PreviouslyUngatedAt` as the maximum `LastTransitionTime` on `Inactive` gates `kueue.x-k8s.io/multikueue` across the replicated workloads.
 1. Calculate `Now - PreviouslyUngatedAt`, i.e. `timeSinceUngate`.
 1. If `timeSinceUngate < SingleClusterPreemptionTimeout`:
-    1. Schedule reconciliation in `SingleClusterPreemptionTimeout - timeSinceUngate` seconds to prevent a hypothetical deadlock (lost reconciles) and return.
-1. Find a workload with a with the **lowest `LastTriggeredTime`** among workloads that have the `PreemptionGateState` with:
+    1. Schedule reconciliation after `SingleClusterPreemptionTimeout - timeSinceUngate` to prevent a hypothetical deadlock (lost reconciles) and return.
+1. Find a workload with the **lowest `LastTriggeredTime`** among workloads that have the `kueue.x-k8s.io/multikueue` `PreemptionGateState` with:
     * `Active` state.
     * `LastTriggeredTime > LastTransitionTime` - to account for evictions.
 1. Mark the `kueue.x-k8s.io/multikueue` gate of the found workload as `Inactive`.
