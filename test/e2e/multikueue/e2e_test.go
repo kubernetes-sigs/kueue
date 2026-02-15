@@ -1380,19 +1380,21 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						ReplicaType:   kfmpi.MPIReplicaTypeLauncher,
 						ReplicaCount:  1,
 						RestartPolicy: "OnFailure",
+						Image:         util.GetAgnHostImage(),
+						Args:          util.BehaviorExitFast,
 					},
 					testingmpijob.MPIJobReplicaSpecRequirement{
 						ReplicaType:   kfmpi.MPIReplicaTypeWorker,
 						ReplicaCount:  1,
 						RestartPolicy: "OnFailure",
+						Image:         util.GetAgnHostImage(),
+						Args:          util.BehaviorExitFast,
 					},
 				).
 				RequestAndLimit(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "1").
 				RequestAndLimit(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceMemory, "200M").
 				RequestAndLimit(kfmpi.MPIReplicaTypeWorker, corev1.ResourceCPU, "0.5").
 				RequestAndLimit(kfmpi.MPIReplicaTypeWorker, corev1.ResourceMemory, "100M").
-				Image(kfmpi.MPIReplicaTypeLauncher, util.GetAgnHostImage(), util.BehaviorExitFast).
-				Image(kfmpi.MPIReplicaTypeWorker, util.GetAgnHostImage(), util.BehaviorExitFast).
 				Obj()
 
 			ginkgo.By("Creating the MPIJob", func() {
