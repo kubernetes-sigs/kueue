@@ -671,7 +671,8 @@ func LQRefFromWorkload(wl *kueue.Workload) LocalQueueReference {
 	}
 }
 
-func ClearClusterQueueMetrics(cqName string) {
+func ClearClusterQueueMetrics(clusterQueueReference kueue.ClusterQueueReference) {
+	cqName := string(clusterQueueReference)
 	AdmissionCyclePreemptionSkips.DeleteLabelValues(cqName)
 	PendingWorkloads.DeleteLabelValues(cqName, PendingStatusActive)
 	PendingWorkloads.DeleteLabelValues(cqName, PendingStatusInadmissible)
