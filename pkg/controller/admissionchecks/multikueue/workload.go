@@ -1033,7 +1033,7 @@ func (w *wlReconciler) ensurePreemptionGate(ctx context.Context, group *wlGroup)
 	timeoutExpired := false
 	if hasGate {
 		for _, g := range group.local.Status.PreemptionGates {
-			if g.Name == gateName && g.Status == kueue.PreemptionGateActive {
+			if g.Name == gateName && g.State == kueue.GateStateActive {
 				if time.Since(g.LastTransitionTime.Time) >= w.singleClusterPreemptionTimeout {
 					timeoutExpired = true
 				}

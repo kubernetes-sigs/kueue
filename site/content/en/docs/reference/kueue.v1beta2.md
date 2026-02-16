@@ -1520,6 +1520,20 @@ There could be up to 64 resources.</p>
 </tbody>
 </table>
 
+## `GateState`     {#kueue-x-k8s-io-v1beta2-GateState}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [PreemptionGateState](#kueue-x-k8s-io-v1beta2-PreemptionGateState)
+
+
+<p>GateState defines the state of a preemption gate.</p>
+
+
+
+
 ## `KubeConfig`     {#kueue-x-k8s-io-v1beta2-KubeConfig}
     
 
@@ -2418,6 +2432,79 @@ result in failure during workload admission.</p>
 </td>
 <td>
    <p>tolerations of the PodSet to modify.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `PreemptionGate`     {#kueue-x-k8s-io-v1beta2-PreemptionGate}
+    
+
+**Appears in:**
+
+- [WorkloadSpec](#kueue-x-k8s-io-v1beta2-WorkloadSpec)
+
+
+<p>PreemptionGate defines a preemption gate.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>Name is the name of the preemption gate.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `PreemptionGateState`     {#kueue-x-k8s-io-v1beta2-PreemptionGateState}
+    
+
+**Appears in:**
+
+- [WorkloadStatus](#kueue-x-k8s-io-v1beta2-WorkloadStatus)
+
+
+<p>PreemptionGateState defines the state of a preemption gate.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>Name is the name of the preemption gate.</p>
+</td>
+</tr>
+<tr><td><code>state</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-GateState"><code>GateState</code></a>
+</td>
+<td>
+   <p>State is the state of the preemption gate.</p>
+</td>
+</tr>
+<tr><td><code>lastTriggeredTime,omitempty,omitzero</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Time</code></a>
+</td>
+<td>
+   <p>LastTriggeredTime is the last time the gate was triggered, i.e. prevented a workload from preempting.</p>
+</td>
+</tr>
+<tr><td><code>lastTransitionTime,omitempty,omitzero</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Time</code></a>
+</td>
+<td>
+   <p>LastTransitionTime is the last time the condition transitioned from one state to another.</p>
 </td>
 </tr>
 </tbody>
@@ -3442,7 +3529,7 @@ The higher the value, the higher the priority.
 If priorityClassRef is specified, priority must not be null.</p>
 </td>
 </tr>
-<tr><td><code>active</code> <B>[Required]</B><br/>
+<tr><td><code>active</code><br/>
 <code>bool</code>
 </td>
 <td>
@@ -3453,7 +3540,16 @@ Possible values are:</p>
 <li>false: indicates that a workload should never be admitted and evicts running workloads</li>
 <li>true: indicates that a workload can be evaluated for admission into it's respective queue.</li>
 </ul>
-<p>Defaults to true</p>
+<p>Defaults to true
+Active determines if the workload is active or not.
+Workloads that are not active are not considered by the scheduler.</p>
+</td>
+</tr>
+<tr><td><code>preemptionGates</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-PreemptionGate"><code>[]PreemptionGate</code></a>
+</td>
+<td>
+   <p>preemptionGates is a list of preemption keys that block the preemption of the workload</p>
 </td>
 </tr>
 <tr><td><code>maximumExecutionTimeSeconds</code><br/>
@@ -3498,6 +3594,13 @@ current state.</p>
 succeeded.
 conditions are limited to 16 items.</li>
 </ul>
+</td>
+</tr>
+<tr><td><code>preemptionGates</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-PreemptionGateState"><code>[]PreemptionGateState</code></a>
+</td>
+<td>
+   <p>preemptionGates hold the status of the preemption gates.</p>
 </td>
 </tr>
 <tr><td><code>admission</code><br/>

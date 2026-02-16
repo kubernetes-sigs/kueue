@@ -30,9 +30,11 @@ import (
 type PreemptionGateStateApplyConfiguration struct {
 	// Name is the name of the preemption gate.
 	Name *string `json:"name,omitempty"`
-	// Status is the status of the preemption gate.
-	Status *kueuev1beta1.PreemptionGateStatus `json:"status,omitempty"`
-	// LastTransitionTime is the last time the condition transitioned from one status to another.
+	// State is the state of the preemption gate.
+	State *kueuev1beta1.GateState `json:"state,omitempty"`
+	// LastTriggeredTime is the last time the gate was triggered, i.e. prevented a workload from preempting.
+	LastTriggeredTime *v1.Time `json:"lastTriggeredTime,omitempty"`
+	// LastTransitionTime is the last time the condition transitioned from one state to another.
 	LastTransitionTime *v1.Time `json:"lastTransitionTime,omitempty"`
 }
 
@@ -50,11 +52,19 @@ func (b *PreemptionGateStateApplyConfiguration) WithName(value string) *Preempti
 	return b
 }
 
-// WithStatus sets the Status field in the declarative configuration to the given value
+// WithState sets the State field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Status field is set to the value of the last call.
-func (b *PreemptionGateStateApplyConfiguration) WithStatus(value kueuev1beta1.PreemptionGateStatus) *PreemptionGateStateApplyConfiguration {
-	b.Status = &value
+// If called multiple times, the State field is set to the value of the last call.
+func (b *PreemptionGateStateApplyConfiguration) WithState(value kueuev1beta1.GateState) *PreemptionGateStateApplyConfiguration {
+	b.State = &value
+	return b
+}
+
+// WithLastTriggeredTime sets the LastTriggeredTime field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the LastTriggeredTime field is set to the value of the last call.
+func (b *PreemptionGateStateApplyConfiguration) WithLastTriggeredTime(value v1.Time) *PreemptionGateStateApplyConfiguration {
+	b.LastTriggeredTime = &value
 	return b
 }
 

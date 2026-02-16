@@ -2067,8 +2067,9 @@ func Convert_v1beta2_PreemptionGate_To_v1beta1_PreemptionGate(in *v1beta2.Preemp
 
 func autoConvert_v1beta1_PreemptionGateState_To_v1beta2_PreemptionGateState(in *PreemptionGateState, out *v1beta2.PreemptionGateState, s conversion.Scope) error {
 	out.Name = in.Name
-	out.Status = v1beta2.PreemptionGateStatus(in.Status)
-	out.LastTransitionTime = (*v1.Time)(unsafe.Pointer(in.LastTransitionTime))
+	out.State = v1beta2.GateState(in.State)
+	out.LastTriggeredTime = in.LastTriggeredTime
+	out.LastTransitionTime = in.LastTransitionTime
 	return nil
 }
 
@@ -2079,8 +2080,9 @@ func Convert_v1beta1_PreemptionGateState_To_v1beta2_PreemptionGateState(in *Pree
 
 func autoConvert_v1beta2_PreemptionGateState_To_v1beta1_PreemptionGateState(in *v1beta2.PreemptionGateState, out *PreemptionGateState, s conversion.Scope) error {
 	out.Name = in.Name
-	out.Status = PreemptionGateStatus(in.Status)
-	out.LastTransitionTime = (*v1.Time)(unsafe.Pointer(in.LastTransitionTime))
+	out.State = GateState(in.State)
+	out.LastTriggeredTime = in.LastTriggeredTime
+	out.LastTransitionTime = in.LastTransitionTime
 	return nil
 }
 

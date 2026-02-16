@@ -97,25 +97,33 @@ type PreemptionGateState struct {
 	// Name is the name of the preemption gate.
 	Name string `json:"name"`
 
-	// Status is the status of the preemption gate.
+	// State is the state of the preemption gate.
 	// +optional
-	Status PreemptionGateStatus `json:"status,omitempty"`
+	State GateState `json:"state,omitempty"`
 
-	// LastTransitionTime is the last time the condition transitioned from one status to another.
+	// LastTriggeredTime is the last time the gate was triggered, i.e. prevented a workload from preempting.
 	// +optional
-	LastTransitionTime *metav1.Time `json:"lastTransitionTime,omitempty"`
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Format=date-time
+	LastTriggeredTime metav1.Time `json:"lastTriggeredTime,omitempty,omitzero"`
+
+	// LastTransitionTime is the last time the condition transitioned from one state to another.
+	// +optional
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Format=date-time
+	LastTransitionTime metav1.Time `json:"lastTransitionTime,omitempty,omitzero"`
 }
 
-// PreemptionGateStatus defines the status of a preemption gate.
-type PreemptionGateStatus string
+// GateState defines the state of a preemption gate.
+type GateState string
 
 const (
-	// PreemptionGateActive means the gate is active and blocking preemption.
-	PreemptionGateActive PreemptionGateStatus = "Active"
+	// GateStateActive means the gate is active and blocking preemption.
+	GateStateActive GateState = "Active"
 
-	// PreemptionGateInactive means the gate is inactive and NOT blocking preemption.
+	// GateStateInactive means the gate is inactive and NOT blocking preemption.
 	// This state is useful to keep the gate in the list for tracking purposes.
-	PreemptionGateInactive PreemptionGateStatus = "Inactive"
+	GateStateInactive GateState = "Inactive"
 )
 
 // PriorityClassGroup indicates the API group of the PriorityClass object.

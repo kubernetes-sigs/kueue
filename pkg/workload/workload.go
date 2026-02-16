@@ -810,7 +810,7 @@ func HasActivePreemptionGate(wl *kueue.Workload) bool {
 		return false
 	}
 	for _, gate := range wl.Status.PreemptionGates {
-		if gate.Status == kueue.PreemptionGateActive {
+		if gate.State == kueue.GateStateActive {
 			return true
 		}
 	}

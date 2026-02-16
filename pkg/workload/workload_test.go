@@ -1743,8 +1743,8 @@ func TestSetQuotaReservation(t *testing.T) {
 			want: newWorkload().
 				Admission(admission).
 				Conditions(
-					newCondition(kueue.WorkloadEvicted, metav1.ConditionFalse, quotaReservedReason, "Previously: test evicted message", now),
-					newCondition(kueue.WorkloadPreempted, metav1.ConditionFalse, quotaReservedReason, "Previously: test preempted message", now),
+					newCondition(kueue.WorkloadEvicted, metav1.ConditionFalse, quotaReservedReason, "Resetting Evicted condition because QuotaReserved", now),
+					newCondition(kueue.WorkloadPreempted, metav1.ConditionFalse, quotaReservedReason, "Resetting Preempted condition because QuotaReserved", now),
 					newCondition(kueue.WorkloadQuotaReserved, metav1.ConditionTrue, quotaReservedReason, quotaReservedMessage, now),
 				).
 				Obj(),
