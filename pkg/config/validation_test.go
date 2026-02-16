@@ -994,25 +994,10 @@ func TestValidateFeatureGates(t *testing.T) {
 			featureGateMap:  map[string]bool{"test": true},
 			errorStr:        "feature gates for CLI and configuration cannot both specified",
 		},
-		"cannot specify more than one TAS profile using GateMap": {
-			setupFeatureGates: map[featuregate.Feature]bool{
-				features.TASProfileMixed:             true,
-				features.TASProfileLeastFreeCapacity: true,
-			},
-			errorStr: "cannot use more than one TAS profiles",
-		},
-		"cannot specify more than one TAS profile using GatesCLI": {
-			setupFeatureGates: map[featuregate.Feature]bool{
-				features.TASProfileMixed:             true,
-				features.TASProfileLeastFreeCapacity: true,
-			},
-			errorStr: "cannot use more than one TAS profiles",
-		},
 		"cannot set TAS profile with TAS disabled": {
 			setupFeatureGates: map[featuregate.Feature]bool{
-				features.TASProfileLeastFreeCapacity: true,
-				features.TASProfileMixed:             false,
-				features.TopologyAwareScheduling:     false,
+				features.TASProfileMixed:         true,
+				features.TopologyAwareScheduling: false,
 			},
 			errorStr: "cannot use a TAS profile with TAS disabled",
 		},
@@ -1021,7 +1006,6 @@ func TestValidateFeatureGates(t *testing.T) {
 				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
 				features.TopologyAwareScheduling:             true,
 				features.ElasticJobsViaWorkloadSlices:        false,
-				features.TASProfileLeastFreeCapacity:         false,
 				features.TASProfileMixed:                     false,
 			},
 			errorStr: "ElasticJobsViaWorkloadSlicesWithTAS requires ElasticJobsViaWorkloadSlices to be enabled",
@@ -1031,7 +1015,6 @@ func TestValidateFeatureGates(t *testing.T) {
 				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
 				features.ElasticJobsViaWorkloadSlices:        true,
 				features.TopologyAwareScheduling:             false,
-				features.TASProfileLeastFreeCapacity:         false,
 				features.TASProfileMixed:                     false,
 			},
 			errorStr: "ElasticJobsViaWorkloadSlicesWithTAS requires TopologyAwareScheduling to be enabled",
@@ -1041,7 +1024,6 @@ func TestValidateFeatureGates(t *testing.T) {
 				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
 				features.ElasticJobsViaWorkloadSlices:        true,
 				features.TopologyAwareScheduling:             true,
-				features.TASProfileLeastFreeCapacity:         false,
 				features.TASProfileMixed:                     false,
 			},
 			errorStr: "",

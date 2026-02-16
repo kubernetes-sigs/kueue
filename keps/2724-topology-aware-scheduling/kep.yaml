@@ -39,8 +39,8 @@ feature-gates:
   - name: TopologyAwareScheduling
   - name: TASProfileMixed
   - name: TASProfileBestFit
-  - name: TASProfileLeastFreeCapacity
   - name: TASProfileMostFreeCapacity # deleted in 0.13
+  - name: TASProfileLeastFreeCapacity # deleted in 0.17
   - name: TASFailedNodeReplacement
   - name: TASFailedNodeReplacementFailFast
   - name: TASReplaceNodeOnPodTermination

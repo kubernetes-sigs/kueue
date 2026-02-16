@@ -1377,7 +1377,6 @@ Until v0.14, the available feature gates are as follows:
 | ---------------------------------------- | ----------------- | ----------------- | ----------------- |
 | None                                     | BestFit           | BestFit           | BestFit           |
 | TASProfileMixed (deprecated)             | BestFit           | BestFit           | LeastFreeCapacity |
-| TASProfileLeastFreeCapacity (deprecated) | LeastFreeCapacity | LeastFreeCapacity | LeastFreeCapacity |
 
 These reflect our general recommendation of `BestFit` for the topology-aware cases; however, `LeastFreeCapacity` remains an available option, especially for the `unconstrained` topology requests.
 
@@ -1385,11 +1384,11 @@ These reflect our general recommendation of `BestFit` for the topology-aware cas
 Since v0.15, the available feature gates are as follows:
 
 | feature gate / annotation                  | preferred         | required          | unconstrained     |
-| ------------------------------------------ | ----------------- | ----------------- | ----------------- |
-| None <br/> or TASProfileMixed (default)    | BestFit           | BestFit           | LeastFreeCapacity |
-| TASProfileBestFit (deprecated)             | BestFit           | BestFit           | BestFit           |
-| TASProfileLeastFreeCapacity (deprecated)   | LeastFreeCapacity | LeastFreeCapacity | LeastFreeCapacity |
-| TASBalancedPlacement                       | BalancedPlacement | BestFit           | LeastFreeCapacity |
+| ------------------------------------------       | ----------------- | ----------------- | ----------------- |
+| None <br/> or TASProfileMixed (default)          | BestFit           | BestFit           | LeastFreeCapacity |
+| TASProfileBestFit (deprecated)                   | BestFit           | BestFit           | BestFit           |
+| TASProfileLeastFreeCapacity (removed in v0.17)   | LeastFreeCapacity | LeastFreeCapacity | LeastFreeCapacity |
+| TASBalancedPlacement                             | BalancedPlacement | BestFit           | LeastFreeCapacity |
 
 Based on the user feedback, we decided to make `TASProfileMixed` default starting in v0.15. (The corresponding feature gate is hence obsolete; we formally keep it "deprecated" for backwards compatibility). It differs from the previous default only in the `unconstrained` case - in which Kueue should prioritize minimizing fragmentation which is provided by the `LeastFreeCapacity` algorithm.
 

@@ -1117,8 +1117,7 @@ func useBestFitAlgorithm(unconstrained bool) bool {
 
 func useLeastFreeCapacityAlgorithm(unconstrained bool) bool {
 	// following the matrix from KEP#2724
-	return features.Enabled(features.TASProfileLeastFreeCapacity) ||
-		(unconstrained && features.Enabled(features.TASProfileMixed))
+	return unconstrained && features.Enabled(features.TASProfileMixed)
 }
 
 // consumeWithLeadersGeneric handles the case when leaders still need to be assigned
