@@ -160,8 +160,8 @@ export E2E_TEST_AGNHOST_IMAGE=${E2E_TEST_AGNHOST_IMAGE_WITH_SHA%%@*}
 # $1 cluster name
 function cluster_cleanup {
     local cluster_name="$1"
-    local max_retries=3
-    local retry_delay=10
+    local max_retries=5
+    local retry_delay=1
 
     for attempt in $(seq 1 "$max_retries"); do
         if $KIND delete cluster --name "$cluster_name"; then
@@ -174,17 +174,12 @@ function cluster_cleanup {
 
         echo "WARNING: kind delete cluster '$cluster_name' failed (attempt $attempt/$max_retries)."
 
-        # Force-stop Docker containers before retrying. Works around a
-        # Docker/containerd race condition where 'docker rm -f' fails with
-        # "could not kill container ... did not receive an exit event".
-        # See https://github.com/kubernetes-sigs/kueue/issues/8908
-        echo "Forcing Docker container cleanup for cluster '$cluster_name'..."
-        local containers
-        containers=$(docker ps -aq --filter "label=io.x-k8s.kind.cluster=${cluster_name}" 2>/dev/null || true)
-        for cid in $containers; do
-            docker kill "$cid" 2>/dev/null || true
-            docker rm -f -v "$cid" 2>/dev/null || true
-        done
+        # Retry kind deletion to work around Docker race conditions where
+        # delete can fail before receiving the container exit event.
+        # Upstream bugs:
+        # - https://github.com/moby/moby/issues/51028
+        # - https://github.com/moby/moby/issues/51845
+        # This workaround can be revisited after upstream fixes are available.
 
         echo "Retrying in ${retry_delay}s..."
         sleep "$retry_delay"
