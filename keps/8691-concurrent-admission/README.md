@@ -665,6 +665,7 @@ After the implementation PR is merged, add the names of the tests here.
 ### Graduation Criteria
 
 #### Alpha
+In Alpha version the feature will be gated behind the `ConcurrentAdmission` feature gate.
 
 Initial support for `UpgradeAboveTargetTarget` policy.
 
