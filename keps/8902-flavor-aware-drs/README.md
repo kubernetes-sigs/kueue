@@ -12,6 +12,7 @@
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [API change](#api-change)
+    - [Why not choose a single cost/weight per flavor instead of having different weights per resource?](#why-not-choose-a-single-costweight-per-flavor-instead-of-having-different-weights-per-resource)
   - [Weighted borrowing and lendable](#weighted-borrowing-and-lendable)
     - [Effect on dominant resource selection](#effect-on-dominant-resource-selection)
   - [Validation and defaults](#validation-and-defaults)
