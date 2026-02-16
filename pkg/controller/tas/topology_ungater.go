@@ -344,28 +344,17 @@ func assignGatedPodsToDomains(
 	psReq *kueue.PodSetTopologyRequest,
 	offset int32,
 	maxRank int32) []podWithDomain {
-	if rankToGatedPod, ok := readRanksIfAvailable(log, psa, pods, psReq, offset, maxRank); ok {
-		return assignGatedPodsToDomainsByRanks(psa, rankToGatedPod)
+	rankToDomainID := rankToDomainID(psa.TopologyAssignment)
+	if rankToPod, ok := readRanksIfAvailable(log, psa, pods, psReq, offset, maxRank, rankToDomainID); ok {
+		return assignGatedPodsToDomainsByRanks(rankToPod, rankToDomainID)
 	}
 	return assignGatedPodsToDomainsGreedy(log, psa, pods)
 }
 
 func assignGatedPodsToDomainsByRanks(
-	psa *kueue.PodSetAssignment,
-	rankToGatedPod map[int]*corev1.Pod) []podWithDomain {
+	rankToGatedPod map[int]*corev1.Pod,
+	rankToDomainID []utiltas.TopologyDomainID) []podWithDomain {
 	toUngate := make([]podWithDomain, 0)
-	totalPodCount := 0
-	for count := range utiltas.PodCounts(psa.TopologyAssignment) {
-		totalPodCount += int(count)
-	}
-	rankToDomainID := make([]utiltas.TopologyDomainID, totalPodCount)
-	index := int32(0)
-	for domain := range utiltas.InternalSeqFrom(psa.TopologyAssignment) {
-		for s := range domain.Count {
-			rankToDomainID[index+s] = utiltas.DomainID(domain.Values)
-		}
-		index += domain.Count
-	}
 	for rank, pod := range rankToGatedPod {
 		toUngate = append(toUngate, podWithDomain{
 			pod:      pod,
@@ -423,7 +412,8 @@ func readRanksIfAvailable(log logr.Logger,
 	pods []*corev1.Pod,
 	psReq *kueue.PodSetTopologyRequest,
 	offset int32,
-	maxRank int32) (map[int]*corev1.Pod, bool) {
+	maxRank int32,
+	rankToDomainID []utiltas.TopologyDomainID) (map[int]*corev1.Pod, bool) {
 	if psReq == nil || psReq.PodIndexLabel == nil {
 		return nil, false
 	}
@@ -436,6 +426,22 @@ func readRanksIfAvailable(log logr.Logger,
 		}
 		return nil, false
 	}
+
+	for rank, pod := range result {
+		if utilpod.HasGate(pod, kueue.TopologySchedulingGate) {
+			continue
+		}
+		expectedDomainID := rankToDomainID[rank]
+		levelKeys := psa.TopologyAssignment.Levels
+		podLevelValues := utiltas.LevelValues(levelKeys, pod.Spec.NodeSelector)
+		podDomainID := utiltas.DomainID(podLevelValues)
+
+		if expectedDomainID != podDomainID {
+			log.V(3).Info("There is a mismatch for a running pod between the domain expected based on the rank-based ordering, and the actual node selectors", "pod", klog.KObj(pod), "rank", rank, "expectedDomainID", expectedDomainID, "actualDomainID", podDomainID)
+			return nil, false
+		}
+	}
+
 	return result, true
 }
 
@@ -495,4 +501,20 @@ func isAdmittedByTAS(w *kueue.Workload) bool {
 			func(psa kueue.PodSetAssignment) bool {
 				return psa.TopologyAssignment != nil
 			})
+}
+
+func rankToDomainID(ta *kueue.TopologyAssignment) []utiltas.TopologyDomainID {
+	totalPodCount := 0
+	for count := range utiltas.PodCounts(ta) {
+		totalPodCount += int(count)
+	}
+	rankToDomainID := make([]utiltas.TopologyDomainID, totalPodCount)
+	index := int32(0)
+	for domain := range utiltas.InternalSeqFrom(ta) {
+		for s := range domain.Count {
+			rankToDomainID[index+s] = utiltas.DomainID(domain.Values)
+		}
+		index += domain.Count
+	}
+	return rankToDomainID
 }
