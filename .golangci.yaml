@@ -32,7 +32,7 @@ linters:
         - appendAssign
         - exitAfterDefer
     goheader:
-      template-path: hack/boilerplate.txt
+      template-path: ${config-path}/hack/boilerplate.txt
     govet:
       enable:
         - nilness
