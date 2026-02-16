@@ -251,6 +251,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.14"
+- name: TASReplaceNodeOnNodeTaints
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.16"
 - name: TLSOptions
   versionedSpecs:
   - default: true
