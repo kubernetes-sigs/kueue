@@ -103,6 +103,10 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.15"
+  - default: false
+    lockToDefault: false
+    preRelease: Deprecated
+    version: "0.17"
 - name: MultiKueueBatchJobWithManagedBy
   versionedSpecs:
   - default: false

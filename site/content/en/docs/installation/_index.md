@@ -284,10 +284,6 @@ spec:
 
 {{< feature-gates-table stage="alpha-beta" >}}
 
-{{% alert title="Note" color="primary" %}}
-The MultiKueueAllowInsecureKubeconfigs feature is available starting from versions 0.13.8 and 0.14.3.
-{{% /alert %}}
-
 ### Feature gates for graduated or deprecated features
 
 {{< feature-gates-table stage="ga-deprecated" >}}
