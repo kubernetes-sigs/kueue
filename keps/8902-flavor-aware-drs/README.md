@@ -285,7 +285,7 @@ Guidelines:
 
 ## Implementation History
 
-- 2026-02-14: Initial draft.
+- 2026-02-15: Initial draft.
 
 ## Drawbacks
 
@@ -302,4 +302,3 @@ without inflating CPU/memory borrow/lendable calculations. Per-resource weights 
 ### Weighting elsewhere (ClusterQueue, ResourceGroup)
 
 We want to keep configuration simple and consistent, so weights are specified per ResourceFlavor and apply cluster-wide. This makes it natural and easy to express the value of each flavor across all ClusterQueues.
-
