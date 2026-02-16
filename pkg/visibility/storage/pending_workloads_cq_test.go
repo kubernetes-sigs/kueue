@@ -318,7 +318,7 @@ func TestPendingWorkloadsInCQ(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			manager := qcache.NewManager(utiltesting.NewFakeClient(), nil)
+			manager := qcache.NewManagerForUnitTests(utiltesting.NewFakeClient(), nil)
 			ctx, log := utiltesting.ContextWithLog(t)
 			ctx, cancel := context.WithCancel(ctx)
 			defer cancel()

@@ -83,6 +83,8 @@ func managerAndControllerSetup(controllersCfg *config.Configuration) framework.M
 		controllersCfg.Metrics.EnableClusterQueueResources = true
 
 		cCache := schdcache.New(mgr.GetClient())
+		// TODO: use NewManagerForIntegrationTests?
+		// (not possible until we pick up version of Kueue with this)
 		queues := qcache.NewManager(mgr.GetClient(), cCache)
 
 		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil)

@@ -105,7 +105,7 @@ func managerAndControllerSetup(controllersCfg *config.Configuration, options ...
 		controllersCfg.Metrics.EnableClusterQueueResources = true
 
 		cCache := schdcache.New(mgr.GetClient())
-		queues := qcache.NewManager(mgr.GetClient(), cCache)
+		queues := qcache.NewManagerForIntegrationTests(mgr.GetClient(), cCache)
 
 		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)

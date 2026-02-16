@@ -18,17 +18,28 @@ package queue
 
 import (
 	"context"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/util/workqueue"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	"sigs.k8s.io/kueue/pkg/workload"
+)
+
+const (
+	requeueBatchPeriodProd = 1 * time.Second
 )
 
 // inadmissibleWorkloads is a thin wrapper around a map to encapsulate
@@ -73,50 +84,54 @@ func (iw *inadmissibleWorkloads) replaceAll(newMap inadmissibleWorkloads) {
 }
 
 // requeueWorkloadsCQ moves all workloads in the same
-// cohort with this ClusterQueue from inadmissibleWorkloads to heap. If the
-// cohort of this ClusterQueue is empty, it just moves all workloads in this
-// ClusterQueue. If at least one workload is moved, returns true, otherwise
-// returns false.
-// The events listed below could make workloads in the same cohort admissible.
-// Then requeueWorkloadsCQ need to be invoked.
-// 1. delete events for any admitted workload in the cohort.
-// 2. add events of any cluster queue in the cohort.
-// 3. update events of any cluster queue in the cohort.
-// 4. update of cohort.
-//
-// WARNING: must hold a read-lock on the manager when calling,
-// or otherwise risk encountering an infinite loop if a Cohort
-// cycle is introduced.
-func requeueWorkloadsCQ(ctx context.Context, m *Manager, cq *ClusterQueue) bool {
-	if cq.HasParent() {
-		return requeueWorkloadsCohort(ctx, m, cq.Parent())
+// cohort with this ClusterQueue from inadmissibleWorkloads to heap.
+// It expects to be passed a ClusterQueue without any Cohort.
+// WARNING: must only be called by the InadmissibleWorkloadRequeuer
+func requeueWorkloadsCQ(ctx context.Context, m *Manager, clusterQueueName kueue.ClusterQueueReference) {
+	m.Lock()
+	defer m.Unlock()
+	cq := m.hm.ClusterQueue(clusterQueueName)
+	if cq == nil {
+		return
 	}
-	return queueInadmissibleWorkloads(ctx, cq, m.client)
+	if queueInadmissibleWorkloads(ctx, cq, m.client) {
+		reportMetrics(m, cq.name)
+		m.Broadcast()
+	}
 }
 
-// moveWorkloadsCohorts checks for a cycle, the moves all inadmissible
-// workloads in the Cohort tree. If a cycle exists, or no workloads were
-// moved, it returns false.
-//
-// WARNING: must hold a read-lock on the manager when calling,
-// or otherwise risk encountering an infinite loop if a Cohort
-// cycle is introduced.
-func requeueWorkloadsCohort(ctx context.Context, m *Manager, cohort *cohort) bool {
+// requeueWorkloadsCohort moves all inadmissible
+// workloads in the Cohort tree to heap. It expects to be
+// passed a root Cohort. If at least one workload queued,
+// we will broadcast the event.
+// WARNING: must only be called by the InadmissibleWorkloadRequeuer
+func requeueWorkloadsCohort(ctx context.Context, m *Manager, cohortName kueue.CohortReference) {
+	m.Lock()
+	defer m.Unlock()
+	cohort := m.hm.Cohort(cohortName)
+	if cohort == nil {
+		return
+	}
 	log := ctrl.LoggerFrom(ctx)
 
 	if hierarchy.HasCycle(cohort) {
 		log.V(2).Info("Attempted to move workloads from Cohort which has cycle", "cohort", cohort.GetName())
-		return false
+		return
 	}
-	root := cohort.getRootUnsafe()
-	log.V(2).Info("Attempting to move workloads", "cohort", cohort.Name, "root", root.Name)
-	return requeueWorkloadsCohortSubtree(ctx, m, root)
+	log.V(2).Info("Attempting to move workloads", "cohort", cohort.Name)
+	if requeueWorkloadsCohortSubtree(ctx, m, cohort) {
+		m.Broadcast()
+	}
 }
 
+// WARNING: must only be called (indirectly) by InadmissibleWorkloadRequeuer.
 func requeueWorkloadsCohortSubtree(ctx context.Context, m *Manager, cohort *cohort) bool {
 	queued := false
 	for _, clusterQueue := range cohort.ChildCQs() {
-		queued = queueInadmissibleWorkloads(ctx, clusterQueue, m.client) || queued
+		if queueInadmissibleWorkloads(ctx, clusterQueue, m.client) {
+			reportMetrics(m, clusterQueue.name)
+			queued = true
+		}
 	}
 	for _, childCohort := range cohort.ChildCohorts() {
 		queued = requeueWorkloadsCohortSubtree(ctx, m, childCohort) || queued
@@ -126,6 +141,7 @@ func requeueWorkloadsCohortSubtree(ctx context.Context, m *Manager, cohort *coho
 
 // queueInadmissibleWorkloads moves all workloads from inadmissibleWorkloads to heap.
 // If at least one workload is moved, returns true, otherwise returns false.
+// WARNING: must only be called (indirectly) by InadmissibleWorkloadRequeuer.
 func queueInadmissibleWorkloads(ctx context.Context, c *ClusterQueue, client client.Client) bool {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
@@ -152,12 +168,17 @@ func queueInadmissibleWorkloads(ctx context.Context, c *ClusterQueue, client cli
 	return moved
 }
 
-// QueueInadmissibleWorkloads moves all inadmissibleWorkloads in
-// corresponding ClusterQueues to heap. If at least one workload queued,
-// we will broadcast the event.
-func QueueInadmissibleWorkloads(ctx context.Context, m *Manager, cqNames sets.Set[kueue.ClusterQueueReference]) {
-	m.Lock()
-	defer m.Unlock()
+// NotifyRetryInadmissible requests that inadmissible workloads
+// from given ClusterQueues, and from all ClusterQueues in these
+// ClusterQueues' Cohort Trees, are moved from
+// inadmissibleQueue to the active workload heap.
+func NotifyRetryInadmissible(m *Manager, cqNames sets.Set[kueue.ClusterQueueReference]) {
+	m.RLock()
+	defer m.RUnlock()
+	notifyRetryInadmissibleWithoutLock(m, cqNames)
+}
+
+func notifyRetryInadmissibleWithoutLock(m *Manager, cqNames sets.Set[kueue.ClusterQueueReference]) {
 	if len(cqNames) == 0 {
 		return
 	}
@@ -165,25 +186,92 @@ func QueueInadmissibleWorkloads(ctx context.Context, m *Manager, cqNames sets.Se
 	// Track processed cohort roots to avoid requeuing the same hierarchy
 	// multiple times when multiple CQs in cqNames share a root.
 	processedRoots := sets.New[kueue.CohortReference]()
-	var queued bool
 	for name := range cqNames {
 		cq := m.hm.ClusterQueue(name)
 		if cq == nil {
 			continue
+		}
+		if !cq.HasParent() {
+			m.inadmissibleWorkloadRequeuer.notifyClusterQueue(cq.name)
 		}
 		if cq.HasParent() && !hierarchy.HasCycle(cq.Parent()) {
 			rootName := cq.Parent().getRootUnsafe().GetName()
 			if processedRoots.Has(rootName) {
 				continue
 			}
+			m.inadmissibleWorkloadRequeuer.notifyCohort(rootName)
 			processedRoots.Insert(rootName)
 		}
-		if requeueWorkloadsCQ(ctx, m, cq) {
-			queued = true
-		}
 	}
+}
 
-	if queued {
-		m.Broadcast()
+// requeueInadmissibleListener receives notifications
+// that a particular ClusterQueue (without Cohort) or a
+// Root Cohort should have its Inadmissible Workloads requeued.
+type requeueInadmissibleListener interface {
+	// notifyClusterQueue should only be called for ClusterQueues without a Cohort.
+	notifyClusterQueue(cqName kueue.ClusterQueueReference)
+	// notifyCohort should only be called for Root Cohorts.
+	notifyCohort(cohortName kueue.CohortReference)
+}
+
+type requeueRequest struct {
+	ClusterQueue kueue.ClusterQueueReference
+	Cohort       kueue.CohortReference
+}
+
+// inadmissibleWorkloadRequeuer is responsible for receiving notifications,
+// and requeuing workloads as a result of these notifications.
+type inadmissibleWorkloadRequeuer struct {
+	qManager    *Manager
+	eventCh     chan event.TypedGenericEvent[requeueRequest]
+	batchPeriod time.Duration
+}
+
+func newInadmissibleWorkloadRequeuer(qManager *Manager) *inadmissibleWorkloadRequeuer {
+	return &inadmissibleWorkloadRequeuer{
+		qManager:    qManager,
+		eventCh:     make(chan event.TypedGenericEvent[requeueRequest], 128),
+		batchPeriod: requeueBatchPeriodProd,
 	}
+}
+
+func (r *inadmissibleWorkloadRequeuer) Reconcile(ctx context.Context, req requeueRequest) (ctrl.Result, error) {
+	if req.ClusterQueue != "" {
+		requeueWorkloadsCQ(ctx, r.qManager, req.ClusterQueue)
+	}
+	if req.Cohort != "" {
+		requeueWorkloadsCohort(ctx, r.qManager, req.Cohort)
+	}
+	return ctrl.Result{}, nil
+}
+
+func (r *inadmissibleWorkloadRequeuer) notifyClusterQueue(cqName kueue.ClusterQueueReference) {
+	r.eventCh <- event.TypedGenericEvent[requeueRequest]{Object: requeueRequest{ClusterQueue: cqName}}
+}
+
+func (r *inadmissibleWorkloadRequeuer) notifyCohort(cohortName kueue.CohortReference) {
+	r.eventCh <- event.TypedGenericEvent[requeueRequest]{Object: requeueRequest{Cohort: cohortName}}
+}
+
+func (r *inadmissibleWorkloadRequeuer) Create(context.Context, event.TypedCreateEvent[requeueRequest], workqueue.TypedRateLimitingInterface[requeueRequest]) {
+}
+func (r *inadmissibleWorkloadRequeuer) Update(context.Context, event.TypedUpdateEvent[requeueRequest], workqueue.TypedRateLimitingInterface[requeueRequest]) {
+}
+func (r *inadmissibleWorkloadRequeuer) Delete(context.Context, event.TypedDeleteEvent[requeueRequest], workqueue.TypedRateLimitingInterface[requeueRequest]) {
+}
+func (r *inadmissibleWorkloadRequeuer) Generic(_ context.Context, e event.TypedGenericEvent[requeueRequest], q workqueue.TypedRateLimitingInterface[requeueRequest]) {
+	q.AddAfter(e.Object, r.batchPeriod)
+}
+
+func (r *inadmissibleWorkloadRequeuer) setupWithManager(mgr ctrl.Manager) error {
+	return builder.TypedControllerManagedBy[requeueRequest](mgr).
+		Named("inadmissible_workload_requeue_controller").
+		WatchesRawSource(source.TypedChannel(r.eventCh, r)).
+		WithOptions(controller.TypedOptions[requeueRequest]{
+			NeedLeaderElection: ptr.To(false),
+			// since a lock is required to requeue, no point in more than 1.
+			MaxConcurrentReconciles: 1,
+		}).
+		Complete(r)
 }

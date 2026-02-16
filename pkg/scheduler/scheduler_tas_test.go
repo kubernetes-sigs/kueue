@@ -2823,7 +2823,7 @@ func TestScheduleForTAS(t *testing.T) {
 				recorder := &utiltesting.EventRecorder{}
 				cqCache := schdcache.New(cl)
 				fakeClock := testingclock.NewFakeClock(now)
-				qManager := qcache.NewManager(cl, cqCache, qcache.WithClock(fakeClock))
+				qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithClock(fakeClock))
 				topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueue.Topology) {
 					return kueue.TopologyReference(tc.topologies[i].Name), tc.topologies[i]
 				})
@@ -4049,7 +4049,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 				cl := clientBuilder.Build()
 				recorder := &utiltesting.EventRecorder{}
 				cqCache := schdcache.New(cl)
-				qManager := qcache.NewManager(cl, cqCache)
+				qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 				topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueue.Topology) {
 					return kueue.TopologyReference(tc.topologies[i].Name), tc.topologies[i]
 				})
@@ -6006,7 +6006,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 				cl := clientBuilder.Build()
 				recorder := &utiltesting.EventRecorder{}
 				cqCache := schdcache.New(cl)
-				qManager := qcache.NewManager(cl, cqCache)
+				qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 				topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueue.Topology) {
 					return kueue.TopologyReference(tc.topologies[i].Name), tc.topologies[i]
 				})
@@ -6233,7 +6233,7 @@ func TestScheduleForTASWhenWorkloadModifiedConcurrently(t *testing.T) {
 				recorder := &utiltesting.EventRecorder{}
 				fakeClock := testingclock.NewFakeClock(now)
 				cqCache := schdcache.New(cl)
-				qManager := qcache.NewManager(cl, cqCache, qcache.WithClock(fakeClock))
+				qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithClock(fakeClock))
 				cqCache.AddOrUpdateResourceFlavor(log, rf.DeepCopy())
 				cqCache.AddOrUpdateTopology(log, topology.DeepCopy())
 				if err := cqCache.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
