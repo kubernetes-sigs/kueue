@@ -26,8 +26,8 @@ import (
 
 // reportPendingWorkloads reports metrics for both ClusterQueue,
 // and all of its matching LocalQueues.
-func reportPendingWorkloads(m *Manager, cqName kueue.ClusterQueueReference) {
-	cq := m.hm.ClusterQueue(cqName)
+func reportPendingWorkloads(m *Manager, cqRef kueue.ClusterQueueReference) {
+	cq := m.hm.ClusterQueue(cqRef)
 	if cq == nil {
 		return
 	}
@@ -36,9 +36,9 @@ func reportPendingWorkloads(m *Manager, cqName kueue.ClusterQueueReference) {
 	if !features.Enabled(features.LocalQueueMetrics) {
 		return
 	}
-	for _, q := range m.localQueues {
-		if q.ClusterQueue == cqName {
-			reportLQPendingWorkloads(m, q)
+	for _, lq := range m.localQueues {
+		if lq.ClusterQueue == cqRef {
+			reportLQPendingWorkloads(m, lq)
 		}
 	}
 }
@@ -71,30 +71,30 @@ func reportLQPendingWorkloads(m *Manager, lq *LocalQueue) {
 	}, active, inadmissible, m.roleTracker)
 }
 
-func reportLQFinishedWorkloads(m *Manager, q *LocalQueue) {
+func reportLQFinishedWorkloads(m *Manager, lq *LocalQueue) {
 	if !features.Enabled(features.LocalQueueMetrics) {
 		return
 	}
-	namespace, lqName := queue.MustParseLocalQueueReference(q.Key)
+	namespace, lqName := queue.MustParseLocalQueueReference(lq.Key)
 	metrics.ReportLocalQueueFinishedWorkloads(metrics.LocalQueueReference{
 		Name:      lqName,
 		Namespace: namespace,
-	}, q.finishedWorkloads.Len(), m.roleTracker)
+	}, lq.finishedWorkloads.Len(), m.roleTracker)
 }
 
 func reportCQFinishedWorkloads(cq *ClusterQueue, roleTracker *roletracker.RoleTracker) {
 	metrics.ReportFinishedWorkloads(cq.name, cq.finishedWorkloads.Len(), roleTracker)
 }
 
-func clearCQMetrics(cqName kueue.ClusterQueueReference) {
-	metrics.ClearClusterQueueMetrics(cqName)
+func clearCQMetrics(cqRef kueue.ClusterQueueReference) {
+	metrics.ClearClusterQueueMetrics(cqRef)
 }
 
-func clearLQMetrics(qKey queue.LocalQueueReference) {
+func clearLQMetrics(lqRef queue.LocalQueueReference) {
 	if !features.Enabled(features.LocalQueueMetrics) {
 		return
 	}
-	namespace, lqName := queue.MustParseLocalQueueReference(qKey)
+	namespace, lqName := queue.MustParseLocalQueueReference(lqRef)
 	metrics.ClearLocalQueueMetrics(metrics.LocalQueueReference{
 		Name:      lqName,
 		Namespace: namespace,
