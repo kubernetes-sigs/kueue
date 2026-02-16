@@ -68,6 +68,7 @@ tags, and then generate with `hack/update-toc.sh`.
 - [Alternatives](#alternatives)
   - [Modify AdmissionCheck API](#modify-admissioncheck-api)
   - [Migration within a Single Workload](#migration-within-a-single-workload)
+  - [WorkloadTypes API](#workloadtypes-api)
 <!-- /toc -->
 
 ## Summary
@@ -211,7 +212,7 @@ I want my workloads to start as soon as possible, on whatever flavor. However if
 e.g. Workload is running on Spot, but after 1h On-Demand quota is released so I want to use it instead.
 e.g. Workload is running on On-Demand, but after 1h Reservation quota is released so I want to use it instead.
 
-To achieve that, I configure my ClusterQueue to use the Concurrent Admission feature, with `RemoveLower` policy (details below).
+To achieve that, I configure my ClusterQueue to use the Concurrent Admission feature, with `UpgradeAboveCurrent` policy (details below).
 
 #### Story 2: Upgrade only to Reservation
 As an admin I have three resource flavors in my cluster:
@@ -226,7 +227,7 @@ the possible gain of migration.
 
 e.g. Workload is running on On-Demand, but after 1h Reservation quota is released so I want to use it instead.
 
-To achieve that, I configure my ClusterQueue to use the Concurrent Admission feature, with `RemoveBelowTarget: Reservation` policy (details below).
+To achieve that, I configure my ClusterQueue to use the Concurrent Admission feature, with `UpgradeAboveTargetTarget: Reservation` policy (details below).
 
 #### Story 3: Reservation + Homogenous Flavors
 As an admin I have four resource flavors in my cluster:
@@ -241,12 +242,12 @@ e.g. Workload is running on the 2b flavor, but after 1h 2a flavor quota is relea
 
 e.g. Workload is running on the 2b flavor, but after 1h Reservation quota is released so I want to use it instead.
 
-To achieve that, I configure my ClusterQueue to use the Concurrent Admission feature, with `RemoveBelowTarget: Reservation` policy (details below).
+To achieve that, I configure my ClusterQueue to use the Concurrent Admission feature, with `UpgradeAboveTargetTarget: Reservation` policy (details below).
 
 #### Story 4: Homogenous Flavors only
 As an admin, I have three homogeneous resource flavors (1a, 1b, 1c). I want my workloads to start as soon as possible on any flavor and stop pursuing other options once the job is accommodated.
 
-To achieve that, I configure my ClusterQueue to use the Concurrent Admission feature, with `RemoveOther` policy (details below).
+To achieve that, I configure my ClusterQueue to use the Concurrent Admission feature, with `NoUpgrade` policy (details below).
 
 #### Story 5: Delaying Option creation
 As an admin I have two resource flavors in my cluster:
@@ -311,13 +312,13 @@ type OnSuccessPolicy string
 
 const (
     // Stop all other attempts - no workload placement upgrade performed.
-    RemoveOther OnSuccessPolicy = "RemoveOther"
+    NoUpgrade OnSuccessPolicy = "NoUpgrade"
 
     // Stop all attempts below the used RF - upgrade to higher RF possible.
-    RemoveLower OnSuccessPolicy = "RemoveLower"
+    UpgradeAboveCurrent OnSuccessPolicy = "UpgradeAboveCurrent"
 
     // Stop all attempts below a defined target RF.
-    RemoveBelowTarget OnSuccessPolicy = "RemoveBelowTarget"
+    UpgradeAboveTargetTarget OnSuccessPolicy = "UpgradeAboveTarget"
 )
 
 type ConcurrentAdmission struct {
@@ -330,15 +331,16 @@ type ConcurrentAdmission struct {
     // If not specified, Kueue creates an option for each RF mentioned in the CQ.
     //
     // +optional
+    // +kubebuilder:validation:MaxItems=16
     ExplicitOptions []ConcurrentAdmissionExplicitOption
 
-    // RemoveBelowTargetConfig provides configuration for the RemoveBelowTarget policy.
+    // UpgradeAboveTargetTargetConfig provides configuration for the UpgradeAboveTargetTarget policy.
     //
     // +optional
-    RemoveBelowTargetConfig *ConcurrentAdmissionRemoveBelowTargetConfig
+    UpgradeAboveTargetTargetConfig *ConcurrentAdmissionUpgradeAboveTargetTargetConfig
 }
 
-type OptionCreationCustomization struct {
+type ConcurrentAdmissionExplicitOption struct {
     // Name of the option, must be unique within the ClusterQueue.
     //
     // +required
@@ -363,11 +365,22 @@ type OptionCreationCustomization struct {
     AllowedResourceFlavors []ResourceFlavorReference
 }
 
-type RemoveBelowTargetConfig struct {
-    // TargetResourceFlavor defines the boundary for the RemoveBelowTarget policy.
+// UpgradeAboveTargetTargetConfig defines the boundary for the UpgradeAboveTargetTarget policy.
+// Only one of `TargetResourceFlavor` or `TargetOption` should be set.
+//
+// +optional
+type UpgradeAboveTargetTargetConfig struct {
+    // TargetResourceFlavor defines the boundary for the UpgradeAboveTargetTarget policy, based on a specific ResourceFlavor.
+    // It is used when default, RF-based Options are created.
     //
-    // +required
-    TargetResourceFlavor ResourceFlavorReference
+    // +optional
+    TargetResourceFlavor *ResourceFlavorReference
+
+    // TargetOption defines the boundary for the UpgradeAboveTargetTarget policy, based on a specific Option.
+    // It is used when explicit Options are created.
+    //
+    // +optional
+    TargetOption *string
 }
 ```
 
@@ -377,9 +390,9 @@ The `OnSuccess` field determines how Kueue manages sibling Options once a specif
 
 | Policy                  | Behavior                                                                        | Use Case                                                                                                                                                                                            |
 | :---------------------- | :------------------------------------------------------------------------------ | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **`RemoveOther`**       | Stops all other attempts immediately once any Option is admitted.               | Ideal for homogeneous flavors where any placement is equally good and no "upgrade" migration is desired.                                                                                            |
-| **`RemoveLower`**       | Stops attempts for flavors ranked lower than the admitted one.                  | Enables "upgrading" to a more preferred flavor if it becomes available after the workload has started on a lower-tier flavor.                                                                       |
-| **`RemoveBelowTarget`** | Stops attempts for flavors ranked lower than a specific `TargetResourceFlavor`. | Supports selective upgrades; for example, migrating only if a "Reservation" flavor becomes available, but ignoring transitions between "Spot" and "On-Demand, or when some flavors are homogenous." |
+| **`NoUpgrade`**       | Stops all other attempts immediately once any Option is admitted.               | Ideal for homogeneous flavors where any placement is equally good and no "upgrade" migration is desired.                                                                                            |
+| **`UpgradeAboveCurrent`**       | Stops attempts for flavors ranked lower than the admitted one.                  | Enables "upgrading" to a more preferred flavor if it becomes available after the workload has started on a lower-tier flavor.                                                                       |
+| **`UpgradeAboveTargetTarget`** | Stops attempts for flavors ranked lower than a specific `TargetResourceFlavor`. | Supports selective upgrades; for example, migrating only if a "Reservation" flavor becomes available, but ignoring transitions between "Spot" and "On-Demand, or when some flavors are homogenous." |
 
 ### Workload API
 
@@ -406,7 +419,7 @@ ${original_workload_name}-option-${resource_flavor_name}
 ${original_workload_name}-option-${explicit_option_name}
 ```
 
-Note: Option names are designed to be deterministic. If a name collision occurs (due to long Workload/RF names), standard Kubernetes suffix truncation logic will be applied while maintaining the -option- identifier.
+Note: Option names are designed to be deterministic. If a name collision occurs (due to long Workload/RF names), standard Kueue suffix truncation logic will be applied while maintaining the -option- identifier.
 
 #### Workload Spec
 
@@ -442,23 +455,6 @@ This provides a central view of all virtual workloads without needing to query f
 For more detailed scheduling stats a user can check a particular Option Workload.
 
 ```
-type WorkloadOptionState string
-
-const (
-    // OptionsStatePending means the Option is still pending
-    OptionStatePending = "Pending"
-
-    // OptionStateAdmitted means the Option has been admitted
-    OptionStateAdmitted = "Admitted"
-
-    // OptionStateDeactivated means the Option has the field `.spec.active` set to `false`. It may happen due
-    // to `CreatedDelaySeconds`/`DeleteDelaySeconds` or `OnSuccessPolicy` configuration.
-    OptionStateDeactivated = "Deactivated"
-
-    // OptionStateFinished means the Option has completed running.
-    OptionStateFinished = "Finished"
-)
-
 type WorkloadOptionStatus struct {
     // name of the Option (corresponds to the virtual workload name).
     Name string
@@ -466,14 +462,16 @@ type WorkloadOptionStatus struct {
     // resourceFlavors assigned to this Option.
     ResourceFlavors []string
 
-    // state of this Option
-    State WorkloadOptionState
+    // inherited information from Option's `.spec.active.` field.
+    Active bool
 
-    // message provides details on why an Option is in its current state.
-    Message string
-
-    // lastTransitionTime is the last time the condition transitioned from one status to another.
-    LastTransitionTime metav1.Time `json:"lastTransitionTime"`
+    // selected Conditions present in Option, to inherit information about
+    // its state e.g. whether it's pending or admitted.
+    //
+    // +optional
+    // +listType=map
+    // +listMapKey=type
+    Conditions []metav1.Condition 
 }
 
 type WorkloadStatus struct {
@@ -668,7 +666,7 @@ After the implementation PR is merged, add the names of the tests here.
 
 #### Alpha
 
-Initial support for `RemoveBelowTarget` policy.
+Initial support for `UpgradeAboveTargetTarget` policy.
 
 Integration with `BestEffortFIFO` queueing strategy.
 
@@ -676,7 +674,7 @@ Introduction of `WorkloadOptionStatus` and `AdmissionConstraints` fields.
 
 #### Beta
 
-Support for `RemoveOther` and `RemoveLower` policies.
+Support for `NoUpgrade` and `UpgradeAboveCurrent` policies.
 
 Introduction of `ExplicitOptions` functionality.
 
@@ -684,16 +682,7 @@ Revisit extending `ExplicitOptions` API with some additional fields.
 
 Minimizing number of Options issuing preemptions to only one per Parent.
 
-Revisit the idea of introducing WorkloadType API
-```
-type WorkloadType string
-const (
-    Default              WorkloadType = "Default"
-    ResourceFlavorOption WorkloadType = "ResourceFlavorOption"
-    Parent               WorkloadType = "Parent"
-    ... // possibly more like WorkloadSlice, PrebuiltWorkload
-)
-```
+Revisit the idea of [introducing WorkloadType API](#workloadtypes-api)
 
 Positive feedback from users.
 
@@ -764,6 +753,21 @@ We considered implementing the migration and parallel attempt logic directly wit
 Rejected because: This introduces significant complexity to the core scheduling and usage accounting logic, which is already highly complex.
 Such a change would make Kueue much harder to debug and maintain, whereas the Options pattern keeps the scheduling logic clean and and reuses already existing core functionalities
 
+### WorkloadTypes API
+
+Instead of using `kueue.x-k8s.io/parent-option` annotation and owner references we could implement a new API `WorkloadType`.
+We might migrate to that approach but it was deferred in the first version, as it was unclear what's the semantic of this
+field and how it should be used with the existing "types" such, as WorkloadSlice, PrebuiltWorkload, etc.
+
+```
+type WorkloadType string
+const (
+    Default              WorkloadType = "Default"
+    ResourceFlavorOption WorkloadType = "ResourceFlavorOption"
+    Parent               WorkloadType = "Parent"
+    ... // possibly more like WorkloadSlice, PrebuiltWorkload
+)
+```
 <!--
 What other approaches did you consider, and why did you rule them out? These do
 not need to be as detailed as the proposal, but should include enough
