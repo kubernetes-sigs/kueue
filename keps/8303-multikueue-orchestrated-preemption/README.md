@@ -15,12 +15,22 @@
     - [<code>SingleClusterPreemptionTimeout</code> Configuration](#singleclusterpreemptiontimeout-configuration)
   - [MultiKueue Controller](#multikueue-controller)
   - [Kueue Scheduler](#kueue-scheduler)
+  - [Test Plan](#test-plan)
+    - [Unit Tests](#unit-tests)
+    - [Integration Tests](#integration-tests)
+  - [Graduation Criteria](#graduation-criteria)
+  - [Possible Follow-ups](#possible-follow-ups)
+    - [Preferring non-preempting admissions](#preferring-non-preempting-admissions)
+- [Implementation History](#implementation-history)
+- [Drawbacks](#drawbacks)
+- [Alternatives](#alternatives)
+  - [Re-use the <code>kueue.x-k8s.io/cannot-preempt</code> annotation and its semantics](#re-use-the-kueuex-k8siocannot-preempt-annotation-and-its-semantics)
   - [Create a new alpha annotation <code>kueue.x-k8s.io/preemption-gated</code>](#create-a-new-alpha-annotation-kueuex-k8siopreemption-gated)
   - [Specify the preemption timeout per-ClusterQueue instead of globally](#specify-the-preemption-timeout-per-clusterqueue-instead-of-globally)
   - [Use dynamically calculated default for the preemption timeout](#use-dynamically-calculated-default-for-the-preemption-timeout)
   - [Create the <code>QuotaReservationBlocked</code> Condition](#create-the-quotareservationblocked-condition)
   - [Extending the <code>QuotaReserved</code> <code>Condition</code>](#extending-the-quotareserved-condition)
-    - [Use the Gate's Presence As Active](#use-the-gates-presence-as-active)
+  - [Use the Gate's Presence As Active](#use-the-gates-presence-as-active)
 <!-- /toc -->
 
 ## Summary
@@ -49,9 +59,6 @@ For example, a high-priority workload can trigger simultaneous preemptions in mu
 For instance, a workload sent to three clusters using the `AllAtOnce` strategy might initiate preemptions on all three.
 Since the workload can only be admitted to one cluster, the preemptions on the other two are unnecessary and lead to wasted resources by
 halting running workloads and then having to re-admit them.
-
-More generally, even a single preemption in a single worker might be undesireable if the workload could be admitted without preemptions
-in another cluster. The workload will likely be admitted before the preemption finishes, which unnecessarily disrupts the running jobs.
 
 Those problems grow with the amount of deployed worker clusters and illustrate the benefit of an orchestration layer in MultiKueue.
 The manager cluster could make more informed decisions about actions that might disrupt already admitted workloads.
@@ -239,7 +246,7 @@ The `status` of the remote workloads will be updated with the `PreemptionGateSta
 A manager-level preemption orchestration controller will be responsible for ungating the replicated workloads.
 This controller will watch for workloads to change their `LastTriggeredTime` and idempotently react to such changes:
 
-1. Calculate `PreviouslyUngatedAt` as the maximum `LastTransitionTime` on `Inactive` gates `kueue.x-k8s.io/multikueue` across the replicated workloads.
+1. Calculate `PreviouslyUngatedAt` as the maximum `LastTransitionTime` on `Inactive` gates `kueue.x-k8s.io/multikueue` across the replicated workloads (if no `Inactive` gates, then skip to step 4).
 1. Calculate `Now - PreviouslyUngatedAt`, i.e. `timeSinceUngate`.
 1. If `timeSinceUngate < SingleClusterPreemptionTimeout`:
     1. Schedule reconciliation after `SingleClusterPreemptionTimeout - timeSinceUngate` to prevent a hypothetical deadlock (lost reconciles) and return.
@@ -336,6 +343,16 @@ The `SingleClusterPreemptionTimeout` will be configurable in the Kueue configura
   - The Kueue APIs are finalized and potentially extended, based upon the alpha experience.
 - **Stable**:
   - The feature is considered stable and the feature gate is removed.
+
+### Possible Follow-ups
+
+#### Preferring non-preempting admissions
+
+More generally, even a single preemption in a single worker might be undesireable if the workload could be admitted without preemptions
+in another cluster. The workload will likely be admitted before the preemption finishes, which unnecessarily disrupts the running jobs.
+
+The orchestration mechanism could be extended to handle such cases, by waiting to see if an admission **without** preempting is possible
+on any of the workers.
 
 ## Implementation History
 
@@ -451,7 +468,7 @@ it manually, eliminating the risk of inconsistent states (e.g. `QuotaReserved: t
 1. This approach is inflexible. If a similar reason for the `QuotaReserved` condition is needed in the future (for example
 `BorrowingGated`), the conditions could overwrite each other which would lead to information loss and bugs.
 
-#### Use the Gate's Presence As Active
+### Use the Gate's Presence As Active
 
 To avoid the split-brain scenario with the gate being present both in the `spec` and `status`, an approach similar to a
 `Pod`s `schedulingGates` could be used - the presence of a gate means that it is active and it is deactivated by being removed
