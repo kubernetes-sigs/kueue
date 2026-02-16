@@ -667,9 +667,17 @@ func (r *WorkloadReconciler) reconcileSyncAdmissionChecks(ctx context.Context, w
 	log := ctrl.LoggerFrom(ctx)
 	admissionChecks := workload.AdmissionChecksForWorkload(log, wl, admissioncheck.NewAdmissionChecks(cq), qutil.AllFlavors(cq.Spec.ResourceGroups))
 	newChecks, shouldUpdate := syncAdmissionCheckConditions(wl.Status.AdmissionChecks, admissionChecks, r.clock)
-	if shouldUpdate {
-		log.V(3).Info("The workload needs admission checks updates", "clusterQueue", klog.KRef("", cq.Name), "admissionChecks", admissionChecks)
-		wl.Status.AdmissionChecks = newChecks
+	newGates, shouldUpdateGates := workload.SyncPreemptionGateConditions(wl.Status.PreemptionGates, wl.Spec.PreemptionGates, r.clock)
+	
+	if shouldUpdate || shouldUpdateGates {
+		if shouldUpdate {
+			log.V(3).Info("The workload needs admission checks updates", "clusterQueue", klog.KRef("", cq.Name), "admissionChecks", admissionChecks)
+			wl.Status.AdmissionChecks = newChecks
+		}
+		if shouldUpdateGates {
+			log.V(3).Info("The workload needs preemption gate updates")
+			wl.Status.PreemptionGates = newGates
+		}
 		err := r.client.Status().Update(ctx, wl)
 		return true, client.IgnoreNotFound(err)
 	}

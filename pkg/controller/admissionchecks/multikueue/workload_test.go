@@ -2310,3 +2310,163 @@ func TestConfigHandlerDelete(t *testing.T) {
 		t.Errorf("expected workload wl1 to be queued, got %s", mockQ.addedItems[0].Name)
 	}
 }
+
+func TestEnsurePreemptionGate(t *testing.T) {
+	now := time.Now()
+	clock := testingclock.NewFakeClock(now)
+
+	tests := []struct {
+		name                           string
+		singleClusterPreemptionTimeout time.Duration
+		group                          *wlGroup
+		wantResult                     reconcile.Result
+		wantPatches                    int
+	}{
+		{
+			name:                           "no preemption gates configured",
+			singleClusterPreemptionTimeout: time.Second,
+			group: &wlGroup{
+				local: &kueue.Workload{
+					Spec: kueue.WorkloadSpec{
+						PreemptionGates: []kueue.PreemptionGate{},
+					},
+				},
+			},
+			wantResult:  reconcile.Result{},
+			wantPatches: 0,
+		},
+		{
+			name:                           "gate present but timeout disabled",
+			singleClusterPreemptionTimeout: 0,
+			group: &wlGroup{
+				local: &kueue.Workload{
+					Spec: kueue.WorkloadSpec{
+						PreemptionGates: []kueue.PreemptionGate{{Name: "kueue.x-k8s.io/multikueue"}},
+					},
+				},
+			},
+			wantResult:  reconcile.Result{},
+			wantPatches: 0,
+		},
+		{
+			name:                           "timeout not elapsed yet",
+			singleClusterPreemptionTimeout: time.Minute,
+			group: &wlGroup{
+				local: &kueue.Workload{
+					Spec:   kueue.WorkloadSpec{PreemptionGates: []kueue.PreemptionGate{{Name: "kueue.x-k8s.io/multikueue"}}},
+					Status: kueue.WorkloadStatus{},
+				},
+				remotes: map[string]*kueue.Workload{
+					"remote-a": {
+						Status: kueue.WorkloadStatus{
+							PreemptionGates: []kueue.PreemptionGateState{
+								{
+									Name:               "kueue.x-k8s.io/multikueue",
+									State:              kueue.GateStateInactive,
+									LastTransitionTime: metav1.NewTime(now.Add(-30 * time.Second)),
+								},
+							},
+						},
+					},
+				},
+			},
+			wantResult:  reconcile.Result{RequeueAfter: 30 * time.Second},
+			wantPatches: 0,
+		},
+		{
+			name:                           "timeout elapsed, ungate target with lowest LastTriggeredTime",
+			singleClusterPreemptionTimeout: time.Minute,
+			group: &wlGroup{
+				local: &kueue.Workload{
+					Spec:   kueue.WorkloadSpec{PreemptionGates: []kueue.PreemptionGate{{Name: "kueue.x-k8s.io/multikueue"}}},
+					Status: kueue.WorkloadStatus{},
+				},
+				remotes: map[string]*kueue.Workload{
+					"remote-a": {
+						// remote-a was recently updated, but triggered later
+						Status: kueue.WorkloadStatus{
+							PreemptionGates: []kueue.PreemptionGateState{
+								{
+									Name:               "kueue.x-k8s.io/multikueue",
+									State:              kueue.GateStateActive,
+									LastTransitionTime: metav1.NewTime(now.Add(-2 * time.Minute)),
+									LastTriggeredTime:  metav1.NewTime(now.Add(-30 * time.Second)),
+								},
+							},
+						},
+					},
+					"remote-b": {
+						// remote-b triggered longest ago
+						Status: kueue.WorkloadStatus{
+							PreemptionGates: []kueue.PreemptionGateState{
+								{
+									Name:               "kueue.x-k8s.io/multikueue",
+									State:              kueue.GateStateActive,
+									LastTransitionTime: metav1.NewTime(now.Add(-3 * time.Minute)),
+									LastTriggeredTime:  metav1.NewTime(now.Add(-1 * time.Minute)),
+								},
+							},
+						},
+					},
+					"remote-c": { // this one was recently ungated implicitly since it's inactive
+						Status: kueue.WorkloadStatus{
+							PreemptionGates: []kueue.PreemptionGateState{
+								{
+									Name:               "kueue.x-k8s.io/multikueue",
+									State:              kueue.GateStateInactive,
+									LastTransitionTime: metav1.NewTime(now.Add(-2 * time.Minute)),
+								},
+							},
+						},
+					},
+				},
+			},
+			wantResult:  reconcile.Result{RequeueAfter: time.Minute},
+			wantPatches: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			var patchCount int
+
+			// Set up interceptor to track patches for remote clients
+			interceptorFunc := interceptor.Funcs{
+				SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+					patchCount++
+					return nil
+				},
+			}
+
+			if tt.group.remoteClients == nil {
+				tt.group.remoteClients = make(map[string]*remoteClient)
+			}
+			for cluster := range tt.group.remotes {
+				cb := getClientBuilder(ctx).WithInterceptorFuncs(interceptorFunc)
+				tt.group.remoteClients[cluster] = &remoteClient{
+					client: cb.Build(),
+				}
+			}
+
+			wlRec := &wlReconciler{
+				clock:                          clock,
+				singleClusterPreemptionTimeout: tt.singleClusterPreemptionTimeout,
+				client:                         getClientBuilder(ctx).Build(),
+			}
+
+			gotResult, err := wlRec.ensurePreemptionGate(ctx, tt.group)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if diff := cmp.Diff(tt.wantResult, gotResult); diff != "" {
+				t.Errorf("unexpected reconcile result (-want/+got):\n%s", diff)
+			}
+			if patchCount != tt.wantPatches {
+				t.Errorf("want %d patches, got %d", tt.wantPatches, patchCount)
+			}
+		})
+	}
+}

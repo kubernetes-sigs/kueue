@@ -17,6 +17,7 @@ limitations under the License.
 package workload
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"maps"
@@ -809,12 +810,68 @@ func HasActivePreemptionGate(wl *kueue.Workload) bool {
 	if wl == nil {
 		return false
 	}
+	if len(wl.Status.PreemptionGates) == 0 {
+		return len(wl.Spec.PreemptionGates) > 0
+	}
 	for _, gate := range wl.Status.PreemptionGates {
 		if gate.State == kueue.GateStateActive {
 			return true
 		}
 	}
 	return false
+}
+
+func SyncPreemptionGateConditions(conds []kueue.PreemptionGateState, preemptionGates []kueue.PreemptionGate, c clock.Clock) ([]kueue.PreemptionGateState, bool) {
+	if len(preemptionGates) == 0 {
+		return nil, len(conds) > 0
+	}
+
+	shouldUpdate := false
+	currentGates := utilslices.ToRefMap(conds, func(c *kueue.PreemptionGateState) string { return c.Name })
+
+	// Ensure all required gates are present and active
+	for _, gate := range preemptionGates {
+		if _, found := currentGates[gate.Name]; !found {
+			conds = append(conds, kueue.PreemptionGateState{
+				Name:               gate.Name,
+				State:              kueue.GateStateActive,
+				LastTransitionTime: metav1.NewTime(c.Now()),
+			})
+			shouldUpdate = true
+		}
+	}
+
+	// Remove any gates that are no longer in the spec
+	if len(conds) > len(preemptionGates) {
+		newConds := make([]kueue.PreemptionGateState, 0, len(preemptionGates))
+		shouldUpdate = true
+		specGates := utilslices.ToMap(preemptionGates, func(i int) (string, struct{}) {
+			return preemptionGates[i].Name, struct{}{}
+		})
+		for i := range conds {
+			c := &conds[i]
+			if _, exists := specGates[c.Name]; exists {
+				newConds = append(newConds, *c)
+			}
+		}
+		conds = newConds
+	}
+
+	slices.SortFunc(conds, func(state1, state2 kueue.PreemptionGateState) int {
+		return cmp.Compare(state1.Name, state2.Name)
+	})
+	return conds, shouldUpdate
+}
+
+func UpdatePreemptionGateLastTriggeredTime(conds *[]kueue.PreemptionGateState, clock clock.Clock) bool {
+	changed := false
+	for i := range *conds {
+		if (*conds)[i].State == kueue.GateStateActive {
+			(*conds)[i].LastTriggeredTime = metav1.NewTime(clock.Now())
+			changed = true
+		}
+	}
+	return changed
 }
 
 // NeedsSecondPass checks if the second pass of scheduling is needed for the

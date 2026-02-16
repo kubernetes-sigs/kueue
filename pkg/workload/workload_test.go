@@ -2567,3 +2567,179 @@ func TestGetLocalQueueFromWorkload(t *testing.T) {
 		})
 	}
 }
+
+func TestHasActivePreemptionGate(t *testing.T) {
+	tests := map[string]struct {
+		wl   *kueue.Workload
+		want bool
+	}{
+		"nil workload": {
+			wl:   nil,
+			want: false,
+		},
+		"no gates": {
+			wl:   &kueue.Workload{},
+			want: false,
+		},
+		"gate in spec but not in status": {
+			wl: &kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PreemptionGates: []kueue.PreemptionGate{
+						{Name: "gate1"},
+					},
+				},
+			},
+			want: true,
+		},
+		"inactive gate in status": {
+			wl: &kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					PreemptionGates: []kueue.PreemptionGateState{
+						{Name: "gate1", State: kueue.GateStateInactive},
+					},
+				},
+			},
+			want: false,
+		},
+		"active gate in status": {
+			wl: &kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					PreemptionGates: []kueue.PreemptionGateState{
+						{Name: "gate1", State: kueue.GateStateInactive},
+						{Name: "gate2", State: kueue.GateStateActive},
+					},
+				},
+			},
+			want: true,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := HasActivePreemptionGate(tc.wl)
+			if got != tc.want {
+				t.Errorf("want %v, got %v", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestSyncPreemptionGateConditions(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	clock := testingclock.NewFakeClock(now)
+
+	tests := map[string]struct {
+		conds           []kueue.PreemptionGateState
+		preemptionGates []kueue.PreemptionGate
+		wantConds       []kueue.PreemptionGateState
+		wantUpdate      bool
+	}{
+		"empty both": {
+			conds:           nil,
+			preemptionGates: nil,
+			wantConds:       nil,
+			wantUpdate:      false,
+		},
+		"remove existing gates completely when spec is empty": {
+			conds: []kueue.PreemptionGateState{
+				{Name: "gate1", State: kueue.GateStateActive},
+			},
+			preemptionGates: nil,
+			wantConds:       nil,
+			wantUpdate:      true,
+		},
+		"add new gate": {
+			conds: nil,
+			preemptionGates: []kueue.PreemptionGate{
+				{Name: "gate1"},
+			},
+			wantConds: []kueue.PreemptionGateState{
+				{Name: "gate1", State: kueue.GateStateActive, LastTransitionTime: metav1.NewTime(now)},
+			},
+			wantUpdate: true,
+		},
+		"keep existing and remove old": {
+			conds: []kueue.PreemptionGateState{
+				{Name: "gate1", State: kueue.GateStateInactive, LastTransitionTime: metav1.NewTime(now)},
+				{Name: "gate2", State: kueue.GateStateActive, LastTransitionTime: metav1.NewTime(now)},
+			},
+			preemptionGates: []kueue.PreemptionGate{
+				{Name: "gate1"},
+				{Name: "gate3"},
+			},
+			wantConds: []kueue.PreemptionGateState{
+				{Name: "gate1", State: kueue.GateStateInactive, LastTransitionTime: metav1.NewTime(now)},
+				{Name: "gate3", State: kueue.GateStateActive, LastTransitionTime: metav1.NewTime(now)},
+			},
+			wantUpdate: true,
+		},
+		"no update needed": {
+			conds: []kueue.PreemptionGateState{
+				{Name: "gate1", State: kueue.GateStateActive, LastTransitionTime: metav1.NewTime(now)},
+			},
+			preemptionGates: []kueue.PreemptionGate{
+				{Name: "gate1"},
+			},
+			wantConds: []kueue.PreemptionGateState{
+				{Name: "gate1", State: kueue.GateStateActive, LastTransitionTime: metav1.NewTime(now)},
+			},
+			wantUpdate: false,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			gotConds, gotUpdate := SyncPreemptionGateConditions(tc.conds, tc.preemptionGates, clock)
+			if gotUpdate != tc.wantUpdate {
+				t.Errorf("want update: %v, got %v", tc.wantUpdate, gotUpdate)
+			}
+			if diff := cmp.Diff(tc.wantConds, gotConds); diff != "" {
+				t.Errorf("unexpected conds (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestUpdatePreemptionGateLastTriggeredTime(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	clock := testingclock.NewFakeClock(now)
+
+	tests := map[string]struct {
+		conds   []kueue.PreemptionGateState
+		want    []kueue.PreemptionGateState
+		changed bool
+	}{
+		"no gates": {
+			conds:   []kueue.PreemptionGateState{},
+			want:    []kueue.PreemptionGateState{},
+			changed: false,
+		},
+		"inactive gate": {
+			conds: []kueue.PreemptionGateState{
+				{Name: "gate1", State: kueue.GateStateInactive},
+			},
+			want: []kueue.PreemptionGateState{
+				{Name: "gate1", State: kueue.GateStateInactive},
+			},
+			changed: false,
+		},
+		"active gate updates time": {
+			conds: []kueue.PreemptionGateState{
+				{Name: "gate1", State: kueue.GateStateActive},
+			},
+			want: []kueue.PreemptionGateState{
+				{Name: "gate1", State: kueue.GateStateActive, LastTriggeredTime: metav1.NewTime(now)},
+			},
+			changed: true,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			gotChanged := UpdatePreemptionGateLastTriggeredTime(&tc.conds, clock)
+			if gotChanged != tc.changed {
+				t.Errorf("want changed %v, got %v", tc.changed, gotChanged)
+			}
+			if diff := cmp.Diff(tc.want, tc.conds); diff != "" {
+				t.Errorf("unexpected conds (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

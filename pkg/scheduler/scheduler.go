@@ -267,6 +267,14 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		if mode == flavorassigner.Preempt && workload.HasActivePreemptionGate(e.Obj) {
 			log.V(3).Info("Skipping workload as it has active preemption gate")
 			setSkipped(e, "Workload has active preemption gate")
+			
+			// Update the LastTriggeredTime for the active gates
+			wl := e.Obj.DeepCopy()
+			if err := workload.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
+				return workload.UpdatePreemptionGateLastTriggeredTime(&wl.Status.PreemptionGates, s.clock), nil
+			}); err != nil {
+				log.Error(err, "Could not update Workload preemption gate status")
+			}
 			continue
 		}
 
