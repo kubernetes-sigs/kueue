@@ -34,7 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -101,7 +101,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 
 	terminatingPod := basePod.DeepCopy()
 	terminatingPod.DeletionTimestamp = &now
-	terminatingPod.Finalizers = []string{podcontroller.PodFinalizer}
+	terminatingPod.Finalizers = []string{podconstants.PodFinalizer}
 
 	failedPod := basePod.DeepCopy()
 	failedPod.Status.Phase = corev1.PodFailed
