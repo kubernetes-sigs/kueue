@@ -90,6 +90,11 @@ type WorkloadSpec struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	MaximumExecutionTimeSeconds *int32 `json:"maximumExecutionTimeSeconds,omitempty"`
+
+	// preemptionGates is a list of preemption keys that block the preemption of the workload
+	// +optional
+	// +listType=atomic
+	PreemptionGates []PreemptionGate `json:"preemptionGates,omitempty"`
 }
 
 // PodSetTopologyRequest defines the topology request for a PodSet.
@@ -349,6 +354,38 @@ type PodSet struct {
 	TopologyRequest *PodSetTopologyRequest `json:"topologyRequest,omitempty"`
 }
 
+// PreemptionGate defines a preemption gate.
+type PreemptionGate struct {
+	// Name is the name of the preemption gate.
+	Name string `json:"name"`
+}
+
+// PreemptionGateState defines the state of a preemption gate.
+type PreemptionGateState struct {
+	// Name is the name of the preemption gate.
+	Name string `json:"name"`
+
+	// Status is the status of the preemption gate.
+	// +optional
+	Status PreemptionGateStatus `json:"status,omitempty"`
+
+	// LastTransitionTime is the last time the condition transitioned from one status to another.
+	// +optional
+	LastTransitionTime *metav1.Time `json:"lastTransitionTime,omitempty"`
+}
+
+// PreemptionGateStatus defines the status of a preemption gate.
+type PreemptionGateStatus string
+
+const (
+	// PreemptionGateActive means the gate is active and blocking preemption.
+	PreemptionGateActive PreemptionGateStatus = "Active"
+
+	// PreemptionGateInactive means the gate is inactive and NOT blocking preemption.
+	// This state is useful to keep the gate in the list for tracking purposes.
+	PreemptionGateInactive PreemptionGateStatus = "Inactive"
+)
+
 // WorkloadStatus defines the observed state of Workload
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.clusterName) || !has(self.clusterName) || oldSelf.clusterName == self.clusterName", message="clusterName is immutable once set"
 // +kubebuilder:validation:XValidation:rule="!has(self.clusterName) || (!has(self.nominatedClusterNames) || (has(self.nominatedClusterNames) && size(self.nominatedClusterNames) == 0))", message="clusterName and nominatedClusterNames are mutually exclusive"
@@ -369,6 +406,12 @@ type WorkloadStatus struct {
 	// +patchStrategy=merge
 	// +patchMergeKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
+
+	// preemptionGates hold the status of the preemption gates.
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	PreemptionGates []PreemptionGateState `json:"preemptionGates,omitempty"`
 
 	// admission holds the parameters of the admission of the workload by a
 	// ClusterQueue. admission can be set back to null, but its fields cannot be

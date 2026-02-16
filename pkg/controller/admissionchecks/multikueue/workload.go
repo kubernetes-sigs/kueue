@@ -72,9 +72,10 @@ type wlReconciler struct {
 	eventsBatchPeriod time.Duration
 	adapters          map[string]jobframework.MultiKueueAdapter
 	recorder          record.EventRecorder
-	clock             clock.Clock
-	dispatcherName    string
-	roleTracker       *roletracker.RoleTracker
+	clock                          clock.Clock
+	dispatcherName                 string
+	roleTracker                    *roletracker.RoleTracker
+	singleClusterPreemptionTimeout time.Duration
 }
 
 var _ reconcile.Reconciler = (*wlReconciler)(nil)
@@ -343,6 +344,11 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			}
 		}
 		return reconcile.Result{}, errors.Join(errs...)
+	}
+
+	// 2.5 Ensure preemption gate
+	if err := w.ensurePreemptionGate(ctx, group); err != nil {
+		return reconcile.Result{}, err
 	}
 
 	// 3. Finish the local workload when the remote workload is finished.
@@ -777,21 +783,23 @@ func (w *wlReconciler) Generic(_ event.GenericEvent) bool {
 func newWlReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelper, cRec *clustersReconciler, origin string,
 	recorder record.EventRecorder, workerLostTimeout, eventsBatchPeriod time.Duration,
 	adapters map[string]jobframework.MultiKueueAdapter, dispatcherName string, roleTracker *roletracker.RoleTracker,
+	singleClusterPreemptionTimeout time.Duration,
 	options ...Option,
 ) *wlReconciler {
 	r := &wlReconciler{
-		client:            c,
-		helper:            helper,
-		clusters:          cRec,
-		origin:            origin,
-		workerLostTimeout: workerLostTimeout,
-		deletedWlCache:    utilmaps.NewSyncMap[string, *kueue.Workload](0),
-		eventsBatchPeriod: eventsBatchPeriod,
-		adapters:          adapters,
-		recorder:          recorder,
-		clock:             realClock,
-		dispatcherName:    dispatcherName,
-		roleTracker:       roleTracker,
+		client:                         c,
+		helper:                         helper,
+		clusters:                       cRec,
+		origin:                         origin,
+		workerLostTimeout:              workerLostTimeout,
+		deletedWlCache:                 utilmaps.NewSyncMap[string, *kueue.Workload](0),
+		eventsBatchPeriod:              eventsBatchPeriod,
+		adapters:                       adapters,
+		recorder:                       recorder,
+		clock:                          realClock,
+		dispatcherName:                 dispatcherName,
+		roleTracker:                    roleTracker,
+		singleClusterPreemptionTimeout: singleClusterPreemptionTimeout,
 	}
 	for _, option := range options {
 		option(r)
@@ -995,4 +1003,74 @@ func cloneForCreate(orig *kueue.Workload, origin string) *kueue.Workload {
 	remoteWl.Labels[kueue.MultiKueueOriginLabel] = origin
 	orig.Spec.DeepCopyInto(&remoteWl.Spec)
 	return remoteWl
+}
+
+func (w *wlReconciler) ensurePreemptionGate(ctx context.Context, group *wlGroup) error {
+	if w.singleClusterPreemptionTimeout <= 0 {
+		return nil
+	}
+
+	gateName := "kueue.x-k8s.io/multikueue"
+	hasGate := false
+	for _, g := range group.local.Spec.PreemptionGates {
+		if g.Name == gateName {
+			hasGate = true
+			break
+		}
+	}
+
+	// Check if any remote is admitted or reserving
+	remoteAdmitted := false
+	conditionToCheck := kueue.WorkloadAdmitted
+	if !features.Enabled(features.MultiKueueWaitForWorkloadAdmitted) {
+		conditionToCheck = kueue.WorkloadQuotaReserved
+	}
+	if cond, _ := group.bestMatchByCondition(conditionToCheck); cond != nil {
+		remoteAdmitted = true
+	}
+
+	// Check timeout
+	timeoutExpired := false
+	if hasGate {
+		for _, g := range group.local.Status.PreemptionGates {
+			if g.Name == gateName && g.Status == kueue.PreemptionGateActive {
+				if time.Since(g.LastTransitionTime.Time) >= w.singleClusterPreemptionTimeout {
+					timeoutExpired = true
+				}
+				break
+			}
+		}
+	}
+
+	shouldHaveGate := !remoteAdmitted && !timeoutExpired && !workload.HasQuotaReservation(group.local)
+
+	if !hasGate && shouldHaveGate {
+		// Just check again if it's there (redundant but safe)
+		for _, g := range group.local.Spec.PreemptionGates {
+			if g.Name == gateName {
+				return nil
+			}
+		}
+		group.local.Spec.PreemptionGates = append(group.local.Spec.PreemptionGates, kueue.PreemptionGate{Name: gateName})
+		return w.client.Update(ctx, group.local)
+	}
+
+	if hasGate && !shouldHaveGate {
+		var newGates []kueue.PreemptionGate
+		changed := false
+		for _, g := range group.local.Spec.PreemptionGates {
+			if g.Name == gateName {
+				changed = true
+				continue
+			}
+			newGates = append(newGates, g)
+		}
+		if changed {
+			group.local.Spec.PreemptionGates = newGates
+			return w.client.Update(ctx, group.local)
+		}
+		return nil
+	}
+
+	return nil
 }

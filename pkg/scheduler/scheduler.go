@@ -264,6 +264,12 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			continue
 		}
 
+		if mode == flavorassigner.Preempt && workload.HasActivePreemptionGate(e.Obj) {
+			log.V(3).Info("Skipping workload as it has active preemption gate")
+			setSkipped(e, "Workload has active preemption gate")
+			continue
+		}
+
 		if mode == flavorassigner.Preempt && len(e.preemptionTargets) == 0 {
 			log.V(2).Info("Workload requires preemption, but there are no candidate workloads allowed for preemption", "preemption", cq.Preemption)
 			// we reserve capacity if we are uncertain

@@ -38,6 +38,8 @@ type WorkloadStatusApplyConfiguration struct {
 	// succeeded.
 	// conditions are limited to 16 items.
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
+	// preemptionGates hold the status of the preemption gates.
+	PreemptionGates []PreemptionGateStateApplyConfiguration `json:"preemptionGates,omitempty"`
 	// admission holds the parameters of the admission of the workload by a
 	// ClusterQueue. admission can be set back to null, but its fields cannot be
 	// changed once set.
@@ -95,6 +97,19 @@ func (b *WorkloadStatusApplyConfiguration) WithConditions(values ...*v1.Conditio
 			panic("nil value passed to WithConditions")
 		}
 		b.Conditions = append(b.Conditions, *values[i])
+	}
+	return b
+}
+
+// WithPreemptionGates adds the given value to the PreemptionGates field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the PreemptionGates field.
+func (b *WorkloadStatusApplyConfiguration) WithPreemptionGates(values ...*PreemptionGateStateApplyConfiguration) *WorkloadStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithPreemptionGates")
+		}
+		b.PreemptionGates = append(b.PreemptionGates, *values[i])
 	}
 	return b
 }

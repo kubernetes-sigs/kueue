@@ -798,10 +798,23 @@ func resetActiveCondition(conds *[]metav1.Condition, gen int64, condType, reason
 		Type:               condType,
 		Status:             metav1.ConditionFalse,
 		Reason:             reason,
-		Message:            api.TruncateConditionMessage("Previously: " + prev.Message),
+		Message:            api.TruncateConditionMessage(fmt.Sprintf("Resetting %s condition because %s", condType, reason)),
 		ObservedGeneration: gen,
 		LastTransitionTime: metav1.NewTime(clock.Now()),
 	})
+}
+
+// HasActivePreemptionGate returns true if the workload has at least one active preemption gate.
+func HasActivePreemptionGate(wl *kueue.Workload) bool {
+	if wl == nil {
+		return false
+	}
+	for _, gate := range wl.Status.PreemptionGates {
+		if gate.Status == kueue.PreemptionGateActive {
+			return true
+		}
+	}
+	return false
 }
 
 // NeedsSecondPass checks if the second pass of scheduling is needed for the
