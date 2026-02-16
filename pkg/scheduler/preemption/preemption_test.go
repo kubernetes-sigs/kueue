@@ -279,15 +279,14 @@ func TestPreemption(t *testing.T) {
 		Label(controllerconstants.JobUIDLabel, "job-in")
 
 	cases := map[string]struct {
-		clusterQueues       []*kueue.ClusterQueue
-		cohorts             []*kueue.Cohort
-		admitted            []kueue.Workload
-		incoming            *kueue.Workload
-		targetCQ            kueue.ClusterQueueReference
-		assignment          flavorassigner.Assignment
-		wantPreempted       int
-		wantWorkloads       []kueue.Workload
-		disableLendingLimit bool
+		clusterQueues []*kueue.ClusterQueue
+		cohorts       []*kueue.Cohort
+		admitted      []kueue.Workload
+		incoming      *kueue.Workload
+		targetCQ      kueue.ClusterQueueReference
+		assignment    flavorassigner.Assignment
+		wantPreempted int
+		wantWorkloads []kueue.Workload
 	}{
 		"preempt lowest priority": {
 			clusterQueues: defaultClusterQueues,
@@ -4104,9 +4103,6 @@ func TestPreemption(t *testing.T) {
 			t.Run(fmt.Sprintf("%s when the WorkloadRequestUseMergePatch feature is %t", name, useMergePatch), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
 
-				if tc.disableLendingLimit {
-					features.SetFeatureGateDuringTest(t, features.LendingLimit, false)
-				}
 				ctx, log := utiltesting.ContextWithLog(t)
 				cl := utiltesting.NewClientBuilder().
 					WithLists(&kueue.WorkloadList{Items: tc.admitted}).
