@@ -441,6 +441,10 @@ function kind_load {
     fi
 }
 
+# Save image to a temp file once, then load into all worker nodes in parallel.
+# Using docker save + ctr import directly to avoid the --all-platforms
+# issue with multi-arch images in DinD environments.
+# See: https://github.com/kubernetes-sigs/kind/issues/3795
 # $1 cluster
 # $2 image
 function cluster_kind_load_image {
@@ -451,17 +455,36 @@ function cluster_kind_load_image {
         return 1
     fi
 
-    # Use docker save + ctr import directly to avoid the --all-platforms
-    # issue with multi-arch images in DinD environments.
-    # See: https://github.com/kubernetes-sigs/kind/issues/3795
-    echo "Loading image '$2' to cluster '$1'"
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+    trap '[ -d "${tmp_dir:-}" ] && rm -rf "$tmp_dir"' RETURN
+    local tmp_image="$tmp_dir/image.tar"
+
+    echo "Saving image '$2'..."
+    if ! docker save "$2" -o "$tmp_image"; then
+        echo "Failed to save image '$2'"
+        return 1
+    fi
+
+    echo "Loading image '$2' to cluster '$1' (parallel)"
+    local pids=()
+    local nodes=()
     while IFS= read -r node; do
         echo "  Loading image to node: $node"
-        if ! docker save "$2" | docker exec -i "$node" ctr --namespace=k8s.io images import --digests --snapshotter=overlayfs -; then
-            echo "Failed to load image '$2' to node '$node'"
-            return 1
-        fi
+        docker exec -i "$node" ctr --namespace=k8s.io images import \
+            --digests --snapshotter=overlayfs - < "$tmp_image" &
+        pids+=($!)
+        nodes+=("$node")
     done <<< "$worker_nodes"
+
+    local failed=0
+    for i in "${!pids[@]}"; do
+        if ! wait "${pids[$i]}"; then
+            echo "Failed to load image '$2' to node '${nodes[$i]}'"
+            failed=1
+        fi
+    done
+    return "$failed"
 }
 
 # $1 kubeconfig
