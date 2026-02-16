@@ -762,7 +762,6 @@ func TestDefault(t *testing.T) {
 		admissionCheck             *kueue.AdmissionCheck
 		manageJobsWithoutQueueName bool
 		multiKueueEnabled          bool
-		localQueueDefaulting       bool
 		defaultLqExist             bool
 		enableIntegrations         []string
 		want                       *batchv1.Job
@@ -843,32 +842,28 @@ func TestDefault(t *testing.T) {
 				Obj(),
 			multiKueueEnabled: true,
 		},
-		"LocalQueueDefaulting enabled, default lq is created, job doesn't have queue label": {
-			localQueueDefaulting: true,
-			defaultLqExist:       true,
-			job:                  testingutil.MakeJob("test-job", "default").Obj(),
+		"default lq is created, job doesn't have queue label": {
+			defaultLqExist: true,
+			job:            testingutil.MakeJob("test-job", "default").Obj(),
 			want: testingutil.MakeJob("test-job", "default").
 				Queue("default").
 				Obj(),
 		},
-		"LocalQueueDefaulting enabled, default lq is created, job has queue label": {
-			localQueueDefaulting: true,
-			defaultLqExist:       true,
-			job:                  testingutil.MakeJob("test-job", "").Queue("test-queue").Obj(),
+		"default lq is created, job has queue label": {
+			defaultLqExist: true,
+			job:            testingutil.MakeJob("test-job", "").Queue("test-queue").Obj(),
 			want: testingutil.MakeJob("test-job", "").
 				Queue("test-queue").
 				Obj(),
 		},
-		"LocalQueueDefaulting enabled, default lq isn't created, job doesn't have queue label": {
-			localQueueDefaulting: true,
-			defaultLqExist:       false,
-			job:                  testingutil.MakeJob("test-job", "").Obj(),
+		"default lq isn't created, job doesn't have queue label": {
+			defaultLqExist: false,
+			job:            testingutil.MakeJob("test-job", "").Obj(),
 			want: testingutil.MakeJob("test-job", "").
 				Obj(),
 		},
-		"LocalQueueDefaulting enabled, job is managed by Kueue managed owner, job doesn't have queue label": {
-			localQueueDefaulting: true,
-			defaultLqExist:       true,
+		"job is managed by Kueue managed owner, job doesn't have queue label": {
+			defaultLqExist: true,
 			// MPIJob callBackFunction is registered as integrations since we initialize MPIJob integration package.
 			enableIntegrations: []string{"kubeflow.org/mpijob"},
 			job: testingutil.MakeJob("test-job", metav1.NamespaceDefault).
@@ -881,9 +876,8 @@ func TestDefault(t *testing.T) {
 				OwnerReference("owner", kfmpi.SchemeGroupVersionKind).
 				Obj(),
 		},
-		"LocalQueueDefaulting enabled, job is managed by non Kueue managed owner, job has queue label": {
-			localQueueDefaulting: true,
-			defaultLqExist:       true,
+		"job is managed by non Kueue managed owner, job has queue label": {
+			defaultLqExist: true,
 			job: testingutil.MakeJob("test-job", metav1.NamespaceDefault).
 				OwnerReference("owner", jobsetapi.SchemeGroupVersion.WithKind("JobSet")).
 				Obj(),
@@ -896,7 +890,6 @@ func TestDefault(t *testing.T) {
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.MultiKueue, tc.multiKueueEnabled)
-			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
 
 			ctx, log := utiltesting.ContextWithLog(t)
 
