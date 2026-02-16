@@ -101,11 +101,8 @@ func requeueWorkloadsCQ(ctx context.Context, m *Manager, clusterQueueName kueue.
 }
 
 // requeueWorkloadsCohort moves all inadmissible
-// workloads in the Cohort tree. It expects to be
-// passed a root Cohort.
-//
-// RequeueCohort moves all inadmissibleWorkloads in
-// corresponding Cohort to heap. If at least one workload queued,
+// workloads in the Cohort tree to heap. It expects to be
+// passed a root Cohort. If at least one workload queued,
 // we will broadcast the event.
 // WARNING: must only be called by the InadmissibleWorkloadRequeuer
 func requeueWorkloadsCohort(ctx context.Context, m *Manager, cohortName kueue.CohortReference) {
@@ -182,6 +179,13 @@ func NotifyRetryInadmissible(m *Manager, cqNames sets.Set[kueue.ClusterQueueRefe
 }
 
 func notifyRetryInadmissibleWithoutLock(m *Manager, cqNames sets.Set[kueue.ClusterQueueReference]) {
+	if len(cqNames) == 0 {
+		return
+	}
+
+	// Track processed cohort roots to avoid requeuing the same hierarchy
+	// multiple times when multiple CQs in cqNames share a root.
+	processedRoots := sets.New[kueue.CohortReference]()
 	for name := range cqNames {
 		cq := m.hm.ClusterQueue(name)
 		if cq == nil {
@@ -189,10 +193,14 @@ func notifyRetryInadmissibleWithoutLock(m *Manager, cqNames sets.Set[kueue.Clust
 		}
 		if !cq.HasParent() {
 			m.inadmissibleWorkloadRequeuer.notifyClusterQueue(cq.name)
-		} else if !hierarchy.HasCycle(cq.Parent()) {
-			root := cq.Parent().getRootUnsafe().GetName()
-			// unnecessary to deduplicate root Cohorts, as notifyCohort handles this
-			m.inadmissibleWorkloadRequeuer.notifyCohort(root)
+		}
+		if cq.HasParent() && !hierarchy.HasCycle(cq.Parent()) {
+			rootName := cq.Parent().getRootUnsafe().GetName()
+			if processedRoots.Has(rootName) {
+				continue
+			}
+			m.inadmissibleWorkloadRequeuer.notifyCohort(rootName)
+			processedRoots.Insert(rootName)
 		}
 	}
 }
@@ -213,21 +221,17 @@ type requeueRequest struct {
 }
 
 // inadmissibleWorkloadRequeuer is responsible for receiving notifications,
-// and requeuering workloads as a result of these notifications.
+// and requeuing workloads as a result of these notifications.
 type inadmissibleWorkloadRequeuer struct {
 	qManager    *Manager
 	eventCh     chan event.TypedGenericEvent[requeueRequest]
 	batchPeriod time.Duration
 }
 
-func newInadmissibleWorkloadReconciler(qManager *Manager) *inadmissibleWorkloadRequeuer {
+func newInadmissibleWorkloadRequeuer(qManager *Manager) *inadmissibleWorkloadRequeuer {
 	return &inadmissibleWorkloadRequeuer{
-		qManager: qManager,
-		// note to reviewers: should this be a buffered channel? I imagine that
-		// q.AddAfter will process this so fast that it is not necessary.
-		// LLM review suggested this to derisk deadlock (during startup?), but I don't
-		// see this risk.
-		eventCh:     make(chan event.TypedGenericEvent[requeueRequest]),
+		qManager:    qManager,
+		eventCh:     make(chan event.TypedGenericEvent[requeueRequest], 128),
 		batchPeriod: requeueBatchPeriodProd,
 	}
 }
@@ -263,7 +267,7 @@ func (r *inadmissibleWorkloadRequeuer) Generic(_ context.Context, e event.TypedG
 func (r *inadmissibleWorkloadRequeuer) setupWithManager(mgr ctrl.Manager) error {
 	return builder.TypedControllerManagedBy[requeueRequest](mgr).
 		Named("inadmissible_workload_requeue_controller").
-		WatchesRawSource(source.TypedChannel(r.eventCh, &inadmissibleWorkloadRequeuer{})).
+		WatchesRawSource(source.TypedChannel(r.eventCh, r)).
 		WithOptions(controller.TypedOptions[requeueRequest]{
 			NeedLeaderElection: ptr.To(false),
 			// since a lock is required to requeue, no point in more than 1.

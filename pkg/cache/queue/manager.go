@@ -173,7 +173,7 @@ func NewManager(client client.Client, checker StatusChecker, options ...Option) 
 		option(m)
 	}
 	if m.inadmissibleWorkloadRequeuer == nil {
-		m.inadmissibleWorkloadRequeuer = newInadmissibleWorkloadReconciler(m)
+		m.inadmissibleWorkloadRequeuer = newInadmissibleWorkloadRequeuer(m)
 	}
 	m.cond.L = &m.RWMutex
 	return m
