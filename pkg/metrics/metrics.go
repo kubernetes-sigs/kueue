@@ -747,7 +747,8 @@ func LQRefFromWorkload(wl *kueue.Workload) LocalQueueReference {
 	}
 }
 
-func ClearClusterQueueMetrics(cqName string) {
+func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
+	cqName := string(cq)
 	AdmissionCyclePreemptionSkips.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	PendingWorkloads.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	QuotaReservedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})

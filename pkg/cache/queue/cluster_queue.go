@@ -38,7 +38,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
-	"sigs.k8s.io/kueue/pkg/metrics"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/heap"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
@@ -237,7 +236,7 @@ func (c *ClusterQueue) AddFromLocalQueue(q *LocalQueue, roleTracker *roletracker
 	for finishedWorkload := range q.finishedWorkloads {
 		c.finishedWorkloads.Insert(finishedWorkload)
 	}
-	metrics.ReportFinishedWorkloads(c.GetName(), c.finishedWorkloads.Len(), roleTracker)
+	reportCQFinishedWorkloads(c, roleTracker)
 	return added
 }
 
@@ -328,7 +327,7 @@ func (c *ClusterQueue) DeleteFromLocalQueue(log logr.Logger, q *LocalQueue, role
 	for fw := range q.finishedWorkloads {
 		c.finishedWorkloads.Delete(fw)
 	}
-	metrics.ReportFinishedWorkloads(c.GetName(), c.finishedWorkloads.Len(), roleTracker)
+	reportCQFinishedWorkloads(c, roleTracker)
 }
 
 // requeueIfNotPresent inserts a workload that cannot be admitted into
