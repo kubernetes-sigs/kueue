@@ -134,6 +134,7 @@ trap return_to_kansas EXIT
 
 SUBJECTS=()
 RELEASE_NOTES=()
+KIND_LABELS=()
 function make-a-pr() {
   local rel
   rel="$(basename "${BRANCH}")"
@@ -155,7 +156,16 @@ $(printf '%s\n' "${RELEASE_NOTES[@]}")
 EOF
 )
 
-  gh pr create --title="Automated cherry pick of ${numandtitle}" --body="${prtext}" --head "${GITHUB_USER}:${NEWBRANCH}" --base "${rel}" --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}"
+  local label_args=()
+  if [[ ${#KIND_LABELS[@]} -gt 0 ]]; then
+    while IFS= read -r label; do
+      if [[ -n "${label}" ]]; then
+        label_args+=(--label "${label}")
+      fi
+    done < <(printf '%s\n' "${KIND_LABELS[@]}" | sort -u)
+  fi
+
+  gh pr create --title="Automated cherry pick of ${numandtitle}" --body="${prtext}" --head "${GITHUB_USER}:${NEWBRANCH}" --base "${rel}" --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" "${label_args[@]+"${label_args[@]}"}"
 }
 
 git checkout -b "${NEWBRANCHUNIQ}" "${BRANCH}"
@@ -202,6 +212,13 @@ for pull in "${PULLS[@]}"; do
   # set the release note
   release_note=$(gh pr view "$pull" --json body --jq '.["body"]' | awk '/```release-note/{f=1;next} /```/{f=0} f')
   RELEASE_NOTES+=("${release_note}")
+
+  # collect kind/* labels from the original PR
+  while IFS= read -r label; do
+    if [[ -n "${label}" ]]; then
+      KIND_LABELS+=("${label}")
+    fi
+  done < <(gh pr view "$pull" --json labels --jq '.labels[].name | select(startswith("kind/"))')
 
   # remove the patch file from /tmp
   rm -f "/tmp/${pull}.patch"
