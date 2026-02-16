@@ -65,7 +65,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 	)
 
 	ginkgo.BeforeAll(func() {
-		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
+		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
 			cfg.ManageJobsWithoutQueueName = true
 		})
 	})
@@ -92,7 +92,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 
 	ginkgo.When("manageJobsWithoutQueueName=true and ManagedJobsNamespaceSelectorAlwaysRespected=false", func() {
 		ginkgo.BeforeEach(func() {
-			util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
+			util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
 				cfg.ManageJobsWithoutQueueName = true
 				cfg.FeatureGates = map[string]bool{string(features.ManagedJobsNamespaceSelectorAlwaysRespected): false}
 				cfg.ManagedJobsNamespaceSelector = &metav1.LabelSelector{
@@ -107,7 +107,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			})
 		})
 		ginkgo.AfterEach(func() {
-			util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
+			util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
 				cfg.ManageJobsWithoutQueueName = true
 			})
 		})
@@ -178,7 +178,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			var jobLookupKey types.NamespacedName
 
 			ginkgo.By("setting local queue defulting as false", func() {
-				util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
+				util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
 					cfg.FeatureGates = map[string]bool{string(features.LocalQueueDefaulting): false}
 					cfg.ManageJobsWithoutQueueName = true
 				})
@@ -214,7 +214,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 			ginkgo.By("setting feature gates back to its original state", func() {
-				util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
+				util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
 					cfg.ManageJobsWithoutQueueName = true
 				})
 			})
@@ -983,7 +983,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName without JobSet integration",
 	)
 
 	ginkgo.BeforeAll(func() {
-		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
+		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
 			cfg.ManageJobsWithoutQueueName = true
 			cfg.Integrations.Frameworks = slices.DeleteFunc(cfg.Integrations.Frameworks, func(framework string) bool {
 				return framework == jobset.FrameworkName
