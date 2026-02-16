@@ -85,6 +85,8 @@ func DefaultMultiKueueRules() []rbacv1.PolicyRule {
 		PolicyRule(leaderworkersetv1.SchemeGroupVersion.Group, "leaderworkersets/status", "get"),
 		PolicyRule(rayv1.SchemeGroupVersion.Group, "rayclusters", resourceVerbs...),
 		PolicyRule(rayv1.SchemeGroupVersion.Group, "rayclusters/status", "get"),
+		PolicyRule(rayv1.SchemeGroupVersion.Group, "rayservices", resourceVerbs...),
+		PolicyRule(rayv1.SchemeGroupVersion.Group, "rayservices/status", "get"),
 		PolicyRule(kftrainerapi.SchemeGroupVersion.Group, "trainjobs", resourceVerbs...),
 		PolicyRule(kftrainerapi.SchemeGroupVersion.Group, "trainjobs/status", "get"),
 	}

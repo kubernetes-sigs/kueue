@@ -38,6 +38,7 @@ import (
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
@@ -663,4 +664,115 @@ func GetPodLogs(ctx context.Context, cfg *rest.Config, pod *corev1.Pod, containe
 	}
 
 	return string(logs), nil
+}
+
+// PrintRayServicesInNamespace prints all RayServices in the specified namespace as YAML.
+func PrintRayServicesInNamespace(ctx context.Context, k8sClient client.Client, namespace string) {
+	ginkgo.GinkgoHelper()
+	rayServiceList := &rayv1.RayServiceList{}
+	if err := k8sClient.List(ctx, rayServiceList, client.InNamespace(namespace)); err != nil {
+		fmt.Fprintf(ginkgo.GinkgoWriter, "Failed to list RayServices: %v\n", err)
+		return
+	}
+	for _, rs := range rayServiceList.Items {
+		rs.ManagedFields = nil
+		rsYAML, err := yaml.Marshal(rs)
+		if err != nil {
+			fmt.Fprintf(ginkgo.GinkgoWriter, "Failed to marshal RayService %s: %v\n", rs.Name, err)
+			continue
+		}
+		fmt.Fprintf(ginkgo.GinkgoWriter, "=== RayService %s/%s YAML ===\n%s\n", rs.Namespace, rs.Name, string(rsYAML))
+	}
+}
+
+// PrintWorkloadsInNamespace prints all Workloads in the specified namespace as YAML.
+func PrintWorkloadsInNamespace(ctx context.Context, k8sClient client.Client, namespace string) {
+	ginkgo.GinkgoHelper()
+	workloadList := &kueue.WorkloadList{}
+	if err := k8sClient.List(ctx, workloadList, client.InNamespace(namespace)); err != nil {
+		fmt.Fprintf(ginkgo.GinkgoWriter, "Failed to list Workloads: %v\n", err)
+		return
+	}
+	for _, wl := range workloadList.Items {
+		wl.ManagedFields = nil
+		wlYAML, err := yaml.Marshal(wl)
+		if err != nil {
+			fmt.Fprintf(ginkgo.GinkgoWriter, "Failed to marshal Workload %s: %v\n", wl.Name, err)
+			continue
+		}
+		fmt.Fprintf(ginkgo.GinkgoWriter, "=== Workload %s/%s YAML ===\n%s\n", wl.Namespace, wl.Name, string(wlYAML))
+	}
+}
+
+// PrintJobsInNamespace prints all Jobs in the specified namespace as YAML.
+func PrintJobsInNamespace(ctx context.Context, k8sClient client.Client, namespace string) {
+	ginkgo.GinkgoHelper()
+	jobList := &batchv1.JobList{}
+	if err := k8sClient.List(ctx, jobList, client.InNamespace(namespace)); err != nil {
+		fmt.Fprintf(ginkgo.GinkgoWriter, "Failed to list Jobs: %v\n", err)
+		return
+	}
+	for _, job := range jobList.Items {
+		job.ManagedFields = nil
+		jobYAML, err := yaml.Marshal(job)
+		if err != nil {
+			fmt.Fprintf(ginkgo.GinkgoWriter, "Failed to marshal Job %s: %v\n", job.Name, err)
+			continue
+		}
+		fmt.Fprintf(ginkgo.GinkgoWriter, "=== Job %s/%s YAML ===\n%s\n", job.Namespace, job.Name, string(jobYAML))
+	}
+}
+
+// PrintPodsInNamespace prints all Pods in the specified namespace as YAML.
+func PrintPodsInNamespace(ctx context.Context, k8sClient client.Client, namespace string) {
+	ginkgo.GinkgoHelper()
+	podList := &corev1.PodList{}
+	if err := k8sClient.List(ctx, podList, client.InNamespace(namespace)); err != nil {
+		fmt.Fprintf(ginkgo.GinkgoWriter, "Failed to list Pods: %v\n", err)
+		return
+	}
+	for _, pod := range podList.Items {
+		pod.ManagedFields = nil
+		podYAML, err := yaml.Marshal(pod)
+		if err != nil {
+			fmt.Fprintf(ginkgo.GinkgoWriter, "Failed to marshal Pod %s: %v\n", pod.Name, err)
+			continue
+		}
+		fmt.Fprintf(ginkgo.GinkgoWriter, "=== Pod %s/%s YAML ===\n%s\n", pod.Namespace, pod.Name, string(podYAML))
+	}
+}
+
+// PrintLogsForMatchingPods prints logs for all pods in the cluster whose names contain any of the specified filters.
+func PrintLogsForMatchingPods(ctx context.Context, cfg *rest.Config, k8sClient client.Client, nameFilters ...string) {
+	ginkgo.GinkgoHelper()
+	allPodList := &corev1.PodList{}
+	if err := k8sClient.List(ctx, allPodList); err != nil {
+		fmt.Fprintf(ginkgo.GinkgoWriter, "Failed to list all Pods in cluster: %v\n", err)
+		return
+	}
+
+	for _, pod := range allPodList.Items {
+		podNameLower := strings.ToLower(pod.Name)
+		matchesFilter := false
+		for _, filter := range nameFilters {
+			if strings.Contains(podNameLower, strings.ToLower(filter)) {
+				matchesFilter = true
+				break
+			}
+		}
+		if !matchesFilter {
+			continue
+		}
+
+		for _, container := range pod.Spec.Containers {
+			logs, err := GetPodLogs(ctx, cfg, &pod, container.Name)
+			if err != nil {
+				fmt.Fprintf(ginkgo.GinkgoWriter, "Failed to get logs for Pod %s/%s container %s: %v\n",
+					pod.Namespace, pod.Name, container.Name, err)
+				continue
+			}
+			fmt.Fprintf(ginkgo.GinkgoWriter, "=== Logs for Pod %s/%s container %s ===\n%s\n",
+				pod.Namespace, pod.Name, container.Name, logs)
+		}
+	}
 }

@@ -205,7 +205,7 @@ func TestIsJobManagedByKueue(t *testing.T) {
 		want       bool
 		wantReason string
 	}{
-		"managed by kueue": {
+		"rayservice with queue label": {
 			rayService: &rayv1.RayService{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "rayservice",
@@ -215,9 +215,10 @@ func TestIsJobManagedByKueue(t *testing.T) {
 					},
 				},
 			},
-			want: true,
+			want:       false,
+			wantReason: "RayService is not managed by Kueue",
 		},
-		"not managed by kueue": {
+		"rayservice without queue label": {
 			rayService: &rayv1.RayService{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "rayservice",
@@ -225,7 +226,7 @@ func TestIsJobManagedByKueue(t *testing.T) {
 				},
 			},
 			want:       false,
-			wantReason: "RayService is not managed by Kueue (missing queue label)",
+			wantReason: "RayService is not managed by Kueue",
 		},
 	}
 

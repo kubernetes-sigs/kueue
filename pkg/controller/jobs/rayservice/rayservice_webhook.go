@@ -19,10 +19,8 @@ package rayservice
 import (
 	"context"
 	"fmt"
-	"slices"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -37,8 +35,15 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
+	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
+)
+
+var (
+	headGroupSpecsPath   = field.NewPath("spec", "rayClusterSpec", "headGroupSpec")
+	headGroupMetaPath    = headGroupSpecsPath.Child("template", "metadata")
+	workerGroupSpecsPath = field.NewPath("spec", "rayClusterSpec", "workerGroupSpecs")
 )
 
 type RayServiceWebhook struct {
@@ -126,117 +131,107 @@ func isAnElasticJob(job *rayv1.RayService) bool {
 	return features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.Enabled(job.GetObjectMeta())
 }
 
-func (w *RayServiceWebhook) validateCreate(_ context.Context, job *rayv1.RayService) (field.ErrorList, error) {
+func (w *RayServiceWebhook) validateCreate(ctx context.Context, job *rayv1.RayService) (field.ErrorList, error) {
 	var allErrors field.ErrorList
 	kueueJob := (*RayService)(job)
 
 	if w.manageJobsWithoutQueueName || jobframework.QueueName(kueueJob) != "" {
-		spec := &job.Spec.RayClusterSpec
-		specPath := field.NewPath("spec", "rayClusterSpec")
+		spec := &job.Spec
+		specPath := field.NewPath("spec")
 
-		if isAnElasticJob(job) {
-			allErrors = append(allErrors, validateElasticJob(job)...)
-		} else if ptr.Deref(spec.EnableInTreeAutoscaling, false) {
-			// Should not use auto scaler. Once the resources are reserved by queue the service should do its best to use them.
-			allErrors = append(allErrors, field.Invalid(specPath.Child("enableInTreeAutoscaling"), spec.EnableInTreeAutoscaling, "a kueue managed service can use autoscaling only when the ElasticJobsViaWorkloadSlices feature gate is on and the service is an elastic job"))
+		clusterSpec := spec.RayClusterSpec
+		clusterSpecPath := specPath.Child("rayClusterSpec")
+
+		// Check autoscaling and workload slicing
+		if ptr.Deref(clusterSpec.EnableInTreeAutoscaling, false) && !workloadslicing.Enabled(job) {
+			allErrors = append(allErrors, field.Invalid(clusterSpecPath.Child("enableInTreeAutoscaling"), clusterSpec.EnableInTreeAutoscaling, "a kueue managed RayService should only use autoscaling when workload slicing is enabled"))
 		}
 
 		// Should limit the worker count to 8 - 1 (max podSets num - cluster head)
-		if len(spec.WorkerGroupSpecs) > 7 {
-			allErrors = append(allErrors, field.TooMany(specPath.Child("workerGroupSpecs"), len(spec.WorkerGroupSpecs), 7))
+		if len(clusterSpec.WorkerGroupSpecs) > 7 {
+			allErrors = append(allErrors, field.TooMany(clusterSpecPath.Child("workerGroupSpecs"), len(clusterSpec.WorkerGroupSpecs), 7))
 		}
 
-		allErrors = append(allErrors, jobframework.ValidateJobOnCreate(kueueJob)...)
-
-		if queueName := jobframework.QueueName(kueueJob); len(queueName) != 0 {
-			allErrors = append(allErrors, jobframework.ValidateQueueName(kueueJob.Object())...)
+		// None of the workerGroups should be named "head"
+		for i := range clusterSpec.WorkerGroupSpecs {
+			if clusterSpec.WorkerGroupSpecs[i].GroupName == headGroupPodSetName {
+				allErrors = append(allErrors, field.Forbidden(clusterSpecPath.Child("workerGroupSpecs").Index(i).Child("groupName"), fmt.Sprintf("%q is reserved for the head group", headGroupPodSetName)))
+			}
 		}
+	}
+
+	allErrors = append(allErrors, jobframework.ValidateJobOnCreate(kueueJob)...)
+	if features.Enabled(features.TopologyAwareScheduling) {
+		validationErrs, err := w.validateTopologyRequest(ctx, job)
+		if err != nil {
+			return nil, err
+		}
+		allErrors = append(allErrors, validationErrs...)
 	}
 
 	return allErrors, nil
 }
 
-// ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *RayServiceWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *rayv1.RayService) (admission.Warnings, error) {
-	log := ctrl.LoggerFrom(ctx).WithName("rayservice-webhook")
-	log.V(10).Info("Validating update")
+func (w *RayServiceWebhook) validateTopologyRequest(ctx context.Context, rayService *rayv1.RayService) (field.ErrorList, error) {
+	var allErrs field.ErrorList
 
-	var allErrors field.ErrorList
-	oldJob := (*RayService)(oldObj)
-	newJob := (*RayService)(newObj)
-	spec := &newObj.Spec.RayClusterSpec
+	podSets, podSetsErr := jobframework.JobPodSets(ctx, (*RayService)(rayService))
 
-	// Check suspend
-	if !newJob.IsSuspended() && jobframework.QueueName(newJob) != "" {
-		specPath := field.NewPath("spec", "rayClusterSpec")
-		if isAnElasticJob(newObj) {
-			allErrors = append(allErrors, validateElasticJob(newObj)...)
-		} else if ptr.Deref(spec.EnableInTreeAutoscaling, false) {
-			allErrors = append(allErrors, field.Invalid(specPath.Child("enableInTreeAutoscaling"), spec.EnableInTreeAutoscaling, "a kueue managed service can use autoscaling only when the ElasticJobsViaWorkloadSlices feature gate is on and the service is an elastic job"))
-		}
+	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(headGroupMetaPath, &rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.ObjectMeta)...)
+
+	if podSetsErr == nil {
+		headGroupPodSetName := podset.FindPodSetByName(podSets, headGroupPodSetName)
+		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(headGroupMetaPath, &rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.ObjectMeta, headGroupPodSetName)...)
+		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, buildPodSetAnnotationsPathByNameMap(rayService))...)
 	}
 
-	allErrors = append(allErrors, jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist)...)
-	return nil, allErrors.ToAggregate()
+	for i, wgs := range rayService.Spec.RayClusterSpec.WorkerGroupSpecs {
+		workerGroupMetaPath := workerGroupSpecsPath.Index(i).Child("template", "metadata")
+		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerGroupMetaPath, &rayService.Spec.RayClusterSpec.WorkerGroupSpecs[i].Template.ObjectMeta)...)
+
+		if podSetsErr != nil {
+			continue
+		}
+
+		workerPodSetName := podset.FindPodSetByName(podSets, kueue.NewPodSetReference(wgs.GroupName))
+		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(workerGroupMetaPath, &rayService.Spec.RayClusterSpec.WorkerGroupSpecs[i].Template.ObjectMeta, workerPodSetName)...)
+	}
+
+	if len(allErrs) > 0 {
+		return allErrs, nil
+	}
+
+	return nil, podSetsErr
+}
+
+func buildPodSetAnnotationsPathByNameMap(rayService *rayv1.RayService) map[kueue.PodSetReference]*field.Path {
+	podSetAnnotationsPathByName := make(map[kueue.PodSetReference]*field.Path)
+	podSetAnnotationsPathByName[headGroupPodSetName] = headGroupMetaPath.Child("annotations")
+	for i, wgs := range rayService.Spec.RayClusterSpec.WorkerGroupSpecs {
+		podSetAnnotationsPathByName[kueue.PodSetReference(wgs.GroupName)] = workerGroupSpecsPath.Index(i).Child("template", "metadata", "annotations")
+	}
+	return podSetAnnotationsPathByName
+}
+
+// ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
+func (w *RayServiceWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *rayv1.RayService) (admission.Warnings, error) {
+	oldJob := fromObject(oldObj)
+	newJob := fromObject(newObj)
+	log := ctrl.LoggerFrom(ctx).WithName("rayservice-webhook")
+	if w.manageJobsWithoutQueueName || jobframework.QueueName(newJob) != "" {
+		log.Info("Validating update")
+		allErrors := jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist)
+		validationErrs, err := w.validateCreate(ctx, newObj)
+		if err != nil {
+			return nil, err
+		}
+		allErrors = append(allErrors, validationErrs...)
+		return nil, allErrors.ToAggregate()
+	}
+	return nil, nil
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *RayServiceWebhook) ValidateDelete(ctx context.Context, obj *rayv1.RayService) (admission.Warnings, error) {
 	return nil, nil
-}
-
-func validateElasticJob(job *rayv1.RayService) field.ErrorList {
-	var allErrors field.ErrorList
-	spec := &job.Spec.RayClusterSpec
-	specPath := field.NewPath("spec", "rayClusterSpec")
-
-	// Head Node Validation
-	headGroupSpec := &spec.HeadGroupSpec
-	headGroupPath := specPath.Child("headGroupSpec")
-	allErrors = append(allErrors, validateTemplateForElasticJob(headGroupPath, &headGroupSpec.Template)...)
-
-	// Worker Groups Validation
-	workerGroupsPath := specPath.Child("workerGroupSpecs")
-	for i := range spec.WorkerGroupSpecs {
-		wgs := &spec.WorkerGroupSpecs[i]
-		workerGroupPath := workerGroupsPath.Index(i)
-
-		allErrors = append(allErrors, validateTemplateForElasticJob(workerGroupPath, &wgs.Template)...)
-
-		if wgs.MinReplicas != nil && wgs.MaxReplicas != nil {
-			if *wgs.MinReplicas > *wgs.MaxReplicas {
-				allErrors = append(allErrors, field.Invalid(workerGroupPath.Child("minReplicas"), *wgs.MinReplicas,
-					fmt.Sprintf("must be less than or equal to maxReplicas (%d)", *wgs.MaxReplicas)))
-			}
-		}
-
-		if wgs.Replicas != nil && wgs.MinReplicas != nil {
-			if *wgs.Replicas < *wgs.MinReplicas {
-				allErrors = append(allErrors, field.Invalid(workerGroupPath.Child("replicas"), *wgs.Replicas,
-					fmt.Sprintf("must be greater than or equal to minReplicas (%d)", *wgs.MinReplicas)))
-			}
-		}
-
-		if wgs.Replicas != nil && wgs.MaxReplicas != nil {
-			if *wgs.Replicas > *wgs.MaxReplicas {
-				allErrors = append(allErrors, field.Invalid(workerGroupPath.Child("replicas"), *wgs.Replicas,
-					fmt.Sprintf("must be less than or equal to maxReplicas (%d)", *wgs.MaxReplicas)))
-			}
-		}
-	}
-
-	return allErrors
-}
-
-func validateTemplateForElasticJob(basePath *field.Path, template *corev1.PodTemplateSpec) field.ErrorList {
-	var allErrors field.ErrorList
-	templatePath := basePath.Child("template")
-
-	gates := template.Spec.SchedulingGates
-	if !slices.Contains(gates, corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}) {
-		allErrors = append(allErrors, field.Invalid(templatePath.Child("spec", "schedulingGates"), gates,
-			fmt.Sprintf("must contain the %q scheduling gate", kueue.ElasticJobSchedulingGate)))
-	}
-
-	return allErrors
 }

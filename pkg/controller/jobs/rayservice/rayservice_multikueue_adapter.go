@@ -72,6 +72,9 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	remoteJob.Labels[constants.PrebuiltWorkloadLabel] = workloadName
 	remoteJob.Labels[kueue.MultiKueueOriginLabel] = origin
 
+	// TODO use latest RayService API which has newly added ManagedBy field (https://github.com/ray-project/kuberay/pull/4491)
+	// remoteJob.Spec.ManagedBy = nil
+
 	return remoteClient.Create(ctx, &remoteJob)
 }
 
@@ -88,11 +91,13 @@ func (b *multiKueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Cl
 	if err != nil {
 		return false, "", err
 	}
-	// RayService doesn't have spec.managedBy field, so we check for Kueue labels
-	if jobframework.QueueName((*RayService)(&job)) != "" {
-		return true, "", nil
-	}
-	return false, "RayService is not managed by Kueue (missing queue label)", nil
+	// TODO use latest RayService API which has newly added ManagedBy field (https://github.com/ray-project/kuberay/pull/4491)
+	// jobControllerName := ptr.Deref(job.Spec.ManagedBy, "")
+	// if jobControllerName != kueue.MultiKueueControllerName {
+	//   return false, fmt.Sprintf("Expecting spec.managedBy to be %q not %q", kueue.MultiKueueControllerName, jobControllerName), nil
+	// }
+	// return true, "", nil
+	return false, "RayService is not managed by Kueue", nil
 }
 
 func (b *multiKueueAdapter) GVK() schema.GroupVersionKind {
