@@ -25,6 +25,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -34,8 +35,10 @@ import (
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -1674,6 +1677,81 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						updatedWl := &kueue.Workload{}
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), updatedWl)).To(gomega.Succeed())
 						g.Expect(updatedWl.Status.UnhealthyNodes).To(gomega.BeEmpty(), "UnhealthyNodes should be cleared after eviction due to multiple node failures")
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+			})
+			// Fixes https://github.com/kubernetes-sigs/kueue/issues/9210
+			ginkgo.It("should fallback to greedy assignment when replacement pod conflicts with already running pod", framework.SlowSpec, func() {
+				// Scenario: This test simulates an edge case during node replacement where a running pod (p1, rank 1)
+				// is occupying a node (x3) that is assigned to a different rank (rank 0) in the TopologyAssignment.
+				// This can happen in practice if a terminating pod is deleted very quickly during a node hotswap,
+				// causing the replacement pod to receive NodeSelectors for the occupied node based on its job labels.
+				// To prevent assigning multiple pods to the same node, the ungater detects this rank mismatch
+				// between the running pod and the topology assignment, and falls back to greedy assignment.
+				// This ensures the new pod (p0) is safely placed on the remaining available node (x1).
+				var wl1 *kueue.Workload
+
+				ginkgo.By("creating a workload", func() {
+					wl1 = utiltestingapi.MakeWorkload("wl-greedy", ns.Name).
+						PodSets(*utiltestingapi.MakePodSet("worker", 2).
+							PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+							SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
+							SubGroupCount(ptr.To[int32](2)).
+							RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+							Obj()).
+						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
+					util.MustCreate(ctx, k8sClient, wl1)
+				})
+
+				ginkgo.By("verify the workload is admitted", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+					gomega.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+						utiltas.V1Beta2From(&utiltas.TopologyAssignment{
+							Levels: []string{corev1.LabelHostname},
+							Domains: []utiltas.TopologyDomainAssignment{
+								{Count: 1, Values: []string{"x3"}},
+								{Count: 1, Values: []string{"x1"}},
+							},
+						}),
+					))
+				})
+
+				var p1 *corev1.Pod
+				ginkgo.By("creating p1 manually assigned to x3 (assigned to rank 0) but given rank 1 to simulate mismatch", func() {
+					p1 = testingpod.MakePod("p1-running", ns.Name).
+						Annotation(kueue.WorkloadAnnotation, wl1.Name).
+						Annotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
+						Label(batchv1.JobCompletionIndexAnnotation, "1"). // rank 1
+						Label(jobset.JobIndexKey, "1").
+						Label(jobset.ReplicatedJobReplicas, "1").
+						Label(constants.PodSetLabel, "worker").
+						NodeSelector(corev1.LabelHostname, "x3"). // assigned to rank 0, but this is rank 1
+						Obj()
+					util.MustCreate(ctx, k8sClient, p1)
+				})
+
+				var p0 *corev1.Pod
+				ginkgo.By("creating replacement p0", func() {
+					p0 = testingpod.MakePod("p0-replacement", ns.Name).
+						Annotation(kueue.WorkloadAnnotation, wl1.Name).
+						Annotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
+						Label(batchv1.JobCompletionIndexAnnotation, "0"). // rank 0
+						Label(jobset.JobIndexKey, "0").
+						Label(jobset.ReplicatedJobReplicas, "1").
+						Label(constants.PodSetLabel, "worker").
+						TopologySchedulingGate().
+						Obj()
+					util.MustCreate(ctx, k8sClient, p0)
+				})
+
+				ginkgo.By("verify p0 is ungated and assigned to a node other than x3 since x3 is occupied", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						pod := &corev1.Pod{}
+						g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: "p0-replacement"}, pod)).To(gomega.Succeed())
+						g.Expect(pod.Spec.SchedulingGates).To(gomega.BeEmpty())
+						g.Expect(pod.Spec.NodeSelector).Should(gomega.HaveKey(corev1.LabelHostname))
+						g.Expect(pod.Spec.NodeSelector[corev1.LabelHostname]).To(gomega.Equal("x1"))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
