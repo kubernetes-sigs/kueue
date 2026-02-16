@@ -189,6 +189,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.13"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "0.17"
 - name: SkipFinalizersForPodsSuspendedByParent
   versionedSpecs:
   - default: true
