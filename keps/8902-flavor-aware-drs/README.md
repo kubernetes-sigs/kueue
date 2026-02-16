@@ -13,10 +13,10 @@
 - [Design Details](#design-details)
   - [API change](#api-change)
   - [Weighted borrowing and lendable](#weighted-borrowing-and-lendable)
+    - [Effect on dominant resource selection](#effect-on-dominant-resource-selection)
   - [Validation and defaults](#validation-and-defaults)
   - [Backward compatibility](#backward-compatibility)
   - [Test Plan](#test-plan)
-    - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
     - [Integration tests](#integration-tests)
   - [Graduation Criteria](#graduation-criteria)
@@ -40,8 +40,8 @@ Today, DRS aggregates borrowing by resource type across flavors, so borrowing 50
 ### Goals
 
 - Allow administrators to express relative value/cost differences between flavors for a given resource type.
+- Allow configuring weights per-(flavor, resource) so that only selected resources (for example `nvidia.com/gpu`) are treated as premium while CPU/memory can remain unweighted.
 - Make DRS and Fair Sharing decisions reflect the configured per-(flavor, resource) value differences when comparing resource shares across flavors.
-- Allow configuring weights per **(ResourceFlavor, resource)** so that only selected resources (for example `nvidia.com/gpu`) are treated as premium while CPU/memory can remain unweighted.
 - Preserve existing behavior when weights are not configured (default multiplier = 1.0).
 - Keep the algorithm deterministic (stable tie-breaking remains unchanged).
 
@@ -54,7 +54,7 @@ Today, DRS aggregates borrowing by resource type across flavors, so borrowing 50
 
 ### Overview
 
-- **API**: Add `ResourceFlavor.spec.resourceWeights`, a map from resource name (for example `nvidia.com/gpu`) to a **dimensionless scalar multiplier**. This lets admins express that some flavors are more valuable than others for a given resource type (for example `h100-reserved` vs `a10-spot` GPUs).
+- **API**: Add `ResourceFlavor.spec.resourceWeights`, a map from resource name (for example `nvidia.com/gpu`) to a **scalar multiplier**. This lets admins express that some flavors are more valuable than others for a given resource type (for example `h100-reserved` vs `a10-spot` GPUs).
 - **Behavior**: When computing DRS, apply the configured multiplier for each $(ResourceFlavor, resource)$ pair so that borrowing on more valuable flavors contributes more to the computed share than borrowing on cheaper flavors. This affects behavior **wherever DRS is used**, including **admission ordering** and **Fair Sharing preemption**.
 - **Backward compatibility**: When weights are unset, the default multiplier is $1.0$, preserving existing behavior.
 - **Details**: Full API spec change, DRS definitions and formulas are described in **Design Details**.
@@ -92,7 +92,7 @@ Borrowing cheap/spot GPU capacity should contribute less to DRS than borrowing p
 ### Risks and Mitigations
 
 - **Risk**: Misconfiguration (extreme weights) can lead to surprising dominant-resource choices and more aggressive preemption for specific resources.
-  - **Mitigation**: Document best practices and validate weights are > 0.
+  - **Mitigation**: Validate weights are > 0 and expand documentation with configuration guidelines, dominant-resource examples, and recommended starting points.
 - **Risk**: Changing DRS semantics changes preemption ordering when weights are configured.
   - **Mitigation**: The change is opt-in via `resourceWeights` and defaults to no-op.
 
@@ -104,7 +104,7 @@ Extend `ResourceFlavorSpec` with a new optional field:
 
 - `spec.resourceWeights`: a map from resource name (for example `nvidia.com/gpu`) to a multiplier (a positive scalar weight). The name `resourceWeights` is chosen to be consistent with the naming used in Admission Fair Sharing.
   - **Type**: `map[corev1.ResourceName]resource.Quantity` (serialized as a string quantity), so decimals are supported (for example `"8"`, `"0.5"`).
-  - Values are treated as **dimensionless scalars** (not resource amounts).
+  - Values are treated as **scalar multipliers** (not resource amounts).
 - A missing map or missing entry implies a multiplier of **1.0** for that (flavor, resource) pair.
 
 Example:
@@ -165,10 +165,82 @@ $$weightedLendable(r) = \sum_{f} lendable(f, r) \times w(f, r)$$
 
 Then DRS uses the same “dominant resource” concept as today:
 
-- Compute $ratio(r) = weightedBorrowed(r) / weightedLendable(r)$ (when all $w(f, r)=1$, this reduces to $borrowed(r) / lendable(r)$)
+- Compute $ratio(r) = weightedBorrowed(r) / weightedLendable(r)$ (if $w(f, r)$ is constant across all flavors $f$ for a given $r$, this reduces to $borrowed(r) / lendable(r)$)
 - Pick the resource $r$ with the maximum ratio as the dominant resource (alphabetical tie-break)
 
-This proposal keeps the existing Fair Sharing weighting behavior, and only changes how `borrowed` and `lendable` are aggregated across flavors.
+#### Effect on dominant resource selection
+
+Because weights change $ratio(r)$, they can change which resource has the maximum ratio and therefore becomes dominant. Since DRS comparisons use the dominant resource’s ratio, this can change behavior wherever DRS is used, including admission ordering and Fair Sharing preemption.
+
+**Example A: CPU weights fixed at 1.0, GPU flavor weights differ**
+
+Inputs:
+
+| Resource | Flavor | Borrowed | Lendable | Weight |
+| --- | --- | ---: | ---: | ---: |
+| `cpu` | `standard-cpu` | 300 | 1000 | 1.0 |
+| `nvidia.com/gpu` | `h100-reserved` | 100 | 100 | 8.0 |
+| `nvidia.com/gpu` | `a10-spot` | 0 | 1000 | 1.0 |
+
+Computed ratios:
+
+| Ratio | Value |
+| --- | ---: |
+| $ratio(cpu)$ | $300/1000 = 0.30$ |
+| Unweighted $ratio(gpu)$ | $(100+0)/(100+1000)=0.091$ |
+| Weighted $ratio(gpu)$ | $(100\times8 + 0\times1)/(100\times8 + 1000\times1)=0.444$ |
+
+Dominant resource changes from `cpu` (unweighted) to `nvidia.com/gpu` (weighted). If GPU weights are constant across GPU flavors (for example both `8.0`), they cancel and GPU ratio does not change.
+
+**Example A2: Same weights as Example A, but borrowing is mostly `a10-spot`**
+
+Inputs:
+
+| Resource | Flavor | Borrowed | Lendable | Weight |
+| --- | --- | ---: | ---: | ---: |
+| `cpu` | `standard-cpu` | 300 | 1000 | 1.0 |
+| `nvidia.com/gpu` | `h100-reserved` | 10 | 100 | 8.0 |
+| `nvidia.com/gpu` | `a10-spot` | 400 | 1000 | 1.0 |
+
+Computed ratios:
+
+| Ratio | Value |
+| --- | ---: |
+| $ratio(cpu)$ | $300/1000 = 0.30$ |
+| Unweighted $ratio(gpu)$ | $(10+400)/(100+1000)=0.373$ |
+| Weighted $ratio(gpu)$ | $(10\times8 + 400\times1)/(100\times8 + 1000\times1)=0.267$ |
+
+With the same weights, borrowing more `a10-spot` and less `h100-reserved` yields a lower weighted GPU ratio ($0.267$ vs $0.444$ in Example A), which is the intended effect.
+
+**Example B: CPU and GPU flavor weights both vary**
+
+Inputs:
+
+| Resource | Flavor | Borrowed | Lendable | Weight |
+| --- | --- | ---: | ---: | ---: |
+| `cpu` | `cpu-premium` | 250 | 300 | 3.0 |
+| `cpu` | `cpu-standard` | 50 | 700 | 1.0 |
+| `nvidia.com/gpu` | `h100-reserved` | 100 | 100 | 8.0 |
+| `nvidia.com/gpu` | `a10-spot` | 0 | 1000 | 1.0 |
+
+Computed ratios:
+
+| Ratio | Value |
+| --- | ---: |
+| Unweighted $ratio(cpu)$ | $(250+50)/(300+700)=0.30$ |
+| Weighted $ratio(cpu)$ | $(250\times3 + 50\times1)/(300\times3 + 700\times1)=0.50$ |
+| Weighted $ratio(gpu)$ | $(100\times8 + 0\times1)/(100\times8 + 1000\times1)=0.444$ |
+
+With CPU weights, `cpu` becomes dominant again ($0.50 > 0.444$). This is why CPU/memory weights should only be used when their cross-flavor value differences are intentional.
+
+Guidelines:
+
+- Prefer weights that capture relative flavor value for the same resource type (for example `nvidia.com/gpu`).
+- Start with moderate multipliers and validate dominant-resource outcomes in a staging cohort before production rollout.
+- If you set the same multiplier across all flavors for a resource type, that resource's ratio is unchanged (weights cancel).
+- Avoid using CPU/memory weights as a proxy for GPU value unless you intentionally want CPU/memory to influence dominance and Fair Sharing decisions.
+- Document the intent for each configured multiplier (for example reserved vs spot flavors) so outcomes remain interpretable.
+
 
 ### Validation and defaults
 
@@ -183,8 +255,6 @@ This proposal keeps the existing Fair Sharing weighting behavior, and only chang
 ### Test Plan
 
 [x] I/we understand the owners of the involved components may require updates to existing tests to make this code solid enough prior to committing the changes necessary to implement this enhancement.
-
-##### Prerequisite testing updates
 
 #### Unit Tests
 
@@ -205,12 +275,13 @@ This proposal keeps the existing Fair Sharing weighting behavior, and only chang
 
 - API field available, documented, and defaulted to no-op (1.0).
 - DRS implementation weighted as described; unit tests added.
+- Integration/e2e coverage for at least one representative heterogeneous-flavor scenario.
 - This change is opt-in via ResourceFlavor.spec.resourceWeights; when unset, behavior is unchanged. So, no feature gate is required.
 
 #### Beta
 
-- Integration/e2e coverage for at least one representative heterogeneous-flavor scenario.
 - Documentation includes configuration guidance and examples.
+- Integration test added for a few more representative examples.
 
 ## Implementation History
 
