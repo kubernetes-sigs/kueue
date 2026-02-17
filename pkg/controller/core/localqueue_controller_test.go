@@ -592,7 +592,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 			for _, wl := range tc.runningWls {
 				cqCache.AddOrUpdateWorkload(log, &wl)
 			}
-			qManager := qcache.NewManager(cl, cqCache)
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 			if err := qManager.AddClusterQueue(ctxWithLogger, tc.clusterQueue); err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}

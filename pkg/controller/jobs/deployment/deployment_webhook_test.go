@@ -153,7 +153,7 @@ func TestDefault(t *testing.T) {
 			builder := utiltesting.NewClientBuilder()
 			client := builder.Build()
 			cqCache := schdcache.New(client)
-			queueManager := qcache.NewManager(client, cqCache)
+			queueManager := qcache.NewManagerForUnitTests(client, cqCache)
 			if tc.defaultLqExist {
 				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("default", "default").
 					ClusterQueue("cluster-queue").

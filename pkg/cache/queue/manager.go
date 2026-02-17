@@ -125,6 +125,9 @@ type Manager struct {
 	draReconcileChannel chan<- event.TypedGenericEvent[*kueue.Workload]
 }
 
+// NewManager is a factory for cache.queue.Manager. For tests,
+// NewManagerForUnitTests or NewManagerForIntegrationTests should be
+// used.
 func NewManager(client client.Client, checker StatusChecker, options ...Option) *Manager {
 	m := &Manager{
 		clock:         realClock,

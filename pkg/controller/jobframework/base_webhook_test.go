@@ -119,7 +119,7 @@ func TestBaseWebhookDefault(t *testing.T) {
 				)
 			cl := clientBuilder.Build()
 			cqCache := schdcache.New(cl)
-			queueManager := qcache.NewManager(cl, cqCache)
+			queueManager := qcache.NewManagerForUnitTests(cl, cqCache)
 			if tc.defaultLqExist {
 				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("default", metav1.NamespaceDefault).
 					ClusterQueue("cluster-queue").Obj()); err != nil {

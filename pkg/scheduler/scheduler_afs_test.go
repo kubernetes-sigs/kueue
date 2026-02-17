@@ -591,7 +591,7 @@ func TestScheduleForAFS(t *testing.T) {
 				cl := clientBuilder.Build()
 
 				cqCache := schdcache.New(cl, schdcache.WithFairSharing(tc.enableFairSharing), schdcache.WithAdmissionFairSharing(afsConfig))
-				qManager := qcache.NewManager(cl, cqCache, qcache.WithAdmissionFairSharing(afsConfig))
+				qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithAdmissionFairSharing(afsConfig))
 
 				ctx, log := utiltesting.ContextWithLog(t)
 				for _, q := range queues {
