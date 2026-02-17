@@ -27,38 +27,36 @@
 
 This KEP introduces the `PodIntegrationFastQuotaRelease` feature gate to align
 the Pod integration's quota release behavior with other integrations (e.g.,
-batch/v1 Job). When enabled, quota is released as soon as the pod is terminating 
-(i.e. have a `deletionTimestamp`), rather than waiting for Pods to
-fully terminate.
+batch/v1 Job). When enabled, quota from "plain pods" are released as soon as the
+pod is terminating (i.e. has a `deletionTimestamp`), rather than waiting for Pods
+to fully terminate.
 
-This addresses a consistency gap where the Job integration releases quota when
-`IsActive()` returns false (i.e., `status.active == 0`, which Kubernetes sets
-as soon as all Pods have a `deletionTimestamp`), while the Pod integration
-waits for Pods to reach a terminal phase (`Succeeded` or `Failed`).
+This addressesa consistency gap where the Job integration is considered not active 
+as soon as `status.active == 0` on the job, and the Kubernetes job controller considers 
+a pod active only if it has no `deletionTimestamp` set. Contrast this with the current 
+pod controller, which considers a plain pod as not active only once the pod is fully 
+terminated.
 
 ## Motivation
 
 When Kueue preempts a Pod-based workload, the current Pod integration holds
 onto its quota reservation until all Pods have fully terminated (reached
-`Succeeded` or `Failed` phase). This means that during the termination grace
-period (which can be 30 seconds or more), quota remains occupied even though
-the Pods are being deleted and will not complete their work.
+`Succeeded` or `Failed` phase). This termination often takes tens of seconds 
+or even minutes (and has no practical upper bound, depending on how the pod's 
+graceful shutdown period is configured). While the pod is terminating, ALL 
+pods in each cluster queue is blocked from triggering further preemptions until 
+it's finished because the terminating pod is always each potential preemptor pod's 
+ideal preemption target. This obviously creates a large bottleneck for preemption 
+that does not occurr for preemptions of other types of workloads.
 
-This creates a bottleneck for preemption: higher-priority workloads cannot be
-admitted until the preempted Pods are fully gone. In contrast, the batch/v1 Job
-integration releases quota as soon as `status.active == 0`, which happens when
-all Pods have a `deletionTimestamp` — before the Pods actually terminate.
-
-This behavioral inconsistency between integrations can lead to:
+Ultimately, this behavioral inconsistency between integrations leads to:
 - Delayed admission of higher-priority workloads during preemption
 - Serialized preemption, where the scheduler must wait for one preemption to
   fully complete before starting the next
-- Underutilization of cluster resources during termination grace periods
 
 ### Goals
 
 - Align the Pod integration's quota release behavior with the Job integration
-  and other integrations that release quota when `IsActive()` returns false.
 - Release quota for Pod workloads as soon as all Pods have a
   `deletionTimestamp`, without waiting for Pods to reach a terminal phase.
 - Provide a feature gate (`PodIntegrationFastQuotaRelease`) to control this
@@ -67,12 +65,8 @@ This behavioral inconsistency between integrations can lead to:
 
 ### Non-Goals
 
-- Changing quota release behavior for any integration other than Pod.
-- Modifying the preemption algorithm itself (e.g., how Kueue decides which
-  workloads to preempt).
-- Handling the case where Pods are stuck terminating past their grace period
-  (this is already handled by the existing `IsActive()` stuck-terminating
-  logic).
+- Changing any default behavior, though it could be argued that this is a 
+consistency bug that should be fixed.
 
 ## Proposal
 
@@ -97,42 +91,28 @@ field: a Pod is no longer counted as active as soon as it has a
 
 As a cluster administrator, I run long-running Pod workloads managed by Kueue
 with a termination grace period of 60 seconds. When a higher-priority workload
-arrives and Kueue preempts my running workload, I want the quota to be released
-as soon as the Pods begin terminating, so the higher-priority workload can be
-admitted without waiting up to 60 seconds.
-
-#### Story 2: Rapid workload cycling
-
-As a data scientist, I submit many short-lived Pod-based workloads to a shared
-queue. When workloads are preempted and requeued, I want the quota churn to be
-as fast as possible so my requeued workloads can be readmitted quickly.
+arrives and Kueue preempts my running workload, I want the higher-priority 
+workloads to start running as quickly as possible while still honoring 
+graceful shutdown periods of preempted pods.
 
 ### Notes/Constraints/Caveats
 
-- The Kubernetes Job controller already behaves this way: it decrements
-  `status.active` as soon as a Pod has a `deletionTimestamp`. The Pod
-  integration is the outlier.
-- This change only affects when quota is released for evicted/preempted
-  workloads. The `Finished()` method (which determines when a workload is
-  considered complete) is not changed — workloads still require Pods to reach
-  a terminal phase to be marked as finished.
-- Serving Pods (those marked as serving) are excluded from this behavior, as
-  they are already excluded from the `Finished()` check.
+- One could argue that this is a consistency bug fix. That being said, putting 
+it behind a configuration flag would still be most prudent so users don't get any 
+surprising changes in behavior.
 
 ### Risks and Mitigations
 
-**Risk**: Releasing quota before Pods have fully terminated means the cluster
-could temporarily be overcommitted (the terminating Pod's resources plus the
-newly admitted workload's resources).
+**Risk**: This could cause an increase in node churn if the cluster autoscaler 
+is being used. While pods are pending, the cluster autoscaler may trigger scale-up 
+even though pods could be terminating on existing nodes.
 
 **Mitigation**: This is the same behavior that already exists for the Job
-integration and other integrations. The Kubernetes scheduler handles this
-gracefully — terminating Pods' resources are accounted for by the scheduler
-until the Pods are fully deleted. This is a well-understood tradeoff that
-enables faster preemption cycles.
+integration and other integrations, so it's a well established/understood 
+behavior.
 
-**Risk**: Users relying on the current behavior (quota held until Pod
-termination) might see different scheduling patterns.
+**Risk**: Even if a consistency bug, users may be relying on the current behavior (quota held until Pod
+termination).
 
 **Mitigation**: The feature is gated behind `PodIntegrationFastQuotaRelease`
 and follows the standard Alpha/Beta graduation process, giving users time to
@@ -244,7 +224,6 @@ None.
   is released as soon as all Pods have a `deletionTimestamp`.
 - Test that preempted workloads are readmitted promptly after the preempted
   Pods begin terminating.
-- Test the feature gate disabled path preserves existing behavior.
 
 #### e2e tests
 
@@ -254,20 +233,6 @@ None.
 
 ### Graduation Criteria
 
-**Alpha (v0.15)**:
-- Feature gate `PodIntegrationFastQuotaRelease` added, default disabled.
-- Unit and integration tests covering the new `IsActive()` behavior.
-- Backported to v0.15 and v0.16 release branches.
-
-**Beta (v0.17)**:
-- Feature gate default enabled.
-- E2E tests demonstrating the preemption improvement.
-- No negative feedback from Alpha usage.
-
-**Stable**:
-- Feature gate locked to default.
-- Remove the legacy `IsActive()` code path.
-
 ## Implementation History
 
 - 2026-02-17: KEP created.
@@ -276,34 +241,17 @@ None.
 
 - Adds a feature gate for a relatively small behavioral change. However, this
   is warranted because it changes when resources are released, which could
-  affect scheduling behavior in unexpected ways for some users.
+  affect scheduling behavior in surprising ways for some users.
 
 ## Alternatives
 
 ### Modify the generic reconciler instead of the Pod controller
 
-Instead of changing `IsActive()`, the reconciler could be modified to release
-quota based on `deletionTimestamp` checks directly. This was rejected because:
-- It would be a more invasive change affecting all integrations.
-- The `IsActive()` interface is the correct abstraction for this behavior.
+Instead of changing just the pod controller's `IsActive()` logic, the reconciler 
+could be modified to release quota for any workload as soon as it's marked for 
+preemption. This was rejected because:
+- It would be a more invasive change affecting all integrations
+- The job-specific `IsActive()` implementation is considered the more appropriate 
+place to dictate when to release quota.
 - Keeping the change in the Pod controller maintains consistency with how other
   integrations already work.
-
-### Use `Finished()` instead of `IsActive()`
-
-Modify `Finished()` to return true when all Pods are terminating. This was
-rejected because:
-- `Finished()` has different semantics — it means the workload has completed
-  (successfully or not), not just that resources can be released.
-- Marking a workload as finished when Pods are still terminating would be
-  semantically incorrect and could cause issues with workload status reporting.
-- The `IsActive()` path for evicted workloads is the correct mechanism for
-  early quota release.
-
-### Handle this in the preemption algorithm
-
-Modify the preemption algorithm to account for terminating Pods' resources.
-This was rejected because:
-- It would be more complex and harder to reason about.
-- The simpler fix of releasing quota earlier solves the problem cleanly.
-- It would not address the consistency gap between integrations.
