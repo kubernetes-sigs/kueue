@@ -152,6 +152,19 @@ e.g. ReplicaSet in apps group (regardless of version) would be <code>ReplicaSet.
 Defaults to 2 minutes if not set.</p>
 </td>
 </tr>
+<tr><td><code>parallelPreemption</code><br/>
+<code>bool</code>
+</td>
+<td>
+   <p>ParallelPreemption enables parallel preemption by releasing quota immediately
+when a workload is evicted due to preemption, rather than waiting for the
+preemptee pods to terminate. This allows multiple preempting workloads to be
+admitted simultaneously without waiting for sequential pod termination.
+The Kubernetes scheduler independently manages node resources, so newly admitted
+pods will naturally wait for terminating pods to release node capacity.
+Defaults to false.</p>
+</td>
+</tr>
 </tbody>
 </table>
 

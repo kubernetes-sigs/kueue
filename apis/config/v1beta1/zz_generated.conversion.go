@@ -412,6 +412,7 @@ func Convert_v1beta2_Configuration_To_v1beta1_Configuration(in *v1beta2.Configur
 func autoConvert_v1beta1_ControllerConfigurationSpec_To_v1beta2_ControllerConfigurationSpec(in *ControllerConfigurationSpec, out *v1beta2.ControllerConfigurationSpec, s conversion.Scope) error {
 	out.GroupKindConcurrency = *(*map[string]int)(unsafe.Pointer(&in.GroupKindConcurrency))
 	out.CacheSyncTimeout = (*time.Duration)(unsafe.Pointer(in.CacheSyncTimeout))
+	out.ParallelPreemption = (*bool)(unsafe.Pointer(in.ParallelPreemption))
 	return nil
 }
 
@@ -423,6 +424,7 @@ func Convert_v1beta1_ControllerConfigurationSpec_To_v1beta2_ControllerConfigurat
 func autoConvert_v1beta2_ControllerConfigurationSpec_To_v1beta1_ControllerConfigurationSpec(in *v1beta2.ControllerConfigurationSpec, out *ControllerConfigurationSpec, s conversion.Scope) error {
 	out.GroupKindConcurrency = *(*map[string]int)(unsafe.Pointer(&in.GroupKindConcurrency))
 	out.CacheSyncTimeout = (*time.Duration)(unsafe.Pointer(in.CacheSyncTimeout))
+	out.ParallelPreemption = (*bool)(unsafe.Pointer(in.ParallelPreemption))
 	return nil
 }
 
