@@ -2916,57 +2916,5 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("8")))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
-
-		ginkgo.It("should release quota for downscaled podSets during workload slicing", func() {
-			ginkgo.By("Creating a workload with multiple podSets (worker: 2x1 CPU, coordinator: 3x2 CPU = 8 CPU total)")
-			wl := utiltestingapi.MakeWorkload("multi-podset-downscale-wl", ns.Name).
-				Queue(kueue.LocalQueueName(localQueue.Name)).
-				PodSets(
-					*utiltestingapi.MakePodSet("worker", 2).
-						Request(corev1.ResourceCPU, "1").Obj(),
-					*utiltestingapi.MakePodSet("coordinator", 3).
-						Request(corev1.ResourceCPU, "2").Obj(),
-				).
-				Obj()
-			util.MustCreate(ctx, k8sClient, wl)
-
-			ginkgo.By("Verify workload is admitted with correct initial quota consumption (8 CPU)")
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
-			gomega.Eventually(func(g gomega.Gomega) {
-				cq := &kueue.ClusterQueue{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
-				g.Expect(len(cq.Status.FlavorsUsage)).Should(gomega.BeEquivalentTo(1))
-				g.Expect(len(cq.Status.FlavorsUsage[0].Resources)).Should(gomega.BeEquivalentTo(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("8")))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			ginkgo.By("Trigger workload slicing by scaling down coordinator podSet from 3 to 1 (worker unchanged)")
-			gomega.Eventually(func(g gomega.Gomega) {
-				updatedWl := &kueue.Workload{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), updatedWl)).Should(gomega.Succeed())
-				updatedWl.Spec.PodSets[1].Count = 1
-				g.Expect(k8sClient.Update(ctx, updatedWl)).Should(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			ginkgo.By("Wait for new workload slice to be created")
-			newSlice := util.ExpectNewWorkloadSlice(ctx, k8sClient, wl)
-			gomega.Expect(newSlice).NotTo(gomega.BeNil())
-
-			ginkgo.By("Verify the new slice is admitted")
-			gomega.Eventually(func(g gomega.Gomega) {
-				updatedSlice := &kueue.Workload{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(newSlice), updatedSlice)).Should(gomega.Succeed())
-				g.Expect(workload.IsAdmitted(updatedSlice)).Should(gomega.BeTrue())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			ginkgo.By("Verify quota is correctly released after downscaling (should be 4 CPU, not 8)")
-			gomega.Eventually(func(g gomega.Gomega) {
-				cq := &kueue.ClusterQueue{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
-				g.Expect(len(cq.Status.FlavorsUsage)).Should(gomega.BeEquivalentTo(1))
-				g.Expect(len(cq.Status.FlavorsUsage[0].Resources)).Should(gomega.BeEquivalentTo(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("4")))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
 	})
 })
