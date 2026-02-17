@@ -127,13 +127,17 @@ func (g *wlGroup) bestMatchByCondition(conditionType string) (*metav1.Condition,
 	return bestMatchCond, bestMatchRemote
 }
 
+// RemoveRemoteObjects deletes the remote controller object and workload for a cluster.
+// The controller object is deleted first to handle cases where GC has already removed
+// the remote workload.
 func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error {
+	if err := g.jobAdapter.DeleteRemoteObject(ctx, g.remoteClients[cluster].client, g.controllerKey); err != nil {
+		return fmt.Errorf("deleting remote controller object: %w", err)
+	}
+
 	remWl := g.remotes[cluster]
 	if remWl == nil {
 		return nil
-	}
-	if err := g.jobAdapter.DeleteRemoteObject(ctx, g.remoteClients[cluster].client, g.controllerKey); err != nil {
-		return fmt.Errorf("deleting remote controller object: %w", err)
 	}
 
 	if controllerutil.RemoveFinalizer(remWl, kueue.ResourceInUseFinalizerName) {
