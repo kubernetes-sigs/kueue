@@ -7,7 +7,7 @@
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
   - [User Stories](#user-stories)
-    - [Story 1: Preemption with long-running Pod workloads](#story-1-preemption-with-long-running-pod-workloads)
+    - [Story 1: Preemption of "plain pod" workloads](#story-1-preemption-of-plain-pod-workloads)
   - [Notes/Constraints/Caveats](#notesconstraintscaveats)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
@@ -85,7 +85,7 @@ field: a Pod is no longer counted as active as soon as it has a
 
 ### User Stories
 
-#### Story 1: Preemption with long-running Pod workloads
+#### Story 1: Preemption of "plain pod" workloads
 
 As a cluster administrator, I run long-running Pod workloads managed by Kueue
 with a termination grace period of 60 seconds. When a higher-priority workload
