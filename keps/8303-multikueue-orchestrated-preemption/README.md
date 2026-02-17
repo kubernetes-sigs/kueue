@@ -28,7 +28,7 @@
   - [Create a new alpha annotation <code>kueue.x-k8s.io/preemption-gated</code>](#create-a-new-alpha-annotation-kueuex-k8siopreemption-gated)
   - [Specify the preemption timeout per-ClusterQueue instead of globally](#specify-the-preemption-timeout-per-clusterqueue-instead-of-globally)
   - [Use dynamically calculated default for the preemption timeout](#use-dynamically-calculated-default-for-the-preemption-timeout)
-    - [Add a <code>LastTriggeredTime</code> field to <code>PreemptionGateState</code> instead of using a <code>Condition</code>](#add-a-lasttriggeredtime-field-to-preemptiongatestate-instead-of-using-a-condition)
+  - [Add a <code>LastTriggeredTime</code> field to <code>PreemptionGateState</code> instead of using a <code>Condition</code>](#add-a-lasttriggeredtime-field-to-preemptiongatestate-instead-of-using-a-condition)
   - [Extending the <code>QuotaReserved</code> <code>Condition</code>](#extending-the-quotareserved-condition)
   - [Use the Gate's Presence As Active](#use-the-gates-presence-as-active)
 <!-- /toc -->
@@ -446,7 +446,7 @@ like a multiple of `terminationGracePeriodSeconds` which is given for the preemp
 or some way to read what the value is on the worker cluster (the worker clusters can have different grace periods).
 1. Regardless of which value is used as the baseline for the automated default, the logic would unnecessarily complicate the configuration of the feature.
 
-#### Add a `LastTriggeredTime` field to `PreemptionGateState` instead of using a `Condition`
+### Add a `LastTriggeredTime` field to `PreemptionGateState` instead of using a `Condition`
 
 Instead of creating a new `Condition`/extending an existing one, the `PreemptionGateState` could have a `LastTriggeredTime` field.
 This has the advantage of being gate-specific rather Workload-level, allowing to trace which gate was triggered (in cases where
