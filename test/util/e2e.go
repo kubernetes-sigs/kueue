@@ -245,6 +245,7 @@ func UpdateDeploymentAndWaitForProgressing(ctx context.Context, k8sClient client
 	// Apply changes and update Deployment.
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, key, deployment)).To(gomega.Succeed())
+		g.Expect(deployment.Generation).To(gomega.Equal(deployment.Status.ObservedGeneration))
 		beforeObservedGeneration = deployment.Status.ObservedGeneration
 		applyChanges(deployment)
 		g.Expect(k8sClient.Update(ctx, deployment)).To(gomega.Succeed())
