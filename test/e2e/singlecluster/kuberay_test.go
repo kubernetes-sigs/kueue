@@ -64,22 +64,6 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 		return podNames
 	}
 
-	// dumpDebugInfoOnFailure prints debug information (YAMLs and logs) when a test fails
-	dumpDebugInfoOnFailure := func(namespace string) {
-		if !ginkgo.CurrentSpecReport().Failed() {
-			return
-		}
-
-		// Print RayServices, Workloads, Jobs, and Pods using helper functions
-		util.PrintRayServicesInNamespace(ctx, k8sClient, namespace)
-		util.PrintWorkloadsInNamespace(ctx, k8sClient, namespace)
-		util.PrintJobsInNamespace(ctx, k8sClient, namespace)
-		util.PrintPodsInNamespace(ctx, k8sClient, namespace)
-
-		// Print logs for all pods in the cluster with "ray" or "kueue" in their name
-		util.PrintLogsForMatchingPods(ctx, cfg, k8sClient, "ray", "kueue")
-	}
-
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "kuberay-e2e-")
 		resourceFlavorName = "kuberay-rf-" + ns.Name
@@ -531,11 +515,6 @@ app = HelloWorld.bind()`,
 				MountPath: "/home/ray/samples",
 			},
 		}
-
-		// Print debug info on test failure
-		ginkgo.DeferCleanup(func() {
-			dumpDebugInfoOnFailure(ns.Name)
-		})
 
 		ginkgo.By("Creating the ConfigMap", func() {
 			gomega.Expect(k8sClient.Create(ctx, configMap)).Should(gomega.Succeed())
