@@ -302,9 +302,10 @@ func TestReconciler(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	fakeClock := testingclock.NewFakeClock(now)
 
+	const localQueueName = "foo"
 	baseJobWrapper := testingrayutil.MakeCluster("job", "ns").
 		Suspend(true).
-		Queue("foo").
+		Queue(localQueueName).
 		RequestHead(corev1.ResourceCPU, "10").
 		RequestWorkerGroup(corev1.ResourceCPU, "10")
 
@@ -330,6 +331,7 @@ func TestReconciler(t *testing.T) {
 				NodeSelectorHeadGroup(corev1.LabelArchStable, "arm64").
 				NodeLabel(rayv1.HeadNode, constants.PodSetLabel, "head").
 				NodeLabel(rayv1.WorkerNode, constants.PodSetLabel, "workers-group-0").
+				NodeLabel(rayv1.WorkerNode, constants.LocalQueueLabel, localQueueName).
 				NodeAnnotation(rayv1.HeadNode, kueue.WorkloadAnnotation, "test").
 				NodeAnnotation(rayv1.WorkerNode, kueue.WorkloadAnnotation, "test").
 				Obj(),

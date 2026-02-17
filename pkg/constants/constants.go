@@ -47,4 +47,16 @@ const (
 	// of the PodSet of the admitted Workload corresponding to the PodTemplate.
 	// The label is set when starting the Job, and removed on stopping the Job.
 	PodSetLabel = "kueue.x-k8s.io/podset"
+
+	// ClusterQueueLabel is a label assigned to pods created from Kueue
+	// workloads. It indicates from which cluster queue the pod originates from
+	// (indirectly through job). It can be used to monitor all of the pods created
+	// by the queue.
+	ClusterQueueLabel = "kueue.x-k8s.io/cluster-queue-name"
+
+	// LocalQueueLabel is a label assigned to pods created from Kueue
+	// workloads. It indicates from which local queue the pod originates from
+	// (indirectly through job). It can be used to monitor all of the pods created
+	// by the queue.
+	LocalQueueLabel = "kueue.x-k8s.io/local-queue-name"
 )

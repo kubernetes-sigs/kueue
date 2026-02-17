@@ -1431,6 +1431,7 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 		}
 
 		info.Labels[constants.PodSetLabel] = string(psAssignment.Name)
+		assignQueueLabels(info.Labels, w)
 
 		for _, admissionCheck := range w.Status.AdmissionChecks {
 			for _, podSetUpdate := range admissionCheck.PodSetUpdates {
@@ -1445,6 +1446,12 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 		podSetsInfo[i] = info
 	}
 	return podSetsInfo, nil
+}
+
+func assignQueueLabels(labels map[string]string, wl *kueue.Workload) {
+	// TODO: what if queue name is empty? how to get the default
+	labels[constants.LocalQueueLabel] = string(wl.Spec.QueueName)
+	labels[constants.ClusterQueueLabel] = string(wl.Status.Admission.ClusterQueue)
 }
 
 func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job GenericJob, object client.Object) error {
