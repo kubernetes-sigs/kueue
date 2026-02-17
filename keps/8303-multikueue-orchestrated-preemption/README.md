@@ -28,7 +28,7 @@
   - [Create a new alpha annotation <code>kueue.x-k8s.io/preemption-gated</code>](#create-a-new-alpha-annotation-kueuex-k8siopreemption-gated)
   - [Specify the preemption timeout per-ClusterQueue instead of globally](#specify-the-preemption-timeout-per-clusterqueue-instead-of-globally)
   - [Use dynamically calculated default for the preemption timeout](#use-dynamically-calculated-default-for-the-preemption-timeout)
-  - [Create the <code>QuotaReservationBlocked</code> Condition](#create-the-quotareservationblocked-condition)
+    - [Add a <code>LastTriggeredTime</code> field to <code>PreemptionGateState</code> instead of using a <code>Condition</code>](#add-a-lasttriggeredtime-field-to-preemptiongatestate-instead-of-using-a-condition)
   - [Extending the <code>QuotaReserved</code> <code>Condition</code>](#extending-the-quotareserved-condition)
   - [Use the Gate's Presence As Active](#use-the-gates-presence-as-active)
 <!-- /toc -->
@@ -79,8 +79,8 @@ Moreover, a general preemption gating/preemption signaling mechanism can be used
 ## Proposal
 
 The proposed solution is to extend the Workload API with the concept of `PreemptionGate`s as the mechanism controlling a workload's ability to preempt and
-include a `LastTriggeredTime` in that structure which will be used to signal that it's ready to preempt but was gated.
-The manager cluster's MultiKueue controller that watches the replicated Workload objects will observe the new `LastTriggeredTime` and make a decision whether to deactivate the gate in
+introduce a new `PreemptionGated` `Condition` which will be used to signal that it's ready to preempt but was gated.
+The manager cluster's MultiKueue controller that watches the replicated Workload objects will observe the new condition and make a decision whether to deactivate the gate in
 the replica, allowing it to proceed.
 
 ```mermaid
@@ -89,7 +89,7 @@ sequenceDiagram
     Manager->>+Worker_2: Replicate Workload With Gate
     Worker_1->>+Worker_1: Admission Loop
     Note over Worker_1, Worker_1: Insufficient Quota: preemption gated
-    Worker_1->>+Worker_1: Update LastTriggeredTime
+    Worker_1->>+Worker_1: Update `PreemptionGated` condition
     Worker_1->>+Manager: Change Event: PreemptionGated
     Manager->>+Manager: Check Workload Group Preemption Timeout
     Note over Manager, Manager: No Workload Preempted Yet: ungate
@@ -97,7 +97,7 @@ sequenceDiagram
     Worker_1->>+Worker_1: Preempt
     Worker_2->>Worker_2: Admission Loop
     Note over Worker_2, Worker_2: Insufficient Quota: preemption gated
-    Worker_2->>+Worker_2: Update LastTriggeredTime
+    Worker_2->>+Worker_2: Update `PreemptionGated` condition
     Worker_2->>+Manager: Change Event: PreemptionGated
     critical
         Manager->>Manager: Check Workload Group Preemption Timeout
@@ -197,12 +197,6 @@ type PreemptionGateState struct {
   // +required
   State GateState `json:"state"`
 
-  // lastTriggeredTime is the last time the gate was triggered, i.e. prevented a workload from preempting.
-  // +optional
-  // +kubebuilder:validation:Type=string
-  // +kubebuilder:validation:Format=date-time
-  LastTriggeredTime *metav1.Time `json:"lastTriggeredTime,omitempty"`
-
   // lastTransitionTime is the last time the gate transitioned from one status to another.
   // +required
   // +kubebuilder:validation:Type=string
@@ -217,6 +211,24 @@ type WorkloadStatus struct {
   // +optional
   PreemptionGates []PreemptionGateState `json:"preemptionGates,omitempty"`
 }
+```
+
+The `PreemptionGated` condition will be defined as follows:
+```go
+const (
+  ...
+  // WorkloadPreemptionBlocked means that the Workload was blocked from reserving quota via a preemption.
+  // The possible reasons for this condition are:
+  // - "PreemptionGated": the workload could not preempt to acquire quota due to a preemption gate.
+  WorkloadPreemptionBlocked = "PreemptionBlocked"
+)
+
+// Reasons for the WorkloadPreemptionBlocked condition.
+const (
+  // PreemptionGated indicates the Workload could free up quota via
+  // preemption, but was prevented from doing so by a preemption gate.
+  PreemptionGated string = "PreemptionGated"
+)
 ```
 
 The `kueue.x-k8s.io/multikueue` preemption gate will be automatically assigned to all replicated MultiKueue workloads.
@@ -257,17 +269,17 @@ via its `spec`. This will prevent any of the replicas from triggering a preempti
 The `status` of the remote workloads will be updated with the `PreemptionGateState` by a workload controller running on the worker clusters.
 
 A manager-level preemption orchestration controller will be responsible for ungating the replicated workloads.
-This controller will watch for workloads to change their `LastTriggeredTime` and idempotently react to such changes:
+This controller will watch for workloads to change their `PreemptionGated` condition and idempotently react to such changes:
 
 1. Calculate `PreviouslyUngatedAt` as the maximum `LastTransitionTime` on `Inactive` gates `kueue.x-k8s.io/multikueue` across the replicated workloads (if no `Inactive` gates, then skip to step 4).
 1. Calculate `Now - PreviouslyUngatedAt`, i.e. `timeSinceUngate`.
 1. If `timeSinceUngate < SingleClusterPreemptionTimeout`:
     1. Schedule reconciliation after `SingleClusterPreemptionTimeout - timeSinceUngate` to prevent a hypothetical deadlock (lost reconciles) and return.
-1. Find a workload with the **lowest `LastTriggeredTime`** among workloads that have the `kueue.x-k8s.io/multikueue` `PreemptionGateState` with:
-    * `Active` state.
-    * `LastTriggeredTime > LastTransitionTime` - to account for evictions.
+1. Find a workload with the **lowest `PreemptionGated` condition `LastTransitionTime`** (i.e. the one that signaled first) among workloads that have an active `kueue.x-k8s.io/multikueue` gate.
 1. Mark the `kueue.x-k8s.io/multikueue` gate of the found workload as `Inactive`.
 1. Schedule a reconciliation in `SingleClusterPreemptionTimeout`.
+
+When a workload is evicted, the gate will be re-activated and the `PreemptionGated` condition will be set back to false to kick-start the process again.
 
 ### Kueue Scheduler
 
@@ -305,8 +317,6 @@ We'll observe the following behaviour:
 | Can't fit    	| Can fit      	| **Flavor**: B; **Gate**: Not triggered 	| **Flavor**: B; **Gate**: Not triggered 	|
 | Can't fit    	| Can't fit    	| **Flavor**: A; **Gate**: Not triggered 	| **Flavor**: A; **Gate**: Not triggered 	|
 | Can't fit    	| Can preempt  	| **Flavor**: B; **Gate**: Triggered     	| **Flavor**: B; **Gate**: Triggered     	|
-
----
 
 When a head of a queue is given the `Preempt` assignment mode and it has an active preemption gate,
 the scheduler will treat it as inadmissible and put that workload back into the queue according to the configured queueing strategy:
@@ -436,37 +446,15 @@ like a multiple of `terminationGracePeriodSeconds` which is given for the preemp
 or some way to read what the value is on the worker cluster (the worker clusters can have different grace periods).
 1. Regardless of which value is used as the baseline for the automated default, the logic would unnecessarily complicate the configuration of the feature.
 
-### Create the `QuotaReservationBlocked` Condition
+#### Add a `LastTriggeredTime` field to `PreemptionGateState` instead of using a `Condition`
 
-Instead of using `LastTriggeredTime`, a new `QuotaReservationBlocked` Condition could be added to signalize that the quota cannot be reserved due to a preemption gate.
-
-```go
-
-const (
-  ...
-  // WorkloadQuotaReservationBlocked means that the Workload was blocked from reserving quota.
-  // The possible reasons for this condition are:
-  // - "PreemptionGated": the workload could not preempt to acquire quota due to a preemption gate.
-  WorkloadQuotaReservationBlocked = "QuotaReservationBlocked"
-)
-
-// Reasons for the WorkloadQuotaReservationBlocked condition.
-const (
-  // PreemptionGated indicates the Workload could free up quota via
-  // preemption, but was prevented from doing so by a preemption gate.
-  PreemptionGated string = "PreemptionGated"
-)
-```
-
-Placing such information in a `Condition` is a common idiom in Kubernetes and is where users would expect this information to be shown.
+Instead of creating a new `Condition`/extending an existing one, the `PreemptionGateState` could have a `LastTriggeredTime` field.
+This has the advantage of being gate-specific rather Workload-level, allowing to trace which gate was triggered (in cases where
+one gate is inactive and another one is active, only the active one would update `LastTriggeredTime`).
 
 **Reasons for discarding/deferring**
 
-1. This approach is inflexible. If a similar reason for the `QuotaReservedBlocked` condition is needed in the future (for example
-`BorrowingGated`), the conditions could overwrite each other which would lead to information loss and bugs, causing the need
-for yet another `Condition`.
-1. So far in the design, there is no immediate need to surface this information to the user. Adding this could be treated as an
-orthogonal addition and considered separately.
+1. Conditions are the more common of surfacing statuses like this, improving the visibility and traceability of a workload's admission process.
 
 ### Extending the `QuotaReserved` `Condition`
 
