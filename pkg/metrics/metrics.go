@@ -625,6 +625,16 @@ If the Cohort has a weight of zero and is borrowing, this will return NaN.`,
 			Help:      `Reports the cohort's resource nominal quota within all the flavors`,
 		}, []string{"cohort", "flavor", "resource", "replica_role"},
 	)
+
+	// +metricsdoc:group=cohort
+	// +metricsdoc:labels=cohort="the name of the Cohort",flavor="the resource flavor name",resource="the resource name",replica_role="one of `leader`, `follower`, or `standalone`"
+	CohortBorrowingLimit = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "cohort_borrowing_limit",
+			Help:      `Reports the cohort's resource borrowing limit within all the flavors`,
+		}, []string{"cohort", "flavor", "resource", "replica_role"},
+	)
 )
 
 func init() {
@@ -790,6 +800,7 @@ func ClearLocalQueueMetrics(lq LocalQueueReference) {
 }
 
 func ClearCohortMetrics(cohortName string) {
+	CohortBorrowingLimit.DeletePartialMatch(prometheus.Labels{"cohort": cohortName})
 	CohortNominalQuota.DeletePartialMatch(prometheus.Labels{"cohort": cohortName})
 	CohortWeightedShare.DeletePartialMatch(prometheus.Labels{"cohort": cohortName})
 }
@@ -845,6 +856,14 @@ func ReportCohortNominalQuotas(cohort kueue.CohortReference, flavor, resource st
 
 func ClearCohortNominalQuotas(cohort kueue.CohortReference) {
 	CohortNominalQuota.DeletePartialMatch(prometheus.Labels{"cohort": string(cohort)})
+}
+
+func ReportCohortBorrowingLimit(cohort kueue.CohortReference, flavor, resource string, borrowing float64, tracker *roletracker.RoleTracker) {
+	CohortBorrowingLimit.WithLabelValues(string(cohort), flavor, resource, roletracker.GetRole(tracker)).Set(borrowing)
+}
+
+func ClearCohortBorrowingLimit(cohort kueue.CohortReference) {
+	CohortBorrowingLimit.DeletePartialMatch(prometheus.Labels{"cohort": string(cohort)})
 }
 
 func ReportClusterQueueResourceReservations(cohort kueue.CohortReference, queue, flavor, resource string, usage float64, tracker *roletracker.RoleTracker) {
@@ -967,6 +986,7 @@ func Register() {
 		ClusterQueueWeightedShare,
 		CohortWeightedShare,
 		CohortNominalQuota,
+		CohortBorrowingLimit,
 	)
 	if features.Enabled(features.LocalQueueMetrics) {
 		RegisterLQMetrics()

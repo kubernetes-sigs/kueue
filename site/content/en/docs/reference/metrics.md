@@ -82,6 +82,7 @@ The following metrics are available only if `LocalQueueMetrics` feature gate is 
 <!-- BEGIN GENERATED TABLE: cohort -->
 | Metric name | Type | Description | Labels |
 | --- | --- | --- | --- |
+| `kueue_cohort_borrowing_limit` | Gauge | Reports the cohort's resource borrowing limit within all the flavors | `cohort`: the name of the Cohort<br> `flavor`: the resource flavor name<br> `resource`: the resource name<br> `replica_role`: one of `leader`, `follower`, or `standalone` |
 | `kueue_cohort_nominal_quota` | Gauge | Reports the cohort's resource nominal quota within all the flavors | `cohort`: the name of the Cohort<br> `flavor`: the resource flavor name<br> `resource`: the resource name<br> `replica_role`: one of `leader`, `follower`, or `standalone` |
 | `kueue_cohort_weighted_share` | Gauge | Reports a value that representing the maximum of the ratios of usage above nominal<br>quota to the lendable resources in the Cohort, among all the resources provided by<br>the Cohort, and divided by the weight.<br>If zero, it means that the usage of the Cohort is below the nominal quota.<br>If the Cohort has a weight of zero and is borrowing, this will return NaN. | `cohort`: the name of the Cohort<br> `replica_role`: one of `leader`, `follower`, or `standalone` |
 <!-- END GENERATED TABLE: cohort -->

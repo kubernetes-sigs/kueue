@@ -629,6 +629,18 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			ginkgo.By("Expected Weighted Shares")
 			util.ExpectClusterQueueWeightedShareMetric(cqp1, 600.0)
 			expectCohortWeightedShare("cohort-a", 0.0)
+
+			util.ExpectCohortNominalQuotaGaugeMetric("root-cohort", "flavor1", corev1.ResourceCPU.String(), 10_000)
+			util.ExpectCohortNominalQuotaGaugeMetric("cohort-a", "flavor1", corev1.ResourceCPU.String(), 8_000)
+			util.ExpectCohortNominalQuotaGaugeMetric("cohort-b", "flavor1", corev1.ResourceCPU.String(), 2_000)
+			util.ExpectCohortNominalQuotaGaugeMetric("root-cohort", "flavor2", corev1.ResourceCPU.String(), 10_000)
+			util.ExpectCohortNominalQuotaGaugeMetric("cohort-a", "flavor2", corev1.ResourceCPU.String(), 10_000)
+			util.ExpectCohortNominalQuotaGaugeMetric("cohort-b", "flavor2", corev1.ResourceCPU.String(), 0)
+
+			util.ExpectCohortBorrowingLimitGaugeMetric("cohort-a", "flavor1", corev1.ResourceCPU.String(), 10_000)
+			util.ExpectCohortBorrowingLimitGaugeMetric("cohort-b", "flavor1", corev1.ResourceCPU.String(), 10_000)
+			util.ExpectCohortBorrowingLimitGaugeMetric("cohort-a", "flavor2", corev1.ResourceCPU.String(), 10_000)
+			util.ExpectCohortBorrowingLimitGaugeMetric("cohort-b", "flavor2", corev1.ResourceCPU.String(), 10_000)
 		})
 	})
 

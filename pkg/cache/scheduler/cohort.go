@@ -113,10 +113,14 @@ func (c *Cache) RecordCohortMetrics(log logr.Logger, cohortName kueue.CohortRefe
 
 		c.Lock()
 		subtreeQuotas := maps.Clone(cohort.resourceNode.SubtreeQuota)
+		quotas := maps.Clone(cohort.resourceNode.Quotas)
 		c.Unlock()
 		log.V(4).Info("Recording subtree quotas for cohort", "cohort", cohort.Name, "subtreeQuotas", subtreeQuotas)
 		for flr, qty := range subtreeQuotas {
 			metrics.ReportCohortNominalQuotas(cohort.Name, string(flr.Flavor), string(flr.Resource), float64(qty), c.roleTracker)
+		}
+		for flr, rq := range quotas {
+			metrics.ReportCohortBorrowingLimit(cohort.Name, string(flr.Flavor), string(flr.Resource), float64(*rq.BorrowingLimit), c.roleTracker)
 		}
 
 		if cohort.HasParent() && !hierarchy.HasCycle(cohort) {
@@ -127,6 +131,7 @@ func (c *Cache) RecordCohortMetrics(log logr.Logger, cohortName kueue.CohortRefe
 
 	if !cohortFound {
 		subtreeQuotas := make(map[resources.FlavorResource]int64)
+		quotas := make(map[resources.FlavorResource]ResourceQuota)
 		for _, cq := range c.hm.ClusterQueues() {
 			if !cq.HasParent() || cq.Parent().GetName() != cohortName {
 				continue
@@ -136,26 +141,21 @@ func (c *Cache) RecordCohortMetrics(log logr.Logger, cohortName kueue.CohortRefe
 			for flr, qty := range cq.resourceNode.SubtreeQuota {
 				subtreeQuotas[flr] += qty
 			}
+			quotas = maps.Clone(cq.resourceNode.Quotas)
 			c.Unlock()
 		}
 		log.V(4).Info("Recording subtree quotas for implicit cohort", "cohort", cohortName, "subtreeQuotas", subtreeQuotas)
 		for flr, qty := range subtreeQuotas {
 			metrics.ReportCohortNominalQuotas(cohortName, string(flr.Flavor), string(flr.Resource), float64(qty), c.roleTracker)
 		}
+		for flr, rq := range quotas {
+			metrics.ReportCohortBorrowingLimit(cohortName, string(flr.Flavor), string(flr.Resource), float64(*rq.BorrowingLimit), c.roleTracker)
+		}
 	}
 
 	if !cohortFound && !cqCohortFound {
 		log.V(4).Info("Cohort not found in cache, clearing metrics", "cohort", cohortName)
 		metrics.ClearCohortNominalQuotas(cohortName)
-	}
-}
-
-func (c *Cache) ClearCohortMetrics(log logr.Logger, cohortName kueue.CohortReference) {
-	for _, cohort := range c.hm.Cohorts() {
-		if cohort.Name != cohortName {
-			continue
-		}
-		log.V(4).Info("Clearing metrics for cohort", "cohort", cohort.Name)
-		metrics.ClearCohortNominalQuotas(cohort.Name)
+		metrics.ClearCohortBorrowingLimit(cohortName)
 	}
 }

@@ -267,17 +267,24 @@ func TestCohortMetrics(t *testing.T) {
 	followerTracker := roletracker.NewFakeRoleTracker(roletracker.RoleFollower)
 
 	ReportCohortNominalQuotas("cohort", "flavor", "res", 5, leaderTracker)
+	ReportCohortBorrowingLimit("cohort", "flavor", "res", 3, leaderTracker)
 	expectFilteredMetricsCount(t, CohortNominalQuota, 1, "cohort", "cohort", "replica_role", "leader")
+	expectFilteredMetricsCount(t, CohortBorrowingLimit, 1, "cohort", "cohort", "replica_role", "leader")
 
 	ReportCohortNominalQuotas("cohort", "flavor", "res", 3, followerTracker)
+	ReportCohortBorrowingLimit("cohort", "flavor", "res", 2, followerTracker)
 	expectFilteredMetricsCount(t, CohortNominalQuota, 1, "cohort", "cohort", "replica_role", "follower")
+	expectFilteredMetricsCount(t, CohortBorrowingLimit, 1, "cohort", "cohort", "replica_role", "follower")
 
 	ReportCohortNominalQuotas("cohort_two", "flavor", "res", 5, leaderTracker)
+	ReportCohortBorrowingLimit("cohort_two", "flavor", "res", 3, leaderTracker)
 	expectFilteredMetricsCount(t, CohortNominalQuota, 1, "cohort", "cohort_two", "replica_role", "leader")
+	expectFilteredMetricsCount(t, CohortBorrowingLimit, 1, "cohort", "cohort_two", "replica_role", "leader")
 
 	ClearCohortNominalQuotas("cohort")
 
 	expectFilteredMetricsCount(t, CohortNominalQuota, 1, "cohort", "cohort_two", "replica_role", "leader")
+	expectFilteredMetricsCount(t, CohortBorrowingLimit, 1, "cohort", "cohort_two", "replica_role", "leader")
 
 	ClearCohortNominalQuotas("cohort_two")
 }
