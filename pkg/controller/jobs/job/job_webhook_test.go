@@ -877,7 +877,7 @@ func TestDefault(t *testing.T) {
 				WithRuntimeObjects(tc.objs...)
 			cl := clientBuilder.Build()
 			cqCache := schdcache.New(cl)
-			queueManager := qcache.NewManager(cl, cqCache)
+			queueManager := qcache.NewManagerForUnitTests(cl, cqCache)
 			if tc.defaultLqExist {
 				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("default", "default").
 					ClusterQueue("cluster-queue").Obj()); err != nil {
