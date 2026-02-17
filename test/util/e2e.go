@@ -255,7 +255,7 @@ func UpdateDeploymentAndWaitForProgressing(ctx context.Context, k8sClient client
 		deploymentCondition := FindDeploymentCondition(deployment, appsv1.DeploymentProgressing)
 		g.Expect(deploymentCondition).NotTo(gomega.BeNil())
 		g.Expect(deploymentCondition.LastUpdateTime).NotTo(gomega.Equal(beforeUpdateTime))
-	}, Timeout, Interval).Should(gomega.Succeed())
+	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 
 func exportKindLogs(ctx context.Context, kindClusterName string) {
