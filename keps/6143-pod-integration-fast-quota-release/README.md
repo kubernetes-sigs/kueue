@@ -109,6 +109,14 @@ even though pods could be terminating on existing nodes.
 integration and other integrations, so it's a well established/understood 
 behavior.
 
+**Risk**: If a pod gets "stuck" in a terminating state for whatever reason, 
+there may be a discrepancy in the amount of quota available and the amount 
+of resources available on the kubernetes cluster.
+
+**Mitigation**: This is the same behavior that already exists for the Job
+integration and other integrations, so it's a well established/understood 
+behavior.
+
 **Risk**: Even if a consistency bug, users may be relying on the current behavior (quota held until Pod
 termination).
 
