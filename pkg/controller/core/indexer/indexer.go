@@ -172,16 +172,22 @@ func IndexOwnerUID(obj client.Object) []string {
 }
 
 // IndexPodWorkloadSliceName indexes pods by their workload slice name annotation.
+// Uses WorkloadSliceNameAnnotation if present, otherwise falls back to WorkloadAnnotation
+// for non-elastic workloads.
 func IndexPodWorkloadSliceName(obj client.Object) []string {
 	pod, ok := obj.(*corev1.Pod)
 	if !ok {
 		return nil
 	}
-	value, found := pod.Annotations[kueue.WorkloadSliceNameAnnotation]
-	if !found {
-		return nil
+	// Prefer workload slice name annotation for elastic workloads
+	if value, found := pod.Annotations[kueue.WorkloadSliceNameAnnotation]; found {
+		return []string{value}
 	}
-	return []string{value}
+	// Fall back to workload annotation for non-elastic workloads
+	if value, found := pod.Annotations[kueue.WorkloadAnnotation]; found {
+		return []string{value}
+	}
+	return nil
 }
 
 func IndexWorkloadAdmissionCheck(obj client.Object) []string {
@@ -235,10 +241,9 @@ func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &kueue.Workload{}, OwnerReferenceUID, IndexOwnerUID); err != nil {
 		return fmt.Errorf("setting index on ownerReferences.uid for Workload: %w", err)
 	}
-	// Add pod indexes to be able to list pods for elastic-jobs, needed to remove scheduling gate on
-	// admitted workload slices. Uses workload slice name annotation to support JobSet and other
-	// workloads where pods are not immediate children of the job.
-	if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+	// Add pod indexes for elastic-jobs and TAS. Uses workload slice name annotation to support
+	// JobSet and other workloads where pods are not immediate children of the job.
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) || features.Enabled(features.TopologyAwareScheduling) {
 		if err := indexer.IndexField(ctx, &corev1.Pod{}, WorkloadSliceNameKey, IndexPodWorkloadSliceName); err != nil {
 			return fmt.Errorf("setting index on workloadSliceName for Pod: %w", err)
 		}
