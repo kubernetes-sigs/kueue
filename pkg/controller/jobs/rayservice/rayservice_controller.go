@@ -314,10 +314,8 @@ func (j *RayService) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 }
 
 func (j *RayService) Finished(ctx context.Context) (message string, success, finished bool) {
-	// RayService is a long-running service, not a batch job
-	// It's considered "finished" only if it's in a terminal failure state
-	//nolint:staticcheck //SA1019: Status.ServiceStatus is deprecated but still functional
-	message = string(j.Status.ServiceStatus)
+	// RayService is a long-running service, not a batch job, use hard-coded "Running" message
+	message = "Running"
 	success = false
 	// RayService doesn't have terminal failure states like jobs do
 	// It's meant to run continuously
