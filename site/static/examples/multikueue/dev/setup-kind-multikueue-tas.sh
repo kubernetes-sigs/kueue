@@ -18,7 +18,7 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-KUEUE_VERSION="${KUEUE_VERSION:-v0.15.0}"
+KUEUE_VERSION="${KUEUE_VERSION:-v0.16.0}"
 USE_MAIN_BRANCH="${USE_MAIN_BRANCH:-false}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKER_CLUSTERS="worker1 worker2"
@@ -38,7 +38,7 @@ while [[ $# -gt 0 ]]; do
             echo "Unknown option: $1"
             echo "Usage: $0 [--main] [--version VERSION]"
             echo "  --main           Use main branch instead of released version"
-            echo "  --version        Specify Kueue version (default: v0.15.0)"
+            echo "  --version        Specify Kueue version (default: v0.16.0)"
             exit 1
             ;;
     esac
