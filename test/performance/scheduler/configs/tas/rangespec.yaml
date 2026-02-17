@@ -16,6 +16,12 @@ clusterQueueClassesMinUsage:
 
 # Workload admission time limits
 wlClassesMaxAvgTimeToAdmissionMs:
-  large-balanced-rack: 1_000_000
-  medium-preferred-rack: 1_000_000
   small-required-rack: 1_000_000
+  small-preferred-rack: 1_000_000
+  small-balanced-rack: 1_000_000
+  medium-required-rack: 1_000_000
+  medium-preferred-rack: 1_000_000
+  medium-balanced-rack: 1_000_000
+  large-required-rack: 1_000_000
+  large-preferred-rack: 1_000_000
+  large-balanced-rack: 1_000_000
