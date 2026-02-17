@@ -513,6 +513,7 @@ func Convert_v1beta1_ControllerMetrics_To_v1beta2_ControllerMetrics(in *Controll
 func autoConvert_v1beta2_ControllerMetrics_To_v1beta1_ControllerMetrics(in *v1beta2.ControllerMetrics, out *ControllerMetrics, s conversion.Scope) error {
 	out.BindAddress = in.BindAddress
 	out.EnableClusterQueueResources = in.EnableClusterQueueResources
+	// WARNING: in.LocalQueueMetrics requires manual conversion: does not exist in peer-type
 	return nil
 }
 

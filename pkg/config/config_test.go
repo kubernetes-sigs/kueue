@@ -1179,6 +1179,9 @@ func TestEncode(t *testing.T) {
 				},
 				"metrics": map[string]any{
 					"bindAddress": configapi.DefaultMetricsBindAddress,
+					"localQueueMetrics": map[string]any{
+						"enable": false,
+					},
 				},
 				"health": map[string]any{
 					"healthProbeBindAddress": configapi.DefaultHealthProbeBindAddress,

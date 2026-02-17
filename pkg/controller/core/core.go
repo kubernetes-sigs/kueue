@@ -20,12 +20,12 @@ import (
 	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
-
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
@@ -52,7 +52,8 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 	}
 	qRec := NewLocalQueueReconciler(mgr.GetClient(), qManager, cc,
 		WithAdmissionFairSharingConfig(cfg.AdmissionFairSharing),
-		WithRoleTracker(roleTracker))
+		WithRoleTracker(roleTracker),
+		WithLocalQueueMetrics(metrics.NewLocalQueueMetricsConfig(cfg.Metrics.LocalQueueMetrics)))
 	if err := qRec.SetupWithManager(mgr, cfg); err != nil {
 		return "LocalQueue", err
 	}
@@ -90,6 +91,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		WithWaitForPodsReady(waitForPodsReady(cfg.WaitForPodsReady)),
 		WithWorkloadRetention(workloadRetention(cfg.ObjectRetentionPolicies)),
 		WithWorkloadRoleTracker(roleTracker),
+		WithWorkloadLocalQueueMetrics(metrics.NewLocalQueueMetricsConfig(cfg.Metrics.LocalQueueMetrics)),
 	)
 	if features.Enabled(features.DynamicResourceAllocation) {
 		qManager.SetDRAReconcileChannel(workloadRec.GetDRAReconcileChannel())

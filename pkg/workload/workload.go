@@ -1381,7 +1381,9 @@ func EvictWithRetryOnConflictForPatch() EvictOption {
 	}
 }
 
-func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, wl *kueue.Workload, reason, msg string, underlyingCause kueue.EvictionUnderlyingCause, clock clock.Clock, tracker *roletracker.RoleTracker, options ...EvictOption) error {
+func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, wl *kueue.Workload, reason, msg string, underlyingCause kueue.EvictionUnderlyingCause, clock clock.Clock, lqMetrics *metrics.LocalQueueMetricsConfig, tracker *roletracker.RoleTracker, options ...EvictOption) error {
+	log := log.FromContext(ctx)
+
 	opts := DefaultEvictOptions()
 	for _, opt := range options {
 		opt(opts)
@@ -1421,18 +1423,25 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 		// This is an extra safeguard for access to `wl.Status.Admission`.
 		// This function is expected to be called only for workload which have
 		// Admission.
-		log := log.FromContext(ctx)
 		log.V(3).Info("WARNING: unexpected eviction of workload without status.Admission", "workload", klog.KObj(wl))
 		return nil
 	}
-	reportEvictedWorkload(recorder, wl, wl.Status.Admission.ClusterQueue, reason, msg, underlyingCause, tracker)
+	lqRef := metrics.LQRefFromWorkload(wl)
+	lq, err := metrics.LQFromRef(c, lqRef)
+	if err != nil {
+		log.V(5).Error(err, "Failed to get LocalQueue for metrics", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)))
+	}
+	reportEvictedWorkload(recorder, wl, lq, wl.Status.Admission.ClusterQueue, reason, msg, underlyingCause, lqMetrics, tracker)
 	if reportWorkloadEvictedOnce {
 		metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, reason, string(underlyingCause), PriorityClassName(wl), tracker)
 	}
 	return nil
 }
 
-func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, msg string, clock clock.Clock, tracker *roletracker.RoleTracker) error {
+func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, msg string,
+	clock clock.Clock, lqMetrics *metrics.LocalQueueMetricsConfig, tracker *roletracker.RoleTracker) error {
+	log := log.FromContext(ctx)
+
 	if IsFinished(wl) {
 		return nil
 	}
@@ -1445,7 +1454,14 @@ func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, ms
 	priorityClassName := PriorityClassName(wl)
 	metrics.IncrementFinishedWorkloadTotal(ptr.Deref(wl.Status.Admission, kueue.Admission{}).ClusterQueue, priorityClassName, tracker)
 	if features.Enabled(features.LocalQueueMetrics) {
-		metrics.IncrementLocalQueueFinishedWorkloadTotal(metrics.LQRefFromWorkload(wl), priorityClassName, tracker)
+		lqRef := metrics.LQRefFromWorkload(wl)
+		lq, err := metrics.LQFromRef(c, lqRef)
+		if err != nil {
+			log.V(5).Error(err, "Failed to get LocalQueue for metrics", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)))
+		}
+		if lq != nil && lqMetrics.ShouldExposeLocalQueueMetrics(lq.GetLabels()) {
+			metrics.IncrementLocalQueueFinishedWorkloadTotal(lqRef, priorityClassName, tracker)
+		}
 	}
 	return nil
 }
@@ -1489,20 +1505,22 @@ func resetUnhealthyNodes(w *kueue.Workload) {
 	w.Status.UnhealthyNodes = nil
 }
 
-func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, message string, underlyingCause kueue.EvictionUnderlyingCause, tracker *roletracker.RoleTracker) {
+func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, lq *kueue.LocalQueue, cqName kueue.ClusterQueueReference, reason, message string, underlyingCause kueue.EvictionUnderlyingCause, lqMetrics *metrics.LocalQueueMetricsConfig, tracker *roletracker.RoleTracker) {
 	priorityClassName := PriorityClassName(wl)
 	metrics.ReportEvictedWorkloads(cqName, reason, string(underlyingCause), priorityClassName, tracker)
 	if podsReadyToEvictionTime := workloadsWithPodsReadyToEvictedTime(wl); podsReadyToEvictionTime != nil {
 		metrics.PodsReadyToEvictedTimeSeconds.WithLabelValues(string(cqName), reason, string(underlyingCause), roletracker.GetRole(tracker)).Observe(podsReadyToEvictionTime.Seconds())
 	}
 	if features.Enabled(features.LocalQueueMetrics) {
-		metrics.ReportLocalQueueEvictedWorkloads(
-			metrics.LQRefFromWorkload(wl),
-			reason,
-			string(underlyingCause),
-			priorityClassName,
-			tracker,
-		)
+		if lq != nil && lqMetrics.ShouldExposeLocalQueueMetrics(lq.GetLabels()) {
+			metrics.ReportLocalQueueEvictedWorkloads(
+				metrics.LQRefFromWorkload(wl),
+				reason,
+				string(underlyingCause),
+				priorityClassName,
+				tracker,
+			)
+		}
 	}
 	eventReason := ReasonWithCause(kueue.WorkloadEvicted, reason)
 	if reason == kueue.WorkloadDeactivated && underlyingCause != "" {

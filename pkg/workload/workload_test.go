@@ -41,6 +41,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	qutil "sigs.k8s.io/kueue/pkg/util/queue"
@@ -2523,7 +2524,7 @@ func TestFinish(t *testing.T) {
 
 			fakeClock := testingclock.NewFakeClock(now)
 
-			gotErr := Finish(ctx, cl, tc.args.wl, tc.args.reason, tc.args.message, fakeClock, nil)
+			gotErr := Finish(ctx, cl, tc.args.wl, tc.args.reason, tc.args.message, fakeClock, metrics.DefaultLocalQueueMetricsConfig, nil)
 			if diff := cmp.Diff(tc.want.err, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}

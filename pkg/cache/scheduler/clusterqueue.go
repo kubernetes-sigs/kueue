@@ -96,6 +96,7 @@ type clusterQueue struct {
 	AdmissionScope *kueue.AdmissionScope
 
 	roleTracker *roletracker.RoleTracker
+	lqMetrics   *metrics.LocalQueueMetricsConfig
 }
 
 func (c *clusterQueue) GetName() kueue.ClusterQueueReference {
@@ -519,7 +520,9 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 			lq.admittedWorkloads += op.asSignedOne()
 		}
 		if features.Enabled(features.LocalQueueMetrics) {
-			lq.reportActiveWorkloads(c.roleTracker)
+			if c.lqMetrics.ShouldExposeLocalQueueMetrics(lq.labels) {
+				lq.reportActiveWorkloads(c.roleTracker)
+			}
 		}
 	}
 }
@@ -565,6 +568,7 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 		key:                qKey,
 		reservingWorkloads: 0,
 		totalReserved:      make(resources.FlavorResourceQuantities),
+		labels:             q.GetLabels(),
 	}
 	qImpl.resetFlavorsAndResources(c.resourceNode.Usage, c.AdmittedUsage)
 	for _, wl := range c.Workloads {
@@ -580,7 +584,9 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 	}
 	c.localQueues[qKey] = qImpl
 	if features.Enabled(features.LocalQueueMetrics) {
-		qImpl.reportActiveWorkloads(c.roleTracker)
+		if c.lqMetrics.ShouldExposeLocalQueueMetrics(q.GetLabels()) {
+			qImpl.reportActiveWorkloads(c.roleTracker)
+		}
 	}
 	return nil
 }

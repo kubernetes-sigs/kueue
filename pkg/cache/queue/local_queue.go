@@ -32,6 +32,8 @@ type LocalQueue struct {
 	items map[workload.Reference]*workload.Info
 
 	finishedWorkloads sets.Set[workload.Reference]
+
+	labels map[string]string
 }
 
 func newLocalQueue(q *kueue.LocalQueue) *LocalQueue {

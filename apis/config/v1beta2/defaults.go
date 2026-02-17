@@ -69,6 +69,9 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	cfg.Webhook.Port = cmp.Or(cfg.Webhook.Port, ptr.To(DefaultWebhookPort))
 	cfg.Webhook.CertDir = cmp.Or(cfg.Webhook.CertDir, DefaultWebhookCertDir)
 	cfg.Metrics.BindAddress = cmp.Or(cfg.Metrics.BindAddress, DefaultMetricsBindAddress)
+
+	cfg.Metrics.LocalQueueMetrics = cmp.Or(cfg.Metrics.LocalQueueMetrics, &LocalQueueMetrics{})
+
 	cfg.Health.HealthProbeBindAddress = cmp.Or(cfg.Health.HealthProbeBindAddress, DefaultHealthProbeBindAddress)
 	cfg.LeaderElection = cmp.Or(cfg.LeaderElection, &configv1alpha1.LeaderElectionConfiguration{})
 	cfg.LeaderElection.ResourceName = cmp.Or(cfg.LeaderElection.ResourceName, DefaultLeaderElectionID)

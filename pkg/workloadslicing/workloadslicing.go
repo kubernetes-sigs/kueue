@@ -35,6 +35,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
@@ -165,6 +166,7 @@ func EnsureWorkloadSlices(
 	jobPodSets []kueue.PodSet,
 	jobObject client.Object,
 	jobObjectGVK schema.GroupVersionKind,
+	lqMetrics *metrics.LocalQueueMetricsConfig,
 	tracker *roletracker.RoleTracker,
 ) (*kueue.Workload, bool, error) {
 	jobPodSetsCounts := workload.ExtractPodSetCounts(jobPodSets)
@@ -234,7 +236,7 @@ func EnsureWorkloadSlices(
 			// Finish the old workload slice as out of sync.
 			reason := kueue.WorkloadFinishedReasonOutOfSync
 			message := "The workload slice is out of sync with its parent job"
-			if err := workload.Finish(ctx, clnt, &oldWorkload, reason, message, clk, tracker); err != nil {
+			if err := workload.Finish(ctx, clnt, &oldWorkload, reason, message, clk, lqMetrics, tracker); err != nil {
 				return nil, true, err
 			}
 		}

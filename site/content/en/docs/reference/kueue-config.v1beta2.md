@@ -334,6 +334,13 @@ It can be set to &quot;0&quot; to disable the metrics serving.</p>
 metrics will be reported.</p>
 </td>
 </tr>
+<tr><td><code>localQueueMetrics</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-LocalQueueMetrics"><code>LocalQueueMetrics</code></a>
+</td>
+<td>
+   <p>LocalQueueMetrics is a configuration that provides LocalQueue metrics options.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -576,6 +583,40 @@ Defaults to kueue-webhook-service.</p>
 <td>
    <p>WebhookSecretName is the name of the Secret used to store CA and server certs.
 Defaults to kueue-webhook-server-cert.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `LocalQueueMetrics`     {#config-kueue-x-k8s-io-v1beta2-LocalQueueMetrics}
+    
+
+**Appears in:**
+
+- [ControllerMetrics](#config-kueue-x-k8s-io-v1beta2-ControllerMetrics)
+
+
+<p>LocalQueueMetrics defines the configuration options for local queue metrics.
+If left empty, then metrics will expose for all local queues across namespaces.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>enable</code><br/>
+<code>bool</code>
+</td>
+<td>
+   <p>Enable is a knob to allow metrics to be exposed for local queues. Defaults to false.</p>
+</td>
+</tr>
+<tr><td><code>localQueueSelector</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#labelselector-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector</code></a>
+</td>
+<td>
+   <p>LocalQueueSelector can be used to choose the local queues that need metrics to be collected.</p>
 </td>
 </tr>
 </tbody>

@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
@@ -75,6 +76,7 @@ type wlReconciler struct {
 	clock             clock.Clock
 	dispatcherName    string
 	roleTracker       *roletracker.RoleTracker
+	lqMetrics         *metrics.LocalQueueMetricsConfig
 }
 
 var _ reconcile.Reconciler = (*wlReconciler)(nil)
@@ -361,7 +363,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		}
 
 		// finish workload and copy the status to the local one
-		return reconcile.Result{}, workload.Finish(ctx, w.client, group.local, remoteFinishedCond.Reason, remoteFinishedCond.Message, w.clock, w.roleTracker)
+		return reconcile.Result{}, workload.Finish(ctx, w.client, group.local, remoteFinishedCond.Reason, remoteFinishedCond.Message, w.clock, w.lqMetrics, w.roleTracker)
 	}
 
 	// 4. Handle workload eviction
@@ -776,8 +778,8 @@ func (w *wlReconciler) Generic(_ event.GenericEvent) bool {
 
 func newWlReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelper, cRec *clustersReconciler, origin string,
 	recorder record.EventRecorder, workerLostTimeout, eventsBatchPeriod time.Duration,
-	adapters map[string]jobframework.MultiKueueAdapter, dispatcherName string, roleTracker *roletracker.RoleTracker,
-	options ...Option,
+	adapters map[string]jobframework.MultiKueueAdapter, dispatcherName string, lqMetrics *metrics.LocalQueueMetricsConfig,
+	roleTracker *roletracker.RoleTracker, options ...Option,
 ) *wlReconciler {
 	r := &wlReconciler{
 		client:            c,
@@ -792,6 +794,7 @@ func newWlReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelp
 		clock:             realClock,
 		dispatcherName:    dispatcherName,
 		roleTracker:       roleTracker,
+		lqMetrics:         lqMetrics,
 	}
 	for _, option := range options {
 		option(r)

@@ -95,6 +95,13 @@ func WithRoleTracker(tracker *roletracker.RoleTracker) Option {
 	}
 }
 
+// WithLocalQueueMetrics sets the configuration for local queue metrics.
+func WithLocalQueueMetrics(value *metrics.LocalQueueMetricsConfig) Option {
+	return func(m *Manager) {
+		m.lqMetrics = value
+	}
+}
+
 // SetDRAReconcileChannel sets the DRA reconcile channel after manager creation.
 func (m *Manager) SetDRAReconcileChannel(ch chan<- event.TypedGenericEvent[*kueue.Workload]) {
 	m.draReconcileChannel = ch
@@ -137,6 +144,8 @@ type Manager struct {
 	draReconcileChannel chan<- event.TypedGenericEvent[*kueue.Workload]
 
 	roleTracker *roletracker.RoleTracker
+
+	lqMetrics *metrics.LocalQueueMetricsConfig
 }
 
 func NewManager(client client.Client, checker StatusChecker, options ...Option) *Manager {
@@ -199,10 +208,12 @@ func (m *Manager) addFinishedWorkloadWithoutLock(wl *kueue.Workload) {
 	q.finishedWorkloads.Insert(wlKey)
 	if features.Enabled(features.LocalQueueMetrics) {
 		namespace, lqName := queue.MustParseLocalQueueReference(qKey)
-		metrics.ReportLocalQueueFinishedWorkloads(metrics.LocalQueueReference{
-			Name:      lqName,
-			Namespace: namespace,
-		}, q.finishedWorkloads.Len(), m.roleTracker)
+		if m.lqMetrics.ShouldExposeLocalQueueMetrics(q.labels) {
+			metrics.ReportLocalQueueFinishedWorkloads(metrics.LocalQueueReference{
+				Name:      lqName,
+				Namespace: namespace,
+			}, q.finishedWorkloads.Len(), m.roleTracker)
+		}
 	}
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
@@ -229,10 +240,12 @@ func (m *Manager) deleteFinishedWorkloadWithoutLock(wlKey workload.Reference) {
 	q.finishedWorkloads.Delete(wlKey)
 	if features.Enabled(features.LocalQueueMetrics) {
 		namespace, lqName := queue.MustParseLocalQueueReference(qKey)
-		metrics.ReportLocalQueueFinishedWorkloads(metrics.LocalQueueReference{
-			Name:      lqName,
-			Namespace: namespace,
-		}, q.finishedWorkloads.Len(), m.roleTracker)
+		if m.lqMetrics.ShouldExposeLocalQueueMetrics(q.labels) {
+			metrics.ReportLocalQueueFinishedWorkloads(metrics.LocalQueueReference{
+				Name:      lqName,
+				Namespace: namespace,
+			}, q.finishedWorkloads.Len(), m.roleTracker)
+		}
 	}
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
@@ -304,9 +317,11 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 	// needs to be iterated over again here incase inadmissible workloads were added by requeueWorkloadsCQ
 	if features.Enabled(features.LocalQueueMetrics) {
 		for _, q := range queues.Items {
-			qImpl := m.localQueues[queue.Key(&q)]
-			if qImpl != nil {
-				m.reportLQPendingWorkloads(qImpl)
+			if m.lqMetrics.ShouldExposeLocalQueueMetrics(q.GetLabels()) {
+				qImpl := m.localQueues[queue.Key(&q)]
+				if qImpl != nil {
+					m.reportLQPendingWorkloads(qImpl)
+				}
 			}
 		}
 	}
@@ -341,7 +356,9 @@ func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue
 		if features.Enabled(features.LocalQueueMetrics) {
 			for _, q := range m.localQueues {
 				if q.ClusterQueue == cqName {
-					m.reportLQPendingWorkloads(q)
+					if m.lqMetrics.ShouldExposeLocalQueueMetrics(q.labels) {
+						m.reportLQPendingWorkloads(q)
+					}
 				}
 			}
 		}
@@ -559,7 +576,9 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 	}
 	cq.PushOrUpdate(wInfo)
 	if features.Enabled(features.LocalQueueMetrics) {
-		m.reportLQPendingWorkloads(q)
+		if m.lqMetrics.ShouldExposeLocalQueueMetrics(q.labels) {
+			m.reportLQPendingWorkloads(q)
+		}
 	}
 	m.reportPendingWorkloads(q.ClusterQueue, cq)
 	m.Broadcast()
@@ -599,7 +618,9 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	added := cq.RequeueIfNotPresent(ctx, info, reason)
 	m.reportPendingWorkloads(q.ClusterQueue, cq)
 	if features.Enabled(features.LocalQueueMetrics) {
-		m.reportLQPendingWorkloads(q)
+		if m.lqMetrics.ShouldExposeLocalQueueMetrics(q.labels) {
+			m.reportLQPendingWorkloads(q)
+		}
 	}
 	if added {
 		m.Broadcast()
@@ -654,7 +675,9 @@ func (m *Manager) deleteWorkloadWithoutLock(log logr.Logger, wlKey workload.Refe
 	}
 
 	if features.Enabled(features.LocalQueueMetrics) {
-		m.reportLQPendingWorkloads(q)
+		if m.lqMetrics.ShouldExposeLocalQueueMetrics(q.labels) {
+			m.reportLQPendingWorkloads(q)
+		}
 	}
 
 	m.DeleteSecondPassWithoutLock(wlKey)
@@ -784,7 +807,9 @@ func (m *Manager) heads() []workload.Info {
 		delete(q.items, wlKey)
 
 		if features.Enabled(features.LocalQueueMetrics) {
-			m.reportLQPendingWorkloads(q)
+			if m.lqMetrics.ShouldExposeLocalQueueMetrics(q.labels) {
+				m.reportLQPendingWorkloads(q)
+			}
 		}
 	}
 	return workloads
