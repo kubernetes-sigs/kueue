@@ -23,7 +23,6 @@ import (
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -38,10 +37,9 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
-	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -145,122 +143,17 @@ func (j *RayService) PodLabelSelector() string {
 	return ""
 }
 
-// buildPodSetsFromRayServiceSpec builds PodSets from RayService's RayClusterSpec
-func (j *RayService) buildPodSetsFromRayServiceSpec() ([]kueue.PodSet, error) {
-	podSets := make([]kueue.PodSet, 0)
-
-	// head
-	headPodSet := kueue.PodSet{
-		Name:     headGroupPodSetName,
-		Template: *j.Spec.RayClusterSpec.HeadGroupSpec.Template.DeepCopy(),
-		Count:    1,
-	}
-	if features.Enabled(features.TopologyAwareScheduling) {
-		topologyRequest, err := jobframework.NewPodSetTopologyRequest(
-			&j.Spec.RayClusterSpec.HeadGroupSpec.Template.ObjectMeta).Build()
-		if err != nil {
-			return nil, err
-		}
-		headPodSet.TopologyRequest = topologyRequest
-	}
-	podSets = append(podSets, headPodSet)
-
-	// workers
-	for index := range j.Spec.RayClusterSpec.WorkerGroupSpecs {
-		wgs := &j.Spec.RayClusterSpec.WorkerGroupSpecs[index]
-		count := int32(1)
-		if wgs.Replicas != nil {
-			count = *wgs.Replicas
-		}
-		if wgs.NumOfHosts > 1 {
-			count *= wgs.NumOfHosts
-		}
-		workerPodSet := kueue.PodSet{
-			Name:     kueue.NewPodSetReference(wgs.GroupName),
-			Template: *wgs.Template.DeepCopy(),
-			Count:    count,
-		}
-		if features.Enabled(features.TopologyAwareScheduling) {
-			topologyRequest, err := jobframework.NewPodSetTopologyRequest(&wgs.Template.ObjectMeta).Build()
-			if err != nil {
-				return nil, err
-			}
-			workerPodSet.TopologyRequest = topologyRequest
-		}
-		podSets = append(podSets, workerPodSet)
-	}
-
-	return podSets, nil
-}
-
 func (j *RayService) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
-	log := ctrl.LoggerFrom(ctx)
-
 	// Always build PodSets from RayService spec first
-	podSets, err := j.buildPodSetsFromRayServiceSpec()
+	podSets, err := raycluster.BuildPodSetsByRayClusterSpec(&j.Spec.RayClusterSpec)
 	if err != nil {
 		return nil, err
 	}
 
-	// Only update podSets from RayCluster if:
-	// 1. The service is workload slicing enabled
-	// 2. AND the service has enableInTreeAutoscaling
-	if workloadslicing.Enabled(j.Object()) && ptr.Deref(j.Spec.RayClusterSpec.EnableInTreeAutoscaling, false) {
-		// If ActiveServiceStatus.RayClusterName is set in status, try to fetch the RayCluster and update PodSets from it
-		if j.Status.ActiveServiceStatus.RayClusterName != "" {
-			var rayClusterObj rayv1.RayCluster
-			err := reconciler.client.Get(ctx, types.NamespacedName{
-				Namespace: j.Namespace,
-				Name:      j.Status.ActiveServiceStatus.RayClusterName,
-			}, &rayClusterObj)
-			if err != nil {
-				// Check if the error is a NotFound error
-				if apierrors.IsNotFound(err) {
-					log.V(2).Info("RayCluster does not exist, falling back to RayService spec",
-						"rayCluster", j.Status.ActiveServiceStatus.RayClusterName)
-				} else {
-					return nil, fmt.Errorf("failed to get RayCluster %s: %w", j.Status.ActiveServiceStatus.RayClusterName, err)
-				}
-			} else {
-				// Create a map of podSets from RayService spec for quick lookup by name
-				podSetMap := make(map[kueue.PodSetReference]*kueue.PodSet)
-				for i := range podSets {
-					podSetMap[podSets[i].Name] = &podSets[i]
-				}
-
-				// Iterate through RayCluster's worker groups and update the count in matching podSets
-				for i := range rayClusterObj.Spec.WorkerGroupSpecs {
-					wgs := &rayClusterObj.Spec.WorkerGroupSpecs[i]
-					podSetName := kueue.NewPodSetReference(wgs.GroupName)
-
-					podSet, exists := podSetMap[podSetName]
-					if !exists {
-						return nil, fmt.Errorf("PodSet name mismatch: RayCluster %s has worker group %s which is not found in RayService %s spec", j.Status.ActiveServiceStatus.RayClusterName, wgs.GroupName, j.Name)
-					}
-
-					if wgs.Replicas == nil {
-						continue
-					}
-
-					// Calculate the count based on RayCluster's worker group replicas
-					count := *wgs.Replicas
-					if wgs.NumOfHosts > 1 {
-						count *= wgs.NumOfHosts
-					}
-
-					// Update the count in the PodSet only if it's different
-					if podSet.Count != count {
-						log.V(2).Info("Updated RayService PodSet worker count from RayCluster",
-							"rayService", j.Name,
-							"rayCluster", j.Status.ActiveServiceStatus.RayClusterName,
-							"workerGroup", wgs.GroupName,
-							"oldCount", podSet.Count,
-							"newCount", count)
-						podSet.Count = count
-					}
-				}
-			}
-		}
+	rayClusterName := j.Status.ActiveServiceStatus.RayClusterName
+	podSets, err = raycluster.UpdatePodSetsByRayCluster(ctx, podSets, reconciler.client, j.Object(), j.Spec.RayClusterSpec.EnableInTreeAutoscaling, rayClusterName)
+	if err != nil {
+		return nil, err
 	}
 
 	return podSets, nil
@@ -274,22 +167,12 @@ func (j *RayService) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podse
 
 	j.Spec.RayClusterSpec.Suspend = ptr.To(false)
 
-	// head
-	headPod := &j.Spec.RayClusterSpec.HeadGroupSpec.Template
-	info := podSetsInfo[0]
-	if err := podset.Merge(&headPod.ObjectMeta, &headPod.Spec, info); err != nil {
+	rayClusterSpec := &j.Spec.RayClusterSpec
+	err := raycluster.UpdateRayClusterSpecToRunWithPodSetsInfo(rayClusterSpec, podSetsInfo)
+	if err != nil {
 		return err
 	}
 
-	// workers
-	for index := range j.Spec.RayClusterSpec.WorkerGroupSpecs {
-		workerPod := &j.Spec.RayClusterSpec.WorkerGroupSpecs[index].Template
-
-		info := podSetsInfo[index+1]
-		if err := podset.Merge(&workerPod.ObjectMeta, &workerPod.Spec, info); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
@@ -298,18 +181,7 @@ func (j *RayService) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 		return false
 	}
 
-	// head
-	headPod := &j.Spec.RayClusterSpec.HeadGroupSpec.Template
-	changed := podset.RestorePodSpec(&headPod.ObjectMeta, &headPod.Spec, podSetsInfo[0])
-
-	// workers
-	for index := range j.Spec.RayClusterSpec.WorkerGroupSpecs {
-		workerPod := &j.Spec.RayClusterSpec.WorkerGroupSpecs[index].Template
-		info := podSetsInfo[index+1]
-		changed = podset.RestorePodSpec(&workerPod.ObjectMeta, &workerPod.Spec, info) || changed
-	}
-
-	return changed
+	return raycluster.RestorePodSetsInfoByRayClusterSpec(&j.Spec.RayClusterSpec, podSetsInfo)
 }
 
 func (j *RayService) Finished(ctx context.Context) (message string, success, finished bool) {
