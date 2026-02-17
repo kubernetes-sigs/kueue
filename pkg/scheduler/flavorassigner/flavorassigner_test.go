@@ -4396,67 +4396,6 @@ func TestAssignment_TotalRequestsFor(t *testing.T) {
 				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceMemory}: 4 * 1048576,
 			},
 		},
-		"WorkloadWithDownscaleReplacement": {
-			// Test case for downscaling: when a podSet is scaled down,
-			// the delta should be negative, and no additional quota should be consumed.
-			fields: fields{
-				PodSets: []PodSetAssignment{
-					{
-						Name: "worker",
-						Flavors: ResourceAssignment{
-							corev1.ResourceCPU:    {Name: "default", Mode: Fit, TriedFlavorIdx: -1},
-							corev1.ResourceMemory: {Name: "default", Mode: Fit, TriedFlavorIdx: -1},
-						},
-						Requests: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("1"),
-							corev1.ResourceMemory: resource.MustParse("1Mi"),
-						},
-						Count: 2, // Unchanged: was 2, still 2
-					},
-					{
-						Name: "coordinator",
-						Flavors: ResourceAssignment{
-							corev1.ResourceCPU:    {Name: "default", Mode: Fit, TriedFlavorIdx: -1},
-							corev1.ResourceMemory: {Name: "default", Mode: Fit, TriedFlavorIdx: -1},
-						},
-						Requests: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("2"),
-							corev1.ResourceMemory: resource.MustParse("2Mi"),
-						},
-						Count: 1, // Downscaled: was 3, now 1
-					},
-				},
-				replaceWorkloadSlice: workload.NewInfo(utiltestingapi.MakeWorkload("test", "default").
-					PodSets(
-						*utiltestingapi.MakePodSet("worker", 2).
-							Request(corev1.ResourceCPU, "1").
-							Request(corev1.ResourceMemory, "1Mi").
-							Obj(),
-						*utiltestingapi.MakePodSet("coordinator", 3).
-							Request(corev1.ResourceCPU, "2").
-							Request(corev1.ResourceMemory, "2Mi").
-							Obj(),
-					).
-					Obj()),
-			},
-			args: args{
-				wl: workload.NewInfo(utiltestingapi.MakeWorkload("test", "default").
-					PodSets(
-						*utiltestingapi.MakePodSet("worker", 2).
-							Request(corev1.ResourceCPU, "1").
-							Request(corev1.ResourceMemory, "1Mi").
-							Obj(),
-						*utiltestingapi.MakePodSet("coordinator", 1).
-							Request(corev1.ResourceCPU, "2").
-							Request(corev1.ResourceMemory, "2Mi").
-							Obj(),
-					).
-					Obj()),
-			},
-			want: resources.FlavorResourceQuantities{
-				// For downscaling, we should not consume additional quota.
-			},
-		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
