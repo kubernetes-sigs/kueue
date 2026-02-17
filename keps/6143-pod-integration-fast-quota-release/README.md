@@ -8,7 +8,6 @@
 - [Proposal](#proposal)
   - [User Stories](#user-stories)
     - [Story 1: Preemption with long-running Pod workloads](#story-1-preemption-with-long-running-pod-workloads)
-    - [Story 2: Rapid workload cycling](#story-2-rapid-workload-cycling)
   - [Notes/Constraints/Caveats](#notesconstraintscaveats)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
