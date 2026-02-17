@@ -1,0 +1,27 @@
+title: Pod Integration Fast Quota Release
+kep-number: 8600
+authors:
+  - "@tkillian"
+status: provisional
+creation-date: 2026-02-17
+reviewers:
+  - @mimowo
+approvers:
+  - @mimowo
+
+see-also:
+  - "/keps/976-plain-pods"
+
+stage: beta
+latest-milestone: "v0.17"
+
+milestone:
+  alpha: "v0.15"
+  beta: "v0.17"
+  stable:
+
+feature-gates:
+  - name: PodIntegrationFastQuotaRelease
+disable-supported: true
+
+metrics:
