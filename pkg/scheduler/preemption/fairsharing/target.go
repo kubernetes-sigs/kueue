@@ -52,7 +52,7 @@ func (t *TargetClusterQueue) HasWorkload() bool {
 // preemption.
 func (t *TargetClusterQueue) ComputeShares() (PreemptorNewShare, TargetOldShare) {
 	preemptorAlmostLCA, targetAlmostLCA := getAlmostLCAs(t)
-	return PreemptorNewShare(preemptorAlmostLCA.DominantResourceShare()), TargetOldShare(targetAlmostLCA.DominantResourceShare())
+	return PreemptorNewShare(preemptorAlmostLCA.DominantResourceShare(t.ordering.flavorWeights)), TargetOldShare(targetAlmostLCA.DominantResourceShare(t.ordering.flavorWeights))
 }
 
 // ComputeTargetShareAfterRemoval returns DominantResourceShare of the
@@ -69,7 +69,7 @@ func (t *TargetClusterQueue) ComputeTargetShareAfterRemoval(wl *workload.Info) T
 	defer revertSimulation()
 
 	_, almostLCA := getAlmostLCAs(t)
-	return TargetNewShare(almostLCA.DominantResourceShare())
+	return TargetNewShare(almostLCA.DominantResourceShare(t.ordering.flavorWeights))
 }
 
 // GetTargetCq returns the target ClusterQueue snapshot.

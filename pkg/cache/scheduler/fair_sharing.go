@@ -113,27 +113,60 @@ func (d DRS) zeroWeightBorrows() bool {
 	return d.isWeightZero() && !d.IsZero()
 }
 
-func dominantResourceShare(node dominantResourceShareNode, wlReq resources.FlavorResourceQuantities) DRS {
+// FlavorResourceWeights maps each (flavor, resource) pair to its weight multiplier.
+// Used to apply per-(flavor, resource) weights when computing DRS.
+type FlavorResourceWeights map[resources.FlavorResource]float64
+
+// flavorWeight returns the configured weight for a (flavor, resource) pair,
+// defaulting to 1.0 when not configured.
+func flavorWeight(weights FlavorResourceWeights, fr resources.FlavorResource) float64 {
+	if weights != nil {
+		if w, ok := weights[fr]; ok {
+			return w
+		}
+	}
+	return 1.0
+}
+
+// ComputeFlavorResourceWeights pre-computes the weights map from ResourceFlavor objects.
+func ComputeFlavorResourceWeights(flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) FlavorResourceWeights {
+	weights := make(FlavorResourceWeights)
+	for flavorRef, flavor := range flavors {
+		for rName, qty := range flavor.Spec.ResourceWeights {
+			// Deep copy to avoid data races with the informer cache,
+			// as AsFloat64Slow is a mutating method.
+			qCopy := qty.DeepCopy()
+			w := qCopy.AsFloat64Slow()
+			if w > 0 {
+				weights[resources.FlavorResource{Flavor: flavorRef, Resource: rName}] = w
+			}
+		}
+	}
+	return weights
+}
+
+func dominantResourceShare(node dominantResourceShareNode, wlReq resources.FlavorResourceQuantities, weights FlavorResourceWeights) DRS {
 	drs := DRS{fairWeight: node.fairWeight(), unweightedRatio: 0, dominantResource: ""}
 	if !node.HasParent() {
 		return drs
 	}
 
-	borrowing := make(map[corev1.ResourceName]int64, len(node.getResourceNode().SubtreeQuota))
+	weightedBorrowing := make(map[corev1.ResourceName]float64, len(node.getResourceNode().SubtreeQuota))
 	for fr, quota := range node.getResourceNode().SubtreeQuota {
 		amountBorrowed := wlReq[fr] + node.getResourceNode().Usage[fr] - quota
 		if amountBorrowed > 0 {
-			borrowing[fr.Resource] += amountBorrowed
+			w := flavorWeight(weights, fr)
+			weightedBorrowing[fr.Resource] += float64(amountBorrowed) * w
 		}
 	}
-	if len(borrowing) == 0 {
+	if len(weightedBorrowing) == 0 {
 		return drs
 	}
 
-	lendable := calculateLendable(node.parentHRN())
-	for rName, b := range borrowing {
-		if lr := lendable[rName]; lr > 0 {
-			ratio := float64(b) * 1000.0 / float64(lr)
+	weightedLendable := calculateWeightedLendable(node.parentHRN(), weights)
+	for rName, b := range weightedBorrowing {
+		if lr := weightedLendable[rName]; lr > 0 {
+			ratio := b * 1000.0 / lr
 			// Use alphabetical order to get a deterministic resource name.
 			if ratio > drs.unweightedRatio || (ratio == drs.unweightedRatio && rName < drs.dominantResource) {
 				drs.unweightedRatio = ratio
@@ -144,20 +177,21 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 	return drs
 }
 
-// calculateLendable aggregates capacity for resources across all
-// FlavorResources.
-func calculateLendable(node hierarchicalResourceNode) map[corev1.ResourceName]int64 {
+// calculateWeightedLendable aggregates weighted capacity for resources
+// across all FlavorResources.
+func calculateWeightedLendable(node hierarchicalResourceNode, weights FlavorResourceWeights) map[corev1.ResourceName]float64 {
 	// walk to root
 	root := node
 	for root.HasParent() {
 		root = root.parentHRN()
 	}
 
-	lendable := make(map[corev1.ResourceName]int64, len(root.getResourceNode().SubtreeQuota))
+	lendable := make(map[corev1.ResourceName]float64, len(root.getResourceNode().SubtreeQuota))
 	// The root's SubtreeQuota contains all FlavorResources,
 	// as we accumulate even 0s in accumulateFromChild.
 	for fr := range root.getResourceNode().SubtreeQuota {
-		lendable[fr.Resource] += potentialAvailable(node, fr)
+		w := flavorWeight(weights, fr)
+		lendable[fr.Resource] += float64(potentialAvailable(node, fr)) * w
 	}
 	return lendable
 }

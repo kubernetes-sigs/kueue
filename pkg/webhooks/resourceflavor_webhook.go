@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metavalidation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -89,6 +90,18 @@ func ValidateResourceFlavor(rf *kueue.ResourceFlavor) field.ErrorList {
 
 	allErrs = append(allErrs, validateNodeTaints(rf.Spec.NodeTaints, specPath.Child("nodeTaints"))...)
 	allErrs = append(allErrs, validateTolerations(rf.Spec.Tolerations, specPath.Child("tolerations"))...)
+	allErrs = append(allErrs, validateResourceWeights(rf.Spec.ResourceWeights, specPath.Child("resourceWeights"))...)
+	return allErrs
+}
+
+func validateResourceWeights(weights map[corev1.ResourceName]resource.Quantity, fldPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	for rName, quantity := range weights {
+		p := fldPath.Key(string(rName))
+		if quantity.Cmp(resource.Quantity{}) <= 0 {
+			allErrs = append(allErrs, field.Invalid(p, quantity.String(), "must be greater than 0"))
+		}
+	}
 	return allErrs
 }
 

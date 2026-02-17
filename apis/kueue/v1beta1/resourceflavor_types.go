@@ -18,6 +18,7 @@ package v1beta1
 
 import (
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -105,6 +106,17 @@ type ResourceFlavorSpec struct {
 	//
 	// +optional
 	TopologyName *TopologyReference `json:"topologyName,omitempty"`
+
+	// resourceWeights is a map from resource name to a scalar multiplier
+	// used when computing Dominant Resource Share (DRS) for Fair Sharing.
+	// Higher weights cause borrowing/lendable for this flavor-resource pair
+	// to contribute more to the DRS ratio.
+	// Missing entries default to a multiplier of 1.0.
+	// Values must be strictly greater than 0.
+	//
+	// +optional
+	// +kubebuilder:validation:MaxProperties=16
+	ResourceWeights map[corev1.ResourceName]resource.Quantity `json:"resourceWeights,omitempty"`
 }
 
 // +kubebuilder:object:root=true

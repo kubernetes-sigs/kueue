@@ -22,6 +22,7 @@ package v1beta2
 
 import (
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 )
@@ -1592,6 +1593,13 @@ func (in *ResourceFlavorSpec) DeepCopyInto(out *ResourceFlavorSpec) {
 		in, out := &in.TopologyName, &out.TopologyName
 		*out = new(TopologyReference)
 		**out = **in
+	}
+	if in.ResourceWeights != nil {
+		in, out := &in.ResourceWeights, &out.ResourceWeights
+		*out = make(map[corev1.ResourceName]resource.Quantity, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val.DeepCopy()
+		}
 	}
 }
 

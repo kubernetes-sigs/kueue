@@ -41,6 +41,7 @@ import (
 type Snapshot struct {
 	hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]
 	ResourceFlavors          map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
+	FlavorWeights            FlavorResourceWeights
 	InactiveClusterQueueSets sets.Set[kueue.ClusterQueueReference]
 }
 
@@ -216,6 +217,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	}
 	// Shallow copy is enough
 	maps.Copy(snap.ResourceFlavors, c.resourceFlavors)
+	snap.FlavorWeights = c.flavorWeights
 	return &snap, nil
 }
 

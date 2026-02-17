@@ -109,6 +109,7 @@ type Cache struct {
 
 	client               client.Client
 	resourceFlavors      map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
+	flavorWeights        FlavorResourceWeights
 	podsReadyTracking    bool
 	admissionChecks      map[kueue.AdmissionCheckReference]AdmissionCheck
 	workloadInfoOptions  []workload.InfoOption
@@ -259,6 +260,7 @@ func (c *Cache) AddOrUpdateResourceFlavor(log logr.Logger, rf *kueue.ResourceFla
 	c.Lock()
 	defer c.Unlock()
 	c.resourceFlavors[kueue.ResourceFlavorReference(rf.Name)] = rf
+	c.flavorWeights = ComputeFlavorResourceWeights(c.resourceFlavors)
 	if handleTASFlavor(rf) {
 		c.tasCache.AddFlavor(rf)
 	}
@@ -269,6 +271,7 @@ func (c *Cache) DeleteResourceFlavor(log logr.Logger, rf *kueue.ResourceFlavor) 
 	c.Lock()
 	defer c.Unlock()
 	delete(c.resourceFlavors, kueue.ResourceFlavorReference(rf.Name))
+	c.flavorWeights = ComputeFlavorResourceWeights(c.resourceFlavors)
 	if handleTASFlavor(rf) {
 		c.tasCache.DeleteFlavor(kueue.ResourceFlavorReference(rf.Name))
 	}
@@ -703,7 +706,7 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*ClusterQueueUsageStats, error
 	}
 
 	if c.fairSharingEnabled {
-		drs := dominantResourceShare(cq, nil)
+		drs := dominantResourceShare(cq, nil, c.flavorWeights)
 		stats.WeightedShare = drs.PreciseWeightedShare()
 	}
 	return stats, nil
@@ -724,7 +727,7 @@ func (c *Cache) CohortStats(cohortObj *kueue.Cohort) (*CohortUsageStats, error) 
 
 	stats := &CohortUsageStats{}
 	if c.fairSharingEnabled {
-		drs := dominantResourceShare(cohort, nil)
+		drs := dominantResourceShare(cohort, nil, c.flavorWeights)
 		stats.WeightedShare = drs.PreciseWeightedShare()
 	}
 

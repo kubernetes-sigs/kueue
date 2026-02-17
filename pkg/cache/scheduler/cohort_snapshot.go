@@ -67,8 +67,8 @@ func (c *CohortSnapshot) subtreeClusterQueueCount() int {
 	return count
 }
 
-func (c *CohortSnapshot) DominantResourceShare() DRS {
-	return dominantResourceShare(c, nil)
+func (c *CohortSnapshot) DominantResourceShare(weights FlavorResourceWeights) DRS {
+	return dominantResourceShare(c, nil, weights)
 }
 
 // implement flatResourceNode/hierarchicalResourceNode interfaces

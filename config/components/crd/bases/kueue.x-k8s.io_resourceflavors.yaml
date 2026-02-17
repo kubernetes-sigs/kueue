@@ -111,6 +111,22 @@ spec:
                     ''NoExecute'''
                   rule: self.all(x, x.effect in ['NoSchedule', 'PreferNoSchedule',
                     'NoExecute'])
+              resourceWeights:
+                additionalProperties:
+                  anyOf:
+                  - type: integer
+                  - type: string
+                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                  x-kubernetes-int-or-string: true
+                description: |-
+                  resourceWeights is a map from resource name to a scalar multiplier
+                  used when computing Dominant Resource Share (DRS) for Fair Sharing.
+                  Higher weights cause borrowing/lendable for this flavor-resource pair
+                  to contribute more to the DRS ratio.
+                  Missing entries default to a multiplier of 1.0.
+                  Values must be strictly greater than 0.
+                maxProperties: 16
+                type: object
               tolerations:
                 description: |-
                   tolerations are extra tolerations that will be added to the pods admitted in
@@ -285,6 +301,22 @@ spec:
                     ''NoExecute'''
                   rule: self.all(x, x.effect in ['NoSchedule', 'PreferNoSchedule',
                     'NoExecute'])
+              resourceWeights:
+                additionalProperties:
+                  anyOf:
+                  - type: integer
+                  - type: string
+                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                  x-kubernetes-int-or-string: true
+                description: |-
+                  resourceWeights is a map from resource name to a scalar multiplier
+                  used when computing Dominant Resource Share (DRS) for Fair Sharing.
+                  Higher weights cause borrowing/lendable for this flavor-resource pair
+                  to contribute more to the DRS ratio.
+                  Missing entries default to a multiplier of 1.0.
+                  Values must be strictly greater than 0.
+                maxProperties: 16
+                type: object
               tolerations:
                 description: |-
                   tolerations are extra tolerations that will be added to the pods admitted in
