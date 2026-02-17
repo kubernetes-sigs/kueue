@@ -42,7 +42,7 @@ var _ = ginkgo.Describe("Admission Fair Sharing", ginkgo.Ordered, ginkgo.Continu
 	)
 
 	ginkgo.BeforeAll(func() {
-		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
+		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.AdmissionFairSharing = &configapi.AdmissionFairSharing{
 				UsageHalfLifeTime:     metav1.Duration{Duration: 1 * time.Second},
 				UsageSamplingInterval: metav1.Duration{Duration: 1 * time.Second},
