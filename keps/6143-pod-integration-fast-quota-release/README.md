@@ -1,4 +1,4 @@
-# KEP-8600: Pod Integration Fast Quota Release
+# KEP-6143: Pod Integration Fast Quota Release
 
 <!-- toc -->
 - [Summary](#summary)
@@ -182,7 +182,7 @@ Add the feature gate constant and versioned spec to
 ```go
 const (
     // owner: @tkillian
-    // kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/8600-pod-integration-fast-quota-release
+    // kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/6143-pod-integration-fast-quota-release
     //
     // Releases quota for Pod workloads as soon as all Pods are terminating
     // (have deletionTimestamp), aligning with Job and other integrations.
