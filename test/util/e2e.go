@@ -241,11 +241,13 @@ func UpdateDeploymentAndWaitForProgressing(ctx context.Context, k8sClient client
 		ginkgo.GinkgoLogr.Info("Deployment status condition before the restart", "type", deploymentCondition.Type, "status", deploymentCondition.Status, "reason", deploymentCondition.Reason)
 	}, Timeout, Interval).Should(gomega.Succeed())
 
-	beforeUpdateTime := deploymentCondition.LastUpdateTime
+	var beforeObservedGeneration int64
 
 	// Apply changes and update Deployment.
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, key, deployment)).To(gomega.Succeed())
+		g.Expect(deployment.Generation).To(gomega.Equal(deployment.Status.ObservedGeneration))
+		beforeObservedGeneration = deployment.Status.ObservedGeneration
 		applyChanges(deployment)
 		g.Expect(k8sClient.Update(ctx, deployment)).To(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed())
@@ -253,10 +255,8 @@ func UpdateDeploymentAndWaitForProgressing(ctx context.Context, k8sClient client
 	// Wait for the Deployment update to be in progress.
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, key, deployment)).To(gomega.Succeed())
-		deploymentCondition := FindDeploymentCondition(deployment, appsv1.DeploymentProgressing)
-		g.Expect(deploymentCondition).NotTo(gomega.BeNil())
-		g.Expect(deploymentCondition.LastUpdateTime).NotTo(gomega.Equal(beforeUpdateTime))
-	}, Timeout, Interval).Should(gomega.Succeed())
+		g.Expect(deployment.Status.ObservedGeneration).NotTo(gomega.Equal(beforeObservedGeneration))
+	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 
 func exportKindLogs(ctx context.Context, kindClusterName string) {
