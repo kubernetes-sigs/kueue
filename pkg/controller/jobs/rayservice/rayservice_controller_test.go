@@ -484,23 +484,33 @@ func TestIsActive(t *testing.T) {
 		rayService *RayService
 		want       bool
 	}{
-		"active - running": {
+		"active - RayServiceReady condition is true": {
 			rayService: (*RayService)(&rayv1.RayService{
 				Status: rayv1.RayServiceStatuses{
-					ServiceStatus: rayv1.Running,
+					Conditions: []metav1.Condition{
+						{
+							Type:   string(rayv1.RayServiceReady),
+							Status: metav1.ConditionTrue,
+						},
+					},
 				},
 			}),
 			want: true,
 		},
-		"not active - empty service status": {
+		"not active - RayServiceReady condition is false": {
 			rayService: (*RayService)(&rayv1.RayService{
 				Status: rayv1.RayServiceStatuses{
-					ServiceStatus: "",
+					Conditions: []metav1.Condition{
+						{
+							Type:   string(rayv1.RayServiceReady),
+							Status: metav1.ConditionFalse,
+						},
+					},
 				},
 			}),
 			want: false,
 		},
-		"not active - empty status": {
+		"not active - no conditions": {
 			rayService: (*RayService)(&rayv1.RayService{
 				Status: rayv1.RayServiceStatuses{},
 			}),
@@ -523,19 +533,35 @@ func TestPodsReady(t *testing.T) {
 		rayService *RayService
 		want       bool
 	}{
-		"pods ready - running": {
+		"pods ready - RayServiceReady condition is true": {
 			rayService: (*RayService)(&rayv1.RayService{
 				Status: rayv1.RayServiceStatuses{
-					ServiceStatus: rayv1.Running,
+					Conditions: []metav1.Condition{
+						{
+							Type:   string(rayv1.RayServiceReady),
+							Status: metav1.ConditionTrue,
+						},
+					},
 				},
 			}),
 			want: true,
 		},
-		"pods not ready - empty status": {
+		"pods not ready - RayServiceReady condition is false": {
 			rayService: (*RayService)(&rayv1.RayService{
 				Status: rayv1.RayServiceStatuses{
-					ServiceStatus: "",
+					Conditions: []metav1.Condition{
+						{
+							Type:   string(rayv1.RayServiceReady),
+							Status: metav1.ConditionFalse,
+						},
+					},
 				},
+			}),
+			want: false,
+		},
+		"pods not ready - no conditions": {
+			rayService: (*RayService)(&rayv1.RayService{
+				Status: rayv1.RayServiceStatuses{},
 			}),
 			want: false,
 		},

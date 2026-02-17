@@ -24,6 +24,7 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -126,8 +127,7 @@ func (j *RayService) IsSuspended() bool {
 }
 
 func (j *RayService) IsActive() bool {
-	//nolint:staticcheck //SA1019: Status.ServiceStatus is deprecated but still functional
-	return j.Status.ServiceStatus == rayv1.Running
+	return meta.IsStatusConditionTrue(j.Status.Conditions, string(rayv1.RayServiceReady))
 }
 
 func (j *RayService) Suspend() {
@@ -323,8 +323,7 @@ func (j *RayService) Finished(ctx context.Context) (message string, success, fin
 }
 
 func (j *RayService) PodsReady(ctx context.Context) bool {
-	//nolint:staticcheck //SA1019: Status.ServiceStatus is deprecated but still functional
-	return j.Status.ServiceStatus == rayv1.Running
+	return meta.IsStatusConditionTrue(j.Status.Conditions, string(rayv1.RayServiceReady))
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
