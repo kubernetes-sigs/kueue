@@ -36,6 +36,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -2876,13 +2877,14 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("4")))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("Trigger workload slicing by scaling coordinator podSet from 1 to 3 (worker unchanged)")
-			gomega.Eventually(func(g gomega.Gomega) {
-				updatedWl := &kueue.Workload{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), updatedWl)).Should(gomega.Succeed())
-				updatedWl.Spec.PodSets[1].Count = 3
-				g.Expect(k8sClient.Update(ctx, updatedWl)).Should(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			ginkgo.By("Trigger workload slicing by creating a replacement workload (scaling coordinator from 1 to 3)")
+			wlSlice := utiltestingapi.MakeWorkload("multi-podset-wl-slice", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Annotation(workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(wl))).
+				PodSets(*utiltestingapi.MakePodSet("worker", 2).Request(corev1.ResourceCPU, "1").Obj(),
+					*utiltestingapi.MakePodSet("coordinator", 3).Request(corev1.ResourceCPU, "2").Obj()).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wlSlice)
 
 			ginkgo.By("Wait for new workload slice to be created")
 			newSlice := util.ExpectNewWorkloadSlice(ctx, k8sClient, wl)
