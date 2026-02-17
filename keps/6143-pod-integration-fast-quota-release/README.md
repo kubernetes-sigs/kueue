@@ -28,14 +28,13 @@
 This KEP introduces the `PodIntegrationFastQuotaRelease` feature gate to align
 the Pod integration's quota release behavior with other integrations (e.g.,
 batch/v1 Job). When enabled, quota from "plain pods" are released as soon as the
-pod is terminating (i.e. has a `deletionTimestamp`), rather than waiting for Pods
+pods are terminating (i.e. has a `deletionTimestamp`), rather than waiting for pods
 to fully terminate.
 
 This addresses a consistency gap where the Job integration is considered not active 
 as soon as `status.active == 0` on the job, and the Kubernetes job controller considers 
 a pod active only if it has no `deletionTimestamp` set. Contrast this with the current 
-pod controller, which considers a plain pod as not active only once the pod is fully 
-terminated.
+pod controller, which considers a plain pod as active until the pod is fully terminated.
 
 ## Motivation
 
