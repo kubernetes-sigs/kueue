@@ -31,7 +31,7 @@ batch/v1 Job). When enabled, quota from "plain pods" are released as soon as the
 pod is terminating (i.e. has a `deletionTimestamp`), rather than waiting for Pods
 to fully terminate.
 
-This addressesa consistency gap where the Job integration is considered not active 
+This addresses a consistency gap where the Job integration is considered not active 
 as soon as `status.active == 0` on the job, and the Kubernetes job controller considers 
 a pod active only if it has no `deletionTimestamp` set. Contrast this with the current 
 pod controller, which considers a plain pod as not active only once the pod is fully 
@@ -47,7 +47,7 @@ graceful shutdown period is configured). While the pod is terminating, ALL
 pods in each cluster queue is blocked from triggering further preemptions until 
 it's finished because the terminating pod is always each potential preemptor pod's 
 ideal preemption target. This obviously creates a large bottleneck for preemption 
-that does not occurr for preemptions of other types of workloads.
+that does not occur for preemptions of other types of workloads.
 
 Ultimately, this behavioral inconsistency between integrations leads to:
 - Delayed admission of higher-priority workloads during preemption
