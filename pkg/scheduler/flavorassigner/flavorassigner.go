@@ -180,11 +180,6 @@ func (a *Assignment) TotalRequestsFor(wl *workload.Info) resources.FlavorResourc
 		newCount := a.PodSets[i].Count
 		if a.replaceWorkloadSlice != nil {
 			newCount = ps.Count - a.replaceWorkloadSlice.TotalRequests[i].Count
-			// For workload slicing, skip podSets where the count delta is <= 0
-			// (meaning unchanged or downscaled). No additional quota is needed.
-			if newCount <= 0 {
-				continue
-			}
 		}
 		ps = *ps.ScaledTo(newCount)
 
@@ -687,15 +682,12 @@ func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAss
 		fr := resources.FlavorResource{Flavor: flvAssignment.Name, Resource: resource}
 
 		// For workload slicing, only add the delta (new - old) to avoid double-counting
-		// unchanged podSets that already have quota reserved in the old slice.
+		// podSets that already have quota reserved in the old slice.
 		requestAmount := requests[resource]
 		if a.replaceWorkloadSlice != nil {
 			oldRequest := a.findOldPodSetRequest(psAssignment.Name, resource)
 			requestAmount -= oldRequest
-			// For workload slicing, skip adding resources where delta <= 0
-			// (meaning the resource request hasn't changed or is being downscaled)
-			if requestAmount <= 0 {
-				flavorIdx[resource] = flvAssignment.TriedFlavorIdx
+			if requestAmount == 0 {
 				continue
 			}
 		}
