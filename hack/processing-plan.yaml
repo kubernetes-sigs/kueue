@@ -701,6 +701,10 @@ files:
           tolerations:
           {{- toYaml . | nindent 8 }}
           {{- end }}
+          {{- with .Values.kueueViz.frontend.podSecurityContext }}
+          securityContext:
+          {{- toYaml . | nindent 8 }}
+          {{- end }}
         indentation: 2
         onFileCondition: '.kind == "Deployment" and  .metadata.name | contains("frontend")'
       - type: INSERT_TEXT
@@ -766,6 +770,10 @@ files:
         value: |
           resources:
             {{- toYaml .Values.kueueViz.backend.resources | nindent 12 }}
+          {{- with .Values.kueueViz.backend.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
         indentation: 0
         onFileCondition: '.kind == "Deployment" and  .metadata.name | contains("backend")'
       - type: INSERT_TEXT
@@ -773,6 +781,10 @@ files:
         value: |
           resources:
             {{- toYaml .Values.kueueViz.frontend.resources | nindent 12 }}
+          {{- with .Values.kueueViz.frontend.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
         indentation: 0
         onFileCondition: '.kind == "Deployment" and  .metadata.name | contains("frontend")'
       - type: INSERT_TEXT
@@ -791,6 +803,10 @@ files:
           {{- end }}
           {{- with .Values.kueueViz.backend.tolerations }}
           tolerations:
+          {{- toYaml . | nindent 8 }}
+          {{- end }}
+          {{- with .Values.kueueViz.backend.podSecurityContext }}
+          securityContext:
           {{- toYaml . | nindent 8 }}
           {{- end }}
         indentation: 2
