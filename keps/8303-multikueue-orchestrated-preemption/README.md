@@ -159,11 +159,19 @@ The API will be defined as follows:
 
 ```go
 type PreemptionGate struct {
+  // name identifies the preemption gate.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+  // +required
   Name string `json:"name"`
 }
 
 type WorkloadSpec struct {
   // ...
+  // preemptionGates is a list of gates governing whether the workload
+  // can trigger preemptions.
+  // The gates are active by default.
+  // +optional
   PreemptionGates []PreemptionGate `json:"preemptionGates,omitempty"`
 }
 
@@ -179,6 +187,8 @@ const (
 
 type PreemptionGateState struct {
   // name identifies the preemption gate.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
   // +required
   Name string `json:"name"`
 
@@ -202,6 +212,9 @@ type PreemptionGateState struct {
 
 type WorkloadStatus struct {
   // ...
+  // preemptionGates is a list of states of gates governing whether the workload
+  // can trigger preemptions.
+  // +optional
   PreemptionGates []PreemptionGateState `json:"preemptionGates,omitempty"`
 }
 ```
