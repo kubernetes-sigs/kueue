@@ -77,7 +77,7 @@ func managerAndSchedulerSetup(admissionFairSharing *config.AdmissionFairSharing)
 
 		_ = features.SetEnable(features.AdmissionFairSharing, true)
 		cCache := schdcache.New(mgr.GetClient(), schdcache.WithFairSharing(fairsharing.Enabled(fairSharing)), schdcache.WithAdmissionFairSharing(admissionFairSharing))
-		queues := qcache.NewManager(mgr.GetClient(), cCache, qcache.WithAdmissionFairSharing(admissionFairSharing))
+		queues := util.NewManagerForIntegrationTests(mgr.GetClient(), cCache, qcache.WithAdmissionFairSharing(admissionFairSharing))
 
 		configuration := &config.Configuration{FairSharing: fairSharing, AdmissionFairSharing: admissionFairSharing}
 		configuration.Metrics.EnableClusterQueueResources = true

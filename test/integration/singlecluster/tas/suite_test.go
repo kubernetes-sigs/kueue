@@ -90,7 +90,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 
 	cacheOptions := []schdcache.Option{}
 	cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
-	queues := qcache.NewManager(mgr.GetClient(), cCache)
+	queues := util.NewManagerForIntegrationTests(mgr.GetClient(), cCache)
 	qManager = queues
 
 	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg)

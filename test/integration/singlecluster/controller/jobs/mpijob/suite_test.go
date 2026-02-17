@@ -99,7 +99,7 @@ func controllersSetup(
 	ctx context.Context, mgr manager.Manager, setupJobManager bool, opts ...jobframework.Option,
 ) (*schdcache.Cache, *qcache.Manager, *config.Configuration) {
 	cCache := schdcache.New(mgr.GetClient())
-	queues := qcache.NewManager(mgr.GetClient(), cCache)
+	queues := util.NewManagerForIntegrationTests(mgr.GetClient(), cCache)
 	opts = append(opts, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
 
 	reconciler, err := mpijob.NewReconciler(

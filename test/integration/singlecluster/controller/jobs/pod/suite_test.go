@@ -120,7 +120,7 @@ func managerSetup(
 		jobframework.EnableIntegration(job.FrameworkName)
 
 		cCache := schdcache.New(mgr.GetClient())
-		queues := qcache.NewManager(mgr.GetClient(), cCache, queueOptions...)
+		queues := util.NewManagerForIntegrationTests(mgr.GetClient(), cCache, queueOptions...)
 		opts = append(opts, jobframework.WithQueues(queues), jobframework.WithCache(cCache))
 
 		mgr.GetScheme().Default(configuration)
