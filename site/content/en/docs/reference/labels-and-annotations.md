@@ -151,6 +151,22 @@ Used on: [Plain Pods](/docs/tasks/run/plain_pods/).
 
 The annotation key indicates a label name used to retrieve the Pod's index within the group.
 
+### kueue.x-k8s.io/pod-index-offset
+
+Type: Annotation
+
+Example: `kueue.x-k8s.io/pod-index-offset: "1"`
+
+Used on: Kueue-managed Jobs (e.g., [MPIJob](/docs/tasks/run/kubeflow/mpijobs/)).
+
+The annotation indicates a starting index offset for Pod replicas within a PodSet.
+For example, when an MPIJob uses `runLauncherAsWorker` mode, Worker replica indexes
+start from `1` instead of `0`. This annotation is set by the Kueue webhook and used
+by the TAS topology ungater to correctly map Pod indexes to topology assignments.
+
+Note: This annotation is not added when `kueue.x-k8s.io/podset-group-name` is specified,
+as offset management is delegated to the PodSet Group mechanism in that case.
+
 ### kueue.x-k8s.io/pod-group-serving
 
 Type: Annotation

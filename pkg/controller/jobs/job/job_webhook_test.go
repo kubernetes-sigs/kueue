@@ -64,11 +64,12 @@ var (
 
 func TestValidateCreate(t *testing.T) {
 	testcases := []struct {
-		name                    string
-		job                     *batchv1.Job
-		wantValidationErrs      field.ErrorList
-		wantErr                 error
-		topologyAwareScheduling bool
+		name                         string
+		job                          *batchv1.Job
+		wantValidationErrs           field.ErrorList
+		wantErr                      error
+		topologyAwareScheduling      bool
+		elasticJobsViaWorkloadSlices bool
 	}{
 		{
 			name:               "simple",
@@ -379,11 +380,48 @@ func TestValidateCreate(t *testing.T) {
 			},
 			topologyAwareScheduling: true,
 		},
+		{
+			name: "elastic job with required topology is rejected",
+			job: testingutil.MakeJob("job", "default").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Forbidden(replicaMetaPath.Child("annotations", kueue.PodSetRequiredTopologyAnnotation),
+					"required topology is not supported with elastic jobs"),
+			},
+			topologyAwareScheduling:      true,
+			elasticJobsViaWorkloadSlices: true,
+		},
+		{
+			name: "elastic job with preferred topology is rejected",
+			job: testingutil.MakeJob("job", "default").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Forbidden(replicaMetaPath.Child("annotations", kueue.PodSetPreferredTopologyAnnotation),
+					"preferred topology is not supported with elastic jobs"),
+			},
+			topologyAwareScheduling:      true,
+			elasticJobsViaWorkloadSlices: true,
+		},
+		{
+			name: "elastic job with unconstrained topology is accepted",
+			job: testingutil.MakeJob("job", "default").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				Obj(),
+			wantValidationErrs:           nil,
+			topologyAwareScheduling:      true,
+			elasticJobsViaWorkloadSlices: true,
+		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tc.elasticJobsViaWorkloadSlices)
 
 			jw := &JobWebhook{}
 
@@ -717,19 +755,18 @@ func TestValidateUpdate(t *testing.T) {
 
 func TestDefault(t *testing.T) {
 	testcases := map[string]struct {
-		job                                    *batchv1.Job
-		objs                                   []runtime.Object
-		queues                                 []kueue.LocalQueue
-		clusterQueues                          []kueue.ClusterQueue
-		admissionCheck                         *kueue.AdmissionCheck
-		manageJobsWithoutQueueName             bool
-		multiKueueEnabled                      bool
-		multiKueueBatchJobWithManagedByEnabled bool
-		localQueueDefaulting                   bool
-		defaultLqExist                         bool
-		enableIntegrations                     []string
-		want                                   *batchv1.Job
-		wantErr                                error
+		job                        *batchv1.Job
+		objs                       []runtime.Object
+		queues                     []kueue.LocalQueue
+		clusterQueues              []kueue.ClusterQueue
+		admissionCheck             *kueue.AdmissionCheck
+		manageJobsWithoutQueueName bool
+		multiKueueEnabled          bool
+		localQueueDefaulting       bool
+		defaultLqExist             bool
+		enableIntegrations         []string
+		want                       *batchv1.Job
+		wantErr                    error
 	}{
 		"update the suspend field with 'manageJobsWithoutQueueName=false'": {
 			job:  testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
@@ -739,11 +776,6 @@ func TestDefault(t *testing.T) {
 			job:                        testingutil.MakeJob("job", "default").Suspend(false).Obj(),
 			manageJobsWithoutQueueName: true,
 			want:                       testingutil.MakeJob("job", "default").Obj(),
-		},
-		"no change in managed by: features.MultiKueueBatchJobWithManagedBy disabled": {
-			job:                                    testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
-			multiKueueBatchJobWithManagedByEnabled: false,
-			want:                                   testingutil.MakeJob("job", "default").Queue("queue").Obj(),
 		},
 		"no change in managed by: features.MultiKueue disabled": {
 			job:               testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
@@ -773,8 +805,7 @@ func TestDefault(t *testing.T) {
 				Queue("local-queue").
 				ManagedBy(kueue.MultiKueueControllerName).
 				Obj(),
-			multiKueueEnabled:                      true,
-			multiKueueBatchJobWithManagedByEnabled: true,
+			multiKueueEnabled: true,
 		},
 		"no change in managed by: user specified managed by": {
 			job: testingutil.MakeJob("job", "default").
@@ -800,8 +831,7 @@ func TestDefault(t *testing.T) {
 				Queue("local-queue").
 				ManagedBy("example.com/foo").
 				Obj(),
-			multiKueueEnabled:                      true,
-			multiKueueBatchJobWithManagedByEnabled: true,
+			multiKueueEnabled: true,
 		},
 		"invalid queue name": {
 			job: testingutil.MakeJob("job", "default").
@@ -811,8 +841,7 @@ func TestDefault(t *testing.T) {
 			want: testingutil.MakeJob("job", "default").
 				Queue("invalid-local-queue").
 				Obj(),
-			multiKueueEnabled:                      true,
-			multiKueueBatchJobWithManagedByEnabled: true,
+			multiKueueEnabled: true,
 		},
 		"LocalQueueDefaulting enabled, default lq is created, job doesn't have queue label": {
 			localQueueDefaulting: true,
@@ -867,7 +896,6 @@ func TestDefault(t *testing.T) {
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.MultiKueue, tc.multiKueueEnabled)
-			features.SetFeatureGateDuringTest(t, features.MultiKueueBatchJobWithManagedBy, tc.multiKueueBatchJobWithManagedByEnabled)
 			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
 
 			ctx, log := utiltesting.ContextWithLog(t)

@@ -78,7 +78,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with tiny Timeout and no RecoveryTimeo
 		}
 		util.MustCreate(ctx, k8sClient, metricsReaderClusterRoleBinding)
 
-		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
+		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.WaitForPodsReady = &configapi.WaitForPodsReady{
 				BlockAdmission:  ptr.To(true),
 				Timeout:         metav1.Duration{Duration: util.TinyTimeout},
@@ -234,7 +234,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 		}
 		util.MustCreate(ctx, k8sClient, metricsReaderClusterRoleBinding)
 
-		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
+		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.WaitForPodsReady = &configapi.WaitForPodsReady{
 				Timeout:         metav1.Duration{Duration: 5 * time.Minute},
 				BlockAdmission:  ptr.To(true),
@@ -380,7 +380,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 		}
 		util.MustCreate(ctx, k8sClient, metricsReaderClusterRoleBinding)
 
-		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
+		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.WaitForPodsReady = &configapi.WaitForPodsReady{
 				Timeout:         metav1.Duration{Duration: 5 * time.Minute},
 				BlockAdmission:  ptr.To(true),

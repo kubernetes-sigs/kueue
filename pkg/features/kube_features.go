@@ -131,6 +131,13 @@ const (
 	// ElasticJobsViaWorkloadSlices enables workload-slices support.
 	ElasticJobsViaWorkloadSlices featuregate.Feature = "ElasticJobsViaWorkloadSlices"
 
+	// owner: @sohankunkerkar
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/77-dynamically-sized-jobs
+	//
+	// ElasticJobsViaWorkloadSlicesWithTAS enables TAS integration with elastic workload slices.
+	// Requires both ElasticJobsViaWorkloadSlices and TopologyAwareScheduling to be enabled.
+	ElasticJobsViaWorkloadSlicesWithTAS featuregate.Feature = "ElasticJobsViaWorkloadSlicesWithTAS"
+
 	// owner: @pbundyra
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	//
@@ -277,10 +284,12 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	LendingLimit: {
 		{Version: version.MustParse("0.6"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.9"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.19
 	},
 	MultiKueueBatchJobWithManagedBy: {
 		{Version: version.MustParse("0.8"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.19
 	},
 	TopologyAwareScheduling: {
 		{Version: version.MustParse("0.9"), Default: false, PreRelease: featuregate.Alpha},
@@ -319,6 +328,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	ElasticJobsViaWorkloadSlices: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 	},
+	ElasticJobsViaWorkloadSlicesWithTAS: {
+		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
+	},
 	TASFailedNodeReplacementFailFast: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.Beta},
@@ -346,9 +358,11 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	SanitizePodSets: {
 		{Version: version.MustParse("0.13"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.19
 	},
 	MultiKueueAllowInsecureKubeconfigs: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Deprecated}, // remove in 0.19
 	},
 	ReclaimablePods: {
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},

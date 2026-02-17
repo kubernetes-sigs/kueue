@@ -20,9 +20,11 @@ import (
 	"iter"
 	"slices"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/resources"
 )
 
 type TopologyAssignment struct {
@@ -254,4 +256,59 @@ func V1Beta2From(ta *TopologyAssignment) *kueue.TopologyAssignment {
 		return nil
 	}
 	return singleCompactSliceEncoding(ta)
+}
+
+// CountPodsInAssignment returns total pod count across all domains.
+func CountPodsInAssignment(ta *TopologyAssignment) int32 {
+	if ta == nil {
+		return 0
+	}
+	var total int32
+	for _, domain := range ta.Domains {
+		total += domain.Count
+	}
+	return total
+}
+
+// TruncateAssignment reduces an assignment to fit newCount pods (removes from end).
+func TruncateAssignment(ta *TopologyAssignment, newCount int32) *TopologyAssignment {
+	if ta == nil || newCount <= 0 {
+		return &TopologyAssignment{Levels: ta.Levels, Domains: nil}
+	}
+
+	result := &TopologyAssignment{
+		Levels:  ta.Levels,
+		Domains: make([]TopologyDomainAssignment, 0, len(ta.Domains)),
+	}
+
+	remaining := newCount
+	for _, domain := range ta.Domains {
+		if remaining <= 0 {
+			break
+		}
+		if domain.Count <= remaining {
+			result.Domains = append(result.Domains, domain)
+			remaining -= domain.Count
+		} else {
+			result.Domains = append(result.Domains, TopologyDomainAssignment{
+				Values: domain.Values,
+				Count:  remaining,
+			})
+			remaining = 0
+		}
+	}
+
+	return result
+}
+
+// ComputeUsagePerDomain calculates resource usage per topology domain from an assignment.
+func ComputeUsagePerDomain(ta *TopologyAssignment, singlePodRequests resources.Requests) map[TopologyDomainID]resources.Requests {
+	usage := make(map[TopologyDomainID]resources.Requests)
+	for _, domain := range ta.Domains {
+		domainID := DomainID(domain.Values)
+		domainUsage := singlePodRequests.ScaledUp(int64(domain.Count))
+		domainUsage.Add(resources.Requests{corev1.ResourcePods: int64(domain.Count)})
+		usage[domainID] = domainUsage
+	}
+	return usage
 }

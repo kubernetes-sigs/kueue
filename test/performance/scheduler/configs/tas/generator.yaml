@@ -1,0 +1,130 @@
+# TAS Performance Test Configuration
+# Topology: 1 block × 10 racks × 64 nodes = 640 nodes total
+# Workload patterns: Required, Preferred, and Balanced topology
+
+# Topology configuration
+topology:
+  name: "default-topology"
+  levels:
+    - name: block
+      count: 1  # MVP: Single block for faster iteration
+      nodeLabel: "cloud.provider.com/topology-block"
+    - name: rack
+      count: 10  # MVP: 2 racks (reduced from 10 for faster testing)
+      nodeLabel: "cloud.provider.com/topology-rack"
+    - name: node
+      count: 64  # MVP: 8 nodes per rack (reduced from 64)
+      nodeLabel: "kubernetes.io/hostname"
+      capacity:
+        cpu: "96"
+        memory: "256Gi"
+
+# Resource flavor configuration
+resourceFlavor:
+  name: "tas-flavor"
+  nodeLabel: "tas-node-group"
+  topologyName: "default-topology"
+
+# Workload generation (Required, Preferred, and Balanced patterns)
+# Total workloads per queue: 50 + 30 + 20 + 30 + 20 + 15 + 10 = 175 workloads
+# Total workloads: 2 cohorts × 3 queues × 175 workloads = 1,050 workloads
+# CPU requirement per queue: 8,320 CPU (total 49,920 CPU across 6 queues)
+# Cluster capacity: 640 nodes × 96 CPU = 61,440 CPU (fits with ~23% headroom)
+cohorts:
+  - className: cohort
+    count: 2
+    queuesSets:
+    - className: cq
+      count: 3
+      nominalQuota: "8500"  # 8,500 CPU per queue (6 queues × 8,500 = 51,000 CPU total, fits in 61,440 CPU)
+      borrowingLimit: "17000"  # Allow borrowing up to 2x nominal quota
+      reclaimWithinCohort: Any
+      withinClusterQueue: LowerPriority
+      workloadsSets:
+      # Small workloads: 4 pods × 2 CPU = 8 CPU per workload
+      - count: 50
+        creationIntervalMs: 200
+        workloads:
+        - className: small-required-rack
+          runtimeMs: 10000  # 10 seconds - longer runtime for overlap
+          priority: 50
+          request: "2"
+          podCount: 4
+          tasConstraint: "required"
+          tasLevel: "cloud.provider.com/topology-rack"
+
+      # Medium workloads: 8 pods × 4 CPU = 32 CPU per workload
+      - count: 30
+        creationIntervalMs: 500
+        workloads:
+        - className: medium-required-rack
+          runtimeMs: 15000  # 15 seconds
+          priority: 100
+          request: "4"
+          podCount: 8
+          tasConstraint: "required"
+          tasLevel: "cloud.provider.com/topology-rack"
+
+      # Large workloads: 16 pods × 8 CPU = 128 CPU per workload
+      - count: 20
+        creationIntervalMs: 1000
+        workloads:
+        - className: large-required-rack
+          runtimeMs: 20000  # 20 seconds
+          priority: 200
+          request: "8"
+          podCount: 16
+          tasConstraint: "required"
+          tasLevel: "cloud.provider.com/topology-rack"
+
+      # Preferred topology workloads: Try rack, fall back to block if needed
+      - count: 30
+        creationIntervalMs: 300
+        workloads:
+        - className: small-preferred-rack
+          runtimeMs: 12000  # 12 seconds
+          priority: 100
+          request: "2"
+          podCount: 4
+          tasConstraint: "preferred"
+          tasLevel: "cloud.provider.com/topology-rack"
+
+      # Preferred block topology: Try block level first
+      - count: 20
+        creationIntervalMs: 400
+        workloads:
+        - className: medium-preferred-block
+          runtimeMs: 16000  # 16 seconds
+          priority: 150
+          request: "4"
+          podCount: 8
+          tasConstraint: "preferred"
+          tasLevel: "cloud.provider.com/topology-block"
+
+      # Balanced placement: Distribute pods across multiple racks evenly
+      # 16 pods with sliceSize=4 means 4 slices, each with 4 pods
+      - count: 15
+        creationIntervalMs: 600
+        workloads:
+        - className: medium-balanced-rack
+          runtimeMs: 18000  # 18 seconds
+          priority: 200
+          request: "4"
+          podCount: 16
+          tasConstraint: "balanced"
+          tasLevel: "cloud.provider.com/topology-rack"
+          sliceSize: 4
+
+      # Balanced placement with larger slices
+      # 32 pods with sliceSize=8 means 4 slices, each with 8 pods
+      - count: 10
+        creationIntervalMs: 800
+        workloads:
+        - className: large-balanced-rack
+          runtimeMs: 25000  # 25 seconds
+          priority: 250
+          request: "8"
+          podCount: 32
+          tasConstraint: "balanced"
+          tasLevel: "cloud.provider.com/topology-rack"
+          sliceSize: 8

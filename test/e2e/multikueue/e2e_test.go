@@ -1325,11 +1325,12 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						ReplicaType:   kftraining.PyTorchJobReplicaTypeMaster,
 						ReplicaCount:  1,
 						RestartPolicy: "Never",
+						Image:         util.GetAgnHostImage(),
+						Args:          util.BehaviorExitFast,
 					},
 				).
 				RequestAndLimit(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "1").
 				RequestAndLimit(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceMemory, "1600M").
-				Image(kftraining.PyTorchJobReplicaTypeMaster, util.GetAgnHostImage(), util.BehaviorExitFast).
 				Obj()
 
 			ginkgo.By("Creating the PyTorchJob", func() {
@@ -1380,19 +1381,21 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						ReplicaType:   kfmpi.MPIReplicaTypeLauncher,
 						ReplicaCount:  1,
 						RestartPolicy: "OnFailure",
+						Image:         util.GetAgnHostImage(),
+						Args:          util.BehaviorExitFast,
 					},
 					testingmpijob.MPIJobReplicaSpecRequirement{
 						ReplicaType:   kfmpi.MPIReplicaTypeWorker,
 						ReplicaCount:  1,
 						RestartPolicy: "OnFailure",
+						Image:         util.GetAgnHostImage(),
+						Args:          util.BehaviorExitFast,
 					},
 				).
 				RequestAndLimit(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "1").
 				RequestAndLimit(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceMemory, "200M").
 				RequestAndLimit(kfmpi.MPIReplicaTypeWorker, corev1.ResourceCPU, "0.5").
 				RequestAndLimit(kfmpi.MPIReplicaTypeWorker, corev1.ResourceMemory, "100M").
-				Image(kfmpi.MPIReplicaTypeLauncher, util.GetAgnHostImage(), util.BehaviorExitFast).
-				Image(kfmpi.MPIReplicaTypeWorker, util.GetAgnHostImage(), util.BehaviorExitFast).
 				Obj()
 
 			ginkgo.By("Creating the MPIJob", func() {
@@ -1542,7 +1545,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			ginkgo.By("setting MultiKueue Dispatcher to Incremental", func() {
 				defaultManagerKueueCfg = util.GetKueueConfiguration(ctx, k8sManagerClient)
 				newCfg := defaultManagerKueueCfg.DeepCopy()
-				util.UpdateKueueConfiguration(ctx, k8sManagerClient, newCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
+				util.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, newCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
 					if cfg.MultiKueue == nil {
 						cfg.MultiKueue = &kueueconfig.MultiKueue{}
 					}
@@ -1552,7 +1555,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		})
 		ginkgo.AfterAll(func() {
 			ginkgo.By("setting MultiKueue Dispatcher back to AllAtOnce", func() {
-				util.UpdateKueueConfiguration(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName)
+				util.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName)
 			})
 		})
 		ginkgo.It("Should run a job on worker if admitted", func() {
@@ -1779,14 +1782,14 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			ginkgo.By("setting MultiKueueClusterProfile feature gate", func() {
 				defaultManagerKueueCfg = util.GetKueueConfiguration(ctx, k8sManagerClient)
 				newCfg := defaultManagerKueueCfg.DeepCopy()
-				util.UpdateKueueConfiguration(ctx, k8sManagerClient, newCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
+				util.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, newCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
 					cfg.FeatureGates[string(features.MultiKueueClusterProfile)] = true
 				})
 			})
 		})
 		ginkgo.AfterAll(func() {
 			ginkgo.By("reverting the configuration", func() {
-				util.UpdateKueueConfiguration(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName)
+				util.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName)
 			})
 		})
 
@@ -1958,7 +1961,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 			ginkgo.By("Updating MultiKueue configuration with CredentialsProviders", func() {
 				defaultManagerKueueCfg = util.GetKueueConfiguration(ctx, k8sManagerClient)
-				util.UpdateKueueConfiguration(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
+				util.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
 					cfg.FeatureGates[string(features.MultiKueueClusterProfile)] = true
 					if cfg.MultiKueue == nil {
 						cfg.MultiKueue = &kueueconfig.MultiKueue{}
@@ -1980,17 +1983,21 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 		})
 		ginkgo.AfterAll(func() {
-			ginkgo.By("setting back the deployment", func() {
-				updatedDeployment := &appsv1.Deployment{}
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sManagerClient.Get(ctx, deploymentKey, updatedDeployment)).Should(gomega.Succeed())
-					updatedDeployment.Spec = *defaultManagerDeployment.Spec.DeepCopy()
-					g.Expect(k8sManagerClient.Update(ctx, updatedDeployment)).Should(gomega.Succeed())
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-				// We will wait for Kueue after setting back the configuration
-			})
 			ginkgo.By("setting back the configuration", func() {
-				util.UpdateKueueConfiguration(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName)
+				// Just update Kueue configuration. We will restart Kueue later.
+				util.UpdateKueueConfiguration(ctx, k8sManagerClient, defaultManagerKueueCfg)
+			})
+
+			ginkgo.By("setting back the deployment", func() {
+				util.UpdateDeploymentAndWaitForProgressing(ctx, k8sManagerClient, deploymentKey, managerClusterName, func(deployment *appsv1.Deployment) {
+					deployment.Spec = *defaultManagerDeployment.Spec.DeepCopy()
+				})
+			})
+
+			ginkgo.By("wait for Kueue availability", func() {
+				// We are using NoRestartCountCheck because we expect one fails in MultiKueue tests.
+				// This happens on "The connection to a worker cluster is unreliable" test case.
+				util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sManagerClient)
 			})
 
 			for _, s := range clusterProfileSecrets {

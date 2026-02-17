@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	kueuepopulatorconfig "sigs.k8s.io/kueue/cmd/experimental/kueue-populator/pkg/config"
 	"sigs.k8s.io/kueue/cmd/experimental/kueue-populator/pkg/controller"
 )

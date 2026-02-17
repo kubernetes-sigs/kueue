@@ -21,7 +21,7 @@ endif
 
 GO_CMD ?= go
 # Use go.mod go version as a single source of truth of GO version.
-GO_VERSION := $(shell awk '/^go /{print $$2}' go.mod|head -n1)
+GO_VERSION := $(shell awk '/^go /{split($$2, v, "."); print v[1] "." v[2]}' go.mod|head -n1)
 
 GIT_TAG ?= $(shell git describe --tags --dirty --always)
 GIT_COMMIT ?= $(shell git rev-parse HEAD)
@@ -54,7 +54,7 @@ CLUSTERPROFILE_PLUGIN_IMAGE_VERSION ?= 0.0.1
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 BIN_DIR ?= $(PROJECT_DIR)/bin
 ARTIFACTS ?= $(BIN_DIR)
-TOOLS_DIR := $(PROJECT_DIR)/hack/internal/tools
+TOOLS_DIR := $(PROJECT_DIR)/hack/tools
 MOCKS_DIR := internal/mocks
 
 # Use distroless as minimal base image to package the manager binary
@@ -90,7 +90,7 @@ LD_FLAGS += -X '$(version_pkg).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.16.0
+RELEASE_VERSION=v0.16.1
 RELEASE_BRANCH=main
 # Application version for Helm and npm (strips leading 'v' from RELEASE_VERSION)
 APP_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)
@@ -128,7 +128,7 @@ include Makefile-verify.mk
 ##@ Development
 
 .PHONY: manifests
-manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
+manifests: controller-gen generate-code ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) \
 		crd:generateEmbeddedObjectMeta=true output:crd:artifacts:config=config/components/crd/bases\
 		paths="./apis/..."
@@ -152,25 +152,35 @@ generate: generate-mocks generate-apiref generate-code generate-kueuectl-docs ge
 .PHONY: generate-code
 generate-code: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations and client-go libraries.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./apis/..."
-	TOOLS_DIR=${TOOLS_DIR} ./hack/update-codegen.sh $(GO_CMD)
+	$(TOOLS_DIR)/code-generator/generate.sh $(GO_CMD)
 
 .PHONY: generate-mocks
 generate-mocks: mockgen ## Generate mockgen mocks
 	# Clean up previously generated mocks to keep generated mocks up-to-date.
 	rm -rf $(MOCKS_DIR)
-	$(MOCKGEN) -destination=$(MOCKS_DIR)/controller/jobframework/interface.go -package mocks sigs.k8s.io/kueue/pkg/controller/jobframework GenericJob,JobWithCustomValidation,JobWithManagedBy,JobWithCustomWorkloadActivation
+	$(MOCKGEN) \
+		-destination=$(MOCKS_DIR)/controller/jobframework/interface.go \
+		-copyright_file hack/boilerplate.txt \
+		-package mocks \
+		sigs.k8s.io/kueue/pkg/controller/jobframework GenericJob,JobWithCustomValidation,JobWithManagedBy,JobWithCustomWorkloadActivation
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
 	$(GO_CMD) fmt ./...
 
 .PHONY: gomod-download
-gomod-download:
+gomod-download: ## Download Go module dependencies (main)
+	@echo "→ Downloading main dependencies..."
 	$(GO_CMD) mod download
+
+.PHONY: gomod-download-tools
+gomod-download-tools: ## Download Go module dependencies (tools)
+	@echo "→ Downloading tools dependencies..."
+	cd $(TOOLS_DIR) && $(GO_CMD) mod download
 
 .PHONY: toc-update
 toc-update: mdtoc
-	./hack/update-toc.sh
+	$(TOOLS_DIR)/mdtoc/generate.sh
 
 .PHONY: helm-lint
 helm-lint: helm ## Run Helm chart lint test.
@@ -324,6 +334,7 @@ prepare-release-branch: yq kustomize ## Prepare the release branch with the rele
 	$(SED) -r 's/v[0-9]+\.[0-9]+\.[0-9]+/$(RELEASE_VERSION)/g' -i README.md -i site/hugo.toml -i cmd/kueueviz/INSTALL.md
 	$(SED) -r 's/chart_version = "[0-9]+\.[0-9]+\.[0-9]+/chart_version = "$(APP_VERSION)/g' -i README.md -i site/hugo.toml
 	$(SED) -r 's/--version="[0-9]+\.[0-9]+\.[0-9]+/--version="$(APP_VERSION)/g' -i charts/kueue/README.md.gotmpl -i cmd/kueueviz/INSTALL.md
+	$(SED) -r 's/[0-9]+\.[0-9]+\.[0-9]+/$(APP_VERSION)/g' -i charts/kueue/README.md
 	$(YQ) e '.appVersion = "$(RELEASE_VERSION)" | .version = "$(APP_VERSION)"' -i charts/kueue/Chart.yaml
 	$(YQ) e '.controllerManager.manager.image.tag = "$(RELEASE_BRANCH)" | .kueueViz.backend.image.tag = "$(RELEASE_BRANCH)" | .kueueViz.frontend.image.tag = "$(RELEASE_BRANCH)"' -i charts/kueue/values.yaml
 	$(YQ) e '.version = "$(APP_VERSION)"' -i cmd/kueueviz/frontend/package.json
@@ -452,7 +463,7 @@ generate-apiref: genref
 
 .PHONY: generate-featuregates
 generate-featuregates: ## Regenerate feature-gate YAML and site data.
-	$(PROJECT_DIR)/hack/update-featuregates.sh
+	$(TOOLS_DIR)/compatibility-lifecycle/generate.sh
 
 .PHONY: generate-kueuectl-docs
 generate-kueuectl-docs: kueuectl-docs
@@ -479,7 +490,7 @@ ray-project-mini-image-build:
 		--build-arg RAY_VERSION=$(RAY_VERSION) \
 		$(PUSH) \
 		$(IMAGE_BUILD_EXTRA_OPTS) \
-		-f ./hack/internal/test-images/ray/Dockerfile ./ \
+		-f ./hack/testing/ray/Dockerfile ./ \
 
 # The step is required for local e2e test run
 .PHONY: kind-ray-project-mini-image-build
@@ -495,7 +506,7 @@ secretreader-plugin-image-build:
 		--platform=$(PLATFORMS) \
 		--build-arg PLUGIN_VERSION=$(CLUSTERPROFILE_VERSION) \
 		$(PUSH) \
-		-f hack/multikueue/secretreader/Dockerfile ./ \
+		-f hack/testing/secretreader/Dockerfile ./ \
 
 # The step is required for local e2e test run
 .PHONY: kind-secretreader-plugin-image-build

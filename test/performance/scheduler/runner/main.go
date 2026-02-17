@@ -30,6 +30,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/onsi/gomega"
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -74,6 +75,7 @@ var (
 	withLogs         = flag.Bool("withLogs", false, "capture minimalkueue logs")
 	logLevel         = flag.Int("withLogsLevel", 2, "set minimalkueue logs level")
 	logToFile        = flag.Bool("logToFile", false, "capture minimalkueue logs to files")
+	enableTAS        = flag.Bool("enableTAS", false, "enable TAS controllers and indexers in minimalkueue")
 )
 
 var (
@@ -99,6 +101,12 @@ func main() {
 	log := zap.New(zap.UseFlagOptions(&opts))
 
 	ctrl.SetLogger(log)
+
+	// Register Gomega fail handler to allow test utilities to work in standalone binary
+	gomega.RegisterFailHandler(func(message string, callerSkip ...int) {
+		log.Error(nil, message)
+		os.Exit(1)
+	})
 
 	log.Info("Start runner", "outputDir", outputDir, "crdsPath", crdsPath)
 	errCh := make(chan error, 3)
@@ -159,7 +167,7 @@ func main() {
 		}
 
 		// start the minimal kueue manager process
-		err = runCommand(ctx, *outputDir, *minimalKueuePath, "kubeconfig", *withCPUProfile, *withLogs, *logToFile, *logLevel, errCh, wg, metricsPort)
+		err = runCommand(ctx, *outputDir, *minimalKueuePath, "kubeconfig", *withCPUProfile, *withLogs, *logToFile, *logLevel, *enableTAS, errCh, wg, metricsPort)
 		if err != nil {
 			log.Error(err, "MinimalKueue start")
 			os.Exit(1)
@@ -254,7 +262,7 @@ func main() {
 	}
 }
 
-func runCommand(ctx context.Context, workDir, cmdPath, kubeconfig string, withCPUProf, withLogs, logToFile bool, logLevel int, errCh chan<- error, wg *sync.WaitGroup, metricsPort int) error {
+func runCommand(ctx context.Context, workDir, cmdPath, kubeconfig string, withCPUProf, withLogs, logToFile bool, logLevel int, enableTAS bool, errCh chan<- error, wg *sync.WaitGroup, metricsPort int) error {
 	log := ctrl.LoggerFrom(ctx).WithName("Run command")
 
 	cmd := exec.CommandContext(ctx, cmdPath, "--kubeconfig", filepath.Join(workDir, kubeconfig))
@@ -269,23 +277,21 @@ func runCommand(ctx context.Context, workDir, cmdPath, kubeconfig string, withCP
 		cmd.Args = append(cmd.Args, "--cpuprofile", filepath.Join(workDir, fmt.Sprintf("%s.cpu.prof", exe)))
 	}
 
+	outWriter := os.Stdout
+	errWriter := os.Stderr
 	if withLogs {
 		cmd.Args = append(cmd.Args, fmt.Sprintf("--zap-log-level=%d", logLevel))
-		outWriter := os.Stdout
-		errWriter := os.Stderr
 		if logToFile {
 			var err error
 			outWriter, err = os.Create(filepath.Join(workDir, fmt.Sprintf("%s.out.log", exe)))
 			if err != nil {
 				return err
 			}
-			defer outWriter.Close()
 
 			errWriter, err = os.Create(filepath.Join(workDir, fmt.Sprintf("%s.err.log", exe)))
 			if err != nil {
 				return err
 			}
-			defer errWriter.Close()
 		}
 		cmd.Stdout = outWriter
 		cmd.Stderr = errWriter
@@ -293,6 +299,10 @@ func runCommand(ctx context.Context, workDir, cmdPath, kubeconfig string, withCP
 
 	if metricsPort != 0 {
 		cmd.Args = append(cmd.Args, "--metricsPort", strconv.Itoa(metricsPort))
+	}
+
+	if enableTAS {
+		cmd.Args = append(cmd.Args, "--enableTAS")
 	}
 
 	log.Info("Starting process", "path", cmd.Path, "args", cmd.Args)
@@ -303,6 +313,10 @@ func runCommand(ctx context.Context, workDir, cmdPath, kubeconfig string, withCP
 	startTime := time.Now()
 
 	wg.Go(func() {
+		if logToFile {
+			defer outWriter.Close()
+			defer errWriter.Close()
+		}
 		err := cmd.Wait()
 		if err != nil {
 			select {
@@ -346,23 +360,23 @@ func runGenerator(ctx context.Context, cfg *rest.Config, generatorConfig string,
 		return err
 	}
 
-	cohorts, err := generator.LoadConfig(generatorConfig)
+	config, err := generator.LoadConfig(generatorConfig)
 	if err != nil {
 		log.Error(err, "Loading config")
 		close(genDone)
 		return err
 	}
 
-	statTime := time.Now()
+	startTime := time.Now()
 	wg.Go(func() {
 		defer close(genDone)
-		err := generator.Generate(ctx, c, cohorts)
+		err := generator.Generate(ctx, c, config)
 		if err != nil {
 			log.Error(err, "generating")
 			errCh <- err
 			return
 		}
-		log.Info("Generator done", "duration", time.Since(statTime))
+		log.Info("Generator done", "duration", time.Since(startTime))
 	})
 
 	log.Info("Generator started", "qps", cfg.QPS, "burst", cfg.Burst)

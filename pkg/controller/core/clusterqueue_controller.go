@@ -209,8 +209,15 @@ func (r *ClusterQueueReconciler) NotifyTopologyUpdate(oldTopology, newTopology *
 	default:
 		return
 	}
+	cqNames := r.cache.ClusterQueuesUsingTopology(kueue.TopologyReference(topology.Name))
 	r.nonCQObjectUpdateCh <- event.TypedGenericEvent[iter.Seq[kueue.ClusterQueueReference]]{
-		Object: slices.Values(r.cache.ClusterQueuesUsingTopology(kueue.TopologyReference(topology.Name))),
+		Object: slices.Values(cqNames),
+	}
+	// On topology creation, CQs may transition from pending to active.
+	// Broadcast to ensure the scheduler re-evaluates pending workloads.
+	if oldTopology == nil {
+		qcache.QueueInadmissibleWorkloads(context.Background(), r.qManager, sets.New(cqNames...))
+		r.qManager.Broadcast()
 	}
 }
 
@@ -495,7 +502,7 @@ func (h *cqNamespaceHandler) Update(ctx context.Context, e event.UpdateEvent, _ 
 			cqs.Insert(cq)
 		}
 	}
-	h.qManager.QueueInadmissibleWorkloads(ctx, cqs)
+	qcache.QueueInadmissibleWorkloads(ctx, h.qManager, cqs)
 }
 
 func (h *cqNamespaceHandler) Delete(context.Context, event.DeleteEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {

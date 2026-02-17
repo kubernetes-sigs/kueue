@@ -747,7 +747,8 @@ func LQRefFromWorkload(wl *kueue.Workload) LocalQueueReference {
 	}
 }
 
-func ClearClusterQueueMetrics(cqName string) {
+func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
+	cqName := string(cq)
 	AdmissionCyclePreemptionSkips.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	PendingWorkloads.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	QuotaReservedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
@@ -819,9 +820,7 @@ func ReportClusterQueueQuotas(cohort kueue.CohortReference, queue, flavor, resou
 	role := roletracker.GetRole(tracker)
 	ClusterQueueResourceNominalQuota.WithLabelValues(string(cohort), queue, flavor, resource, role).Set(nominal)
 	ClusterQueueResourceBorrowingLimit.WithLabelValues(string(cohort), queue, flavor, resource, role).Set(borrowing)
-	if features.Enabled(features.LendingLimit) {
-		ClusterQueueResourceLendingLimit.WithLabelValues(string(cohort), queue, flavor, resource, role).Set(lending)
-	}
+	ClusterQueueResourceLendingLimit.WithLabelValues(string(cohort), queue, flavor, resource, role).Set(lending)
 }
 
 func ReportClusterQueueResourceReservations(cohort kueue.CohortReference, queue, flavor, resource string, usage float64, tracker *roletracker.RoleTracker) {
@@ -854,9 +853,7 @@ func ClearClusterQueueResourceMetrics(cqName string) {
 	}
 	ClusterQueueResourceNominalQuota.DeletePartialMatch(lbls)
 	ClusterQueueResourceBorrowingLimit.DeletePartialMatch(lbls)
-	if features.Enabled(features.LendingLimit) {
-		ClusterQueueResourceLendingLimit.DeletePartialMatch(lbls)
-	}
+	ClusterQueueResourceLendingLimit.DeletePartialMatch(lbls)
 	ClusterQueueResourceUsage.DeletePartialMatch(lbls)
 	ClusterQueueResourceReservations.DeletePartialMatch(lbls)
 }
@@ -882,9 +879,7 @@ func ClearClusterQueueResourceQuotas(cqName, flavor, resource string) {
 
 	ClusterQueueResourceNominalQuota.DeletePartialMatch(lbls)
 	ClusterQueueResourceBorrowingLimit.DeletePartialMatch(lbls)
-	if features.Enabled(features.LendingLimit) {
-		ClusterQueueResourceLendingLimit.DeletePartialMatch(lbls)
-	}
+	ClusterQueueResourceLendingLimit.DeletePartialMatch(lbls)
 }
 
 func ClearClusterQueueResourceUsage(cqName, flavor, resource string) {

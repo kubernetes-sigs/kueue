@@ -21,6 +21,7 @@ set -o pipefail
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(realpath "$SCRIPT_DIR/../../..")
 KIND_CLUSTER_NAME="kueue-populator-e2e"
+KUEUE_VERSION="${KUEUE_VERSION:-v0.16.0}"
 GIT_TAG=$(git describe --tags --dirty --always)
 
 # Use tools from the root project
@@ -42,7 +43,7 @@ echo "Creating Kind cluster..."
 "$KIND" create cluster --name "$KIND_CLUSTER_NAME"
 
 echo "Installing Kueue..."
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.14.4/manifests.yaml
+kubectl apply --server-side -f "https://github.com/kubernetes-sigs/kueue/releases/download/${KUEUE_VERSION}/manifests.yaml"
 kubectl wait deployment/kueue-controller-manager -n kueue-system --for=condition=available --timeout=5m
 cd "$SCRIPT_DIR"
 

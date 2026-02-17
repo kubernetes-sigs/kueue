@@ -34,7 +34,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	coreindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -100,7 +101,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 
 	terminatingPod := basePod.DeepCopy()
 	terminatingPod.DeletionTimestamp = &now
-	terminatingPod.Finalizers = []string{podcontroller.PodFinalizer}
+	terminatingPod.Finalizers = []string{podconstants.PodFinalizer}
 
 	failedPod := basePod.DeepCopy()
 	failedPod.Status.Phase = corev1.PodFailed
@@ -285,6 +286,10 @@ func TestNodeFailureReconciler(t *testing.T) {
 			err := indexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 			if err != nil {
 				t.Fatalf("Failed to setup indexes: %v", err)
+			}
+			// Register WorkloadSliceNameKey index used by ListPodsForWorkloadSlice.
+			if err := utiltesting.AsIndexer(clientBuilder).IndexField(ctx, &corev1.Pod{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexPodWorkloadSliceName); err != nil {
+				t.Fatalf("Could not setup WorkloadSliceNameKey index: %v", err)
 			}
 			cl := clientBuilder.Build()
 			recorder := &utiltesting.EventRecorder{}

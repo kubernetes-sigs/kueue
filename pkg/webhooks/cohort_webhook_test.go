@@ -24,7 +24,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
@@ -33,10 +32,9 @@ func TestValidateCohort(t *testing.T) {
 	resourceGroupsPath := specPath.Child("resourceGroups")
 
 	testcases := []struct {
-		name                string
-		cohort              *kueue.Cohort
-		wantErr             field.ErrorList
-		disableLendingLimit bool
+		name    string
+		cohort  *kueue.Cohort
+		wantErr field.ErrorList
 	}{
 		{
 			name: "flavor quota with lendingLimit and empty parent",
@@ -52,9 +50,6 @@ func TestValidateCohort(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.disableLendingLimit {
-				features.SetFeatureGateDuringTest(t, features.LendingLimit, false)
-			}
 			gotErr := validateCohort(tc.cohort)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "BadValue")); diff != "" {
 				t.Errorf("ValidateResources() mismatch (-want +got):\n%s", diff)

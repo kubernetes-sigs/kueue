@@ -89,7 +89,11 @@ func TestScalability(t *testing.T) {
 				if !found {
 					t.Fatalf("Unexpected class")
 				}
-				actual := float64(cqcSummary.CPUUsed) * 100 / (float64(cqcSummary.NominalQuota) * float64(cqcSummary.LastEventTime.Sub(cqcSummary.FirstEventTime).Milliseconds()))
+				elapsedMs := cqcSummary.LastEventTime.Sub(cqcSummary.FirstEventTime).Milliseconds()
+				if cqcSummary.NominalQuota == 0 || elapsedMs == 0 {
+					t.Fatalf("Invalid data: NominalQuota=%d, elapsedMs=%d", cqcSummary.NominalQuota, elapsedMs)
+				}
+				actual := float64(cqcSummary.CPUUsed) * 100 / (float64(cqcSummary.NominalQuota) * float64(elapsedMs))
 				if actual < expected {
 					t.Errorf("Usage %.2f%% is less then expected %.2f%%", actual, expected)
 				}

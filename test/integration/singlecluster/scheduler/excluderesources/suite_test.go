@@ -92,7 +92,7 @@ func managerAndSchedulerSetup(configuration *config.Configuration) framework.Man
 		}
 
 		cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
-		queues := qcache.NewManager(mgr.GetClient(), cCache, queueOptions...)
+		queues := util.NewManagerForIntegrationTests(mgr.GetClient(), cCache, queueOptions...)
 
 		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)

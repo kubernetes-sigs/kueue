@@ -18,6 +18,7 @@ package logging
 
 import (
 	"cmp"
+	"fmt"
 	"reflect"
 	"slices"
 	"testing"
@@ -44,6 +45,8 @@ func TestCustomLogProcessor(t *testing.T) {
 	const reconcilerErrorMessage = "Reconciler error"
 	const concurrentModificationErrorDetails = "Operation cannot be fulfilled on workloads.kueue.x-k8s.io \"job-job2-907f9\": the object has been modified; please apply your changes to the latest version and try again"
 	concurrentModificationErrorDetailsField := newErrorField(concurrentModificationErrorDetails)
+	concurrentModificationErrorDetailsFieldWithCustomPrefix := newErrorField(fmt.Sprintf("clearing admission: %v", concurrentModificationErrorDetails))
+
 	someOtherField := zap.String("Some field", "Some value")
 	someOtherErrorMessage := "This is another test error connected with concurrent modification"
 	otherErrorDetailsField := newErrorField("Some other error details")
@@ -71,6 +74,12 @@ func TestCustomLogProcessor(t *testing.T) {
 				logger.Error(someOtherErrorMessage, concurrentModificationErrorDetailsField)
 			},
 			expectedLog: observedLog{someOtherErrorMessage, warningLevel, []zap.Field{concurrentModificationErrorDetailsField}},
+		},
+		"Changes error level of concurrent modification log with custom prefix": {
+			logCall: func() {
+				logger.Error(someOtherErrorMessage, concurrentModificationErrorDetailsFieldWithCustomPrefix)
+			},
+			expectedLog: observedLog{someOtherErrorMessage, warningLevel, []zap.Field{concurrentModificationErrorDetailsFieldWithCustomPrefix}},
 		},
 		"Does not change error level of non concurrent modification error (without appropriate error details)": {
 			logCall: func() {

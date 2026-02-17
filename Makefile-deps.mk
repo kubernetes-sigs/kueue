@@ -59,7 +59,6 @@ MDTOC = $(BIN_DIR)/mdtoc
 HELM_DOCS = $(BIN_DIR)/helm-docs
 MOCKGEN = $(BIN_DIR)/mockgen
 
-HELM_UNITTEST_PLUGIN_ROOT = $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/helm-unittest/helm-unittest)
 MPI_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/kubeflow/mpi-operator)
 KF_TRAINING_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/kubeflow/training-operator)
 KF_TRAINER_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/kubeflow/trainer/v2)
@@ -78,11 +77,12 @@ golangci-lint: ## Download golangci-lint locally if necessary.
 
 .PHONY: golangci-lint-kal
 golangci-lint-kal: golangci-lint ## Build golangci-lint-kal from custom configuration.
-	cd hack/kal-linter; $(GOLANGCI_LINT) custom; mv bin/golangci-lint-kube-api-linter $(BIN_DIR)
+	cd hack/testing/kal-linter; $(GOLANGCI_LINT) custom; mv bin/golangci-lint-kube-api-linter $(BIN_DIR)
 
 .PHONY: controller-gen
-controller-gen: ## Download controller-gen locally if necessary.
-	@GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION)
+controller-gen: gomod-download-tools ## Download controller-gen locally if necessary.
+	@echo "→ Downloading controller-gen locally if necessary..."
+	GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION)
 
 .PHONY: kustomize
 kustomize: ## Download kustomize locally if necessary.
@@ -106,13 +106,7 @@ kind: ## Download kind locally if necessary.
 
 .PHONY: yq
 yq: ## Download yq locally if necessary.
-	# sumdb lookup fails due to invalid '*' filename in yq v4.52.1 zip,
-	# even when pinning v4.50.1 (deprecation metadata points to v4.52.1).
-	# See https://github.com/mikefarah/yq/issues/2587.
-	@GOBIN=$(BIN_DIR) GO111MODULE=on \
-		GONOSUMDB=github.com/mikefarah/yq/v4 \
-		GOPROXY=direct \
-		$(GO_CMD) install github.com/mikefarah/yq/v4@$(YQ_VERSION)
+	@GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install github.com/mikefarah/yq/v4@$(YQ_VERSION)
 
 .PHONY: helm
 helm: ## Download helm locally if necessary.
@@ -148,18 +142,24 @@ mockgen: ## Download mockgen locally if necessary.
 
 .PHONY: mpi-operator-crd
 mpi-operator-crd: ## Copy the CRDs from the mpi-operator to the dep-crds directory.
+mpi-operator-crd: gomod-download
+	@echo "→ Copying the CRDs from the mpi-operator to the dep-crds directory..."
 	mkdir -p $(EXTERNAL_CRDS_DIR)/mpi-operator/
 	cp -f $(MPI_ROOT)/manifests/base/* $(EXTERNAL_CRDS_DIR)/mpi-operator/
 
 .PHONY: kf-training-operator-crd
 kf-training-operator-crd: ## Copy the CRDs from the training-operator to the dep-crds directory.
-	## Removing kubeflow.org_mpijobs.yaml is required as the version of MPIJob is conflicting between training-operator and mpi-operator - in integration tests.
+kf-training-operator-crd: gomod-download
+	@echo "→ Copying the CRDs from the training-operator to the dep-crds directory..."
+	@## Removing kubeflow.org_mpijobs.yaml is required as the version of MPIJob is conflicting between training-operator and mpi-operator - in integration tests.
 	mkdir -p $(EXTERNAL_CRDS_DIR)/training-operator-crds/
 	find $(KF_TRAINING_ROOT)/manifests/base/crds/* -type f -not -name "kubeflow.org_mpijobs.yaml" -exec cp -pf {} $(EXTERNAL_CRDS_DIR)/training-operator-crds/ \;
 
 .PHONY: kf-training-operator-manifests
 kf-training-operator-manifests: ## Copy whole manifests folder from the training-operator to the dep-crds directory.
-	## Full version of the manifest is required for e2e multikueue tests.
+kf-training-operator-manifests: gomod-download
+	@echo "→ Copying whole manifests folder from the training-operator to the dep-crds directory..."
+	@## Full version of the manifest is required for e2e multikueue tests.
 	if [ -d "$(EXTERNAL_CRDS_DIR)/training-operator" ]; then \
 		chmod -R u+w "$(EXTERNAL_CRDS_DIR)/training-operator" && \
 		rm -rf "$(EXTERNAL_CRDS_DIR)/training-operator"; \
@@ -169,16 +169,22 @@ kf-training-operator-manifests: ## Copy whole manifests folder from the training
 
 .PHONY: kf-trainer-runtimes
 kf-trainer-runtimes: ## Copy the kubeflow trainer runtimes manifests to the dep-crds directory.
+kf-trainer-runtimes: gomod-download
+	@echo "→ Copying the kubeflow trainer runtimes manifests to the dep-crds directory..."
 	mkdir -p $(EXTERNAL_CRDS_DIR)/kf-trainer-runtimes/
 	cp -rf $(KF_TRAINER_ROOT)/manifests/base/runtimes/*_distributed.yaml $(EXTERNAL_CRDS_DIR)/kf-trainer-runtimes/
 
 .PHONY: kf-trainer-crd 
 kf-trainer-crd: ## Copy the CRDs of the kubeflow trainer to the dep-crds directory.
+kf-trainer-crd: gomod-download
+	@echo "→ Copying the CRDs of the kubeflow trainer to the dep-crds directory..."
 	mkdir -p $(EXTERNAL_CRDS_DIR)/kf-trainer-crds/
 	cp -rf $(KF_TRAINER_ROOT)/manifests/base/crds/* $(EXTERNAL_CRDS_DIR)/kf-trainer-crds/
 
 .PHONY: kf-trainer-manifests
 kf-trainer-manifests: ## Copy whole manifests folder of the kubeflow trainer to the dep-crds directory.
+kf-trainer-manifests: gomod-download
+	@echo "→ Copying whole manifests folder of the kubeflow trainer to the dep-crds directory..."
 	if [ -d "$(EXTERNAL_CRDS_DIR)/kf-trainer" ]; then \
 		chmod -R u+w "$(EXTERNAL_CRDS_DIR)/kf-trainer" && \
 		rm -rf "$(EXTERNAL_CRDS_DIR)/kf-trainer"; \
@@ -188,12 +194,16 @@ kf-trainer-manifests: ## Copy whole manifests folder of the kubeflow trainer to 
 
 .PHONY: ray-operator-crd
 ray-operator-crd: ## Copy the CRDs from the ray-operator to the dep-crds directory.
+ray-operator-crd: gomod-download
+	@echo "→ Copying the CRDs from the ray-operator to the dep-crds directory..."
 	mkdir -p $(EXTERNAL_CRDS_DIR)/ray-operator-crds/
 	cp -f $(RAY_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/ray-operator-crds/
 
 .PHONY: ray-operator-manifests
 ray-operator-manifests: ## Copy the whole manifests content from the ray-operator to the dep-crds directory.
-	## Full version of the manifest is required for e2e multikueue tests.
+ray-operator-manifests: gomod-download
+	@echo "→ Copying the whole manifests content from the ray-operator to the dep-crds directory..."
+	@## Full version of the manifest is required for e2e multikueue tests.
 	if [ -d "$(EXTERNAL_CRDS_DIR)/ray-operator" ]; then \
 		chmod -R u+w "$(EXTERNAL_CRDS_DIR)/ray-operator" && \
 		rm -rf "$(EXTERNAL_CRDS_DIR)/ray-operator"; \
@@ -206,22 +216,29 @@ ray-operator-manifests: ## Copy the whole manifests content from the ray-operato
 
 .PHONY: jobset-operator-crd
 jobset-operator-crd: ## Copy the CRDs from the jobset-operator to the dep-crds directory.
+jobset-operator-crd: gomod-download
+	@echo "→ Copying the CRDs from the jobset-operator to the dep-crds directory..."
 	mkdir -p $(EXTERNAL_CRDS_DIR)/jobset-operator/
 	cp -f $(JOBSET_ROOT)/config/components/crd/bases/* $(EXTERNAL_CRDS_DIR)/jobset-operator/
 
 .PHONY: cluster-autoscaler-crd
 cluster-autoscaler-crd: ## Copy the CRDs from the cluster-autoscaler to the dep-crds directory.
+cluster-autoscaler-crd: gomod-download
+	@echo "→ Copying the CRDs from the cluster-autoscaler to the dep-crds directory..."
 	mkdir -p $(EXTERNAL_CRDS_DIR)/cluster-autoscaler/
 	cp -f $(CLUSTER_AUTOSCALER_ROOT)/config/crd/* $(EXTERNAL_CRDS_DIR)/cluster-autoscaler/
 
 .PHONY: appwrapper-crd
 appwrapper-crd: ## Copy the CRDs from the appwrapper to the dep-crds directory.
+appwrapper-crd: gomod-download
+	@echo "→ Copying the CRDs from the appwrapper to the dep-crds directory..."
 	mkdir -p $(EXTERNAL_CRDS_DIR)/appwrapper-crds/
 	cp -f $(APPWRAPPER_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/appwrapper-crds/
 
 .PHONY: appwrapper-manifests
 appwrapper-manifests: kustomize ## Copy whole manifests folder from the appwrapper controller to the dep-crds directory.
-	## Full version of the manifest required for e2e tests.
+	@echo "→ Copy the CRDs from the appwrapper to the dep-crds directory...."
+	@## Full version of the manifest required for e2e tests.
 	if [ -d "$(EXTERNAL_CRDS_DIR)/appwrapper" ]; then \
 		chmod -R u+w "$(EXTERNAL_CRDS_DIR)/appwrapper" && \
 		rm -rf "$(EXTERNAL_CRDS_DIR)/appwrapper"; \
@@ -232,11 +249,15 @@ appwrapper-manifests: kustomize ## Copy whole manifests folder from the appwrapp
 
 .PHONY: leaderworkerset-operator-crd
 leaderworkerset-operator-crd: ## Copy the CRDs from the leaderworkerset-operator to the dep-crds directory.
+leaderworkerset-operator-crd: gomod-download
+	@echo "→ Copying the CRDs from the leaderworkerset-operator to the dep-crds directory..."
 	mkdir -p $(EXTERNAL_CRDS_DIR)/leaderworkerset-operator/
 	cp -f $(LEADERWORKERSET_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/leaderworkerset-operator/
 
 .PHONY: clusterprofile-crd
 clusterprofile-crd: ## Copy the CRDs from the clusterprofile to the dep-crds directory.
+clusterprofile-crd: gomod-download
+	@echo "→ Copy the CRDs from the clusterprofile to the dep-crds directory."
 	mkdir -p $(EXTERNAL_CRDS_DIR)/clusterprofile/
 	cp -f $(CLUSTERPROFILE_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/clusterprofile/
 
@@ -247,5 +268,5 @@ dep-crds: mpi-operator-crd kf-training-operator-crd kf-trainer-crd kf-trainer-ru
 KUEUECTL_DOCS = $(BIN_DIR)/kueuectl-docs
 
 .PHONY: kueuectl-docs
-kueuectl-docs:
+kueuectl-docs: generate-code ## kueuectl-docs imports generated packages (apis/config, client-go).
 	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(KUEUECTL_DOCS) ./cmd/kueuectl-docs/main.go

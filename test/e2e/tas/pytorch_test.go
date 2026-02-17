@@ -96,6 +96,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for PyTorchJob", func() {
 						Annotations: map[string]string{
 							kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultRackTopologyLevel,
 						},
+						Image: util.GetAgnHostImage(),
+						Args:  util.BehaviorExitFast,
 					},
 					testingpytorchjob.PyTorchReplicaSpecRequirement{
 						ReplicaType:   kftraining.PyTorchJobReplicaTypeWorker,
@@ -104,10 +106,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for PyTorchJob", func() {
 						Annotations: map[string]string{
 							kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 						},
+						Image: util.GetAgnHostImage(),
+						Args:  util.BehaviorExitFast,
 					},
 				).
-				Image(kftraining.PyTorchJobReplicaTypeMaster, util.GetAgnHostImage(), util.BehaviorExitFast).
-				Image(kftraining.PyTorchJobReplicaTypeWorker, util.GetAgnHostImage(), util.BehaviorExitFast).
 				RequestAndLimit(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "200m").
 				RequestAndLimit(kftraining.PyTorchJobReplicaTypeWorker, extraResource, "1").
 				Obj()

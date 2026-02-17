@@ -47,6 +47,10 @@ spec:
       tolerations:
       {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with .Values.kueueViz.backend.podSecurityContext }}
+      securityContext:
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: backend
           {{- with .Values.kueueViz.backend.env }}
@@ -57,6 +61,10 @@ spec:
           imagePullPolicy: '{{ .Values.kueueViz.backend.image.pullPolicy }}'
           resources:
             {{- toYaml .Values.kueueViz.backend.resources | nindent 12 }}
+          {{- with .Values.kueueViz.backend.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - containerPort: 8080
 {{- end }}

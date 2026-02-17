@@ -101,10 +101,6 @@ func (w *JobWebhook) Default(ctx context.Context, obj *batchv1.Job) error {
 	log.V(5).Info("Applying defaults")
 
 	jobframework.ApplyDefaultLocalQueue(job.Object(), w.queues.DefaultLocalQueueExist)
-	if err := copyRaySubmitterJobMetadata(ctx, job.Object(), w.client); err != nil {
-		return err
-	}
-
 	if err := jobframework.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
@@ -227,6 +223,19 @@ func (w *JobWebhook) validateTopologyRequest(ctx context.Context, job *Job) (fie
 	validationErrs := jobframework.ValidateTASPodSetRequest(replicaMetaPath, &job.Spec.Template.ObjectMeta)
 	if validationErrs != nil {
 		return validationErrs, nil
+	}
+
+	// Reject elastic jobs with required/preferred topology (only unconstrained is supported).
+	// TODO: Support for required/preferred modes will be added in a future release.
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.Enabled(job.Object()) {
+		if _, hasRequired := job.Spec.Template.Annotations[kueue.PodSetRequiredTopologyAnnotation]; hasRequired {
+			return field.ErrorList{field.Forbidden(replicaMetaPath.Child("annotations", kueue.PodSetRequiredTopologyAnnotation),
+				"required topology is not supported with elastic jobs")}, nil
+		}
+		if _, hasPreferred := job.Spec.Template.Annotations[kueue.PodSetPreferredTopologyAnnotation]; hasPreferred {
+			return field.ErrorList{field.Forbidden(replicaMetaPath.Child("annotations", kueue.PodSetPreferredTopologyAnnotation),
+				"preferred topology is not supported with elastic jobs")}, nil
+		}
 	}
 
 	podSets, err := jobframework.JobPodSets(ctx, job)

@@ -23,6 +23,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.13"
+- name: ElasticJobsViaWorkloadSlicesWithTAS
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.17"
 - name: FailureRecoveryPolicy
   versionedSpecs:
   - default: false
@@ -51,6 +57,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.9"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "0.17"
 - name: LocalQueueDefaulting
   versionedSpecs:
   - default: false
@@ -103,6 +113,10 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.15"
+  - default: false
+    lockToDefault: false
+    preRelease: Deprecated
+    version: "0.17"
 - name: MultiKueueBatchJobWithManagedBy
   versionedSpecs:
   - default: false
@@ -113,6 +127,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "0.17"
 - name: MultiKueueClusterProfile
   versionedSpecs:
   - default: false
@@ -185,6 +203,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.13"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "0.17"
 - name: SkipFinalizersForPodsSuspendedByParent
   versionedSpecs:
   - default: true

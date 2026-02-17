@@ -55,7 +55,6 @@ Kueue 的一个核心设计原则是避免重复 Kubernetes 组件和成熟的�
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | [动态回收](/docs/concepts/workload/#dynamic-reclaim) | + | + | | | | | | | + | | | | | | |
 | [MultiKueue](/docs/concepts/multikueue/) | + | + | + | + | + | + | + | + | | + | + | + | | | |
-| [MultiKueueBatchJobWithManagedBy](/docs/concepts/multikueue/#multikueuebatchjobwithmanagedby-enabled) | + | | | | | | | | | | | | | | |
 | [部分接纳](/docs/tasks/run/jobs/#partial-admission) | + | | | | | | | | | | | | | | |
 | [工作负载优先级类别](/docs/concepts/workload_priority_class/) | + | + | + | + | + | + | + | + | + | + | + | + | + | + | + |
 | [Flavor 可替代性](/docs/concepts/cluster_queue/#flavorfungibility) | + | + | + | + | + | + | + | + | + | + | + | + | + | + | + |

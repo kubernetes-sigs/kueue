@@ -29,7 +29,6 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
@@ -38,12 +37,11 @@ func TestValidateClusterQueue(t *testing.T) {
 	resourceGroupsPath := specPath.Child("resourceGroups")
 
 	testcases := []struct {
-		name                string
-		clusterQueue        *kueue.ClusterQueue
-		wantErr             field.ErrorList
-		disableLendingLimit bool
-		wantDetail          string
-		wantBadValue        string
+		name         string
+		clusterQueue *kueue.ClusterQueue
+		wantErr      field.ErrorList
+		wantDetail   string
+		wantBadValue string
 	}{
 		{
 			name: "built-in resources with qualified names",
@@ -164,14 +162,6 @@ func TestValidateClusterQueue(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(resourceGroupsPath.Index(0).Child("flavors").Index(0).Child("resources").Index(0).Child("lendingLimit"), "2", lendingLimitErrorMsg),
 			},
-		},
-		{
-			name:                "flavor quota with lendingLimit and empty cohort, but feature disabled",
-			disableLendingLimit: true,
-			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("x86").Resource("cpu", "1", "", "1").Obj()).
-				Obj(),
 		},
 		{
 			name: "empty queueing strategy is supported",
@@ -383,9 +373,6 @@ func TestValidateClusterQueue(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.disableLendingLimit {
-				features.SetFeatureGateDuringTest(t, features.LendingLimit, false)
-			}
 			gotErr := ValidateClusterQueue(tc.clusterQueue)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("ValidateResources() mismatch (-want +got):\n%s", diff)

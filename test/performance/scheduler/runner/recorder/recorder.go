@@ -21,6 +21,7 @@ import (
 	"encoding/csv"
 	"os"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -135,8 +136,11 @@ type Store struct {
 type Recorder struct {
 	maxRecording time.Duration
 	running      atomic.Bool
-	cqEvChan     chan *CQEvent
 	wlEvChan     chan *WLEvent
+	droppedWL    atomic.Uint64
+	cqLatest     map[kueue.ClusterQueueReference]*CQEvent
+	cqMu         sync.Mutex
+	cqNotifyCh   chan struct{}
 
 	Store Store
 }
@@ -145,8 +149,9 @@ func New(maxRecording time.Duration) *Recorder {
 	return &Recorder{
 		maxRecording: maxRecording,
 		running:      atomic.Bool{},
-		cqEvChan:     make(chan *CQEvent, 10),
-		wlEvChan:     make(chan *WLEvent, 10),
+		wlEvChan:     make(chan *WLEvent, 1000),
+		cqLatest:     make(map[kueue.ClusterQueueReference]*CQEvent),
+		cqNotifyCh:   make(chan struct{}, 1),
 		Store: Store{
 			CQ: make(CQStore),
 			WL: make(WLStore),
@@ -270,12 +275,14 @@ func (wcs *WorkloadsClassSummary) refreshAverage() {
 type Summary struct {
 	ClusterQueueClasses map[string]*CQGroupSummary        `json:"clusterQueueClasses"`
 	WorkloadClasses     map[string]*WorkloadsClassSummary `json:"workloadClasses"`
+	DroppedWLEvents     uint64                            `json:"droppedWorkloadEvents"`
 }
 
 func (r *Recorder) WriteSummary(path string) error {
 	summary := Summary{
 		ClusterQueueClasses: map[string]*CQGroupSummary{},
 		WorkloadClasses:     map[string]*WorkloadsClassSummary{},
+		DroppedWLEvents:     r.droppedWL.Load(),
 	}
 
 	for _, cqState := range r.Store.CQ {
@@ -397,12 +404,22 @@ func (r *Recorder) Run(ctx context.Context, genDone <-chan struct{}) error {
 	ctx, cancel := context.WithTimeout(ctx, r.maxRecording)
 	defer cancel()
 
+	// Periodic exit check to avoid waiting for CQ events that may never arrive.
+	// This ensures we check expectMoreEvents() even if CQ events are delayed or dropped.
+	exitCheckTicker := time.NewTicker(5 * time.Second)
+	defer exitCheckTicker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case ev := <-r.cqEvChan:
-			r.recordCQEvent(ev)
+		case <-exitCheckTicker.C:
+			if generateDone.Load() && !r.expectMoreEvents() {
+				return nil
+			}
+		case <-r.cqNotifyCh:
+			// Drain all coalesced CQ events
+			r.drainCQEvents()
 			if generateDone.Load() && !r.expectMoreEvents() {
 				return nil
 			}
@@ -412,11 +429,27 @@ func (r *Recorder) Run(ctx context.Context, genDone <-chan struct{}) error {
 	}
 }
 
+// drainCQEvents processes all pending CQ events from the coalesced map.
+func (r *Recorder) drainCQEvents() {
+	r.cqMu.Lock()
+	events := make([]*CQEvent, 0, len(r.cqLatest))
+	for _, ev := range r.cqLatest {
+		events = append(events, ev)
+	}
+	// Clear the map after draining
+	r.cqLatest = make(map[kueue.ClusterQueueReference]*CQEvent)
+	r.cqMu.Unlock()
+
+	for _, ev := range events {
+		r.recordCQEvent(ev)
+	}
+}
+
 func (r *Recorder) RecordWorkloadState(wl *kueue.Workload) {
 	if !r.running.Load() {
 		return
 	}
-	r.wlEvChan <- &WLEvent{
+	ev := &WLEvent{
 		Time: time.Now(),
 		NamespacedName: types.NamespacedName{
 			Namespace: wl.Namespace,
@@ -427,6 +460,12 @@ func (r *Recorder) RecordWorkloadState(wl *kueue.Workload) {
 		Admitted:  workload.IsAdmitted(wl),
 		Evicted:   workload.IsEvicted(wl),
 		Finished:  workload.IsFinished(wl),
+	}
+	select {
+	case r.wlEvChan <- ev:
+	default:
+		// Drop when the channel is full to avoid blocking reconciles.
+		r.droppedWL.Add(1)
 	}
 }
 
@@ -448,7 +487,7 @@ func (r *Recorder) RecordCQState(cq *kueue.ClusterQueue) {
 		cpuQuota = cq.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota.MilliValue()
 	}
 
-	r.cqEvChan <- &CQEvent{
+	ev := &CQEvent{
 		Time:      time.Now(),
 		Name:      kueue.ClusterQueueReference(cq.Name),
 		ClassName: cq.Labels[generator.ClassLabel],
@@ -462,5 +501,17 @@ func (r *Recorder) RecordCQState(cq *kueue.ClusterQueue) {
 		ReservingWorkloads: cq.Status.ReservingWorkloads,
 		AdmittedWorkloads:  cq.Status.AdmittedWorkloads,
 		Active:             apimeta.IsStatusConditionTrue(cq.Status.Conditions, kueue.AdmissionCheckActive),
+	}
+
+	// Coalesce: always store the latest CQ state.
+	r.cqMu.Lock()
+	r.cqLatest[ev.Name] = ev
+	r.cqMu.Unlock()
+
+	// Notify the recorder loop (non-blocking).
+	select {
+	case r.cqNotifyCh <- struct{}{}:
+	default:
+		// Notification already pending, no need to send another.
 	}
 }

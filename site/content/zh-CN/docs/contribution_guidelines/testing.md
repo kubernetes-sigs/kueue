@@ -134,6 +134,11 @@ E2E_MODE=dev make test-multikueue-e2e
 E2E_MODE=dev GINKGO_ARGS="--until-it-fails" make test-e2e
 ```
 
+{{% alert title="Note" color="primary" %}}
+当在 `E2E_MODE=dev` 下复用保留的集群时，外部算子（MPI、KubeRay 等）只会安装一次。
+如需在每次运行时强制重新安装它们，请设置 `E2E_ENFORCE_OPERATOR_UPDATE=true`。
+{{% /alert %}}
+
 测试结束后如需删除保留的集群：
 
 ```shell
