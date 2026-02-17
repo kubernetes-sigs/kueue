@@ -180,6 +180,11 @@ func (a *Assignment) TotalRequestsFor(wl *workload.Info) resources.FlavorResourc
 		newCount := a.PodSets[i].Count
 		if a.replaceWorkloadSlice != nil {
 			newCount = ps.Count - a.replaceWorkloadSlice.TotalRequests[i].Count
+			// For workload slicing, skip podSets where the count delta is <= 0
+			// (meaning unchanged or downscaled). No additional quota is needed.
+			if newCount <= 0 {
+				continue
+			}
 		}
 		ps = *ps.ScaledTo(newCount)
 
@@ -696,10 +701,41 @@ func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAss
 			a.Borrowing = flvAssignment.borrow
 		}
 		fr := resources.FlavorResource{Flavor: flvAssignment.Name, Resource: resource}
-		a.Usage.Quota[fr] += requests[resource]
+
+		// For workload slicing, only add the delta (new - old) to avoid double-counting
+		// unchanged podSets that already have quota reserved in the old slice.
+		requestAmount := requests[resource]
+		if a.replaceWorkloadSlice != nil {
+			oldRequest := a.findOldPodSetRequest(psAssignment.Name, resource)
+			requestAmount -= oldRequest
+			// For workload slicing, skip adding resources where delta <= 0
+			// (meaning the resource request hasn't changed or is being downscaled)
+			if requestAmount <= 0 {
+				flavorIdx[resource] = flvAssignment.TriedFlavorIdx
+				continue
+			}
+		}
+
+		a.Usage.Quota[fr] += requestAmount
 		flavorIdx[resource] = flvAssignment.TriedFlavorIdx
 	}
 	a.LastState.LastTriedFlavorIdx = append(a.LastState.LastTriedFlavorIdx, flavorIdx)
+}
+
+// findOldPodSetRequest returns the resource request from the old workload slice
+// for the given podSet name and resource. Returns 0 if not found.
+func (a *Assignment) findOldPodSetRequest(psName kueue.PodSetReference, resource corev1.ResourceName) int64 {
+	if a.replaceWorkloadSlice == nil {
+		return 0
+	}
+
+	for _, oldPS := range a.replaceWorkloadSlice.TotalRequests {
+		if oldPS.Name == psName {
+			return oldPS.Requests[resource]
+		}
+	}
+
+	return 0
 }
 
 // findFlavorForPodSets finds the flavor which can satisfy all the PodSet requests
