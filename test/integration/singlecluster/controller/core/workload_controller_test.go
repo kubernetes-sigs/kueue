@@ -32,6 +32,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -735,7 +736,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo
 			ginkgo.By("finishing the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-					g.Expect(workload.Finish(ctx, k8sClient, wl, "ByTest", "By test", util.RealClock, nil)).To(gomega.Succeed())
+					g.Expect(workload.Finish(ctx, k8sClient, wl, "ByTest", "By test", util.RealClock, metrics.DefaultLocalQueueMetricsConfig, nil)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -793,7 +794,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo
 			ginkgo.By("finishing the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-					g.Expect(workload.Finish(ctx, k8sClient, wl, "ByTest", "By test", util.RealClock, nil)).To(gomega.Succeed(), nil)
+					g.Expect(workload.Finish(ctx, k8sClient, wl, "ByTest", "By test", util.RealClock, metrics.DefaultLocalQueueMetricsConfig, nil)).To(gomega.Succeed(), nil)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 

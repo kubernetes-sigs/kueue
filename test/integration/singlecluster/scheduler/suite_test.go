@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/webhooks"
@@ -98,8 +99,8 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 			Outputs:  corev1.ResourceList{corev1.ResourceCPU: resourcev1.MustParse("2")},
 		},
 	}
-	cCache := schdcache.New(mgr.GetClient())
-	queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, qcache.WithResourceTransformations(transformations))
+	cCache := schdcache.New(mgr.GetClient(), schdcache.WithLocalQueueMetrics(metrics.DefaultLocalQueueMetricsConfig))
+	queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, qcache.WithResourceTransformations(transformations), qcache.WithLocalQueueMetrics(metrics.DefaultLocalQueueMetricsConfig))
 
 	configuration := &config.Configuration{}
 	mgr.GetScheme().Default(configuration)
@@ -114,7 +115,7 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	err = workloadjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptionExpectations))
+	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptionExpectations), scheduler.WithLocalQueueMetrics(metrics.DefaultLocalQueueMetricsConfig))
 	err = sched.Start(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }

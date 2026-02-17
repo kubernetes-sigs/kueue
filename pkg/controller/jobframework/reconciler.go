@@ -94,6 +94,7 @@ type JobReconciler struct {
 	clock                        clock.Clock
 	workloadRetentionPolicy      WorkloadRetentionPolicy
 	roleTracker                  *roletracker.RoleTracker
+	lqMetrics                    *metrics.LocalQueueMetricsConfig
 }
 
 // RoleTracker returns the role tracker for HA logging.
@@ -117,6 +118,7 @@ type Options struct {
 	WorkloadRetentionPolicy      WorkloadRetentionPolicy
 	RoleTracker                  *roletracker.RoleTracker
 	NoopWebhook                  bool
+	LqMetrics                    *metrics.LocalQueueMetricsConfig
 }
 
 // Option configures the reconciler.
@@ -239,6 +241,13 @@ func WithNoopWebhook(noop bool) Option {
 	}
 }
 
+// WithLocalQueueMetrics sets the configuration for local queue metrics.
+func WithLocalQueueMetrics(value *metrics.LocalQueueMetricsConfig) Option {
+	return func(o *Options) {
+		o.LqMetrics = value
+	}
+}
+
 var defaultOptions = Options{
 	Clock: clock.RealClock{},
 }
@@ -259,6 +268,7 @@ func NewReconciler(
 		clock:                        options.Clock,
 		workloadRetentionPolicy:      options.WorkloadRetentionPolicy,
 		roleTracker:                  options.RoleTracker,
+		lqMetrics:                    options.LqMetrics,
 	}
 }
 
@@ -472,7 +482,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			if !success {
 				reason = kueue.WorkloadFinishedReasonFailed
 			}
-			err := workload.Finish(ctx, r.client, wl, reason, message, r.clock, r.roleTracker)
+			err := workload.Finish(ctx, r.client, wl, reason, message, r.clock, r.lqMetrics, r.roleTracker)
 			if err != nil && !apierrors.IsNotFound(err) {
 				return ctrl.Result{}, err
 			}
@@ -548,8 +558,15 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				admittedUntilReadyWaitTime := condition.LastTransitionTime.Sub(admittedCond.LastTransitionTime.Time)
 				metrics.ReportAdmittedUntilReadyWaitTime(cqName, priorityClassName, admittedUntilReadyWaitTime, r.roleTracker)
 				if features.Enabled(features.LocalQueueMetrics) {
-					metrics.LocalQueueReadyWaitTime(metrics.LQRefFromWorkload(wl), priorityClassName, queuedUntilReadyWaitTime, r.roleTracker)
-					metrics.ReportLocalQueueAdmittedUntilReadyWaitTime(metrics.LQRefFromWorkload(wl), priorityClassName, admittedUntilReadyWaitTime, r.roleTracker)
+					lqRef := metrics.LQRefFromWorkload(wl)
+					lq, err := metrics.LQFromRef(r.client, lqRef)
+					if err != nil {
+						log.V(5).Error(err, "Failed to get LocalQueue for metrics", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)))
+					}
+					if lq != nil && r.lqMetrics.ShouldExposeLocalQueueMetrics(lq.GetLabels()) {
+						metrics.LocalQueueReadyWaitTime(lqRef, priorityClassName, queuedUntilReadyWaitTime, r.roleTracker)
+						metrics.ReportLocalQueueAdmittedUntilReadyWaitTime(lqRef, priorityClassName, admittedUntilReadyWaitTime, r.roleTracker)
+					}
 				}
 			}
 			return ctrl.Result{}, nil
@@ -595,7 +612,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				log.Error(err, "Unsuspending job")
 				if podset.IsPermanent(err) {
 					// Mark the workload as finished with failure since the is no point to retry.
-					errUpdateStatus := workload.Finish(ctx, r.client, wl, FailedToStartFinishedReason, err.Error(), r.clock, r.roleTracker)
+					errUpdateStatus := workload.Finish(ctx, r.client, wl, FailedToStartFinishedReason, err.Error(), r.clock, r.lqMetrics, r.roleTracker)
 					if errUpdateStatus != nil {
 						log.Error(errUpdateStatus, "Updating workload status, on start failure", "err", err)
 					}
@@ -876,7 +893,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		// Workload slices allow modifications only to PodSet.Count.
 		// Any other changes will result in the slice being marked as incompatible,
 		// and the workload will fall back to being processed by the original ensureOneWorkload function.
-		wl, compatible, err := workloadslicing.EnsureWorkloadSlices(ctx, r.client, r.clock, podSets, object, job.GVK(), r.roleTracker)
+		wl, compatible, err := workloadslicing.EnsureWorkloadSlices(ctx, r.client, r.clock, podSets, object, job.GVK(), r.lqMetrics, r.roleTracker)
 		if err != nil {
 			return nil, err
 		}
@@ -1058,7 +1075,7 @@ func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *ku
 		}
 		// mark the workload as finished
 		msg := "The prebuilt workload is out of sync with its user job"
-		return false, workload.Finish(ctx, r.client, wl, kueue.WorkloadFinishedReasonOutOfSync, msg, r.clock, r.roleTracker)
+		return false, workload.Finish(ctx, r.client, wl, kueue.WorkloadFinishedReasonOutOfSync, msg, r.clock, r.lqMetrics, r.roleTracker)
 	}
 	return true, nil
 }

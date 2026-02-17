@@ -53,7 +53,7 @@ func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
 }
 
 func reportLQPendingWorkloads(m *Manager, lq *LocalQueue) {
-	if !features.Enabled(features.LocalQueueMetrics) {
+	if !features.Enabled(features.LocalQueueMetrics) || !m.lqMetrics.ShouldExposeLocalQueueMetrics(lq.labels) {
 		return
 	}
 	var active, inadmissible int
@@ -72,7 +72,7 @@ func reportLQPendingWorkloads(m *Manager, lq *LocalQueue) {
 }
 
 func reportLQFinishedWorkloads(m *Manager, lq *LocalQueue) {
-	if !features.Enabled(features.LocalQueueMetrics) {
+	if !features.Enabled(features.LocalQueueMetrics) || !m.lqMetrics.ShouldExposeLocalQueueMetrics(lq.labels) {
 		return
 	}
 	namespace, lqName := queue.MustParseLocalQueueReference(lq.Key)
