@@ -596,9 +596,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", ginkgo.Label("area:singleclus
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
 		})
 
-		ginkgo.XIt("should preserve topology assignment during scale-up", func() {
-			// TODO(#9316): the test is temporarily disabled, because it was failing too often.
-			// re-enable when the issue is resolved.
+		ginkgo.It("should preserve topology assignment during scale-up", func() {
 			sampleJob := testingjob.MakeJob("test-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				SetAnnotation("kueue.x-k8s.io/elastic-job", "true").
