@@ -1411,6 +1411,9 @@ func ExpectWorkloadsInNamespace(ctx context.Context, k8sClient client.Client, na
 func ExpectNewWorkloadSlice(ctx context.Context, k8sClient client.Client, oldWorkload *kueue.Workload) (newWorkload *kueue.Workload) {
 	ginkgo.GinkgoHelper()
 	gomega.Eventually(func(g gomega.Gomega) {
+		// Reset newWorkload each iteration to ensure the returned value is from
+		// the current poll, not a stale pointer from a previous retry attempt.
+		newWorkload = nil
 		wlList := &kueue.WorkloadList{}
 		g.Expect(k8sClient.List(ctx, wlList, client.InNamespace(oldWorkload.Namespace))).To(gomega.Succeed())
 		for i := range wlList.Items {
@@ -1420,6 +1423,8 @@ func ExpectNewWorkloadSlice(ctx context.Context, k8sClient client.Client, oldWor
 				break
 			}
 		}
+		g.Expect(newWorkload).ShouldNot(gomega.BeNil(),
+			"replacement workload for %s not found", workload.Key(oldWorkload))
 	}, Timeout, Interval).Should(gomega.Succeed())
 	return newWorkload
 }
