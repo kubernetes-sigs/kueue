@@ -24,7 +24,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -46,10 +45,12 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	utilptr "sigs.k8s.io/kueue/pkg/util/ptr"
+	"sigs.k8s.io/kueue/pkg/util/queue"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -1305,42 +1306,39 @@ func RemoveFinalizer(ctx context.Context, c client.Client, wl *kueue.Workload) e
 }
 
 // AdmissionChecksForWorkload returns AdmissionChecks that should be assigned to a specific Workload based on
-// ClusterQueue configuration and ResourceFlavors
-func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionChecks map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference], allFlavors sets.Set[kueue.ResourceFlavorReference]) sets.Set[kueue.AdmissionCheckReference] {
-	// If all admissionChecks should be run for all flavors we don't need to wait for Workload's Admission to be set.
-	// This is also the case if admissionChecks are specified with ClusterQueue.Spec.AdmissionChecks instead of
-	// ClusterQueue.Spec.AdmissionCheckStrategy
-	hasAllFlavors := true
-	for _, flavors := range admissionChecks {
-		if !flavors.Equal(allFlavors) {
-			hasAllFlavors = false
+// ClusterQueue configuration
+func AdmissionChecksForWorkload(wl *kueue.Workload, cq *kueue.ClusterQueue) sets.Set[kueue.AdmissionCheckReference] {
+	admissionChecks := admissioncheck.NewAdmissionChecks(cq)
+
+	// If we have an admission we can provide all relevant checks right away.
+	if wl.Status.Admission != nil {
+		return ChecksForAdmission(*wl.Status.Admission, admissionChecks)
+	}
+
+	// If the workload is not admitted, we can only list the checks which apply to all flavors supported by the ClusterQueue
+	allFlavors := queue.AllFlavors(cq.Spec.ResourceGroups)
+	checksForAllFlavors := sets.New[kueue.AdmissionCheckReference]()
+	for acName, flavors := range admissionChecks {
+		if allFlavors.Difference(flavors).Len() == 0 {
+			checksForAllFlavors.Insert(acName)
 		}
 	}
-	if hasAllFlavors {
-		return sets.New(slices.Collect(maps.Keys(admissionChecks))...)
-	}
+	return checksForAllFlavors
+}
 
-	// Kueue sets AdmissionChecks first based on ClusterQueue configuration and at this point Workload has no
-	// ResourceFlavors assigned, so we cannot match AdmissionChecks to ResourceFlavor.
-	// After Quota is reserved, another reconciliation happens and we can match AdmissionChecks to ResourceFlavors
-	if wl.Status.Admission == nil {
-		log.V(2).Info("Workload has no Admission", "Workload", klog.KObj(wl))
-		return nil
-	}
-
-	var assignedFlavors []kueue.ResourceFlavorReference
-	for _, podSet := range wl.Status.Admission.PodSetAssignments {
+// ChecksForAdmission returns all admission checks that apply to the specified admission
+func ChecksForAdmission(admission kueue.Admission, admissionChecks map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference]) sets.Set[kueue.AdmissionCheckReference] {
+	assignedFlavors := sets.New[kueue.ResourceFlavorReference]()
+	for _, podSet := range admission.PodSetAssignments {
 		for _, flavor := range podSet.Flavors {
-			assignedFlavors = append(assignedFlavors, flavor)
+			assignedFlavors.Insert(flavor)
 		}
 	}
 
 	acNames := sets.New[kueue.AdmissionCheckReference]()
-	for acName, flavors := range admissionChecks {
-		for _, fName := range assignedFlavors {
-			if flavors.Has(fName) {
-				acNames.Insert(acName)
-			}
+	for acName, checkedFlavors := range admissionChecks {
+		if assignedFlavors.Intersection(checkedFlavors).Len() > 0 {
+			acNames.Insert(acName)
 		}
 	}
 	return acNames

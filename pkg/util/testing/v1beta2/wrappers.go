@@ -946,6 +946,16 @@ func (c *ClusterQueueWrapper) AdmissionChecks(checks ...kueue.AdmissionCheckRefe
 	return c
 }
 
+// Adds an additional admission check.
+func (c *ClusterQueueWrapper) WithAdmissionCheck(check kueue.AdmissionCheckReference, flavors ...kueue.ResourceFlavorReference) *ClusterQueueWrapper {
+	newRule := kueue.AdmissionCheckStrategyRule{
+		Name:      check,
+		OnFlavors: flavors,
+	}
+	c.Spec.AdmissionChecksStrategy.AdmissionChecks = append(c.Spec.AdmissionChecksStrategy.AdmissionChecks, newRule)
+	return c
+}
+
 // QueueingStrategy sets the queueing strategy in this ClusterQueue.
 func (c *ClusterQueueWrapper) QueueingStrategy(strategy kueue.QueueingStrategy) *ClusterQueueWrapper {
 	c.Spec.QueueingStrategy = strategy

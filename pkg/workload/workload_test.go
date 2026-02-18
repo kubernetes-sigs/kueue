@@ -43,7 +43,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
-	qutil "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -984,6 +983,175 @@ func TestIsEvictedByPodsReadyTimeout(t *testing.T) {
 	}
 }
 
+func TestAdmissionCheckStrategyForAdmittedWorkload(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	cases := map[string]struct {
+		cq                  *kueue.ClusterQueue
+		wl                  *kueue.Workload
+		wantAdmissionChecks sets.Set[kueue.AdmissionCheckReference]
+	}{
+		"AdmissionCheckStrategy with a flavor": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Obj()).
+					Obj(), now).
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(), *utiltestingapi.MakeFlavorQuotas("flavor2").Obj()).
+				AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj()).
+				Obj(),
+			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1"),
+		},
+		"AdmissionCheckStrategy with an unmatched flavor": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Obj()).
+					Obj(), now).
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(), *utiltestingapi.MakeFlavorQuotas("flavor2").Obj()).
+				AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "unmatched-flavor").Obj()).
+				Obj(),
+			wantAdmissionChecks: nil,
+		},
+		"AdmissionCheckStrategy without a flavor": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Obj()).
+					Obj(), now).
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(), *utiltestingapi.MakeFlavorQuotas("flavor2").Obj()).
+				AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1").Obj()).
+				Obj(),
+			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1"),
+		},
+		"Two AdmissionCheckStrategies, one with flavor, one without flavor": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Obj()).
+					Obj(), now).
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(), *utiltestingapi.MakeFlavorQuotas("flavor2").Obj()).
+				AdmissionCheckStrategy(
+					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
+					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac2").Obj()).
+				Obj(),
+			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1", "ac2"),
+		},
+		"AdmissionCheckStrategy with only a non-existent flavor": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Obj()).
+					Obj(), now).
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj()).
+				AdmissionCheckStrategy(
+					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor-nonexistent").Obj()).
+				Obj(),
+			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference](),
+		},
+		"AdmissionCheckStrategy with an additional non-existent flavor": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Obj()).
+					Obj(), now).
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj()).
+				AdmissionCheckStrategy(
+					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor1", "flavor-nonexistent").Obj()).
+				Obj(),
+			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1"),
+		},
+		"Two AdmissionCheckStrategies, one covering one flavor, one covering another": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Assignment("memory", "flavor2", "1").
+						Obj()).
+					Obj(), now).
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(), *utiltestingapi.MakeFlavorQuotas("flavor2").Obj()).
+				AdmissionCheckStrategy(
+					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
+					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac2", "flavor2").Obj(),
+				).
+				Obj(),
+			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1", "ac2"),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			gotAdmissionChecks := ChecksForAdmission(*tc.wl.Status.Admission, admissioncheck.NewAdmissionChecks(tc.cq))
+
+			if diff := cmp.Diff(tc.wantAdmissionChecks, gotAdmissionChecks); diff != "" {
+				t.Errorf("Unexpected AdmissionChecks, (want-/got+):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestAdmissionCheckListingForWorkload(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	cases := map[string]struct {
+		wl                  *kueue.Workload
+		wantAdmissionChecks sets.Set[kueue.AdmissionCheckReference]
+	}{
+		"Only relevant checks returend for an admitted workload": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Assignment("memory", "flavor2", "1").
+						Obj()).
+					Obj(), now).
+				Obj(),
+			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1", "ac2", "ac3", "ac4", "ac6"),
+		},
+		"Only correct checks covering all relevant flavors returned for Wrokload without Quota Reserved ": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				Obj(),
+			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac3", "ac4", "ac6"),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cq := utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(), *utiltestingapi.MakeFlavorQuotas("flavor2").Obj()).
+				AdmissionCheckStrategy(
+					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
+					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac2", "flavor2").Obj(),
+					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac3", "flavor1", "flavor2").Obj(),
+					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac4", "flavor1", "flavor2", "non-existent-flavor").Obj(),
+					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac5", "non-existent-flavor").Obj(),
+					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac6").Obj(),
+				).Obj()
+			gotAdmissionChecks := AdmissionChecksForWorkload(tc.wl, cq)
+
+			if diff := cmp.Diff(tc.wantAdmissionChecks, gotAdmissionChecks); diff != "" {
+				t.Errorf("Unexpected AdmissionChecks, (want-/got+):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestFlavorResourceUsage(t *testing.T) {
 	cases := map[string]struct {
 		info *Info
@@ -1070,110 +1238,6 @@ func TestFlavorResourceUsage(t *testing.T) {
 			got := tc.info.FlavorResourceUsage()
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("info.ResourceUsage() returned (-want,+got):\n%s", diff)
-			}
-		})
-	}
-}
-
-func TestAdmissionCheckStrategy(t *testing.T) {
-	now := time.Now().Truncate(time.Second)
-	cases := map[string]struct {
-		cq                  *kueue.ClusterQueue
-		wl                  *kueue.Workload
-		wantAdmissionChecks sets.Set[kueue.AdmissionCheckReference]
-	}{
-		"AdmissionCheckStrategy with a flavor": {
-			wl: utiltestingapi.MakeWorkload("wl", "ns").
-				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
-					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-						Assignment("cpu", "flavor1", "1").
-						Obj()).
-					Obj(), now).
-				Obj(),
-			cq: utiltestingapi.MakeClusterQueue("cq").
-				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(), *utiltestingapi.MakeFlavorQuotas("flavor2").Obj()).
-				AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj()).
-				Obj(),
-			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1"),
-		},
-		"AdmissionCheckStrategy with an unmatched flavor": {
-			wl: utiltestingapi.MakeWorkload("wl", "ns").
-				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
-					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-						Assignment("cpu", "flavor1", "1").
-						Obj()).
-					Obj(), now).
-				Obj(),
-			cq: utiltestingapi.MakeClusterQueue("cq").
-				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(), *utiltestingapi.MakeFlavorQuotas("flavor2").Obj()).
-				AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "unmatched-flavor").Obj()).
-				Obj(),
-			wantAdmissionChecks: nil,
-		},
-		"AdmissionCheckStrategy without a flavor": {
-			wl: utiltestingapi.MakeWorkload("wl", "ns").
-				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
-					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-						Assignment("cpu", "flavor1", "1").
-						Obj()).
-					Obj(), now).
-				Obj(),
-			cq: utiltestingapi.MakeClusterQueue("cq").
-				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(), *utiltestingapi.MakeFlavorQuotas("flavor2").Obj()).
-				AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1").Obj()).
-				Obj(),
-			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1"),
-		},
-		"Two AdmissionCheckStrategies, one with flavor, one without flavor": {
-			wl: utiltestingapi.MakeWorkload("wl", "ns").
-				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
-					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-						Assignment("cpu", "flavor1", "1").
-						Obj()).
-					Obj(), now).
-				Obj(),
-			cq: utiltestingapi.MakeClusterQueue("cq").
-				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(), *utiltestingapi.MakeFlavorQuotas("flavor2").Obj()).
-				AdmissionCheckStrategy(
-					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
-					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac2").Obj()).
-				Obj(),
-			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1", "ac2"),
-		},
-		"AdmissionCheckStrategy with a non-existent flavor": {
-			wl: utiltestingapi.MakeWorkload("wl", "ns").
-				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
-					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-						Assignment("cpu", "flavor1", "1").
-						Obj()).
-					Obj(), now).
-				Obj(),
-			cq: utiltestingapi.MakeClusterQueue("cq").
-				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj()).
-				AdmissionCheckStrategy(
-					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor-nonexistent").Obj()).
-				Obj(),
-			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference](),
-		},
-		"Workload has no QuotaReserved": {
-			wl: utiltestingapi.MakeWorkload("wl", "ns").
-				Obj(),
-			cq: utiltestingapi.MakeClusterQueue("cq").
-				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(), *utiltestingapi.MakeFlavorQuotas("flavor2").Obj()).
-				AdmissionCheckStrategy(
-					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
-					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac2").Obj()).
-				Obj(),
-			wantAdmissionChecks: nil,
-		},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			_, log := utiltesting.ContextWithLog(t)
-			gotAdmissionChecks := AdmissionChecksForWorkload(log, tc.wl, admissioncheck.NewAdmissionChecks(tc.cq), qutil.AllFlavors(tc.cq.Spec.ResourceGroups))
-
-			if diff := cmp.Diff(tc.wantAdmissionChecks, gotAdmissionChecks); diff != "" {
-				t.Errorf("Unexpected AdmissionChecks, (want-/got+):\n%s", diff)
 			}
 		})
 	}

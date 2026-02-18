@@ -96,9 +96,6 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		workerCluster2           *kueue.MultiKueueCluster
 		managerMultiKueueConfig  *kueue.MultiKueueConfig
 		multiKueueAC             *kueue.AdmissionCheck
-		additionalAc             *kueue.AdmissionCheck
-		additionalFlavor1        *kueue.ResourceFlavor
-		additionalFlavor2        *kueue.ResourceFlavor
 		managerCq                *kueue.ClusterQueue
 		managerLq                *kueue.LocalQueue
 
@@ -1975,7 +1972,12 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		})
 	})
 
-	ginkgo.When("an additional admission check covering a resource we will not be assigned is present", func() {
+	ginkgo.When("an additional admission check covering only some flavors supported by the cluster queue is present", func() {
+		var (
+			additionalAc      *kueue.AdmissionCheck
+			additionalFlavor1 *kueue.ResourceFlavor
+			additionalFlavor2 *kueue.ResourceFlavor
+		)
 		ginkgo.BeforeEach(func() {
 			additionalFlavor1 = utiltestingapi.MakeResourceFlavor("flavor1").Obj()
 			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, additionalFlavor1)).Should(gomega.Succeed())
@@ -2029,6 +2031,40 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, additionalFlavor1, true)
 			util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, additionalFlavor2, true)
 			util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, additionalAc, true)
+		})
+
+		ginkgo.It("should assign the multikueue admission check even before admitted", framework.SlowSpec, func() {
+			jobSet := testingjobset.MakeJobSet("job-set", managerNs.Name).
+				Queue(managerLq.Name).
+				ManagedBy(kueue.MultiKueueControllerName).
+				ReplicatedJobs(
+					testingjobset.ReplicatedJobRequirements{
+						Name:        "replicated-job-1",
+						Replicas:    1,
+						Parallelism: 1,
+						Completions: 1,
+					}, testingjobset.ReplicatedJobRequirements{
+						Name:        "replicated-job-2",
+						Replicas:    3,
+						Parallelism: 1,
+						Completions: 1,
+					},
+				).
+				Obj()
+			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, jobSet)
+
+			wlLookupKey := types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSet.Name, jobSet.UID), Namespace: managerNs.Name}
+			ginkgo.By("ensuring multikueue admission check reference is present and in pending state", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdWorkload := &kueue.Workload{}
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					acs := admissioncheck.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
+					g.Expect(acs).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
+						Name:  kueue.AdmissionCheckReference(multiKueueAC.Name),
+						State: kueue.CheckStatePending,
+					}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "Message", "RetryCount")))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
 		})
 
 		ginkgo.It("should keep multikueue admission check reference and properly clean up the remote workload when the connection to an admitting worker is lost", framework.SlowSpec, func() {
@@ -2150,7 +2186,6 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			})
 		})
 	})
-
 })
 
 func admitWorkloadAndCheckWorkerCopies(acName string, wlLookupKey types.NamespacedName, admission *utiltestingapi.AdmissionWrapper) {
