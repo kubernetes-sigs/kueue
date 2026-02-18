@@ -283,17 +283,9 @@ kueueViz:
         cpu: 500m
         memory: 512Mi
     # -- KueueViz frontend pod securityContext
-    podSecurityContext:
-      runAsNonRoot: true
-      seccompProfile:
-        type: RuntimeDefault
+    podSecurityContext: {}
     # -- KueueViz frontend container securityContext
-    containerSecurityContext:
-      readOnlyRootFilesystem: true
-      allowPrivilegeEscalation: false
-      capabilities:
-        drop:
-          - ALL
+    containerSecurityContext: {}
     # -- Environment variables for KueueViz frontend deployment
     env:
       - name: REACT_APP_WEBSOCKET_URL
