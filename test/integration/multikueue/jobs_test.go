@@ -1989,83 +1989,43 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, additionalAc)
 			util.SetAdmissionCheckActive(managerTestCluster.ctx, managerTestCluster.client, additionalAc, metav1.ConditionTrue)
 
-			flavor1Quotas := kueue.FlavorQuotas{
-				Name: kueue.ResourceFlavorReference(additionalFlavor1.Name),
-				Resources: []kueue.ResourceQuota{
-					{
-						Name:         corev1.ResourceCPU,
-						NominalQuota: resource.MustParse("10"),
-					},
-				},
-			}
-			flavor2Quotas := kueue.FlavorQuotas{
-				Name: kueue.ResourceFlavorReference(additionalFlavor2.Name),
-				Resources: []kueue.ResourceQuota{
-					{
-						Name:         corev1.ResourceMemory,
-						NominalQuota: resource.MustParse("100Gi"),
-					},
-				},
+			flavor1Quotas := *utiltestingapi.MakeFlavorQuotas(additionalFlavor1.Name).Resource(corev1.ResourceCPU, "10").Obj()
+			flavor2Quotas := *utiltestingapi.MakeFlavorQuotas(additionalFlavor2.Name).Resource(corev1.ResourceMemory, "100Gi").Obj()
+			resourceGroups := []kueue.ResourceGroup{
+				utiltestingapi.ResourceGroup(flavor1Quotas),
+				utiltestingapi.ResourceGroup(flavor2Quotas),
 			}
 
-			util.SetResourceGroups(managerTestCluster.ctx, managerTestCluster.client, managerCq,
-				kueue.ResourceGroup{
-					CoveredResources: []corev1.ResourceName{
-						corev1.ResourceCPU,
-					},
-					Flavors: []kueue.FlavorQuotas{
-						flavor1Quotas,
-					},
-				},
-				kueue.ResourceGroup{
-					CoveredResources: []corev1.ResourceName{
-						corev1.ResourceMemory,
-					},
-					Flavors: []kueue.FlavorQuotas{
-						flavor2Quotas,
-					},
-				},
-			)
-			util.SetResourceGroups(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq,
-				kueue.ResourceGroup{
-					CoveredResources: []corev1.ResourceName{
-						corev1.ResourceCPU,
-					},
-					Flavors: []kueue.FlavorQuotas{
-						flavor1Quotas,
-					},
-				},
-			)
-			util.SetResourceGroups(worker2TestCluster.ctx, worker2TestCluster.client, worker2Cq,
-				kueue.ResourceGroup{
-					CoveredResources: []corev1.ResourceName{
-						corev1.ResourceCPU,
-					},
-					Flavors: []kueue.FlavorQuotas{
-						flavor1Quotas,
-					},
-				},
-			)
+			flavor1Rule := *utiltestingapi.MakeAdmissionCheckStrategyRule(
+				kueue.AdmissionCheckReference(multiKueueAC.Name),
+				kueue.ResourceFlavorReference(additionalFlavor1.Name),
+				kueue.ResourceFlavorReference(additionalFlavor2.Name),
+			).Obj()
+			flavor2Rule := *utiltestingapi.MakeAdmissionCheckStrategyRule(
+				kueue.AdmissionCheckReference(additionalAc.Name),
+				kueue.ResourceFlavorReference(additionalFlavor2.Name),
+			).Obj()
+			acRules := []kueue.AdmissionCheckStrategyRule{
+				flavor1Rule,
+				flavor2Rule,
+			}
 
-			util.SetAdmissionCheckStrategy(managerTestCluster.ctx, managerTestCluster.client, managerCq,
-				kueue.AdmissionCheckStrategyRule{
-					Name: kueue.AdmissionCheckReference(multiKueueAC.Name),
-					OnFlavors: []kueue.ResourceFlavorReference{
-						kueue.ResourceFlavorReference(additionalFlavor1.Name),
-						kueue.ResourceFlavorReference(additionalFlavor2.Name),
-					},
-				},
-				kueue.AdmissionCheckStrategyRule{
-					Name: kueue.AdmissionCheckReference(additionalAc.Name),
-					OnFlavors: []kueue.ResourceFlavorReference{
-						kueue.ResourceFlavorReference(additionalFlavor2.Name),
-					},
-				},
-			)
+			gomega.Eventually(func(g gomega.Gomega) {
+				k8sClient := managerTestCluster.client
+				ctx := managerTestCluster.ctx
+				updatedCq := &kueue.ClusterQueue{}
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(managerCq), updatedCq)).Should(gomega.Succeed())
 
+				updatedCq.Spec.ResourceGroups = resourceGroups
+				updatedCq.Spec.AdmissionChecksStrategy = &kueue.AdmissionChecksStrategy{
+					AdmissionChecks: acRules,
+				}
+				gomega.Expect(k8sClient.Update(ctx, updatedCq)).Should(gomega.Succeed())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerCq, true)
 			util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, additionalFlavor1, true)
 			util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, additionalFlavor2, true)
 			util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, additionalAc, true)
@@ -2159,6 +2119,27 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 						RetryCount: ptr.To(int32(1)),
 					}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "Message")))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("restoring the connection to worker2", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdCluster := &kueue.MultiKueueCluster{}
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster2), createdCluster)).To(gomega.Succeed())
+					createdCluster.Spec.ClusterSource.KubeConfig.Location = managerMultiKueueSecret2.Name
+					g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, createdCluster)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdCluster := &kueue.MultiKueueCluster{}
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster2), createdCluster)).To(gomega.Succeed())
+					activeCondition := apimeta.FindStatusCondition(createdCluster.Status.Conditions, kueue.MultiKueueClusterActive)
+					g.Expect(activeCondition).To(gomega.BeComparableTo(&metav1.Condition{
+						Type:   kueue.MultiKueueClusterActive,
+						Status: metav1.ConditionTrue,
+						Reason: "Active",
+					}, util.IgnoreConditionMessage, util.IgnoreConditionTimestampsAndObservedGeneration))
+					disconnectedTime = activeCondition.LastTransitionTime.Time
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("the worker2 wl is removed since the local one no longer has a reservation", func() {
