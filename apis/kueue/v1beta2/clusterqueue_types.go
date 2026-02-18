@@ -537,7 +537,7 @@ type BorrowWithinCohort struct {
 // +kubebuilder:storageversion
 // +kubebuilder:resource:scope=Cluster,shortName={cq}
 // +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="Cohort",JSONPath=".spec.cohort",type=string,description="Cohort that this ClusterQueue belongs to"
+// +kubebuilder:printcolumn:name="Cohort",JSONPath=".spec.cohortName",type=string,description="Cohort that this ClusterQueue belongs to"
 // +kubebuilder:printcolumn:name="Strategy",JSONPath=".spec.queueingStrategy",type=string,description="The queueing strategy used to prioritize workloads",priority=1
 // +kubebuilder:printcolumn:name="Pending Workloads",JSONPath=".status.pendingWorkloads",type=integer,description="Number of pending workloads"
 // +kubebuilder:printcolumn:name="Admitted Workloads",JSONPath=".status.admittedWorkloads",type=integer,description="Number of admitted workloads that haven't finished yet",priority=1

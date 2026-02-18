@@ -818,7 +818,7 @@ spec:
         status: {}
     - additionalPrinterColumns:
         - description: Cohort that this ClusterQueue belongs to
-          jsonPath: .spec.cohort
+          jsonPath: .spec.cohortName
           name: Cohort
           type: string
         - description: The queueing strategy used to prioritize workloads
