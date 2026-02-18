@@ -1719,7 +1719,6 @@ func TestAssignFlavors(t *testing.T) {
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
-					{Flavor: "default", Resource: "example.com/gpu"}:  0,
 				}},
 			},
 			wantRepMode: Fit,
