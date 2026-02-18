@@ -144,7 +144,7 @@ spec:
                     to contribute more to the DRS ratio.
                     Missing entries default to a multiplier of 1.0.
                     Values must be strictly greater than 0.
-                  maxProperties: 16
+                  maxProperties: 8
                   type: object
                 tolerations:
                   description: |-
@@ -325,7 +325,7 @@ spec:
                     to contribute more to the DRS ratio.
                     Missing entries default to a multiplier of 1.0.
                     Values must be strictly greater than 0.
-                  maxProperties: 16
+                  maxProperties: 8
                   type: object
                 tolerations:
                   description: |-

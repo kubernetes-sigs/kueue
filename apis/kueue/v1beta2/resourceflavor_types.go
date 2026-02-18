@@ -117,7 +117,7 @@ type ResourceFlavorSpec struct {
 	// Values must be strictly greater than 0.
 	//
 	// +optional
-	// +kubebuilder:validation:MaxProperties=16
+	// +kubebuilder:validation:MaxProperties=8
 	ResourceWeights map[corev1.ResourceName]resource.Quantity `json:"resourceWeights,omitempty"`
 }
 
