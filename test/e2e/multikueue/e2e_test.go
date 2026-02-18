@@ -441,11 +441,18 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 			waitForJobAdmitted(wlLookupKey, multiKueueAc.Name, "worker1")
 
-			ginkgo.By("Verifying status is synced back to manager", func() {
+			ginkgo.By("Waiting for StatefulSet to be synced to worker cluster", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					managerSts := &appsv1.StatefulSet{}
-					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(statefulset), managerSts)).To(gomega.Succeed())
-					g.Expect(managerSts.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
+					workerSts := &appsv1.StatefulSet{}
+					g.Expect(k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(statefulset), workerSts)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for all replicas to be ready on worker cluster", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					workerSts := &appsv1.StatefulSet{}
+					g.Expect(k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(statefulset), workerSts)).To(gomega.Succeed())
+					g.Expect(workerSts.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -463,12 +470,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 
 			ginkgo.By("Deleting the statefulset", func() {
-				gomega.Expect(k8sManagerClient.Delete(ctx, statefulset)).Should(gomega.Succeed())
-				gomega.Eventually(func(g gomega.Gomega) {
-					workerSts := &appsv1.StatefulSet{}
-					err := k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(statefulset), workerSts)
-					g.Expect(err).To(gomega.HaveOccurred())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, statefulset, true)
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, statefulset, false, util.LongTimeout)
 			})
 		})
 
