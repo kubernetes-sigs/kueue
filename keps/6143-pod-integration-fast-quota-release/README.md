@@ -180,8 +180,6 @@ None.
 
 ## Implementation History
 
-- 2026-02-17: KEP created.
-
 ## Drawbacks
 
 - Adds a feature gate for a relatively small behavioral change. However, this
