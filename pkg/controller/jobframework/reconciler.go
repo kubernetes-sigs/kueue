@@ -1449,8 +1449,11 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 }
 
 func assignQueueLabels(labels map[string]string, wl *kueue.Workload) {
-	// TODO: what if queue name is empty? how to get the default
-	labels[constants.LocalQueueLabel] = string(wl.Spec.QueueName)
+	localQueueName := wl.Spec.QueueName
+	if localQueueName == "" {
+		localQueueName = controllerconsts.DefaultLocalQueueName
+	}
+	labels[constants.LocalQueueLabel] = string(localQueueName)
 	labels[constants.ClusterQueueLabel] = string(wl.Status.Admission.ClusterQueue)
 }
 
