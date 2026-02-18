@@ -95,6 +95,8 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		workerCluster2           *kueue.MultiKueueCluster
 		managerMultiKueueConfig  *kueue.MultiKueueConfig
 		multiKueueAC             *kueue.AdmissionCheck
+		additionalAc             *kueue.AdmissionCheck
+		additionalFlavor         *kueue.ResourceFlavor
 		managerCq                *kueue.ClusterQueue
 		managerLq                *kueue.LocalQueue
 
@@ -1970,6 +1972,123 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
+
+	ginkgo.When("an additional admission check covering a resource we will not be assigned is present", func() {
+		ginkgo.BeforeEach(func() {
+			additionalFlavor = utiltestingapi.MakeResourceFlavor("flavor-we-will-not-be-assigned").Obj()
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, additionalFlavor)).Should(gomega.Succeed())
+
+			additionalAc = utiltestingapi.MakeAdmissionCheck("non-mk-ac").
+				ControllerName(kueue.MultiKueueControllerName).
+				Obj()
+			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, additionalAc)
+			util.SetAdmissionCheckActive(managerTestCluster.ctx, managerTestCluster.client, additionalAc, metav1.ConditionTrue)
+
+			util.SetAdmissionCheckStrategy(managerTestCluster.ctx, managerTestCluster.client, managerCq,
+				kueue.AdmissionCheckStrategyRule{
+					Name: kueue.AdmissionCheckReference(multiKueueAC.Name),
+				},
+				kueue.AdmissionCheckStrategyRule{
+					Name: kueue.AdmissionCheckReference(additionalAc.Name),
+					OnFlavors: []kueue.ResourceFlavorReference{
+						kueue.ResourceFlavorReference(additionalFlavor.Name),
+					},
+				},
+			)
+		})
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, additionalFlavor, true)
+			util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, additionalAc, true)
+		})
+
+		ginkgo.FIt("should keep multikueue admission check reference and properly clean up the remote workload when the connection to an admitting worker is lost", framework.SlowSpec, func() {
+			jobSet := testingjobset.MakeJobSet("job-set", managerNs.Name).
+				Queue(managerLq.Name).
+				ManagedBy(kueue.MultiKueueControllerName).
+				ReplicatedJobs(
+					testingjobset.ReplicatedJobRequirements{
+						Name:        "replicated-job-1",
+						Replicas:    1,
+						Parallelism: 1,
+						Completions: 1,
+					}, testingjobset.ReplicatedJobRequirements{
+						Name:        "replicated-job-2",
+						Replicas:    3,
+						Parallelism: 1,
+						Completions: 1,
+					},
+				).
+				Obj()
+			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, jobSet)
+
+			wlLookupKey := types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSet.Name, jobSet.UID), Namespace: managerNs.Name}
+
+			admission := utiltestingapi.MakeAdmission(managerCq.Name).PodSets(
+				kueue.PodSetAssignment{
+					Name: "replicated-job-1",
+				}, kueue.PodSetAssignment{
+					Name: "replicated-job-2",
+				},
+			)
+
+			admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
+
+			var disconnectedTime time.Time
+			ginkgo.By("breaking the connection to worker2", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdCluster := &kueue.MultiKueueCluster{}
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster2), createdCluster)).To(gomega.Succeed())
+					createdCluster.Spec.ClusterSource.KubeConfig.Location = "bad-secret"
+					g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, createdCluster)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdCluster := &kueue.MultiKueueCluster{}
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster2), createdCluster)).To(gomega.Succeed())
+					activeCondition := apimeta.FindStatusCondition(createdCluster.Status.Conditions, kueue.MultiKueueClusterActive)
+					g.Expect(activeCondition).To(gomega.BeComparableTo(&metav1.Condition{
+						Type:   kueue.MultiKueueClusterActive,
+						Status: metav1.ConditionFalse,
+						Reason: "BadKubeConfig",
+					}, util.IgnoreConditionMessage, util.IgnoreConditionTimestampsAndObservedGeneration))
+					disconnectedTime = activeCondition.LastTransitionTime.Time
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("waiting for quotaReservation to be removed", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdWorkload := &kueue.Workload{}
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					acs := admissioncheck.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
+					// The transition interval should be close to testingKeepReadyTimeout (taking into account the resolution of the LastTransitionTime field)
+					g.Expect(acs.LastTransitionTime.Time).To(gomega.BeComparableTo(disconnectedTime.Add(testingWorkerLostTimeout), cmpopts.EquateApproxTime(2*time.Second)))
+					g.Expect(createdWorkload.Status.Conditions).ToNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadQuotaReserved))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("ensuring multikueue admission check reference is present and in pending state after quota reservation is gone", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdWorkload := &kueue.Workload{}
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					acs := admissioncheck.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
+					g.Expect(acs).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
+						Name:       kueue.AdmissionCheckReference(multiKueueAC.Name),
+						State:      kueue.CheckStatePending,
+						RetryCount: ptr.To(int32(1)),
+					}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "Message")))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("the worker2 wl is removed since the local one no longer has a reservation", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdWorkload := &kueue.Workload{}
+					g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
+
 })
 
 func admitWorkloadAndCheckWorkerCopies(acName string, wlLookupKey types.NamespacedName, admission *utiltestingapi.AdmissionWrapper) {
