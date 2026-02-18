@@ -34,7 +34,8 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Unit Tests](#unit-tests)
     - [Integration tests](#integration-tests)
       - [Toggle Workload Creation via Annotation Removal](#toggle-workload-creation-via-annotation-removal)
-      - [Validate Annotation Restrictions](#validate-annotation-restrictions)
+      - [Forbid adding SchedulingGatedBy post creation](#forbid-adding-schedulinggatedby-post-creation)
+      - [Forbid using a SchedulingGatedBy that is not domain-like](#forbid-using-a-schedulinggatedby-that-is-not-domain-like)
   - [Graduation Criteria](#graduation-criteria)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
@@ -44,7 +45,7 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Workload Controller State Transitions](#workload-controller-state-transitions)
     - [Usage Pattern](#usage-pattern)
     - [Why This Approach is Deferred](#why-this-approach-is-deferred)
-    - [What are the benefit of this apparoch over SchedulingGatedBy](#what-are-the-benefit-of-this-apparoch-over-schedulinggatedby)
+    - [What are the benefit of this approach over SchedulingGatedBy](#what-are-the-benefit-of-this-approach-over-schedulinggatedby)
   - [Admission policy-based activation or queue-level configuration](#admission-policy-based-activation-or-queue-level-configuration)
   - [Direct Workload Interaction](#direct-workload-interaction)
 <!-- /toc -->
@@ -420,7 +421,7 @@ This design is more complex than the proposed `SchedulingGatedBy` approach, as i
 
 Toggling on the ScheduleGatedBy annotation post creation of a Job may be reconsidered in future releases based on user feedback and requirements.
 
-#### What are the benefit of this apparoch over SchedulingGatedBy
+#### What are the benefit of this approach over SchedulingGatedBy
 
 - It offers more flexibility for end-users. They could ScheduleGate a Job after it was created, patch it, and then restore it. For example, this is useful for dealing with Jobs that are queued for too long because they request too many resources. A controller could auto-patch such jobs with less resources to help them schedule faster.
 
