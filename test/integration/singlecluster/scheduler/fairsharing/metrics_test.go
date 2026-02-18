@@ -24,6 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -59,6 +60,23 @@ var _ = ginkgo.Describe("Cohorts", func() {
 		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 		lqs[lq.Name] = lq
 		return cq
+	}
+
+	createWorkload := func(lqName string, cpu string) *kueue.Workload {
+		wl := utiltestingapi.MakeWorkloadWithGeneratedName("usage-", ns.Name).
+			Queue(kueue.LocalQueueName(lqName)).
+			Request(corev1.ResourceCPU, cpu).
+			Obj()
+		util.MustCreate(ctx, k8sClient, wl)
+		return wl
+	}
+
+	withLending := func(fName kueue.ResourceFlavorReference, nominal, lending string) kueue.FlavorQuotas {
+		fq := *utiltestingapi.MakeFlavorQuotas(string(fName)).
+			Resource(corev1.ResourceCPU, nominal).
+			Obj()
+		fq.Resources[0].LendingLimit = ptr.To(resource.MustParse(lending))
+		return fq
 	}
 
 	ginkgo.When("creating, modifying and removing", func() {
@@ -106,8 +124,8 @@ var _ = ginkgo.Describe("Cohorts", func() {
 		})
 
 		ginkgo.It("follows reporting correct metrics", func() {
-			ginkgo.By("Creating initial ClusterQueue cqa, with no cohort", func() {
-				createQueue(utiltestingapi.MakeClusterQueue("cqa").
+			ginkgo.By("Creating initial ClusterQueue cq1, with no cohort", func() {
+				createQueue(utiltestingapi.MakeClusterQueue("cq1").
 					ResourceGroup(
 						*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
 							Resource(corev1.ResourceCPU, "10").
@@ -120,10 +138,10 @@ var _ = ginkgo.Describe("Cohorts", func() {
 				util.ExpectCohortSubtreeQuotaGaugeMetricCleaned("ch1", defaultFlavor.Name, corev1.ResourceMemory.String())
 			})
 
-			ginkgo.By("Setting cqa cohort to ch1", func() {
+			ginkgo.By("Setting cq1 cohort to ch1", func() {
 				var cq kueue.ClusterQueue
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqs["cqa"]), &cq)).To(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqs["cq1"]), &cq)).To(gomega.Succeed())
 					cq.Spec.CohortName = "ch1"
 					g.Expect(k8sClient.Update(ctx, &cq)).To(gomega.Succeed())
 				}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
@@ -132,7 +150,7 @@ var _ = ginkgo.Describe("Cohorts", func() {
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceMemory.String(), util.ResourceQtyToFloat64("10Gi"))
 			})
 
-			ginkgo.By("Creating ClusterQueue cqb and cohort ch1", func() {
+			ginkgo.By("Creating ClusterQueue cq2 and cohort ch1", func() {
 				createCohort(utiltestingapi.MakeCohort("ch1").
 					ResourceGroup(
 						*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
@@ -141,7 +159,7 @@ var _ = ginkgo.Describe("Cohorts", func() {
 							Obj(),
 					).Obj())
 
-				createQueue(utiltestingapi.MakeClusterQueue("cqb").
+				createQueue(utiltestingapi.MakeClusterQueue("cq2").
 					Cohort("ch1").
 					ResourceGroup(
 						*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
@@ -150,7 +168,7 @@ var _ = ginkgo.Describe("Cohorts", func() {
 							Obj(),
 					).Obj())
 
-				// combined values of resources of cqa(10 cpu, 10Gi) and cqb(5 cpu, 5Gi) and ch1 cohort(15 cpu, 15Gi)
+				// combined values of resources of cq1(10 cpu, 10Gi) and cq2(5 cpu, 5Gi) and ch1 cohort(15 cpu, 15Gi)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 30_000)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceMemory.String(), util.ResourceQtyToFloat64("30Gi"))
 			})
@@ -423,6 +441,188 @@ var _ = ginkgo.Describe("Cohorts", func() {
 				// updated values for ch1 with cq1 removed
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", flavor1.Name, corev1.ResourceCPU.String(), 5_000)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", flavor1.Name, "nvidia.com/gpu", 1)
+			})
+		})
+
+		ginkgo.It("reports CohortSubtreeResourceUsage across child-parent propagation, reduced spill, release, and topology recompute", func() {
+			var (
+				wlCh1a *kueue.Workload
+				wlCh1b *kueue.Workload
+				wlCh1c *kueue.Workload
+				wlCh2  *kueue.Workload
+			)
+
+			ginkgo.By("Create root and children cohorts with explicit quotas/lending limits to reduce spillage", func() {
+				createCohort(utiltestingapi.MakeCohort("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+							Resource(corev1.ResourceCPU, "30").
+							Obj(),
+					).Obj())
+
+				// ch1 local quota before spilling to parent is 8-3=5 CPU
+				createCohort(utiltestingapi.MakeCohort("ch1").
+					Parent("root").
+					ResourceGroup(
+						withLending(kueue.ResourceFlavorReference(defaultFlavor.Name), "8", "3"),
+					).Obj())
+
+				// ch2 local quota before spilling to parent is 6-2=4 CPU.
+				createCohort(utiltestingapi.MakeCohort("ch2").
+					Parent("root").
+					ResourceGroup(
+						withLending(kueue.ResourceFlavorReference(defaultFlavor.Name), "6", "2"),
+					).Obj())
+
+				util.ExpectCohortSubtreeResourceUsageGaugeMetricCleaned("ch1", defaultFlavor.Name, corev1.ResourceCPU.String())
+				util.ExpectCohortSubtreeResourceUsageGaugeMetricCleaned("ch2", defaultFlavor.Name, corev1.ResourceCPU.String())
+				util.ExpectCohortSubtreeResourceUsageGaugeMetricCleaned("root", defaultFlavor.Name, corev1.ResourceCPU.String())
+			})
+
+			ginkgo.By("Create one ClusterQueue under each child cohort (also with lending limits)", func() {
+				createQueue(utiltestingapi.MakeClusterQueue("cq1").
+					Cohort("ch1").
+					ResourceGroup(
+						withLending(kueue.ResourceFlavorReference(defaultFlavor.Name), "10", "8"),
+					).Obj())
+
+				createQueue(utiltestingapi.MakeClusterQueue("cq2").
+					Cohort("ch2").
+					ResourceGroup(
+						withLending(kueue.ResourceFlavorReference(defaultFlavor.Name), "8", "6"),
+					).Obj())
+
+				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 16_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("ch2", defaultFlavor.Name, corev1.ResourceCPU.String(), 12_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 35_000)
+			})
+
+			ginkgo.By("Admit workload in ch1: usage rises in ch1 but root spill remains zero due to ch1 local quota", func() {
+				wlCh1a = createWorkload("cq1", "6")
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlCh1a)
+
+				util.ExpectCohortSubtreeResourceUsageGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 4_000)
+				util.ExpectCohortSubtreeResourceUsageGaugeMetricCleaned("root", defaultFlavor.Name, corev1.ResourceCPU.String())
+			})
+
+			ginkgo.By("Add more load in ch1: child usage grows but root spill still stays at zero with current lending limits", func() {
+				wlCh1b = createWorkload("cq1", "8")
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlCh1b)
+
+				// total cq1 usage is now 14 CPU, extra 8 CPU spill to ch1 from cq1,
+				// but ch1 can absorb it with its local quota and lending limit, so root spill stays at zero.
+				util.ExpectCohortSubtreeResourceUsageGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 12_000)
+				util.ExpectCohortSubtreeResourceUsageGaugeMetricCleaned("root", defaultFlavor.Name, corev1.ResourceCPU.String())
+			})
+
+			ginkgo.By("Force a small spill from ch1 to root with extra load", func() {
+				wlCh1c = createWorkload("cq1", "2")
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlCh1c)
+
+				// Total cq1 usage is 16 CPU (=wlCh1a 6 + wlCh1b 8 + wlCh1c 2), cq1 local part is 2 CPU so ch1 sees 14 CPU,
+				// ch1 local capacity is 13 CPU (=16 subtree quota - ch1 lendingLimit 3), and root gets the excess 1 CPU.
+				util.ExpectCohortSubtreeResourceUsageGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 14_000)
+				util.ExpectCohortSubtreeResourceUsageGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 1_000)
+			})
+
+			ginkgo.By("Admit workload in ch2 and verify usage is spilled to ch2 and root", func() {
+				wlCh2 = createWorkload("cq2", "7")
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlCh2)
+
+				// ch2 usage gets cq2 overflow: 7-2=5 CPU.
+				// ch2 local capacity is 4 CPU (=6 subtree quota - ch2 lendingLimit 2), so it absorbs 4 CPU and spills the excess 1 CPU to root.
+				util.ExpectCohortSubtreeResourceUsageGaugeMetric("ch2", defaultFlavor.Name, corev1.ResourceCPU.String(), 5_000)
+				util.ExpectCohortSubtreeResourceUsageGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 1_000)
+			})
+
+			ginkgo.By("Finish the extra spill workload and verify root goes back to zero", func() {
+				util.FinishWorkloads(ctx, k8sClient, wlCh1c)
+
+				util.ExpectCohortSubtreeResourceUsageGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 12_000)
+				util.ExpectCohortSubtreeResourceUsageGaugeMetricCleaned("root", defaultFlavor.Name, corev1.ResourceCPU.String())
+			})
+
+			ginkgo.By("Release high-overflow workload in ch1 and verify root remains at zero spill", func() {
+				util.FinishWorkloads(ctx, k8sClient, wlCh1b)
+
+				util.ExpectCohortSubtreeResourceUsageGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 4_000)
+				util.ExpectCohortSubtreeResourceUsageGaugeMetric("ch2", defaultFlavor.Name, corev1.ResourceCPU.String(), 5_000)
+				util.ExpectCohortSubtreeResourceUsageGaugeMetricCleaned("root", defaultFlavor.Name, corev1.ResourceCPU.String())
+			})
+
+			ginkgo.By("Move cq2 from ch2 to ch1 and verify recomputed hierarchical attribution", func() {
+				var cq kueue.ClusterQueue
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "cq2"}, &cq)).To(gomega.Succeed())
+					cq.Spec.CohortName = "ch1"
+					g.Expect(k8sClient.Update(ctx, &cq)).To(gomega.Succeed())
+				}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
+
+				// ch1 gains recomputed usage after the move, ch2 goes to zero
+				util.ExpectCohortSubtreeResourceUsageGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 9_000)
+				util.ExpectCohortSubtreeResourceUsageGaugeMetricCleaned("root", defaultFlavor.Name, corev1.ResourceCPU.String())
+				util.ExpectCohortSubtreeResourceUsageGaugeMetricCleaned("ch2", defaultFlavor.Name, corev1.ResourceCPU.String())
+			})
+		})
+
+		ginkgo.It("reports CohortSubtreeResourceUsage overflow only above child local quota", func() {
+			var (
+				wlLocal    *kueue.Workload
+				wlOverflow *kueue.Workload
+			)
+
+			createWorkload := func(lqName string, cpu string) *kueue.Workload {
+				wl := utiltestingapi.MakeWorkloadWithGeneratedName("usage-overflow-", ns.Name).
+					Queue(kueue.LocalQueueName(lqName)).
+					Request(corev1.ResourceCPU, cpu).
+					Obj()
+				util.MustCreate(ctx, k8sClient, wl)
+				return wl
+			}
+
+			ginkgo.By("Create root and child cohort ch1", func() {
+				createCohort(utiltestingapi.MakeCohort("root").Obj())
+				createCohort(utiltestingapi.MakeCohort("ch1").Parent("root").Obj())
+			})
+
+			ginkgo.By("Create cq1 with nominal=10 CPU and lendingLimit=4 CPU (local quota=6 CPU)", func() {
+				createQueue(utiltestingapi.MakeClusterQueue("cq1-overflow").
+					Cohort("ch1").
+					ResourceGroup(
+						withLending(kueue.ResourceFlavorReference(defaultFlavor.Name), "10", "4"),
+					).Obj())
+			})
+
+			ginkgo.By("Admit workload using exactly local quota (6 CPU): no overflow should be recorded in cohort or root", func() {
+				wlLocal = createWorkload("cq1-overflow", "6")
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlLocal)
+
+				util.ExpectCohortSubtreeResourceUsageGaugeMetricCleaned("ch1", defaultFlavor.Name, corev1.ResourceCPU.String())
+				util.ExpectCohortSubtreeResourceUsageGaugeMetricCleaned("root", defaultFlavor.Name, corev1.ResourceCPU.String())
+			})
+
+			ginkgo.By("Admit extra 2 CPU (total=8): only overflow 2 should appear in cohort and root", func() {
+				wlOverflow = createWorkload("cq1-overflow", "2")
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlOverflow)
+
+				util.ExpectCohortSubtreeResourceUsageGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 2_000)
+				util.ExpectCohortSubtreeResourceUsageGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 2_000)
+			})
+
+			ginkgo.By("Finish overflow workload and verify spill is removed from cohort and root", func() {
+				util.FinishWorkloads(ctx, k8sClient, wlOverflow)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, wlOverflow, true)
+
+				util.ExpectCohortSubtreeResourceUsageGaugeMetricCleaned("ch1", defaultFlavor.Name, corev1.ResourceCPU.String())
+				util.ExpectCohortSubtreeResourceUsageGaugeMetricCleaned("root", defaultFlavor.Name, corev1.ResourceCPU.String())
+			})
+
+			ginkgo.By("Finish local workload and keep all usage at zero", func() {
+				util.FinishWorkloads(ctx, k8sClient, wlLocal)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, wlLocal, true)
+
+				util.ExpectCohortSubtreeResourceUsageGaugeMetricCleaned("ch1", defaultFlavor.Name, corev1.ResourceCPU.String())
+				util.ExpectCohortSubtreeResourceUsageGaugeMetricCleaned("root", defaultFlavor.Name, corev1.ResourceCPU.String())
 			})
 		})
 	})

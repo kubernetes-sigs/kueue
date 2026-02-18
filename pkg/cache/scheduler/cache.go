@@ -133,6 +133,20 @@ type Cache struct {
 	roleTracker *roletracker.RoleTracker
 }
 
+func (c *Cache) GetCohortNameForWorkload(wl *kueue.Workload) kueue.CohortReference {
+	if wl == nil || wl.Status.Admission == nil {
+		return ""
+	}
+	c.RLock()
+	defer c.RUnlock()
+	cqName := wl.Status.Admission.ClusterQueue
+	cq := c.hm.ClusterQueue(cqName)
+	if cq == nil || !cq.HasParent() {
+		return ""
+	}
+	return cq.Parent().Name
+}
+
 func New(client client.Client, options ...Option) *Cache {
 	cache := &Cache{
 		client:                 client,

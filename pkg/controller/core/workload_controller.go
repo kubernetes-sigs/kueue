@@ -298,7 +298,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				return ctrl.Result{}, err
 			}
 		} else {
-			if !r.cache.AddOrUpdateWorkload(log, wl.DeepCopy()) {
+			if !r.addOrUpdateWorkload(log, wl.DeepCopy()) {
 				log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 			}
 		}
@@ -570,7 +570,8 @@ func (r *WorkloadReconciler) deleteWorkloadFromCaches(ctx context.Context, names
 
 	// If workload cached by scheduler points to a different queue:
 	// notify watchers to ensure all identified queues remain up-to-date.
-	if wlInSchedulerCache := r.cache.GetWorkloadFromCache(wlRef); workload.GetLocalQueue(wlInSchedulerCache) != workload.GetLocalQueue(wlInQueuesCache) {
+	wlInSchedulerCache := r.cache.GetWorkloadFromCache(wlRef)
+	if workload.GetLocalQueue(wlInSchedulerCache) != workload.GetLocalQueue(wlInQueuesCache) {
 		defer r.notifyWatchers(wlInSchedulerCache, nil)
 	}
 
@@ -578,7 +579,7 @@ func (r *WorkloadReconciler) deleteWorkloadFromCaches(ctx context.Context, names
 	// by the scheduler, and leaving them blocks ClusterQueue finalizer removal.
 	// The operation is idempotent if the workload was never in the cache.
 	r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlRef, func() {
-		if err := r.cache.DeleteWorkload(log, wlRef); err != nil {
+		if err := r.deleteWorkload(log, wlRef, wlInSchedulerCache); err != nil {
 			log.Error(err, "Failed to delete workload from cache")
 		}
 	})
@@ -867,7 +868,7 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 		}
 		return true
 	}
-	if !r.cache.AddOrUpdateWorkload(log, wlCopy) {
+	if !r.addOrUpdateWorkload(log, wlCopy) {
 		log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 	}
 	r.queues.QueueSecondPassIfNeeded(ctx, e.Object, 0)
@@ -935,7 +936,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			// Delete the workload from cache while holding the queues lock
 			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
-			if err := r.cache.DeleteWorkload(log, wlKey); err != nil && prevStatus == workload.StatusAdmitted {
+			if err := r.deleteWorkload(log, wlKey, e.ObjectOld); err != nil && prevStatus == workload.StatusAdmitted {
 				log.Error(err, "Failed to delete workload from cache")
 			}
 		})
@@ -952,7 +953,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		}
 	case prevStatus == workload.StatusPending && (status == workload.StatusQuotaReserved || status == workload.StatusAdmitted):
 		r.queues.DeleteWorkload(log, wlKey)
-		if !r.cache.AddOrUpdateWorkload(log, wlCopy) {
+		if !r.addOrUpdateWorkload(log, wlCopy) {
 			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 		}
 		if afs.Enabled(r.admissionFSConfig) && status == workload.StatusAdmitted && r.cache.ClusterQueueUsesAdmissionFairSharing(wlCopy.Status.Admission.ClusterQueue) {
@@ -970,7 +971,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			// Delete the workload from cache while holding the queues lock
 			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
-			if err := r.cache.DeleteWorkload(log, wlKey); err != nil {
+			if err := r.deleteWorkload(log, wlKey, e.ObjectOld); err != nil {
 				log.Error(err, "Failed to delete workload from cache")
 			}
 			// Here we don't take the lock as it is already taken by the wrapping function.
@@ -998,13 +999,13 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			// Update the workload from cache while holding the queues lock
 			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
-			r.cache.AddOrUpdateWorkload(log, wlCopy)
+			r.addOrUpdateWorkload(log, wlCopy)
 		})
 
 	default:
 		// Workload update in the cache is handled here; however, some fields are immutable
 		// and are not supposed to actually change anything.
-		r.cache.AddOrUpdateWorkload(log, wlCopy)
+		r.addOrUpdateWorkload(log, wlCopy)
 	}
 	r.queues.QueueSecondPassIfNeeded(ctx, e.ObjectNew, 0)
 	return true
@@ -1328,4 +1329,23 @@ func (h *draEventHandler) Generic(ctx context.Context, e event.TypedGenericEvent
 // GetDRAReconcileChannel returns the DRA reconcile channel for connecting to the queue manager.
 func (r *WorkloadReconciler) GetDRAReconcileChannel() chan<- event.TypedGenericEvent[*kueue.Workload] {
 	return r.draReconcileChannel
+}
+
+func (r *WorkloadReconciler) addOrUpdateWorkload(log logr.Logger, wl *kueue.Workload) bool {
+	updated := r.cache.AddOrUpdateWorkload(log, wl)
+	if wl != nil && workload.HasQuotaReservation(wl) {
+		r.cache.RecordCohortMetrics(log, r.cache.GetCohortNameForWorkload(wl))
+	}
+
+	return updated
+}
+
+func (r *WorkloadReconciler) deleteWorkload(log logr.Logger, wlKey workload.Reference, oldWl *kueue.Workload) error {
+	cohortName := r.cache.GetCohortNameForWorkload(r.cache.GetWorkloadFromCache(wlKey))
+	if cohortName == "" {
+		cohortName = r.cache.GetCohortNameForWorkload(oldWl)
+	}
+	err := r.cache.DeleteWorkload(log, wlKey)
+	r.cache.RecordCohortMetrics(log, cohortName)
+	return err
 }
