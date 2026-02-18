@@ -264,7 +264,7 @@ func TestReconciler(t *testing.T) {
 
 	testCases := map[string]struct {
 		enableObjectRetentionPolicies bool
-		disableFastQuotaRelease      bool
+		disableFastQuotaRelease       bool
 
 		reconcileKey           *types.NamespacedName
 		initObjects            []client.Object
@@ -6037,9 +6037,9 @@ func TestPod_IsActive(t *testing.T) {
 		list corev1.PodList
 	}
 	tests := map[string]struct {
-		fields                         fields
-		enableFastQuotaRelease         bool
-		want                           bool
+		fields                 fields
+		enableFastQuotaRelease bool
+		want                   bool
 	}{
 		"RegularPod": {
 			want: false,
