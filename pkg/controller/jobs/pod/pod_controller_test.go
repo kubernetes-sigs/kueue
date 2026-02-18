@@ -6032,8 +6032,9 @@ func TestPod_IsActive(t *testing.T) {
 		list corev1.PodList
 	}
 	tests := map[string]struct {
-		fields fields
-		want   bool
+		fields                 fields
+		enableFastQuotaRelease bool
+		want                   bool
 	}{
 		"RegularPod": {
 			want: false,
@@ -6095,9 +6096,94 @@ func TestPod_IsActive(t *testing.T) {
 			},
 			want: true,
 		},
+		"FastQuotaRelease_PodWithDeletionTimestamp_Inactive": {
+			enableFastQuotaRelease: true,
+			fields: fields{
+				list: corev1.PodList{
+					Items: []corev1.Pod{
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:                       "terminating-within-grace",
+								DeletionTimestamp:          ptr.To(metav1.NewTime(now.Add(-10 * time.Second))),
+								DeletionGracePeriodSeconds: ptr.To(int64(90)),
+							},
+							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+						},
+					},
+				},
+			},
+			want: false,
+		},
+		"FastQuotaRelease_Disabled_PodWithDeletionTimestampWithinGrace_Active": {
+			enableFastQuotaRelease: false,
+			fields: fields{
+				list: corev1.PodList{
+					Items: []corev1.Pod{
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:                       "terminating-within-grace",
+								DeletionTimestamp:          ptr.To(metav1.NewTime(now.Add(-10 * time.Second))),
+								DeletionGracePeriodSeconds: ptr.To(int64(90)),
+							},
+							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+						},
+					},
+				},
+			},
+			want: true,
+		},
+		"FastQuotaRelease_MixedGroup_SomeTerminating_SomeRunning": {
+			enableFastQuotaRelease: true,
+			fields: fields{
+				list: corev1.PodList{
+					Items: []corev1.Pod{
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:                       "terminating-pod",
+								DeletionTimestamp:          ptr.To(metav1.NewTime(now.Add(-10 * time.Second))),
+								DeletionGracePeriodSeconds: ptr.To(int64(90)),
+							},
+							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+						},
+						{
+							ObjectMeta: metav1.ObjectMeta{Name: "running-pod"},
+							Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+						},
+					},
+				},
+			},
+			want: true,
+		},
+		"FastQuotaRelease_AllTerminating": {
+			enableFastQuotaRelease: true,
+			fields: fields{
+				list: corev1.PodList{
+					Items: []corev1.Pod{
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:                       "terminating-pod-1",
+								DeletionTimestamp:          ptr.To(metav1.NewTime(now.Add(-10 * time.Second))),
+								DeletionGracePeriodSeconds: ptr.To(int64(90)),
+							},
+							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+						},
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:                       "terminating-pod-2",
+								DeletionTimestamp:          ptr.To(metav1.NewTime(now.Add(-5 * time.Second))),
+								DeletionGracePeriodSeconds: ptr.To(int64(300)),
+							},
+							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+						},
+					},
+				},
+			},
+			want: false,
+		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.PodIntegrationFastQuotaRelease, tt.enableFastQuotaRelease)
 			p := &Pod{
 				pod:   tt.fields.pod,
 				list:  tt.fields.list,

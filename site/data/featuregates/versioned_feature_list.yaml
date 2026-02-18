@@ -173,6 +173,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.5"
+- name: PodIntegrationFastQuotaRelease
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.15"
 - name: PrioritySortingWithinCohort
   versionedSpecs:
   - default: true

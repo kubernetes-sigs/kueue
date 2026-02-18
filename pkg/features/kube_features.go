@@ -250,6 +250,14 @@ const (
 	//
 	// Finalizers are removed using a strict patch not to cause race conditions.
 	RemoveFinalizersWithStrictPatch featuregate.Feature = "RemoveFinalizersWithStrictPatch"
+
+	// owner: @tkillian
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/6143-pod-integration-fast-quota-release
+	//
+	// When enabled, pods with a DeletionTimestamp are treated as inactive in the
+	// Pod integration's IsActive() check, allowing quota to be released immediately
+	// when preempted pods begin terminating rather than waiting for the grace period.
+	PodIntegrationFastQuotaRelease featuregate.Feature = "PodIntegrationFastQuotaRelease"
 )
 
 func init() {
@@ -393,6 +401,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	RemoveFinalizersWithStrictPatch: {
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	PodIntegrationFastQuotaRelease: {
+		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
