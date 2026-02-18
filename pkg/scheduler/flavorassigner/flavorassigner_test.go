@@ -1719,6 +1719,7 @@ func TestAssignFlavors(t *testing.T) {
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
+					{Flavor: "default", Resource: "example.com/gpu"}:  0,
 				}},
 			},
 			wantRepMode: Fit,
@@ -3230,7 +3231,8 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "two", Resource: corev1.ResourceCPU}: 1_000,
+					{Flavor: "two", Resource: corev1.ResourceCPU}:    1_000,
+					{Flavor: "two", Resource: corev1.ResourceMemory}: 0,
 				}},
 			},
 		},
