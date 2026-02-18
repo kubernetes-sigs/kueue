@@ -710,10 +710,7 @@ func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAss
 			requestAmount -= oldRequest
 		}
 
-		// Only keep track of positive amounts in resources usage
-		if requestAmount > 0 {
-			a.Usage.Quota[fr] += requestAmount
-		}
+		a.Usage.Quota[fr] += requestAmount
 		flavorIdx[resource] = flvAssignment.TriedFlavorIdx
 	}
 	a.LastState.LastTriedFlavorIdx = append(a.LastState.LastTriedFlavorIdx, flavorIdx)
