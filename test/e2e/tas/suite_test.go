@@ -64,6 +64,7 @@ var _ = ginkgo.BeforeSuite(func() {
 
 	waitForAvailableStart := time.Now()
 	util.WaitForKueueAvailability(ctx, k8sClient)
+
 	util.WaitForJobSetAvailability(ctx, k8sClient)
 	util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sClient)
 	util.WaitForKubeFlowMPIOperatorAvailability(ctx, k8sClient)

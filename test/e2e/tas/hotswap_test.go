@@ -26,6 +26,7 @@ import (
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
@@ -290,35 +291,46 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 			// The replacement mechanism seeks a replacement within the same Rack, but fails as no implementation is available.
 			// Consequently, the workload is evicted and rescheduled to a different Rack.
 			ginkgo.It("Should evict the workload if replacement is not possible due to taint", func() {
-				replicas := 1
 				parallelism := 2
-				numPods := replicas * parallelism
-				jobName := "ranks-jobset"
-				replicatedJobName := "replicated-job-1"
-				sampleJob := testingjobset.MakeJobSet(jobName, ns.Name).
-					Queue(localQueue.Name).
-					ReplicatedJobs(
-						testingjobset.ReplicatedJobRequirements{
-							Name:        replicatedJobName,
-							Image:       util.GetAgnHostImage(),
-							Args:        util.BehaviorWaitForDeletionFailOnExit,
-							Replicas:    int32(replicas),
-							Parallelism: int32(parallelism),
-							Completions: int32(parallelism),
-							PodAnnotations: map[string]string{
-								kueue.PodSetPreferredTopologyAnnotation:     utiltesting.DefaultBlockTopologyLevel,
-								kueue.PodSetSliceRequiredTopologyAnnotation: utiltesting.DefaultRackTopologyLevel,
-								kueue.PodSetSliceSizeAnnotation:             "2",
+				numPods := parallelism
+				jobName := "ranks-job"
+				sampleJob := testingjob.MakeJob(jobName, ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					Parallelism(int32(parallelism)).
+					Completions(int32(parallelism)).
+					Suspend(true).
+					PodLabel("job-name", jobName).
+					Obj()
+
+				sampleJob.Spec.Template.Spec.Containers = []corev1.Container{
+					{
+						Name:  "c",
+						Image: util.GetAgnHostImage(),
+						Args:  util.BehaviorWaitForDeletionFailOnExit,
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("200m"),
+								extraResource:      resource.MustParse("1"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("200m"),
+								extraResource:      resource.MustParse("1"),
 							},
 						},
-					).
-					RequestAndLimit(replicatedJobName, extraResource, "1").
-					RequestAndLimit(replicatedJobName, corev1.ResourceCPU, "200m").
-					Obj()
-				sampleJob.Spec.ReplicatedJobs[0].Template.Spec.BackoffLimit = ptr.To[int32](1)
+					},
+				}
+
+				sampleJob.Spec.Template.Annotations = map[string]string{
+					kueue.PodSetPreferredTopologyAnnotation:     utiltesting.DefaultBlockTopologyLevel,
+					kueue.PodSetSliceRequiredTopologyAnnotation: utiltesting.DefaultRackTopologyLevel,
+					kueue.PodSetSliceSizeAnnotation:             "2",
+				}
+				sampleJob.Spec.CompletionMode = ptr.To(batchv1.IndexedCompletion)
+				sampleJob.Spec.BackoffLimit = ptr.To[int32](1)
+
 				util.MustCreate(ctx, k8sClient, sampleJob)
 
-				ginkgo.By("JobSet is unsuspended", func() {
+				ginkgo.By("Job is unsuspended", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
 						g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
@@ -333,7 +345,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 							fields.OneTermNotEqualSelector("spec.nodeName", ""),
 							fields.OneTermEqualSelector("status.phase", string(corev1.PodRunning)),
 						),
-						LabelSelector: labels.SelectorFromSet(map[string]string{"jobset.sigs.k8s.io/jobset-name": jobName}),
+						LabelSelector: labels.SelectorFromSet(map[string]string{"job-name": jobName}),
 					}
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed(), "listing running pods")
@@ -375,39 +387,49 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 				})
 			})
 
-			// In this test we use a jobset with SliceSize = 3 and SliceRequiredTopology = Block
-			// Each pod requires 1 "extraResource" so the jobSet will use three nodes from a Block.
+			// In this test we use a job with SliceSize = 3 and SliceRequiredTopology = Block
+			// Each pod requires 1 "extraResource" so the job will use three nodes from a Block.
 			// We simulate a node failure by tainting it with NoExecute. The pod has a toleration for 0 seconds.
 			// The replacement mechanism should find the available node in the same Block and replace the tainted one.
 			ginkgo.It("Should replace a node when it becomes tainted with NoExecute and tolerationSeconds", func() {
-				replicas := 1
 				parallelism := 3
-				numPods := replicas * parallelism
-				jobName := "toleration-jobset"
-				replicatedJobName := "replicated-job-1"
+				numPods := parallelism
+				jobName := "toleration-job"
 				tolerationSeconds := int64(0)
-				sampleJob := testingjobset.MakeJobSet(jobName, ns.Name).
-					Queue(localQueue.Name).
-					ReplicatedJobs(
-						testingjobset.ReplicatedJobRequirements{
-							Name:        replicatedJobName,
-							Image:       util.GetAgnHostImage(),
-							Args:        util.BehaviorWaitForDeletionFailOnExit,
-							Replicas:    int32(replicas),
-							Parallelism: int32(parallelism),
-							Completions: int32(parallelism),
-							PodAnnotations: map[string]string{
-								kueue.PodSetPreferredTopologyAnnotation:     utiltesting.DefaultBlockTopologyLevel,
-								kueue.PodSetSliceRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
-								kueue.PodSetSliceSizeAnnotation:             "3",
+				sampleJob := testingjob.MakeJob(jobName, ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					Parallelism(int32(parallelism)).
+					Completions(int32(parallelism)).
+					Suspend(true).
+					PodLabel("job-name", jobName).
+					Obj()
+
+				sampleJob.Spec.Template.Spec.Containers = []corev1.Container{
+					{
+						Name:  "c",
+						Image: util.GetAgnHostImage(),
+						Args:  util.BehaviorWaitForDeletionFailOnExit,
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("200m"),
+								extraResource:      resource.MustParse("1"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("200m"),
+								extraResource:      resource.MustParse("1"),
 							},
 						},
-					).
-					RequestAndLimit(replicatedJobName, extraResource, "1").
-					RequestAndLimit(replicatedJobName, corev1.ResourceCPU, "200m").
-					Obj()
-				sampleJob.Spec.ReplicatedJobs[0].Template.Spec.BackoffLimit = ptr.To[int32](1)
-				sampleJob.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.Tolerations = []corev1.Toleration{
+					},
+				}
+				sampleJob.Spec.Template.Annotations = map[string]string{
+					kueue.PodSetPreferredTopologyAnnotation:     utiltesting.DefaultBlockTopologyLevel,
+					kueue.PodSetSliceRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
+					kueue.PodSetSliceSizeAnnotation:             "3",
+				}
+				sampleJob.Spec.CompletionMode = ptr.To(batchv1.IndexedCompletion)
+				sampleJob.Spec.BackoffLimit = ptr.To[int32](1)
+
+				sampleJob.Spec.Template.Spec.Tolerations = []corev1.Toleration{
 					{
 						Key:               "key1",
 						Operator:          corev1.TolerationOpEqual,
@@ -419,7 +441,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 
 				util.MustCreate(ctx, k8sClient, sampleJob)
 
-				ginkgo.By("JobSet is unsuspended", func() {
+				ginkgo.By("Job is unsuspended", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
 						g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
@@ -434,7 +456,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 							fields.OneTermEqualSelector("status.phase", string(corev1.PodRunning)),
 						),
 						LabelSelector: labels.SelectorFromSet(map[string]string{
-							"jobset.sigs.k8s.io/jobset-name": jobName,
+							"job-name": jobName,
 						}),
 					}
 					gomega.Eventually(func(g gomega.Gomega) {
@@ -527,16 +549,19 @@ func expectPodsOnNodes(ctx context.Context, k8sClient client.Client, nsName stri
 				fields.OneTermEqualSelector("status.phase", string(corev1.PodRunning)),
 			),
 			LabelSelector: labels.SelectorFromSet(map[string]string{
-				"jobset.sigs.k8s.io/jobset-name": jobName,
+				"job-name": jobName,
 			}),
 		}
 		g.Expect(k8sClient.List(ctx, pods, client.InNamespace(nsName), listOpts)).To(gomega.Succeed())
-		g.Expect(pods.Items).To(gomega.HaveLen(numPods))
 
 		gotNodes := make([]string, 0, numPods)
 		for _, p := range pods.Items {
-			gotNodes = append(gotNodes, p.Spec.NodeName)
+			if p.DeletionTimestamp.IsZero() {
+				gotNodes = append(gotNodes, p.Spec.NodeName)
+			}
 		}
+
+		g.Expect(gotNodes).To(gomega.HaveLen(numPods))
 		g.Expect(gotNodes).To(gomega.ConsistOf(expectedNodes))
 	}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 }
