@@ -48,6 +48,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	utilptr "sigs.k8s.io/kueue/pkg/util/ptr"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
@@ -1313,11 +1314,8 @@ func PodSetsOnNode(w *kueue.Workload, nodeName string) []kueue.PodSet {
 			}
 		}
 		if assigned {
-			for _, ps := range w.Spec.PodSets {
-				if ps.Name == psa.Name {
-					result = append(result, ps)
-					break
-				}
+			if ps := podset.FindPodSetByName(w.Spec.PodSets, psa.Name); ps != nil {
+				result = append(result, *ps)
 			}
 		}
 	}

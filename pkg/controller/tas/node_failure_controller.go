@@ -501,5 +501,8 @@ func classifyNoExecuteTaints(ctx context.Context, taints []corev1.Taint, podSets
 			// if the taint is permanently tolerated, the node is considered healthy for this workload
 		}
 	}
+	if len(untolerated) > 0 || len(temporarilyTolerated) > 0 {
+		logger.V(3).Info("Classified NoExecute taints", "untolerated", untolerated, "temporarilyTolerated", temporarilyTolerated)
+	}
 	return untolerated, temporarilyTolerated
 }
