@@ -30,7 +30,7 @@
   - [Specify the preemption timeout in <code>MultiKueueConfig</code> instead of <code>Configuration</code>](#specify-the-preemption-timeout-in-multikueueconfig-instead-of-configuration)
   - [Use dynamically calculated default for the preemption timeout](#use-dynamically-calculated-default-for-the-preemption-timeout)
   - [Add a <code>LastTriggeredTime</code> field to <code>PreemptionGateState</code> instead of using a <code>Condition</code>](#add-a-lasttriggeredtime-field-to-preemptiongatestate-instead-of-using-a-condition)
-  - [Extending the <code>QuotaReserved</code> <code>Condition</code>](#extending-the-quotareserved-condition)
+  - [Extend the <code>QuotaReserved</code> <code>Condition</code>](#extend-the-quotareserved-condition)
   - [Use the Gate's Presence As Closed](#use-the-gates-presence-as-closed)
 <!-- /toc -->
 
@@ -469,10 +469,9 @@ one gate is open and another one is closed, only the closed one would update `La
 
 1. Conditions are the more common of surfacing statuses like this, improving the visibility and traceability of a workload's admission process.
 
-### Extending the `QuotaReserved` `Condition`
+### Extend the `QuotaReserved` `Condition`
 
-Similarly to [adding a new `Condition`](#extending-the-quotareserved-condition), rather than creating a new `Condition`,
-`QuotaReserved` could be extended with a new reason signaling that preemption was gated.
+Rather than creating a new `Condition`, `QuotaReserved` could be extended with a new reason signaling that preemption was gated.
 This has the advantage of being able to re-use the existing mechanisms of resetting the quota reservation
 (for example when re-queuing the workload) which overwrite the `PreemptionGated` condition reason instead of having to manage
 it manually, eliminating the risk of inconsistent states (e.g. `QuotaReserved: true` and `QuotaReservationBlocked: true`).
