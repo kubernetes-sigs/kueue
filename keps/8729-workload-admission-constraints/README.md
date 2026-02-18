@@ -118,7 +118,7 @@ placements are evaluated before relaxing constraints, reducing race-driven disru
 There is an ongoing parallel effort in [KEP-8303: MultiKueue Synchronized Preemptions](https://github.com/kubernetes-sigs/kueue/pull/8985) 
 that has significant overlap with this story. 
 While this story can be viewed as complementary, it is possible that both efforts will converge, 
-and that the functionality described here may ultimately be merged into or absorbed by KEP-8303
+and that the functionality described here may ultimately be merged into or absorbed by KEP-8303.
 
 ### Risks and Mitigations
 
