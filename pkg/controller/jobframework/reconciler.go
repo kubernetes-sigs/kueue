@@ -94,7 +94,6 @@ type JobReconciler struct {
 	clock                        clock.Clock
 	workloadRetentionPolicy      WorkloadRetentionPolicy
 	roleTracker                  *roletracker.RoleTracker
-	parallelPreemption           bool
 }
 
 // RoleTracker returns the role tracker for HA logging.
@@ -118,7 +117,6 @@ type Options struct {
 	WorkloadRetentionPolicy      WorkloadRetentionPolicy
 	RoleTracker                  *roletracker.RoleTracker
 	NoopWebhook                  bool
-	ParallelPreemption           bool
 }
 
 // Option configures the reconciler.
@@ -252,13 +250,6 @@ func WithNoopWebhook(noop bool) Option {
 	}
 }
 
-// WithParallelPreemption enables parallel preemption.
-func WithParallelPreemption(enabled bool) Option {
-	return func(o *Options) {
-		o.ParallelPreemption = enabled
-	}
-}
-
 var defaultOptions = Options{
 	Clock: clock.RealClock{},
 }
@@ -279,7 +270,6 @@ func NewReconciler(
 		clock:                        options.Clock,
 		workloadRetentionPolicy:      options.WorkloadRetentionPolicy,
 		roleTracker:                  options.RoleTracker,
-		parallelPreemption:           options.ParallelPreemption,
 	}
 }
 
@@ -586,14 +576,8 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			return ctrl.Result{}, err
 		}
 		if workload.HasQuotaReservation(wl) {
-			// For preemption evictions, release quota immediately to enable parallel preemption.
-			// This allows multiple preemptors to be admitted without waiting for each preemptee's
-			// pods to fully terminate. The Kubernetes scheduler independently manages actual node
-			// resources, so new pods will naturally wait for terminating pods to release resources.
-			// For other eviction reasons, we wait until the job is no longer active.
-			releaseQuotaImmediately := r.parallelPreemption && evCond.Reason == kueue.WorkloadEvictedByPreemption
-			if releaseQuotaImmediately || !job.IsActive() {
-				log.V(6).Info("Clearing the workloads admission", "reason", evCond.Reason, "immediateRelease", releaseQuotaImmediately)
+			if !job.IsActive() {
+				log.V(6).Info("The job is no longer active, clear the workloads admission")
 				err := workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 					// The requeued condition status set to true only on EvictedByPreemption
 					setRequeued := (evCond.Reason == kueue.WorkloadEvictedByPreemption) || (evCond.Reason == kueue.WorkloadEvictedDueToNodeFailures)
