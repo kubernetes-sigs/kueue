@@ -30,7 +30,7 @@
   - [Use dynamically calculated default for the preemption timeout](#use-dynamically-calculated-default-for-the-preemption-timeout)
   - [Add a <code>LastTriggeredTime</code> field to <code>PreemptionGateState</code> instead of using a <code>Condition</code>](#add-a-lasttriggeredtime-field-to-preemptiongatestate-instead-of-using-a-condition)
   - [Extending the <code>QuotaReserved</code> <code>Condition</code>](#extending-the-quotareserved-condition)
-  - [Use the Gate's Presence As Active](#use-the-gates-presence-as-active)
+  - [Use the Gate's Presence As Closed](#use-the-gates-presence-as-closed)
 <!-- /toc -->
 
 ## Summary
@@ -153,7 +153,7 @@ There are several advantages to extending both the `spec` and `status`:
     * This avoids race conditions between when the status of the gate is created and the Kueue scheduling cycle.
     * **Important**: The case where the `status.PreemptionGateStates` is empty, but `spec.PreemptionGates` is present still
     has to be accounted for to make absolutely sure newly created workloads are gated. **Preemption gates without status are
-    active by default**.
+    closed by default**.
 
 The API will be defined as follows:
 
@@ -170,7 +170,7 @@ type WorkloadSpec struct {
   // ...
   // preemptionGates is a list of gates governing whether the workload
   // can trigger preemptions.
-  // The gates are active by default.
+  // The gates are closed by default.
   // +optional
   PreemptionGates []PreemptionGate `json:"preemptionGates,omitempty"`
 }
@@ -178,11 +178,11 @@ type WorkloadSpec struct {
 type GateState string
 
 const (
-  // GateStateActive means that the gate is active.
-  GateStateActive GateState = "Active"
+  // GateStateClosed means that the gate is blocking the workload from preempting.
+  GateStateClosed GateState = "Closed"
 
-  // GateStateInactive means that the gate is not active.
-  GateStateInactive GateState = "Inactive"
+  // GateStateOpen means that the gate is not blocking the workload from preempting.
+  GateStateOpen GateState = "Open"
 )
 
 type PreemptionGateState struct {
@@ -193,7 +193,7 @@ type PreemptionGateState struct {
   Name string `json:"name"`
 
   // state of the preemption gate. One of
-  // +kubebuilder:validation:Enum=Active;Inactive
+  // +kubebuilder:validation:Enum=Closed;Open
   // +required
   State GateState `json:"state"`
 
@@ -271,12 +271,12 @@ The `status` of the remote workloads will be updated with the `PreemptionGateSta
 A manager-level preemption orchestration controller will be responsible for ungating the replicated workloads.
 This controller will watch for workloads to change their `PreemptionGated` condition and idempotently react to such changes:
 
-1. Calculate `PreviouslyUngatedAt` as the maximum `LastTransitionTime` on `Inactive` gates `kueue.x-k8s.io/multikueue` across the replicated workloads (if no `Inactive` gates, then skip to step 4).
+1. Calculate `PreviouslyUngatedAt` as the maximum `LastTransitionTime` on `Open` gates `kueue.x-k8s.io/multikueue` across the replicated workloads (if no `Open` gates, then skip to step 4).
 1. Calculate `Now - PreviouslyUngatedAt`, i.e. `timeSinceUngate`.
 1. If `timeSinceUngate < SingleClusterPreemptionTimeout`:
     1. Schedule reconciliation after `SingleClusterPreemptionTimeout - timeSinceUngate` to prevent a hypothetical deadlock (lost reconciles) and return.
-1. Find a workload with the **lowest `PreemptionGated` condition `LastTransitionTime`** (i.e. the one that signaled first) among workloads that have an active `kueue.x-k8s.io/multikueue` gate.
-1. Mark the `kueue.x-k8s.io/multikueue` gate of the found workload as `Inactive`.
+1. Find a workload with the **lowest `PreemptionGated` condition `LastTransitionTime`** (i.e. the one that signaled first) among workloads that have an closed `kueue.x-k8s.io/multikueue` gate.
+1. Mark the `kueue.x-k8s.io/multikueue` gate of the found workload as `Open`.
 1. Schedule a reconciliation in `SingleClusterPreemptionTimeout`.
 
 When a workload is evicted, the gate will be re-activated and the `PreemptionGated` condition will be set back to false to kick-start the process again.
@@ -318,7 +318,7 @@ We'll observe the following behaviour:
 | Can't fit    	| Can't fit    	| **Flavor**: A; **Gate**: Not triggered 	| **Flavor**: A; **Gate**: Not triggered 	|
 | Can't fit    	| Can preempt  	| **Flavor**: B; **Gate**: Triggered     	| **Flavor**: B; **Gate**: Triggered     	|
 
-When a head of a queue is given the `Preempt` assignment mode and it has an active preemption gate,
+When a head of a queue is given the `Preempt` assignment mode and it has a closed preemption gate,
 the scheduler will treat it as inadmissible and put that workload back into the queue according to the configured queueing strategy:
 
 * `BestEffortFIFO` - the workload is marked as inadmissible and effectively cannot run until the gate is removed.
@@ -450,7 +450,7 @@ or some way to read what the value is on the worker cluster (the worker clusters
 
 Instead of creating a new `Condition`/extending an existing one, the `PreemptionGateState` could have a `LastTriggeredTime` field.
 This has the advantage of being gate-specific rather Workload-level, allowing to trace which gate was triggered (in cases where
-one gate is inactive and another one is active, only the active one would update `LastTriggeredTime`).
+one gate is open and another one is closed, only the closed one would update `LastTriggeredTime`).
 
 **Reasons for discarding/deferring**
 
@@ -469,10 +469,10 @@ it manually, eliminating the risk of inconsistent states (e.g. `QuotaReserved: t
 1. This approach is inflexible. If a similar reason for the `QuotaReserved` condition is needed in the future (for example
 `BorrowingGated`), the conditions could overwrite each other which would lead to information loss and bugs.
 
-### Use the Gate's Presence As Active
+### Use the Gate's Presence As Closed
 
 To avoid the split-brain scenario with the gate being present both in the `spec` and `status`, an approach similar to a
-`Pod`s `schedulingGates` could be used - the presence of a gate means that it is active and it is deactivated by being removed
+`Pod`s `schedulingGates` could be used - the presence of a gate means that it is closed and it is deactivated by being removed
 from the `spec`.
 
 **Reasons for discarding/deferring**
