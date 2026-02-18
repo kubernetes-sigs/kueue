@@ -668,14 +668,23 @@ func SetWorkloadsAdmissionCheck(ctx context.Context, k8sClient client.Client, wl
 }
 
 func SetAdmissionCheckStrategy(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, strategyRules ...kueue.AdmissionCheckStrategyRule) {
-	var updatedCq kueue.ClusterQueue
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)).Should(gomega.Succeed())
+	gomega.Eventually(func(g gomega.Gomega) {
+		updatedCq := &kueue.ClusterQueue{}
+		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), updatedCq)).Should(gomega.Succeed())
 		updatedCq.Spec.AdmissionChecksStrategy = &kueue.AdmissionChecksStrategy{
 			AdmissionChecks: strategyRules,
 		}
-		gomega.Expect(k8sClient.Update(ctx, &updatedCq)).Should(gomega.Succeed())
+		gomega.Expect(k8sClient.Update(ctx, updatedCq)).Should(gomega.Succeed())
 
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func SetResourceGroups(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, resources ...kueue.ResourceGroup) {
+	gomega.Eventually(func(g gomega.Gomega) {
+		updatedCq := &kueue.ClusterQueue{}
+		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), updatedCq)).Should(gomega.Succeed())
+		updatedCq.Spec.ResourceGroups = resources
+		gomega.Expect(k8sClient.Update(ctx, updatedCq)).Should(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
