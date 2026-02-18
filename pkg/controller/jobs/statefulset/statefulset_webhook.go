@@ -18,7 +18,6 @@ package statefulset
 
 import (
 	"context"
-	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
@@ -33,7 +32,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
-	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
@@ -90,26 +88,10 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 		return err
 	}
 	if suspend {
-		if ss.Spec.Template.Labels == nil {
-			ss.Spec.Template.Labels = make(map[string]string, 4)
-		}
-		ss.Spec.Template.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
-		ss.Spec.Template.Labels[podconstants.GroupNameLabel] = GetWorkloadName(ss.Name)
-		if queueName := jobframework.QueueNameForObject(ss.Object()); queueName != "" {
-			ss.Spec.Template.Labels[controllerconstants.QueueLabel] = string(queueName)
-		}
-		if priorityClass := jobframework.WorkloadPriorityClassName(ss.Object()); priorityClass != "" {
-			ss.Spec.Template.Labels[controllerconstants.WorkloadPriorityClassLabel] = priorityClass
-		}
-
 		if ss.Spec.Template.Annotations == nil {
-			ss.Spec.Template.Annotations = make(map[string]string, 5)
+			ss.Spec.Template.Annotations = make(map[string]string, 1)
 		}
 		ss.Spec.Template.Annotations[podconstants.SuspendedByParentAnnotation] = FrameworkName
-		ss.Spec.Template.Annotations[podconstants.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(ss.Spec.Replicas, 1))
-		ss.Spec.Template.Annotations[podconstants.GroupFastAdmissionAnnotationKey] = podconstants.GroupFastAdmissionAnnotationValue
-		ss.Spec.Template.Annotations[podconstants.GroupServingAnnotationKey] = podconstants.GroupServingAnnotationValue
-		ss.Spec.Template.Annotations[kueue.PodGroupPodIndexLabelAnnotation] = appsv1.PodIndexLabel
 	}
 
 	return nil
