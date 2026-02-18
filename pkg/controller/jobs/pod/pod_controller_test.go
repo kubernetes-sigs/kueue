@@ -264,7 +264,6 @@ func TestReconciler(t *testing.T) {
 
 	testCases := map[string]struct {
 		enableObjectRetentionPolicies bool
-		disableFastQuotaRelease       bool
 
 		reconcileKey           *types.NamespacedName
 		initObjects            []client.Object
@@ -1912,7 +1911,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"wl should not get the quota reservation cleared for a running pod group of size 1": {
-			disableFastQuotaRelease: true,
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -5590,9 +5588,6 @@ func TestReconciler(t *testing.T) {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.ObjectRetentionPolicies, tc.enableObjectRetentionPolicies)
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
-				if tc.disableFastQuotaRelease {
-					features.SetFeatureGateDuringTest(t, features.PodIntegrationFastQuotaRelease, false)
-				}
 
 				ctx, log := utiltesting.ContextWithLog(t)
 				clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
