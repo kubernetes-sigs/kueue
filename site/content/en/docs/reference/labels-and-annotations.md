@@ -6,6 +6,17 @@ date: 2024-10-09
 
 This page serves as a reference for all labels and annotations in Kueue.
 
+### kueue.x-k8s.io/cluster-queue-name
+
+Type: Label
+
+Example: `kueue.x-k8s.io/cluster-queue-name: "my-cluster-queue"`
+
+Used on: Pods.
+
+The label key in all pods created by queue workloads or managed by Kueue, it indicates from which cluster queue the pod originated or by which cluster queue
+the pod has been admitted in case of managed pods.
+
 ### kueue.x-k8s.io/is-group-workload
 
 Type: Annotation
@@ -68,6 +79,17 @@ Example: `kueue.x-k8s.io/job-uid: "46ef6b23-a7d9-42b1-b0f8-071bbb29a94d"`
 Used on: [Workload](/docs/concepts/workload/).
 
 The label key in the workload resource holds the UID of the owner job.
+
+### kueue.x-k8s.io/local-queue-name
+
+Type: Label
+
+Example: `kueue.x-k8s.io/local-queue-name: "my-local-queue"`
+
+Used on: Pods.
+
+The label key in all pods created by queue workloads or managed by Kueue, it indicates from which local queue the pod originated. In case of managed pods
+equal to name of the local queue to which the pod has been assigned.
 
 ### kueue.x-k8s.io/managed
 
@@ -179,7 +201,7 @@ Example: `kueue.x-k8s.io/podset: "main"`
 
 Used on: Kueue-managed Jobs.
 
-The label key is used on the Job's PodTemplate to indicate the name 
+The label key is used on the Job's PodTemplate to indicate the name
 of the PodSet of the admitted Workload corresponding to the PodTemplate.
 The label is set when starting the Job, and removed on stopping the Job.
 
@@ -206,7 +228,7 @@ The label key of the job holds the name of the pre-built workload to be used.
 The intended use of prebuilt workload is to create the Job once the workload
 is created. In other scenarios the behavior is undefined.
 
-Note: When using `kueue.x-k8s.io/pod-group-name`, the prebuilt workload name 
+Note: When using `kueue.x-k8s.io/pod-group-name`, the prebuilt workload name
 and the pod group name should be the same.
 
 ### kueue.x-k8s.io/priority-class
