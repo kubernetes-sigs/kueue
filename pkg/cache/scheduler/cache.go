@@ -107,8 +107,8 @@ type Cache struct {
 	sync.RWMutex
 	podsReadyCond sync.Cond
 
-	client               client.Client
-	resourceFlavors      map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
+	client          client.Client
+	resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	// Pre-computed (flavor, resource) → weight lookup derived from resourceFlavors.
 	// Avoids repeated map traversal and Quantity-to-float conversion on every DRS calculation.
 	// Stored here (not only in Snapshot) because status/metrics paths also need it.
