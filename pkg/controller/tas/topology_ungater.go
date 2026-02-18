@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"slices"
 	"strconv"
 
 	"github.com/go-logr/logr"
@@ -173,7 +172,7 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 		log.V(3).Info("There are pending ungate operations")
 		return reconcile.Result{}, errPendingUngateOps
 	}
-	if !isAdmittedByTAS(wl) {
+	if !workload.IsAdmittedByTAS(wl) {
 		// this is a safeguard. In particular, it helps to prevent the race
 		// condition if the workload is evicted before the reconcile is
 		// triggered.
@@ -287,15 +286,15 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 }
 
 func (r *topologyUngater) Create(event event.TypedCreateEvent[*kueue.Workload]) bool {
-	return isAdmittedByTAS(event.Object)
+	return workload.IsAdmittedByTAS(event.Object)
 }
 
 func (r *topologyUngater) Delete(event event.TypedDeleteEvent[*kueue.Workload]) bool {
-	return isAdmittedByTAS(event.Object)
+	return workload.IsAdmittedByTAS(event.Object)
 }
 
 func (r *topologyUngater) Update(event event.TypedUpdateEvent[*kueue.Workload]) bool {
-	return isAdmittedByTAS(event.ObjectNew)
+	return workload.IsAdmittedByTAS(event.ObjectNew)
 }
 
 func (r *topologyUngater) Generic(event.TypedGenericEvent[*kueue.Workload]) bool {
@@ -496,14 +495,6 @@ func readRanksForLabels(
 		result[rank] = pod
 	}
 	return result, nil
-}
-
-func isAdmittedByTAS(w *kueue.Workload) bool {
-	return w.Status.Admission != nil && workload.IsAdmitted(w) &&
-		slices.ContainsFunc(w.Status.Admission.PodSetAssignments,
-			func(psa kueue.PodSetAssignment) bool {
-				return psa.TopologyAssignment != nil
-			})
 }
 
 func rankToDomainID(ta *kueue.TopologyAssignment) []utiltas.TopologyDomainID {

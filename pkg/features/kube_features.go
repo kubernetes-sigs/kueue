@@ -250,6 +250,12 @@ const (
 	//
 	// Finalizers are removed using a strict patch not to cause race conditions.
 	RemoveFinalizersWithStrictPatch featuregate.Feature = "RemoveFinalizersWithStrictPatch"
+
+	// owner: @j-skiba
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/8828
+	// Enable workload eviction when node is tainted and pods are not able to run.
+	TASReplaceNodeOnNodeTaints featuregate.Feature = "TASReplaceNodeOnNodeTaints"
 )
 
 func init() {
@@ -391,6 +397,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	RemoveFinalizersWithStrictPatch: {
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
+	},
+	TASReplaceNodeOnNodeTaints: {
+		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
