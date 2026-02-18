@@ -71,6 +71,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.12"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "0.17"
 - name: LocalQueueMetrics
   versionedSpecs:
   - default: false

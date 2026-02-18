@@ -23,7 +23,7 @@ const (
 	QueueLabel = "kueue.x-k8s.io/queue-name"
 
 	// DefaultLocalQueueName is the name for default LocalQueue that is applied
-	// if the feature LocalQueueDefaulting is enabled and QueueLabel is not specified.
+	// if QueueLabel is not specified.
 	DefaultLocalQueueName kueue.LocalQueueName = "default"
 
 	// PrebuiltWorkloadLabel is the label key of the job holding the name of the pre-built workload to use.

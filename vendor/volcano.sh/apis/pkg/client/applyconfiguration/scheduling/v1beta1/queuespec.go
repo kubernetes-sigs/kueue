@@ -19,21 +19,23 @@ package v1beta1
 
 import (
 	v1 "k8s.io/api/core/v1"
+	schedulingv1beta1 "volcano.sh/apis/pkg/apis/scheduling/v1beta1"
 )
 
 // QueueSpecApplyConfiguration represents a declarative configuration of the QueueSpec type for use
 // with apply.
 type QueueSpecApplyConfiguration struct {
-	Weight         *int32                       `json:"weight,omitempty"`
-	Capability     *v1.ResourceList             `json:"capability,omitempty"`
-	Reclaimable    *bool                        `json:"reclaimable,omitempty"`
-	ExtendClusters []ClusterApplyConfiguration  `json:"extendClusters,omitempty"`
-	Guarantee      *GuaranteeApplyConfiguration `json:"guarantee,omitempty"`
-	Affinity       *AffinityApplyConfiguration  `json:"affinity,omitempty"`
-	Type           *string                      `json:"type,omitempty"`
-	Parent         *string                      `json:"parent,omitempty"`
-	Deserved       *v1.ResourceList             `json:"deserved,omitempty"`
-	Priority       *int32                       `json:"priority,omitempty"`
+	Weight          *int32                             `json:"weight,omitempty"`
+	Capability      *v1.ResourceList                   `json:"capability,omitempty"`
+	Reclaimable     *bool                              `json:"reclaimable,omitempty"`
+	ExtendClusters  []ClusterApplyConfiguration        `json:"extendClusters,omitempty"`
+	Guarantee       *GuaranteeApplyConfiguration       `json:"guarantee,omitempty"`
+	Affinity        *AffinityApplyConfiguration        `json:"affinity,omitempty"`
+	Type            *string                            `json:"type,omitempty"`
+	Parent          *string                            `json:"parent,omitempty"`
+	Deserved        *v1.ResourceList                   `json:"deserved,omitempty"`
+	Priority        *int32                             `json:"priority,omitempty"`
+	DequeueStrategy *schedulingv1beta1.DequeueStrategy `json:"dequeueStrategy,omitempty"`
 }
 
 // QueueSpecApplyConfiguration constructs a declarative configuration of the QueueSpec type for use with
@@ -124,5 +126,13 @@ func (b *QueueSpecApplyConfiguration) WithDeserved(value v1.ResourceList) *Queue
 // If called multiple times, the Priority field is set to the value of the last call.
 func (b *QueueSpecApplyConfiguration) WithPriority(value int32) *QueueSpecApplyConfiguration {
 	b.Priority = &value
+	return b
+}
+
+// WithDequeueStrategy sets the DequeueStrategy field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DequeueStrategy field is set to the value of the last call.
+func (b *QueueSpecApplyConfiguration) WithDequeueStrategy(value schedulingv1beta1.DequeueStrategy) *QueueSpecApplyConfiguration {
+	b.DequeueStrategy = &value
 	return b
 }

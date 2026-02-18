@@ -38,7 +38,6 @@ import (
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -117,10 +116,8 @@ func validateUpdateForQueueName(oldJob, newJob GenericJob, defaultQueueExist fun
 	if !newJob.IsSuspended() {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(QueueName(newJob), QueueName(oldJob), queueNameLabelPath)...)
 	}
-	if features.Enabled(features.LocalQueueDefaulting) {
-		if QueueName(newJob) == "" && QueueName(oldJob) != "" && defaultQueueExist(oldJob.Object().GetNamespace()) {
-			allErrs = append(allErrs, field.Invalid(queueNameLabelPath, "", "queue-name must not be empty in namespace with default queue"))
-		}
+	if QueueName(newJob) == "" && QueueName(oldJob) != "" && defaultQueueExist(oldJob.Object().GetNamespace()) {
+		allErrs = append(allErrs, field.Invalid(queueNameLabelPath, "", "queue-name must not be empty in namespace with default queue"))
 	}
 
 	return allErrs
