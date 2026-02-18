@@ -298,7 +298,7 @@ After the implementation PR is merged, add the names of the tests here.
 ##### Forbid using a SchedulingGatedBy that is not domain-like
 
 1. Create Job with non domain-like annotation value
-   - Try to create a `batch/v1 Job` manifest with the annotation ``kueue.x-k8s.io/scheduling-gated-by="not a domain"`
+   - Try to create a `batch/v1 Job` manifest with the annotation `kueue.x-k8s.io/scheduling-gated-by="not a domain"`
 2. Verify validation prevents creation
    - Confirm the object creation is rejected by validation
    - Verify appropriate error message is returned
