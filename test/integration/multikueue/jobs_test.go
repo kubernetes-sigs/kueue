@@ -2031,7 +2031,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, additionalAc, true)
 		})
 
-		ginkgo.FIt("should keep multikueue admission check reference and properly clean up the remote workload when the connection to an admitting worker is lost", framework.SlowSpec, func() {
+		ginkgo.It("should keep multikueue admission check reference and properly clean up the remote workload when the connection to an admitting worker is lost", framework.SlowSpec, func() {
 			jobSet := testingjobset.MakeJobSet("job-set", managerNs.Name).
 				Queue(managerLq.Name).
 				ManagedBy(kueue.MultiKueueControllerName).
