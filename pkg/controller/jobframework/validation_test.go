@@ -262,9 +262,8 @@ func TestValidateJobOnUpdate(t *testing.T) {
 		wantErr           field.ErrorList
 	}{
 		"local queue cannot be changed if job is not suspended": {
-			oldJob:       utiltestingjob.MakeJob("test-job", "ns1").Queue("lq1").Suspend(false).Obj(),
-			newJob:       utiltestingjob.MakeJob("test-job", "ns1").Queue("lq2").Suspend(false).Obj(),
-			featureGates: map[featuregate.Feature]bool{features.LocalQueueDefaulting: true},
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").Queue("lq1").Suspend(false).Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").Queue("lq2").Suspend(false).Obj(),
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
@@ -297,12 +296,6 @@ func TestValidateJobOnUpdate(t *testing.T) {
 			oldJob:            utiltestingjob.MakeJob("test-job", "ns1").Suspend(true).Queue("lq1").Obj(),
 			newJob:            utiltestingjob.MakeJob("test-job", "ns1").Suspend(true).Queue("").Obj(),
 			nsHasDefaultQueue: false,
-		},
-		"local queue can be removed if feature is not enabled": {
-			oldJob:            utiltestingjob.MakeJob("test-job", "ns1").Suspend(true).Queue("lq1").Obj(),
-			newJob:            utiltestingjob.MakeJob("test-job", "ns1").Suspend(true).Queue("").Obj(),
-			nsHasDefaultQueue: true,
-			featureGates:      map[featuregate.Feature]bool{features.LocalQueueDefaulting: false},
 		},
 		"elastic job enabled annotation cannot be removed on update": {
 			oldJob: utiltestingjob.MakeJob("test-job", "ns1").SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).Obj(),
