@@ -64,9 +64,25 @@ const (
 )
 
 const (
+	// workloadHealthy indicates that the workload does not need to be evicted from the node.
+	// This happens if the node is healthy, or if the workload has permanent tolerations for the node's taints.
 	workloadHealthy workloadStatus = iota
+
+	// workloadUnhealthy indicates that the workload needs to be evicted from the node,
+	// and is ready for eviction (e.g. all of its pods on the node have fully terminated).
 	workloadUnhealthy
-	workloadWaiting
+
+	// workloadTemporarilyHealthy indicates that the workload will need to be evicted from the node,
+	// but is not ready yet (e.g. pods are still terminating, or taints are only temporarily tolerated).
+	workloadTemporarilyHealthy
+)
+
+type taintToleration int
+
+const (
+	toleratedTemporarily taintToleration = iota
+	toleratedPermanently
+	untoleratedTaint
 )
 
 // nodeFailureReconciler reconciles Nodes to detect failures and update affected Workloads
@@ -267,7 +283,7 @@ func (r *nodeFailureReconciler) getWorkloadStatus(ctx context.Context, nodeName 
 		if allPodsTerminated {
 			return workloadUnhealthy, nil
 		}
-		return workloadWaiting, nil
+		return workloadTemporarilyHealthy, nil
 	}
 	return workloadHealthy, nil
 }
@@ -352,7 +368,7 @@ func (r *nodeFailureReconciler) reconcileWorkloadsOnNode(ctx context.Context, no
 		switch status {
 		case workloadUnhealthy:
 			unhealthyWorkloads.Insert(wlKey)
-		case workloadWaiting:
+		case workloadTemporarilyHealthy:
 			hasWaitingWorkloads = true
 			notUnhealthyWorkloads.Insert(wlKey)
 		case workloadHealthy:
@@ -437,6 +453,38 @@ func (r *nodeFailureReconciler) addUnhealthyNode(ctx context.Context, wl *kueue.
 	return nil
 }
 
+func checkTaintTolerations(logger logr.Logger, taint *corev1.Taint, podSets []kueue.PodSet) taintToleration {
+	isUntolerated := true
+	isPermanentlyTolerated := true
+
+	for _, ps := range podSets {
+		if !corev1helpers.TolerationsTolerateTaint(logger, ps.Template.Spec.Tolerations, taint, false) {
+			isUntolerated = false
+			break
+		}
+
+		// check if the taint is permanently tolerated,
+		// if the taint is not permanently tolerated, the node will be watched
+		permanentTolerations := make([]corev1.Toleration, 0, len(ps.Template.Spec.Tolerations))
+		for _, t := range ps.Template.Spec.Tolerations {
+			if t.TolerationSeconds == nil {
+				permanentTolerations = append(permanentTolerations, t)
+			}
+		}
+		if !corev1helpers.TolerationsTolerateTaint(logger, permanentTolerations, taint, false) {
+			isPermanentlyTolerated = false
+		}
+	}
+
+	if !isUntolerated {
+		return untoleratedTaint
+	}
+	if !isPermanentlyTolerated {
+		return toleratedTemporarily
+	}
+	return toleratedPermanently
+}
+
 func classifyNoExecuteTaints(ctx context.Context, taints []corev1.Taint, podSets []kueue.PodSet) (untolerated, temporarilyTolerated []corev1.Taint) {
 	logger := ctrl.LoggerFrom(ctx)
 	for _, taint := range taints {
@@ -444,32 +492,13 @@ func classifyNoExecuteTaints(ctx context.Context, taints []corev1.Taint, podSets
 			continue
 		}
 
-		isToleratedAtAll := true
-		isPermanentlyTolerated := true
-
-		for _, ps := range podSets {
-			if !corev1helpers.TolerationsTolerateTaint(logger, ps.Template.Spec.Tolerations, &taint, false) {
-				isToleratedAtAll = false
-				break
-			}
-
-			// check if the taint is permanently tolerated,
-			// if the taint is not permanently tolerated, the node will be watched
-			permanentTolerations := make([]corev1.Toleration, 0, len(ps.Template.Spec.Tolerations))
-			for _, t := range ps.Template.Spec.Tolerations {
-				if t.TolerationSeconds == nil {
-					permanentTolerations = append(permanentTolerations, t)
-				}
-			}
-			if !corev1helpers.TolerationsTolerateTaint(logger, permanentTolerations, &taint, false) {
-				isPermanentlyTolerated = false
-			}
-		}
-
-		if !isToleratedAtAll {
+		switch checkTaintTolerations(logger, &taint, podSets) {
+		case untoleratedTaint:
 			untolerated = append(untolerated, taint)
-		} else if !isPermanentlyTolerated {
+		case toleratedTemporarily:
 			temporarilyTolerated = append(temporarilyTolerated, taint)
+		case toleratedPermanently:
+			// if the taint is permanently tolerated, the node is considered healthy for this workload
 		}
 	}
 	return untolerated, temporarilyTolerated
