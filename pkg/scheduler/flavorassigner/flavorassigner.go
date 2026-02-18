@@ -684,15 +684,15 @@ func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAss
 		// For workload slicing, only add the delta (new - old) to avoid double-counting
 		// podSets that already have quota reserved in the old slice.
 		requestAmount := requests[resource]
-		if a.replaceWorkloadSlice != nil {
+		if features.Enabled(features.ElasticJobsViaWorkloadSlices) && a.replaceWorkloadSlice != nil {
 			oldRequest := a.findOldPodSetRequest(psAssignment.Name, resource)
 			requestAmount -= oldRequest
-			if requestAmount == 0 {
-				continue
-			}
 		}
 
-		a.Usage.Quota[fr] += requestAmount
+		// Only keep track of positive amounts in resources usage
+		if requestAmount > 0 {
+			a.Usage.Quota[fr] += requestAmount
+		}
 		flavorIdx[resource] = flvAssignment.TriedFlavorIdx
 	}
 	a.LastState.LastTriedFlavorIdx = append(a.LastState.LastTriedFlavorIdx, flavorIdx)
