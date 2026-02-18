@@ -107,7 +107,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for StatefulSet", func() {
 				gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				gotAssignment := make(map[string]string, replicas)
 				for _, pod := range pods.Items {
-					index := pod.Labels[kueue.PodGroupPodIndexLabel]
+					index := pod.Labels[appsv1.PodIndexLabel]
 					gotAssignment[index] = pod.Spec.NodeName
 				}
 				wantAssignment := map[string]string{
