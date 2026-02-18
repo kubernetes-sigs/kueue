@@ -205,7 +205,6 @@ func TestDefault(t *testing.T) {
 	testCases := map[string]struct {
 		trainJob                     *kftrainerapi.TrainJob
 		defaultQueue                 *kueue.LocalQueue
-		localQueueDefaultingEnabled  bool
 		manageJobsWithoutQueueName   bool
 		withMultiKueueAdmissionCheck bool
 		withDefaultLocalQueue        bool
@@ -238,14 +237,12 @@ func TestDefault(t *testing.T) {
 				Queue(string(controllerconstants.DefaultLocalQueueName)).
 				JobSetLabel(controllerconstants.QueueLabel, string(controllerconstants.DefaultLocalQueueName)).
 				Obj(),
-			localQueueDefaultingEnabled: true,
-			withDefaultLocalQueue:       true,
+			withDefaultLocalQueue: true,
 		},
 		"should not set the default local queue if doesn't exists": {
-			trainJob:                    testTrainJob.Clone().Obj(),
-			wantTrainJob:                testTrainJob.Clone().Obj(),
-			localQueueDefaultingEnabled: true,
-			withDefaultLocalQueue:       false,
+			trainJob:              testTrainJob.Clone().Obj(),
+			wantTrainJob:          testTrainJob.Clone().Obj(),
+			withDefaultLocalQueue: false,
 		},
 		"should set managedBy to multiKueue if the user didn't specify any": {
 			trainJob: testTrainJob.Clone().Queue(testLocalQueue.Name).Obj(),
@@ -281,13 +278,12 @@ func TestDefault(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.MultiKueue, tc.multiKueueEnabled)
-			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaultingEnabled)
 
 			ctx, log := utiltesting.ContextWithLog(t)
 
 			kClient := utiltesting.NewClientBuilder().WithObjects(testNamespace.Obj()).Build()
 			cqCache := schdcache.New(kClient)
-			queueManager := qcache.NewManager(kClient, cqCache)
+			queueManager := qcache.NewManagerForUnitTests(kClient, cqCache)
 
 			cq := testClusterQueue.Clone()
 			if tc.withMultiKueueAdmissionCheck {

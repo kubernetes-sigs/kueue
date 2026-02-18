@@ -30,7 +30,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
-	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
@@ -38,10 +37,9 @@ import (
 
 func TestDefault(t *testing.T) {
 	testCases := map[string]struct {
-		deployment           *appsv1.Deployment
-		localQueueDefaulting bool
-		defaultLqExist       bool
-		want                 *appsv1.Deployment
+		deployment     *appsv1.Deployment
+		defaultLqExist bool
+		want           *appsv1.Deployment
 	}{
 		"deployment without queue": {
 			deployment: testingdeployment.MakeDeployment("test-pod", "").Obj(),
@@ -74,10 +72,9 @@ func TestDefault(t *testing.T) {
 			deployment: testingdeployment.MakeDeployment("test-pod", "").PodTemplateSpecQueue("test-queue").Obj(),
 			want:       testingdeployment.MakeDeployment("test-pod", "").PodTemplateSpecQueue("test-queue").Obj(),
 		},
-		"LocalQueueDefaulting enabled, default lq is created, job doesn't have queue label": {
-			localQueueDefaulting: true,
-			defaultLqExist:       true,
-			deployment:           testingdeployment.MakeDeployment("test-pod", "default").Obj(),
+		"default lq is created, job doesn't have queue label": {
+			defaultLqExist: true,
+			deployment:     testingdeployment.MakeDeployment("test-pod", "default").Obj(),
 			want: testingdeployment.MakeDeployment("test-pod", "default").
 				PodTemplateSpecManagedByKueue().
 				Queue("default").
@@ -85,10 +82,9 @@ func TestDefault(t *testing.T) {
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Obj(),
 		},
-		"LocalQueueDefaulting enabled, default lq is created, job has queue label": {
-			localQueueDefaulting: true,
-			defaultLqExist:       true,
-			deployment:           testingdeployment.MakeDeployment("test-pod", "").Queue("test-queue").Obj(),
+		"default lq is created, job has queue label": {
+			defaultLqExist: true,
+			deployment:     testingdeployment.MakeDeployment("test-pod", "").Queue("test-queue").Obj(),
 			want: testingdeployment.MakeDeployment("test-pod", "").
 				PodTemplateSpecManagedByKueue().
 				Queue("test-queue").
@@ -96,10 +92,9 @@ func TestDefault(t *testing.T) {
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Obj(),
 		},
-		"LocalQueueDefaulting enabled, default lq isn't created, job doesn't have queue label": {
-			localQueueDefaulting: true,
-			defaultLqExist:       false,
-			deployment:           testingdeployment.MakeDeployment("test-pod", "").Obj(),
+		"default lq isn't created, job doesn't have queue label": {
+			defaultLqExist: false,
+			deployment:     testingdeployment.MakeDeployment("test-pod", "").Obj(),
 			want: testingdeployment.MakeDeployment("test-pod", "").
 				Obj(),
 		},
@@ -148,12 +143,11 @@ func TestDefault(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
 			t.Cleanup(jobframework.EnableIntegrationsForTest(t, "pod"))
 			builder := utiltesting.NewClientBuilder()
 			client := builder.Build()
 			cqCache := schdcache.New(client)
-			queueManager := qcache.NewManager(client, cqCache)
+			queueManager := qcache.NewManagerForUnitTests(client, cqCache)
 			if tc.defaultLqExist {
 				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("default", "default").
 					ClusterQueue("cluster-queue").

@@ -16,6 +16,10 @@ Check [administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) 
 
 Check [the MPI Operator installation guide](https://github.com/kubeflow/mpi-operator#installation).
 
+{{% alert title="Note" color="primary" %}}
+The minimum required MPI Operator version is v0.8.0.
+{{% /alert %}}
+
 You can [modify kueue configurations from installed releases](/docs/installation#install-a-custom-configured-released-version) to include MPIJobs as an allowed workload.
 
 {{% alert title="Note" color="primary" %}}
