@@ -26,7 +26,8 @@
 - [Alternatives](#alternatives)
   - [Re-use the <code>kueue.x-k8s.io/cannot-preempt</code> annotation and its semantics](#re-use-the-kueuex-k8siocannot-preempt-annotation-and-its-semantics)
   - [Create a new alpha annotation <code>kueue.x-k8s.io/preemption-gated</code>](#create-a-new-alpha-annotation-kueuex-k8siopreemption-gated)
-  - [Specify the preemption timeout per-ClusterQueue instead of globally](#specify-the-preemption-timeout-per-clusterqueue-instead-of-globally)
+  - [Specify the preemption timeout per-<code>ClusterQueue</code> instead of globally](#specify-the-preemption-timeout-per-clusterqueue-instead-of-globally)
+  - [Specify the preemption timeout in <code>MultiKueueConfig</code> instead of <code>Configuration</code>](#specify-the-preemption-timeout-in-multikueueconfig-instead-of-configuration)
   - [Use dynamically calculated default for the preemption timeout](#use-dynamically-calculated-default-for-the-preemption-timeout)
   - [Add a <code>LastTriggeredTime</code> field to <code>PreemptionGateState</code> instead of using a <code>Condition</code>](#add-a-lasttriggeredtime-field-to-preemptiongatestate-instead-of-using-a-condition)
   - [Extending the <code>QuotaReserved</code> <code>Condition</code>](#extending-the-quotareserved-condition)
@@ -425,7 +426,7 @@ less clear.
 1. The proposed API makes use of familiar K8s/Kueue constructs, which makes it easy to process and reason about by the users and contributors alike.
 1. The proposed API is complex enough that fitting it into an annotation would be inconvenient.
 
-### Specify the preemption timeout per-ClusterQueue instead of globally
+### Specify the preemption timeout per-`ClusterQueue` instead of globally
 
 Instead of making the preemption timeout part of the Configuration API, it could be made more granular by including it
 in the ClusterQueue API.
@@ -434,6 +435,15 @@ in the ClusterQueue API.
 
 1. The preemption gating mechanism is heavily MultiKueue specific at the moment. For simplicity, the API changes will be
 scoped to MultiKueue constructs rather than spilling over to more general Kueue concepts like ClusterQueues.
+
+### Specify the preemption timeout in `MultiKueueConfig` instead of `Configuration`
+
+Instead of making the preemption timeout part of the Configuration API, it could be made slightly more granular by
+defining it in the `MultiKueueConfig` API. This way it can be set to different values if there are two `MultiKueueConfig`s in the cluster.
+
+**Reasons for discarding/deferring**
+
+1. The `Configuration` API already defines similar fields, for example `WorkerLostTimeout`, so it's the more intuitive place.
 
 ### Use dynamically calculated default for the preemption timeout
 
