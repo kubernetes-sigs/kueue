@@ -51,7 +51,11 @@ type WorkloadSpecApplyConfiguration struct {
 	// - true: indicates that a workload can be evaluated for admission into it's respective queue.
 	//
 	// Defaults to true
+	// Active determines if the workload is active or not.
+	// Workloads that are not active are not considered by the scheduler.
 	Active *bool `json:"active,omitempty"`
+	// preemptionGates is a list of preemption keys that block the preemption of the workload
+	PreemptionGates []PreemptionGateApplyConfiguration `json:"preemptionGates,omitempty"`
 	// maximumExecutionTimeSeconds if provided, determines the maximum time, in seconds,
 	// the workload can be admitted before it's automatically deactivated.
 	//
@@ -107,6 +111,19 @@ func (b *WorkloadSpecApplyConfiguration) WithPriority(value int32) *WorkloadSpec
 // If called multiple times, the Active field is set to the value of the last call.
 func (b *WorkloadSpecApplyConfiguration) WithActive(value bool) *WorkloadSpecApplyConfiguration {
 	b.Active = &value
+	return b
+}
+
+// WithPreemptionGates adds the given value to the PreemptionGates field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the PreemptionGates field.
+func (b *WorkloadSpecApplyConfiguration) WithPreemptionGates(values ...*PreemptionGateApplyConfiguration) *WorkloadSpecApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithPreemptionGates")
+		}
+		b.PreemptionGates = append(b.PreemptionGates, *values[i])
+	}
 	return b
 }
 

@@ -633,6 +633,16 @@ if the connection with its reserving worker cluster is lost.</p>
 </ul>
 </td>
 </tr>
+<tr><td><code>singleClusterPreemptionTimeout</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>SingleClusterPreemptionTimeout defines the maximum time a workload can be gated from preemption
+by the preemption gate.
+Use 0 to disable the preemption gate.
+Defaults to 0.</p>
+</td>
+</tr>
 <tr><td><code>externalFrameworks</code><br/>
 <a href="#config-kueue-x-k8s-io-v1beta2-MultiKueueExternalFramework"><code>[]MultiKueueExternalFramework</code></a>
 </td>

@@ -67,6 +67,8 @@ type WorkloadSpecApplyConfiguration struct {
 	//
 	// If unspecified, no execution time limit is enforced on the Workload.
 	MaximumExecutionTimeSeconds *int32 `json:"maximumExecutionTimeSeconds,omitempty"`
+	// preemptionGates is a list of preemption keys that block the preemption of the workload
+	PreemptionGates []PreemptionGateApplyConfiguration `json:"preemptionGates,omitempty"`
 }
 
 // WorkloadSpecApplyConfiguration constructs a declarative configuration of the WorkloadSpec type for use with
@@ -133,5 +135,18 @@ func (b *WorkloadSpecApplyConfiguration) WithActive(value bool) *WorkloadSpecApp
 // If called multiple times, the MaximumExecutionTimeSeconds field is set to the value of the last call.
 func (b *WorkloadSpecApplyConfiguration) WithMaximumExecutionTimeSeconds(value int32) *WorkloadSpecApplyConfiguration {
 	b.MaximumExecutionTimeSeconds = &value
+	return b
+}
+
+// WithPreemptionGates adds the given value to the PreemptionGates field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the PreemptionGates field.
+func (b *WorkloadSpecApplyConfiguration) WithPreemptionGates(values ...*PreemptionGateApplyConfiguration) *WorkloadSpecApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithPreemptionGates")
+		}
+		b.PreemptionGates = append(b.PreemptionGates, *values[i])
+	}
 	return b
 }

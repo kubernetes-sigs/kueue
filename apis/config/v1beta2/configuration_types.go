@@ -274,6 +274,13 @@ type MultiKueue struct {
 	// +optional
 	DispatcherName *string `json:"dispatcherName,omitempty"`
 
+	// SingleClusterPreemptionTimeout defines the maximum time a workload can be gated from preemption
+	// by the preemption gate.
+	// Use 0 to disable the preemption gate.
+	// Defaults to 0.
+	// +optional
+	SingleClusterPreemptionTimeout *metav1.Duration `json:"singleClusterPreemptionTimeout,omitempty"`
+
 	// ExternalFrameworks defines a list of external frameworks that should be supported
 	// by the generic MultiKueue adapter. Each entry defines how to handle a specific
 	// GroupVersionKind (GVK) for MultiKueue operations.

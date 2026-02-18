@@ -422,6 +422,11 @@ func (in *MultiKueue) DeepCopyInto(out *MultiKueue) {
 		*out = new(string)
 		**out = **in
 	}
+	if in.SingleClusterPreemptionTimeout != nil {
+		in, out := &in.SingleClusterPreemptionTimeout, &out.SingleClusterPreemptionTimeout
+		*out = new(v1.Duration)
+		**out = **in
+	}
 	if in.ExternalFrameworks != nil {
 		in, out := &in.ExternalFrameworks, &out.ExternalFrameworks
 		*out = make([]MultiKueueExternalFramework, len(*in))

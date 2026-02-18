@@ -72,9 +72,10 @@ type wlReconciler struct {
 	eventsBatchPeriod time.Duration
 	adapters          map[string]jobframework.MultiKueueAdapter
 	recorder          record.EventRecorder
-	clock             clock.Clock
-	dispatcherName    string
-	roleTracker       *roletracker.RoleTracker
+	clock                          clock.Clock
+	dispatcherName                 string
+	roleTracker                    *roletracker.RoleTracker
+	singleClusterPreemptionTimeout time.Duration
 }
 
 var _ reconcile.Reconciler = (*wlReconciler)(nil)
@@ -349,7 +350,16 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		return reconcile.Result{}, errors.Join(errs...)
 	}
 
-	// 3. Finish the local workload when the remote workload is finished.
+	// 3. sync preemption gate
+	res, err := w.ensurePreemptionGate(ctx, group)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+	if res.RequeueAfter != 0 {
+		return res, nil
+	}
+
+	// 4. Finish the local workload when the remote workload is finished.
 	if remoteFinishedCond, remote := group.bestMatchByCondition(kueue.WorkloadFinished); remoteFinishedCond != nil {
 		// NOTE: we can have a race condition setting the wl status here, and it being updated by the job controller,
 		// it should not be problematic, but the "From remote xxxx:" could be lost ....
@@ -781,21 +791,23 @@ func (w *wlReconciler) Generic(_ event.GenericEvent) bool {
 func newWlReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelper, cRec *clustersReconciler, origin string,
 	recorder record.EventRecorder, workerLostTimeout, eventsBatchPeriod time.Duration,
 	adapters map[string]jobframework.MultiKueueAdapter, dispatcherName string, roleTracker *roletracker.RoleTracker,
+	singleClusterPreemptionTimeout time.Duration,
 	options ...Option,
 ) *wlReconciler {
 	r := &wlReconciler{
-		client:            c,
-		helper:            helper,
-		clusters:          cRec,
-		origin:            origin,
-		workerLostTimeout: workerLostTimeout,
-		deletedWlCache:    utilmaps.NewSyncMap[string, *kueue.Workload](0),
-		eventsBatchPeriod: eventsBatchPeriod,
-		adapters:          adapters,
-		recorder:          recorder,
-		clock:             realClock,
-		dispatcherName:    dispatcherName,
-		roleTracker:       roleTracker,
+		client:                         c,
+		helper:                         helper,
+		clusters:                       cRec,
+		origin:                         origin,
+		workerLostTimeout:              workerLostTimeout,
+		deletedWlCache:                 utilmaps.NewSyncMap[string, *kueue.Workload](0),
+		eventsBatchPeriod:              eventsBatchPeriod,
+		adapters:                       adapters,
+		recorder:                       recorder,
+		clock:                          realClock,
+		dispatcherName:                 dispatcherName,
+		roleTracker:                    roleTracker,
+		singleClusterPreemptionTimeout: singleClusterPreemptionTimeout,
 	}
 	for _, option := range options {
 		option(r)
@@ -999,4 +1011,107 @@ func cloneForCreate(orig *kueue.Workload, origin string) *kueue.Workload {
 	remoteWl.Labels[kueue.MultiKueueOriginLabel] = origin
 	orig.Spec.DeepCopyInto(&remoteWl.Spec)
 	return remoteWl
+}
+
+func (w *wlReconciler) ensurePreemptionGate(ctx context.Context, group *wlGroup) (reconcile.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+	
+	gateName := "kueue.x-k8s.io/multikueue"
+	hasGate := false
+	for _, g := range group.local.Spec.PreemptionGates {
+		if g.Name == gateName {
+			hasGate = true
+			break
+		}
+	}
+
+	// 1. Return if preemptions are known to be unnecessary or gates aren't relevant.
+	if !hasGate || w.singleClusterPreemptionTimeout <= 0 || workload.HasQuotaReservation(group.local) {
+		return reconcile.Result{}, nil
+	}
+
+	remoteAdmitted := false
+	conditionToCheck := kueue.WorkloadAdmitted
+	if !features.Enabled(features.MultiKueueWaitForWorkloadAdmitted) {
+		conditionToCheck = kueue.WorkloadQuotaReserved
+	}
+	if cond, _ := group.bestMatchByCondition(conditionToCheck); cond != nil {
+		remoteAdmitted = true
+	}
+	if remoteAdmitted {
+		return reconcile.Result{}, nil
+	}
+
+	// 2. Calculate PreviouslyUngatedAt
+	var previouslyUngatedAt time.Time
+	for _, remote := range group.remotes {
+		if remote == nil {
+			continue
+		}
+		for _, g := range remote.Status.PreemptionGates {
+			if g.Name == gateName && g.State == kueue.GateStateInactive {
+				if g.LastTransitionTime.Time.After(previouslyUngatedAt) {
+					previouslyUngatedAt = g.LastTransitionTime.Time
+				}
+			}
+		}
+	}
+
+	// 3. Calculate timeSinceUngate
+	timeSinceUngate := w.clock.Since(previouslyUngatedAt)
+
+	// 4. If timeSinceUngate < SingleClusterPreemptionTimeout: Schedule reconciliation
+	if timeSinceUngate < w.singleClusterPreemptionTimeout {
+		requeueAfter := w.singleClusterPreemptionTimeout - timeSinceUngate
+		log.V(3).Info("Preemption timeout not elapsed, requeuing", "requeueAfter", requeueAfter)
+		return reconcile.Result{RequeueAfter: requeueAfter}, nil
+	}
+
+	// 5. Find a workload with the lowest LastTriggeredTime among workloads that have GateStateActive
+	// and LastTriggeredTime > LastTransitionTime
+	var targetCluster string
+	var lowestTriggerTime time.Time
+	for clusterName, remote := range group.remotes {
+		if remote == nil {
+			continue
+		}
+		for _, g := range remote.Status.PreemptionGates {
+			if g.Name == gateName && g.State == kueue.GateStateActive {
+				if !g.LastTriggeredTime.IsZero() && g.LastTriggeredTime.Time.After(g.LastTransitionTime.Time) {
+					if lowestTriggerTime.IsZero() || g.LastTriggeredTime.Time.Before(lowestTriggerTime) {
+						lowestTriggerTime = g.LastTriggeredTime.Time
+						targetCluster = clusterName
+					}
+				}
+			}
+		}
+	}
+
+	// 6. Mark the gate of the found workload as Inactive
+	if targetCluster != "" {
+		log.V(3).Info("Ungating remote workload", "cluster", targetCluster)
+		remote := group.remotes[targetCluster]
+		remoteCl := group.remoteClients[targetCluster].client
+		
+		err := workload.PatchAdmissionStatus(ctx, remoteCl, remote, w.clock, func(wl *kueue.Workload) (bool, error) {
+			for i := range wl.Status.PreemptionGates {
+				if wl.Status.PreemptionGates[i].Name == gateName {
+					wl.Status.PreemptionGates[i].State = kueue.GateStateInactive
+					wl.Status.PreemptionGates[i].LastTransitionTime = metav1.NewTime(w.clock.Now())
+					return true, nil
+				}
+			}
+			return false, nil
+		})
+		
+		if err != nil {
+			log.Error(err, "Failed to patch remote workload's preemption gate state", "cluster", targetCluster)
+			return reconcile.Result{}, err
+		}
+		
+		// 7. Schedule reconciliation in SingleClusterPreemptionTimeout
+		return reconcile.Result{RequeueAfter: w.singleClusterPreemptionTimeout}, nil
+	}
+
+	return reconcile.Result{}, nil
 }

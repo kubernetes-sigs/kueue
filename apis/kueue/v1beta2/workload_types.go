@@ -65,7 +65,16 @@ type WorkloadSpec struct {
 	//
 	// Defaults to true
 	// +kubebuilder:default=true
+	// Active determines if the workload is active or not.
+	// Workloads that are not active are not considered by the scheduler.
+	// +optional
+	// +kubebuilder:default=true
 	Active *bool `json:"active,omitempty"`
+
+	// preemptionGates is a list of preemption keys that block the preemption of the workload
+	// +optional
+	// +listType=atomic
+	PreemptionGates []PreemptionGate `json:"preemptionGates,omitempty"`
 
 	// maximumExecutionTimeSeconds if provided, determines the maximum time, in seconds,
 	// the workload can be admitted before it's automatically deactivated.
@@ -76,6 +85,46 @@ type WorkloadSpec struct {
 	// +kubebuilder:validation:Minimum=1
 	MaximumExecutionTimeSeconds *int32 `json:"maximumExecutionTimeSeconds,omitempty"`
 }
+
+// PreemptionGate defines a preemption gate.
+type PreemptionGate struct {
+	// Name is the name of the preemption gate.
+	Name string `json:"name"`
+}
+
+// PreemptionGateState defines the state of a preemption gate.
+type PreemptionGateState struct {
+	// Name is the name of the preemption gate.
+	Name string `json:"name"`
+
+	// State is the state of the preemption gate.
+	// +optional
+	State GateState `json:"state,omitempty"`
+
+	// LastTriggeredTime is the last time the gate was triggered, i.e. prevented a workload from preempting.
+	// +optional
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Format=date-time
+	LastTriggeredTime metav1.Time `json:"lastTriggeredTime,omitempty,omitzero"`
+
+	// LastTransitionTime is the last time the condition transitioned from one state to another.
+	// +optional
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Format=date-time
+	LastTransitionTime metav1.Time `json:"lastTransitionTime,omitempty,omitzero"`
+}
+
+// GateState defines the state of a preemption gate.
+type GateState string
+
+const (
+	// GateStateActive means the gate is active and blocking preemption.
+	GateStateActive GateState = "Active"
+
+	// GateStateInactive means the gate is inactive and NOT blocking preemption.
+	// This state is useful to keep the gate in the list for tracking purposes.
+	GateStateInactive GateState = "Inactive"
+)
 
 // PriorityClassGroup indicates the API group of the PriorityClass object.
 //
@@ -584,6 +633,12 @@ type WorkloadStatus struct {
 	// +patchMergeKey=type
 	// +kubebuilder:validation:MaxItems=16
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
+
+	// preemptionGates hold the status of the preemption gates.
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	PreemptionGates []PreemptionGateState `json:"preemptionGates,omitempty"`
 
 	// admission holds the parameters of the admission of the workload by a
 	// ClusterQueue. admission can be set back to null, but its fields cannot be

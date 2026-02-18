@@ -8803,6 +8803,20 @@ spec:
                 x-kubernetes-list-map-keys:
                 - name
                 x-kubernetes-list-type: map
+              preemptionGates:
+                description: preemptionGates is a list of preemption keys that block
+                  the preemption of the workload
+                items:
+                  description: PreemptionGate defines a preemption gate.
+                  properties:
+                    name:
+                      description: Name is the name of the preemption gate.
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
               priority:
                 description: |-
                   priority determines the order of access to the resources managed by the
@@ -9276,6 +9290,35 @@ spec:
                 maxItems: 20
                 type: array
                 x-kubernetes-list-type: atomic
+              preemptionGates:
+                description: preemptionGates hold the status of the preemption gates.
+                items:
+                  description: PreemptionGateState defines the state of a preemption
+                    gate.
+                  properties:
+                    lastTransitionTime:
+                      description: LastTransitionTime is the last time the condition
+                        transitioned from one state to another.
+                      format: date-time
+                      type: string
+                    lastTriggeredTime:
+                      description: LastTriggeredTime is the last time the gate was
+                        triggered, i.e. prevented a workload from preempting.
+                      format: date-time
+                      type: string
+                    name:
+                      description: Name is the name of the preemption gate.
+                      type: string
+                    state:
+                      description: State is the state of the preemption gate.
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               reclaimablePods:
                 description: |-
                   reclaimablePods keeps track of the number pods within a podset for which
@@ -9511,6 +9554,8 @@ spec:
                     - true: indicates that a workload can be evaluated for admission into it's respective queue.
 
                   Defaults to true
+                  Active determines if the workload is active or not.
+                  Workloads that are not active are not considered by the scheduler.
                 type: boolean
               maximumExecutionTimeSeconds:
                 description: |-
@@ -18248,6 +18293,20 @@ spec:
                 x-kubernetes-list-map-keys:
                 - name
                 x-kubernetes-list-type: map
+              preemptionGates:
+                description: preemptionGates is a list of preemption keys that block
+                  the preemption of the workload
+                items:
+                  description: PreemptionGate defines a preemption gate.
+                  properties:
+                    name:
+                      description: Name is the name of the preemption gate.
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
               priority:
                 description: |-
                   priority determines the order of access to the resources managed by the
@@ -18860,6 +18919,35 @@ spec:
                 maxItems: 20
                 type: array
                 x-kubernetes-list-type: atomic
+              preemptionGates:
+                description: preemptionGates hold the status of the preemption gates.
+                items:
+                  description: PreemptionGateState defines the state of a preemption
+                    gate.
+                  properties:
+                    lastTransitionTime:
+                      description: LastTransitionTime is the last time the condition
+                        transitioned from one state to another.
+                      format: date-time
+                      type: string
+                    lastTriggeredTime:
+                      description: LastTriggeredTime is the last time the gate was
+                        triggered, i.e. prevented a workload from preempting.
+                      format: date-time
+                      type: string
+                    name:
+                      description: Name is the name of the preemption gate.
+                      type: string
+                    state:
+                      description: State is the state of the preemption gate.
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               reclaimablePods:
                 description: |-
                   reclaimablePods keeps track of the number pods within a podset for which

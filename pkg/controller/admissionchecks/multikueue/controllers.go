@@ -42,9 +42,10 @@ type SetupOptions struct {
 	workerLostTimeout    time.Duration
 	eventsBatchPeriod    time.Duration
 	adapters             map[string]jobframework.MultiKueueAdapter
-	dispatcherName       string
-	clusterProfileConfig *configapi.ClusterProfile
-	roleTracker          *roletracker.RoleTracker
+	dispatcherName                 string
+	clusterProfileConfig           *configapi.ClusterProfile
+	roleTracker                    *roletracker.RoleTracker
+	singleClusterPreemptionTimeout time.Duration
 }
 
 type SetupOption func(o *SetupOptions)
@@ -98,6 +99,13 @@ func WithDispatcherName(dispatcherName string) SetupOption {
 func WithClusterProfiles(clusterProfiles *configapi.ClusterProfile) SetupOption {
 	return func(o *SetupOptions) {
 		o.clusterProfileConfig = clusterProfiles
+	}
+}
+
+// WithSingleClusterPreemptionTimeout sets the timeout for a single cluster preemption.
+func WithSingleClusterPreemptionTimeout(d time.Duration) SetupOption {
+	return func(o *SetupOptions) {
+		o.singleClusterPreemptionTimeout = d
 	}
 }
 
@@ -161,6 +169,7 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 	}
 
 	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec, options.origin, mgr.GetEventRecorderFor(constants.WorkloadControllerName),
-		options.workerLostTimeout, options.eventsBatchPeriod, options.adapters, options.dispatcherName, options.roleTracker)
+		options.workerLostTimeout, options.eventsBatchPeriod, options.adapters, options.dispatcherName, options.roleTracker,
+		options.singleClusterPreemptionTimeout)
 	return wlRec.setupWithManager(mgr)
 }
