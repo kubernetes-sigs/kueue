@@ -155,6 +155,9 @@ There are several advantages to extending both the `spec` and `status`:
     * **Important**: The case where the `status.PreemptionGateStates` is empty, but `spec.PreemptionGates` is present still
     has to be accounted for to make absolutely sure newly created workloads are gated. **Preemption gates without status are
     closed by default**.
+1. It allows for atomic evictions.
+    * A workload's eviction changes its `status`.
+    * Since the gate's state is in `status` as well, eviction can be done atomically.
 
 The API will be defined as follows:
 
@@ -490,3 +493,6 @@ from the `spec`.
 1. In contrast to `schedulingGates` which are removed and not re-added, `preemptionGates` can be activated again (for example due
 to workload eviction). Removing them would require some hard-coded logic which maintains a specific gate, leading to a less
 explicit and less declarative API.
+1. When a workload is evicted, its `status` is updated. If the preemption gates were in `spec` only, eviction wouldn't be atomic, since
+it would have to change both `status` (to evict) and `spec` (to gate). Keeping the gate's state in the workload's `status` avoids
+this issue.
