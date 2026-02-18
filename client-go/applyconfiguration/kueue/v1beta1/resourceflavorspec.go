@@ -131,7 +131,7 @@ func (b *ResourceFlavorSpecApplyConfiguration) WithTopologyName(value kueuev1bet
 }
 
 // WithResourceWeights puts the entries into the ResourceWeights field in the declarative configuration
-// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the entries provided by each call will be put on the ResourceWeights field,
 // overwriting an existing map entries in ResourceWeights field with the same key.
 func (b *ResourceFlavorSpecApplyConfiguration) WithResourceWeights(entries map[corev1.ResourceName]resource.Quantity) *ResourceFlavorSpecApplyConfiguration {
