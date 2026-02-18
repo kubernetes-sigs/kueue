@@ -109,6 +109,9 @@ type Cache struct {
 
 	client               client.Client
 	resourceFlavors      map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
+	// Pre-computed (flavor, resource) → weight lookup derived from resourceFlavors.
+	// Avoids repeated map traversal and Quantity-to-float conversion on every DRS calculation.
+	// Stored here (not only in Snapshot) because status/metrics paths also need it.
 	flavorWeights        FlavorResourceWeights
 	podsReadyTracking    bool
 	admissionChecks      map[kueue.AdmissionCheckReference]AdmissionCheck
@@ -260,7 +263,7 @@ func (c *Cache) AddOrUpdateResourceFlavor(log logr.Logger, rf *kueue.ResourceFla
 	c.Lock()
 	defer c.Unlock()
 	c.resourceFlavors[kueue.ResourceFlavorReference(rf.Name)] = rf
-	c.flavorWeights = ComputeFlavorResourceWeights(c.resourceFlavors)
+	c.flavorWeights = computeFlavorResourceWeights(c.resourceFlavors)
 	if handleTASFlavor(rf) {
 		c.tasCache.AddFlavor(rf)
 	}
@@ -271,7 +274,7 @@ func (c *Cache) DeleteResourceFlavor(log logr.Logger, rf *kueue.ResourceFlavor) 
 	c.Lock()
 	defer c.Unlock()
 	delete(c.resourceFlavors, kueue.ResourceFlavorReference(rf.Name))
-	c.flavorWeights = ComputeFlavorResourceWeights(c.resourceFlavors)
+	c.flavorWeights = computeFlavorResourceWeights(c.resourceFlavors)
 	if handleTASFlavor(rf) {
 		c.tasCache.DeleteFlavor(kueue.ResourceFlavorReference(rf.Name))
 	}

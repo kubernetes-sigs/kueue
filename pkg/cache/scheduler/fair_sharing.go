@@ -128,8 +128,8 @@ func flavorWeight(weights FlavorResourceWeights, fr resources.FlavorResource) fl
 	return 1.0
 }
 
-// ComputeFlavorResourceWeights pre-computes the weights map from ResourceFlavor objects.
-func ComputeFlavorResourceWeights(flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) FlavorResourceWeights {
+// computeFlavorResourceWeights pre-computes the weights map from ResourceFlavor objects.
+func computeFlavorResourceWeights(flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) FlavorResourceWeights {
 	weights := make(FlavorResourceWeights)
 	for flavorRef, flavor := range flavors {
 		for rName, qty := range flavor.Spec.ResourceWeights {
