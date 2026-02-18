@@ -39,8 +39,8 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("RS without scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-	ginkgo.When("ElasticJobsViaWorkloadSlices feature is enabled", func() {
+var _ = ginkgo.Describe("Without scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	ginkgo.When("ElasticJobsViaWorkloadSlices enabled", func() {
 		var (
 			namespace  *corev1.Namespace
 			replicaSet *appsv1.ReplicaSet
@@ -102,7 +102,7 @@ var _ = ginkgo.Describe("RS without scheduler", ginkgo.Ordered, ginkgo.ContinueO
 		})
 	})
 
-	ginkgo.When("ElasticJobsViaWorkloadSlices feature is disabled", func() {
+	ginkgo.When("ElasticJobsViaWorkloadSlices disabled", func() {
 		var (
 			namespace  *corev1.Namespace
 			replicaSet *appsv1.ReplicaSet
@@ -136,7 +136,7 @@ var _ = ginkgo.Describe("RS without scheduler", ginkgo.Ordered, ginkgo.ContinueO
 	})
 })
 
-var _ = ginkgo.Describe("RS with scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("With scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		namespace    *corev1.Namespace
 		flavor       *kueue.ResourceFlavor

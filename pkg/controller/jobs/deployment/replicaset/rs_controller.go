@@ -91,6 +91,9 @@ func (r *ReplicaSet) Load(ctx context.Context, c client.Client, key *types.Names
 	if err := c.Get(ctx, *key, r.ReplicaSet); err != nil {
 		return errors.IsNotFound(err), client.IgnoreNotFound(err)
 	}
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) || !workloadslicing.Enabled(r) {
+		return true, nil
+	}
 	if !r.ReplicaSet.DeletionTimestamp.IsZero() {
 		return true, nil
 	}
