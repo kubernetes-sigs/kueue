@@ -173,13 +173,30 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			util.ExpectClusterQueueWeightedShareMetric(cqB, 0.0)
 			util.ExpectClusterQueueWeightedShareMetric(cqShared, 0.0)
 
-			ginkgo.By("Terminating 4 running workloads in cqA: shared quota is fair-shared")
-			util.FinishRunningWorkloadsInCQ(ctx, k8sClient, cqA, 4)
-
 			// Admits 1 from cqA and 3 from cqB.
-			util.ExpectReservingActiveWorkloadsMetric(cqA, 5)
-			util.ExpectPendingWorkloadsMetric(cqA, 0, 1)
+			ginkgo.By("Terminating 4 running workloads in cqA: shared quota is fair-shared")
+
+			// Admit cqB workload.
+			util.FinishRunningWorkloadsInCQ(ctx, k8sClient, cqA, 1)
+			util.ExpectReservingActiveWorkloadsMetric(cqB, 1)
+			util.ExpectReservingActiveWorkloadsMetric(cqA, 7)
+
+			// Admit cqB workload.
+			util.FinishRunningWorkloadsInCQ(ctx, k8sClient, cqA, 1)
+			util.ExpectReservingActiveWorkloadsMetric(cqB, 2)
+			util.ExpectReservingActiveWorkloadsMetric(cqA, 6)
+
+			// Admit cqB workload.
+			util.FinishRunningWorkloadsInCQ(ctx, k8sClient, cqA, 1)
 			util.ExpectReservingActiveWorkloadsMetric(cqB, 3)
+			util.ExpectReservingActiveWorkloadsMetric(cqA, 5)
+
+			// Admit cqA workload.
+			util.FinishRunningWorkloadsInCQ(ctx, k8sClient, cqA, 1)
+			util.ExpectReservingActiveWorkloadsMetric(cqB, 3)
+			util.ExpectReservingActiveWorkloadsMetric(cqA, 5)
+
+			util.ExpectPendingWorkloadsMetric(cqA, 0, 1)
 			util.ExpectPendingWorkloadsMetric(cqB, 0, 2)
 			util.ExpectClusterQueueWeightedShareMetric(cqA, 250.0)
 			util.ExpectClusterQueueWeightedShareMetric(cqB, 250.0)
