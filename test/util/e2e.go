@@ -221,14 +221,17 @@ func CreateVisibilityClient(user string) visibilityv1beta2.VisibilityV1beta2Inte
 	return kueueClientset.VisibilityV1beta2()
 }
 
-func rolloutOperatorDeployment(ctx context.Context, k8sClient client.Client, key types.NamespacedName, kindClusterName string) {
-	// Export logs before the rollout to preserve logs from the previous version.
+func UpdateDeploymentAndWaitForProgressing(ctx context.Context, k8sClient client.Client, key types.NamespacedName, kindClusterName string, applyChanges func(deployment *appsv1.Deployment)) {
+	ginkgo.GinkgoHelper()
+
+	// Export logs before the update to preserve logs from the previous version.
 	exportKindLogs(ctx, kindClusterName)
 
 	deployment := &appsv1.Deployment{}
 	var deploymentCondition *appsv1.DeploymentCondition
 
-	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
+	// Make sure that we don't have progressing status before update Deployment.
+	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, key, deployment)).To(gomega.Succeed())
 		deploymentCondition = FindDeploymentCondition(deployment, appsv1.DeploymentProgressing)
 		g.Expect(deploymentCondition).NotTo(gomega.BeNil())
@@ -236,22 +239,23 @@ func rolloutOperatorDeployment(ctx context.Context, k8sClient client.Client, key
 		g.Expect(deploymentCondition.Reason).To(gomega.BeElementOf("NewReplicaSetCreated", "NewReplicaSetAvailable", "ReplicaSetUpdated"))
 		ginkgo.GinkgoLogr.Info("Deployment status condition before the restart", "type", deploymentCondition.Type, "status", deploymentCondition.Status, "reason", deploymentCondition.Reason)
 	}, Timeout, Interval).Should(gomega.Succeed())
-	beforeUpdateTime := deploymentCondition.LastUpdateTime
 
-	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
-		deployment.Spec.Template.ObjectMeta.Annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339)
+	var beforeObservedGeneration int64
+
+	// Apply changes and update Deployment.
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, key, deployment)).To(gomega.Succeed())
+		g.Expect(deployment.Generation).To(gomega.Equal(deployment.Status.ObservedGeneration))
+		beforeObservedGeneration = deployment.Status.ObservedGeneration
+		applyChanges(deployment)
 		g.Expect(k8sClient.Update(ctx, deployment)).To(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed())
 
-	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
+	// Wait for the Deployment update to be in progress.
+	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, key, deployment)).To(gomega.Succeed())
-		deploymentCondition := FindDeploymentCondition(deployment, appsv1.DeploymentProgressing)
-		g.Expect(deploymentCondition).NotTo(gomega.BeNil())
-		g.Expect(deploymentCondition.Status).To(gomega.Equal(corev1.ConditionTrue))
-		g.Expect(deploymentCondition.Reason).To(gomega.Equal("NewReplicaSetAvailable"))
-		afterUpdateTime := deploymentCondition.LastUpdateTime
-		g.Expect(afterUpdateTime).NotTo(gomega.Equal(beforeUpdateTime))
-	}, StartUpTimeout, Interval).Should(gomega.Succeed())
+		g.Expect(deployment.Status.ObservedGeneration).NotTo(gomega.Equal(beforeObservedGeneration))
+	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 
 func exportKindLogs(ctx context.Context, kindClusterName string) {
@@ -311,9 +315,8 @@ func waitForDeploymentAvailability(ctx context.Context, k8sClient client.Client,
 }
 
 func WaitForKueueAvailability(ctx context.Context, k8sClient client.Client) {
-	kueueNS := GetKueueNamespace()
-	kcmKey := types.NamespacedName{Namespace: kueueNS, Name: "kueue-controller-manager"}
-	waitForDeploymentAvailability(ctx, k8sClient, kcmKey, true)
+	ginkgo.GinkgoHelper()
+	waitForKueueAvailability(ctx, k8sClient, true)
 }
 
 func WaitForAppWrapperAvailability(ctx context.Context, k8sClient client.Client) {
@@ -380,12 +383,18 @@ func applyKueueConfiguration(ctx context.Context, k8sClient client.Client, kueue
 }
 
 func RestartKueueController(ctx context.Context, k8sClient client.Client, kindClusterName string) {
+	ginkgo.GinkgoHelper()
 	kueueNS := GetKueueNamespace()
 	kcmKey := types.NamespacedName{Namespace: kueueNS, Name: "kueue-controller-manager"}
-	restartStartTime := time.Now()
-	rolloutOperatorDeployment(ctx, k8sClient, kcmKey, kindClusterName)
-	waitForKueueControllerReadyWithWebhookEndpoints(ctx, k8sClient, kcmKey)
-	WaitForLeaderElection(ctx, k8sClient, restartStartTime)
+	startTime := time.Now()
+	UpdateDeploymentAndWaitForProgressing(ctx, k8sClient, kcmKey, kindClusterName, func(deployment *appsv1.Deployment) {
+		if deployment.Spec.Template.Annotations == nil {
+			deployment.Spec.Template.Annotations = make(map[string]string, 1)
+		}
+		deployment.Spec.Template.Annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339)
+	})
+	WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
+	ginkgo.GinkgoLogr.Info("Kueue restarted", "took", time.Since(startTime))
 }
 
 func isPodReady(pod *corev1.Pod) bool {
@@ -484,19 +493,27 @@ func WaitForActivePodsAndTerminate(ctx context.Context, k8sClient client.Client,
 }
 
 func WaitForKueueAvailabilityNoRestartCountCheck(ctx context.Context, k8sClient client.Client) {
-	kueueNS := GetKueueNamespace()
-	kcmKey := types.NamespacedName{Namespace: kueueNS, Name: "kueue-controller-manager"}
-	waitForDeploymentAvailability(ctx, k8sClient, kcmKey, false)
+	ginkgo.GinkgoHelper()
+	waitForKueueAvailability(ctx, k8sClient, false)
 }
 
-// WaitForLeaderElection waits for the kueue controller to acquire the leader lease
-// after the given startTime to ensure the new controller has the lease.
-func WaitForLeaderElection(ctx context.Context, k8sClient client.Client, startTime time.Time) {
+func waitForKueueAvailability(ctx context.Context, k8sClient client.Client, checkNoRestarts bool) {
+	ginkgo.GinkgoHelper()
+	kcmKey := types.NamespacedName{Namespace: GetKueueNamespace(), Name: "kueue-controller-manager"}
+	waitForDeploymentAvailability(ctx, k8sClient, kcmKey, checkNoRestarts)
+	waitForKueueControllerReadyWithWebhookEndpoints(ctx, k8sClient, kcmKey)
+	waitForLeaderElection(ctx, k8sClient)
+}
+
+// waitForLeaderElection waits for the kueue controller to acquire the leader lease
+func waitForLeaderElection(ctx context.Context, k8sClient client.Client) {
+	ginkgo.GinkgoHelper()
 	kueueNS := GetKueueNamespace()
 	leaseKey := types.NamespacedName{Namespace: kueueNS, Name: configapi.DefaultLeaderElectionID}
 	lease := &coordinationv1.Lease{}
+	startTime := time.Now()
 	ginkgo.By(fmt.Sprintf("Waiting for leader election lease %q", leaseKey))
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, leaseKey, lease)).To(gomega.Succeed())
 		g.Expect(lease.Spec.RenewTime).NotTo(gomega.BeNil())
 		g.Expect(lease.Spec.RenewTime.After(startTime)).To(gomega.BeTrue())
@@ -607,15 +624,21 @@ func WaitForPodRunning(ctx context.Context, k8sClient client.Client, pod *corev1
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 
-func UpdateKueueConfiguration(ctx context.Context, k8sClient client.Client, config *configapi.Configuration, kindClusterName string, applyChanges ...func(cfg *configapi.Configuration)) {
+func UpdateKueueConfiguration(ctx context.Context, k8sClient client.Client, config *configapi.Configuration, applyChanges ...func(cfg *configapi.Configuration)) {
+	ginkgo.GinkgoHelper()
 	startTime := time.Now()
 	config = config.DeepCopy()
 	for _, applyChange := range applyChanges {
 		applyChange(config)
 	}
 	applyKueueConfiguration(ctx, k8sClient, config)
-	RestartKueueController(ctx, k8sClient, kindClusterName)
 	ginkgo.GinkgoLogr.Info("Kueue configuration updated", "took", time.Since(startTime))
+}
+
+func UpdateKueueConfigurationAndRestart(ctx context.Context, k8sClient client.Client, config *configapi.Configuration, kindClusterName string, applyChanges ...func(cfg *configapi.Configuration)) {
+	ginkgo.GinkgoHelper()
+	UpdateKueueConfiguration(ctx, k8sClient, config, applyChanges...)
+	RestartKueueController(ctx, k8sClient, kindClusterName)
 }
 
 func GetClusterServerAddress(clusterName string) string {

@@ -1,0 +1,1 @@
+FROM ghcr.io/rajatjindal/krew-release-bot:v0.0.46

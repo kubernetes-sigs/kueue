@@ -137,6 +137,20 @@ func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject
 	}), nil
 }
 
+// FindLatestActiveWorkload returns the newest non-finished workload from the list of workloads
+// owned by the provided job. Returns nil if no active workload exists.
+func FindLatestActiveWorkload(ctx context.Context, clnt client.Client, jobObject client.Object, jobObjectGVK schema.GroupVersionKind) (*kueue.Workload, error) {
+	workloads, err := FindNotFinishedWorkloads(ctx, clnt, jobObject, jobObjectGVK)
+	if err != nil {
+		return nil, err
+	}
+	if len(workloads) == 0 {
+		return nil, nil
+	}
+	// FindNotFinishedWorkloads returns oldest first, so the latest is at the end
+	return &workloads[len(workloads)-1], nil
+}
+
 // ScaledDown returns true if the new pod sets represent a scale-down operation.
 // This is determined by checking whether at least one new pod set has fewer replicas
 // than its corresponding old pod set, and none of the old pod sets have fewer replicas

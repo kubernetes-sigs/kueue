@@ -420,7 +420,7 @@ run-tas-performance-scheduler: envtest performance-scheduler-runner minimalkueue
 		--crds=$(PROJECT_DIR)/config/components/crd/bases \
 		--generatorConfig=$(SCALABILITY_TAS_GENERATOR_CONFIG) \
 		--minimalKueue=$(MINIMALKUEUE_RUNNER) \
-		--enableTAS=true $(SCALABILITY_EXTRA_ARGS) $(SCALABILITY_SCRAPE_ARGS)
+		--enableTAS=true --timeout=20m $(SCALABILITY_EXTRA_ARGS) $(SCALABILITY_SCRAPE_ARGS)
 
 .PHONY: test-tas-performance-scheduler-once
 test-tas-performance-scheduler-once: gotestsum run-tas-performance-scheduler
@@ -441,7 +441,7 @@ run-tas-performance-scheduler-in-cluster: envtest performance-scheduler-runner
 		--o "$(ARTIFACTS)/$@" \
 		--generatorConfig=$(SCALABILITY_TAS_GENERATOR_CONFIG) \
 		--enableTAS=true \
-		--qps=1000 --burst=2000 --timeout=15m $(SCALABILITY_SCRAPE_ARGS)
+		--qps=1000 --burst=2000 --timeout=25m $(SCALABILITY_SCRAPE_ARGS)
 
 .PHONY: ginkgo-top
 ginkgo-top:

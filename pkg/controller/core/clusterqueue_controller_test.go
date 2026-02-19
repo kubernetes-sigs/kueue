@@ -207,7 +207,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().WithLists(defaultWls).WithObjects(lq, cq).WithStatusSubresource(lq, cq).
 				Build()
 			cqCache := schdcache.New(cl)
-			qManager := qcache.NewManager(cl, cqCache)
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 			if tc.insertCqIntoCache {
 				if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
 					t.Fatalf("Inserting clusterQueue in cache: %v", err)
@@ -271,7 +271,7 @@ func TestReconcileRemovesFinalizerWithFinishedWorkloads(t *testing.T) {
 
 			cl := utiltesting.NewClientBuilder().WithObjects(cq).Build()
 			cqCache := schdcache.New(cl)
-			qManager := qcache.NewManager(cl, cqCache)
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
 				t.Fatalf("Inserting clusterQueue in cache: %v", err)
 			}

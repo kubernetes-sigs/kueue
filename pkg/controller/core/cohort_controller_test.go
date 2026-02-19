@@ -40,7 +40,7 @@ func TestCohortReconcileCohortNotFoundDelete(t *testing.T) {
 	cl := utiltesting.NewClientBuilder().Build()
 	ctx, _ := utiltesting.ContextWithLog(t)
 	cache := schdcache.New(cl)
-	qManager := qcache.NewManager(cl, cache)
+	qManager := qcache.NewManagerForUnitTests(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)
 
 	cohort := utiltestingapi.MakeCohort("cohort").Obj()
@@ -75,7 +75,7 @@ func TestCohortReconcileCohortNotFoundIdempotentDelete(t *testing.T) {
 		Build()
 	ctx, _ := utiltesting.ContextWithLog(t)
 	cache := schdcache.New(cl)
-	qManager := qcache.NewManager(cl, cache)
+	qManager := qcache.NewManagerForUnitTests(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)
 
 	snapshot, err := cache.Snapshot(ctx)
@@ -112,7 +112,7 @@ func TestCohortReconcileCycleNoError(t *testing.T) {
 		Build()
 	ctx, _ := utiltesting.ContextWithLog(t)
 	cache := schdcache.New(cl)
-	qManager := qcache.NewManager(cl, cache)
+	qManager := qcache.NewManagerForUnitTests(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)
 
 	// no cycle when creating first cohort
@@ -157,7 +157,7 @@ func TestCohortReconcileErrorOtherThanNotFoundNotDeleted(t *testing.T) {
 	cl := utiltesting.NewClientBuilder().WithInterceptorFuncs(funcs).Build()
 
 	cache := schdcache.New(cl)
-	qManager := qcache.NewManager(cl, cache)
+	qManager := qcache.NewManagerForUnitTests(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)
 	cohort := utiltestingapi.MakeCohort("cohort").Obj()
 	_ = cache.AddOrUpdateCohort(cohort)
@@ -193,7 +193,7 @@ func TestCohortReconcileLifecycle(t *testing.T) {
 	).Obj()
 	cl := utiltesting.NewClientBuilder().WithObjects(cohort).WithStatusSubresource(&kueue.Cohort{}).Build()
 	cache := schdcache.New(cl)
-	qManager := qcache.NewManager(cl, cache)
+	qManager := qcache.NewManagerForUnitTests(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)
 
 	// create
@@ -283,7 +283,7 @@ func TestCohortReconcilerFilters(t *testing.T) {
 	cl := utiltesting.NewClientBuilder().
 		Build()
 	cache := schdcache.New(cl)
-	qManager := qcache.NewManager(cl, cache)
+	qManager := qcache.NewManagerForUnitTests(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)
 
 	t.Run("delete returns true", func(t *testing.T) {

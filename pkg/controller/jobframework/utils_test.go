@@ -23,7 +23,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
@@ -31,33 +30,9 @@ import (
 func TestSanitizePodSets(t *testing.T) {
 	testCases := map[string]struct {
 		podSets         []kueue.PodSet
-		featureEnabled  bool
 		expectedPodSets []kueue.PodSet
 	}{
-
-		"disabled feature gate": {
-			featureEnabled: false,
-			podSets: []kueue.PodSet{
-				*utiltestingapi.MakePodSet("test", 1).
-					Containers(*utiltesting.MakeContainer().
-						Name("c1").
-						WithEnvVar(corev1.EnvVar{Name: "ENV1", Value: "value1"}).
-						WithEnvVar(corev1.EnvVar{Name: "ENV1", Value: "value2"}).
-						Obj()).
-					Obj(),
-			},
-			expectedPodSets: []kueue.PodSet{
-				*utiltestingapi.MakePodSet("test", 1).
-					Containers(*utiltesting.MakeContainer().
-						Name("c1").
-						WithEnvVar(corev1.EnvVar{Name: "ENV1", Value: "value1"}).
-						WithEnvVar(corev1.EnvVar{Name: "ENV1", Value: "value2"}).
-						Obj()).
-					Obj(),
-			},
-		},
-		"enabled feature gate, init containers and containers": {
-			featureEnabled: true,
+		"init containers and containers": {
 			podSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet("test", 1).
 					Containers(*utiltesting.MakeContainer().
@@ -85,8 +60,7 @@ func TestSanitizePodSets(t *testing.T) {
 					Obj(),
 			},
 		},
-		"enabled feature gate, containers only": {
-			featureEnabled: true,
+		"containers only": {
 			podSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet("test", 1).
 					Containers(*utiltesting.MakeContainer().
@@ -106,7 +80,6 @@ func TestSanitizePodSets(t *testing.T) {
 			},
 		},
 		"empty podsets": {
-			featureEnabled:  true,
 			podSets:         []kueue.PodSet{},
 			expectedPodSets: []kueue.PodSet{},
 		},
@@ -114,8 +87,6 @@ func TestSanitizePodSets(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.SanitizePodSets, tc.featureEnabled)
-
 			SanitizePodSets(tc.podSets)
 
 			if diff := cmp.Diff(tc.expectedPodSets, tc.podSets); diff != "" {

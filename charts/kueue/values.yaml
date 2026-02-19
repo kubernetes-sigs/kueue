@@ -229,6 +229,18 @@ kueueViz:
       requests:
         cpu: 500m
         memory: 512Mi
+    # -- KueueViz backend pod securityContext
+    podSecurityContext:
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
+    # -- KueueViz backend container securityContext
+    containerSecurityContext:
+      readOnlyRootFilesystem: true
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
     # -- Environment variables for KueueViz backend deployment
     env:
       - name: KUEUEVIZ_ALLOWED_ORIGINS
@@ -272,6 +284,10 @@ kueueViz:
       requests:
         cpu: 500m
         memory: 512Mi
+    # -- KueueViz frontend pod securityContext
+    podSecurityContext: {}
+    # -- KueueViz frontend container securityContext
+    containerSecurityContext: {}
     # -- Environment variables for KueueViz frontend deployment
     env:
       - name: REACT_APP_WEBSOCKET_URL

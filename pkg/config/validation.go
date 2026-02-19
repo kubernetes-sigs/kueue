@@ -512,6 +512,15 @@ func ValidateFeatureGates(featureGateCLI string, featureGateMap map[string]bool)
 		return errors.New("cannot use a TAS profile with TAS disabled")
 	}
 
+	if features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) {
+		if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+			return errors.New("ElasticJobsViaWorkloadSlicesWithTAS requires ElasticJobsViaWorkloadSlices to be enabled")
+		}
+		if !features.Enabled(features.TopologyAwareScheduling) {
+			return errors.New("ElasticJobsViaWorkloadSlicesWithTAS requires TopologyAwareScheduling to be enabled")
+		}
+	}
+
 	return nil
 }
 
