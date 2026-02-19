@@ -267,6 +267,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
+- name: TASReplaceNodeOnNodeTaints
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.17"
 - name: TASReplaceNodeOnPodTermination
   versionedSpecs:
   - default: false
