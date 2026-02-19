@@ -193,20 +193,9 @@ func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.Po
 
 	j.Spec.Suspend = false
 
-	// head
-	headPod := &j.Spec.RayClusterSpec.HeadGroupSpec.Template
-	info := podSetsInfo[0]
-	if err := podset.Merge(&headPod.ObjectMeta, &headPod.Spec, info); err != nil {
+	err := raycluster.UpdateRayClusterSpecToRunWithPodSetsInfo(j.Spec.RayClusterSpec, podSetsInfo)
+	if err != nil {
 		return err
-	}
-
-	// workers
-	for index := range j.Spec.RayClusterSpec.WorkerGroupSpecs {
-		workerPod := &j.Spec.RayClusterSpec.WorkerGroupSpecs[index].Template
-		info := podSetsInfo[index+1]
-		if err := podset.Merge(&workerPod.ObjectMeta, &workerPod.Spec, info); err != nil {
-			return err
-		}
 	}
 
 	// submitter
@@ -231,16 +220,7 @@ func (j *RayJob) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 		return false
 	}
 
-	// head
-	headPod := &j.Spec.RayClusterSpec.HeadGroupSpec.Template
-	changed := podset.RestorePodSpec(&headPod.ObjectMeta, &headPod.Spec, podSetsInfo[0])
-
-	// workers
-	for index := range j.Spec.RayClusterSpec.WorkerGroupSpecs {
-		workerPod := &j.Spec.RayClusterSpec.WorkerGroupSpecs[index].Template
-		info := podSetsInfo[index+1]
-		changed = podset.RestorePodSpec(&workerPod.ObjectMeta, &workerPod.Spec, info) || changed
-	}
+	changed := raycluster.RestorePodSetsInfo(j.Spec.RayClusterSpec, podSetsInfo)
 
 	// submitter
 	if j.Spec.SubmissionMode == rayv1.K8sJobMode {
