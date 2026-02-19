@@ -57,6 +57,13 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		return "LocalQueue", err
 	}
 
+	// though not corresponding to a Kueue CRD, this is a core
+	// controller as it needs to run for proper functioning
+	// of queue.cache package.
+	if err := qcache.SetupControllers(mgr, qManager); err != nil {
+		return "cache.queue", err
+	}
+
 	fairSharingEnabled := fairsharing.Enabled(cfg.FairSharing)
 	watchers := []ClusterQueueUpdateWatcher{rfRec, acRec}
 	if features.Enabled(features.HierarchicalCohorts) {

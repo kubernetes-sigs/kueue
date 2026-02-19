@@ -869,7 +869,15 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			util.ExpectAdmittedWorkloadsTotalMetric(cq2, "", 2)
 
 			ginkgo.By("Create admissible workload in queue1")
-			createWorkloadWithPriority("cq1", "3", 99)
+			highPriorityWl := createWorkloadWithPriority("cq1", "3", 99)
+
+			ginkgo.By("Wait until scheduler attempts to schedule priority=99 wl")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(highPriorityWl), highPriorityWl)).To(gomega.Succeed())
+				cond := meta.FindStatusCondition(highPriorityWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+				g.Expect(cond).NotTo(gomega.BeNil())
+				g.Expect(cond.Message).To(gomega.ContainSubstring("insufficient unused quota"))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Create another admissible workload in queue1")
 			createWorkloadWithPriority("cq1", "2", 9)
@@ -886,6 +894,14 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 					NominalQuota: resource.MustParse("2"),
 				}
 				g.Expect(k8sClient.Update(ctx, updatedCohort)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Wait until schedule considers priority=99 wl as NoFit")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(highPriorityWl), highPriorityWl)).To(gomega.Succeed())
+				cond := meta.FindStatusCondition(highPriorityWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+				g.Expect(cond).NotTo(gomega.BeNil())
+				g.Expect(cond.Message).To(gomega.ContainSubstring("insufficient quota"))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Validate pending workloads")
