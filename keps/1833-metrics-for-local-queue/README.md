@@ -96,29 +96,28 @@ type ControllerMetrics struct {
 // LocalQueueMetrics defines the configuration options for local queue metrics.
 // If left empty, then metrics will expose for all local queues across namespaces.
 type LocalQueueMetrics struct {
-	// Enable is a knob to allow metrics to be exposed for local queues. Defaults to false.
+    // Enable is a knob to allow metrics to be exposed for local queues. Defaults to true.
 	Enable bool `json:"enable,omitempty`
-	
-	// NamespaceSelector can be used to select namespaces in which the local queues should
-	// report metrics.
-	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
-	
+
 	// LocalQueueSelector can be used to choose the local queues that need metrics to be collected. 
 	LocalQueueSelector *metav1.LabelSelector `json:"localQueueSelector,omitempty"`
 }
 ```
 
+The `LocalQueueSelector` is evaluated independently of existing job management configurations, 
+such as `ManagedJobsNamespaceSelector` and `ManageJobsWithoutQueueName`. 
+If a LocalQueue resides in a namespace excluded by `ManagedJobsNamespaceSelector`, 
+the metrics for that LocalQueue will be exposed, but they will report zero usage. 
+
 To reduce cardinality, and enable selection of metrics for local queues, the following
 knobs will be available for `LocalQueueMetrics`:
 
-| `Enable` | `NamespaceSelector` | `LocalQueueSelector` | Description                                                                                                        |
-|----------|---------------------|----------------------|--------------------------------------------------------------------------------------------------------------------|
-| False    | -                   | -                    | Metrics will not be exposed.                                                                                       |
-| True     | -                   | -                    | Metrics for all local queues will be exposed.                                                                      |
-| True     | Specified           | -                    | All LocalQueues in the specific namespaces that match the selector have metrics enabled.                           |
-| True     | -                   | Specified            | All LocalQueues matching the label selector have metrics enabled.                                                  |
-| True     | Specified           | Specified            | Both the selectors are applied to local queues (logical AND) to filter the ones whose metrics have to be enabled.  |
-| False    | Specified           | Specified            | The selectors are disregarded, metrics will not be exposed.                                                        |
+| `Enable` | `LocalQueueSelector` | Description                                                                                                        |
+|----------|----------------------|--------------------------------------------------------------------------------------------------------------------|
+| False    | -                    | Metrics will not be exposed.                                                                                       |
+| True     | -                    | Metrics for all local queues will be exposed.                                                                      |
+| True     | Specified            | All LocalQueues matching the label selector have metrics enabled.                                                  |
+| False    | Specified            | The selector is disregarded, metrics will not be exposed.                                                          |
 
 ### List of metrics for Local Queues:
 
