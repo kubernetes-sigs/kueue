@@ -34,7 +34,7 @@ Options:
   --dry-run[=STRATEGY]     Perform a dry run. STRATEGY can be 'client' (default) for client-side dry run
                            or 'server' for server-side dry run.
   -v, --verbose            Enable verbose output
-  --namespace-regex REGEX  Filter namespaces using this extended regular expression
+  --namespace-regex=REGEX  Filter namespaces using this extended regular expression
                            Examples:
                              --namespace-regex="prod|staging"
                              --namespace-regex="^team-"
