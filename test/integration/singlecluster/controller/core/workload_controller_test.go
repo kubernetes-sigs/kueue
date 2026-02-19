@@ -276,6 +276,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, check2, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, check1, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor2, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor1, true)
 		})
 
