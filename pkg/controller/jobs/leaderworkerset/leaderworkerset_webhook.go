@@ -18,7 +18,6 @@ package leaderworkerset
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
@@ -40,10 +39,6 @@ import (
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/podset"
-)
-
-var (
-	errPodSetConstructionFailed = errors.New("failed to construct LeaderWorkerSet PodSets")
 )
 
 type Webhook struct {
@@ -84,13 +79,9 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 	}
 	if suspend {
 		if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
-			if err = wh.podTemplateSpecDefault(lws, lws.Spec.LeaderWorkerTemplate.LeaderTemplate, leaderPodSetName); err != nil {
-				return err
-			}
+			wh.podTemplateSpecDefault(lws, lws.Spec.LeaderWorkerTemplate.LeaderTemplate, leaderPodSetName)
 		}
-		if err = wh.podTemplateSpecDefault(lws, &lws.Spec.LeaderWorkerTemplate.WorkerTemplate, workerPodSetName); err != nil {
-			return err
-		}
+		wh.podTemplateSpecDefault(lws, &lws.Spec.LeaderWorkerTemplate.WorkerTemplate, workerPodSetName)
 	}
 
 	return nil
@@ -98,7 +89,7 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 
 func (wh *Webhook) podTemplateSpecDefault(
 	lws *LeaderWorkerSet, podTemplateSpec *corev1.PodTemplateSpec, psName string,
-) error {
+) {
 	if priorityClass := jobframework.WorkloadPriorityClassName(lws.Object()); priorityClass != "" {
 		if podTemplateSpec.Labels == nil {
 			podTemplateSpec.Labels = make(map[string]string, 1)
@@ -112,23 +103,13 @@ func (wh *Webhook) podTemplateSpecDefault(
 	podTemplateSpec.Annotations[podconstants.SuspendedByParentAnnotation] = FrameworkName
 	podTemplateSpec.Annotations[podconstants.GroupServingAnnotationKey] = podconstants.GroupServingAnnotationValue
 
-	if features.Enabled(features.TopologyAwareScheduling) && psName == workerPodSetName {
+	if features.Enabled(features.TopologyAwareScheduling) && psName == workerPodSetName && lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
 		// The offset is handled as PodSet group scheduling mechanism separately in topology-unGater
 		// when the LeaderWorkerSet constructs PodSet group across Leaders and Workers.
-		if _, isPodSetGroup := podTemplateSpec.Annotations[kueue.PodSetGroupName]; isPodSetGroup {
-			return nil
-		}
-		pss, err := podSets((*leaderworkersetv1.LeaderWorkerSet)(lws))
-		if err != nil {
-			return errors.Join(err, errPodSetConstructionFailed)
-		}
-		// The LWS has leader and worker templates, or it has only worker template, but size is larger than 1
-		// when the number of PodSet is 2.
-		if len(pss) == 2 {
+		if _, isPodSetGroup := podTemplateSpec.Annotations[kueue.PodSetGroupName]; !isPodSetGroup {
 			podTemplateSpec.Annotations[kueue.PodIndexOffsetAnnotation] = "1"
 		}
 	}
-	return nil
 }
 
 // +kubebuilder:webhook:path=/validate-leaderworkerset-x-k8s-io-v1-leaderworkerset,mutating=false,failurePolicy=fail,sideEffects=None,groups="leaderworkerset.x-k8s.io",resources=leaderworkersets,verbs=create;update,versions=v1,name=vleaderworkerset.kb.io,admissionReviewVersions=v1
