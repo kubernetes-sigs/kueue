@@ -53,7 +53,9 @@ type Assignment struct {
 	LastState workload.AssignmentClusterQueueState
 
 	// Usage is the accumulated Usage of resources as pod sets get
-	// flavors assigned.
+	// flavors assigned. When workload slicing is enabled and replaceWorkloadSlice
+	// is set, this represents only the delta usage (new - old) to avoid double-counting
+	// resources already reserved in the replaced slice.
 	Usage workload.Usage
 
 	// representativeMode is the cached representative mode for this assignment.
@@ -701,10 +703,35 @@ func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAss
 			a.Borrowing = flvAssignment.borrow
 		}
 		fr := resources.FlavorResource{Flavor: flvAssignment.Name, Resource: resource}
-		a.Usage.Quota[fr] += requests[resource]
+
+		// For workload slicing, only add the delta (new - old) to avoid double-counting
+		// podSets that already have quota reserved in the old slice.
+		requestAmount := requests[resource]
+		if features.Enabled(features.ElasticJobsViaWorkloadSlices) && a.replaceWorkloadSlice != nil {
+			oldRequest := a.findOldPodSetRequest(psAssignment.Name, resource)
+			requestAmount -= oldRequest
+		}
+
+		a.Usage.Quota[fr] += requestAmount
 		flavorIdx[resource] = flvAssignment.TriedFlavorIdx
 	}
 	a.LastState.LastTriedFlavorIdx = append(a.LastState.LastTriedFlavorIdx, flavorIdx)
+}
+
+// findOldPodSetRequest returns the resource request from the old workload slice
+// for the given podSet name and resource. Returns 0 if not found.
+func (a *Assignment) findOldPodSetRequest(psName kueue.PodSetReference, resource corev1.ResourceName) int64 {
+	if a.replaceWorkloadSlice == nil {
+		return 0
+	}
+
+	for _, oldPS := range a.replaceWorkloadSlice.TotalRequests {
+		if oldPS.Name == psName {
+			return oldPS.Requests[resource]
+		}
+	}
+
+	return 0
 }
 
 // findFlavorForPodSets finds the flavor which can satisfy all the PodSet requests
