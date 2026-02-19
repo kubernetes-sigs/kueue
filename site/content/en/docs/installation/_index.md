@@ -243,6 +243,7 @@ You can edit the `kueue-manager-config` `ConfigMap` and add the feature gate you
 ```yaml
 apiVersion: v1
 kind: ConfigMap
+metadata:
   name: kueue-manager-config
   namespace: kueue-system
 data:
