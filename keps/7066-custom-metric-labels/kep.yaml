@@ -5,9 +5,11 @@ authors:
 status: provisional
 creation-date: 2026-02-13
 reviewers:
-  - TBD
+  - "@mimowo"
+  - "@kannon92"
+  - "@yashnib"
 approvers:
-  - TBD
+  - "@mimowo"
 
 # The target maturity stage in the current dev cycle for this KEP.
 stage: alpha

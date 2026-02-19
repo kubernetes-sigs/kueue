@@ -63,8 +63,8 @@ build dashboards and filter or aggregate metrics.
 
 ## Proposal
 
-Add a `customLabels` string list to the `metrics` config section. At
-startup, Kueue sanitizes each key, adds a `custom_` prefix, and
+Add a `customLabels` list to the `metrics` config section. At
+startup, Kueue sanitizes each entry's `name` key, adds a `custom_` prefix, and
 initializes ClusterQueue and LocalQueue metric vectors with the additional
 label dimensions. When reporting metrics, the corresponding Kubernetes
 label values are included in the label set.
@@ -84,19 +84,20 @@ center.
 
 ### Risks and Mitigations
 
-**Metric series growth.** Each custom label adds a dimension to existing
-queue metric series. However, since custom label values are read from
-the queue object itself, the total number of series stays the same
-since no new combinations are introduced. Documentation will advise keeping the
-list focused and avoiding labels whose values change frequently.
+**Metric series growth.** Custom labels do not increase active series
+count in steady state — each queue still produces one set of label
+values per metric. However, changing a custom label's value creates a
+new series; the old one must be explicitly deleted (see
+[Value-change cleanup](#implementation-approach)). Admins should prefer
+stable metadata (team, environment, cost center) and avoid values that
+change frequently.
 
 **Name collisions.** The mandatory `custom_` prefix prevents collisions
 with current or future built-in labels.
 
-**Stale metrics.** When a queue's label value changes, the old time series
-persists until explicitly deleted. The controller must track previous
-custom label values per queue and delete the old series when a change
-is detected, before reporting with the new values.
+**Stale metrics.** When a queue's label value changes, the old series
+persists until explicitly deleted. See
+[Value-change cleanup](#implementation-approach) for details.
 
 ## Design Details
 
@@ -106,16 +107,22 @@ Extend `ControllerMetrics` in
 `apis/config/v1beta2/configuration_types.go`:
 
 ```go
+type ControllerMetricsCustomLabel struct {
+    // Name is a Kubernetes label key whose value will be added as an extra
+    // Prometheus label on ClusterQueue and LocalQueue metrics.
+    // The key is sanitized and prefixed with "custom_" to form the
+    // Prometheus label name (e.g., "team" becomes "custom_team").
+    Name string `json:"name"`
+}
+
 type ControllerMetrics struct {
     ...
     EnableClusterQueueResources bool     `json:"enableClusterQueueResources,omitempty"`
 
     // CustomLabels is a list of Kubernetes label keys whose values will be
     // added as extra Prometheus labels on ClusterQueue and LocalQueue metrics.
-    // Each key is sanitized and prefixed with "custom_" to form the
-    // Prometheus label name (e.g., "team" becomes "custom_team").
     // +optional
-    CustomLabels []string `json:"customLabels,omitempty"`
+    CustomLabels []ControllerMetricsCustomLabel `json:"customLabels,omitempty"`
 }
 ```
 
@@ -125,9 +132,9 @@ Example configuration:
 metrics:
   enableClusterQueueResources: true
   customLabels:
-    - "team"
-    - "env"
-    - "cost-center"
+    - name: "team"
+    - name: "env"
+    - name: "cost-center"
 ```
 
 Resulting metric (existing labels truncated with `...`):
@@ -141,8 +148,16 @@ kueue_cluster_queue_resource_usage{
 
 ### Label Sanitization
 
-Hyphens, dots, and slashes in Kubernetes label keys are replaced with
-underscores, then the `custom_` prefix is prepended:
+Each `name` entry is converted to a Prometheus label name as follows:
+
+1. Validate that the input is a valid [Kubernetes label key][k8s-labels].
+2. Replace every character that is **not** in `[A-Za-z0-9_]` with `_`.
+3. Prepend the prefix `custom_`.
+4. Verify the result matches the Prometheus label-name regex
+   `[a-zA-Z_][a-zA-Z0-9_]*` (guaranteed by construction since the
+   prefix starts with a letter).
+5. If two or more input keys produce the same derived name after steps
+   1–4, report a **fatal startup error** (see [Validation](#validation)).
 
 | Kubernetes label key           | Prometheus label name                  |
 |--------------------------------|----------------------------------------|
@@ -185,10 +200,20 @@ are affected. The full set is determined by the metric definitions in
 4. **Deletion cleanup**: Existing `Clear*Metrics` functions use
    `DeletePartialMatch` and will match custom label dimensions
    automatically when a queue is deleted.
-5. **Value-change cleanup**: When a queue's custom label value changes,
-   the controller must delete the old series before reporting with the
-   new values. This requires tracking previous custom label values per
-   queue and detecting changes during reconciliation.
+5. **Value-change cleanup**: The controller keeps an in-memory map
+   from queue name to last-reported custom label values. On every
+   queue reconciliation:
+   1. Read the configured custom label keys from the queue object to
+      get the new values.
+   2. Look up the previous values for this queue in the map.
+   3. If any value differs: remove the old series from every
+      queue-scoped metric vector (ClusterQueue and LocalQueue; core,
+      cache, and resource metrics), then report with the new values.
+   4. Update the map entry with the new values.
+
+   For cumulative metrics (counters and histograms), removing and
+   re-creating a series resets it to zero. This is expected; `rate()`
+   and `increase()` handle counter resets correctly.
 
 ### Metrics Documentation Generator
 
@@ -211,13 +236,20 @@ At startup, each `customLabels` entry must:
 1. Be a valid [Kubernetes label key][k8s-labels].
 2. Produce a valid Prometheus label name after sanitization.
 3. Not produce a duplicate derived name (e.g., `cost-center` and
-   `cost.center` both map to `custom_cost_center`).
+   `cost.center` both map to `custom_cost_center`). If two or more
+   input keys collide after sanitization, the controller must emit a
+   **fatal startup error** that lists the derived Prometheus label name
+   and all conflicting input keys (e.g.,
+   `duplicate custom metric label "custom_cost_center" produced by keys: "cost-center", "cost.center"`).
 
 The `custom_` prefix ensures that any Kubernetes label key can be
 safely used without conflicting with built-in metric labels.
 
 Validation runs regardless of whether the `CustomMetricLabels` feature
-gate is enabled, so configuration errors are caught early.
+gate is enabled, so configuration errors are caught early. When
+`customLabels` is configured but the `CustomMetricLabels` feature gate
+is disabled, the controller logs a warning at startup indicating that
+the configuration will have no effect until the gate is enabled.
 
 [k8s-labels]: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set
 
@@ -229,11 +261,12 @@ committing the changes necessary to implement this enhancement.
 
 #### Unit Tests
 
-- Config validation (invalid keys, duplicates after sanitization).
+- Config validation (invalid keys, duplicates after sanitization produce
+  fatal startup error with descriptive message).
 - Label sanitization edge cases.
 - Metric reporting with custom labels; missing labels produce empty values.
 - Feature gate disabled: `customLabels` config is ignored, metrics have
-  only built-in labels.
+  only built-in labels, warning is logged.
 
 #### Integration Tests
 
@@ -252,7 +285,9 @@ committing the changes necessary to implement this enhancement.
 
 **Alpha (v0.17)**: Feature gate `CustomMetricLabels` (disabled by default),
 config field, ClusterQueue and LocalQueue metrics support, validation,
-tests, docs.
+tests, docs. LocalQueue custom labels require the `LocalQueueMetrics`
+gate to also be enabled (still alpha); otherwise only ClusterQueue
+metrics carry custom labels.
 
 **Beta**: Positive feedback, gate defaults to enabled.
 
