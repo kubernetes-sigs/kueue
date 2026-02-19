@@ -34,6 +34,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/scheduler"
@@ -90,7 +92,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 
 	cacheOptions := []schdcache.Option{}
 	cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
-	queues := qcache.NewManager(mgr.GetClient(), cCache)
+	queues := util.NewManagerForIntegrationTests(mgr.GetClient(), cCache)
 	qManager = queues
 
 	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil)
@@ -98,6 +100,9 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 
 	failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, controllersCfg, nil)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "TAS controller", failedCtrl)
+
+	err = pod.SetupWebhook(mgr, jobframework.WithQueues(queues))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = tasindexer.SetupIndexes(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())

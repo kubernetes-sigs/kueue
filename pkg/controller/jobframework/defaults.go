@@ -30,7 +30,6 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	"sigs.k8s.io/kueue/pkg/features"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 )
 
@@ -79,7 +78,7 @@ func WorkloadShouldBeSuspended(ctx context.Context, jobObj client.Object, k8sCli
 }
 
 func ApplyDefaultLocalQueue(jobObj client.Object, defaultQueueExist func(string) bool) {
-	if !features.Enabled(features.LocalQueueDefaulting) || !defaultQueueExist(jobObj.GetNamespace()) {
+	if !defaultQueueExist(jobObj.GetNamespace()) {
 		return
 	}
 	if QueueNameForObject(jobObj) == "" {

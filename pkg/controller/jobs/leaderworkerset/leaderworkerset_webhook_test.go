@@ -65,7 +65,7 @@ func TestDefault(t *testing.T) {
 				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				Obj(),
 		},
-		"LocalQueueDefaulting enabled, default lq is created, job doesn't have queue label": {
+		"default lq is created, job doesn't have queue label": {
 			defaultLqExist: true,
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -79,7 +79,7 @@ func TestDefault(t *testing.T) {
 				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				Obj(),
 		},
-		"LocalQueueDefaulting enabled, default lq is created, job has queue label": {
+		"default lq is created, job has queue label": {
 			defaultLqExist: true,
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -94,7 +94,7 @@ func TestDefault(t *testing.T) {
 				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				Obj(),
 		},
-		"LocalQueueDefaulting enabled, default lq isn't created, job doesn't have queue label": {
+		"default lq isn't created, job doesn't have queue label": {
 			defaultLqExist: false,
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -113,7 +113,7 @@ func TestDefault(t *testing.T) {
 			builder := utiltesting.NewClientBuilder()
 			cli := builder.Build()
 			cqCache := schdcache.New(cli)
-			queueManager := qcache.NewManager(cli, cqCache)
+			queueManager := qcache.NewManagerForUnitTests(cli, cqCache)
 			if tc.defaultLqExist {
 				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("default", "default").
 					ClusterQueue("cluster-queue").Obj()); err != nil {

@@ -46,12 +46,12 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core"
-	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 const (
@@ -224,13 +224,17 @@ func (r *nodeFailureReconciler) getWorkloadsForImmediateReplacement(ctx context.
 
 	affectedWorkloads := sets.New[types.NamespacedName]()
 	for wlKey := range tasWorkloadsOnNode {
-		var podsForWl corev1.PodList
-		if err := r.client.List(ctx, &podsForWl, client.InNamespace(wlKey.Namespace), client.MatchingFields{indexer.WorkloadNameKey: wlKey.Name}); err != nil {
+		var wl kueue.Workload
+		if err := r.client.Get(ctx, wlKey, &wl); err != nil {
+			return nil, fmt.Errorf("failed to get workload %s: %w", wlKey, err)
+		}
+		podsForWl, err := r.listPodsForWorkload(ctx, &wl)
+		if err != nil {
 			return nil, fmt.Errorf("failed to list pods for workload %s: %w", wlKey, err)
 		}
 		allPodsTerminate := true
-		for _, pod := range podsForWl.Items {
-			if pod.Spec.NodeName == nodeName && pod.DeletionTimestamp.IsZero() && !utilpod.IsTerminated(&pod) {
+		for _, pod := range podsForWl {
+			if pod.Spec.NodeName == nodeName && pod.DeletionTimestamp.IsZero() && !utilpod.IsTerminated(pod) {
 				allPodsTerminate = false
 				break
 			}
@@ -240,6 +244,11 @@ func (r *nodeFailureReconciler) getWorkloadsForImmediateReplacement(ctx context.
 		}
 	}
 	return affectedWorkloads, nil
+}
+
+// listPodsForWorkload returns pods belonging to a workload.
+func (r *nodeFailureReconciler) listPodsForWorkload(ctx context.Context, wl *kueue.Workload) ([]*corev1.Pod, error) {
+	return ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, workloadslicing.SliceName(wl))
 }
 
 // evictWorkloadIfNeeded idempotently evicts the workload when the node has failed.

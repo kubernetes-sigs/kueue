@@ -173,7 +173,6 @@ func TestSchedule(t *testing.T) {
 	}
 	cases := map[string]struct {
 		// Features
-		disableLendingLimit               bool
 		disablePartialAdmission           bool
 		enableFairSharing                 bool
 		enableElasticJobsViaWorkloadSlice bool
@@ -1167,39 +1166,210 @@ func TestSchedule(t *testing.T) {
 				"lend-b": {"lend/b"},
 			},
 		},
-		"lendingLimit should not affect assignments when feature disabled": {
-			disableLendingLimit: true,
+		// Cohorts in UPPERCASE, ClusterQueues in lowercase.
+		//
+		//        ROOT
+		//         |
+		//       CHILD
+		//      /     \
+		// lender    borrower
+		//
+		// In (), we display nominal quota.
+		// lender(10):   lendingLimit=3
+		// borrower(5):  borrowingLimit=10, usage=5
+		//
+		// lender reserves 10-3=7 CPU and lends at most 3
+		// to the cohort. borrower has used all 5 of its
+		// nominal quota, so it must borrow to admit more.
+		//
+		// wl-pending requests 4 CPU, but only 3 are
+		// lendable. We expect it to be inadmissible.
+		"hierarchical cohort respects lending limit when borrowing": {
+			cohorts: []kueue.Cohort{
+				*utiltestingapi.MakeCohort("root").Obj(),
+				*utiltestingapi.MakeCohort("child").Parent("root").Obj(),
+			},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("cq-lender").
+					Cohort("child").
+					NamespaceSelector(&metav1.LabelSelector{
+						MatchExpressions: []metav1.LabelSelectorRequirement{{
+							Key:      "dep",
+							Operator: metav1.LabelSelectorOpIn,
+							Values:   []string{"eng"},
+						}},
+					}).
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("on-demand").
+							ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("10").LendingLimit("3").Append().
+							Obj(),
+					).Obj(),
+				*utiltestingapi.MakeClusterQueue("cq-borrower").
+					Cohort("child").
+					NamespaceSelector(&metav1.LabelSelector{
+						MatchExpressions: []metav1.LabelSelectorRequirement{{
+							Key:      "dep",
+							Operator: metav1.LabelSelectorOpIn,
+							Values:   []string{"eng"},
+						}},
+					}).
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("on-demand").
+							ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("5").BorrowingLimit("10").Append().
+							Obj(),
+					).Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("lq-lender", "eng-alpha").ClusterQueue("cq-lender").Obj(),
+				*utiltestingapi.MakeLocalQueue("lq-borrower", "eng-alpha").ClusterQueue("cq-borrower").Obj(),
+			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("a", "lend").
-					Request(corev1.ResourceCPU, "2").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission("lend-b").
-						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "2000m").
+				*utiltestingapi.MakeWorkload("wl-existing", "eng-alpha").
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						Request(corev1.ResourceCPU, "5").
+						Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq-borrower", "main").
+						PodSets(utiltestingapi.MakePodSetAssignment("main").
+							Assignment(corev1.ResourceCPU, "on-demand", "5").
 							Obj()).
 						Obj(), now).
 					Obj(),
-				*utiltestingapi.MakeWorkload("b", "lend").
-					Queue("lend-b-queue").
-					Request(corev1.ResourceCPU, "3").
+				*utiltestingapi.MakeWorkload("wl-pending", "eng-alpha").
+					Queue("lq-borrower").
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						Request(corev1.ResourceCPU, "4").
+						Obj()).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("a", "lend").
-					Request(corev1.ResourceCPU, "2").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission("lend-b").
-						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "2000m").
+				*utiltestingapi.MakeWorkload("wl-existing", "eng-alpha").
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						Request(corev1.ResourceCPU, "5").
+						Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq-borrower", "main").
+						PodSets(utiltestingapi.MakePodSetAssignment("main").
+							Assignment(corev1.ResourceCPU, "on-demand", "5").
 							Obj()).
 						Obj(), now).
 					Obj(),
-				*utiltestingapi.MakeWorkload("b", "lend").
-					Queue("lend-b-queue").
-					Request(corev1.ResourceCPU, "3").
+				*utiltestingapi.MakeWorkload("wl-pending", "eng-alpha").
+					Queue("lq-borrower").
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						Request(corev1.ResourceCPU, "4").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             "Pending",
+						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 1 more needed",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("4"),
+						},
+					}).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"eng-alpha/wl-existing": *utiltestingapi.MakeAdmission("cq-borrower", "main").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Assignment(corev1.ResourceCPU, "on-demand", "5").
+						Obj()).
+					Obj(),
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq-borrower": {"eng-alpha/wl-pending"},
+			},
+		},
+		// Cohorts in UPPERCASE, ClusterQueues in lowercase.
+		//
+		//        ROOT
+		//         |
+		//       CHILD
+		//      /     \
+		// lender    borrower
+		//
+		// In (), we display nominal quota.
+		// lender(10):   lendingLimit=5
+		// borrower(5):  borrowingLimit=10, usage=5
+		//
+		// lender reserves 10-5=5 CPU and lends at most 5
+		// to the cohort. borrower has used all 5 of its
+		// nominal quota, so it must borrow to admit more.
+		//
+		// wl-borrowing requests 5 CPU, which exactly
+		// matches the lendable amount. We expect it to
+		// be admitted.
+		"hierarchical cohort allows borrowing up to lending limit": {
+			cohorts: []kueue.Cohort{
+				*utiltestingapi.MakeCohort("root").Obj(),
+				*utiltestingapi.MakeCohort("child").Parent("root").Obj(),
+			},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("cq-lender").
+					Cohort("child").
+					NamespaceSelector(&metav1.LabelSelector{
+						MatchExpressions: []metav1.LabelSelectorRequirement{{
+							Key:      "dep",
+							Operator: metav1.LabelSelectorOpIn,
+							Values:   []string{"eng"},
+						}},
+					}).
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("on-demand").
+							ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("10").LendingLimit("5").Append().
+							Obj(),
+					).Obj(),
+				*utiltestingapi.MakeClusterQueue("cq-borrower").
+					Cohort("child").
+					NamespaceSelector(&metav1.LabelSelector{
+						MatchExpressions: []metav1.LabelSelectorRequirement{{
+							Key:      "dep",
+							Operator: metav1.LabelSelectorOpIn,
+							Values:   []string{"eng"},
+						}},
+					}).
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("on-demand").
+							ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("5").BorrowingLimit("10").Append().
+							Obj(),
+					).Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("lq-lender", "eng-alpha").ClusterQueue("cq-lender").Obj(),
+				*utiltestingapi.MakeLocalQueue("lq-borrower", "eng-alpha").ClusterQueue("cq-borrower").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-existing", "eng-alpha").
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						Request(corev1.ResourceCPU, "5").
+						Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq-borrower", "main").
+						PodSets(utiltestingapi.MakePodSetAssignment("main").
+							Assignment(corev1.ResourceCPU, "on-demand", "5").
+							Obj()).
+						Obj(), now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-borrowing", "eng-alpha").
+					Queue("lq-borrower").
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						Request(corev1.ResourceCPU, "5").
+						Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-borrowing", "eng-alpha").
+					Queue("lq-borrower").
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						Request(corev1.ResourceCPU, "5").
+						Obj()).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionTrue,
 						Reason:             "QuotaReserved",
-						Message:            "Quota reserved in ClusterQueue lend-b",
+						Message:            "Quota reserved in ClusterQueue cq-borrower",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -1210,24 +1380,36 @@ func TestSchedule(t *testing.T) {
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Admission(
-						utiltestingapi.MakeAdmission("lend-b").
-							PodSets(utiltestingapi.MakePodSetAssignment("main").
-								Assignment(corev1.ResourceCPU, "default", "3").
-								Count(1).
-								Obj()).
+						utiltestingapi.MakeAdmission("cq-borrower").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment("main").
+									Assignment(corev1.ResourceCPU, "on-demand", "5").
+									Count(1).
+									Obj(),
+							).
 							Obj(),
 					).
 					Obj(),
+				*utiltestingapi.MakeWorkload("wl-existing", "eng-alpha").
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						Request(corev1.ResourceCPU, "5").
+						Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq-borrower", "main").
+						PodSets(utiltestingapi.MakePodSetAssignment("main").
+							Assignment(corev1.ResourceCPU, "on-demand", "5").
+							Obj()).
+						Obj(), now).
+					Obj(),
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
-				"lend/a": *utiltestingapi.MakeAdmission("lend-b").
-					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-						Assignment(corev1.ResourceCPU, "default", "2000m").
+				"eng-alpha/wl-existing": *utiltestingapi.MakeAdmission("cq-borrower", "main").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Assignment(corev1.ResourceCPU, "on-demand", "5").
 						Obj()).
 					Obj(),
-				"lend/b": *utiltestingapi.MakeAdmission("lend-b").
-					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-						Assignment(corev1.ResourceCPU, "default", "3000m").
+				"eng-alpha/wl-borrowing": *utiltestingapi.MakeAdmission("cq-borrower", "main").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Assignment(corev1.ResourceCPU, "on-demand", "5").
 						Obj()).
 					Obj(),
 			},
@@ -7459,9 +7641,6 @@ func TestSchedule(t *testing.T) {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
 				metrics.AdmissionCyclePreemptionSkips.Reset()
-				if tc.disableLendingLimit {
-					features.SetFeatureGateDuringTest(t, features.LendingLimit, false)
-				}
 				if tc.disablePartialAdmission {
 					features.SetFeatureGateDuringTest(t, features.PartialAdmission, false)
 				}
@@ -7497,7 +7676,7 @@ func TestSchedule(t *testing.T) {
 				cl := clientBuilder.Build()
 				recorder := &utiltesting.EventRecorder{}
 				cqCache := schdcache.New(cl)
-				qManager := qcache.NewManager(cl, cqCache)
+				qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 				// Workloads are loaded into queues or clusterQueues as we add them.
 				for _, q := range allQueues {
 					if err := qManager.AddLocalQueue(ctx, &q); err != nil {
@@ -8661,7 +8840,7 @@ func TestLastSchedulingContext(t *testing.T) {
 				recorder := broadcaster.NewRecorder(scheme,
 					corev1.EventSource{Component: constants.AdmissionName})
 				cqCache := schdcache.New(cl)
-				qManager := qcache.NewManager(cl, cqCache)
+				qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 				// Workloads are loaded into queues or clusterQueues as we add them.
 				for _, q := range queues {
 					if err := qManager.AddLocalQueue(ctx, &q); err != nil {
@@ -8856,7 +9035,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 			broadcaster := record.NewBroadcaster()
 			recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
 			cqCache := schdcache.New(cl)
-			qManager := qcache.NewManager(cl, cqCache)
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 			scheduler := New(qManager, cqCache, cl, recorder)
 			if err := qManager.AddLocalQueue(ctx, q1); err != nil {
 				t.Fatalf("Inserting queue %s/%s in manager: %v", q1.Namespace, q1.Name, err)
@@ -9239,7 +9418,7 @@ func TestSchedulerWhenWorkloadModifiedConcurrently(t *testing.T) {
 				recorder := &utiltesting.EventRecorder{}
 
 				cqCache := schdcache.New(cl)
-				qManager := qcache.NewManager(cl, cqCache)
+				qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 
 				cqCache.AddOrUpdateResourceFlavor(log, rf.DeepCopy())
 				if err := cqCache.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {

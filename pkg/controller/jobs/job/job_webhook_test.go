@@ -64,11 +64,12 @@ var (
 
 func TestValidateCreate(t *testing.T) {
 	testcases := []struct {
-		name                    string
-		job                     *batchv1.Job
-		wantValidationErrs      field.ErrorList
-		wantErr                 error
-		topologyAwareScheduling bool
+		name                         string
+		job                          *batchv1.Job
+		wantValidationErrs           field.ErrorList
+		wantErr                      error
+		topologyAwareScheduling      bool
+		elasticJobsViaWorkloadSlices bool
 	}{
 		{
 			name:               "simple",
@@ -379,11 +380,48 @@ func TestValidateCreate(t *testing.T) {
 			},
 			topologyAwareScheduling: true,
 		},
+		{
+			name: "elastic job with required topology is rejected",
+			job: testingutil.MakeJob("job", "default").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Forbidden(replicaMetaPath.Child("annotations", kueue.PodSetRequiredTopologyAnnotation),
+					"required topology is not supported with elastic jobs"),
+			},
+			topologyAwareScheduling:      true,
+			elasticJobsViaWorkloadSlices: true,
+		},
+		{
+			name: "elastic job with preferred topology is rejected",
+			job: testingutil.MakeJob("job", "default").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Forbidden(replicaMetaPath.Child("annotations", kueue.PodSetPreferredTopologyAnnotation),
+					"preferred topology is not supported with elastic jobs"),
+			},
+			topologyAwareScheduling:      true,
+			elasticJobsViaWorkloadSlices: true,
+		},
+		{
+			name: "elastic job with unconstrained topology is accepted",
+			job: testingutil.MakeJob("job", "default").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				Obj(),
+			wantValidationErrs:           nil,
+			topologyAwareScheduling:      true,
+			elasticJobsViaWorkloadSlices: true,
+		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tc.elasticJobsViaWorkloadSlices)
 
 			jw := &JobWebhook{}
 
@@ -724,7 +762,6 @@ func TestDefault(t *testing.T) {
 		admissionCheck             *kueue.AdmissionCheck
 		manageJobsWithoutQueueName bool
 		multiKueueEnabled          bool
-		localQueueDefaulting       bool
 		defaultLqExist             bool
 		enableIntegrations         []string
 		want                       *batchv1.Job
@@ -805,32 +842,28 @@ func TestDefault(t *testing.T) {
 				Obj(),
 			multiKueueEnabled: true,
 		},
-		"LocalQueueDefaulting enabled, default lq is created, job doesn't have queue label": {
-			localQueueDefaulting: true,
-			defaultLqExist:       true,
-			job:                  testingutil.MakeJob("test-job", "default").Obj(),
+		"default lq is created, job doesn't have queue label": {
+			defaultLqExist: true,
+			job:            testingutil.MakeJob("test-job", "default").Obj(),
 			want: testingutil.MakeJob("test-job", "default").
 				Queue("default").
 				Obj(),
 		},
-		"LocalQueueDefaulting enabled, default lq is created, job has queue label": {
-			localQueueDefaulting: true,
-			defaultLqExist:       true,
-			job:                  testingutil.MakeJob("test-job", "").Queue("test-queue").Obj(),
+		"default lq is created, job has queue label": {
+			defaultLqExist: true,
+			job:            testingutil.MakeJob("test-job", "").Queue("test-queue").Obj(),
 			want: testingutil.MakeJob("test-job", "").
 				Queue("test-queue").
 				Obj(),
 		},
-		"LocalQueueDefaulting enabled, default lq isn't created, job doesn't have queue label": {
-			localQueueDefaulting: true,
-			defaultLqExist:       false,
-			job:                  testingutil.MakeJob("test-job", "").Obj(),
+		"default lq isn't created, job doesn't have queue label": {
+			defaultLqExist: false,
+			job:            testingutil.MakeJob("test-job", "").Obj(),
 			want: testingutil.MakeJob("test-job", "").
 				Obj(),
 		},
-		"LocalQueueDefaulting enabled, job is managed by Kueue managed owner, job doesn't have queue label": {
-			localQueueDefaulting: true,
-			defaultLqExist:       true,
+		"job is managed by Kueue managed owner, job doesn't have queue label": {
+			defaultLqExist: true,
 			// MPIJob callBackFunction is registered as integrations since we initialize MPIJob integration package.
 			enableIntegrations: []string{"kubeflow.org/mpijob"},
 			job: testingutil.MakeJob("test-job", metav1.NamespaceDefault).
@@ -843,9 +876,8 @@ func TestDefault(t *testing.T) {
 				OwnerReference("owner", kfmpi.SchemeGroupVersionKind).
 				Obj(),
 		},
-		"LocalQueueDefaulting enabled, job is managed by non Kueue managed owner, job has queue label": {
-			localQueueDefaulting: true,
-			defaultLqExist:       true,
+		"job is managed by non Kueue managed owner, job has queue label": {
+			defaultLqExist: true,
 			job: testingutil.MakeJob("test-job", metav1.NamespaceDefault).
 				OwnerReference("owner", jobsetapi.SchemeGroupVersion.WithKind("JobSet")).
 				Obj(),
@@ -858,7 +890,6 @@ func TestDefault(t *testing.T) {
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.MultiKueue, tc.multiKueueEnabled)
-			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
 
 			ctx, log := utiltesting.ContextWithLog(t)
 
@@ -867,7 +898,7 @@ func TestDefault(t *testing.T) {
 				WithRuntimeObjects(tc.objs...)
 			cl := clientBuilder.Build()
 			cqCache := schdcache.New(cl)
-			queueManager := qcache.NewManager(cl, cqCache)
+			queueManager := qcache.NewManagerForUnitTests(cl, cqCache)
 			if tc.defaultLqExist {
 				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("default", "default").
 					ClusterQueue("cluster-queue").Obj()); err != nil {

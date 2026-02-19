@@ -22,7 +22,6 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
@@ -65,7 +64,7 @@ func createResourceQuotas(kueueRgs []kueue.ResourceGroup) map[resources.FlavorRe
 				if kueueQuota.BorrowingLimit != nil {
 					quota.BorrowingLimit = ptr.To(resources.ResourceValue(kueueQuota.Name, *kueueQuota.BorrowingLimit))
 				}
-				if features.Enabled(features.LendingLimit) && kueueQuota.LendingLimit != nil {
+				if kueueQuota.LendingLimit != nil {
 					quota.LendingLimit = ptr.To(resources.ResourceValue(kueueQuota.Name, *kueueQuota.LendingLimit))
 				}
 				quotas[resources.FlavorResource{Flavor: kueueFlavor.Name, Resource: kueueQuota.Name}] = quota

@@ -199,7 +199,6 @@ func TestAssignFlavors(t *testing.T) {
 		secondaryClusterQueueUsage          resources.FlavorResourceQuantities
 		wantRepMode                         FlavorAssignmentMode
 		wantAssignment                      Assignment
-		disableLendingLimit                 bool
 		enableFairSharing                   bool
 		simulationResult                    map[resources.FlavorResource]simulationResultForFlavor
 		elasticJobsViaWorkloadSlicesEnabled bool
@@ -3304,9 +3303,6 @@ func TestAssignFlavors(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
-			if tc.disableLendingLimit {
-				features.SetFeatureGateDuringTest(t, features.LendingLimit, false)
-			}
 			for fg, enabled := range tc.featureGates {
 				features.SetFeatureGateDuringTest(t, fg, enabled)
 			}
@@ -4055,6 +4051,147 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 			// When TAS request build fails, the assignment should be unfit so the workload is not admitted.
 			if got := tc.assignment.RepresentativeMode(); got != NoFit {
 				t.Errorf("RepresentativeMode() = %v, want NoFit (workload must not be admitted when TAS request build fails)", got)
+			}
+		})
+	}
+}
+
+func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, true)
+
+	// Create a mock TAS flavor snapshot
+	tasFlavor := &schdcache.TASFlavorSnapshot{}
+
+	cases := map[string]struct {
+		cq         schdcache.ClusterQueueSnapshot
+		assignment Assignment
+		workload   workload.Info
+		wantErr    string
+	}{
+		"required topology is rejected with ElasticJobsViaWorkloadSlices": {
+			cq: schdcache.ClusterQueueSnapshot{
+				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{"tas": tasFlavor},
+			},
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "tas", Mode: Fit, TriedFlavorIdx: -1},
+					},
+					Count:  2,
+					Status: *NewStatus(),
+				}},
+				replaceWorkloadSlice: workload.NewInfo(&kueue.Workload{
+					Status: kueue.WorkloadStatus{
+						Admission: &kueue.Admission{
+							PodSetAssignments: []kueue.PodSetAssignment{{
+								Name:               kueue.DefaultPodSetName,
+								TopologyAssignment: &kueue.TopologyAssignment{},
+							}},
+						},
+					},
+				}),
+			},
+			workload: *workload.NewInfo(&kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+							Request(corev1.ResourceCPU, "1").
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Obj(),
+					},
+				},
+			}),
+			wantErr: "required topology is not supported with ElasticJobsViaWorkloadSlices",
+		},
+		"preferred topology is rejected with ElasticJobsViaWorkloadSlices": {
+			cq: schdcache.ClusterQueueSnapshot{
+				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{"tas": tasFlavor},
+			},
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "tas", Mode: Fit, TriedFlavorIdx: -1},
+					},
+					Count:  2,
+					Status: *NewStatus(),
+				}},
+				replaceWorkloadSlice: workload.NewInfo(&kueue.Workload{
+					Status: kueue.WorkloadStatus{
+						Admission: &kueue.Admission{
+							PodSetAssignments: []kueue.PodSetAssignment{{
+								Name:               kueue.DefaultPodSetName,
+								TopologyAssignment: &kueue.TopologyAssignment{},
+							}},
+						},
+					},
+				}),
+			},
+			workload: *workload.NewInfo(&kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+							Request(corev1.ResourceCPU, "1").
+							PreferredTopologyRequest(corev1.LabelHostname).
+							Obj(),
+					},
+				},
+			}),
+			wantErr: "preferred topology is not supported with ElasticJobsViaWorkloadSlices",
+		},
+		"unconstrained topology is accepted with ElasticJobsViaWorkloadSlices": {
+			cq: schdcache.ClusterQueueSnapshot{
+				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{"tas": tasFlavor},
+			},
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "tas", Mode: Fit, TriedFlavorIdx: -1},
+					},
+					Count:  2,
+					Status: *NewStatus(),
+				}},
+				replaceWorkloadSlice: workload.NewInfo(&kueue.Workload{
+					Status: kueue.WorkloadStatus{
+						Admission: &kueue.Admission{
+							PodSetAssignments: []kueue.PodSetAssignment{{
+								Name:               kueue.DefaultPodSetName,
+								TopologyAssignment: &kueue.TopologyAssignment{},
+							}},
+						},
+					},
+				}),
+			},
+			workload: *workload.NewInfo(&kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+							Request(corev1.ResourceCPU, "1").
+							UnconstrainedTopologyRequest().
+							Obj(),
+					},
+				},
+			}),
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			tasReqs := tc.assignment.WorkloadsTopologyRequests(&tc.workload, &tc.cq)
+			if tc.wantErr != "" {
+				if len(tasReqs) != 0 {
+					t.Errorf("expected no TAS requests, got: %+v", tasReqs)
+				}
+				if tc.assignment.PodSets[0].Status.err == nil {
+					t.Errorf("expected error %q, got nil", tc.wantErr)
+				} else if diff := cmp.Diff(tc.wantErr, tc.assignment.PodSets[0].Status.err.Error()); diff != "" {
+					t.Errorf("Error mismatch (-want +got):\n%s", diff)
+				}
+			} else if tc.assignment.PodSets[0].Status.err != nil {
+				t.Errorf("expected no error, got: %v", tc.assignment.PodSets[0].Status.err)
 			}
 		})
 	}

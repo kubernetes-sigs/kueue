@@ -358,13 +358,7 @@ To limit the amount of resources that a ClusterQueue can lend in the cohort,
 you can set the `.spec.resourcesGroup[*].flavors[*].resource[*].lendingLimit`
 [quantity](https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/quantity/) field.
 
-{{< feature-state state="beta" for_version="v0.9" >}}
-{{% alert title="Note" color="primary" %}}
-
-`LendingLimit` is a Beta feature enabled by default.
-
-You can disable it by setting the `LendingLimit` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
-{{% /alert %}}
+{{< feature-state state="stable" for_version="v0.18" >}}
 
 As an example, assume you created the following two ClusterQueues:
 
