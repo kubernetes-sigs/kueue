@@ -214,6 +214,17 @@ e.g. Workload is running on On-Demand, but after 1h Reservation quota is release
 
 To achieve that, I configure my ClusterQueue to use the Concurrent Admission feature, with `UpgradeAboveCurrent` policy (details below).
 
+```
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: "cluster-queue"
+spec:
+  ...
+  concurrentAdmission:
+    onSuccess: UpgradeAboveCurrent
+```
+
 #### Story 2: Upgrade only to Reservation
 As an admin I have three resource flavors in my cluster:
 1) Most preferable: Reservation
@@ -227,7 +238,20 @@ the possible gain of migration.
 
 e.g. Workload is running on On-Demand, but after 1h Reservation quota is released so I want to use it instead.
 
-To achieve that, I configure my ClusterQueue to use the Concurrent Admission feature, with `UpgradeAboveTargetTarget: Reservation` policy (details below).
+To achieve that, I configure my ClusterQueue to use the Concurrent Admission feature, with `UpgradeAboveTarget: On-Demand` policy (details below).
+
+```
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: "cluster-queue"
+spec:
+  ...
+  concurrentAdmission:
+    onSuccess: UpgradeAboveTarget
+    upgradeAboveTargetConfig:
+      targetResourceFlavor: "on-demand"
+```
 
 #### Story 3: Reservation + Homogenous Flavors
 As an admin I have four resource flavors in my cluster:
@@ -242,12 +266,36 @@ e.g. Workload is running on the 2b flavor, but after 1h 2a flavor quota is relea
 
 e.g. Workload is running on the 2b flavor, but after 1h Reservation quota is released so I want to use it instead.
 
-To achieve that, I configure my ClusterQueue to use the Concurrent Admission feature, with `UpgradeAboveTargetTarget: Reservation` policy (details below).
+To achieve that, I configure my ClusterQueue to use the Concurrent Admission feature, with `UpgradeAboveTarget: 2a` policy (details below).
+
+```
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: "cluster-queue"
+spec:
+  ...
+  concurrentAdmission:
+    onSuccess: UpgradeAboveTarget
+    upgradeAboveTargetConfig:
+      targetResourceFlavor: "2a"
+```
 
 #### Story 4: Homogenous Flavors only
 As an admin, I have three homogeneous resource flavors (1a, 1b, 1c). I want my workloads to start as soon as possible on any flavor and stop pursuing other options once the job is accommodated.
 
 To achieve that, I configure my ClusterQueue to use the Concurrent Admission feature, with `NoUpgrade` policy (details below).
+
+```
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: "cluster-queue"
+spec:
+  ...
+  concurrentAdmission:
+    onSuccess: NoUpgrade
+```
 
 #### Story 5: Delaying Option creation
 As an admin I have two resource flavors in my cluster:
@@ -258,6 +306,23 @@ I want my workloads to attempt scheduling on 'Reservation' only for the first 2 
 
 To achieve that, I configure my ClusterQueue to use the Concurrent Admission with `ExplicitOptions` policy, where I set `CreateDelaySeconds=7200` for the On-Demand option (details below).
 
+```
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: "cluster-queue"
+spec:
+  ...
+  concurrentAdmission:
+    onSuccess: UpgradeAboveCurrent
+    explicitOptions:
+      - name: "reservation"
+        allowedResourceFlavors: ["Reservation"]
+      - name: "on-demand"
+        allowedResourceFlavors: ["On-Demand"]
+        createDelaySeconds: 7200
+```
+
 #### Story 6: Limit when migration can happen
 As an admin I have two resource flavors in my CQ:
 1) Most preferable: Reservation
@@ -267,6 +332,23 @@ I know at some point I'm going to run a long-running Workload with high migratio
 and hence I want to constraint it to happen only within the first day.
 
 To achieve that, I configure my ClusterQueue to use the Concurrent Admission with `ExplicitOptions` policy, where I set `DeleteDelaySeconds=86400` for the Reservation option (details below).
+
+```
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: "cluster-queue"
+spec:
+  ...
+  concurrentAdmission:
+    onSuccess: UpgradeAboveCurrent
+    explicitOptions:
+      - name: "reservation"
+        allowedResourceFlavors: ["Reservation"]
+      - name: "on-demand"
+        allowedResourceFlavors: ["On-Demand"]
+        deleteDelaySeconds: 86400
+```
 
 #### Story 7: Workload with multiple PodSets
 As an admin I have two GPU resource flavors and one CPU resource flavor in my cluster.
@@ -283,6 +365,22 @@ I want my workloads to start as soon as possible, on whatever GPU flavor. Howeve
 To achieve that, I configure my ClusterQueue to use the Concurrent Admission with `ExplicitOptions` policy.
 I create a configuration for the Reservation Option with `AllowedResourceFlavors=["Reservation, Default-CPU"]`
 and for the On-Demand Option with `AllowedResourceFlavors=["On-Demand", "Default-CPU"]`.
+
+```
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: "cluster-queue"
+spec:
+  ...
+  concurrentAdmission:
+    onSuccess: UpgradeAboveCurrent
+    explicitOptions:
+      - name: "reservation"
+        allowedResourceFlavors: ["Reservation, Default-CPU"]
+      - name: "on-demand"
+        allowedResourceFlavors: ["On-Demand, Default-CPU"]
+```
 
 <!--
 What are the risks of this proposal, and how do we mitigate? Think broadly.
@@ -318,7 +416,7 @@ const (
     UpgradeAboveCurrent OnSuccessPolicy = "UpgradeAboveCurrent"
 
     // Stop all attempts below a defined target RF.
-    UpgradeAboveTargetTarget OnSuccessPolicy = "UpgradeAboveTarget"
+    UpgradeAboveTarget OnSuccessPolicy = "UpgradeAboveTarget"
 )
 
 type ConcurrentAdmission struct {
@@ -334,10 +432,10 @@ type ConcurrentAdmission struct {
     // +kubebuilder:validation:MaxItems=16
     ExplicitOptions []ConcurrentAdmissionExplicitOption
 
-    // UpgradeAboveTargetTargetConfig provides configuration for the UpgradeAboveTargetTarget policy.
+    // UpgradeAboveTargetConfig provides configuration for the UpgradeAboveTarget policy.
     //
     // +optional
-    UpgradeAboveTargetTargetConfig *ConcurrentAdmissionUpgradeAboveTargetTargetConfig
+    UpgradeAboveTargetConfig *ConcurrentAdmissionUpgradeAboveTargetConfig
 }
 
 type ConcurrentAdmissionExplicitOption struct {
@@ -365,18 +463,18 @@ type ConcurrentAdmissionExplicitOption struct {
     AllowedResourceFlavors []ResourceFlavorReference
 }
 
-// UpgradeAboveTargetTargetConfig defines the boundary for the UpgradeAboveTargetTarget policy.
+// UpgradeAboveTargetConfig defines the boundary for the UpgradeAboveTarget policy.
 // Only one of `TargetResourceFlavor` or `TargetOption` should be set.
 //
 // +optional
-type UpgradeAboveTargetTargetConfig struct {
-    // TargetResourceFlavor defines the boundary for the UpgradeAboveTargetTarget policy, based on a specific ResourceFlavor.
+type UpgradeAboveTargetConfig struct {
+    // TargetResourceFlavor defines the boundary for the UpgradeAboveTarget policy, based on a specific ResourceFlavor.
     // It is used when default, RF-based Options are created.
     //
     // +optional
     TargetResourceFlavor *ResourceFlavorReference
 
-    // TargetOption defines the boundary for the UpgradeAboveTargetTarget policy, based on a specific Option.
+    // TargetOption defines the boundary for the UpgradeAboveTarget policy, based on a specific Option.
     // It is used when explicit Options are created.
     //
     // +optional
@@ -392,7 +490,7 @@ The `OnSuccess` field determines how Kueue manages sibling Options once a specif
 | :---------------------- | :------------------------------------------------------------------------------ | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **`NoUpgrade`**       | Stops all other attempts immediately once any Option is admitted.               | Ideal for homogeneous flavors where any placement is equally good and no "upgrade" migration is desired.                                                                                            |
 | **`UpgradeAboveCurrent`**       | Stops attempts for flavors ranked lower than the admitted one.                  | Enables "upgrading" to a more preferred flavor if it becomes available after the workload has started on a lower-tier flavor.                                                                       |
-| **`UpgradeAboveTargetTarget`** | Stops attempts for flavors ranked lower than a specific `TargetResourceFlavor`. | Supports selective upgrades; for example, migrating only if a "Reservation" flavor becomes available, but ignoring transitions between "Spot" and "On-Demand, or when some flavors are homogenous." |
+| **`UpgradeAboveTarget`** | Stops attempts for flavors ranked lower than a specific `TargetResourceFlavor`. | Supports selective upgrades; for example, migrating only if a "Reservation" flavor becomes available, but ignoring transitions between "Spot" and "On-Demand, or when some flavors are homogenous." |
 
 ### Workload API
 
@@ -667,11 +765,11 @@ After the implementation PR is merged, add the names of the tests here.
 #### Alpha
 In Alpha version the feature will be gated behind the `ConcurrentAdmission` feature gate.
 
-Initial support for `UpgradeAboveTargetTarget` policy.
+Support for `UpgradeAboveTarget` policy.
 
 Integration with `BestEffortFIFO` queueing strategy.
 
-Introduction of `WorkloadOptionStatus` and `AdmissionConstraints` fields.
+Introduction of `AdmissionConstraints` field.
 
 #### Beta
 
@@ -688,6 +786,8 @@ Revisit the idea of [introducing WorkloadType API](#workloadtypes-api)
 Positive feedback from users.
 
 Adding/updating Kueue metrics based on users' feedback.
+
+Revisit the [`WorkloadStatus`](#workload-status) changes
 
 #### GA
 
