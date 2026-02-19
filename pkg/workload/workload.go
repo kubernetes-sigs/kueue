@@ -51,7 +51,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	utilptr "sigs.k8s.io/kueue/pkg/util/ptr"
 	"sigs.k8s.io/kueue/pkg/util/queue"
-	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
@@ -327,7 +326,7 @@ func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string)
 
 func (i *Info) CalcLocalQueueFSUsage(ctx context.Context, c client.Client, resWeights map[corev1.ResourceName]float64, afsEntryPenalties *queueafs.AfsEntryPenalties, afsConsumedResources *queueafs.AfsConsumedResources) (float64, error) {
 	var usage float64
-	lqKey := utilqueue.KeyFromWorkload(i.Obj)
+	lqKey := queue.KeyFromWorkload(i.Obj)
 
 	consumed := corev1.ResourceList{}
 	if afsConsumedResources != nil {
