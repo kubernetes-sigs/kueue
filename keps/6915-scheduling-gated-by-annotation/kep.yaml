@@ -1,4 +1,4 @@
-title: SchedulingGatedBy annotation to control Workload creation
+title: SchedulingGatedBy annotation to prevent scheduling immediately after creation
 kep-number: 6915
 authors:
   - "@VassilisVassiliadis"

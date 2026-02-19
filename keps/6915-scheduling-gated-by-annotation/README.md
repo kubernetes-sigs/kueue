@@ -1,4 +1,4 @@
-# KEP-6915: SchedulingGatedBy annotation to control Workload creation
+# KEP-6915: SchedulingGatedBy annotation to prevent scheduling immediately after creation
 
 <!--
 This is the title of your KEP. Keep it short, simple, and descriptive. A good
@@ -71,7 +71,7 @@ updates.
 [documentation style guide]: https://github.com/kubernetes/community/blob/master/contributors/guide/style-guide.md
 -->
 
-Introduce annotation `kueue.x-k8s.io/scheduling-gated-by` on supported Job-like objects to defer Workload creation. The annotation value must specify a controller name in domain-like format (e.g., `example.com/mygate`), similar to the `spec.managedBy` field in Jobs. When present, Kueue does not create a Workload object for the Job, consistent with the existing `JobWithSkip` interface behavior. Removing the annotation enables Kueue to create the Workload and proceed with normal admission and scheduling flow. For the alpha release, the annotation can only be set at Job creation time and cannot be added later; it can only be removed.
+Introduce annotation `kueue.x-k8s.io/scheduling-gated-by` on supported Job-like objects to defer Workload scheduling. The annotation value must specify a controller name in domain-like format (e.g., `example.com/mygate`), similar to the `spec.managedBy` field in Jobs. When present, Kueue does not create a Workload object for the Job, consistent with the existing `JobWithSkip` interface behavior. Removing the annotation enables Kueue to create the Workload and proceed with normal admission and scheduling flow. For the alpha release, the annotation can only be set at Job creation time and cannot be added later; it can only be removed.
 
 ## Motivation
 
