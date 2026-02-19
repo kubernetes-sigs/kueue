@@ -1255,7 +1255,7 @@ func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
 			},
 		},
 		"FeatureEnabledAndOptIn_RayRedisCleanupJob": {
-			featureEnabled: true,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			args: args{
 				job: &Job{
 					ObjectMeta: metav1.ObjectMeta{
@@ -1292,7 +1292,7 @@ func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
 			},
 		},
 		"FeatureEnabledAndOptIn_RayRegularJob": {
-			featureEnabled: true,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			args: args{
 				job: &Job{
 					ObjectMeta: metav1.ObjectMeta{
@@ -1330,7 +1330,7 @@ func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
 			},
 		},
 		"FeatureEnabledAndOptIn_NonRayJob": {
-			featureEnabled: true,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			args: args{
 				job: &Job{
 					ObjectMeta: metav1.ObjectMeta{
@@ -1367,7 +1367,8 @@ func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tt.featureGates)
-			applyWorkloadSliceSchedulingGate(tt.args.job)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			applyWorkloadSliceSchedulingGate(ctx, tt.args.job)
 			if diff := cmp.Diff(tt.args.job.Spec.Template.Spec.SchedulingGates, tt.want); diff != "" {
 				t.Errorf("applyWorkloadSliceSchedulingGate() got(-),want(+): %s", diff)
 			}
