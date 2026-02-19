@@ -29,7 +29,7 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Story 2: Upgrade only to Reservation](#story-2-upgrade-only-to-reservation)
     - [Story 3: Reservation + Homogenous Flavors](#story-3-reservation--homogenous-flavors)
     - [Story 4: Homogenous Flavors only](#story-4-homogenous-flavors-only)
-    - [Story 5: Delaying Option creation](#story-5-delaying-option-creation)
+    - [Story 5: Delaying Variant creation](#story-5-delaying-variant-creation)
     - [Story 6: Limit when migration can happen](#story-6-limit-when-migration-can-happen)
     - [Story 7: Workload with multiple PodSets](#story-7-workload-with-multiple-podsets)
 - [Design Details](#design-details)
@@ -39,7 +39,7 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Naming Convention](#naming-convention)
     - [Workload Spec](#workload-spec)
     - [Workload Status](#workload-status)
-  - [Option Controller](#option-controller)
+  - [Variant Controller](#variant-controller)
     - [Creation](#creation)
     - [Aggregation](#aggregation)
     - [Policy Enforcement](#policy-enforcement)
@@ -48,8 +48,8 @@ tags, and then generate with `hack/update-toc.sh`.
   - [Code Changes Complexity](#code-changes-complexity)
   - [Reserving Quota for the same Workload twice](#reserving-quota-for-the-same-workload-twice)
   - [Multiple Preemptions](#multiple-preemptions)
-  - [Ordering Options](#ordering-options)
-  - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
+  - [Ordering Variants](#ordering-variants)
+  - [Notes/Constraints/Caveats (Variantal)](#notesconstraintscaveats-variantal)
     - [StrictFIFO](#strictfifo)
   - [Risks and Mitigations](#risks-and-mitigations)
   - [FlavorFungibility Misinterpretation](#flavorfungibility-misinterpretation)
@@ -75,7 +75,7 @@ tags, and then generate with `hack/update-toc.sh`.
 
 Currently, the Kueue admission process selects a single ResourceFlavor (RF) and pursues it until the workload is admitted. This KEP proposes Concurrent Admission, allowing a Workload to attempt multiple ResourceFlavors simultaneously.
 
-Kueue will create clones of a Workload, referred to as Options. Each Option is scheduled independently on a specific subset of ResourceFlavors. This unblocks scenarios where a user needs
+Kueue will create clones of a Workload, referred to as Variants. Each Variant is scheduled independently on a specific subset of ResourceFlavors. This unblocks scenarios where a user needs
 to maintain a path to "upgrade" a Workload from a less preferred flavor to a more preferred one as it becomes available, or to "race" multiple long-running AdmissionChecks (e.g., across different accelerator types)
 
 <!--
@@ -110,7 +110,7 @@ recreating Pods on more preferable Nodes.
 <!--
 This section is for explicitly listing the motivation, goals, and non-goals of
 this KEP.  Describe why the change is important and the benefits to users. The
-motivation section can optionally provide links to [experience reports] to
+motivation section can variantally provide links to [experience reports] to
 demonstrate the interest in a KEP within the wider Kubernetes community.
 
 [experience reports]: https://github.com/golang/go/wiki/ExperienceReports
@@ -155,39 +155,39 @@ and make progress.
 We propose a new opt-in feature called Concurrent Admission.
 
 This proposal introduces two new logical categories of Workloads that coexist with existing "regular" Workloads
-1) Parent Workload: Acts as an owner and status aggregator for its associated Options. It is explicitly excluded from Kueue's core scheduling logic.
-2) Option Workload: A cloned view of the Parent Workload with specific scheduling constraints. Most notably, an Option is restricted to a subset of ResourceFlavors.
+1) Parent Workload: Acts as an owner and status aggregator for its associated Variants. It is explicitly excluded from Kueue's core scheduling logic.
+2) Variant Workload: A cloned view of the Parent Workload with specific scheduling constraints. Most notably, an Variant is restricted to a subset of ResourceFlavors.
 
 ### Architecture & Cardinality
-The relationship between a Parent and its Options follows a parent–child model with 1:N cardinality (where $N \ge 1$). While the number of Options is typically determined by the variety of PodSets and ClusterQueue ResourceFlavors, each remains a distinct Kubernetes object persisted in etcd.
+The relationship between a Parent and its Variants follows a parent–child model with 1:N cardinality (where $N \ge 1$). While the number of Variants is typically determined by the variety of PodSets and ClusterQueue ResourceFlavors, each remains a distinct Kubernetes object persisted in etcd.
 
-![Workload Diagram](options.svg)
+![Workload Diagram](variants.svg)
 
 ### Scheduling & Lifecycle
-An Option Workload functions near-identically to a "regular" Workload regarding quota accounting, preemption, and core scheduling features.
+An Variant Workload functions near-identically to a "regular" Workload regarding quota accounting, preemption, and core scheduling features.
 
-At any given point in time, only one Option per Parent may be admitted by Kueue.
+At any given point in time, only one Variant per Parent may be admitted by Kueue.
 
-To support this, we will introduce a new controller and extend the ClusterQueue API with a new `.spec` field to manage Option activation and deactivation.
-<!-- 
+To support this, we will introduce a new controller and extend the ClusterQueue API with a new `.spec` field to manage Variant activation and deactivation.
+
 Those new types of Workloads can freely coexist with "regular" Workloads in a cluster.
 
-The relationship between a Parent and its Options is parent–child, with 1:1+ cardinality.
-Every Parent has at least one Option, and potentially more depending on PodSets and ClusterQueue ResourceFlavors.
+The relationship between a Parent and its Variants is parent–child, with 1:1+ cardinality.
+Every Parent has at least one Variant, and potentially more depending on PodSets and ClusterQueue ResourceFlavors.
 All of them are separate k8s objects stored in etcd.
 
-A parent Workload is excluded from the scheduling logic in Kueue. It acts as a owner and status aggregator of Options.
+A parent Workload is excluded from the scheduling logic in Kueue. It acts as a owner and status aggregator of Variants.
 
-An Option Workload is a cloned view of its Parent with some additional scheduling constraints,
+An Variant Workload is a cloned view of its Parent with some additional scheduling constraints,
 in particular it can be scheduled on a limited number of ResourceFlavors.
 
-Apart from that an Options Workload acts almost identically as a "regular" Workload regarding scheduling, quota accounting and other core features.
+Apart from that an Variants Workload acts almost identically as a "regular" Workload regarding scheduling, quota accounting and other core features.
 
-At any given point in time, only one Option can be admitted by Kueue.
+At any given point in time, only one Variant can be admitted by Kueue.
 
 To accommodate the above proposal we introduce a new controller, and extend the ClusterQueue API with a new `.spec` level field.
-An Option can get activated/deactivated based on the new API, more about its lifecycle below.
- -->
+An Variant can get activated/deactivated based on the new API, more about its lifecycle below.
+
 
 
 <!--
@@ -282,7 +282,7 @@ spec:
 ```
 
 #### Story 4: Homogenous Flavors only
-As an admin, I have three homogeneous resource flavors (1a, 1b, 1c). I want my workloads to start as soon as possible on any flavor and stop pursuing other options once the job is accommodated.
+As an admin, I have three homogeneous resource flavors (1a, 1b, 1c). I want my workloads to start as soon as possible on any flavor and stop pursuing other variants once the job is accommodated.
 
 To achieve that, I configure my ClusterQueue to use the Concurrent Admission feature, with `NoUpgrade` policy (details below).
 
@@ -297,14 +297,14 @@ spec:
     onSuccess: NoUpgrade
 ```
 
-#### Story 5: Delaying Option creation
+#### Story 5: Delaying Variant creation
 As an admin I have two resource flavors in my cluster:
 1) Most preferable: Reservation
 2) Less preferable: On-Demand
 
 I want my workloads to attempt scheduling on 'Reservation' only for the first 2 hours. If they are not admitted, I want to try 'Reservation' and 'On-Demand' simultaneously.
 
-To achieve that, I configure my ClusterQueue to use the Concurrent Admission with `ExplicitOptions` policy, where I set `CreateDelaySeconds=7200` for the On-Demand option (details below).
+To achieve that, I configure my ClusterQueue to use the Concurrent Admission with `ExplicitVariants` policy, where I set `CreateDelaySeconds=7200` for the On-Demand variant (details below).
 
 ```
 apiVersion: kueue.x-k8s.io/v1beta2
@@ -315,7 +315,7 @@ spec:
   ...
   concurrentAdmission:
     onSuccess: UpgradeAboveCurrent
-    explicitOptions:
+    explicitVariants:
       - name: "reservation"
         allowedResourceFlavors: ["Reservation"]
       - name: "on-demand"
@@ -331,7 +331,7 @@ As an admin I have two resource flavors in my CQ:
 I know at some point I'm going to run a long-running Workload with high migration cost. I want to avoid migration near its completion
 and hence I want to constraint it to happen only within the first day.
 
-To achieve that, I configure my ClusterQueue to use the Concurrent Admission with `ExplicitOptions` policy, where I set `DeleteDelaySeconds=86400` for the Reservation option (details below).
+To achieve that, I configure my ClusterQueue to use the Concurrent Admission with `ExplicitVariants` policy, where I set `DeleteDelaySeconds=86400` for the Reservation variant (details below).
 
 ```
 apiVersion: kueue.x-k8s.io/v1beta2
@@ -342,7 +342,7 @@ spec:
   ...
   concurrentAdmission:
     onSuccess: UpgradeAboveCurrent
-    explicitOptions:
+    explicitVariants:
       - name: "reservation"
         allowedResourceFlavors: ["Reservation"]
       - name: "on-demand"
@@ -362,9 +362,9 @@ CPU:
 My workload consists of 2 PodSets, one requesting GPUs and one requesting CPUs only.
 I want my workloads to start as soon as possible, on whatever GPU flavor. However if the Reservation flavor releases some quota, I want to migrate to that flavor.
 
-To achieve that, I configure my ClusterQueue to use the Concurrent Admission with `ExplicitOptions` policy.
-I create a configuration for the Reservation Option with `AllowedResourceFlavors=["Reservation, Default-CPU"]`
-and for the On-Demand Option with `AllowedResourceFlavors=["On-Demand", "Default-CPU"]`.
+To achieve that, I configure my ClusterQueue to use the Concurrent Admission with `ExplicitVariants` policy.
+I create a configuration for the Reservation Variant with `AllowedResourceFlavors=["Reservation, Default-CPU"]`
+and for the On-Demand Variant with `AllowedResourceFlavors=["On-Demand", "Default-CPU"]`.
 
 ```
 apiVersion: kueue.x-k8s.io/v1beta2
@@ -375,7 +375,7 @@ spec:
   ...
   concurrentAdmission:
     onSuccess: UpgradeAboveCurrent
-    explicitOptions:
+    explicitVariants:
       - name: "reservation"
         allowedResourceFlavors: ["Reservation, Default-CPU"]
       - name: "on-demand"
@@ -397,12 +397,12 @@ Consider including folks who also work outside the SIG or subproject.
 ## Design Details
 
 ### ClusterQueue API
-The ClusterQueue is extended to define the policy for concurrent attempts. This includes how to handle sibling Options once one is admitted and how to define specific, customized Options.
+The ClusterQueue is extended to define the policy for concurrent attempts. This includes how to handle sibling Variants once one is admitted and how to define specific, customized Variants.
 
 ```
 type ClusterQueueSpec struct {
     ...
-    // +optional
+    // +variantal
     ConcurrentAdmission *ConcurrentAdmission
 }
 
@@ -420,104 +420,104 @@ const (
 )
 
 type ConcurrentAdmission struct {
-    // OnSuccess defines the policy applied when one of the options is admitted.
+    // OnSuccess defines the policy applied when one of the variants is admitted.
     //
     // +required
     OnSuccess OnSuccessPolicy
 
-    // ExplicitOptions allows for fine-grained control over which options are created.
-    // If not specified, Kueue creates an option for each RF mentioned in the CQ.
+    // ExplicitVariants allows for fine-grained control over which variants are created.
+    // If not specified, Kueue creates an variant for each RF mentioned in the CQ.
     //
-    // +optional
+    // +variantal
     // +kubebuilder:validation:MaxItems=16
-    ExplicitOptions []ConcurrentAdmissionExplicitOption
+    ExplicitVariants []ConcurrentAdmissionExplicitVariant
 
     // UpgradeAboveTargetConfig provides configuration for the UpgradeAboveTarget policy.
     //
-    // +optional
+    // +variantal
     UpgradeAboveTargetConfig *ConcurrentAdmissionUpgradeAboveTargetConfig
 }
 
-type ConcurrentAdmissionExplicitOption struct {
-    // Name of the option, must be unique within the ClusterQueue.
+type ConcurrentAdmissionExplicitVariant struct {
+    // Name of the variant, must be unique within the ClusterQueue.
     //
     // +required
     Name string
 
-    // CreateDelaySeconds defines how long after Workload creation this Option is activated.
+    // CreateDelaySeconds defines how long after Workload creation this Variant is activated.
     // Allows prioritizing a preferred RF before falling back to others.
     //
-    // +optional
+    // +variantal
     CreateDelaySeconds *int32
 
-    // DeleteDelaySeconds defines how long after admission of other Options,
-    // this Option should be deactivated.
+    // DeleteDelaySeconds defines how long after admission of other Variants,
+    // this Variant should be deactivated.
     // Allows disallowing migration after certain amount of time
     //
-    // +optional
+    // +variantal
     DeleteDelaySeconds *int32
 
-    // AllowedResourceFlavors limits which flavors can be assigned to PodSets for this option.
+    // AllowedResourceFlavors limits which flavors can be assigned to PodSets for this variant.
     //
     // +required
     AllowedResourceFlavors []ResourceFlavorReference
 }
 
 // UpgradeAboveTargetConfig defines the boundary for the UpgradeAboveTarget policy.
-// Only one of `TargetResourceFlavor` or `TargetOption` should be set.
+// Only one of `TargetResourceFlavor` or `TargetVariant` should be set.
 //
-// +optional
+// +variantal
 type UpgradeAboveTargetConfig struct {
     // TargetResourceFlavor defines the boundary for the UpgradeAboveTarget policy, based on a specific ResourceFlavor.
-    // It is used when default, RF-based Options are created.
+    // It is used when default, RF-based Variants are created.
     //
-    // +optional
+    // +variantal
     TargetResourceFlavor *ResourceFlavorReference
 
-    // TargetOption defines the boundary for the UpgradeAboveTarget policy, based on a specific Option.
-    // It is used when explicit Options are created.
+    // TargetVariant defines the boundary for the UpgradeAboveTarget policy, based on a specific Variant.
+    // It is used when explicit Variants are created.
     //
-    // +optional
-    TargetOption *string
+    // +variantal
+    TargetVariant *string
 }
 ```
 
 #### OnSuccess Policies
 
-The `OnSuccess` field determines how Kueue manages sibling Options once a specific Option has been admitted.
+The `OnSuccess` field determines how Kueue manages sibling Variants once a specific Variant has been admitted.
 
 | Policy                  | Behavior                                                                        | Use Case                                                                                                                                                                                            |
 | :---------------------- | :------------------------------------------------------------------------------ | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **`NoUpgrade`**       | Stops all other attempts immediately once any Option is admitted.               | Ideal for homogeneous flavors where any placement is equally good and no "upgrade" migration is desired.                                                                                            |
+| **`NoUpgrade`**       | Stops all other attempts immediately once any Variant is admitted.               | Ideal for homogeneous flavors where any placement is equally good and no "upgrade" migration is desired.                                                                                            |
 | **`UpgradeAboveCurrent`**       | Stops attempts for flavors ranked lower than the admitted one.                  | Enables "upgrading" to a more preferred flavor if it becomes available after the workload has started on a lower-tier flavor.                                                                       |
 | **`UpgradeAboveTarget`** | Stops attempts for flavors ranked lower than a specific `TargetResourceFlavor`. | Supports selective upgrades; for example, migrating only if a "Reservation" flavor becomes available, but ignoring transitions between "Spot" and "On-Demand, or when some flavors are homogenous." |
 
 ### Workload API
 
-An Option Workload references its Parent in the `metadata.ownerReferences` field.
-Besides that a Parent Workload has the `kueue.x-k8s.io/parent-option` annotation to distinguish it from
+An Variant Workload references its Parent in the `metadata.ownerReferences` field.
+Besides that a Parent Workload has the `kueue.x-k8s.io/parent-variant` annotation to distinguish it from
 "regular" Workloads, in a cluster.
 
-This way of distinguishing Options, Parents, and "regular" Workloads is introduced in the Alpha, and will be
+This way of distinguishing Variants, Parents, and "regular" Workloads is introduced in the Alpha, and will be
 revisited when graduating to Beta.
 
 #### Naming Convention
 
-To maintain a clear relationship between the parent and its virtual clones, the Option Workloads will follow a strict naming convention.
+To maintain a clear relationship between the parent and its virtual clones, the Variant Workloads will follow a strict naming convention.
 
-**Default RF Options**: When Options are created automatically for each ResourceFlavor in the ClusterQueue, the name follows:
-
-```
-${original_workload_name}-option-${resource_flavor_name}
-```
-
-**Explicit Options**: When specific names are provided in the ExplicitOptions configuration:
+**Default RF Variants**: When Variants are created automatically for each ResourceFlavor in the ClusterQueue, the name follows:
 
 ```
-${original_workload_name}-option-${explicit_option_name}
+${original_workload_name}-variant-${resource_flavor_name}
 ```
 
-Note: Option names are designed to be deterministic. If a name collision occurs (due to long Workload/RF names), standard Kueue suffix truncation logic will be applied while maintaining the -option- identifier.
+**Explicit Variants**: When specific names are provided in the ExplicitVariants configuration:
+
+```
+${original_workload_name}-variant-${explicit_variant_name}
+```
+
+Note: Variant names are designed to be deterministic. If a name collision occurs (due to long Workload/RF names), standard Kueue suffix truncation logic will be applied while maintaining the -variant- identifier.
 
 #### Workload Spec
 
@@ -530,7 +530,7 @@ type WorkloadSpec struct {
     // AdmissionConstraints describes the constraints Kueue scheduling algorithm takes into account
     // when reserving quota for a Workload.
     //
-    // +optional
+    // +variantal
     AdmissionConstraints *AdmissionConstraints
 }
 
@@ -539,7 +539,7 @@ type AdmissionConstraints struct {
 
 	// If set, only RF from this list can be assigned to this Workload.
   //
-  // +optional
+  // +variantal
   AllowedResourceFlavors []ResourceFlavorReference
 }
 
@@ -547,26 +547,26 @@ type AdmissionConstraints struct {
 
 #### Workload Status
 
-To ensure the user can easily check which attempts are still active, the WorkloadStatus is extended to include an Options list.
+To ensure the user can easily check which attempts are still active, the WorkloadStatus is extended to include an Variants list.
 This provides a central view of all virtual workloads without needing to query for child objects manually.
 
-For more detailed scheduling stats a user can check a particular Option Workload.
+For more detailed scheduling stats a user can check a particular Variant Workload.
 
 ```
-type WorkloadOptionStatus struct {
-    // name of the Option (corresponds to the virtual workload name).
+type WorkloadVariantStatus struct {
+    // name of the Variant (corresponds to the virtual workload name).
     Name string
 
-    // resourceFlavors assigned to this Option.
+    // resourceFlavors assigned to this Variant.
     ResourceFlavors []string
 
-    // inherited information from Option's `.spec.active.` field.
+    // inherited information from Variant's `.spec.active.` field.
     Active bool
 
-    // selected Conditions present in Option, to inherit information about
+    // selected Conditions present in Variant, to inherit information about
     // its state e.g. whether it's pending or admitted.
     //
-    // +optional
+    // +variantal
     // +listType=map
     // +listMapKey=type
     Conditions []metav1.Condition 
@@ -575,107 +575,107 @@ type WorkloadOptionStatus struct {
 type WorkloadStatus struct {
     // ... existing fields ...
 
-    // Options tracks the state of all concurrent admission attempts.
-    Options []WorkloadOptionStatus
+    // Variants tracks the state of all concurrent admission attempts.
+    Variants []WorkloadVariantStatus
 }
 ```
 
-### Option Controller
+### Variant Controller
 
-A dedicated Option Controller will be introduced to manage the state and lifespan of Option Workloads and the relationship with the Parent Workload.
+A dedicated Variant Controller will be introduced to manage the state and lifespan of Variant Workloads and the relationship with the Parent Workload.
 
 #### Creation
-The controller creates Options based on the CQ's `ExplicitOptions` or ResourceFlavor list.
+The controller creates Variants based on the CQ's `ExplicitVariants` or ResourceFlavor list.
 It happens in a standalone asynchronous reconciliation loop right after the Parent Workload has been created.
 
-The controller doesn't evaluate ResourceFlavors on its own, in particular it doesn't check if a Option
+The controller doesn't evaluate ResourceFlavors on its own, in particular it doesn't check if a Variant
 can be ever admitted with the ResourceFlavor assigned. It defers all scheduling decision to the scheduler.
-It in the cluster admin's responsibilities to configure ResourceFlavors and ConcurrentAdmission API in a way to prevent creation of Options that can never schedule.
+It in the cluster admin's responsibilities to configure ResourceFlavors and ConcurrentAdmission API in a way to prevent creation of Variants that can never schedule.
 
-The controller also reacts on changes both in CQ's `ExplicitOptions` and ResourceFlavor list creating and deleting Options accordingly.
+The controller also reacts on changes both in CQ's `ExplicitVariants` and ResourceFlavor list creating and deleting Variants accordingly.
 
 #### Aggregation
-The controller syncs the status of Options back into a Parent. A Parent aggregates information from Options and acts as source of truth
-for the top-level jobs. Once any of the Options is admitted, the Parent is also marked as admitted. Then Parent unsuspends the top-level job.
+The controller syncs the status of Variants back into a Parent. A Parent aggregates information from Variants and acts as source of truth
+for the top-level jobs. Once any of the Variants is admitted, the Parent is also marked as admitted. Then Parent unsuspends the top-level job.
 
-Once any of the Options is evicted it should suspend the job.
+Once any of the Variants is evicted it should suspend the job.
 
 #### Policy Enforcement
-The controller is responsible for executing `OnSuccessPolicy` upon an admission of a Option. It should deactivate Options with
+The controller is responsible for executing `OnSuccessPolicy` upon an admission of a Variant. It should deactivate Variants with
 respect to a chosen policy.
-It should also deactivate and deactivate Options based on `CreateDelaySeconds` and `DeleteDelaySeconds` fields.
+It should also deactivate and deactivate Variants based on `CreateDelaySeconds` and `DeleteDelaySeconds` fields.
 
 #### Eviction
-An Option can be evicted because of its sibling Option during the "upgrade" process, in that case the evicted Option
+An Variant can be evicted because of its sibling Variant during the "upgrade" process, in that case the evicted Variant
 is simply deactivated.
 
-In case of preemption by other Workloads (e.g. priority-based preemption), we reset all the Options and treat them as if
-Parent Workload has just been created - we reset the delay countdown, and activate all Options again (beside those ones with `CreateDelaySeconds`)
+In case of preemption by other Workloads (e.g. priority-based preemption), we reset all the Variants and treat them as if
+Parent Workload has just been created - we reset the delay countdown, and activate all Variants again (beside those ones with `CreateDelaySeconds`)
 
 ### Observability
 
 Users can track the progress of concurrent attempts via:
 
-Status: The Parent Workload status will list status of all Options.
+Status: The Parent Workload status will list status of all Variants.
 
-Checking a particular Option directly.
+Checking a particular Variant directly.
 
-The existing metrics will be only used to track Parent Workloads, and skip Options.
-We'll revisit adding more metrics per Options when graduating to Beta, based on users' feedback.
+The existing metrics will be only used to track Parent Workloads, and skip Variants.
+We'll revisit adding more metrics per Variants when graduating to Beta, based on users' feedback.
 
 ### Code Changes Complexity
 
 The feature should require as few changes in the quota accounting, scheduling, other core Kueue features as possible.
-It creates Workloads that should be treated as regular Workloads, but are controlled by the `OptionsController` that
-can create/activate/deactivate Options.
+It creates Workloads that should be treated as regular Workloads, but are controlled by the `VariantsController` that
+can create/activate/deactivate Variants.
 
 With making as little changes to scheduling logic as possible in mind, we still need to work on at least 3 things there:
 1) Narrowing selection of ResourceFlavors for a given Workload. This however can be also used outside of the Concurrent Admissions feature, creating more flexibility for Kueue.
-2) Evicting sibling Options when admitting more preferable ones.
+2) Evicting sibling Variants when admitting more preferable ones.
 
 ### Reserving Quota for the same Workload twice
 
 Migrating to a more preferred flavor could lead to booking quota for the same Workload twice — once for the running instance and once for the "upgrade" attempt.
-A more preferred Option must evict the less preferable one immediately before admission to ensure resource utilization remains accurate, and fair sharing is not negatively impacted.
+A more preferred Variant must evict the less preferable one immediately before admission to ensure resource utilization remains accurate, and fair sharing is not negatively impacted.
 
 ### Multiple Preemptions
 
-When pursuing multiple flavors concurrently, Kueue might preempt Workloads to accommodate multiple Options belonging to the same Parent Workload.
+When pursuing multiple flavors concurrently, Kueue might preempt Workloads to accommodate multiple Variants belonging to the same Parent Workload.
 While we only issue preemptions coming from one Workload per CQ, what happen is:
-1. An Option preempted a Workload and got the quota reserved.
-2. The same Options is now running AdmissionChecks
-3. A sibling Options is picked up by the scheduler and is preempting some other Workloads
+1. An Variant preempted a Workload and got the quota reserved.
+2. The same Variants is now running AdmissionChecks
+3. A sibling Variants is picked up by the scheduler and is preempting some other Workloads
 
-We want to disallow other Options to preempt if one of the Options has already preempted some Workloads.
+We want to disallow other Variants to preempt if one of the Variants has already preempted some Workloads.
 We achieve it by storing in memory a map of Workloads that have issued a preemption during their current admission cycle.
 
-### Ordering Options
+### Ordering Variants
 
-The `OptionsController` leverages the existing implementation of scheduling logic in Kueue, where Workloads are sorted
+The `VariantsController` leverages the existing implementation of scheduling logic in Kueue, where Workloads are sorted
 by priorities and creation timestamps and then picked-up by the scheduler one per scheduling cycle (per ClusterQueue).
-This means when creating Options the controller should ensure more favorable Options are ahead of less favorable ones in the queue.
+This means when creating Variants the controller should ensure more favorable Variants are ahead of less favorable ones in the queue.
 This could be achieved by adding another dimension to our heap sort mechanism that would only
-be used for sorting sibling Options. The value of this dimension would be filled by the Option Controller based on the order of ResourceFlavors in ClusterQueue.
-Thanks to that we also have a guarantee that sibling Options are always adjacent in the heap, which
-results in Kueue scheduler picking sibling Options one after the another, without any other Workloads in between.
+be used for sorting sibling Variants. The value of this dimension would be filled by the Variant Controller based on the order of ResourceFlavors in ClusterQueue.
+Thanks to that we also have a guarantee that sibling Variants are always adjacent in the heap, which
+results in Kueue scheduler picking sibling Variants one after the another, without any other Workloads in between.
 
-### Notes/Constraints/Caveats (Optional)
+### Notes/Constraints/Caveats (Variantal)
 
 #### StrictFIFO
 
 Handling `StrictFIFO` queueing strategy comes with challenges.
 
-The most important one is once less favorable Options is admitted,
-scheduler cannot try admitting more favorable Options (migration)
+The most important one is once less favorable Variants is admitted,
+scheduler cannot try admitting more favorable Variants (migration)
 and let other Workloads schedule at the same time, without violating `StrictFIFO` semantics.
-It can either try the more favorable Option over and over which blocks the queue, or
+It can either try the more favorable Variant over and over which blocks the queue, or
 let other Workloads schedule, which violates the `StrictFIFO`
 
-The other one is to not block Options siblings if the first one cannot be scheduled. There are at least couple of ways to solve it:
+The other one is to not block Variants siblings if the first one cannot be scheduled. There are at least couple of ways to solve it:
 
-1) Grouped Popping - the scheduler could pick up all of the Options belonging to the same parent from the heap and then process them within the same schedulingCycle. Each heap node would still consist of one Workload.
-2) The heap node consists of all of the Options belonging to the same parent Workload.
-3) The scheduler picks up only one Option per scheduling cycle. If there's a sibling in the heap head, it doesn't put back the processed after failed scheduling. Instead it lets the other Option run.
+1) Grouped Popping - the scheduler could pick up all of the Variants belonging to the same parent from the heap and then process them within the same schedulingCycle. Each heap node would still consist of one Workload.
+2) The heap node consists of all of the Variants belonging to the same parent Workload.
+3) The scheduler picks up only one Variant per scheduling cycle. If there's a sibling in the heap head, it doesn't put back the processed after failed scheduling. Instead it lets the other Variant run.
 
 For Alpha and Beta version of this feature we don't plan to support `StrictFIFO` queueing strategy. Based on users' feedback we will reconsider it for GA.
 
@@ -683,12 +683,12 @@ For Alpha and Beta version of this feature we don't plan to support `StrictFIFO`
 ### FlavorFungibility Misinterpretation
 
 In the first iteration of the feature we don't plan to integrate with the `FlavorFungibility` on the
-inter-Options level. It means that the `OnSuccessPolicy` is binary - if an Option has been admitted or not.
-It doesn't take into account if preemption or borrowing was necessary to admit an Option. The preference order of Options
-is purely based on ResourceFlavors used, and user doesn't have capabilities to express what to do if e.g. two Options can be
+inter-Variants level. It means that the `OnSuccessPolicy` is binary - if an Variant has been admitted or not.
+It doesn't take into account if preemption or borrowing was necessary to admit an Variant. The preference order of Variants
+is purely based on ResourceFlavors used, and user doesn't have capabilities to express what to do if e.g. two Variants can be
 admitted, but the more preferable one requires preemption. The more preferable one will always be chosen.
 
-At the same time if a single Option can be scheduled onto multiple flavors due to `ExplicitOptions`, it follows
+At the same time if a single Variant can be scheduled onto multiple flavors due to `ExplicitVariants`, it follows
 the `FlavorFungibility` config.
 
 This may lead to confusion, so we need to address this use-case directly in the documentation.
@@ -775,11 +775,11 @@ Introduction of `AdmissionConstraints` field.
 
 Support for `NoUpgrade` and `UpgradeAboveCurrent` policies.
 
-Introduction of `ExplicitOptions` functionality.
+Introduction of `ExplicitVariants` functionality.
 
-Revisit extending `ExplicitOptions` API with some additional fields.
+Revisit extending `ExplicitVariants` API with some additional fields.
 
-Minimizing number of Options issuing preemptions to only one per Parent.
+Minimizing number of Variants issuing preemptions to only one per Parent.
 
 Revisit the idea of [introducing WorkloadType API](#workloadtypes-api)
 
@@ -830,7 +830,7 @@ Major milestones might include:
 With this feature Kueue creates more API Object that put pressure on core k8s components such as e.g. API Server or etcd.
 
 Additionally, since one Job corresponds to potentially multiple Workloads it increases the cost of scheduling a Job by Kueue.
-In worst case scenario Kueue scheduler needs to do **V** (number of Options per Job) number of scheduling cycles before it admits the last one.
+In worst case scenario Kueue scheduler needs to do **V** (number of Variants per Job) number of scheduling cycles before it admits the last one.
 However those loops are lighter than for a regular Workload, since because of the scheduling constraints they only consider a subset of ResourceFlavors.
 
 This is a drawback only for environments with thousands of Jobs incoming, where the accuracy of scheduling is amortized by the inflow
@@ -852,11 +852,11 @@ Rejected because: This approach fails to address the requirement for migrating f
 We considered implementing the migration and parallel attempt logic directly within a single Workload object.
 
 Rejected because: This introduces significant complexity to the core scheduling and usage accounting logic, which is already highly complex.
-Such a change would make Kueue much harder to debug and maintain, whereas the Options pattern keeps the scheduling logic clean and and reuses already existing core functionalities
+Such a change would make Kueue much harder to debug and maintain, whereas the Variants pattern keeps the scheduling logic clean and and reuses already existing core functionalities
 
 ### WorkloadTypes API
 
-Instead of using `kueue.x-k8s.io/parent-option` annotation and owner references we could implement a new API `WorkloadType`.
+Instead of using `kueue.x-k8s.io/parent-variant` annotation and owner references we could implement a new API `WorkloadType`.
 We might migrate to that approach but it was deferred in the first version, as it was unclear what's the semantic of this
 field and how it should be used with the existing "types" such, as WorkloadSlice, PrebuiltWorkload, etc.
 
@@ -864,7 +864,7 @@ field and how it should be used with the existing "types" such, as WorkloadSlice
 type WorkloadType string
 const (
     Default              WorkloadType = "Default"
-    ResourceFlavorOption WorkloadType = "ResourceFlavorOption"
+    ResourceFlavorVariant WorkloadType = "ResourceFlavorVariant"
     Parent               WorkloadType = "Parent"
     ... // possibly more like WorkloadSlice, PrebuiltWorkload
 )
