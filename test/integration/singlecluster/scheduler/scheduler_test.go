@@ -972,7 +972,13 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectReservingActiveWorkloadsMetric(cq, 0)
 			util.ExpectQuotaReservedWorkloadsTotalMetric(cq, "", 0)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, "", 0)
-			util.ExpectAdmissionAttemptsMetric(1, 0)
+
+			// we send a requeue request upon CQ creation,
+			// so we may end up processing workload twice
+			// before it settles in inadmissible.
+			util.ExpectPendingAdmissionAttempts(1, ">=")
+			util.ExpectPendingAdmissionAttempts(2, "<=")
+			util.ExpectSuccessfulAdmissionAttempts(0, "==")
 
 			ginkgo.By("updating ClusterQueue")
 			updatedCq := &kueue.ClusterQueue{}
@@ -994,7 +1000,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectReservingActiveWorkloadsMetric(cq, 1)
 			util.ExpectQuotaReservedWorkloadsTotalMetric(cq, "", 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, "", 1)
-			util.ExpectAdmissionAttemptsMetric(1, 1)
+			util.ExpectPendingAdmissionAttempts(2, "<=")
+			util.ExpectSuccessfulAdmissionAttempts(1, "==")
 		})
 	})
 
@@ -3014,6 +3021,108 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl3), w)).Should(gomega.Succeed())
 				g.Expect(workload.IsAdmitted(w)).Should(gomega.BeFalse())
 			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.When("Requeueing Inadmissible Workloads", func() {
+		var (
+			cq     *kueue.ClusterQueue
+			cohort *kueue.Cohort
+		)
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
+		})
+
+		ginkgo.It("Should collapse requeue requests to ClusterQueue", func() {
+			metrics.AdmissionAttemptsTotal.Reset()
+			cq = utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "1").Obj(),
+				).Obj()
+			util.MustCreate(ctx, k8sClient, cq)
+
+			queue := utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue("cq").Obj()
+			util.MustCreate(ctx, k8sClient, queue)
+
+			ginkgo.By("create a no-fit workload")
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).
+				Request(corev1.ResourceCPU, "2").Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("validate no-fit")
+			util.ExpectPendingWorkloadsMetric(cq, 0, 1)
+			util.ExpectSuccessfulAdmissionAttempts(0, "==")
+			util.ExpectPendingAdmissionAttempts(1, ">=")
+			util.ExpectPendingAdmissionAttempts(2, "<=")
+
+			ginkgo.By("trigger 10 requeue notifications")
+			metrics.AdmissionAttemptsTotal.Reset()
+			for range 10 {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).Should(gomega.Succeed())
+
+					cq.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota.Add(resource.MustParse("1m"))
+
+					g.Expect(k8sClient.Update(ctx, cq)).Should(gomega.Succeed())
+				}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
+			}
+
+			// schedule attempt is proxy for requeue
+			ginkgo.By("between 1-5 schedule attempts occur")
+			util.ExpectPendingWorkloadsMetric(cq, 0, 1)
+			util.ExpectSuccessfulAdmissionAttempts(0, "==")
+			util.ExpectPendingAdmissionAttempts(1, ">=")
+			util.ExpectPendingAdmissionAttempts(5, "<=")
+		})
+
+		ginkgo.It("Should collapse requeue requests to Cohort", func() {
+			metrics.AdmissionAttemptsTotal.Reset()
+			cq = utiltestingapi.MakeClusterQueue("cq").
+				Cohort("cohort").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "1").Obj(),
+				).Obj()
+			util.MustCreate(ctx, k8sClient, cq)
+			queue := utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue("cq").Obj()
+			util.MustCreate(ctx, k8sClient, queue)
+
+			cohort = utiltestingapi.MakeCohort("cohort").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj()
+			util.MustCreate(ctx, k8sClient, cohort)
+
+			ginkgo.By("create a no-fit workload")
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).
+				Request(corev1.ResourceCPU, "2").Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("validate no-fit")
+			util.ExpectPendingWorkloadsMetric(cq, 0, 1)
+			util.ExpectSuccessfulAdmissionAttempts(0, "==")
+			util.ExpectPendingAdmissionAttempts(1, ">=")
+			util.ExpectPendingAdmissionAttempts(2, "<=")
+
+			ginkgo.By("trigger 10 requeue notifications to root Cohort")
+			metrics.AdmissionAttemptsTotal.Reset()
+			for range 10 {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohort), cohort)).Should(gomega.Succeed())
+
+					cohort.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota.Add(resource.MustParse("1m"))
+
+					g.Expect(k8sClient.Update(ctx, cohort)).Should(gomega.Succeed())
+				}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
+			}
+
+			// schedule attempt is proxy for requeue
+			ginkgo.By("between 1-5 schedule attempts occur")
+			util.ExpectPendingWorkloadsMetric(cq, 0, 1)
+			util.ExpectSuccessfulAdmissionAttempts(0, "==")
+			util.ExpectPendingAdmissionAttempts(1, ">=")
+			util.ExpectPendingAdmissionAttempts(5, "<=")
 		})
 	})
 })
