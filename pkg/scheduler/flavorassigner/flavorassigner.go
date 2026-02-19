@@ -53,7 +53,9 @@ type Assignment struct {
 	LastState workload.AssignmentClusterQueueState
 
 	// Usage is the accumulated Usage of resources as pod sets get
-	// flavors assigned.
+	// flavors assigned. When workload slicing is enabled and replaceWorkloadSlice
+	// is set, this represents only the delta usage (new - old) to avoid double-counting
+	// resources already reserved in the replaced slice.
 	Usage workload.Usage
 
 	// representativeMode is the cached representative mode for this assignment.
