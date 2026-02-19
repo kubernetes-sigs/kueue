@@ -37,6 +37,8 @@ tags, and then generate with `hack/update-toc.sh`.
       - [Forbid adding SchedulingGatedBy post creation](#forbid-adding-schedulinggatedby-post-creation)
       - [Forbid using a SchedulingGatedBy that is not domain-like](#forbid-using-a-schedulinggatedby-that-is-not-domain-like)
   - [Graduation Criteria](#graduation-criteria)
+    - [Alpha](#alpha)
+    - [Beta](#beta)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
@@ -321,6 +323,15 @@ milestones with these graduation criteria:
 [deprecation-policy]: https://kubernetes.io/docs/reference/using-api/deprecation-policy/
 -->
 
+#### Alpha
+
+- support the `SchedulingGatedBy` feature gate, disabled by default
+- implement gating of scheduling by defering Workload creation
+
+#### Beta
+
+- `SchedulingGatedBy` enabled by default
+- Re-evaluate deferring workload scheduling instead of creation
 - Re-evaluate the activation-based approach (label-based design described in Alternatives)
 - Re-evaluate adding the annotation later in the lifetime of a Job
 
