@@ -503,6 +503,10 @@ func ValidateFeatureGates(featureGateCLI string, featureGateMap map[string]bool)
 			enabledProfilesCount++
 		}
 	}
+	// Currently dead code but leaving in if more TASProfiles are added
+	if enabledProfilesCount > 1 {
+		return errors.New("cannot use more than one TAS profiles")
+	}
 	if !features.Enabled(features.TopologyAwareScheduling) && enabledProfilesCount > 0 {
 		return errors.New("cannot use a TAS profile with TAS disabled")
 	}
