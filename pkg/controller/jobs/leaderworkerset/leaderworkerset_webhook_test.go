@@ -46,6 +46,7 @@ func TestDefault(t *testing.T) {
 		defaultLqExist             bool
 		enableIntegrations         []string
 		want                       *leaderworkersetv1.LeaderWorkerSet
+		wantErr                    error
 	}{
 		"LeaderWorkerSet with WorkloadPriorityClass": {
 			defaultLqExist: true,
@@ -63,6 +64,7 @@ func TestDefault(t *testing.T) {
 				WorkerTemplateSpecLabel(constants.WorkloadPriorityClassLabel, "high-priority").
 				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				WorkerTemplateSpecAnnotation(kueue.PodIndexOffsetAnnotation, "1").
 				Obj(),
 		},
 		"default lq is created, job doesn't have queue label": {
@@ -77,6 +79,7 @@ func TestDefault(t *testing.T) {
 				LeaderTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				WorkerTemplateSpecAnnotation(kueue.PodIndexOffsetAnnotation, "1").
 				Obj(),
 		},
 		"default lq is created, job has queue label": {
@@ -92,6 +95,7 @@ func TestDefault(t *testing.T) {
 				LeaderTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				WorkerTemplateSpecAnnotation(kueue.PodIndexOffsetAnnotation, "1").
 				Obj(),
 		},
 		"default lq isn't created, job doesn't have queue label": {
@@ -101,6 +105,32 @@ func TestDefault(t *testing.T) {
 				Obj(),
 			want: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Obj(),
+		},
+		"worker-only LWS (no leader template), no offset annotation": {
+			defaultLqExist: true,
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
+				Obj(),
+			want: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
+				Queue("default").
+				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				Obj(),
+		},
+		"LWS with PodSetGroupName set, no offset annotation": {
+			defaultLqExist: true,
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				WorkerTemplateSpecAnnotation(kueue.PodSetGroupName, "test-group").
+				Obj(),
+			want: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("default").
+				WorkerTemplateSpecAnnotation(kueue.PodSetGroupName, "test-group").
+				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				LeaderTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				Obj(),
 		},
 	}
@@ -127,8 +157,9 @@ func TestDefault(t *testing.T) {
 				queues:                     queueManager,
 			}
 
-			if err := w.Default(ctx, tc.lws); err != nil {
-				t.Errorf("failed to set defaults for v1/leaderworkerset: %s", err)
+			err := w.Default(ctx, tc.lws)
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); len(diff) != 0 {
+				t.Errorf("Unexpected error (-want, +got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tc.want, tc.lws); len(diff) != 0 {
 				t.Errorf("Default() mismatch (-want,+got):\n%s", diff)

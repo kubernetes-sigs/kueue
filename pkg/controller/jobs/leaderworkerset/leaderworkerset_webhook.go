@@ -83,15 +83,17 @@ func (wh *Webhook) Default(ctx context.Context, obj *leaderworkersetv1.LeaderWor
 	}
 	if suspend {
 		if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
-			wh.podTemplateSpecDefault(lws, lws.Spec.LeaderWorkerTemplate.LeaderTemplate)
+			wh.podTemplateSpecDefault(lws, lws.Spec.LeaderWorkerTemplate.LeaderTemplate, leaderPodSetName)
 		}
-		wh.podTemplateSpecDefault(lws, &lws.Spec.LeaderWorkerTemplate.WorkerTemplate)
+		wh.podTemplateSpecDefault(lws, &lws.Spec.LeaderWorkerTemplate.WorkerTemplate, workerPodSetName)
 	}
 
 	return nil
 }
 
-func (wh *Webhook) podTemplateSpecDefault(lws *LeaderWorkerSet, podTemplateSpec *corev1.PodTemplateSpec) {
+func (wh *Webhook) podTemplateSpecDefault(
+	lws *LeaderWorkerSet, podTemplateSpec *corev1.PodTemplateSpec, psName string,
+) {
 	if priorityClass := jobframework.WorkloadPriorityClassName(lws.Object()); priorityClass != "" {
 		if podTemplateSpec.Labels == nil {
 			podTemplateSpec.Labels = make(map[string]string, 1)
@@ -104,6 +106,14 @@ func (wh *Webhook) podTemplateSpecDefault(lws *LeaderWorkerSet, podTemplateSpec 
 	}
 	podTemplateSpec.Annotations[podconstants.SuspendedByParentAnnotation] = FrameworkName
 	podTemplateSpec.Annotations[podconstants.GroupServingAnnotationKey] = podconstants.GroupServingAnnotationValue
+
+	if features.Enabled(features.TopologyAwareScheduling) && psName == workerPodSetName && lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
+		// The offset is handled as PodSet group scheduling mechanism separately in topology-unGater
+		// when the LeaderWorkerSet constructs PodSet group across Leaders and Workers.
+		if _, isPodSetGroup := podTemplateSpec.Annotations[kueue.PodSetGroupName]; !isPodSetGroup {
+			podTemplateSpec.Annotations[kueue.PodIndexOffsetAnnotation] = "1"
+		}
+	}
 }
 
 // +kubebuilder:webhook:path=/validate-leaderworkerset-x-k8s-io-v1-leaderworkerset,mutating=false,failurePolicy=fail,sideEffects=None,groups="leaderworkerset.x-k8s.io",resources=leaderworkersets,verbs=create;update,versions=v1,name=vleaderworkerset.kb.io,admissionReviewVersions=v1
