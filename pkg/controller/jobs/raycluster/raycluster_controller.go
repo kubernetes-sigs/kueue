@@ -156,22 +156,11 @@ func (j *RayCluster) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podse
 
 	j.Spec.Suspend = ptr.To(false)
 
-	// head
-	headPod := &j.Spec.HeadGroupSpec.Template
-	info := podSetsInfo[0]
-	if err := podset.Merge(&headPod.ObjectMeta, &headPod.Spec, info); err != nil {
+	err := UpdateRayClusterSpecToRunWithPodSetsInfo(&j.Spec, podSetsInfo)
+	if err != nil {
 		return err
 	}
 
-	// workers
-	for index := range j.Spec.WorkerGroupSpecs {
-		workerPod := &j.Spec.WorkerGroupSpecs[index].Template
-
-		info := podSetsInfo[index+1]
-		if err := podset.Merge(&workerPod.ObjectMeta, &workerPod.Spec, info); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
@@ -180,17 +169,7 @@ func (j *RayCluster) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 		return false
 	}
 
-	// head
-	headPod := &j.Spec.HeadGroupSpec.Template
-	changed := podset.RestorePodSpec(&headPod.ObjectMeta, &headPod.Spec, podSetsInfo[0])
-
-	// workers
-	for index := range j.Spec.WorkerGroupSpecs {
-		workerPod := &j.Spec.WorkerGroupSpecs[index].Template
-		info := podSetsInfo[index+1]
-		changed = podset.RestorePodSpec(&workerPod.ObjectMeta, &workerPod.Spec, info) || changed
-	}
-	return changed
+	return RestorePodSetsInfo(&j.Spec, podSetsInfo)
 }
 
 func (j *RayCluster) Finished(ctx context.Context) (message string, success, finished bool) {
