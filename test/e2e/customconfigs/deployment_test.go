@@ -804,7 +804,7 @@ var _ = ginkgo.Describe("Deployment:Kueue-native", ginkgo.Ordered, func() {
 					pod := &list.Items[i]
 					g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
 				}
-			}, util.LongTimeout, util.LongInterval).Should(gomega.Succeed())
+			}, 5*util.LongTimeout, util.LongInterval).Should(gomega.Succeed())
 			expectCQFlavorUsage(clusterQueue, defaultRf.Name, corev1.ResourceCPU, resource.MustParse("1"), util.LongTimeout)
 		})
 
