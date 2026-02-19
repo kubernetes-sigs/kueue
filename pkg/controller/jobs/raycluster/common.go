@@ -36,8 +36,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
-// BuildPodSetsByRayClusterSpec builds PodSets from RayClusterSpec
-func BuildPodSetsByRayClusterSpec(rayClusterSpec *rayv1.RayClusterSpec) ([]kueue.PodSet, error) {
+// BuildPodSets builds PodSets from RayClusterSpec
+func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec) ([]kueue.PodSet, error) {
 	podSets := make([]kueue.PodSet, 0)
 
 	// head
@@ -84,7 +84,7 @@ func BuildPodSetsByRayClusterSpec(rayClusterSpec *rayv1.RayClusterSpec) ([]kueue
 	return podSets, nil
 }
 
-func UpdatePodSetsByRayCluster(ctx context.Context, podSets []kueue.PodSet, c client.Client, object client.Object, enableInTreeAutoscaling *bool, rayClusterName string) ([]kueue.PodSet, error) {
+func UpdatePodSets(ctx context.Context, podSets []kueue.PodSet, c client.Client, object client.Object, enableInTreeAutoscaling *bool, rayClusterName string) ([]kueue.PodSet, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Only update podSets from RayCluster if:
@@ -171,7 +171,7 @@ func UpdateRayClusterSpecToRunWithPodSetsInfo(rayClusterSpec *rayv1.RayClusterSp
 	return nil
 }
 
-func RestorePodSetsInfoByRayClusterSpec(rayClusterSpec *rayv1.RayClusterSpec, podSetsInfo []podset.PodSetInfo) bool {
+func RestorePodSetsInfo(rayClusterSpec *rayv1.RayClusterSpec, podSetsInfo []podset.PodSetInfo) bool {
 	// head
 	headPod := &rayClusterSpec.HeadGroupSpec.Template
 	changed := podset.RestorePodSpec(&headPod.ObjectMeta, &headPod.Spec, podSetsInfo[0])
@@ -186,7 +186,7 @@ func RestorePodSetsInfoByRayClusterSpec(rayClusterSpec *rayv1.RayClusterSpec, po
 	return changed
 }
 
-func ValidateCreateByRayClusterSpec(object client.Object, rayClusterSpec *rayv1.RayClusterSpec, rayClusterSpecPath *field.Path) field.ErrorList {
+func ValidateCreate(object client.Object, rayClusterSpec *rayv1.RayClusterSpec, rayClusterSpecPath *field.Path) field.ErrorList {
 	var allErrors field.ErrorList
 
 	// Should not use auto scaler. Once the resources are reserved by queue the cluster should do its best to use them.
@@ -209,7 +209,7 @@ func ValidateCreateByRayClusterSpec(object client.Object, rayClusterSpec *rayv1.
 	return allErrors
 }
 
-func ValidateTopologyRequestByRayClusterSpec(ctx context.Context, job jobframework.GenericJob, rayClusterSpec *rayv1.RayClusterSpec, headGroupMetaPath, workerGroupSpecsPath *field.Path) (field.ErrorList, error) {
+func ValidateTopologyRequest(ctx context.Context, job jobframework.GenericJob, rayClusterSpec *rayv1.RayClusterSpec, headGroupMetaPath, workerGroupSpecsPath *field.Path) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	if rayClusterSpec == nil {
 		return allErrs, nil

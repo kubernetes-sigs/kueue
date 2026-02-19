@@ -145,13 +145,13 @@ func (j *RayService) PodLabelSelector() string {
 
 func (j *RayService) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	// Always build PodSets from RayService spec first
-	podSets, err := raycluster.BuildPodSetsByRayClusterSpec(&j.Spec.RayClusterSpec)
+	podSets, err := raycluster.BuildPodSets(&j.Spec.RayClusterSpec)
 	if err != nil {
 		return nil, err
 	}
 
 	rayClusterName := j.Status.ActiveServiceStatus.RayClusterName
-	podSets, err = raycluster.UpdatePodSetsByRayCluster(ctx, podSets, reconciler.client, j.Object(), j.Spec.RayClusterSpec.EnableInTreeAutoscaling, rayClusterName)
+	podSets, err = raycluster.UpdatePodSets(ctx, podSets, reconciler.client, j.Object(), j.Spec.RayClusterSpec.EnableInTreeAutoscaling, rayClusterName)
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +181,7 @@ func (j *RayService) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 		return false
 	}
 
-	return raycluster.RestorePodSetsInfoByRayClusterSpec(&j.Spec.RayClusterSpec, podSetsInfo)
+	return raycluster.RestorePodSetsInfo(&j.Spec.RayClusterSpec, podSetsInfo)
 }
 
 func (j *RayService) Finished(ctx context.Context) (message string, success, finished bool) {

@@ -139,7 +139,7 @@ func (w *RayServiceWebhook) validateCreate(ctx context.Context, job *rayv1.RaySe
 
 		clusterSpec := &spec.RayClusterSpec
 		clusterSpecPath := specPath.Child("rayClusterSpec")
-		rayClusterSpecErrors := raycluster.ValidateCreateByRayClusterSpec(job, clusterSpec, clusterSpecPath)
+		rayClusterSpecErrors := raycluster.ValidateCreate(job, clusterSpec, clusterSpecPath)
 		allErrors = append(allErrors, rayClusterSpecErrors...)
 	}
 
@@ -157,7 +157,7 @@ func (w *RayServiceWebhook) validateCreate(ctx context.Context, job *rayv1.RaySe
 
 func (w *RayServiceWebhook) validateTopologyRequest(ctx context.Context, rayService *rayv1.RayService) (field.ErrorList, error) {
 	job := (*RayService)(rayService)
-	return raycluster.ValidateTopologyRequestByRayClusterSpec(ctx, job, &rayService.Spec.RayClusterSpec, headGroupMetaPath, workerGroupSpecsPath)
+	return raycluster.ValidateTopologyRequest(ctx, job, &rayService.Spec.RayClusterSpec, headGroupMetaPath, workerGroupSpecsPath)
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
