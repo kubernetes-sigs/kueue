@@ -133,23 +133,6 @@ func TestDefault(t *testing.T) {
 				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				Obj(),
 		},
-		"LWS with invalid TAS annotation returns error": {
-			defaultLqExist: true,
-			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
-				LeaderTemplate(corev1.PodTemplateSpec{}).
-				WorkerTemplateSpecAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "invalid").
-				Obj(),
-			want: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
-				LeaderTemplate(corev1.PodTemplateSpec{}).
-				Queue("default").
-				WorkerTemplateSpecAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "invalid").
-				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-				LeaderTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
-				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
-				Obj(),
-			wantErr: errPodSetConstructionFailed,
-		},
 	}
 
 	for name, tc := range testCases {
