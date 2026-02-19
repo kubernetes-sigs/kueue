@@ -23,6 +23,7 @@ set -o pipefail
 DRY_RUN=""
 VERBOSE=false
 NAMESPACE_REGEX=""
+KUBECTL_GET_API_VERSION="v1beta1"
 
 show_help() {
   cat << EOF
@@ -31,15 +32,23 @@ Usage: $(basename "$0") [OPTIONS]
 Migrates Kueue resources to v1beta2.
 
 Options:
-  --dry-run[=STRATEGY]     Perform a dry run. STRATEGY can be 'client' (default) for client-side dry run
-                           or 'server' for server-side dry run.
-  -v, --verbose            Enable verbose output
-  --namespace-regex=REGEX  Filter namespaces using this extended regular expression
-                           Examples:
-                             --namespace-regex="prod|staging"
-                             --namespace-regex="^team-"
-                             --namespace-regex="^(?!kube-system|default).*$"
-  -h, --help               Show this help message and exit
+  --dry-run[=STRATEGY]                  Perform a dry run. STRATEGY can be 'client' (default) for client-side dry run
+                                        or 'server' for server-side dry run.
+  -v, --verbose                         Enable verbose output
+  --namespace-regex=REGEX               Filter namespaces using this extended regular expression
+                                        Examples:
+                                          --namespace-regex="prod|staging"
+                                          --namespace-regex="^team-"
+                                          --namespace-regex="^(?!kube-system|default).*$"
+  --kubectl-get-api-version=VERSION     Specify the API version ('v1beta1' or 'v1beta2').
+                                        Default: v1beta1
+
+                                        The selected version is used to list all resources, like Workloads, from the API server before updating them.
+                                        It is preferred to use 'v1beta1' when most Workloads are still in 'v1beta1' (e.g. just after upgrade to Kueue 0.16+),
+                                        to avoid too many calls to conversion webhooks when the API server lists workloads from etcd.
+                                        On large deployments listing all workloads and going through conversion may cause timeouts for API
+                                        server when communicating with etcd.
+  -h, --help                            Show this help message and exit
 EOF
 }
 
@@ -61,6 +70,15 @@ while [[ $# -gt 0 ]]; do
     --namespace-regex=*)
       NAMESPACE_REGEX="${1#--namespace-regex=}"
       shift
+      ;;
+    --kubectl-get-api-version=v1beta1|--kubectl-get-api-version=v1beta2)
+      KUBECTL_GET_API_VERSION="${1#--kubectl-get-api-version=}"
+      shift
+      ;;
+    --kubectl-get-api-version=*)
+      echo "Error: Invalid --kubectl-get-api-version value: '${1#--kubectl-get-api-version=}'" >&2
+      echo "       Allowed values: v1beta1 or v1beta2" >&2
+      exit 1
       ;;
     -h|--help)
       show_help
@@ -105,15 +123,16 @@ function apply_patches() {
 
   printf "  → Fetching resources%s.\n" "${ns:+ in namespace $ns}"
 
-  local resources_cmd="kubectl get \"${kind}.kueue.x-k8s.io\" -o jsonpath='{range .items[*]}{.metadata.name}{\"\n\"}{end}' ${ns:+-n \"$ns\"}"
+  local resources_cmd="kubectl get \"${kind}.${KUBECTL_GET_API_VERSION}.kueue.x-k8s.io\" -o jsonpath='{range .items[*]}{.metadata.name}{\"\n\"}{end}' ${ns:+-n \"$ns\"}"
 
   if $VERBOSE; then
     echo "  → ${resources_cmd}"
   fi
 
   # Get resources in namespace/name format
+  # Skip "Warning: This version is deprecated. Use v1beta2 instead" from stderr.
   local resources
-  resources=$(eval "${resources_cmd}")
+  resources=$(eval "${resources_cmd}" 2> >(grep -v -i -F "Warning: This version is deprecated. Use v1beta2 instead." >&2) | awk NF)
 
   # shellcheck disable=SC2181
   if [ $? -ne 0 ]; then
