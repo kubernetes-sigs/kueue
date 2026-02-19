@@ -61,16 +61,7 @@ replacements:
           - spec.dnsNames.1
         options:
           delimiter: "."
-          index: 0
-      - select: 
-          kind: ServiceMonitor
-          name: controller-manager-metrics-monitor
-          version: v1
-        fieldPaths:
-          - spec.endpoints.0.tlsConfig.serverName
-        options:
-          delimiter: "."
-          index: 0      
+          index: 0  
 
   # 2. Replace METRICS_SERVICE_NAMESPACE 
   - source:
@@ -87,16 +78,7 @@ replacements:
           - spec.dnsNames.1
         options:
           delimiter: "."
-          index: 1
-      - select: 
-          kind: ServiceMonitor
-          name: controller-manager-metrics-monitor
-          version: v1
-        fieldPaths:
-          - spec.endpoints.0.tlsConfig.serverName
-        options:
-          delimiter: "."
-          index: 1      
+          index: 1  
 
 
   # 3. Replace $(SERVICE_NAME)
@@ -112,6 +94,15 @@ replacements:
         fieldPaths:
           - spec.dnsNames.0
           - spec.dnsNames.1
+        options:
+          delimiter: "."
+          index: 0
+      - select: 
+          kind: ServiceMonitor
+          name: controller-manager-metrics-monitor
+          version: v1
+        fieldPaths:
+          - spec.endpoints.0.tlsConfig.serverName
         options:
           delimiter: "."
           index: 0              
@@ -133,6 +124,15 @@ replacements:
         options:
           delimiter: "."
           index: 1 
+      - select: 
+          kind: ServiceMonitor
+          name: controller-manager-metrics-monitor
+          version: v1
+        fieldPaths:
+          - spec.endpoints.0.tlsConfig.serverName
+        options:
+          delimiter: "."
+          index: 1
 
   #5.  Replace $(CERTIFICATE_NAME)  
   - source:
