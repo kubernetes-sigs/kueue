@@ -162,20 +162,6 @@ For details on the cherry pick process, see the [cherry pick requests](https://g
 
 #### What type of PR is this?
 ${kind_commands}
-<!--
-Add one of the following kinds:
-/kind bug
-/kind cleanup
-/kind documentation
-/kind feature
-
-Optionally add one or more of the following kinds if applicable:
-/kind api-change
-/kind deprecation
-/kind failing-test
-/kind flake
-/kind regression
--->
 
 \`\`\`release-note
 $(printf '%s\n' "${RELEASE_NOTES[@]}")
