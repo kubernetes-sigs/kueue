@@ -33,9 +33,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/util/podset"
-	"sigs.k8s.io/kueue/pkg/util/webhook"
-	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
