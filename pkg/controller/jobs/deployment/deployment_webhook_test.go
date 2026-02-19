@@ -41,10 +41,10 @@ import (
 
 func TestDefault(t *testing.T) {
 	testCases := map[string]struct {
-		deployment     *appsv1.Deployment
-		defaultLqExist bool
+		deployment                *appsv1.Deployment
+		defaultLqExist            bool
 		elasticJobsFeatureEnabled bool
-		want           *appsv1.Deployment
+		want                      *appsv1.Deployment
 	}{
 		"deployment without queue": {
 			deployment: testingdeployment.MakeDeployment("test-pod", "").Obj(),

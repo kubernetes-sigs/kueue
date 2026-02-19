@@ -68,8 +68,7 @@ func init() {
 // ReplicaSet adapts apps/v1 ReplicaSet to Kueue's jobframework.GenericJob and TopLevelJob.
 type ReplicaSet struct {
 	*appsv1.ReplicaSet
-	pods      *corev1.PodList
-	suspended bool
+	pods *corev1.PodList
 }
 
 // Interface conformance compile time checks.
@@ -94,7 +93,7 @@ func (r *ReplicaSet) Load(ctx context.Context, c client.Client, key *types.Names
 	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) || !workloadslicing.Enabled(r) {
 		return true, nil
 	}
-	if !r.ReplicaSet.DeletionTimestamp.IsZero() {
+	if !r.DeletionTimestamp.IsZero() {
 		return true, nil
 	}
 	r.pods = &corev1.PodList{}

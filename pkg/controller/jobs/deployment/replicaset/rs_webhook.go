@@ -23,7 +23,6 @@ import (
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -75,16 +74,6 @@ func logger(ctx context.Context) logr.Logger {
 // +kubebuilder:webhook:path=/mutate-apps-v1-replicaset,mutating=true,failurePolicy=fail,sideEffects=None,groups="apps",resources=replicasets,verbs=create;update,versions=v1,name=mreplicaset.kb.io,admissionReviewVersions=v1
 
 var _ admission.Defaulter[*appsv1.ReplicaSet] = &Webhook{}
-
-// toReplicaSet asserts that obj is an *appsv1.ReplicaSet and returns it.
-// Returns an error if the type does not match.
-func toReplicaSet(obj runtime.Object) (*appsv1.ReplicaSet, error) {
-	rs, ok := obj.(*appsv1.ReplicaSet)
-	if !ok {
-		return nil, fmt.Errorf("expected a ReplicaSet, but got %T", obj)
-	}
-	return rs, nil
-}
 
 // Default applies default values to the provided ReplicaSet.
 // This includes applying the default local queue (if configured) and,

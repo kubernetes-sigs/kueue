@@ -71,7 +71,7 @@ var _ = ginkgo.Describe("Deployment:Frameworks[],Features[]", ginkgo.Ordered, fu
 		deployment := newDeployment(ns.Name, "test-deployment", localQueue.Name, 2)
 		util.MustCreate(ctx, k8sClient, deployment)
 		ginkgo.By("Pods are created and running", func() {
-			expectPods(deployment.Namespace, deployment.Spec.Template.ObjectMeta.Labels, corev1.PodRunning, 2, util.LongTimeout)
+			expectPods(deployment.Namespace, deployment.Spec.Template.Labels, corev1.PodRunning, 2, util.LongTimeout)
 		})
 		ginkgo.By("No workloads created", func() {
 			expectNoWorkloads(deployment.Namespace)
@@ -84,7 +84,7 @@ var _ = ginkgo.Describe("Deployment:Frameworks[],Features[]", ginkgo.Ordered, fu
 		deployment := newElasticDeployment(ns.Name, "test-deployment", localQueue.Name, 2)
 		util.MustCreate(ctx, k8sClient, deployment)
 		ginkgo.By("Pods are created and running", func() {
-			expectPods(deployment.Namespace, deployment.Spec.Template.ObjectMeta.Labels, corev1.PodRunning, 2, util.LongTimeout)
+			expectPods(deployment.Namespace, deployment.Spec.Template.Labels, corev1.PodRunning, 2, util.LongTimeout)
 		})
 		ginkgo.By("No workloads created", func() {
 			expectNoWorkloads(deployment.Namespace)
@@ -123,7 +123,7 @@ var _ = ginkgo.Describe("Deployment:Frameworks[deployment],Features[]", ginkgo.O
 		deployment := newDeployment(ns.Name, "test-deployment", localQueue.Name, 2)
 		util.MustCreate(ctx, k8sClient, deployment)
 		ginkgo.By("Pods are created and running", func() {
-			expectPods(deployment.Namespace, deployment.Spec.Template.ObjectMeta.Labels, corev1.PodRunning, 2, 2*util.LongTimeout)
+			expectPods(deployment.Namespace, deployment.Spec.Template.Labels, corev1.PodRunning, 2, 2*util.LongTimeout)
 		})
 		ginkgo.By("Workloads created", func() {
 			expectWorkloads(deployment.Namespace, 2)
@@ -134,7 +134,7 @@ var _ = ginkgo.Describe("Deployment:Frameworks[deployment],Features[]", ginkgo.O
 		deployment := newElasticDeployment(ns.Name, "test-deployment", localQueue.Name, 2)
 		util.MustCreate(ctx, k8sClient, deployment)
 		ginkgo.By("Pods are created and running", func() {
-			expectPods(deployment.Namespace, deployment.Spec.Template.ObjectMeta.Labels, corev1.PodRunning, 2, 2*util.LongTimeout)
+			expectPods(deployment.Namespace, deployment.Spec.Template.Labels, corev1.PodRunning, 2, 2*util.LongTimeout)
 		})
 		ginkgo.By("Workloads created via pod-integration", func() {
 			expectWorkloads(deployment.Namespace, 2)
@@ -173,7 +173,7 @@ var _ = ginkgo.Describe("Deployment:Frameworks[],Features[ElasticJobsViaWorkload
 		deployment := newDeployment(ns.Name, "test-deployment", localQueue.Name, 2)
 		util.MustCreate(ctx, k8sClient, deployment)
 		ginkgo.By("Pods are created and running", func() {
-			expectPods(deployment.Namespace, deployment.Spec.Template.ObjectMeta.Labels, corev1.PodRunning, 2, 2*util.LongTimeout)
+			expectPods(deployment.Namespace, deployment.Spec.Template.Labels, corev1.PodRunning, 2, 2*util.LongTimeout)
 		})
 		ginkgo.By("No workloads created", func() {
 			expectNoWorkloads(deployment.Namespace)
@@ -184,7 +184,7 @@ var _ = ginkgo.Describe("Deployment:Frameworks[],Features[ElasticJobsViaWorkload
 		deployment := newElasticDeployment(ns.Name, "test-deployment", localQueue.Name, 2)
 		util.MustCreate(ctx, k8sClient, deployment)
 		ginkgo.By("Pods are created and running", func() {
-			expectPods(deployment.Namespace, deployment.Spec.Template.ObjectMeta.Labels, corev1.PodRunning, 2, 2*util.LongTimeout)
+			expectPods(deployment.Namespace, deployment.Spec.Template.Labels, corev1.PodRunning, 2, 2*util.LongTimeout)
 		})
 		ginkgo.By("No workloads created", func() {
 			expectNoWorkloads(deployment.Namespace)
@@ -223,7 +223,7 @@ var _ = ginkgo.Describe("Deployment:Frameworks[deployment],Features[ElasticJobsV
 		deployment := newDeployment(ns.Name, "test-deployment", localQueue.Name, 2)
 		util.MustCreate(ctx, k8sClient, deployment)
 		ginkgo.By("Pods are created but not running", func() {
-			expectPods(deployment.Namespace, deployment.Spec.Template.ObjectMeta.Labels, corev1.PodRunning, 2, 2*util.LongTimeout)
+			expectPods(deployment.Namespace, deployment.Spec.Template.Labels, corev1.PodRunning, 2, 2*util.LongTimeout)
 		})
 		ginkgo.By("Workloads created via pod-integration", func() {
 			expectWorkloads(deployment.Namespace, 2)
@@ -234,7 +234,7 @@ var _ = ginkgo.Describe("Deployment:Frameworks[deployment],Features[ElasticJobsV
 		deployment := newElasticDeployment(ns.Name, "test-deployment", localQueue.Name, 2)
 		util.MustCreate(ctx, k8sClient, deployment)
 		ginkgo.By("Pods are created and running", func() {
-			expectPods(deployment.Namespace, deployment.Spec.Template.ObjectMeta.Labels, corev1.PodRunning, 2, 2*util.LongTimeout)
+			expectPods(deployment.Namespace, deployment.Spec.Template.Labels, corev1.PodRunning, 2, 2*util.LongTimeout)
 		})
 		ginkgo.By("Workload is created", func() {
 			expectWorkloads(deployment.Namespace, 1)
@@ -285,7 +285,7 @@ var _ = ginkgo.Describe("Deployment:Kueue-native", ginkgo.Ordered, func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				list := &corev1.PodList{}
 				g.Expect(k8sClient.List(ctx, list, client.InNamespace(dep.Namespace), client.MatchingLabels(dep.Spec.Template.ObjectMeta.Labels))).To(gomega.Succeed())
-				g.Expect(len(list.Items)).To(gomega.Equal(1))
+				g.Expect(list.Items).To(gomega.HaveLen(1))
 				g.Expect(list.Items[0].Status.Phase).To(gomega.Equal(corev1.PodRunning))
 				deploymentPods.Delete(client.ObjectKeyFromObject(&list.Items[0]))
 			}, util.LongTimeout, util.LongInterval).Should(gomega.Succeed())
@@ -304,7 +304,7 @@ var _ = ginkgo.Describe("Deployment:Kueue-native", ginkgo.Ordered, func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				list := &corev1.PodList{}
 				g.Expect(k8sClient.List(ctx, list, client.InNamespace(dep.Namespace), client.MatchingLabels(dep.Spec.Template.ObjectMeta.Labels))).To(gomega.Succeed())
-				g.Expect(len(list.Items)).To(gomega.Equal(3))
+				g.Expect(list.Items).To(gomega.HaveLen(3))
 				for i := range list.Items {
 					g.Expect(list.Items[i].Status.Phase).To(gomega.Equal(corev1.PodRunning))
 					deploymentPods.Insert(client.ObjectKeyFromObject(&list.Items[i]))
@@ -331,7 +331,7 @@ var _ = ginkgo.Describe("Deployment:Kueue-native", ginkgo.Ordered, func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				list := &corev1.PodList{}
 				g.Expect(k8sClient.List(ctx, list, client.InNamespace(dep.Namespace), client.MatchingLabels(dep.Spec.Template.ObjectMeta.Labels))).To(gomega.Succeed())
-				g.Expect(len(list.Items)).To(gomega.Equal(2))
+				g.Expect(list.Items).To(gomega.HaveLen(2))
 				for i := range list.Items {
 					g.Expect(list.Items[i].Status.Phase).To(gomega.Equal(corev1.PodRunning))
 					deploymentPods.Insert(client.ObjectKeyFromObject(&list.Items[i]))
@@ -369,7 +369,7 @@ var _ = ginkgo.Describe("Deployment:Kueue-native", ginkgo.Ordered, func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				list := &corev1.PodList{}
 				g.Expect(k8sClient.List(ctx, list, client.InNamespace(dep.Namespace), client.MatchingLabels(dep.Spec.Template.ObjectMeta.Labels))).To(gomega.Succeed())
-				g.Expect(len(list.Items)).To(gomega.Equal(2))
+				g.Expect(list.Items).To(gomega.HaveLen(2))
 				for i := range list.Items {
 					pod := &list.Items[i]
 					g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
@@ -391,7 +391,7 @@ var _ = ginkgo.Describe("Deployment:Kueue-native", ginkgo.Ordered, func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				list := &corev1.PodList{}
 				g.Expect(k8sClient.List(ctx, list, client.InNamespace(dep.Namespace), client.MatchingLabels(dep.Spec.Template.ObjectMeta.Labels))).To(gomega.Succeed())
-				g.Expect(len(list.Items)).To(gomega.Equal(2))
+				g.Expect(list.Items).To(gomega.HaveLen(2))
 				for i := range list.Items {
 					pod := &list.Items[i]
 					g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
@@ -428,7 +428,7 @@ var _ = ginkgo.Describe("Deployment:Kueue-native", ginkgo.Ordered, func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				list := &corev1.PodList{}
 				g.Expect(k8sClient.List(ctx, list, client.InNamespace(depLow.Namespace), client.MatchingLabels(depLow.Spec.Template.ObjectMeta.Labels))).To(gomega.Succeed())
-				g.Expect(len(list.Items)).To(gomega.Equal(1))
+				g.Expect(list.Items).To(gomega.HaveLen(1))
 				for i := range list.Items {
 					pod := &list.Items[i]
 					g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
@@ -449,7 +449,7 @@ var _ = ginkgo.Describe("Deployment:Kueue-native", ginkgo.Ordered, func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				list := &corev1.PodList{}
 				g.Expect(k8sClient.List(ctx, list, client.InNamespace(depLow.Namespace), client.MatchingLabels(depLow.Spec.Template.ObjectMeta.Labels))).To(gomega.Succeed())
-				g.Expect(len(list.Items)).To(gomega.Equal(2))
+				g.Expect(list.Items).To(gomega.HaveLen(2))
 				for i := range list.Items {
 					pod := &list.Items[i]
 					g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
@@ -468,7 +468,7 @@ var _ = ginkgo.Describe("Deployment:Kueue-native", ginkgo.Ordered, func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				list := &corev1.PodList{}
 				g.Expect(k8sClient.List(ctx, list, client.InNamespace(depHigh.Namespace), client.MatchingLabels(depHigh.Spec.Template.ObjectMeta.Labels))).To(gomega.Succeed())
-				g.Expect(len(list.Items)).To(gomega.Equal(2))
+				g.Expect(list.Items).To(gomega.HaveLen(2))
 				for i := range list.Items {
 					pod := &list.Items[i]
 					g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
@@ -502,7 +502,7 @@ var _ = ginkgo.Describe("Deployment:Kueue-native", ginkgo.Ordered, func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				list := &corev1.PodList{}
 				g.Expect(k8sClient.List(ctx, list, client.InNamespace(depHigh.Namespace), client.MatchingLabels(depHigh.Spec.Template.ObjectMeta.Labels))).To(gomega.Succeed())
-				g.Expect(len(list.Items)).To(gomega.Equal(1))
+				g.Expect(list.Items).To(gomega.HaveLen(1))
 				for i := range list.Items {
 					pod := &list.Items[i]
 					g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
@@ -514,7 +514,7 @@ var _ = ginkgo.Describe("Deployment:Kueue-native", ginkgo.Ordered, func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				list := &corev1.PodList{}
 				g.Expect(k8sClient.List(ctx, list, client.InNamespace(depLow.Namespace), client.MatchingLabels(depLow.Spec.Template.ObjectMeta.Labels))).To(gomega.Succeed())
-				g.Expect(len(list.Items)).To(gomega.Equal(2))
+				g.Expect(list.Items).To(gomega.HaveLen(2))
 				for i := range list.Items {
 					pod := &list.Items[i]
 					g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
@@ -541,7 +541,7 @@ var _ = ginkgo.Describe("Deployment:Kueue-native", ginkgo.Ordered, func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				list := &corev1.PodList{}
 				g.Expect(k8sClient.List(ctx, list, client.InNamespace(depLow.Namespace), client.MatchingLabels(depLow.Spec.Template.ObjectMeta.Labels))).To(gomega.Succeed())
-				g.Expect(len(list.Items)).To(gomega.Equal(2))
+				g.Expect(list.Items).To(gomega.HaveLen(2))
 				for i := range list.Items {
 					pod := &list.Items[i]
 					g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
@@ -586,7 +586,7 @@ var _ = ginkgo.Describe("Deployment:Kueue-native", ginkgo.Ordered, func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				list := &corev1.PodList{}
 				g.Expect(k8sClient.List(ctx, list, client.InNamespace(depLow.Namespace), client.MatchingLabels(depLow.Spec.Template.ObjectMeta.Labels))).To(gomega.Succeed())
-				g.Expect(len(list.Items)).To(gomega.Equal(2))
+				g.Expect(list.Items).To(gomega.HaveLen(2))
 				for i := range list.Items {
 					pod := &list.Items[i]
 					g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
@@ -634,7 +634,7 @@ var _ = ginkgo.Describe("Deployment:Kueue-native", ginkgo.Ordered, func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				list := &corev1.PodList{}
 				g.Expect(k8sClient.List(ctx, list, client.InNamespace(depHigh.Namespace), client.MatchingLabels(depHigh.Spec.Template.ObjectMeta.Labels))).To(gomega.Succeed())
-				g.Expect(len(list.Items)).To(gomega.Equal(1))
+				g.Expect(list.Items).To(gomega.HaveLen(1))
 				for i := range list.Items {
 					pod := &list.Items[i]
 					g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
@@ -673,7 +673,7 @@ var _ = ginkgo.Describe("Deployment:Kueue-native", ginkgo.Ordered, func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				list := &corev1.PodList{}
 				g.Expect(k8sClient.List(ctx, list, client.InNamespace(depHigh.Namespace), client.MatchingLabels(depHigh.Spec.Template.ObjectMeta.Labels))).To(gomega.Succeed())
-				g.Expect(len(list.Items)).To(gomega.Equal(2))
+				g.Expect(list.Items).To(gomega.HaveLen(2))
 				for i := range list.Items {
 					pod := &list.Items[i]
 					g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
@@ -749,7 +749,7 @@ var _ = ginkgo.Describe("Deployment:Kueue-native", ginkgo.Ordered, func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				list := &corev1.PodList{}
 				g.Expect(k8sClient.List(ctx, list, client.InNamespace(dep.Namespace), client.MatchingLabels(dep.Spec.Template.ObjectMeta.Labels))).To(gomega.Succeed())
-				g.Expect(len(list.Items)).To(gomega.Equal(2))
+				g.Expect(list.Items).To(gomega.HaveLen(2))
 				for i := range list.Items {
 					pod := &list.Items[i]
 					g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
@@ -940,7 +940,7 @@ func expectPods(namespace string, labels map[string]string, phase corev1.PodPhas
 	gomega.Eventually(func(g gomega.Gomega) {
 		list := &corev1.PodList{}
 		g.Expect(k8sClient.List(ctx, list, client.InNamespace(namespace), client.MatchingLabels(labels))).To(gomega.Succeed())
-		g.Expect(len(list.Items)).To(gomega.Equal(count))
+		g.Expect(list.Items).To(gomega.HaveLen(count))
 		for i := range list.Items {
 			if list.Items[i].Status.Phase != phase {
 				ginkgo.GinkgoLogr.Info("pod", "status", list.Items[i].Status)
