@@ -247,16 +247,6 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.14"
-- name: TASProfileLeastFreeCapacity
-  versionedSpecs:
-  - default: false
-    lockToDefault: false
-    preRelease: Alpha
-    version: "0.10"
-  - default: false
-    lockToDefault: false
-    preRelease: Deprecated
-    version: "0.11"
 - name: TASProfileMixed
   versionedSpecs:
   - default: false
