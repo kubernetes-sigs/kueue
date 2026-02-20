@@ -22,6 +22,8 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	prometheusv1 "github.com/prometheus/client_golang/api/prometheus/v1"
+	"github.com/prometheus/common/model"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -179,6 +181,38 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 				}
 				expectMetricsToBeAvailable(curlPod.Name, curlContainerName, [][]string{expectedMetric})
 			})
+		})
+
+		ginkgo.It("should scrape metrics via Prometheus with TLS endpoint", ginkgo.Label("feature:prometheus"), func() {
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, workload)
+
+			ginkgo.By("Verifying Prometheus discovers and scrapes the Kueue target")
+			gomega.Eventually(func(g gomega.Gomega) {
+				result, err := prometheusClient.Targets(ctx)
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+
+				hasKueueTarget := false
+				for _, t := range result.Active {
+					if t.Labels["job"] == model.LabelValue(util.DefaultMetricsServiceName) &&
+						t.Labels["namespace"] == model.LabelValue(util.GetKueueNamespace()) {
+						hasKueueTarget = true
+						g.Expect(t.Health).To(gomega.Equal(prometheusv1.HealthGood))
+						break
+					}
+				}
+				g.Expect(hasKueueTarget).To(gomega.BeTrue(), "Kueue target not found. Active targets: %v", result.Active)
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying admission metric is available via PromQL")
+			gomega.Eventually(func(g gomega.Gomega) {
+				result, _, err := prometheusClient.Query(ctx,
+					fmt.Sprintf(`kueue_admitted_workloads_total{cluster_queue="%s"}`, clusterQueue.Name),
+					time.Now())
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				vector, ok := result.(model.Vector)
+				g.Expect(ok).To(gomega.BeTrue())
+				g.Expect(vector).NotTo(gomega.BeEmpty())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 		ginkgo.It("should continue to expose metrics after the secret is re-created", func() {
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, workload)
