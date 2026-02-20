@@ -269,6 +269,13 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/9156
 	// Enables pod labeling with corresponding cluster and local queue names
 	AssignQueueLabelsForPods featuregate.Feature = "AssignQueueLabelsForPods"
+
+	// owner: @vladikkuzn
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/7990-preemption-cost
+	//
+	// Enable priority boost via the kueue.x-k8s.io/priority-boost annotation,
+	// allowing external controllers to adjust a workload's effective priority.
+	PriorityBoost featuregate.Feature = "PriorityBoost"
 )
 
 func init() {
@@ -421,6 +428,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	AssignQueueLabelsForPods: {
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
+	},
+	PriorityBoost: {
+		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

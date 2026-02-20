@@ -4523,6 +4523,7 @@ func targetKeyReason(key workload.Reference, reason string) string {
 	return fmt.Sprintf("%s:%s", key, reason)
 }
 func TestCandidatesOrdering(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.PriorityBoost, true)
 	now := time.Now()
 
 	preemptorCq := "preemptor"
@@ -4728,5 +4729,78 @@ func TestPreemptionMessage(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("preemptionMessage(preemptor=kueue.Workload{UID:%v, Labels:%v}, reason=%q) returned %q, want %q", tc.preemptor.UID, tc.preemptor.Labels, tc.reason, got, tc.want)
 		}
+	}
+}
+
+func TestPriorityInfo(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.PriorityBoost, true)
+	cases := []struct {
+		name          string
+		wl            *kueue.Workload
+		wantEffective int32
+		wantBase      int32
+		wantBoost     int32
+	}{
+		{
+			name:          "empty workload",
+			wl:            &kueue.Workload{},
+			wantEffective: 0,
+			wantBase:      0,
+			wantBoost:     0,
+		},
+		{
+			name: "workload with priority only",
+			wl: &kueue.Workload{
+				Spec: kueue.WorkloadSpec{Priority: ptr.To[int32](100)},
+			},
+			wantEffective: 100,
+			wantBase:      100,
+			wantBoost:     0,
+		},
+		{
+			name: "workload with priority and positive boost",
+			wl: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "50"},
+				},
+				Spec: kueue.WorkloadSpec{Priority: ptr.To[int32](200)},
+			},
+			wantEffective: 250,
+			wantBase:      200,
+			wantBoost:     50,
+		},
+		{
+			name: "workload with priority and negative boost",
+			wl: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "-30"},
+				},
+				Spec: kueue.WorkloadSpec{Priority: ptr.To[int32](100)},
+			},
+			wantEffective: 70,
+			wantBase:      100,
+			wantBoost:     -30,
+		},
+		{
+			name: "workload with invalid boost annotation falls back to zero",
+			wl: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "not-a-number"},
+				},
+				Spec: kueue.WorkloadSpec{Priority: ptr.To[int32](100)},
+			},
+			wantEffective: 100,
+			wantBase:      100,
+			wantBoost:     0,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotEff, gotBase, gotBoost := priorityInfo(tc.wl)
+			if gotEff != tc.wantEffective || gotBase != tc.wantBase || gotBoost != tc.wantBoost {
+				t.Errorf("priorityInfo() = (%d, %d, %d), want (%d, %d, %d)",
+					gotEff, gotBase, gotBoost, tc.wantEffective, tc.wantBase, tc.wantBoost)
+			}
+		})
 	}
 }

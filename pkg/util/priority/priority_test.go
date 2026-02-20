@@ -29,6 +29,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
@@ -215,6 +216,7 @@ func TestGetPriorityFromWorkloadPriorityClass(t *testing.T) {
 }
 
 func TestPriorityBoost(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.PriorityBoost, true)
 	tests := map[string]struct {
 		workload  *kueue.Workload
 		wantBoost int32
@@ -260,7 +262,22 @@ func TestPriorityBoost(t *testing.T) {
 	}
 }
 
+func TestPriorityBoostFeatureGateDisabled(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.PriorityBoost, false)
+	w := utiltestingapi.MakeWorkload("name", "ns").
+		Annotation(controllerconstants.PriorityBoostAnnotationKey, "100").
+		Obj()
+	got, err := PriorityBoost(w)
+	if err != nil {
+		t.Errorf("PriorityBoost() unexpected error: %v", err)
+	}
+	if got != 0 {
+		t.Errorf("PriorityBoost() = %d, want 0 when feature gate disabled", got)
+	}
+}
+
 func TestEffectivePriority(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.PriorityBoost, true)
 	tests := map[string]struct {
 		workload     *kueue.Workload
 		wantPriority int32

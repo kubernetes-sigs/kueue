@@ -264,7 +264,8 @@ An optional signed integer that adjusts a workload's effective priority:
 Positive values increase priority; negative values decrease it.
 The effective priority is used for both scheduling order and preemption candidate ordering.
 This annotation is intended to be set directly on Workloads by external controllers (not propagated from Jobs).
-If the value is missing or invalid, it is treated as `0`.
+If the value is missing, it is treated as `0`.
+If the value is invalid, Workload create or update is **rejected** by the admission webhook.
 
 ### kueue.x-k8s.io/prebuilt-workload-name
 

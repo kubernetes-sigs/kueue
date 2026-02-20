@@ -32,8 +32,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -118,6 +120,15 @@ func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
 	allErrs = append(allErrs, metav1validation.ValidateConditions(obj.Status.Conditions, statusPath.Child("conditions"))...)
 	allErrs = append(allErrs, validateReclaimablePods(obj, statusPath.Child("reclaimablePods"))...)
 	allErrs = append(allErrs, validateAdmissionChecks(obj, statusPath.Child("admissionChecks"))...)
+
+	// KEP-7990: when priority-boost annotation is set, it must be a valid signed integer; invalid values cause rejection.
+	if features.Enabled(features.PriorityBoost) {
+		if _, err := priority.PriorityBoost(obj); err != nil {
+			path := field.NewPath("metadata", "annotations").Key(controllerconstants.PriorityBoostAnnotationKey)
+			value := obj.Annotations[controllerconstants.PriorityBoostAnnotationKey]
+			allErrs = append(allErrs, field.Invalid(path, value, "must be a valid signed integer"))
+		}
+	}
 
 	return allErrs
 }

@@ -439,6 +439,15 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 	var inadmissibleEntries []entry
 	for _, w := range workloads {
 		log := log.WithValues("workload", klog.KObj(w.Obj), "clusterQueue", klog.KRef("", string(w.ClusterQueue)))
+		// KEP-7990: admission normally rejects invalid priority-boost; here we treat as 0 and emit Event + log as defense-in-depth.
+		if _, err := priority.EffectivePriority(w.Obj); err != nil {
+			log.V(2).Info("Invalid priority-boost annotation, treating as zero",
+				"annotation", w.Obj.Annotations[controllerconstants.PriorityBoostAnnotationKey], "error", err)
+			s.recorder.Eventf(w.Obj, corev1.EventTypeWarning, "InvalidPriorityBoost",
+				"Invalid value %q for annotation %s, treating as zero: %v",
+				w.Obj.Annotations[controllerconstants.PriorityBoostAnnotationKey],
+				controllerconstants.PriorityBoostAnnotationKey, err)
+		}
 		ns := corev1.Namespace{}
 		e := entry{Info: w}
 		e.clusterQueueSnapshot = snap.ClusterQueue(w.ClusterQueue)
