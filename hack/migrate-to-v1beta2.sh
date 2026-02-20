@@ -24,6 +24,9 @@ DRY_RUN=""
 VERBOSE=false
 NAMESPACE_REGEX=""
 KUBECTL_GET_API_VERSION="v1beta1"
+PATCH_TYPE="annotate"
+KUBECTL_GET_API_VERSION_CHANGED=false
+MIGRATE_TO_API_VERSION="v1beta2"
 
 show_help() {
   cat << EOF
@@ -48,6 +51,11 @@ Options:
                                         to avoid too many calls to conversion webhooks when the API server lists workloads from etcd.
                                         On large deployments listing all workloads and going through conversion may cause timeouts for API
                                         server when communicating with etcd.
+  --downgrade                           Use to downgrade Kueue resources to v1beta1.
+                                        Note: Requires Kueue v0.15.x.
+  --patch-type=[PATCH_TYPE]             Specify the patch type ('annotate' or 'apiVersion').
+                                        Default: annotate
+                                        Note: 'apiVersion' is not supported for downgrade.
   -h, --help                            Show this help message and exit
 EOF
 }
@@ -73,6 +81,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --kubectl-get-api-version=v1beta1|--kubectl-get-api-version=v1beta2)
       KUBECTL_GET_API_VERSION="${1#--kubectl-get-api-version=}"
+      KUBECTL_GET_API_VERSION_CHANGED=true
       shift
       ;;
     --kubectl-get-api-version=*)
@@ -80,13 +89,30 @@ while [[ $# -gt 0 ]]; do
       echo "       Allowed values: v1beta1 or v1beta2" >&2
       exit 1
       ;;
+    --patch-type=annotate|--patch-type=apiVersion)
+      PATCH_TYPE="${1#--patch-type=}"
+      shift
+      ;;
+    --patch-type=*)
+      echo "Error: Invalid --patch-type value: '${1#--patch-type=}'" >&2
+      echo "       Allowed values: annotate or apiVersion" >&2
+      exit 1
+      ;;
+    --downgrade)
+      if [[ "${KUBECTL_GET_API_VERSION_CHANGED}" != "true" ]]; then
+        # We migrating from v1beta2 to v1beta1, so we should use v1beta2 to list resources.
+        KUBECTL_GET_API_VERSION="v1beta2"
+      fi
+      MIGRATE_TO_API_VERSION="v1beta1"
+      shift
+      ;;
     -h|--help)
       show_help
       exit 0
       ;;
     *)
-      # ignore unknown flags or stop here
-      break
+      # ignore unknown flags
+      shift
       ;;
   esac
 done
@@ -161,20 +187,30 @@ function apply_patches() {
   last_percent=-1
 
   while read -r name; do
-    patch_cmd=(kubectl patch "$kind.kueue.x-k8s.io" "$name")
-    if [[ -n "$ns" ]]; then
-      # Namespaced resource
-      patch_cmd+=(-n "$ns")
-    fi
+    if [[ "${PATCH_TYPE}" == "annotate" ]]; then
+      # shellcheck disable=SC2206
+      patch_cmd=(kubectl annotate "$kind.kueue.x-k8s.io" "$name" "kueue.x-k8s.io/storage-version=${MIGRATE_TO_API_VERSION}" --overwrite $DRY_RUN)
+      if [[ -n "$ns" ]]; then
+        # Namespaced resource
+        patch_cmd+=(-n "$ns")
+      fi
+    else
+      patch_cmd=(kubectl patch "$kind.${MIGRATE_TO_API_VERSION}.kueue.x-k8s.io" "$name")
+      if [[ -n "$ns" ]]; then
+        # Namespaced resource
+        patch_cmd+=(-n "$ns")
+      fi
 
-    # shellcheck disable=SC2206
-    patch_cmd+=(--type=merge -p "$patch_payload" $DRY_RUN)
+      # shellcheck disable=SC2206
+      patch_cmd+=(--type=merge -p "$patch_payload" $DRY_RUN)
+    fi
 
     if $VERBOSE; then
         echo "    └─ ${patch_cmd[*]}"
     fi
 
-    output=$("${patch_cmd[@]}")
+    # Skip "Warning: This version is deprecated. Use v1beta2 instead" from stderr.
+    output=$("${patch_cmd[@]}" 2> >(grep -v -i -F "Warning: This version is deprecated. Use v1beta2 instead." >&2) | awk NF)
     # shellcheck disable=SC2181
     if [ $? -eq 0 ]; then
       patched=$((patched + 1))
@@ -213,7 +249,7 @@ function apply_patches() {
 for kind in "${kinds[@]}"; do
   echo "Migrating $kind.kueue.x-k8s.io..."
 
-  namespaced=$(kubectl get --raw "/apis/kueue.x-k8s.io/v1beta1" 2>/dev/null | \
+  namespaced=$(kubectl get --raw "/apis/kueue.x-k8s.io/${KUBECTL_GET_API_VERSION}" 2>/dev/null | \
     jq -r --arg kind_lowercase "${kind,,}" \
       '.resources[] | select(.name==$kind_lowercase) | .namespaced')
 
