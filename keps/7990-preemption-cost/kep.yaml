@@ -1,4 +1,4 @@
-title: Preemption Cost Signal for Workload Preemption
+title: Support Workload Priority Boost By External Controllers
 kep-number: 7990
 authors:
   - "@vladikkuzn"
