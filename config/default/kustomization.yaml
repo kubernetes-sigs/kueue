@@ -22,13 +22,12 @@ resources:
 - ../components/manager
 - ../components/internalcert
 - ../components/visibility
-# [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix including the one in
-# ../components/crd/kustomization.yaml
+# [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix including the one in ../components/crd/kustomization.yaml
 - ../components/webhook
 # [CERTMANAGER] To enable cert-manager, uncomment all sections with 'CERTMANAGER'. 'WEBHOOK' components are required.
-# - ../components/certmanager
+#- ../components/certmanager
 # [PROMETHEUS] To enable prometheus monitor, uncomment all sections with 'PROMETHEUS'.
-# - ../components/prometheus
+#- ../components/prometheus
 # [METRICS] Expose the controller manager metrics service.
 - metrics_service.yaml
 
@@ -41,8 +40,7 @@ patches:
 # through a ComponentConfig type
 - path: manager_config_patch.yaml
 
-# [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix including the one in
-# crd/kustomization.yaml
+# [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix including the one in crd/kustomization.yaml
 - path: manager_webhook_patch.yaml
 
 # Expose port used by the visibility server
@@ -88,29 +86,26 @@ patches:
 # [CERTMANAGER] To enable cert-manager, uncomment all sections with 'CERTMANAGER'.
 # Uncomment 'CERTMANAGER' sections in crd/kustomization.yaml to enable the CA injection in the admission webhooks.
 # 'CERTMANAGER' needs to be enabled to use ca injection
-# - path: mutating_webhookcainjection_patch.yaml
-# - path: validating_webhookcainjection_patch.yaml
+#- path: mutating_webhookcainjection_patch.yaml
+#- path: validating_webhookcainjection_patch.yaml
 
 
 # Uncomment the patches line if you enable Metrics and CertManager
 # [CERTMANAGER] To enable metrics protected with certManager, uncomment the following line.
 # This patch will protect the metrics with certManager self-signed certs.
-# - path: cert_metrics_manager_patch.yaml
-#   target:
+#- path: cert_metrics_manager_patch.yaml
+#  target:
 #    kind: Deployment
 
 # [CERTMANAGER] To enable visibility server protected with certManager, uncomment the following line.
-# - path: apiservice_cainjection_patch.yaml
-# - path: apiservice_insecure_removal.yaml # to remove insecureSkipTLSVerify from the APIService
-#   target:
-#     kind: APIService
-#     name: v1beta1.visibility.kueue.x-k8s.io
-
-# - path: cert_visibility_manager_patch.yaml
-#   target:
+#- path: apiservice_cainjection_patch.yaml
+#- path: apiservice_insecure_removal.yaml # to remove insecureSkipTLSVerify from the APIService
+#  target:
+#    kind: APIService
+#    name: v1beta1.visibility.kueue.x-k8s.io
+#- path: cert_visibility_manager_patch.yaml
+#  target:
 #    kind: Deployment
-
-
 
 # the following config is for teaching kustomize how to do var substitution
 # vars:

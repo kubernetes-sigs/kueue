@@ -98,6 +98,8 @@ We can follow [Prometheus Operator Installing guide](https://prometheus-operator
 kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/prometheus.yaml
 ```
 
+For more detailed setup instructions and optional metrics configuration, see the [Observability guide](/docs/tasks/manage/observability/).
+
 ### Add API Priority and Fairness configuration for the visibility API
 
 See [Configure API Priority and Fairness](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/#configure-api-priority-and-fairness) for more details.
@@ -241,6 +243,7 @@ You can edit the `kueue-manager-config` `ConfigMap` and add the feature gate you
 ```yaml
 apiVersion: v1
 kind: ConfigMap
+metadata:
   name: kueue-manager-config
   namespace: kueue-system
 data:
@@ -281,10 +284,6 @@ spec:
 ### Feature gates for alpha and beta features
 
 {{< feature-gates-table stage="alpha-beta" >}}
-
-{{% alert title="Note" color="primary" %}}
-The SanitizePodSets and MultiKueueAllowInsecureKubeconfigs features are available starting from versions 0.13.8 and 0.14.3.
-{{% /alert %}}
 
 ### Feature gates for graduated or deprecated features
 

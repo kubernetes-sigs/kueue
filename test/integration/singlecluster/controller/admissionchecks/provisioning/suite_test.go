@@ -27,7 +27,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
-	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
@@ -107,7 +106,7 @@ func managerSetup(options ...managerSetupOption) framework.ManagerSetup {
 		controllersCfg.Metrics.EnableClusterQueueResources = true
 
 		cCache := schdcache.New(mgr.GetClient())
-		queues := qcache.NewManager(mgr.GetClient(), cCache)
+		queues := util.NewManagerForIntegrationTests(mgr.GetClient(), cCache)
 
 		if opts.runJobController {
 			var err error

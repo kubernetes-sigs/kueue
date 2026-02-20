@@ -14,8 +14,6 @@ etcd 存储并降低 Kueue 的内存占用。
 ## 前置条件 {#prerequisites}
 
 - 可正常运行的 Kueue **v0.12** 或更高版本。
-- 在 Kueue 控制器管理器中启用 `ObjectRetentionPolicies` 特性。
-  有关此特性的配置细节，请参阅[安装指南](/zh-CN/docs/installation/#change-the-feature-gates-configuration)。
 
 ## 设置保留策略 {#set-up-a-retention-policy}
 

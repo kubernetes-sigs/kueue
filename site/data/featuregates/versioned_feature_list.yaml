@@ -23,6 +23,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.13"
+- name: ElasticJobsViaWorkloadSlicesWithTAS
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.17"
 - name: FailureRecoveryPolicy
   versionedSpecs:
   - default: false
@@ -51,6 +57,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.9"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "0.17"
 - name: LocalQueueDefaulting
   versionedSpecs:
   - default: false
@@ -61,6 +71,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.12"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "0.17"
 - name: LocalQueueMetrics
   versionedSpecs:
   - default: false
@@ -103,6 +117,10 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.15"
+  - default: false
+    lockToDefault: false
+    preRelease: Deprecated
+    version: "0.17"
 - name: MultiKueueBatchJobWithManagedBy
   versionedSpecs:
   - default: false
@@ -145,6 +163,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.13"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "0.17"
 - name: PartialAdmission
   versionedSpecs:
   - default: false
@@ -189,6 +211,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.13"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "0.17"
 - name: SkipFinalizersForPodsSuspendedByParent
   versionedSpecs:
   - default: true
@@ -221,16 +247,6 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.14"
-- name: TASProfileLeastFreeCapacity
-  versionedSpecs:
-  - default: false
-    lockToDefault: false
-    preRelease: Alpha
-    version: "0.10"
-  - default: false
-    lockToDefault: false
-    preRelease: Deprecated
-    version: "0.11"
 - name: TASProfileMixed
   versionedSpecs:
   - default: false
@@ -241,6 +257,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
+- name: TASReplaceNodeOnNodeTaints
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.17"
 - name: TASReplaceNodeOnPodTermination
   versionedSpecs:
   - default: false

@@ -7,6 +7,8 @@ endif
 
 GO_CMD ?= go
 GO_FMT ?= gofmt
+# Use go.mod go version as a single source of truth of GO version.
+GO_VERSION := $(shell awk '/^go /{split($$2, v, "."); print v[1] "." v[2]}' go.mod|head -n1)
 
 ROOT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))/../../..
 BIN_DIR := $(ROOT_DIR)/bin
@@ -37,8 +39,8 @@ IMAGE_TAG := $(IMAGE_REPO):$(GIT_TAG)
 
 # Use distroless as minimal base image to package the manager binary
 BASE_IMAGE ?= gcr.io/distroless/static:nonroot
-BASE_BUILDER_IMAGE ?= golang:1.25.0
-BUILDER_IMAGE ?= $(BASE_BUILDER_IMAGE)
+BASE_BUILDER_IMAGE ?= golang
+BUILDER_IMAGE ?= $(BASE_BUILDER_IMAGE):$(GO_VERSION)
 CGO_ENABLED ?= 0
 
 $(YQ):

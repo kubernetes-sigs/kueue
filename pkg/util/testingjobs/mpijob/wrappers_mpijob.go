@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package testing
+package mpijob
 
 import (
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
@@ -239,12 +239,6 @@ func (j *MPIJobWrapper) Generation(num int64) *MPIJobWrapper {
 // StatusConditions adds a condition
 func (j *MPIJobWrapper) StatusConditions(c kfmpi.JobCondition) *MPIJobWrapper {
 	j.Status.Conditions = append(j.Status.Conditions, c)
-	return j
-}
-
-func (j *MPIJobWrapper) Image(replicaType kfmpi.MPIReplicaType, image string, args []string) *MPIJobWrapper {
-	j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.Containers[0].Image = image
-	j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.Containers[0].Args = args
 	return j
 }
 

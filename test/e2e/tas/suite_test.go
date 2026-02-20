@@ -29,13 +29,16 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/test/util"
 )
 
 var (
-	k8sClient client.WithWatch
-	ctx       context.Context
+	k8sClient       client.WithWatch
+	ctx             context.Context
+	defaultKueueCfg *configapi.Configuration
+	kindClusterName = os.Getenv("KIND_CLUSTER_NAME")
 )
 
 func TestAPIs(t *testing.T) {
@@ -56,6 +59,8 @@ var _ = ginkgo.BeforeSuite(func() {
 	k8sClient, _, err = util.CreateClientUsingCluster("")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ctx = ginkgo.GinkgoT().Context()
+
+	defaultKueueCfg = util.GetKueueConfiguration(ctx, k8sClient)
 
 	waitForAvailableStart := time.Now()
 	util.WaitForKueueAvailability(ctx, k8sClient)
@@ -88,4 +93,8 @@ var _ = ginkgo.BeforeSuite(func() {
 			g.Expect(err).NotTo(gomega.HaveOccurred())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	}
+})
+
+var _ = ginkgo.AfterSuite(func() {
+	util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName)
 })

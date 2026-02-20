@@ -34,7 +34,7 @@ You can install the chart directly from the OCI registry:
 
 ```bash
 helm install kueue-populator oci://registry.k8s.io/kueue/charts/kueue-populator \
-  --version 0.16.0 \
+  --version 0.16.1 \
   --namespace kueue-system \
   --create-namespace \
   --wait
@@ -112,7 +112,7 @@ kueuePopulator:
 
 ```bash
 helm install kueue-populator oci://registry.k8s.io/kueue/charts/kueue-populator \
-  --version 0.16.0 \
+  --version 0.16.1 \
   --namespace kueue-system \
   --create-namespace \
   --wait \
@@ -125,7 +125,7 @@ For simple configuration you may also use the minimalistic command:
 
 ```bash
 helm install kueue-populator oci://registry.k8s.io/kueue/charts/kueue-populator \
-  --version 0.16.0 \
+  --version 0.16.1 \
   --namespace kueue-system \
   --create-namespace \
   --wait \

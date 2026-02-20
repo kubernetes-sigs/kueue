@@ -1,3 +1,44 @@
+## v0.16.1
+
+Changes since `v0.16.0`:
+
+## Changes by Kind
+
+### Feature
+
+- KueueViz backend and frontend resource requests/limits are now configurable via Helm values (kueueViz.backend.resources and kueueViz.frontend.resources). (#8981, @david-gang)
+
+### Bug or Regression
+
+- Fix Visibility API OpenAPI schema generation to prevent schema resolution errors when visibility v1beta1/v1beta2 APIServices are installed.
+  
+  The visibility schema issues result in the following error when re-applying the manifest for Kueue 0.16.0:
+  `failed to load open api schema while syncing cluster cache: error getting openapi resources: SchemaError(sigs.k8s.io/kueue/apis/visibility/v1beta1.PendingWorkloadsSummary.items): unknown model in reference: "sigs.k8s.io~1kueue~1apis~1visibility~1v1beta1.PendingWorkload"` (#8901, @vladikkuzn)
+- Fix a bug where finished or deactivated workloads blocked ClusterQueue deletion and finalizer removal. (#8936, @sohankunkerkar)
+- LeaderWorkerSet: Fix the bug where rolling updates with maxSurge could get stuck. (#8886, @PannagaRao)
+- LeaderWorkerSet: Fixed bug that doesn't allow to delete Pod after LeaderWorkerSet delete (#8882, @mbobrovskyi)
+- Metrics certificate is now reloaded when certificate data is updated. (#9099, @MaysaMacedo)
+- MultiKueue & ElasticJobs: fix the bug that the new size of a Job was not reflected on the worker cluster. (#9055, @ichekrygin)
+- Observability: Fix Prometheus ServiceMonitor selector and RBAC to enable metrics scraping. (#8980, @IrvingMg)
+- Observability: Fixed a bug where workloads that finished before a Kueue restart were not tracked in the gauge metrics for finished workloads. (#8827, @mbobrovskyi)
+- Observability: fix the bug that the "replica-role" (leader / follower) log decorator was missing in the log lines output by
+  the  webhooks for LeaderWorkerSet and StatefulSet . (#8820, @mszadkow)
+- PodIntegration: Fix the bug that Kueue would occasionally remove the custom finalizers when
+  removing the `kueue.x-k8s.io/managed` finalizer. (#8903, @mykysha)
+- RayJob integration: Make RayJob top level workload managed by Kueue when autoscaling via
+  ElasticJobsViaWorkloadSlices is enabled.
+  
+  If you are an alpha user of the ElasticJobsViaWorkloadSlices feature for RayJobs, then upgrading Kueue may impact running live jobs which have autoscaling / workload slicing enabled. For example, if you upgrade Kueue, before
+  scaling-up completes,  the new pods will be stuck in SchedulingGated state. (#9039, @hiboyang)
+- TAS: Fix a bug that TAS ignored resources excluded by excludeResourcePrefixes for node placement. (#8990, @sohankunkerkar)
+- TAS: Fixed a bug that pending workloads could be stuck, not being considered by the Kueue's scheduler,
+  after the restart of Kueue. The workloads would be considered for scheduling again after any update to their 
+  ClusterQueue. (#9056, @sohankunkerkar)
+
+### Other (Cleanup or Flake)
+
+- KueueViz: It switches to the v1beta2 API (#8804, @mbobrovskyi)
+
 ## v0.16.0
 
 Changes since `v0.15.0`:

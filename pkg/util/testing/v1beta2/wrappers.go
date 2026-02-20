@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1beta1
+package v1beta2
 
 import (
 	"fmt"
@@ -214,11 +214,11 @@ func (w *WorkloadWrapper) FinishedAt(t time.Time) *WorkloadWrapper {
 	return w
 }
 
-func (w *WorkloadWrapper) Evicted() *WorkloadWrapper {
+func (w *WorkloadWrapper) EvictedAt(t time.Time) *WorkloadWrapper {
 	cond := metav1.Condition{
 		Type:               kueue.WorkloadEvicted,
 		Status:             metav1.ConditionTrue,
-		LastTransitionTime: metav1.Now(),
+		LastTransitionTime: metav1.NewTime(t),
 		Reason:             "ByTest",
 		Message:            "Evicted by test",
 	}

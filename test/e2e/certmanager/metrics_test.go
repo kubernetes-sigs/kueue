@@ -18,9 +18,12 @@ package certmanager
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	prometheusv1 "github.com/prometheus/client_golang/api/prometheus/v1"
+	"github.com/prometheus/common/model"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -179,6 +182,89 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 				expectMetricsToBeAvailable(curlPod.Name, curlContainerName, [][]string{expectedMetric})
 			})
 		})
+
+		ginkgo.It("should scrape metrics via Prometheus with TLS endpoint", ginkgo.Label("feature:prometheus"), func() {
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, workload)
+
+			ginkgo.By("Verifying Prometheus discovers and scrapes the Kueue target")
+			gomega.Eventually(func(g gomega.Gomega) {
+				result, err := prometheusClient.Targets(ctx)
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+
+				hasKueueTarget := false
+				for _, t := range result.Active {
+					if t.Labels["job"] == model.LabelValue(util.DefaultMetricsServiceName) &&
+						t.Labels["namespace"] == model.LabelValue(util.GetKueueNamespace()) {
+						hasKueueTarget = true
+						g.Expect(t.Health).To(gomega.Equal(prometheusv1.HealthGood))
+						break
+					}
+				}
+				g.Expect(hasKueueTarget).To(gomega.BeTrue(), "Kueue target not found. Active targets: %v", result.Active)
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying admission metric is available via PromQL")
+			gomega.Eventually(func(g gomega.Gomega) {
+				result, _, err := prometheusClient.Query(ctx,
+					fmt.Sprintf(`kueue_admitted_workloads_total{cluster_queue="%s"}`, clusterQueue.Name),
+					time.Now())
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				vector, ok := result.(model.Vector)
+				g.Expect(ok).To(gomega.BeTrue())
+				g.Expect(vector).NotTo(gomega.BeEmpty())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+		ginkgo.It("should continue to expose metrics after the secret is re-created", func() {
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, workload)
+			initialSecret := &corev1.Secret{}
+			ginkgo.By("fetching initial secret", func() {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{
+					Namespace: kueueNS, Name: certSecretName,
+				}, initialSecret)).To(gomega.Succeed())
+			})
+
+			var initialCertContent []byte
+			ginkgo.By("reading initial certificate content from curl-pod", func() {
+				certContent, _, err := util.KExecute(ctx, cfg, restClient, kueueNS, curlPod.Name, curlContainerName,
+					[]string{"/bin/sh", "-c", fmt.Sprintf("cat %s/ca.crt", certMountPath)})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				initialCertContent = certContent
+				gomega.Expect(initialCertContent).NotTo(gomega.BeEmpty())
+			})
+
+			ginkgo.By("deleting the secret", func() {
+				gomega.Expect(k8sClient.Delete(ctx, initialSecret)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("waiting for the secret to be re-created", func() {
+				recreatedSecret := &corev1.Secret{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKey{
+						Namespace: kueueNS, Name: certSecretName,
+					}, recreatedSecret)).To(gomega.Succeed())
+					g.Expect(recreatedSecret.UID).NotTo(gomega.Equal(initialSecret.UID), "Secret not recreated")
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying certificate content changed in curl-pod", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					newCertContent, _, err := util.KExecute(ctx, cfg, restClient, kueueNS, curlPod.Name, curlContainerName,
+						[]string{"/bin/sh", "-c", fmt.Sprintf("cat %s/ca.crt", certMountPath)})
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(initialCertContent).NotTo(gomega.BeEmpty())
+					g.Expect(newCertContent).NotTo(gomega.BeEmpty())
+					g.Expect(newCertContent).NotTo(gomega.Equal(initialCertContent), "Certificate content should have changed after secret recreation")
+				}, util.VeryLongTimeout, util.LongInterval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("checking that the metrics are still available", func() {
+				expectedMetric := []string{
+					"kueue_quota_reserved_workloads_total",
+					clusterQueue.Name,
+				}
+				expectMetricsToBeAvailableWithTimeout(curlPod.Name, curlContainerName, [][]string{expectedMetric}, util.VeryLongTimeout)
+			})
+		})
 	})
 })
 
@@ -198,10 +284,14 @@ func getKueueMetricsSecure(curlPodName, curlContainerName string) ([]byte, error
 }
 
 func expectMetricsToBeAvailable(curlPodName, curlContainerName string, metrics [][]string) {
+	expectMetricsToBeAvailableWithTimeout(curlPodName, curlContainerName, metrics, util.Timeout)
+}
+
+func expectMetricsToBeAvailableWithTimeout(curlPodName, curlContainerName string, metrics [][]string, timeout time.Duration) {
 	gomega.Eventually(func(g gomega.Gomega) {
 		metricsOutput, err := getKueueMetricsSecure(curlPodName, curlContainerName)
 		g.Expect(err).NotTo(gomega.HaveOccurred())
 
 		g.Expect(string(metricsOutput)).Should(utiltesting.ContainMetrics(metrics))
-	}, util.Timeout).Should(gomega.Succeed())
+	}, timeout, util.Interval).Should(gomega.Succeed())
 }

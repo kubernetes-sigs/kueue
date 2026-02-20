@@ -30,9 +30,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 func TestValidate(t *testing.T) {
@@ -972,9 +974,10 @@ func TestValidate(t *testing.T) {
 
 func TestValidateFeatureGates(t *testing.T) {
 	cases := map[string]struct {
-		featureGatesCLI string
-		featureGateMap  map[string]bool
-		errorStr        string
+		featureGatesCLI   string
+		featureGateMap    map[string]bool
+		setupFeatureGates map[featuregate.Feature]bool
+		errorStr          string
 	}{
 		"no feature gates is null": {
 			featureGatesCLI: "",
@@ -989,28 +992,56 @@ func TestValidateFeatureGates(t *testing.T) {
 		"cannot specify both feature gates": {
 			featureGatesCLI: "test:true",
 			featureGateMap:  map[string]bool{"test": true},
-
-			errorStr: "feature gates for CLI and configuration cannot both specified",
-		},
-		"cannot specify more than one TAS profile using GateMap": {
-			featureGateMap: map[string]bool{"TASProfileMixed": true,
-				"TASProfileLeastFreeCapacity": true},
-			errorStr: "Cannot use more than one TAS profiles",
-		},
-		"cannot specify more than one TAS profile using GatesCLI": {
-			featureGatesCLI: "TASProfileLeastFreeCapacity:true,TASProfileMixed:true",
-			errorStr:        "Cannot use more than one TAS profiles",
+			errorStr:        "feature gates for CLI and configuration cannot both specified",
 		},
 		"cannot set TAS profile with TAS disabled": {
-			featureGateMap: map[string]bool{"TASProfileLeastFreeCapacity": true},
-			errorStr:       "Cannot use a TAS profile with TAS disabled",
+			setupFeatureGates: map[featuregate.Feature]bool{
+				features.TASProfileMixed:         true,
+				features.TopologyAwareScheduling: false,
+			},
+			errorStr: "cannot use a TAS profile with TAS disabled",
+		},
+		"ElasticJobsViaWorkloadSlicesWithTAS requires ElasticJobsViaWorkloadSlices": {
+			setupFeatureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
+				features.TopologyAwareScheduling:             true,
+				features.ElasticJobsViaWorkloadSlices:        false,
+				features.TASProfileMixed:                     false,
+			},
+			errorStr: "ElasticJobsViaWorkloadSlicesWithTAS requires ElasticJobsViaWorkloadSlices to be enabled",
+		},
+		"ElasticJobsViaWorkloadSlicesWithTAS requires TopologyAwareScheduling": {
+			setupFeatureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
+				features.ElasticJobsViaWorkloadSlices:        true,
+				features.TopologyAwareScheduling:             false,
+				features.TASProfileMixed:                     false,
+			},
+			errorStr: "ElasticJobsViaWorkloadSlicesWithTAS requires TopologyAwareScheduling to be enabled",
+		},
+		"ElasticJobsViaWorkloadSlicesWithTAS valid when all dependencies enabled": {
+			setupFeatureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
+				features.ElasticJobsViaWorkloadSlices:        true,
+				features.TopologyAwareScheduling:             true,
+				features.TASProfileMixed:                     false,
+			},
+			errorStr: "",
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			// Set up feature gates for this test
+			for fg, enabled := range tc.setupFeatureGates {
+				features.SetFeatureGateDuringTest(t, fg, enabled)
+			}
 			got := ValidateFeatureGates(tc.featureGatesCLI, tc.featureGateMap)
-			if got != nil && tc.errorStr != got.Error() {
-				t.Errorf("Unexpected result from ValidateFeatureGates\nwant:\n%v\ngot:%v\n", tc.errorStr, got.Error())
+			gotErr := ""
+			if got != nil {
+				gotErr = got.Error()
+			}
+			if gotErr != tc.errorStr {
+				t.Errorf("Unexpected result from ValidateFeatureGates\nwant: %q\ngot: %q\n", tc.errorStr, gotErr)
 			}
 		})
 	}

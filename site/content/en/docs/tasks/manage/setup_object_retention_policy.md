@@ -16,7 +16,6 @@ Kueue’s memory footprint.
 ## Prerequisites
 
 - A running Kueue installation at **v0.12** or newer.
-- The `ObjectRetentionPolicies` feature-gate enabled in the Kueue controller manager. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
 
 ## Set up a retention policy
 

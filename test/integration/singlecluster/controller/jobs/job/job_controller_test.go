@@ -3558,6 +3558,145 @@ var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", ginkgo.Or
 	})
 })
 
+var _ = ginkgo.Describe("Job controller with TAS and ElasticJobsViaWorkloadSlices", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	const (
+		nodeGroupLabel = "node-group"
+		tasBlockLabel  = "cloud.com/topology-block"
+	)
+
+	var (
+		ns           *corev1.Namespace
+		nodes        []corev1.Node
+		topology     *kueue.Topology
+		tasFlavor    *kueue.ResourceFlavor
+		clusterQueue *kueue.ClusterQueue
+		localQueue   *kueue.LocalQueue
+	)
+
+	ginkgo.BeforeAll(func() {
+		gomega.Expect(utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{
+			string(features.ElasticJobsViaWorkloadSlices): true,
+		})).Should(gomega.Succeed())
+		fwk.StartManager(ctx, cfg, managerAndControllersSetup(true, true, nil))
+	})
+
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-elastic-")
+
+		nodes = []corev1.Node{
+			*testingnode.MakeNode("b1").
+				Label(nodeGroupLabel, "tas").
+				Label(tasBlockLabel, "b1").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("1Gi"),
+					corev1.ResourcePods:   resource.MustParse("10"),
+				}).
+				Ready().
+				Obj(),
+			*testingnode.MakeNode("b2").
+				Label(nodeGroupLabel, "tas").
+				Label(tasBlockLabel, "b2").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("1Gi"),
+					corev1.ResourcePods:   resource.MustParse("10"),
+				}).
+				Ready().
+				Obj(),
+		}
+		for i := range nodes {
+			util.MustCreate(ctx, k8sClient, &nodes[i])
+		}
+
+		topology = utiltestingapi.MakeTopology("default").Levels(tasBlockLabel).Obj()
+		util.MustCreate(ctx, k8sClient, topology)
+
+		tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
+			NodeLabel(nodeGroupLabel, "tas").
+			TopologyName(topology.Name).Obj()
+		util.MustCreate(ctx, k8sClient, tasFlavor)
+
+		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).
+					Resource(corev1.ResourceCPU, "5").
+					Resource(corev1.ResourceMemory, "5Gi").
+					Obj(),
+			).Obj()
+		util.MustCreate(ctx, k8sClient, clusterQueue)
+
+		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		util.MustCreate(ctx, k8sClient, localQueue)
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+		for i := range nodes {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[i], true)
+		}
+	})
+
+	ginkgo.It("should scale up an elastic job with TAS unconstrained topology", func() {
+		job := testingjob.MakeJob("elastic-job", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Parallelism(1).
+			Completions(10).
+			Request(corev1.ResourceCPU, "100m").
+			Obj()
+
+		ginkgo.By("creating an elastic job with unconstrained topology", func() {
+			util.MustCreate(ctx, k8sClient, job)
+		})
+
+		var originalWorkload *kueue.Workload
+		ginkgo.By("verify the workload is created and admitted with topology assignment", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				workloads := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+				g.Expect(workloads.Items).Should(gomega.HaveLen(1))
+				originalWorkload = &workloads.Items[0]
+				g.Expect(originalWorkload.Spec.PodSets).Should(gomega.HaveLen(1))
+				g.Expect(originalWorkload.Spec.PodSets[0].TopologyRequest).ShouldNot(gomega.BeNil())
+				g.Expect(originalWorkload.Spec.PodSets[0].TopologyRequest.Unconstrained).Should(gomega.Equal(ptr.To(true)))
+				g.Expect(originalWorkload.Status.Admission).ShouldNot(gomega.BeNil())
+				g.Expect(originalWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
+				g.Expect(originalWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).ShouldNot(gomega.BeNil())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("scale up the job by increasing parallelism", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
+				job.Spec.Parallelism = ptr.To(int32(2))
+				g.Expect(k8sClient.Update(ctx, job)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verify a new workload slice is created and admitted with topology assignment", func() {
+			newWorkload := util.ExpectNewWorkloadSlice(ctx, k8sClient, originalWorkload)
+			gomega.Expect(newWorkload).ShouldNot(gomega.BeNil(), "Expected a new workload slice to be created")
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(newWorkload), newWorkload)).To(gomega.Succeed())
+				g.Expect(newWorkload.Status.Admission).ShouldNot(gomega.BeNil(), "New workload should be admitted")
+				g.Expect(newWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
+				g.Expect(newWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).ShouldNot(gomega.BeNil(),
+					"New workload slice should have topology assignment")
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+})
+
 var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		enableWaitForPodsReady  bool
@@ -3570,8 +3709,6 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 	)
 
 	ginkgo.JustBeforeEach(func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ObjectRetentionPolicies, true)
-
 		var waitForPodsReady *configapi.WaitForPodsReady
 		if enableWaitForPodsReady {
 			waitForPodsReady = &configapi.WaitForPodsReady{

@@ -4,7 +4,7 @@
 # numbers only once we have enough execution history on CI. The provisional thresholds avoid
 # flaky CI failures in the mean time.
 #
-# Configuration: 640 nodes, ~1,050 workloads, required/preferred/balanced topology
+# Configuration: 640 nodes, 15,000 workloads (matched to baseline structure)
 
 # Command execution limits
 cmd:
@@ -16,10 +16,12 @@ clusterQueueClassesMinUsage:
 
 # Workload admission time limits
 wlClassesMaxAvgTimeToAdmissionMs:
-  large-balanced-rack: 1_000_000
-  large-required-rack: 1_000_000
-  medium-balanced-rack: 1_000_000
-  medium-preferred-block: 1_000_000
-  medium-required-rack: 1_000_000
-  small-preferred-rack: 1_000_000
   small-required-rack: 1_000_000
+  small-preferred-rack: 1_000_000
+  small-balanced-rack: 1_000_000
+  medium-required-rack: 1_000_000
+  medium-preferred-rack: 1_000_000
+  medium-balanced-rack: 1_000_000
+  large-required-rack: 1_000_000
+  large-preferred-rack: 1_000_000
+  large-balanced-rack: 1_000_000

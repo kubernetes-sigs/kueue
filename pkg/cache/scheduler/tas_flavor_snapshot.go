@@ -347,6 +347,9 @@ type TASPodSetRequests struct {
 	Flavor            kueue.ResourceFlavorReference
 	Implied           bool
 	PodSetGroupName   *string
+	// PreviousAssignment holds the topology assignment from a workload slice
+	// that this workload is replacing.
+	PreviousAssignment *kueue.TopologyAssignment
 }
 
 func (t *TASPodSetRequests) TotalRequests() resources.Requests {
@@ -511,6 +514,19 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests F
 		} else {
 			leader, workers := findLeaderAndWorkers(trs)
 
+			// Handle elastic workloads with delta-only placement
+			if features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) {
+				elasticResult := s.handleElasticWorkload(workers, leader, assumedUsage, opts)
+				if elasticResult.applied {
+					maps.Copy(result, elasticResult.assignments)
+					if elasticResult.assignments[workers.PodSet.Name].FailureReason != "" {
+						return result
+					}
+					continue
+				}
+			}
+
+			// Normal path: no previous assignment or stale assignment
 			assignments, reason := s.findTopologyAssignment(workers, leader, assumedUsage, opts.simulateEmpty, "")
 			for _, tr := range trs {
 				podSetName := tr.PodSet.Name
@@ -616,9 +632,15 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 	}
 
 	nodeLevel := len(s.levelKeys) - 1
-	// We know at this point that values contains only hostname
-	nodeDomain := ta.Domains[0].Values[0]
-	domain := s.domainsPerLevel[nodeLevel][utiltas.TopologyDomainID(nodeDomain)]
+	domainValues := ta.Domains[0].Values
+	if len(domainValues) == 0 {
+		return ""
+	}
+	// Look up domain using full DomainID path (e.g., "b2,r1,b2-r1")
+	domain, found := s.domainsPerLevel[nodeLevel][utiltas.DomainID(domainValues)]
+	if !found {
+		return ""
+	}
 	// Find a domain that complies with the required policy
 	for i := nodeLevel; i > levelIdx; i-- {
 		domain = domain.parent
@@ -875,39 +897,6 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	return assignments, ""
 }
 
-// Merges two topology assignments keeping the lexicographical order of levelValues
-func (s *TASFlavorSnapshot) mergeTopologyAssignments(a, b *utiltas.TopologyAssignment) *utiltas.TopologyAssignment {
-	nodeLevel := len(s.levelKeys) - 1
-	sortedDomains := make([]utiltas.TopologyDomainAssignment, 0, len(a.Domains)+len(b.Domains))
-	sortedDomains = append(sortedDomains, a.Domains...)
-	sortedDomains = append(sortedDomains, b.Domains...)
-	slices.SortFunc(sortedDomains, func(a, b utiltas.TopologyDomainAssignment) int {
-		aDomain := s.domainsPerLevel[nodeLevel][utiltas.DomainID(a.Values)]
-		bDomain := s.domainsPerLevel[nodeLevel][utiltas.DomainID(b.Values)]
-		return cmp.Compare(utiltas.DomainID(aDomain.levelValues), utiltas.DomainID(bDomain.levelValues))
-	})
-	mergedDomains := make([]utiltas.TopologyDomainAssignment, 0, len(sortedDomains))
-	for _, domain := range sortedDomains {
-		if canMerge(mergedDomains, domain) {
-			mergedDomains[len(mergedDomains)-1].Count += domain.Count
-		} else {
-			mergedDomains = append(mergedDomains, domain)
-		}
-	}
-	return &utiltas.TopologyAssignment{
-		Levels:  a.Levels,
-		Domains: mergedDomains,
-	}
-}
-
-func canMerge(mergedDomains []utiltas.TopologyDomainAssignment, domain utiltas.TopologyDomainAssignment) bool {
-	if len(mergedDomains) == 0 {
-		return false
-	}
-	lastDomain := mergedDomains[len(mergedDomains)-1]
-	return utiltas.DomainID(domain.Values) == utiltas.DomainID(lastDomain.Values)
-}
-
 func (s *TASFlavorSnapshot) HasLevel(r *kueue.PodSetTopologyRequest) bool {
 	mainKey := s.levelKey(r)
 	if mainKey == nil {
@@ -1128,8 +1117,7 @@ func useBestFitAlgorithm(unconstrained bool) bool {
 
 func useLeastFreeCapacityAlgorithm(unconstrained bool) bool {
 	// following the matrix from KEP#2724
-	return features.Enabled(features.TASProfileLeastFreeCapacity) ||
-		(unconstrained && features.Enabled(features.TASProfileMixed))
+	return unconstrained && features.Enabled(features.TASProfileMixed)
 }
 
 // consumeWithLeadersGeneric handles the case when leaders still need to be assigned
@@ -1518,4 +1506,37 @@ func (s *TASFlavorSnapshot) notFitMessage(slicesFitCount, totalRequestsSlicesCou
 	}
 
 	return builder.String()
+}
+
+// mergeTopologyAssignments merges two topology assignments keeping the lexicographical order of levelValues.
+func (s *TASFlavorSnapshot) mergeTopologyAssignments(a, b *utiltas.TopologyAssignment) *utiltas.TopologyAssignment {
+	nodeLevel := len(s.levelKeys) - 1
+	sortedDomains := make([]utiltas.TopologyDomainAssignment, 0, len(a.Domains)+len(b.Domains))
+	sortedDomains = append(sortedDomains, a.Domains...)
+	sortedDomains = append(sortedDomains, b.Domains...)
+	slices.SortFunc(sortedDomains, func(a, b utiltas.TopologyDomainAssignment) int {
+		aDomain := s.domainsPerLevel[nodeLevel][utiltas.DomainID(a.Values)]
+		bDomain := s.domainsPerLevel[nodeLevel][utiltas.DomainID(b.Values)]
+		return cmp.Compare(utiltas.DomainID(aDomain.levelValues), utiltas.DomainID(bDomain.levelValues))
+	})
+	mergedDomains := make([]utiltas.TopologyDomainAssignment, 0, len(sortedDomains))
+	for _, domain := range sortedDomains {
+		if canMergeDomains(mergedDomains, domain) {
+			mergedDomains[len(mergedDomains)-1].Count += domain.Count
+		} else {
+			mergedDomains = append(mergedDomains, domain)
+		}
+	}
+	return &utiltas.TopologyAssignment{
+		Levels:  a.Levels,
+		Domains: mergedDomains,
+	}
+}
+
+func canMergeDomains(mergedDomains []utiltas.TopologyDomainAssignment, domain utiltas.TopologyDomainAssignment) bool {
+	if len(mergedDomains) == 0 {
+		return false
+	}
+	lastDomain := mergedDomains[len(mergedDomains)-1]
+	return utiltas.DomainID(domain.Values) == utiltas.DomainID(lastDomain.Values)
 }

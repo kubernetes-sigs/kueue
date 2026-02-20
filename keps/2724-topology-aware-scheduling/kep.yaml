@@ -39,12 +39,14 @@ feature-gates:
   - name: TopologyAwareScheduling
   - name: TASProfileMixed
   - name: TASProfileBestFit
-  - name: TASProfileLeastFreeCapacity
   - name: TASProfileMostFreeCapacity # deleted in 0.13
+  - name: TASProfileLeastFreeCapacity # deleted in 0.17
   - name: TASFailedNodeReplacement
   - name: TASFailedNodeReplacementFailFast
   - name: TASReplaceNodeOnPodTermination
   - name: TASBalancedPlacement
+  - name: TASReplaceNodeOnNodeTaints
+  - name: TASMultiLayerTopology
 disable-supported: true
 
 # The following PRR answers are required at beta release

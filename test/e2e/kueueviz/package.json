@@ -1,6 +1,6 @@
 {
   "name": "kueueviz-frontend-tests",
-  "version": "0.16.0",
+  "version": "0.16.1",
   "scripts": {
     "cypress:run": "cypress run --headless",
     "check-unused": "depcheck"
