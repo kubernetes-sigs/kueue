@@ -104,8 +104,8 @@ func classifyPreemptionVariant(ctx *HierarchicalPreemptionCtx, wl *workload.Info
 	if borrowWithinCohortForbidden {
 		return ReclaimWithoutBorrowing
 	}
-	candidatePriority := priority.Priority(wl.Obj)
-	incomingPriority := priority.Priority(ctx.Wl)
+	candidatePriority, _ := priority.EffectivePriority(wl.Obj)
+	incomingPriority, _ := priority.EffectivePriority(ctx.Wl)
 	if isAboveBorrowingThreshold(candidatePriority, incomingPriority, borrowWithinCohortThreshold) {
 		return ReclaimWithoutBorrowing
 	}

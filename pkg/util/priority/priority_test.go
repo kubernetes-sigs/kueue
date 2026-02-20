@@ -28,6 +28,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
@@ -208,6 +209,94 @@ func TestGetPriorityFromWorkloadPriorityClass(t *testing.T) {
 
 			if value != tt.wantPriorityClassValue {
 				t.Errorf("unexpected value: got: %d, expected: %d", value, tt.wantPriorityClassValue)
+			}
+		})
+	}
+}
+
+func TestPriorityBoost(t *testing.T) {
+	tests := map[string]struct {
+		workload  *kueue.Workload
+		wantBoost int32
+		wantErr   bool
+	}{
+		"annotation not set": {
+			workload:  utiltestingapi.MakeWorkload("name", "ns").Obj(),
+			wantBoost: 0,
+		},
+		"positive boost": {
+			workload:  utiltestingapi.MakeWorkload("name", "ns").Annotation(controllerconstants.PriorityBoostAnnotationKey, "100").Obj(),
+			wantBoost: 100,
+		},
+		"negative boost": {
+			workload:  utiltestingapi.MakeWorkload("name", "ns").Annotation(controllerconstants.PriorityBoostAnnotationKey, "-50").Obj(),
+			wantBoost: -50,
+		},
+		"zero boost": {
+			workload:  utiltestingapi.MakeWorkload("name", "ns").Annotation(controllerconstants.PriorityBoostAnnotationKey, "0").Obj(),
+			wantBoost: 0,
+		},
+		"empty string": {
+			workload:  utiltestingapi.MakeWorkload("name", "ns").Annotation(controllerconstants.PriorityBoostAnnotationKey, "").Obj(),
+			wantBoost: 0,
+		},
+		"invalid value": {
+			workload:  utiltestingapi.MakeWorkload("name", "ns").Annotation(controllerconstants.PriorityBoostAnnotationKey, "invalid").Obj(),
+			wantBoost: 0,
+			wantErr:   true,
+		},
+	}
+
+	for desc, tt := range tests {
+		t.Run(desc, func(t *testing.T) {
+			got, err := PriorityBoost(tt.workload)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("PriorityBoost() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if got != tt.wantBoost {
+				t.Errorf("PriorityBoost() = %d, want %d", got, tt.wantBoost)
+			}
+		})
+	}
+}
+
+func TestEffectivePriority(t *testing.T) {
+	tests := map[string]struct {
+		workload     *kueue.Workload
+		wantPriority int32
+		wantErr      bool
+	}{
+		"no boost annotation": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Priority(200).Obj(),
+			wantPriority: 200,
+		},
+		"positive boost": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Priority(200).Annotation(controllerconstants.PriorityBoostAnnotationKey, "50").Obj(),
+			wantPriority: 250,
+		},
+		"negative boost": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Priority(200).Annotation(controllerconstants.PriorityBoostAnnotationKey, "-100").Obj(),
+			wantPriority: 100,
+		},
+		"boost crosses priority class boundaries": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Priority(100).Annotation(controllerconstants.PriorityBoostAnnotationKey, "150").Obj(),
+			wantPriority: 250,
+		},
+		"invalid boost defaults to zero": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Priority(200).Annotation(controllerconstants.PriorityBoostAnnotationKey, "invalid").Obj(),
+			wantPriority: 200,
+			wantErr:      true,
+		},
+	}
+
+	for desc, tt := range tests {
+		t.Run(desc, func(t *testing.T) {
+			got, err := EffectivePriority(tt.workload)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("EffectivePriority() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if got != tt.wantPriority {
+				t.Errorf("EffectivePriority() = %d, want %d", got, tt.wantPriority)
 			}
 		})
 	}

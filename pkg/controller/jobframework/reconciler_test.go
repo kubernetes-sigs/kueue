@@ -137,18 +137,6 @@ func TestReconcileGenericJob(t *testing.T) {
 					Obj(),
 			},
 		},
-		"handle job with no workload and preemption-cost annotation": {
-			req: baseReq,
-			job: baseJob.Clone().
-				SetAnnotation(constants.PreemptionCostAnnotationKey, "42").
-				Obj(),
-			podSets: basePodSets,
-			wantWorkloads: []kueue.Workload{
-				*baseWl.Clone().Name("job-test-job-ce737").
-					Annotations(map[string]string{constants.PreemptionCostAnnotationKey: "42"}).
-					Obj(),
-			},
-		},
 		"update workload to match job (one existing workload)": {
 			elasticJobsViaWorkloadSlicesEnabled: true,
 			req:                                 baseReq,
@@ -163,24 +151,6 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWl.Clone().Name("job-test-job-1").ResourceVersion("2").Obj(),
-			},
-		},
-		"update workload to match job updates preemption-cost annotation": {
-			req: baseReq,
-			job: baseJob.Clone().
-				SetAnnotation(constants.PreemptionCostAnnotationKey, "100").
-				Obj(),
-			podSets: basePodSets,
-			objs: []client.Object{
-				baseWl.Clone().Name("job-test-job-1").
-					Annotation(constants.PreemptionCostAnnotationKey, "10").
-					PodSets(*utiltestingapi.MakePodSet("old", 2).Obj()).
-					Obj(),
-			},
-			wantWorkloads: []kueue.Workload{
-				*baseWl.Clone().Name("job-test-job-1").ResourceVersion("2").
-					Annotations(map[string]string{constants.PreemptionCostAnnotationKey: "100"}).
-					Obj(),
 			},
 		},
 		"update workload to match job preserves active=true": {
