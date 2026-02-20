@@ -14,8 +14,21 @@ Example: `kueue.x-k8s.io/cluster-queue-name: "my-cluster-queue"`
 
 Used on: Pods.
 
-The label key in all pods created by queue workloads or managed by Kueue, it indicates from which cluster queue the pod originated or by which cluster queue
-the pod has been admitted in case of managed pods.
+This label requires `AssignQueueLabelsForPods` feature that is enabled by default.
+
+The label key in all pods created by Kueue's workloads or managed by Kueue.
+It indicates which cluster queue admitted the Kueue's workload
+that the pod is corresponding to.
+It can be used, for example to aggregate the actual resource usage (cpu/mem)
+coming from workloads admitted to a given cluster queue.
+
+{{% alert title="Warning" color="warning" %}}
+
+This label is added only if cluster queue name is a valid label value.
+For limitations see Kubernetes [documentation](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set)
+
+{{% /alert %}}
+
 
 ### kueue.x-k8s.io/is-group-workload
 
@@ -88,8 +101,14 @@ Example: `kueue.x-k8s.io/local-queue-name: "my-local-queue"`
 
 Used on: Pods.
 
-The label key in all pods created by queue workloads or managed by Kueue, it indicates from which local queue the pod originated. In case of managed pods
-equal to name of the local queue to which the pod has been assigned.
+This label requires `AssignQueueLabelsForPods` feature that is enabled by default.
+
+The label key in all pods created by queue workloads or managed by Kueue.
+It indicates to which local queue a workload corresponding to the pod has been assigned.
+In case of managed pods equal to name of the local queue to which the pod has been assigned.
+
+It can be used, for example to aggregate the actual resource usage (cpu/mem)
+coming from workloads assigned to a given local queue.
 
 ### kueue.x-k8s.io/managed
 

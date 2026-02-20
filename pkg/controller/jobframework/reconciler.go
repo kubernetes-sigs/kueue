@@ -1431,7 +1431,10 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 		}
 
 		info.Labels[constants.PodSetLabel] = string(psAssignment.Name)
-		assignQueueLabels(info.Labels, w)
+
+		if features.Enabled(features.AssignQueueLabelsForPods) {
+			assignQueueLabels(ctx, info.Labels, w)
+		}
 
 		for _, admissionCheck := range w.Status.AdmissionChecks {
 			for _, podSetUpdate := range admissionCheck.PodSetUpdates {
@@ -1448,13 +1451,19 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 	return podSetsInfo, nil
 }
 
-func assignQueueLabels(labels map[string]string, wl *kueue.Workload) {
-	localQueueName := wl.Spec.QueueName
-	if localQueueName == "" {
-		localQueueName = controllerconsts.DefaultLocalQueueName
+func assignQueueLabels(ctx context.Context, labels map[string]string, wl *kueue.Workload) {
+	labels[constants.LocalQueueLabel] = string(wl.Spec.QueueName)
+
+	clusterQueueName := string(wl.Status.Admission.ClusterQueue)
+	labelValidationErrors := validation.IsDNS1123Label(clusterQueueName)
+	if len(labelValidationErrors) == 0 {
+		labels[constants.ClusterQueueLabel] = clusterQueueName
+	} else {
+		log := ctrl.LoggerFrom(ctx)
+		log.V(2).Info("Cluster queue name could not be set as a label for pods",
+			"queue name", clusterQueueName, "validation errors", labelValidationErrors)
 	}
-	labels[constants.LocalQueueLabel] = string(localQueueName)
-	labels[constants.ClusterQueueLabel] = string(wl.Status.Admission.ClusterQueue)
+
 }
 
 func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job GenericJob, object client.Object) error {

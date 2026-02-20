@@ -243,6 +243,12 @@ const (
 	//
 	// Finalizers are removed using a strict patch not to cause race conditions.
 	RemoveFinalizersWithStrictPatch featuregate.Feature = "RemoveFinalizersWithStrictPatch"
+
+	// owner: @dkaluza
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/9156
+	// Enables pod labeling with corresponding cluster and local queue names
+	AssignQueueLabelsForPods featuregate.Feature = "AssignQueueLabelsForPods"
 )
 
 func init() {
@@ -378,6 +384,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
 	},
 	RemoveFinalizersWithStrictPatch: {
+		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
+	},
+	AssignQueueLabelsForPods: {
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
 	},
 }

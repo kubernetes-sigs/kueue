@@ -48,15 +48,18 @@ const (
 	// The label is set when starting the Job, and removed on stopping the Job.
 	PodSetLabel = "kueue.x-k8s.io/podset"
 
-	// ClusterQueueLabel is a label assigned to pods created from Kueue
-	// workloads. It indicates from which cluster queue the pod originates from
-	// (indirectly through job). It can be used to monitor all of the pods created
-	// by the queue.
+	// ClusterQueueLabel is a pod label indicating the name of the ClusterQueue
+	// which admitted the corresponding Kueue's workload.
+	// It can be used, for example, to aggregate the actual resource usage (cpu/mem)
+	// coming from workloads admitted to a given ClusterQueue.
+	//
+	// Warning: This label is added only if cluster queue name is a valid label value.
+	// For limitations see Kubernetes [documentation](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set)
 	ClusterQueueLabel = "kueue.x-k8s.io/cluster-queue-name"
 
-	// LocalQueueLabel is a label assigned to pods created from Kueue
-	// workloads. It indicates from which local queue the pod originates from
-	// (indirectly through job). It can be used to monitor all of the pods created
-	// by the queue.
+	// LocalQueueLabel is a pod label indicating the name of the LocalQueue
+	// which admitted the corresponding Kueue's workload.
+	// It can be used, for example, to aggregate the actual resource usage (cpu/mem)
+	// coming from workloads admitted to a given LocalQueue.
 	LocalQueueLabel = "kueue.x-k8s.io/local-queue-name"
 )
