@@ -7,11 +7,13 @@
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
   - [User Stories](#user-stories)
-    - [Story 1: Preemption of "plain pod" workloads](#story-1-preemption-of-plain-pod-workloads)
+    - [Story 1: Preemption of &quot;plain pod&quot; workloads](#story-1-preemption-of-plain-pod-workloads)
     - [Story 2: ClusterQueue migration to new clusters](#story-2-clusterqueue-migration-to-new-clusters)
   - [Notes/Constraints/Caveats](#notesconstraintscaveats)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
+  - [<code>IsActive()</code> modification](#isactive-modification)
+  - [Reconciliation flow](#reconciliation-flow)
   - [Test Plan](#test-plan)
     - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit tests](#unit-tests)
@@ -21,6 +23,7 @@
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
+  - [Modify the generic reconciler instead of the Pod controller](#modify-the-generic-reconciler-instead-of-the-pod-controller)
 <!-- /toc -->
 
 ## Summary
