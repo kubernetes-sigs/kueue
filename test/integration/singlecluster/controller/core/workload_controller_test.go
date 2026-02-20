@@ -1027,6 +1027,21 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 				restartManager()
 			})
 
+			ginkgo.By("waiting for workload controller to be active after restart", func() {
+				// Probe that controllers are reconciling after restart
+				// by creating a workload and waiting for it to be reflected
+				// in the LocalQueue status.
+				probeWl := utiltestingapi.MakeWorkload("probe-wl", ns.Name).Queue("q").
+					Request(corev1.ResourceCPU, "1").Obj()
+				gomega.Expect(k8sClient.Create(ctx, probeWl)).To(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					var lq kueue.LocalQueue
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), &lq)).To(gomega.Succeed())
+					g.Expect(lq.Status.PendingWorkloads).To(gomega.Equal(int32(1)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, probeWl, true)
+			})
+
 			ginkgo.By("verifying that the metrics still keep their counts", func() {
 				util.ExpectFinishedWorkloadsGaugeMetric(clusterQueue, 1)
 				util.ExpectLQFinishedWorkloadsGaugeMetric(localQueue, 1)
