@@ -1460,7 +1460,6 @@ func assignQueueLabels(ctx context.Context, labels map[string]string, wl *kueue.
 		log.V(2).Info("Cluster queue name could not be set as a label for pods",
 			"queue name", clusterQueueName, "validation errors", labelValidationErrors)
 	}
-
 }
 
 func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job GenericJob, object client.Object) error {
