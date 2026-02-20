@@ -302,14 +302,9 @@ func TestReconciler(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	fakeClock := testingclock.NewFakeClock(now)
 
-	const (
-		localQueueName   = "foo"
-		clusterQueueName = "cq"
-	)
-
 	baseJobWrapper := testingrayutil.MakeCluster("job", "ns").
 		Suspend(true).
-		Queue(localQueueName).
+		Queue("foo").
 		RequestHead(corev1.ResourceCPU, "10").
 		RequestWorkerGroup(corev1.ResourceCPU, "10")
 
@@ -334,17 +329,12 @@ func TestReconciler(t *testing.T) {
 				Suspend(false).
 				NodeSelectorHeadGroup(corev1.LabelArchStable, "arm64").
 				NodeLabel(rayv1.HeadNode, constants.PodSetLabel, "head").
-				NodeLabel(rayv1.HeadNode, constants.LocalQueueLabel, localQueueName).
-				NodeLabel(rayv1.HeadNode, constants.ClusterQueueLabel, clusterQueueName).
 				NodeLabel(rayv1.WorkerNode, constants.PodSetLabel, "workers-group-0").
-				NodeLabel(rayv1.WorkerNode, constants.LocalQueueLabel, localQueueName).
-				NodeLabel(rayv1.WorkerNode, constants.ClusterQueueLabel, clusterQueueName).
 				NodeAnnotation(rayv1.HeadNode, kueue.WorkloadAnnotation, "test").
 				NodeAnnotation(rayv1.WorkerNode, kueue.WorkloadAnnotation, "test").
 				Obj(),
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test", "ns").
-					Queue(localQueueName).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
@@ -371,7 +361,7 @@ func TestReconciler(t *testing.T) {
 					).
 					Request(corev1.ResourceCPU, "10").
 					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission(clusterQueueName).
+						utiltestingapi.MakeAdmission("cq").
 							PodSets(
 								utiltestingapi.MakePodSetAssignment("head").
 									Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
@@ -398,7 +388,6 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("a", "ns").
-					Queue(localQueueName).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
@@ -421,13 +410,11 @@ func TestReconciler(t *testing.T) {
 										Obj(),
 								},
 							}).
-							Labels(map[string]string{constants.PodSetLabel: "workers-group-0",
-								constants.LocalQueueLabel:   localQueueName,
-								constants.ClusterQueueLabel: clusterQueueName}).
+							Labels(map[string]string{constants.PodSetLabel: "workers-group-0"}).
 							Obj(),
 					).
 					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission(clusterQueueName).
+						utiltestingapi.MakeAdmission("cq").
 							PodSets(
 								utiltestingapi.MakePodSetAssignment("head").
 									Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
@@ -491,7 +478,7 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Request(corev1.ResourceCPU, "10").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment("head").Obj(), utiltestingapi.MakePodSetAssignment("workers-group-0").Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment("head").Obj(), utiltestingapi.MakePodSetAssignment("workers-group-0").Obj()).Obj(), now).
 					Generation(1).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
@@ -527,7 +514,7 @@ func TestReconciler(t *testing.T) {
 							}).
 							Obj(),
 					).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment("head").Obj(), utiltestingapi.MakePodSetAssignment("workers-group-0").Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment("head").Obj(), utiltestingapi.MakePodSetAssignment("workers-group-0").Obj()).Obj(), now).
 					Generation(1).
 					PastAdmittedTime(1).
 					Condition(metav1.Condition{
@@ -574,17 +561,12 @@ func TestReconciler(t *testing.T) {
 				NodeSelectorHeadGroup(corev1.LabelArchStable, "arm64").
 				WithNumOfHosts("workers-group-0", 2).
 				NodeLabel(rayv1.HeadNode, constants.PodSetLabel, "head").
-				NodeLabel(rayv1.HeadNode, constants.LocalQueueLabel, localQueueName).
-				NodeLabel(rayv1.HeadNode, constants.ClusterQueueLabel, clusterQueueName).
 				NodeLabel(rayv1.WorkerNode, constants.PodSetLabel, "workers-group-0").
-				NodeLabel(rayv1.WorkerNode, constants.LocalQueueLabel, localQueueName).
-				NodeLabel(rayv1.WorkerNode, constants.ClusterQueueLabel, clusterQueueName).
 				NodeAnnotation(rayv1.HeadNode, kueue.WorkloadAnnotation, "test").
 				NodeAnnotation(rayv1.WorkerNode, kueue.WorkloadAnnotation, "test").
 				Obj(),
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test", "ns").
-					Queue(localQueueName).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
@@ -611,7 +593,7 @@ func TestReconciler(t *testing.T) {
 					).
 					Request(corev1.ResourceCPU, "10").
 					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission(clusterQueueName).
+						utiltestingapi.MakeAdmission("cq").
 							PodSets(
 								utiltestingapi.MakePodSetAssignment("head").
 									Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
@@ -640,7 +622,6 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("a", "ns").
-					Queue(localQueueName).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
@@ -662,13 +643,10 @@ func TestReconciler(t *testing.T) {
 										Obj(),
 								},
 							}).
-							Labels(map[string]string{constants.PodSetLabel: "workers-group-0",
-								constants.LocalQueueLabel:   localQueueName,
-								constants.ClusterQueueLabel: clusterQueueName}).
 							Obj(),
 					).
 					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission(clusterQueueName).
+						utiltestingapi.MakeAdmission("cq").
 							PodSets(
 								utiltestingapi.MakePodSetAssignment("head").
 									Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
