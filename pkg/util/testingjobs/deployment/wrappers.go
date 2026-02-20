@@ -74,6 +74,15 @@ func (d *DeploymentWrapper) Obj() *appsv1.Deployment {
 	return &d.Deployment
 }
 
+// Annotation sets the annotation on the Deployment.
+func (d *DeploymentWrapper) Annotation(k, v string) *DeploymentWrapper {
+	if d.Annotations == nil {
+		d.Annotations = make(map[string]string)
+	}
+	d.Annotations[k] = v
+	return d
+}
+
 // Label sets the label of the Deployment
 func (d *DeploymentWrapper) Label(k, v string) *DeploymentWrapper {
 	if d.Labels == nil {
@@ -171,6 +180,11 @@ func (d *DeploymentWrapper) PodTemplateSpecManagedByKueue() *DeploymentWrapper {
 
 func (d *DeploymentWrapper) TerminationGracePeriod(seconds int64) *DeploymentWrapper {
 	d.Spec.Template.Spec.TerminationGracePeriodSeconds = &seconds
+	return d
+}
+
+func (d *DeploymentWrapper) PodTemplateSchedulingGates(gates ...corev1.PodSchedulingGate) *DeploymentWrapper {
+	d.Spec.Template.Spec.SchedulingGates = gates
 	return d
 }
 

@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
@@ -157,4 +158,17 @@ func ContainersShape(containers []corev1.Container) (result []map[string]any) {
 
 func IsTerminated(p *corev1.Pod) bool {
 	return p.Status.Phase == corev1.PodFailed || p.Status.Phase == corev1.PodSucceeded
+}
+
+// IsDeleted returns true if the pod has a deletion timestamp and its grace period has expired relative to now.
+// Returns false if the pod has no deletion timestamp, or true if grace period is nil.
+func IsDeleted(pod *corev1.Pod, now time.Time) bool {
+	if pod.DeletionTimestamp == nil {
+		return false
+	}
+	if pod.DeletionGracePeriodSeconds == nil {
+		return true
+	}
+	gracePeriod := time.Duration(*pod.DeletionGracePeriodSeconds) * time.Second
+	return now.After(pod.DeletionTimestamp.Add(gracePeriod))
 }

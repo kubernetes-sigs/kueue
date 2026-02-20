@@ -18,6 +18,7 @@ package deployment
 
 import (
 	"context"
+	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
@@ -32,7 +33,9 @@ import (
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 type Webhook struct {
@@ -72,6 +75,19 @@ func (wh *Webhook) Default(ctx context.Context, obj *appsv1.Deployment) error {
 	log.V(5).Info("Propagating queue-name")
 
 	jobframework.ApplyDefaultLocalQueue(deployment.Object(), wh.queues.DefaultLocalQueueExist)
+
+	// Check if Deployment integration is supported via ElasticJobs and this is an ElasticJob enabled instance.
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.Enabled(deployment) {
+		// Copy queue-name into pod template metadata.
+		queueName := jobframework.QueueNameForObject(deployment.Object())
+		if queueName != "" {
+			deployment.Spec.Template.Labels[controllerconstants.QueueLabel] = string(queueName)
+		}
+		// Inject scheduling gate (if needed).
+		workloadslicing.ApplyWorkloadSliceSchedulingGate(&deployment.Spec.Template)
+		return nil
+	}
+
 	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, deployment.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
 	if err != nil {
 		return err
@@ -128,6 +144,13 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *appsv1.De
 	newQueueName := jobframework.QueueNameForObject(newDeployment.Object())
 
 	allErrs := jobframework.ValidateQueueName(newDeployment.Object())
+
+	// For ElasticJob enabled Deployments, prevent removing ElasticJob enablement annotation.
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) &&
+		workloadslicing.Enabled(oldDeployment) && !workloadslicing.Enabled(newDeployment) {
+		allErrs = append(allErrs, field.Invalid(field.NewPath("metadata", "annotations"), newDeployment.Annotations,
+			fmt.Sprintf("should contain: %s=%s", workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue)))
+	}
 
 	// Prevents updating the queue-name if at least one Pod is not suspended
 	// or if the queue-name has been deleted.

@@ -101,12 +101,30 @@ rules:
       - apps
     resources:
       - deployments
-      - replicasets
       - statefulsets
     verbs:
       - get
       - list
       - watch
+  - apiGroups:
+      - apps
+    resources:
+      - replicasets
+    verbs:
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - replicasets/finalizers
+      - replicasets/status
+    verbs:
+      - get
+      - patch
+      - update
   - apiGroups:
       - autoscaling.x-k8s.io
     resources:

@@ -22,24 +22,29 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 func TestDefault(t *testing.T) {
 	testCases := map[string]struct {
-		deployment     *appsv1.Deployment
-		defaultLqExist bool
-		want           *appsv1.Deployment
+		deployment                *appsv1.Deployment
+		defaultLqExist            bool
+		elasticJobsFeatureEnabled bool
+		want                      *appsv1.Deployment
 	}{
 		"deployment without queue": {
 			deployment: testingdeployment.MakeDeployment("test-pod", "").Obj(),
@@ -138,10 +143,37 @@ func TestDefault(t *testing.T) {
 				PodTemplateSpecLabel(constants.WorkloadPriorityClassLabel, "test").
 				Obj(),
 		},
+		"deployment via elastic job feature but without elastic job annotation": {
+			elasticJobsFeatureEnabled: true,
+			deployment: testingdeployment.MakeDeployment("test-deployment", "").
+				Queue("new-test-queue").
+				PodTemplateSpecQueue("test-queue").
+				Obj(),
+			want: testingdeployment.MakeDeployment("test-deployment", "").
+				PodTemplateSpecManagedByKueue().
+				Queue("new-test-queue").
+				PodTemplateSpecQueue("new-test-queue").
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Obj(),
+		},
+		"deployment via elastic job feature and with elastic job annotation and default queue": {
+			elasticJobsFeatureEnabled: true,
+			deployment: testingdeployment.MakeDeployment("test-deployment", "").
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Label(constants.QueueLabel, "test-queue").
+				Obj(),
+			want: testingdeployment.MakeDeployment("test-deployment", "").
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Label(constants.QueueLabel, "test-queue").
+				PodTemplateSpecLabel(constants.QueueLabel, "test-queue").
+				PodTemplateSchedulingGates(corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}).
+				Obj(),
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tc.elasticJobsFeatureEnabled)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			t.Cleanup(jobframework.EnableIntegrationsForTest(t, "pod"))
 			builder := utiltesting.NewClientBuilder()
