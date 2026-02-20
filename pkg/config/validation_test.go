@@ -998,6 +998,7 @@ func TestValidateFeatureGates(t *testing.T) {
 			setupFeatureGates: map[featuregate.Feature]bool{
 				features.TASProfileMixed:             true,
 				features.TASProfileLeastFreeCapacity: true,
+				features.TASBalancedPlacement:        true,
 			},
 			errorStr: "cannot use more than one TAS profiles",
 		},
@@ -1005,6 +1006,7 @@ func TestValidateFeatureGates(t *testing.T) {
 			setupFeatureGates: map[featuregate.Feature]bool{
 				features.TASProfileMixed:             true,
 				features.TASProfileLeastFreeCapacity: true,
+				features.TASBalancedPlacement:        true,
 			},
 			errorStr: "cannot use more than one TAS profiles",
 		},
