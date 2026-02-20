@@ -79,7 +79,28 @@ kubectl port-forward svc/kueue-kueueviz-frontend -n kueue-system 8080
 kubectl port-forward svc/kueue-kueueviz-backend  -n kueue-system 8081:8080
 ```
 
-Edit the kueue-viz-frontend Deployment to set env `REACT_APP_WEBSOCKET_URL=ws://localhost:8081`.
+Edit the `kueueviz-frontend-env` ConfigMap to set the backend WebSocket URL:
+
+```bash
+kubectl edit configmap kueue-kueueviz-frontend-env -n kueue-system
+```
+
+Update `env.js` to point to `ws://localhost:8081`:
+
+```yaml
+data:
+  env.js: |
+    window.env = {
+      VITE_WEBSOCKET_URL: "ws://localhost:8081",
+      REACT_APP_WEBSOCKET_URL: "ws://localhost:8081"
+    };
+```
+
+Then restart the frontend pod to pick up the change:
+
+```bash
+kubectl rollout restart deployment kueue-kueueviz-frontend -n kueue-system
+```
 
 Then access the dashboard at [http://localhost:8080](http://localhost:8080).
 

@@ -51,12 +51,12 @@ spec:
       securityContext:
       {{- toYaml . | nindent 8 }}
       {{- end }}
+      volumes:
+        - name: env-config
+          configMap:
+            name: '{{ include "kueue.fullname" . }}-kueueviz-frontend-env'
       containers:
         - name: frontend
-          {{- with .Values.kueueViz.frontend.env }}
-          env:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
           image: '{{ .Values.kueueViz.frontend.image.repository }}:{{ .Values.kueueViz.frontend.image.tag | default .Chart.AppVersion }}'
           imagePullPolicy: '{{ .Values.kueueViz.frontend.image.pullPolicy }}'
           resources:
@@ -67,4 +67,9 @@ spec:
           {{- end }}
           ports:
             - containerPort: 8080
+          volumeMounts:
+            - name: env-config
+              mountPath: /app/build/env.js
+              subPath: env.js
+              readOnly: true
 {{- end }}

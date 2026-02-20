@@ -1,0 +1,12 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kueueviz-frontend-env
+  namespace: system
+data:
+  env.js: |
+    window.env = {
+      VITE_WEBSOCKET_URL: "ws://localhost:8080",
+      REACT_APP_WEBSOCKET_URL: "ws://localhost:8080"
+    };
