@@ -229,26 +229,43 @@ tests:
     asserts:
       - notExists:
           path: spec.template.spec.containers[0].env[0]
-  - it: should render frontend configmap with websocketUrl
+  - it: should render frontend configmap with wss when backend tls is set
     template: kueueviz/frontend-configmap.yaml
     set:
       enableKueueViz: true
       kueueViz:
-        frontend:
-          websocketUrl: "wss://backend.kueueviz.local"
+        backend:
+          ingress:
+            host: "backend.kueueviz.local"
+            tlsSecretName: "kueueviz-backend-tls"
     asserts:
       - isKind:
           of: ConfigMap
       - matchRegex:
           path: data["env.js"]
           pattern: "wss://backend.kueueviz.local"
-  - it: should render frontend configmap with custom websocketUrl
+  - it: should render frontend configmap with ws when backend tls is empty
     template: kueueviz/frontend-configmap.yaml
     set:
       enableKueueViz: true
       kueueViz:
-        frontend:
-          websocketUrl: "wss://backend.kueueviz.fr"
+        backend:
+          ingress:
+            host: "backend.kueueviz.local"
+            tlsSecretName: ""
+    asserts:
+      - matchRegex:
+          path: data["env.js"]
+          pattern: "ws://backend.kueueviz.local"
+  - it: should render frontend configmap with custom backend host
+    template: kueueviz/frontend-configmap.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          ingress:
+            host: "backend.kueueviz.fr"
+            tlsSecretName: "my-tls"
     asserts:
       - matchRegex:
           path: data["env.js"]

@@ -288,9 +288,6 @@ kueueViz:
     podSecurityContext: {}
     # -- KueueViz frontend container securityContext
     containerSecurityContext: {}
-    # -- WebSocket URL for the KueueViz backend.
-    # This is mounted as env.js via a ConfigMap into the frontend container.
-    websocketUrl: "wss://backend.kueueviz.local"
     ingress:
       # -- Enable KueueViz dashboard frontend ingress
       enabled: true
