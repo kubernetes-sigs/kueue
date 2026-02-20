@@ -51,6 +51,8 @@ resources:
 - raycluster_viewer_role.yaml
 - rayjob_editor_role.yaml
 - rayjob_viewer_role.yaml
+- rayservice_editor_role.yaml
+- rayservice_viewer_role.yaml
 - pytorchjob_editor_role.yaml
 - pytorchjob_viewer_role.yaml
 - tfjob_editor_role.yaml

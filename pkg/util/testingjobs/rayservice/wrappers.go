@@ -149,6 +149,50 @@ func (j *ServiceWrapper) Image(rayType rayv1.RayNodeType, image string) *Service
 	return j
 }
 
+// Env sets the environment for the specified ray node type.
+func (j *ServiceWrapper) Env(rayType rayv1.RayNodeType, env []corev1.EnvVar) *ServiceWrapper {
+	switch rayType {
+	case rayv1.HeadNode:
+		j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Env = env
+	case rayv1.WorkerNode:
+		j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env = env
+	}
+	return j
+}
+
+// Volumes sets the volumes for the specified ray node type.
+func (j *ServiceWrapper) Volumes(rayType rayv1.RayNodeType, volumes []corev1.Volume) *ServiceWrapper {
+	switch rayType {
+	case rayv1.HeadNode:
+		j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Volumes = volumes
+	case rayv1.WorkerNode:
+		j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Volumes = volumes
+	}
+	return j
+}
+
+// VolumeMounts sets the VolumeMounts for the specified ray node type.
+func (j *ServiceWrapper) VolumeMounts(rayType rayv1.RayNodeType, volumeMounts []corev1.VolumeMount) *ServiceWrapper {
+	switch rayType {
+	case rayv1.HeadNode:
+		j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].VolumeMounts = volumeMounts
+	case rayv1.WorkerNode:
+		j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].VolumeMounts = volumeMounts
+	}
+	return j
+}
+
+// RayStartParams sets a start param
+func (j *ServiceWrapper) RayStartParam(rayType rayv1.RayNodeType, key, value string) *ServiceWrapper {
+	switch rayType {
+	case rayv1.HeadNode:
+		j.Spec.RayClusterSpec.HeadGroupSpec.RayStartParams[key] = value
+	case rayv1.WorkerNode:
+		j.Spec.RayClusterSpec.WorkerGroupSpecs[0].RayStartParams[key] = value
+	}
+	return j
+}
+
 // WithServeConfigV2 sets the serve config for the RayService.
 func (j *ServiceWrapper) WithServeConfigV2(config string) *ServiceWrapper {
 	j.Spec.ServeConfigV2 = config
