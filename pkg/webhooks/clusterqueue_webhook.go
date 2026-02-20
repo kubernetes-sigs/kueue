@@ -31,7 +31,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
@@ -231,7 +230,7 @@ func validateFlavorQuotas(flavorQuotas kueue.FlavorQuotas, coveredResources []co
 			allErrs = append(allErrs, validateLimit(*rq.BorrowingLimit, config, borrowingLimitPath, isCohort)...)
 			allErrs = append(allErrs, validateResourceQuantity(*rq.BorrowingLimit, borrowingLimitPath)...)
 		}
-		if features.Enabled(features.LendingLimit) && rq.LendingLimit != nil {
+		if rq.LendingLimit != nil {
 			lendingLimitPath := path.Child("lendingLimit")
 			allErrs = append(allErrs, validateResourceQuantity(*rq.LendingLimit, lendingLimitPath)...)
 			allErrs = append(allErrs, validateLimit(*rq.LendingLimit, config, lendingLimitPath, isCohort)...)

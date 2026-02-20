@@ -516,3 +516,225 @@ func TestSortedDomainsWithLeader(t *testing.T) {
 		})
 	}
 }
+
+func TestCountPodsInAssignment(t *testing.T) {
+	cases := map[string]struct {
+		assignment *tas.TopologyAssignment
+		want       int32
+	}{
+		"empty assignment": {
+			assignment: &tas.TopologyAssignment{
+				Levels:  []string{"hostname"},
+				Domains: nil,
+			},
+			want: 0,
+		},
+		"single domain": {
+			assignment: &tas.TopologyAssignment{
+				Levels: []string{"hostname"},
+				Domains: []tas.TopologyDomainAssignment{
+					{Values: []string{"node-a"}, Count: 3},
+				},
+			},
+			want: 3,
+		},
+		"multiple domains": {
+			assignment: &tas.TopologyAssignment{
+				Levels: []string{"hostname"},
+				Domains: []tas.TopologyDomainAssignment{
+					{Values: []string{"node-a"}, Count: 2},
+					{Values: []string{"node-b"}, Count: 3},
+					{Values: []string{"node-c"}, Count: 1},
+				},
+			},
+			want: 6,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := tas.CountPodsInAssignment(tc.assignment)
+			if got != tc.want {
+				t.Errorf("CountPodsInAssignment() = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestComputeAssumedUsageFromAssignment(t *testing.T) {
+	singlePodRequests := resources.Requests{
+		corev1.ResourceCPU:    1000,
+		corev1.ResourceMemory: 1024,
+	}
+
+	cases := map[string]struct {
+		assignment *tas.TopologyAssignment
+		want       map[tas.TopologyDomainID]resources.Requests
+	}{
+		"empty assignment": {
+			assignment: &tas.TopologyAssignment{
+				Levels:  []string{"hostname"},
+				Domains: nil,
+			},
+			want: map[tas.TopologyDomainID]resources.Requests{},
+		},
+		"single domain with one pod": {
+			assignment: &tas.TopologyAssignment{
+				Levels: []string{"hostname"},
+				Domains: []tas.TopologyDomainAssignment{
+					{Values: []string{"node-a"}, Count: 1},
+				},
+			},
+			want: map[tas.TopologyDomainID]resources.Requests{
+				"node-a": {
+					corev1.ResourceCPU:    1000,
+					corev1.ResourceMemory: 1024,
+					corev1.ResourcePods:   1,
+				},
+			},
+		},
+		"multiple domains": {
+			assignment: &tas.TopologyAssignment{
+				Levels: []string{"hostname"},
+				Domains: []tas.TopologyDomainAssignment{
+					{Values: []string{"node-a"}, Count: 2},
+					{Values: []string{"node-b"}, Count: 3},
+				},
+			},
+			want: map[tas.TopologyDomainID]resources.Requests{
+				"node-a": {
+					corev1.ResourceCPU:    2000,
+					corev1.ResourceMemory: 2048,
+					corev1.ResourcePods:   2,
+				},
+				"node-b": {
+					corev1.ResourceCPU:    3000,
+					corev1.ResourceMemory: 3072,
+					corev1.ResourcePods:   3,
+				},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := tas.ComputeUsagePerDomain(tc.assignment, singlePodRequests)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("ComputeUsagePerDomain() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestTruncateAssignment(t *testing.T) {
+	cases := map[string]struct {
+		assignment *tas.TopologyAssignment
+		newCount   int32
+		want       *tas.TopologyAssignment
+	}{
+		"truncate to zero": {
+			assignment: &tas.TopologyAssignment{
+				Levels: []string{"hostname"},
+				Domains: []tas.TopologyDomainAssignment{
+					{Values: []string{"node-a"}, Count: 2},
+				},
+			},
+			newCount: 0,
+			want: &tas.TopologyAssignment{
+				Levels:  []string{"hostname"},
+				Domains: nil,
+			},
+		},
+		"no truncation needed": {
+			assignment: &tas.TopologyAssignment{
+				Levels: []string{"hostname"},
+				Domains: []tas.TopologyDomainAssignment{
+					{Values: []string{"node-a"}, Count: 2},
+					{Values: []string{"node-b"}, Count: 1},
+				},
+			},
+			newCount: 3,
+			want: &tas.TopologyAssignment{
+				Levels: []string{"hostname"},
+				Domains: []tas.TopologyDomainAssignment{
+					{Values: []string{"node-a"}, Count: 2},
+					{Values: []string{"node-b"}, Count: 1},
+				},
+			},
+		},
+		"truncate to single domain": {
+			assignment: &tas.TopologyAssignment{
+				Levels: []string{"hostname"},
+				Domains: []tas.TopologyDomainAssignment{
+					{Values: []string{"node-a"}, Count: 3},
+					{Values: []string{"node-b"}, Count: 2},
+				},
+			},
+			newCount: 3,
+			want: &tas.TopologyAssignment{
+				Levels: []string{"hostname"},
+				Domains: []tas.TopologyDomainAssignment{
+					{Values: []string{"node-a"}, Count: 3},
+				},
+			},
+		},
+		"truncation preserves assignment order not lex order": {
+			assignment: &tas.TopologyAssignment{
+				Levels: []string{"hostname"},
+				Domains: []tas.TopologyDomainAssignment{
+					{Values: []string{"node-z"}, Count: 3},
+					{Values: []string{"node-a"}, Count: 2},
+				},
+			},
+			newCount: 3,
+			want: &tas.TopologyAssignment{
+				Levels: []string{"hostname"},
+				Domains: []tas.TopologyDomainAssignment{
+					{Values: []string{"node-z"}, Count: 3},
+				},
+			},
+		},
+		"partial domain truncation": {
+			assignment: &tas.TopologyAssignment{
+				Levels: []string{"hostname"},
+				Domains: []tas.TopologyDomainAssignment{
+					{Values: []string{"node-a"}, Count: 3},
+					{Values: []string{"node-b"}, Count: 3},
+				},
+			},
+			newCount: 4,
+			want: &tas.TopologyAssignment{
+				Levels: []string{"hostname"},
+				Domains: []tas.TopologyDomainAssignment{
+					{Values: []string{"node-a"}, Count: 3},
+					{Values: []string{"node-b"}, Count: 1},
+				},
+			},
+		},
+		"truncate within first domain": {
+			assignment: &tas.TopologyAssignment{
+				Levels: []string{"hostname"},
+				Domains: []tas.TopologyDomainAssignment{
+					{Values: []string{"node-a"}, Count: 5},
+					{Values: []string{"node-b"}, Count: 3},
+				},
+			},
+			newCount: 2,
+			want: &tas.TopologyAssignment{
+				Levels: []string{"hostname"},
+				Domains: []tas.TopologyDomainAssignment{
+					{Values: []string{"node-a"}, Count: 2},
+				},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := tas.TruncateAssignment(tc.assignment, tc.newCount)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("TruncateAssignment() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

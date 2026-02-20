@@ -27,6 +27,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -49,7 +50,22 @@ func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info, cq *schdcache.
 				continue
 			}
 			isTASImplied := isTASImplied(&podSet, cq)
-			psTASRequest, err := podSetTopologyRequest(psAssignment, wl, cq, isTASImplied, i)
+
+			// Only unconstrained topology is supported with elastic workload slices.
+			var previousAssignment *kueue.TopologyAssignment
+			if features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) {
+				if podSet.TopologyRequest != nil && podSet.TopologyRequest.Required != nil {
+					psAssignment.error(errors.New("required topology is not supported with ElasticJobsViaWorkloadSlices"))
+					continue
+				}
+				if podSet.TopologyRequest != nil && podSet.TopologyRequest.Preferred != nil {
+					psAssignment.error(errors.New("preferred topology is not supported with ElasticJobsViaWorkloadSlices"))
+					continue
+				}
+				previousAssignment = getPreviousTopologyAssignment(a.replaceWorkloadSlice, podSet.Name)
+			}
+
+			psTASRequest, err := podSetTopologyRequest(psAssignment, wl, cq, isTASImplied, i, previousAssignment)
 			if err != nil {
 				psAssignment.error(err)
 			} else if psTASRequest != nil {
@@ -70,7 +86,8 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 	wl *workload.Info,
 	cq *schdcache.ClusterQueueSnapshot,
 	isTASImplied bool,
-	podSetIndex int) (*schdcache.TASPodSetRequests, error) {
+	podSetIndex int,
+	previousAssignment *kueue.TopologyAssignment) (*schdcache.TASPodSetRequests, error) {
 	if len(cq.TASFlavors) == 0 {
 		return nil, errors.New("workload requires Topology, but there is no TAS cache information")
 	}
@@ -107,13 +124,14 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 	}
 
 	return &schdcache.TASPodSetRequests{
-		Count:             podCount,
-		SinglePodRequests: singlePodRequests,
-		PodSet:            podSet,
-		PodSetUpdates:     podSetUpdates,
-		Flavor:            *tasFlvr,
-		Implied:           isTASImplied,
-		PodSetGroupName:   podSetGroupName,
+		Count:              podCount,
+		SinglePodRequests:  singlePodRequests,
+		PodSet:             podSet,
+		PodSetUpdates:      podSetUpdates,
+		Flavor:             *tasFlvr,
+		Implied:            isTASImplied,
+		PodSetGroupName:    podSetGroupName,
+		PreviousAssignment: previousAssignment,
 	}, nil
 }
 
@@ -182,4 +200,17 @@ func isTASImplied(ps *kueue.PodSet, cq *schdcache.ClusterQueueSnapshot) bool {
 // explicitly or implicitly.
 func isTASRequested(ps *kueue.PodSet, cq *schdcache.ClusterQueueSnapshot) bool {
 	return workload.IsExplicitlyRequestingTAS(*ps) || isTASImplied(ps, cq)
+}
+
+// getPreviousTopologyAssignment extracts the topology assignment from a replaced workload slice.
+func getPreviousTopologyAssignment(replaceWorkloadSlice *workload.Info, podSetName kueue.PodSetReference) *kueue.TopologyAssignment {
+	if replaceWorkloadSlice == nil || replaceWorkloadSlice.Obj.Status.Admission == nil {
+		return nil
+	}
+	for _, psa := range replaceWorkloadSlice.Obj.Status.Admission.PodSetAssignments {
+		if psa.Name == podSetName && psa.TopologyAssignment != nil {
+			return psa.TopologyAssignment
+		}
+	}
+	return nil
 }

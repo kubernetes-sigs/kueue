@@ -592,11 +592,8 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				}
 			}
 		}
-		if features.Enabled(features.ObjectRetentionPolicies) {
-			requeueAfter, err := r.handleWorkloadAfterDeactivatedPolicy(ctx, job, wl)
-			return ctrl.Result{RequeueAfter: requeueAfter}, err
-		}
-		return ctrl.Result{}, nil
+		requeueAfter, err := r.handleWorkloadAfterDeactivatedPolicy(ctx, job, wl)
+		return ctrl.Result{RequeueAfter: requeueAfter}, err
 	}
 
 	// 7. handle job is suspended.

@@ -158,6 +158,16 @@ The cluster is ready, and now you can run tests from another terminal:
 ```
 or from VSCode.
 
+## Debugging metrics with Prometheus
+
+To provision a Kind cluster with Prometheus pre-configured for metrics debugging:
+
+```shell
+E2E_MODE=dev GINKGO_ARGS="--label-filter=feature:prometheus" make kind-image-build test-e2e
+```
+
+For more details, see [Setup Dev Monitoring](/docs/tasks/dev/setup_dev_monitoring).
+
 ## Running subset of integration or e2e tests
 
 ### Use label filters for integration tests

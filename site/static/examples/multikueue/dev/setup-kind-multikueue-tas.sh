@@ -18,7 +18,8 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-KUEUE_VERSION="${KUEUE_VERSION:-v0.15.0}"
+DEFAULT_KUEUE_VERSION=v0.16.1
+KUEUE_VERSION="${KUEUE_VERSION:-${DEFAULT_KUEUE_VERSION}}"
 USE_MAIN_BRANCH="${USE_MAIN_BRANCH:-false}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKER_CLUSTERS="worker1 worker2"
@@ -38,7 +39,7 @@ while [[ $# -gt 0 ]]; do
             echo "Unknown option: $1"
             echo "Usage: $0 [--main] [--version VERSION]"
             echo "  --main           Use main branch instead of released version"
-            echo "  --version        Specify Kueue version (default: v0.15.0)"
+            echo "  --version        Specify Kueue version (default: ${DEFAULT_KUEUE_VERSION})"
             exit 1
             ;;
     esac
@@ -82,10 +83,6 @@ for cluster in manager ${WORKER_CLUSTERS}; do
     kubectl --context "kind-${cluster}" apply --server-side ${KUEUE_APPLY_FLAGS}
     kubectl --context "kind-${cluster}" wait --for=condition=available --timeout=300s deployment/kueue-controller-manager -n kueue-system
 done
-
-# Configure manager for Kind clusters
-kubectl --context kind-manager patch deployment kueue-controller-manager -n kueue-system --type='json' \
-  -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--feature-gates=MultiKueueAllowInsecureKubeconfigs=true"}]'
 
 cat > /tmp/kueue-integrations-patch.yaml <<'EOF'
 data:
@@ -154,13 +151,16 @@ for cluster in ${WORKER_CLUSTERS}; do
     # Create token
     TOKEN=$(kubectl --context "kind-${cluster}" create token multikueue-sa -n kueue-system --duration=24h)
 
+    # Extract the Certificate Authority
+    CA_DATA=$(kubectl --context "kind-${cluster}" config view --minify --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}')
+
     # Create kubeconfig with insecure-skip-tls-verify for Kind clusters
     cat > "${SCRIPT_DIR}/${cluster}.kubeconfig" <<EOF
 apiVersion: v1
 kind: Config
 clusters:
 - cluster:
-    insecure-skip-tls-verify: true
+    certificate-authority-data: ${CA_DATA}
     server: https://${cluster}-control-plane:6443
   name: ${cluster}
 contexts:

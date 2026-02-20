@@ -139,6 +139,10 @@ if [[ -n "${CLUSTERPROFILE_VERSION:-}" ]]; then
     export CLUSTERPROFILE_PLUGIN_IMAGE=us-central1-docker.pkg.dev/k8s-staging-images/kueue/secretreader-plugin:${CLUSTERPROFILE_PLUGIN_IMAGE_VERSION}
 fi
 
+if [[ -n "${PROMETHEUS_OPERATOR_VERSION:-}" ]]; then
+    export PROMETHEUS_OPERATOR_BUNDLE="https://github.com/prometheus-operator/prometheus-operator/releases/download/${PROMETHEUS_OPERATOR_VERSION}/bundle.yaml"
+fi
+
 if [[ -n "${DRA_EXAMPLE_DRIVER_VERSION:-}" ]]; then
     export DRA_EXAMPLE_DRIVER_REPO=https://github.com/kubernetes-sigs/dra-example-driver.git
 fi
@@ -159,7 +163,35 @@ export E2E_TEST_AGNHOST_IMAGE=${E2E_TEST_AGNHOST_IMAGE_WITH_SHA%%@*}
 
 # $1 cluster name
 function cluster_cleanup {
-    $KIND delete cluster --name "$1"
+    local cluster_name="$1"
+    local max_retries=5
+    local retry_delay=1
+
+    for attempt in $(seq 1 "$max_retries"); do
+        if $KIND delete cluster --name "$cluster_name"; then
+            return 0
+        fi
+
+        if [ "$attempt" -eq "$max_retries" ]; then
+            break
+        fi
+
+        echo "WARNING: kind delete cluster '$cluster_name' failed (attempt $attempt/$max_retries)."
+
+        # Retry kind deletion to work around Docker race conditions where
+        # delete can fail before receiving the container exit event.
+        # Upstream bugs:
+        # - https://github.com/moby/moby/issues/51028
+        # - https://github.com/moby/moby/issues/51845
+        # This workaround can be revisited after upstream fixes are available.
+
+        echo "Retrying in ${retry_delay}s..."
+        sleep "$retry_delay"
+        retry_delay=$((retry_delay * 2))
+    done
+
+    echo "ERROR: Failed to delete kind cluster '$cluster_name' after $max_retries attempts."
+    return 1
 }
 
 # $1 cluster name
@@ -405,6 +437,9 @@ function kind_load {
     if [[ -n ${CERTMANAGER_VERSION:-} ]]; then
         install_cert_manager "${e2e_kubeconfig}"
     fi
+    if [[ -n ${PROMETHEUS_OPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:prometheus || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+        install_prometheus_operator "${e2e_kubeconfig}"
+    fi
     if [[ -n ${CLUSTERPROFILE_VERSION:-} ]]; then
         install_multicluster "${e2e_kubeconfig}"
     fi
@@ -413,6 +448,10 @@ function kind_load {
     fi
 }
 
+# Save image to a temp file once, then load into all worker nodes in parallel.
+# Using docker save + ctr import directly to avoid the --all-platforms
+# issue with multi-arch images in DinD environments.
+# See: https://github.com/kubernetes-sigs/kind/issues/3795
 # $1 cluster
 # $2 image
 function cluster_kind_load_image {
@@ -423,17 +462,36 @@ function cluster_kind_load_image {
         return 1
     fi
 
-    # Use docker save + ctr import directly to avoid the --all-platforms
-    # issue with multi-arch images in DinD environments.
-    # See: https://github.com/kubernetes-sigs/kind/issues/3795
-    echo "Loading image '$2' to cluster '$1'"
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+    trap '[ -d "${tmp_dir:-}" ] && rm -rf "$tmp_dir"' RETURN
+    local tmp_image="$tmp_dir/image.tar"
+
+    echo "Saving image '$2'..."
+    if ! docker save "$2" -o "$tmp_image"; then
+        echo "Failed to save image '$2'"
+        return 1
+    fi
+
+    echo "Loading image '$2' to cluster '$1' (parallel)"
+    local pids=()
+    local nodes=()
     while IFS= read -r node; do
         echo "  Loading image to node: $node"
-        if ! docker save "$2" | docker exec -i "$node" ctr --namespace=k8s.io images import --digests --snapshotter=overlayfs -; then
-            echo "Failed to load image '$2' to node '$node'"
-            return 1
-        fi
+        docker exec -i "$node" ctr --namespace=k8s.io images import \
+            --digests --snapshotter=overlayfs - < "$tmp_image" &
+        pids+=($!)
+        nodes+=("$node")
     done <<< "$worker_nodes"
+
+    local failed=0
+    for i in "${!pids[@]}"; do
+        if ! wait "${pids[$i]}"; then
+            echo "Failed to load image '$2' to node '${nodes[$i]}'"
+            failed=1
+        fi
+    done
+    return "$failed"
 }
 
 # $1 kubeconfig
@@ -862,6 +920,48 @@ function install_cert_manager {
     kubectl wait --kubeconfig="${kubeconfig}" deploy/cert-manager -n "${ns}" --for=condition=available --timeout=5m
     kubectl wait --kubeconfig="${kubeconfig}" deploy/cert-manager-webhook -n "${ns}" --for=condition=available --timeout=5m || true
     kubectl wait --kubeconfig="${kubeconfig}" deploy/cert-manager-cainjector -n "${ns}" --for=condition=available --timeout=5m || true
+}
+
+# $1 kubeconfig option
+function install_prometheus_operator {
+    local kubeconfig=${1:-}
+    local ns="default"
+    local deployment_name="prometheus-operator"
+    local expected_version="${PROMETHEUS_OPERATOR_VERSION:-}"
+
+    if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
+        if e2e_deployment_exists "${kubeconfig}" "${ns}" "${deployment_name}"; then
+            local installed_version=""
+            local img=""
+            img=$(kubectl --kubeconfig="${kubeconfig}" -n "${ns}" get deployment "${deployment_name}" \
+                -o jsonpath='{.spec.template.spec.containers[?(@.name=="prometheus-operator")].image}' 2>/dev/null || true)
+            installed_version=$(e2e_image_ref_get_tag "${img}" || true)
+            if [[ -n "${installed_version}" ]] && { [[ -z "${expected_version}" ]] || e2e_versions_match "${installed_version}" "${expected_version}"; }; then
+                echo "Prometheus operator already installed (${installed_version}); skipping install (E2E_MODE=dev)."
+                return 0
+            fi
+            if [[ -n "${installed_version}" && -n "${expected_version}" ]]; then
+                echo "Prometheus operator installed version (${installed_version}) does not match requested (${expected_version}); reinstalling."
+            else
+                echo "Prometheus operator already present; reinstalling."
+            fi
+        else
+            echo "Prometheus operator deployment not found; installing."
+        fi
+    fi
+
+    kubectl apply --kubeconfig="${kubeconfig}" --server-side -f "${PROMETHEUS_OPERATOR_BUNDLE}"
+    kubectl wait deploy/"${deployment_name}" -n "${ns}" \
+        --for=condition=available --timeout=5m --kubeconfig="${kubeconfig}"
+    kubectl apply --kubeconfig="${kubeconfig}" --server-side \
+        -f "${ROOT_DIR}/test/e2e/config/prometheus/prometheus-setup.yaml"
+}
+
+# $1 kubeconfig option
+function deploy_kueue_prometheus_config {
+    local kubeconfig=${1:-}
+    $KUSTOMIZE build "${ROOT_DIR}/config/prometheus" | \
+        kubectl apply --kubeconfig="${kubeconfig}" --server-side -f -
 }
 
 # $1 kubeconfig option

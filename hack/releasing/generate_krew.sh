@@ -20,6 +20,8 @@ set -o pipefail
 
 # Resolve the absolute path of the directory containing the script
 SCRIPT_DIR=$(realpath "$(dirname "${BASH_SOURCE[0]}")")
-REPO_ROOT="$SCRIPT_DIR/.."
+REPO_ROOT="$SCRIPT_DIR/../.."
 
-docker run --rm -v "$REPO_ROOT":/home/app ghcr.io/rajatjindal/krew-release-bot:v0.0.46 krew-release-bot template --tag "$1" --template-file .krew.yaml > "$REPO_ROOT"/kueue.yaml
+KREW_RELEASE_BOT_IMAGE=$(grep '^FROM' "${SCRIPT_DIR}/krew-release-bot/Dockerfile" | awk '{print $2}')
+
+docker run --rm -v "$REPO_ROOT":/home/app "${KREW_RELEASE_BOT_IMAGE}" krew-release-bot template --tag "$1" --template-file .krew.yaml > "$REPO_ROOT"/kueue.yaml

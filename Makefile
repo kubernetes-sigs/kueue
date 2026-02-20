@@ -158,15 +158,25 @@ generate-code: controller-gen ## Generate code containing DeepCopy, DeepCopyInto
 generate-mocks: mockgen ## Generate mockgen mocks
 	# Clean up previously generated mocks to keep generated mocks up-to-date.
 	rm -rf $(MOCKS_DIR)
-	$(MOCKGEN) -destination=$(MOCKS_DIR)/controller/jobframework/interface.go -package mocks sigs.k8s.io/kueue/pkg/controller/jobframework GenericJob,JobWithCustomValidation,JobWithManagedBy,JobWithCustomWorkloadActivation
+	$(MOCKGEN) \
+		-destination=$(MOCKS_DIR)/controller/jobframework/interface.go \
+		-copyright_file hack/boilerplate.txt \
+		-package mocks \
+		sigs.k8s.io/kueue/pkg/controller/jobframework GenericJob,JobWithCustomValidation,JobWithManagedBy,JobWithCustomWorkloadActivation
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
 	$(GO_CMD) fmt ./...
 
 .PHONY: gomod-download
-gomod-download:
+gomod-download: ## Download Go module dependencies (main)
+	@echo "→ Downloading main dependencies..."
 	$(GO_CMD) mod download
+
+.PHONY: gomod-download-tools
+gomod-download-tools: ## Download Go module dependencies (tools)
+	@echo "→ Downloading tools dependencies..."
+	cd $(TOOLS_DIR) && $(GO_CMD) mod download
 
 .PHONY: toc-update
 toc-update: mdtoc

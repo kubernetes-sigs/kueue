@@ -402,8 +402,7 @@ func TestReconcile(t *testing.T) {
 	fakeClock := testingclock.NewFakeClock(now)
 
 	cases := map[string]struct {
-		enableObjectRetentionPolicies bool
-		enableDRAFeature              bool
+		enableDRAFeature bool
 
 		workload                  *kueue.Workload
 		cq                        *kueue.ClusterQueue
@@ -2313,7 +2312,6 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		"shouldn't delete the workload because, object retention not configured": {
-			enableObjectRetentionPolicies: true,
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadFinished,
@@ -2332,7 +2330,6 @@ func TestReconcile(t *testing.T) {
 			wantError: nil,
 		},
 		"shouldn't try to delete the workload (no event emitted) because it is already being deleted by kubernetes, object retention configured": {
-			enableObjectRetentionPolicies: true,
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadFinished,
@@ -2355,7 +2352,6 @@ func TestReconcile(t *testing.T) {
 			wantError:    nil,
 		},
 		"shouldn't try to delete the workload because the retention period hasn't elapsed yet, object retention configured": {
-			enableObjectRetentionPolicies: true,
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Condition(metav1.Condition{
 					Type:               kueue.WorkloadFinished,
@@ -2383,7 +2379,6 @@ func TestReconcile(t *testing.T) {
 			wantError: nil,
 		},
 		"should delete the workload because the retention period has elapsed, object retention configured": {
-			enableObjectRetentionPolicies: true,
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Condition(metav1.Condition{
 					Type:               kueue.WorkloadFinished,
@@ -2570,7 +2565,6 @@ func TestReconcile(t *testing.T) {
 	for name, tc := range cases {
 		for _, enabled := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
-				features.SetFeatureGateDuringTest(t, features.ObjectRetentionPolicies, tc.enableObjectRetentionPolicies)
 				features.SetFeatureGateDuringTest(t, features.DynamicResourceAllocation, tc.enableDRAFeature)
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
 
@@ -2589,7 +2583,7 @@ func TestReconcile(t *testing.T) {
 				recorder := &utiltesting.EventRecorder{}
 
 				cqCache := schdcache.New(cl)
-				qManager := qcache.NewManager(cl, cqCache)
+				qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 				reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, tc.reconcilerOpts...)
 				// use a fake clock with jitter = 0 to be able to assert on the requeueAt.
 				reconciler.clock = fakeClock
@@ -2879,7 +2873,7 @@ func TestWorkloadDeletion(t *testing.T) {
 			cl := clientBuilder.Build()
 			recorder := &utiltesting.EventRecorder{}
 			cqCache := schdcache.New(cl)
-			qManager := qcache.NewManager(cl, cqCache)
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 
 			mockWatcher := mockWorkloadUpdateWatcher(qManager)
 

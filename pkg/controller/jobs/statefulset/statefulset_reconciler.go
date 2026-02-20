@@ -42,7 +42,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -75,7 +75,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 
 	podList := &corev1.PodList{}
 	if err := r.client.List(ctx, podList, client.InNamespace(req.Namespace), client.MatchingLabels{
-		podcontroller.GroupNameLabel: GetWorkloadName(req.Name),
+		podconstants.GroupNameLabel: GetWorkloadName(req.Name),
 	}); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -117,7 +117,7 @@ func (r *Reconciler) finalizePod(ctx context.Context, sts *appsv1.StatefulSet, p
 			log.V(3).Info(
 				"Finalizing pod in group",
 				"pod", klog.KObj(pod),
-				"group", pod.Labels[podcontroller.GroupNameLabel],
+				"group", pod.Labels[podconstants.GroupNameLabel],
 			)
 			return true, nil
 		}
@@ -128,13 +128,13 @@ func (r *Reconciler) finalizePod(ctx context.Context, sts *appsv1.StatefulSet, p
 func ungateAndFinalize(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
 	var updated bool
 
-	if shouldUngate(sts, pod) && utilpod.Ungate(pod, podcontroller.SchedulingGateName) {
+	if shouldUngate(sts, pod) && utilpod.Ungate(pod, podconstants.SchedulingGateName) {
 		updated = true
 	}
 
 	// TODO (#8571): As discussed in https://github.com/kubernetes-sigs/kueue/issues/8571,
 	// this check should be removed in v0.20.
-	if shouldFinalize(sts, pod) && controllerutil.RemoveFinalizer(pod, podcontroller.PodFinalizer) {
+	if shouldFinalize(sts, pod) && controllerutil.RemoveFinalizer(pod, podconstants.PodFinalizer) {
 		updated = true
 	}
 
@@ -277,7 +277,7 @@ func (h *podHandler) Delete(context.Context, event.DeleteEvent, workqueue.TypedR
 
 func (h *podHandler) handle(obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	pod, isPod := obj.(*corev1.Pod)
-	if !isPod || pod.Annotations[podcontroller.SuspendedByParentAnnotation] != FrameworkName {
+	if !isPod || pod.Annotations[podconstants.SuspendedByParentAnnotation] != FrameworkName {
 		return
 	}
 	if controllerRef := metav1.GetControllerOf(pod); controllerRef != nil {

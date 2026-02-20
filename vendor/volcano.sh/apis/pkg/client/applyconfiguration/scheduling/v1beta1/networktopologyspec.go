@@ -26,6 +26,7 @@ import (
 type NetworkTopologySpecApplyConfiguration struct {
 	Mode               *schedulingv1beta1.NetworkTopologyMode `json:"mode,omitempty"`
 	HighestTierAllowed *int                                   `json:"highestTierAllowed,omitempty"`
+	HighestTierName    *string                                `json:"highestTierName,omitempty"`
 }
 
 // NetworkTopologySpecApplyConfiguration constructs a declarative configuration of the NetworkTopologySpec type for use with
@@ -47,5 +48,13 @@ func (b *NetworkTopologySpecApplyConfiguration) WithMode(value schedulingv1beta1
 // If called multiple times, the HighestTierAllowed field is set to the value of the last call.
 func (b *NetworkTopologySpecApplyConfiguration) WithHighestTierAllowed(value int) *NetworkTopologySpecApplyConfiguration {
 	b.HighestTierAllowed = &value
+	return b
+}
+
+// WithHighestTierName sets the HighestTierName field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the HighestTierName field is set to the value of the last call.
+func (b *NetworkTopologySpecApplyConfiguration) WithHighestTierName(value string) *NetworkTopologySpecApplyConfiguration {
+	b.HighestTierName = &value
 	return b
 }

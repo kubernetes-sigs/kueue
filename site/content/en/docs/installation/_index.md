@@ -243,6 +243,7 @@ You can edit the `kueue-manager-config` `ConfigMap` and add the feature gate you
 ```yaml
 apiVersion: v1
 kind: ConfigMap
+metadata:
   name: kueue-manager-config
   namespace: kueue-system
 data:
@@ -283,10 +284,6 @@ spec:
 ### Feature gates for alpha and beta features
 
 {{< feature-gates-table stage="alpha-beta" >}}
-
-{{% alert title="Note" color="primary" %}}
-The SanitizePodSets and MultiKueueAllowInsecureKubeconfigs features are available starting from versions 0.13.8 and 0.14.3.
-{{% /alert %}}
 
 ### Feature gates for graduated or deprecated features
 

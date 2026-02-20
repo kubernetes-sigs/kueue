@@ -269,8 +269,6 @@ func TestReconciler(t *testing.T) {
 	podUID := "dc85db45"
 
 	testCases := map[string]struct {
-		enableObjectRetentionPolicies bool
-
 		reconcileKey           *types.NamespacedName
 		initObjects            []client.Object
 		pods                   []corev1.Pod
@@ -5512,7 +5510,6 @@ func TestReconciler(t *testing.T) {
 			wantErr:         jobframework.ErrPrebuiltWorkloadNotFound,
 		},
 		"when workload is deactivated by kueue; objectRetentionPolicies.workloads.afterDeactivatedByKueue=0; should delete the job": {
-			enableObjectRetentionPolicies: true,
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithObjectRetentionPolicies(&configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
@@ -5609,7 +5606,6 @@ func TestReconciler(t *testing.T) {
 	for name, tc := range testCases {
 		for _, enabled := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
-				features.SetFeatureGateDuringTest(t, features.ObjectRetentionPolicies, tc.enableObjectRetentionPolicies)
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
 
 				ctx, log := utiltesting.ContextWithLog(t)

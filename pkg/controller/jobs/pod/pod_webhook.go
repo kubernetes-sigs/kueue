@@ -149,8 +149,7 @@ func (w *PodWebhook) Default(ctx context.Context, obj *corev1.Pod) error {
 		}
 
 		// Local queue defaulting
-		if features.Enabled(features.LocalQueueDefaulting) &&
-			jobframework.QueueNameForObject(pod.Object()) == "" &&
+		if jobframework.QueueNameForObject(pod.Object()) == "" &&
 			w.queues.DefaultLocalQueueExist(pod.pod.GetNamespace()) {
 			if pod.pod.Labels == nil {
 				pod.pod.Labels = make(map[string]string)

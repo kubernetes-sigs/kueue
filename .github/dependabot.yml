@@ -46,6 +46,7 @@ updates:
   - package-ecosystem: "docker"
     directories:
       - "/cmd/kueueviz/frontend"
+      - "/hack/releasing/krew-release-bot"
       - "/hack/testing/agnhost"
       - "/hack/testing/cypress"
       - "/hack/testing/linkchecker"

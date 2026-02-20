@@ -38,6 +38,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -2833,6 +2834,186 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectPendingWorkloadsMetric(cq2, 0, 1)
 			util.ExpectReservingActiveWorkloadsMetric(cq2, 0)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq2, "", 0)
+		})
+	})
+	ginkgo.When("Workload slicing with multiple podSets", func() {
+		var (
+			resourceFlavor *kueue.ResourceFlavor
+			clusterQueue   *kueue.ClusterQueue
+			localQueue     *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+
+			resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
+			util.MustCreate(ctx, k8sClient, resourceFlavor)
+
+			clusterQueue = utiltestingapi.MakeClusterQueue("default").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
+					Resource(corev1.ResourceCPU, "10").
+					Obj()).
+				Obj()
+			util.MustCreate(ctx, k8sClient, clusterQueue)
+
+			localQueue = utiltestingapi.MakeLocalQueue("default", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			util.MustCreate(ctx, k8sClient, localQueue)
+		})
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+		})
+
+		ginkgo.It("should handle scale-up and in-place scale-down with workload slicing", func() {
+			ginkgo.By("Creating a workload with multiple podSets (worker: 2x1 CPU, coordinator: 1x2 CPU = 4 CPU total)")
+			wl := utiltestingapi.MakeWorkload("multi-podset-wl", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(
+					*utiltestingapi.MakePodSet("worker", 2).
+						Request(corev1.ResourceCPU, "1").Obj(),
+					*utiltestingapi.MakePodSet("coordinator", 1).
+						Request(corev1.ResourceCPU, "2").Obj(),
+				).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("Verify workload is admitted with correct initial quota consumption (4 CPU)")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			gomega.Eventually(func(g gomega.Gomega) {
+				cq := &kueue.ClusterQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
+				g.Expect(cq.Status.FlavorsUsage).Should(gomega.HaveLen(1))
+				g.Expect(cq.Status.FlavorsUsage[0].Resources).Should(gomega.HaveLen(1))
+				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("4")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Trigger workload slicing by creating a replacement workload (scaling coordinator from 1 to 3)")
+			wlSlice := utiltestingapi.MakeWorkload("multi-podset-wl-slice", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Annotation(workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(wl))).
+				PodSets(*utiltestingapi.MakePodSet("worker", 2).Request(corev1.ResourceCPU, "1").Obj(),
+					*utiltestingapi.MakePodSet("coordinator", 3).Request(corev1.ResourceCPU, "2").Obj()).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wlSlice)
+
+			ginkgo.By("Wait for new workload slice to be created")
+			newSlice := util.ExpectNewWorkloadSlice(ctx, k8sClient, wl)
+			gomega.Expect(newSlice).NotTo(gomega.BeNil())
+
+			ginkgo.By("Verify the new slice is admitted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				updatedSlice := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(newSlice), updatedSlice)).Should(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(updatedSlice)).Should(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verify quota after scale-up (should be 8 CPU)")
+			gomega.Eventually(func(g gomega.Gomega) {
+				cq := &kueue.ClusterQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
+				g.Expect(cq.Status.FlavorsUsage).Should(gomega.HaveLen(1))
+				g.Expect(cq.Status.FlavorsUsage[0].Resources).Should(gomega.HaveLen(1))
+				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("8")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Test in-place scale-down: update workload slice to reduce coordinator from 3 to 2 (8 -> 6 CPU)")
+			gomega.Eventually(func(g gomega.Gomega) {
+				updatedSlice := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(newSlice), updatedSlice)).Should(gomega.Succeed())
+				updatedSlice.Spec.PodSets[1].Count = 2 // Reduce coordinator from 3 to 2
+				g.Expect(k8sClient.Update(ctx, updatedSlice)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verify quota after in-place scale-down (should be 6 CPU: 2 workers @ 1 + 2 coordinators @ 2)")
+			gomega.Eventually(func(g gomega.Gomega) {
+				cq := &kueue.ClusterQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
+				g.Expect(cq.Status.FlavorsUsage).Should(gomega.HaveLen(1))
+				g.Expect(cq.Status.FlavorsUsage[0].Resources).Should(gomega.HaveLen(1))
+				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("6")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("should not double-count quota for unchanged podSets during workload slicing", func() {
+			ginkgo.By("Creating a workload with multiple podSets (worker: 2x1 CPU, coordinator: 1x2 CPU = 4 CPU total)")
+			wl := utiltestingapi.MakeWorkload("multi-podset-wl", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(
+					*utiltestingapi.MakePodSet("worker", 2).
+						Request(corev1.ResourceCPU, "1").Obj(),
+					*utiltestingapi.MakePodSet("coordinator", 1).
+						Request(corev1.ResourceCPU, "2").Obj(),
+				).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("Verify workload is admitted with correct initial quota consumption (4 CPU)")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			gomega.Eventually(func(g gomega.Gomega) {
+				cq := &kueue.ClusterQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
+				g.Expect(cq.Status.FlavorsUsage).Should(gomega.HaveLen(1))
+				g.Expect(cq.Status.FlavorsUsage[0].Resources).Should(gomega.HaveLen(1))
+				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("4")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Trigger workload slicing by creating a replacement workload (scaling coordinator from 1 to 3)")
+			wlSlice := utiltestingapi.MakeWorkload("multi-podset-wl-slice", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Annotation(workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(wl))).
+				PodSets(*utiltestingapi.MakePodSet("worker", 2).Request(corev1.ResourceCPU, "1").Obj(),
+					*utiltestingapi.MakePodSet("coordinator", 3).Request(corev1.ResourceCPU, "2").Obj()).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wlSlice)
+
+			ginkgo.By("Wait for new workload slice to be created")
+			newSlice := util.ExpectNewWorkloadSlice(ctx, k8sClient, wl)
+			gomega.Expect(newSlice).NotTo(gomega.BeNil())
+
+			ginkgo.By("Verify the new slice is admitted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				updatedSlice := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(newSlice), updatedSlice)).Should(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(updatedSlice)).Should(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verify quota is NOT double-counted (should be 8 CPU, not 12)")
+			gomega.Eventually(func(g gomega.Gomega) {
+				cq := &kueue.ClusterQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
+				g.Expect(cq.Status.FlavorsUsage).Should(gomega.HaveLen(1))
+				g.Expect(cq.Status.FlavorsUsage[0].Resources).Should(gomega.HaveLen(1))
+				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("8")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Create additional workloads to verify quota enforcement prevents over-admission")
+			wl2 := utiltestingapi.MakeWorkload("multi-podset-wl-slice-2", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(*utiltestingapi.MakePodSet("main", 2).Request(corev1.ResourceCPU, "1").Obj()).
+				Obj()
+			wl3 := utiltestingapi.MakeWorkload("multi-podset-wl-slice-3-pending", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(*utiltestingapi.MakePodSet("main", 2).Request(corev1.ResourceCPU, "1").Obj()).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl2)
+			util.MustCreate(ctx, k8sClient, wl3)
+
+			ginkgo.By("Verify first workload is admitted (8+2=10, at quota limit)")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
+			gomega.Eventually(func(g gomega.Gomega) {
+				cq := &kueue.ClusterQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
+				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("10")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verify second workload remains pending (10+2=12 exceeds quota limit of 10)")
+			gomega.Consistently(func(g gomega.Gomega) {
+				w := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl3), w)).Should(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(w)).Should(gomega.BeFalse())
+			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })
