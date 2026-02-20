@@ -199,10 +199,10 @@ func FormatFlavorAssignmentAttemptsForEvents(a Assignment) string {
 			if att.PreemptionPossibility == nil {
 				attemptsBuilder.WriteString(att.Mode.String())
 			} else {
-				attemptsBuilder.WriteString(fmt.Sprintf("preemptionMode=%s", att.PreemptionPossibility))
+				fmt.Fprintf(&attemptsBuilder, "preemptionMode=%s", att.PreemptionPossibility)
 			}
 			if att.Borrow > 0 {
-				attemptsBuilder.WriteString(fmt.Sprintf(";borrow=%d", att.Borrow))
+				fmt.Fprintf(&attemptsBuilder, ";borrow=%d", att.Borrow)
 			}
 			if len(att.Reasons) > 0 {
 				attemptsBuilder.WriteString(";")

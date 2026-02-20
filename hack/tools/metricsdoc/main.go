@@ -25,6 +25,7 @@ import (
 	"go/token"
 	"maps"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -80,86 +81,95 @@ func main() {
 
 func extractMetricsFromPackage(dir string) ([]Metric, error) {
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, dir, nil, parser.ParseComments)
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
+	var files []*ast.File
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, filepath.Join(dir, e.Name()), nil, parser.ParseComments)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, f)
+	}
 	var all []Metric
 	var missingGroups []string
-	for _, pkg := range pkgs {
-		for _, f := range pkg.Files {
-			ast.Inspect(f, func(n ast.Node) bool {
-				vs, ok := n.(*ast.ValueSpec)
-				if !ok || len(vs.Values) != 1 {
-					return true
-				}
-				groupFromComment, labelDocs := parseMarkers(vs)
-				call, ok := vs.Values[0].(*ast.CallExpr)
-				if !ok {
-					return true
-				}
-				sel, ok := call.Fun.(*ast.SelectorExpr)
-				if !ok {
-					return true
-				}
-				pkgIdent, ok := sel.X.(*ast.Ident)
-				if !ok || pkgIdent.Name != "prometheus" {
-					return true
-				}
-				fun := sel.Sel.Name
-				if fun != "NewCounterVec" && fun != "NewGaugeVec" && fun != "NewHistogramVec" {
-					return true
-				}
-				if len(call.Args) < 2 {
-					return true
-				}
-				opts, ok := call.Args[0].(*ast.CompositeLit)
-				if !ok {
-					return true
-				}
-				var name, help string
-				for _, elt := range opts.Elts {
-					kv, ok := elt.(*ast.KeyValueExpr)
-					if !ok {
-						continue
-					}
-					var keyName string
-					switch k := kv.Key.(type) {
-					case *ast.Ident:
-						keyName = k.Name
-					case *ast.SelectorExpr:
-						keyName = k.Sel.Name
-					default:
-						keyName = exprToString(kv.Key)
-					}
-					switch keyName {
-					case "Name":
-						name = stringLiteral(kv.Value)
-					case "Help":
-						help = stringLiteral(kv.Value)
-					}
-				}
-				labels := parseLabels(call.Args[1])
-				m := Metric{
-					FullName:  "kueue_" + name,
-					Type:      map[string]string{"NewCounterVec": "Counter", "NewGaugeVec": "Gauge", "NewHistogramVec": "Histogram"}[fun],
-					Help:      normalizeHelp(help),
-					Labels:    labels,
-					LabelDocs: labelDocs,
-				}
-				if groupFromComment == "" {
-					varName := ""
-					if len(vs.Names) > 0 && vs.Names[0] != nil {
-						varName = vs.Names[0].Name
-					}
-					missingGroups = append(missingGroups, varName)
-					return true
-				}
-				m.Group = groupFromComment
-				all = append(all, m)
+	for _, f := range files {
+		ast.Inspect(f, func(n ast.Node) bool {
+			vs, ok := n.(*ast.ValueSpec)
+			if !ok || len(vs.Values) != 1 {
 				return true
-			})
-		}
+			}
+			groupFromComment, labelDocs := parseMarkers(vs)
+			call, ok := vs.Values[0].(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			pkgIdent, ok := sel.X.(*ast.Ident)
+			if !ok || pkgIdent.Name != "prometheus" {
+				return true
+			}
+			fun := sel.Sel.Name
+			if fun != "NewCounterVec" && fun != "NewGaugeVec" && fun != "NewHistogramVec" {
+				return true
+			}
+			if len(call.Args) < 2 {
+				return true
+			}
+			opts, ok := call.Args[0].(*ast.CompositeLit)
+			if !ok {
+				return true
+			}
+			var name, help string
+			for _, elt := range opts.Elts {
+				kv, ok := elt.(*ast.KeyValueExpr)
+				if !ok {
+					continue
+				}
+				var keyName string
+				switch k := kv.Key.(type) {
+				case *ast.Ident:
+					keyName = k.Name
+				case *ast.SelectorExpr:
+					keyName = k.Sel.Name
+				default:
+					keyName = exprToString(kv.Key)
+				}
+				switch keyName {
+				case "Name":
+					name = stringLiteral(kv.Value)
+				case "Help":
+					help = stringLiteral(kv.Value)
+				}
+			}
+			labels := parseLabels(call.Args[1])
+			m := Metric{
+				FullName:  "kueue_" + name,
+				Type:      map[string]string{"NewCounterVec": "Counter", "NewGaugeVec": "Gauge", "NewHistogramVec": "Histogram"}[fun],
+				Help:      normalizeHelp(help),
+				Labels:    labels,
+				LabelDocs: labelDocs,
+			}
+			if groupFromComment == "" {
+				varName := ""
+				if len(vs.Names) > 0 && vs.Names[0] != nil {
+					varName = vs.Names[0].Name
+				}
+				missingGroups = append(missingGroups, varName)
+				return true
+			}
+			m.Group = groupFromComment
+			all = append(all, m)
+			return true
+		})
 	}
 	if len(missingGroups) > 0 {
 		return nil, fmt.Errorf("missing metricsdoc:group marker on metrics: %s", strings.Join(missingGroups, ", "))
