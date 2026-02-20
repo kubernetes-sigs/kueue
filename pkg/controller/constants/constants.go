@@ -59,6 +59,8 @@ const (
 	// in multi-workload jobs (e.g., LeaderWorkerSet replicas).
 	ComponentWorkloadIndexAnnotation = "kueue.x-k8s.io/component-workload-index"
 
-	// PreemptionCostAnnotationKey is the annotation key that indicates the preemption cost for a workload.
-	PreemptionCostAnnotationKey = "kueue.x-k8s.io/preemption-cost"
+	// PriorityBoostAnnotationKey is the annotation key on a Workload that allows
+	// external controllers to adjust a workload's effective priority.
+	// Positive values increase priority; negative values decrease it.
+	PriorityBoostAnnotationKey = "kueue.x-k8s.io/priority-boost"
 )

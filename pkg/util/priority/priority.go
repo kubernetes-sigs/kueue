@@ -38,27 +38,28 @@ func Priority(w *kueue.Workload) int32 {
 	return ptr.Deref(w.Spec.Priority, constants.DefaultPriority)
 }
 
-// PreemptionCost returns preemption cost read from the workload annotation.
+// PriorityBoost returns the priority boost read from the workload annotation.
 // Missing annotation is treated as 0.
-func PreemptionCost(w *kueue.Workload) (int32, error) {
-	value, found := w.Annotations[controllerconstants.PreemptionCostAnnotationKey]
+func PriorityBoost(w *kueue.Workload) (int32, error) {
+	value, found := w.Annotations[controllerconstants.PriorityBoostAnnotationKey]
 	if !found || value == "" {
 		return 0, nil
 	}
-	cost, err := strconv.ParseInt(value, 10, 32)
+	boost, err := strconv.ParseInt(value, 10, 32)
 	if err != nil {
 		return 0, err
 	}
-	return int32(cost), nil
+	return int32(boost), nil
 }
 
-// EffectivePreemptionPriority returns priority adjusted by preemption cost.
-func EffectivePreemptionPriority(w *kueue.Workload) (int32, error) {
-	preemptionCost, err := PreemptionCost(w)
+// EffectivePriority returns priority adjusted by the priority boost annotation.
+// effectivePriority = workload.priority + priorityBoost
+func EffectivePriority(w *kueue.Workload) (int32, error) {
+	boost, err := PriorityBoost(w)
 	if err != nil {
 		return Priority(w), err
 	}
-	return Priority(w) - preemptionCost, nil
+	return Priority(w) + boost, nil
 }
 
 // GetPriorityFromPriorityClass returns the priority populated from

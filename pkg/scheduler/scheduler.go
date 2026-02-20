@@ -737,10 +737,10 @@ func (e entryOrdering) Less(i, j int) bool {
 		return aBorrows < bBorrows
 	}
 
-	// 2. Higher priority first if not disabled.
+	// 2. Higher effective priority first if not disabled.
 	if features.Enabled(features.PrioritySortingWithinCohort) {
-		p1 := priority.Priority(a.Obj)
-		p2 := priority.Priority(b.Obj)
+		p1, _ := priority.EffectivePriority(a.Obj)
+		p2, _ := priority.EffectivePriority(b.Obj)
 		if p1 != p2 {
 			return p1 > p2
 		}

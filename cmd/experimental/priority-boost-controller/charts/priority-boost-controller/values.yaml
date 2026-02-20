@@ -1,0 +1,11 @@
+priorityBoostController:
+  image:
+    repository: us-central1-docker.pkg.dev/k8s-staging-images/kueue/priority-boost-controller
+    tag: main
+    pullPolicy: Always
+  imagePullSecrets: []
+  config:
+    maxBoost: 100000
+
+kueue:
+  enabled: false

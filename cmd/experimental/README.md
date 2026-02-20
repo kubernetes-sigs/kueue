@@ -12,7 +12,7 @@ where they will be maintained long term.
 ### Existing integrations
 
 - `kueue-populator`
-- `preemption-cost-controller`
+- `priority-boost-controller`
 
 ### Adding new integrations
 

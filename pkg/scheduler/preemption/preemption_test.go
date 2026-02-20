@@ -4444,49 +4444,49 @@ func TestCandidatesOrdering(t *testing.T) {
 			},
 			wantCandidates: []workload.Reference{"low", "high"},
 		},
-		"workloads sorted by effective preemption priority": {
+		"workloads sorted by effective priority with boost": {
 			candidates: []workload.Info{
-				*workload.NewInfo(utiltestingapi.MakeWorkload("high-cost", "").
+				*workload.NewInfo(utiltestingapi.MakeWorkload("high-boost", "").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
 					Priority(10).
-					Annotation(controllerconstants.PreemptionCostAnnotationKey, "100").
+					Annotation(controllerconstants.PriorityBoostAnnotationKey, "100").
 					Obj()),
-				*workload.NewInfo(utiltestingapi.MakeWorkload("low-cost", "").
+				*workload.NewInfo(utiltestingapi.MakeWorkload("low-boost", "").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
 					Priority(10).
-					Annotation(controllerconstants.PreemptionCostAnnotationKey, "5").
+					Annotation(controllerconstants.PriorityBoostAnnotationKey, "5").
 					Obj()),
 			},
-			wantCandidates: []workload.Reference{"high-cost", "low-cost"},
+			wantCandidates: []workload.Reference{"low-boost", "high-boost"},
 		},
-		"workload missing preemption cost defaults to zero": {
+		"workload missing priority boost defaults to zero": {
 			candidates: []workload.Info{
-				*workload.NewInfo(utiltestingapi.MakeWorkload("missing-cost", "").
+				*workload.NewInfo(utiltestingapi.MakeWorkload("missing-boost", "").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
 					Priority(10).
 					Obj()),
-				*workload.NewInfo(utiltestingapi.MakeWorkload("has-cost", "").
+				*workload.NewInfo(utiltestingapi.MakeWorkload("has-boost", "").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
 					Priority(10).
-					Annotation(controllerconstants.PreemptionCostAnnotationKey, "5").
+					Annotation(controllerconstants.PriorityBoostAnnotationKey, "5").
 					Obj()),
 			},
-			wantCandidates: []workload.Reference{"has-cost", "missing-cost"},
+			wantCandidates: []workload.Reference{"missing-boost", "has-boost"},
 		},
-		"invalid preemption cost defaults to zero": {
+		"invalid priority boost defaults to zero": {
 			candidates: []workload.Info{
-				*workload.NewInfo(utiltestingapi.MakeWorkload("invalid-cost", "").
+				*workload.NewInfo(utiltestingapi.MakeWorkload("invalid-boost", "").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
 					Priority(10).
-					Annotation(controllerconstants.PreemptionCostAnnotationKey, "invalid").
+					Annotation(controllerconstants.PriorityBoostAnnotationKey, "invalid").
 					Obj()),
-				*workload.NewInfo(utiltestingapi.MakeWorkload("valid-cost", "").
+				*workload.NewInfo(utiltestingapi.MakeWorkload("valid-boost", "").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
 					Priority(10).
-					Annotation(controllerconstants.PreemptionCostAnnotationKey, "5").
+					Annotation(controllerconstants.PriorityBoostAnnotationKey, "5").
 					Obj()),
 			},
-			wantCandidates: []workload.Reference{"valid-cost", "invalid-cost"},
+			wantCandidates: []workload.Reference{"invalid-boost", "valid-boost"},
 		},
 		"evicted workload first": {
 			candidates: []workload.Info{

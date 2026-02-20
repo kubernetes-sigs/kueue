@@ -158,18 +158,19 @@ Used on: [Plain Pods](/docs/tasks/run/plain_pods/).
 
 The annotation key is used to indicate the integration name of the Pod owner.
 
-### kueue.x-k8s.io/preemption-cost
+### kueue.x-k8s.io/priority-boost
 
 Type: Annotation
 
-Example: `kueue.x-k8s.io/preemption-cost: "250"`
+Example: `kueue.x-k8s.io/priority-boost: "10"`
 
-Used on: [batch/Job](/docs/tasks/run/jobs/) and [Workload](/docs/concepts/workload/).
+Used on: [Workload](/docs/concepts/workload/).
 
-该注解是一个可选的无单位分值，值越高表示该工作负载被抢占的代价越高。
-在抢占候选排序中，Kueue 使用有效抢占优先级：
-`workloadPriority - preemptionCost`。
-当该注解设置在 Job 上时，Kueue 会将其复制到对应的 Workload。
+可选的有符号整数注解，用于调整工作负载的有效优先级：
+`effectivePriority = workloadPriority + priorityBoost`。
+正值提高优先级，负值降低优先级。
+有效优先级同时用于调度排序和抢占候选排序。
+此注解由外部控制器直接设置在 Workload 上（不从 Job 传播）。
 如果值缺失或非法，会按 `0` 处理。
 
 
