@@ -776,15 +776,11 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 		attemptedFlavorIdx = idx
 		fName := resourceGroup.Flavors[idx]
 
-		flavorStatus := NewStatus()
-
-		if fit, err := a.checkFlavorForPodSets(log, fName, psIDs, podSets, selectors, flavorStatus); !fit {
-			if flavorStatus != nil {
-				status.reasons = append(status.reasons, flavorStatus.reasons...)
-			}
+		if flavorStatus := a.checkFlavorForPodSets(log, fName, psIDs, podSets, selectors); !flavorStatus.IsFit() {
+			status.reasons = append(status.reasons, flavorStatus.reasons...)
 			consideredFlavors.AddNoFitFlavorAttempt(fName, flavorStatus)
-			if err != nil {
-				status.err = err
+			if flavorStatus.err != nil {
+				status.err = flavorStatus.err
 				return nil, status, consideredFlavors
 			}
 			continue
@@ -887,13 +883,14 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 	psIDs []int,
 	podSets []*kueue.PodSet,
 	selectors []nodeaffinity.RequiredNodeAffinity,
-	status *Status,
-) (bool, error) {
+) *Status {
+	status := NewStatus()
+
 	flavor, exist := a.resourceFlavors[flavorName]
 	if !exist {
 		log.Error(nil, "Flavor not found", "Flavor", flavorName)
 		status.appendf("flavor %s not found", flavorName)
-		return false, nil
+		return status
 	}
 
 	for psIdx, psID := range psIDs {
@@ -902,7 +899,7 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 			if message := checkPodSetAndFlavorMatchForTAS(a.cq, ps, flavor); message != nil {
 				log.Error(nil, *message)
 				status.appendf("%s", *message)
-				return false, nil
+				return status
 			}
 		}
 		podSpec := podSets[psIdx].Template.Spec
@@ -911,19 +908,19 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 		}, true)
 		if untolerated {
 			status.appendf("untolerated taint %s in flavor %s", taint, flavorName)
-			return false, nil
+			return status
 		}
 		selector := selectors[psIdx]
 		if match, err := selector.Match(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Labels: flavor.Spec.NodeLabels}}); !match || err != nil {
 			if err != nil {
 				status.err = err
-				return false, err
+				return status
 			}
 			status.appendf("flavor %s doesn't match node affinity", flavorName)
-			return false, nil
+			return status
 		}
 	}
-	return true, nil
+	return status
 }
 
 func shouldTryNextFlavor(representativeMode granularMode, flavorFungibility kueue.FlavorFungibility) bool {
