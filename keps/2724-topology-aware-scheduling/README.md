@@ -281,12 +281,12 @@ spec:
     metadata:
       annotations:
         kueue.x-k8s.io/podset-required-topology: cloud.provider.com/datacenter
-        kueue.x-k8s.io/podset-slice-size: "64"
-        kueue.x-k8s.io/podset-slice-required-topology: cloud.provider.com/aizone
-        kueue.x-k8s.io/podset-slice-size-1: "32"
-        kueue.x-k8s.io/podset-slice-required-topology-1: cloud.provider.com/block
-        kueue.x-k8s.io/podset-slice-size-2: "16"
-        kueue.x-k8s.io/podset-slice-required-topology-2: cloud.provider.com/rack
+        kueue.x-k8s.io/podset-slice-required-topology-constraints: |
+          [
+            {"topology": "cloud.provider.com/aizone", "size": "64"},
+            {"topology": "cloud.provider.com/block", "size": "32"},
+            {"topology": "cloud.provider.com/rack", "size": "16"},
+          ]
     spec:
       containers:
       - name: worker
@@ -879,25 +879,16 @@ const (
   // is defined
   PodSetSliceSizeAnnotation = "kueue.x-k8s.io/podset-slice-size"
 
-  // PodSetSliceRequiredTopologyAnnotation1 indicates the topology level required
-  // by the second slice layer (first additional layer). Each group from the
-  // parent slice layer is further subdivided into groups of size
-  // PodSetSliceSizeAnnotation1, each constrained to the indicated topology domain.
-  PodSetSliceRequiredTopologyAnnotation1 = "kueue.x-k8s.io/podset-slice-required-topology-1"
-
-  // PodSetSliceSizeAnnotation1 describes the requested size of the second
-  // slice layer (first additional layer).
-  PodSetSliceSizeAnnotation1 = "kueue.x-k8s.io/podset-slice-size-1"
-
-  // PodSetSliceRequiredTopologyAnnotation2 indicates the topology level required
-  // by the third slice layer (second additional layer). Each group from the
-  // parent slice layer is further subdivided into groups of size
-  // PodSetSliceSizeAnnotation2, each constrained to the indicated topology domain.
-  PodSetSliceRequiredTopologyAnnotation2 = "kueue.x-k8s.io/podset-slice-required-topology-2"
-
-  // PodSetSliceSizeAnnotation2 describes the requested size of the third
-  // slice layer (second additional layer).
-  PodSetSliceSizeAnnotation2 = "kueue.x-k8s.io/podset-slice-size-2"
+  // PodSetSliceRequiredTopologyConstraints defines a JSON-style, multi-layer topology constraints
+  // in the format of:
+  // kueue.x-k8s.io/podset-slice-required-topology-constraints: |
+  // [
+  //   {"topology": "cloud.provider.com/aizone", "size": "64"},
+  //   {"topology": "cloud.provider.com/block", "size": "32"},
+  //   {"topology": "cloud.provider.com/rack", "size": "16"}
+  // ]
+  // This is an extension of existing PodSetSliceRequiredTopologyAnnotation to support multi-layer topology constraints.
+  PodSetSliceRequiredTopologyConstraints = "kueue.x-k8s.io/podset-slice-required-topology-constraints"
 )
 ```
 
@@ -927,15 +918,14 @@ the rules is deactivated):
 - if `kueue.x-k8s.io/podset-slice-required-topology` is specified then
   `kueue.x-k8s.io/podset-slice-size` is also required (unless the Workload type
   specified its own default. See [Slice size validation](#slice-size-validation))
-- The value of `kueue.x-k8s.io/podset-slice-size` has to be a numeric value greater or equal
+- the value of `kueue.x-k8s.io/podset-slice-size` has to be a numeric value greater or equal
   than 1. It has to evenly divide the size of a PodSet.
-- The above 2 `podset-slice-*` rules apply to additional slice layers (`kueue.x-k8s.io/podset-slice-required-topology-[X]`)
-  as well. `[X]` can be up to `2`.
-- The value of `kueue.x-k8s.io/podset-slice-size-[X]` must evenly divide the
-  slice size of the parent layer (i.e., `podset-slice-size` for the first
-  additional layer, or the preceding `podset-slice-size-[X-1]` for subsequent layers).
-- Additional slice layers must be specified in order of increasing topology depth.
-- If `kueue.x-k8s.io/podset-group-name` is specified, the `kueue.x-k8s.io/podset-required-topology`
+- multi-layer topology constraints (`kueue.x-k8s.io/podset-slice-required-topology-constraints`):
+  - it has to be exclusively used with `kueue.x-k8s.io/podset-slice-required-topology` and `kueue.x-k8s.io/podset-slice-size`
+  - it must be ordered from coarsest to finest
+  - each layer's size must be evenly divisible by the size of the layer immediately below it
+  - the number of layers must be less than or equal to the number of levels in the topology
+- if `kueue.x-k8s.io/podset-group-name` is specified, the `kueue.x-k8s.io/podset-required-topology`
   or `kueue.x-k8s.io/podset-preferred-topology` has to also be specified in all other
   PodTemplates included in the PodSet Group and it has to have the same value.
 
@@ -950,9 +940,9 @@ However, in case of the JobSet we expect that the most frequent use-case will be
 define PodSet Slice as a single Job, thus if `kueue.x-k8s.io/podset-slice-size`
 is not defined for JobSet it defaults to `parallelism`.
 
-For additional slice layers `kueue.x-k8s.io/podset-slice-required-topology-[X]`, its
-corresponding `kueue.x-k8s.io/podset-slice-size-[X]` is required. No defaulting logic
-is applied here even for JobSet.
+For `kueue.x-k8s.io/podset-slice-required-topology-constraints`, each entry in the
+JSON array must specify both `topology` and `size`. No defaulting logic is applied
+here even for JobSet.
 
 ### Internal APIs
 
@@ -1025,28 +1015,32 @@ type PodSetTopologyRequest struct {
   // +optional
   PodSetSliceSize *int32 `json:"podSetSliceSize,omitempty"`
 
-  // additionalSliceLayers defines additional layers of recursive slice
-  // subdivision beyond the first slice layer (podSetSliceRequiredTopology /
-  // podSetSliceSize). Each layer further subdivides the parent layer's
-  // groups into smaller groups constrained to a finer topology domain.
-  // At most 2 additional layers are supported (for a total of 3 slice layers).
+  // podsetSliceRequiredTopologyConstraints holds the parsed content of the
+  // `kueue.x-k8s.io/podset-slice-required-topology-constraints` annotation.
+  // It defines multi-layer topology constraints as a flat list ordered from
+  // coarsest to finest. Each entry specifies a topology level and the
+  // required group size at that level.
+  //
+  // This field is mutually exclusive with podSetSliceRequiredTopology /
+  // podSetSliceSize, which are used for two-level scheduling.
   //
   // +optional
   // +listType=atomic
-  // +kubebuilder:validation:MaxItems=2
-  AdditionalSliceLayers []SliceLayer `json:"additionalSliceLayers,omitempty"`
+  // +kubebuilder:validation:MaxItems=3
+  PodsetSliceRequiredTopologyConstraints []PodsetSliceRequiredTopologyConstraint `json:"podsetSliceRequiredTopologyConstraints,omitempty"`
 }
 
-// SliceLayer defines a single additional slice subdivision layer.
-type SliceLayer struct {
-  // topology indicates the topology level required for this slice layer.
+// PodsetSliceRequiredTopologyConstraint defines a single layer in a
+// multi-layer topology constraint.
+type PodsetSliceRequiredTopologyConstraint struct {
+  // topology indicates the topology level required for this constraint layer.
   //
   // +required
   // +kubebuilder:validation:MinLength=1
   // +kubebuilder:validation:MaxLength=63
   Topology string `json:"topology"`
 
-  // size indicates the number of pods in each group at this slice layer.
+  // size indicates the number of pods in each group at this constraint layer.
   //
   // +required
   // +kubebuilder:validation:Minimum=1
@@ -1590,11 +1584,11 @@ It is worth noting that the tight fit mentioned above does not guarantee that no
 > kept separate from two-level scheduling. In a future iteration, we plan to
 > unify them behind a single internal data structure.
 
-In consideration of [Story 8](#story-8), multi-level scheduling extends two-level
+In consideration of [Story 9](#story-9), multi-level scheduling extends two-level
 scheduling to support more than two levels of topology constraints (e.g.,
-datacenter → block → rack → host). Up to 2 additional slice layers
-(`AdditionalSliceLayers`) can be specified beyond the first slice layer, for a
-total of 3 slice layers. Each additional layer must reference a topology level
+datacenter → block → rack → host). Up to 3 constraint layers
+(`PodsetSliceRequiredTopologyConstraints`) can be specified, each defining a
+topology level and group size. Each layer must reference a topology level
 strictly lower (deeper) than the previous layer, and its size must evenly divide
 the parent layer's size. This feature is gated by `TASMultiLayerTopology`
 (alpha, disabled by default since v0.17).
@@ -1607,7 +1601,7 @@ distribute pods in correctly-sized groups rather than individually. Before
 assigning groups at a given inner level, the algorithm recomputes `sliceState`
 on the child domains as `state / innerSliceSize`, since the `sliceState`
 populated during phase 1 reflects only the outermost slice size. The same
-sorting and selection logic (BestFit / LeastFreeCapacity) is applied at each
+sorting and selection logic (BestFit / BalancedPlacement) is applied at each
 level.
 
 #### Example
