@@ -27,10 +27,10 @@ RUN npm install --omit=dev
 
 # Copy only the built files from builder
 COPY --from=builder /app/build ./build
-COPY start.sh /app/start.sh
-RUN chmod +x /app/start.sh
 
 EXPOSE 8080
 
-# Use the start script
-ENTRYPOINT ["/app/start.sh"]
+# Serve the built files directly.
+# env.js is expected to be mounted via ConfigMap at /app/build/env.js
+# when running in Kubernetes.
+ENTRYPOINT ["npx", "serve", "-s", "build", "-l", "tcp://0.0.0.0:8080"]
