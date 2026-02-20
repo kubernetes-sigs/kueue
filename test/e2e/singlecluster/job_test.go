@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
@@ -274,6 +275,20 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
+			ginkgo.By("Verify pods have queue labels assigned", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var pods corev1.PodList
+					g.Expect(k8sClient.List(ctx, &pods, client.InNamespace(ns.Name), client.MatchingLabels{
+						"job-name": sampleJob.Name,
+					})).To(gomega.Succeed())
+					g.Expect(pods.Items).ToNot(gomega.BeEmpty())
+					for _, pod := range pods.Items {
+						g.Expect(pod.Labels[kueueconstants.ClusterQueueLabel]).To(gomega.Equal(clusterQueue.Name))
+						g.Expect(pod.Labels[kueueconstants.LocalQueueLabel]).To(gomega.Equal(localQueue.Name))
+					}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
 			ginkgo.By("Delete all pods", func() {
 				gomega.Expect(util.DeleteAllPodsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 			})
@@ -437,6 +452,20 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 				util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, jobKey, map[string]string{
 					"instance-type": "on-demand",
 				})
+			})
+
+			ginkgo.By("Verify pods have queue labels assigned", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var pods corev1.PodList
+					g.Expect(k8sClient.List(ctx, &pods, client.InNamespace(ns.Name), client.MatchingLabels{
+						"job-name": sampleJob.Name,
+					})).To(gomega.Succeed())
+					g.Expect(pods.Items).ToNot(gomega.BeEmpty())
+					for _, pod := range pods.Items {
+						g.Expect(pod.Labels[kueueconstants.ClusterQueueLabel]).To(gomega.Equal(clusterQueue.Name))
+						g.Expect(pod.Labels[kueueconstants.LocalQueueLabel]).To(gomega.Equal(localQueue.Name))
+					}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Verify priority label is immutable when running", func() {
