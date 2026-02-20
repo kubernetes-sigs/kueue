@@ -51,8 +51,8 @@ Options:
                                         to avoid too many calls to conversion webhooks when the API server lists workloads from etcd.
                                         On large deployments listing all workloads and going through conversion may cause timeouts for API
                                         server when communicating with etcd.
-  --downgrade                           Using if you want to downgrade Kueue resources to v1beta1.
-                                        Note: To downgrade your version of Kueue must be v0.15.x.
+  --downgrade                           Use to downgrade Kueue resources to v1beta1.
+                                        Note: Requires Kueue v0.15.x.
   --patch-type=[PATCH_TYPE]             Specify the patch type ('annotate' or 'apiVersion').
                                         Default: annotate
                                         Note: 'apiVersion' is not supported for downgrade.
