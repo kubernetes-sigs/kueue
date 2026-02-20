@@ -34,7 +34,6 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Story 7: Workload with multiple PodSets](#story-7-workload-with-multiple-podsets)
 - [Design Details](#design-details)
   - [ClusterQueue API](#clusterqueue-api)
-    - [OnSuccess Policies](#onsuccess-policies)
   - [Workload API](#workload-api)
     - [Naming Convention](#naming-convention)
     - [Workload Spec](#workload-spec)
@@ -49,7 +48,7 @@ tags, and then generate with `hack/update-toc.sh`.
   - [Reserving Quota for the same Workload twice](#reserving-quota-for-the-same-workload-twice)
   - [Multiple Preemptions](#multiple-preemptions)
   - [Ordering Variants](#ordering-variants)
-  - [Notes/Constraints/Caveats (Variantal)](#notesconstraintscaveats-variantal)
+  - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
     - [StrictFIFO](#strictfifo)
   - [Risks and Mitigations](#risks-and-mitigations)
   - [FlavorFungibility Misinterpretation](#flavorfungibility-misinterpretation)
@@ -104,13 +103,13 @@ The current single-flavor evaluation leads to several inefficiencies:
 - Sequential bottlenecks: Users cannot pursue multiple flavors (which often include long-running AdmissionChecks) in parallel to find placement as quickly as possible.
 
 The feature is intended for environments where gains from the accuracy of scheduling decision (potential migration) outweighs
-the some throughput degradation. This is also intended for Jobs that can tolerate disruption, since migration involves
+the throughput degradation. This is also intended for Jobs that can tolerate disruption, since migration involves
 recreating Pods on more preferable Nodes.
 
 <!--
 This section is for explicitly listing the motivation, goals, and non-goals of
 this KEP.  Describe why the change is important and the benefits to users. The
-motivation section can variantally provide links to [experience reports] to
+motivation section can optionally provide links to [experience reports] to
 demonstrate the interest in a KEP within the wider Kubernetes community.
 
 [experience reports]: https://github.com/golang/go/wiki/ExperienceReports
@@ -156,7 +155,7 @@ We propose a new opt-in feature called Concurrent Admission.
 
 This proposal introduces two new logical categories of Workloads that coexist with existing "regular" Workloads
 1) Parent Workload: Acts as an owner and status aggregator for its associated Variants. It is explicitly excluded from Kueue's core scheduling logic.
-2) Variant Workload: A cloned view of the Parent Workload with specific scheduling constraints. Most notably, an Variant is restricted to a subset of ResourceFlavors.
+2) Variant Workload: A cloned view of the Parent Workload with specific scheduling constraints. Most notably, a Variant is restricted to a subset of ResourceFlavors.
 
 ### Architecture & Cardinality
 The relationship between a Parent and its Variants follows a parent–child model with 1:N cardinality (where $N \ge 1$). While the number of Variants is typically determined by the variety of PodSets and ClusterQueue ResourceFlavors, each remains a distinct Kubernetes object persisted in etcd.
@@ -164,7 +163,7 @@ The relationship between a Parent and its Variants follows a parent–child mode
 ![Workload Diagram](variants.svg)
 
 ### Scheduling & Lifecycle
-An Variant Workload functions near-identically to a "regular" Workload regarding quota accounting, preemption, and core scheduling features.
+A Variant Workload functions near-identically to a "regular" Workload regarding quota accounting, preemption, and core scheduling features.
 
 At any given point in time, only one Variant per Parent may be admitted by Kueue.
 
@@ -178,15 +177,15 @@ All of them are separate k8s objects stored in etcd.
 
 A parent Workload is excluded from the scheduling logic in Kueue. It acts as a owner and status aggregator of Variants.
 
-An Variant Workload is a cloned view of its Parent with some additional scheduling constraints,
+A Variant Workload is a cloned view of its Parent with some additional scheduling constraints,
 in particular it can be scheduled on a limited number of ResourceFlavors.
 
-Apart from that an Variants Workload acts almost identically as a "regular" Workload regarding scheduling, quota accounting and other core features.
+Apart from that a Variants Workload acts almost identically as a "regular" Workload regarding scheduling, quota accounting and other core features.
 
 At any given point in time, only one Variant can be admitted by Kueue.
 
 To accommodate the above proposal we introduce a new controller, and extend the ClusterQueue API with a new `.spec` level field.
-An Variant can get activated/deactivated based on the new API, more about its lifecycle below.
+A Variant can get activated/deactivated based on the new API, more about its lifecycle below.
 
 
 
@@ -207,12 +206,9 @@ As an admin I have three resource flavors in my cluster:
 2) Less preferable: On-Demand
 3) Least preferable: Spot
 
-I want my workloads to start as soon as possible, on whatever flavor. However if more preferable flavor releases some quota, I want to migrate to that flavor.
+I want my workloads to start as soon as possible, on whatever flavor. However, if a more preferable flavor releases some quota, I want to migrate to that flavor.
 
-e.g. Workload is running on Spot, but after 1h On-Demand quota is released so I want to use it instead.
-e.g. Workload is running on On-Demand, but after 1h Reservation quota is released so I want to use it instead.
-
-To achieve that, I configure my ClusterQueue to use the Concurrent Admission feature, with `UpgradeAboveCurrent` policy (details below).
+To achieve that, I configure my ClusterQueue to use the UpgradeOnly mode.
 
 ```
 apiVersion: kueue.x-k8s.io/v1beta2
@@ -222,7 +218,8 @@ metadata:
 spec:
   ...
   concurrentAdmission:
-    onSuccess: UpgradeAboveCurrent
+    migrationConstraints:
+      mode: UpgradeOnly
 ```
 
 #### Story 2: Upgrade only to Reservation
@@ -231,14 +228,9 @@ As an admin I have three resource flavors in my cluster:
 2) Less preferable: On-Demand
 3) Least preferable: Spot
 
-I want my workloads to start as soon as possible, on whatever flavor. However if more Reservation releases some quota, I want to migrate to it.
+I want my workloads to start as soon as possible, on whatever flavor. However, I only want to incur the cost of migration if it means landing on the "Reservation" flavor.
 
-e.g. Workload is running on Spot, but after 1h On-Demand quota is released. I don't want to migrate to that flavor because the cost of migration surpasses
-the possible gain of migration.
-
-e.g. Workload is running on On-Demand, but after 1h Reservation quota is released so I want to use it instead.
-
-To achieve that, I configure my ClusterQueue to use the Concurrent Admission feature, with `UpgradeAboveTarget: On-Demand` policy (details below).
+To achieve that, I set the minFlavor to "reservation". This ensures that a workload on "Spot" will not migrate to "On-Demand," only to "Reservation."
 
 ```
 apiVersion: kueue.x-k8s.io/v1beta2
@@ -248,9 +240,9 @@ metadata:
 spec:
   ...
   concurrentAdmission:
-    onSuccess: UpgradeAboveTarget
-    upgradeAboveTargetConfig:
-      targetResourceFlavor: "on-demand"
+    migrationConstraints:
+      mode: UpgradeOnly
+      minFlavor: "reservation"
 ```
 
 #### Story 3: Reservation + Homogenous Flavors
@@ -260,13 +252,9 @@ As an admin I have four resource flavors in my cluster:
 2b) Homogenous, less preferable flavor with a long-running AdmissionCheck
 2c) Homogenous, less preferable flavor with a long-running AdmissionCheck
 
-I want my workloads to start as soon as possible, on whatever flavor. However if more Reservation releases some quota, I want to migrate to it. I don't want to migrate between homogenous 2a/2b/2c flavors
+I want my workloads to start as soon as possible. I want to migrate to "Reservation" if it becomes available, but I don't want to migrate between the homogeneous 2a/2b/2c flavors.
 
-e.g. Workload is running on the 2b flavor, but after 1h 2a flavor quota is released. I don't want to migrate to that flavor because they are homogenous
-
-e.g. Workload is running on the 2b flavor, but after 1h Reservation quota is released so I want to use it instead.
-
-To achieve that, I configure my ClusterQueue to use the Concurrent Admission feature, with `UpgradeAboveTarget: 2a` policy (details below).
+By setting the minFlavor to "reservation", Kueue will ignore available capacity in 2a if the workload is already running on 2b.
 
 ```
 apiVersion: kueue.x-k8s.io/v1beta2
@@ -276,15 +264,15 @@ metadata:
 spec:
   ...
   concurrentAdmission:
-    onSuccess: UpgradeAboveTarget
-    upgradeAboveTargetConfig:
-      targetResourceFlavor: "2a"
+    migrationConstraints:
+      mode: UpgradeOnly
+      minFlavor: reservation
 ```
 
 #### Story 4: Homogenous Flavors only
 As an admin, I have three homogeneous resource flavors (1a, 1b, 1c). I want my workloads to start as soon as possible on any flavor and stop pursuing other variants once the job is accommodated.
 
-To achieve that, I configure my ClusterQueue to use the Concurrent Admission feature, with `NoUpgrade` policy (details below).
+To achieve that, I use the `NoMigration` mode.
 
 ```
 apiVersion: kueue.x-k8s.io/v1beta2
@@ -294,7 +282,8 @@ metadata:
 spec:
   ...
   concurrentAdmission:
-    onSuccess: NoUpgrade
+    migrationConstraints:
+      mode: NoMigration
 ```
 
 #### Story 5: Delaying Variant creation
@@ -302,9 +291,9 @@ As an admin I have two resource flavors in my cluster:
 1) Most preferable: Reservation
 2) Less preferable: On-Demand
 
-I want my workloads to attempt scheduling on 'Reservation' only for the first 2 hours. If they are not admitted, I want to try 'Reservation' and 'On-Demand' simultaneously.
+I want to attempt scheduling on "Reservation" exclusively for the first 2 hours before allowing the "On-Demand" variant to activate.
 
-To achieve that, I configure my ClusterQueue to use the Concurrent Admission with `ExplicitVariants` policy, where I set `CreateDelaySeconds=7200` for the On-Demand variant (details below).
+To achieve this, I use explicitVariants and set createDelaySeconds for the On-Demand variant.
 
 ```
 apiVersion: kueue.x-k8s.io/v1beta2
@@ -314,7 +303,8 @@ metadata:
 spec:
   ...
   concurrentAdmission:
-    onSuccess: UpgradeAboveCurrent
+    migrationConstraints:
+      mode: UpgradeOnly
     explicitVariants:
       - name: "reservation"
         allowedResourceFlavors: ["Reservation"]
@@ -328,10 +318,9 @@ As an admin I have two resource flavors in my CQ:
 1) Most preferable: Reservation
 2) Less preferable: On-Demand
 
-I know at some point I'm going to run a long-running Workload with high migration cost. I want to avoid migration near its completion
-and hence I want to constraint it to happen only within the first day.
+I want to avoid migrating a long-running workload if it is nearing completion. I want to constrain the migration window to the first 24 hours (86,400 seconds) of the workload's lifecycle.
 
-To achieve that, I configure my ClusterQueue to use the Concurrent Admission with `ExplicitVariants` policy, where I set `DeleteDelaySeconds=86400` for the Reservation variant (details below).
+To achieve this, I set deleteDelaySeconds on the more preferred variant. After this time passes, the "Reservation" variant is deactivated, preventing any further upgrades.
 
 ```
 apiVersion: kueue.x-k8s.io/v1beta2
@@ -341,13 +330,14 @@ metadata:
 spec:
   ...
   concurrentAdmission:
-    onSuccess: UpgradeAboveCurrent
+    migrationConstraints:
+      mode: UpgradeOnly
     explicitVariants:
       - name: "reservation"
         allowedResourceFlavors: ["Reservation"]
+        deleteDelaySeconds: 86400
       - name: "on-demand"
         allowedResourceFlavors: ["On-Demand"]
-        deleteDelaySeconds: 86400
 ```
 
 #### Story 7: Workload with multiple PodSets
@@ -359,12 +349,7 @@ GPU:
 CPU:
 1) Default-CPU
 
-My workload consists of 2 PodSets, one requesting GPUs and one requesting CPUs only.
-I want my workloads to start as soon as possible, on whatever GPU flavor. However if the Reservation flavor releases some quota, I want to migrate to that flavor.
-
-To achieve that, I configure my ClusterQueue to use the Concurrent Admission with `ExplicitVariants` policy.
-I create a configuration for the Reservation Variant with `AllowedResourceFlavors=["Reservation, Default-CPU"]`
-and for the On-Demand Variant with `AllowedResourceFlavors=["On-Demand", "Default-CPU"]`.
+I want to allow upgrades for the GPU portion while keeping the CPU flavor constant across variants.
 
 ```
 apiVersion: kueue.x-k8s.io/v1beta2
@@ -374,12 +359,13 @@ metadata:
 spec:
   ...
   concurrentAdmission:
-    onSuccess: UpgradeAboveCurrent
+    migrationConstraints:
+      mode: UpgradeOnly
     explicitVariants:
-      - name: "reservation"
-        allowedResourceFlavors: ["Reservation, Default-CPU"]
-      - name: "on-demand"
-        allowedResourceFlavors: ["On-Demand, Default-CPU"]
+      - name: "reservation-flavor"
+        allowedResourceFlavors: ["Reservation", "Default-CPU"]
+      - name: "on-demand-flavor"
+        allowedResourceFlavors: ["On-Demand", "Default-CPU"]
 ```
 
 <!--
@@ -402,40 +388,58 @@ The ClusterQueue is extended to define the policy for concurrent attempts. This 
 ```
 type ClusterQueueSpec struct {
     ...
-    // +variantal
+    // +optional
     ConcurrentAdmission *ConcurrentAdmission
 }
 
-type OnSuccessPolicy string
-
-const (
-    // Stop all other attempts - no workload placement upgrade performed.
-    NoUpgrade OnSuccessPolicy = "NoUpgrade"
-
-    // Stop all attempts below the used RF - upgrade to higher RF possible.
-    UpgradeAboveCurrent OnSuccessPolicy = "UpgradeAboveCurrent"
-
-    // Stop all attempts below a defined target RF.
-    UpgradeAboveTarget OnSuccessPolicy = "UpgradeAboveTarget"
-)
-
 type ConcurrentAdmission struct {
-    // OnSuccess defines the policy applied when one of the variants is admitted.
+    // MigrationConstraints defines the constraints of Variants' migration
     //
     // +required
-    OnSuccess OnSuccessPolicy
+    MigrationConstraints ConcurrentAdmissionMigrationConstraints
+
 
     // ExplicitVariants allows for fine-grained control over which variants are created.
-    // If not specified, Kueue creates an variant for each RF mentioned in the CQ.
+    // If not specified, Kueue creates a variant for each RF mentioned in the CQ.
     //
-    // +variantal
+    // +optional
     // +kubebuilder:validation:MaxItems=16
     ExplicitVariants []ConcurrentAdmissionExplicitVariant
+}
 
-    // UpgradeAboveTargetConfig provides configuration for the UpgradeAboveTarget policy.
+type ConcurrentAdmissionMigrationMode string
+
+const (
+    // Do not allow any kind of migration
+    NoMigration ConcurrentAdmissionMigrationMode = "NoMigration"
+
+    // Allow upgrades
+    UpgradeOnly ConcurrentAdmissionMigrationMode = "UpgradeOnly"
+)
+
+type ConcurrentAdmissionMigrationConstraints struct {
+    // Mode defines the mode of Workload's migration.
     //
-    // +variantal
-    UpgradeAboveTargetConfig *ConcurrentAdmissionUpgradeAboveTargetConfig
+    // +required
+    Mode ConcurrentAdmissionMigrationMode
+
+    // MinFlavor defines the minimal flavor a Workload can migrate to.
+    // The order is based on the order of flavors in ClusterQueue.
+    // It can only be used if the Mode is `UpgradeOnly` and `ExplicitVariants` is not specified.
+    // It the Mode is `UpgradeOnly` and MinFlavor is not specified, then there's
+    // no constraints on what flavors a Workload can migrate to.
+    //
+    // +optional
+    MinFlavor *ResourceFlavorReference
+
+    // MinVariant defines the minimal Variant a Workload can migrate to.
+    // The order is based on the order of variant in `ExplicitVariants`.
+    // It can only be used if the Mode is `UpgradeOnly` and `ExplicitVariants` is specified.
+    // It the Mode is `UpgradeOnly` and MinVariant is not specified, then there's
+    // no constraints on what Variant a Workload can migrate to.
+    //
+    // +optional
+    MinVariant *string
 }
 
 type ConcurrentAdmissionExplicitVariant struct {
@@ -447,14 +451,14 @@ type ConcurrentAdmissionExplicitVariant struct {
     // CreateDelaySeconds defines how long after Workload creation this Variant is activated.
     // Allows prioritizing a preferred RF before falling back to others.
     //
-    // +variantal
+    // +optional
     CreateDelaySeconds *int32
 
     // DeleteDelaySeconds defines how long after admission of other Variants,
     // this Variant should be deactivated.
     // Allows disallowing migration after certain amount of time
     //
-    // +variantal
+    // +optional
     DeleteDelaySeconds *int32
 
     // AllowedResourceFlavors limits which flavors can be assigned to PodSets for this variant.
@@ -462,39 +466,11 @@ type ConcurrentAdmissionExplicitVariant struct {
     // +required
     AllowedResourceFlavors []ResourceFlavorReference
 }
-
-// UpgradeAboveTargetConfig defines the boundary for the UpgradeAboveTarget policy.
-// Only one of `TargetResourceFlavor` or `TargetVariant` should be set.
-//
-// +variantal
-type UpgradeAboveTargetConfig struct {
-    // TargetResourceFlavor defines the boundary for the UpgradeAboveTarget policy, based on a specific ResourceFlavor.
-    // It is used when default, RF-based Variants are created.
-    //
-    // +variantal
-    TargetResourceFlavor *ResourceFlavorReference
-
-    // TargetVariant defines the boundary for the UpgradeAboveTarget policy, based on a specific Variant.
-    // It is used when explicit Variants are created.
-    //
-    // +variantal
-    TargetVariant *string
-}
 ```
-
-#### OnSuccess Policies
-
-The `OnSuccess` field determines how Kueue manages sibling Variants once a specific Variant has been admitted.
-
-| Policy                  | Behavior                                                                        | Use Case                                                                                                                                                                                            |
-| :---------------------- | :------------------------------------------------------------------------------ | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **`NoUpgrade`**       | Stops all other attempts immediately once any Variant is admitted.               | Ideal for homogeneous flavors where any placement is equally good and no "upgrade" migration is desired.                                                                                            |
-| **`UpgradeAboveCurrent`**       | Stops attempts for flavors ranked lower than the admitted one.                  | Enables "upgrading" to a more preferred flavor if it becomes available after the workload has started on a lower-tier flavor.                                                                       |
-| **`UpgradeAboveTarget`** | Stops attempts for flavors ranked lower than a specific `TargetResourceFlavor`. | Supports selective upgrades; for example, migrating only if a "Reservation" flavor becomes available, but ignoring transitions between "Spot" and "On-Demand, or when some flavors are homogenous." |
 
 ### Workload API
 
-An Variant Workload references its Parent in the `metadata.ownerReferences` field.
+A Variant Workload references its Parent in the `metadata.ownerReferences` field.
 Besides that a Parent Workload has the `kueue.x-k8s.io/parent-variant` annotation to distinguish it from
 "regular" Workloads, in a cluster.
 
@@ -530,7 +506,7 @@ type WorkloadSpec struct {
     // AdmissionConstraints describes the constraints Kueue scheduling algorithm takes into account
     // when reserving quota for a Workload.
     //
-    // +variantal
+    // +optional
     AdmissionConstraints *AdmissionConstraints
 }
 
@@ -539,7 +515,7 @@ type AdmissionConstraints struct {
 
 	// If set, only RF from this list can be assigned to this Workload.
   //
-  // +variantal
+  // +optional
   AllowedResourceFlavors []ResourceFlavorReference
 }
 
@@ -547,7 +523,7 @@ type AdmissionConstraints struct {
 
 #### Workload Status
 
-To ensure the user can easily check which attempts are still active, the WorkloadStatus is extended to include an Variants list.
+To ensure the user can easily check which attempts are still active, the WorkloadStatus is extended to include a Variants list.
 This provides a central view of all virtual workloads without needing to query for child objects manually.
 
 For more detailed scheduling stats a user can check a particular Variant Workload.
@@ -566,7 +542,7 @@ type WorkloadVariantStatus struct {
     // selected Conditions present in Variant, to inherit information about
     // its state e.g. whether it's pending or admitted.
     //
-    // +variantal
+    // +optional
     // +listType=map
     // +listMapKey=type
     Conditions []metav1.Condition 
@@ -590,7 +566,7 @@ It happens in a standalone asynchronous reconciliation loop right after the Pare
 
 The controller doesn't evaluate ResourceFlavors on its own, in particular it doesn't check if a Variant
 can be ever admitted with the ResourceFlavor assigned. It defers all scheduling decision to the scheduler.
-It in the cluster admin's responsibilities to configure ResourceFlavors and ConcurrentAdmission API in a way to prevent creation of Variants that can never schedule.
+It is the cluster admin's responsibilities to configure ResourceFlavors and ConcurrentAdmission API in a way to prevent creation of Variants that can never schedule.
 
 The controller also reacts on changes both in CQ's `ExplicitVariants` and ResourceFlavor list creating and deleting Variants accordingly.
 
@@ -601,12 +577,11 @@ for the top-level jobs. Once any of the Variants is admitted, the Parent is also
 Once any of the Variants is evicted it should suspend the job.
 
 #### Policy Enforcement
-The controller is responsible for executing `OnSuccessPolicy` upon an admission of a Variant. It should deactivate Variants with
-respect to a chosen policy.
-It should also deactivate and deactivate Variants based on `CreateDelaySeconds` and `DeleteDelaySeconds` fields.
+The controller is responsible for executing `MigrationConstraints` upon an admission of a Variant. It should deactivate Variants with respect to a chosen policy.
+It should also activate and deactivate Variants based on `CreateDelaySeconds` and `DeleteDelaySeconds` fields.
 
 #### Eviction
-An Variant can be evicted because of its sibling Variant during the "upgrade" process, in that case the evicted Variant
+A Variant can be evicted because of its sibling Variant during the "upgrade" process, in that case the evicted Variant
 is simply deactivated.
 
 In case of preemption by other Workloads (e.g. priority-based preemption), we reset all the Variants and treat them as if
@@ -642,7 +617,7 @@ A more preferred Variant must evict the less preferable one immediately before a
 
 When pursuing multiple flavors concurrently, Kueue might preempt Workloads to accommodate multiple Variants belonging to the same Parent Workload.
 While we only issue preemptions coming from one Workload per CQ, what happen is:
-1. An Variant preempted a Workload and got the quota reserved.
+1. A Variant preempted a Workload and got the quota reserved.
 2. The same Variants is now running AdmissionChecks
 3. A sibling Variants is picked up by the scheduler and is preempting some other Workloads
 
@@ -659,7 +634,7 @@ be used for sorting sibling Variants. The value of this dimension would be fille
 Thanks to that we also have a guarantee that sibling Variants are always adjacent in the heap, which
 results in Kueue scheduler picking sibling Variants one after the another, without any other Workloads in between.
 
-### Notes/Constraints/Caveats (Variantal)
+### Notes/Constraints/Caveats (Optional)
 
 #### StrictFIFO
 
@@ -683,8 +658,8 @@ For Alpha and Beta version of this feature we don't plan to support `StrictFIFO`
 ### FlavorFungibility Misinterpretation
 
 In the first iteration of the feature we don't plan to integrate with the `FlavorFungibility` on the
-inter-Variants level. It means that the `OnSuccessPolicy` is binary - if an Variant has been admitted or not.
-It doesn't take into account if preemption or borrowing was necessary to admit an Variant. The preference order of Variants
+inter-Variants level. It means that the `OnSuccessPolicy` is binary - if a Variant has been admitted or not.
+It doesn't take into account if preemption or borrowing was necessary to admit a Variant. The preference order of Variants
 is purely based on ResourceFlavors used, and user doesn't have capabilities to express what to do if e.g. two Variants can be
 admitted, but the more preferable one requires preemption. The more preferable one will always be chosen.
 
@@ -765,7 +740,7 @@ After the implementation PR is merged, add the names of the tests here.
 #### Alpha
 In Alpha version the feature will be gated behind the `ConcurrentAdmission` feature gate.
 
-Support for `UpgradeAboveTarget` policy.
+Support for `MigrationConstraints.Mode=UpgradeOnly` and `MigrationConstraints.MinFlavor` .
 
 Integration with `BestEffortFIFO` queueing strategy.
 
@@ -773,7 +748,7 @@ Introduction of `AdmissionConstraints` field.
 
 #### Beta
 
-Support for `NoUpgrade` and `UpgradeAboveCurrent` policies.
+Support for `MigrationConstraints.Mode=NoMigration` and `MigrationConstraints.MinVariant`.
 
 Introduction of `ExplicitVariants` functionality.
 
