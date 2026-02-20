@@ -28,6 +28,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"golang.org/x/tools/go/packages"
 )
 
 type Metric struct {
@@ -79,15 +81,21 @@ func main() {
 }
 
 func extractMetricsFromPackage(dir string) ([]Metric, error) {
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, dir, nil, parser.ParseComments)
+	cfg := &packages.Config{
+		Mode: packages.NeedSyntax,
+		Dir:  dir,
+		ParseFile: func(fset *token.FileSet, filename string, src []byte) (*ast.File, error) {
+			return parser.ParseFile(fset, filename, src, parser.ParseComments)
+		},
+	}
+	pkgs, err := packages.Load(cfg, ".")
 	if err != nil {
 		return nil, err
 	}
 	var all []Metric
 	var missingGroups []string
 	for _, pkg := range pkgs {
-		for _, f := range pkg.Files {
+		for _, f := range pkg.Syntax {
 			ast.Inspect(f, func(n ast.Node) bool {
 				vs, ok := n.(*ast.ValueSpec)
 				if !ok || len(vs.Values) != 1 {
