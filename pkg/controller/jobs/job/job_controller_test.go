@@ -984,7 +984,7 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		"Pod cluster queue label is not set when cluster queue label is too long": {
+		"Pod cluster queue label is not set when cluster queue name is too long": {
 			job: *baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
