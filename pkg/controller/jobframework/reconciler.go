@@ -1429,6 +1429,10 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 
 		info.Labels[constants.PodSetLabel] = string(psAssignment.Name)
 
+		if features.Enabled(features.AssignQueueLabelsForPods) {
+			assignQueueLabels(ctx, info.Labels, w)
+		}
+
 		for _, admissionCheck := range w.Status.AdmissionChecks {
 			for _, podSetUpdate := range admissionCheck.PodSetUpdates {
 				if podSetUpdate.Name == info.Name {
@@ -1442,6 +1446,20 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 		podSetsInfo[i] = info
 	}
 	return podSetsInfo, nil
+}
+
+func assignQueueLabels(ctx context.Context, labels map[string]string, wl *kueue.Workload) {
+	labels[constants.LocalQueueLabel] = string(wl.Spec.QueueName)
+
+	clusterQueueName := string(wl.Status.Admission.ClusterQueue)
+	labelValidationErrors := validation.IsDNS1123Label(clusterQueueName)
+	if len(labelValidationErrors) == 0 {
+		labels[constants.ClusterQueueLabel] = clusterQueueName
+	} else {
+		log := ctrl.LoggerFrom(ctx)
+		log.V(2).Info("Cluster queue name could not be set as a label for pods",
+			"queue name", clusterQueueName, "validation errors", labelValidationErrors)
+	}
 }
 
 func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job GenericJob, object client.Object) error {

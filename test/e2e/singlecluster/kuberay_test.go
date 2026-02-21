@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -144,6 +145,18 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 				g.Expect(createdRayJob.Spec.Suspend).To(gomega.BeFalse())
 				g.Expect(createdRayJob.Status.JobDeploymentStatus).To(gomega.Equal(rayv1.JobDeploymentStatusRunning))
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Verify ray job worker pods have queue labels assigned", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				var pods corev1.PodList
+				g.Expect(k8sClient.List(ctx, &pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				g.Expect(pods.Items).ToNot(gomega.BeEmpty())
+				for _, pod := range pods.Items {
+					g.Expect(pod.Labels[constants.ClusterQueueLabel]).To(gomega.Equal(clusterQueueName))
+					g.Expect(pod.Labels[constants.LocalQueueLabel]).To(gomega.Equal(localQueueName))
+				}
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Waiting for the RayJob to finish", func() {

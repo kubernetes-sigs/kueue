@@ -250,6 +250,12 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/8828
 	// Enable workload eviction when node is tainted and pods are not able to run.
 	TASReplaceNodeOnNodeTaints featuregate.Feature = "TASReplaceNodeOnNodeTaints"
+
+	// owner: @dkaluza
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/9156
+	// Enables pod labeling with corresponding cluster and local queue names
+	AssignQueueLabelsForPods featuregate.Feature = "AssignQueueLabelsForPods"
 )
 
 func init() {
@@ -393,6 +399,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	TASReplaceNodeOnNodeTaints: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	AssignQueueLabelsForPods: {
+		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 
