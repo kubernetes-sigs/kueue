@@ -22,6 +22,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -395,6 +396,124 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 				g.Expect(createdRayCluster.Status.DesiredWorkerReplicas).To(gomega.Equal(int32(1)))
 				g.Expect(createdRayCluster.Status.ReadyWorkerReplicas).To(gomega.Equal(int32(1)))
 				g.Expect(createdRayCluster.Status.AvailableWorkerReplicas).To(gomega.Equal(int32(1)))
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should ensure redis-cleanup pods don't have scheduling gates for Ray Cluster with GCS FT", func() {
+		kuberayTestImage := util.GetKuberayTestImage()
+
+		// Create a RayCluster with GCS fault tolerance enabled (has the finalizer)
+		rayCluster := testingraycluster.MakeCluster("raycluster-gcs-ft", ns.Name).
+			Suspend(true).
+			Queue(localQueueName).
+			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "300m").
+			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "300m").
+			Image(rayv1.HeadNode, kuberayTestImage, []string{}).
+			Image(rayv1.WorkerNode, kuberayTestImage, []string{}).
+			Obj()
+
+		// Add GCS fault tolerance finalizer to trigger redis-cleanup job creation on deletion
+		rayCluster.Finalizers = append(rayCluster.Finalizers, "ray.io/gcs-ft-redis-cleanup-finalizer")
+
+		ginkgo.By("Creating the RayCluster with GCS FT finalizer", func() {
+			gomega.Expect(k8sClient.Create(ctx, rayCluster)).Should(gomega.Succeed())
+		})
+
+		wlLookupKey := types.NamespacedName{Name: workloadraycluster.GetWorkloadNameForRayCluster(rayCluster.Name, rayCluster.UID), Namespace: ns.Name}
+		createdWorkload := &kueue.Workload{}
+		ginkgo.By("Checking workload is created", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Checking workload is admitted", func() {
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createdWorkload)
+		})
+
+		ginkgo.By("Checking the RayCluster is ready", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdRayCluster := &rayv1.RayCluster{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayCluster), createdRayCluster)).To(gomega.Succeed())
+				g.Expect(createdRayCluster.Status.DesiredWorkerReplicas).To(gomega.Equal(int32(1)))
+				g.Expect(createdRayCluster.Status.ReadyWorkerReplicas).To(gomega.Equal(int32(1)))
+				g.Expect(createdRayCluster.Status.AvailableWorkerReplicas).To(gomega.Equal(int32(1)))
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Deleting the RayCluster to trigger redis-cleanup job creation", func() {
+			gomega.Expect(k8sClient.Delete(ctx, rayCluster)).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Waiting for redis-cleanup jobs to be created", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				jobList := &batchv1.JobList{}
+				g.Expect(k8sClient.List(ctx, jobList, client.InNamespace(ns.Name),
+					client.MatchingLabels{"ray.io/node-type": "redis-cleanup"})).To(gomega.Succeed())
+				g.Expect(jobList.Items).ToNot(gomega.BeEmpty(), "Expected at least one redis-cleanup job to be created")
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Verifying redis-cleanup job pods do not have scheduling gates", func() {
+			jobList := &batchv1.JobList{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.List(ctx, jobList, client.InNamespace(ns.Name),
+					client.MatchingLabels{"ray.io/node-type": "redis-cleanup"})).To(gomega.Succeed())
+
+				for _, job := range jobList.Items {
+					// Verify the job itself doesn't have scheduling gates in its pod template
+					schedulingGates := job.Spec.Template.Spec.SchedulingGates
+					for _, gate := range schedulingGates {
+						g.Expect(gate.Name).NotTo(gomega.Equal(kueue.ElasticJobSchedulingGate),
+							"Redis-cleanup job should not have ElasticJobSchedulingGate")
+					}
+
+					// Also check actual pods created by the job
+					podList := &corev1.PodList{}
+					g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name),
+						client.MatchingLabels{
+							"ray.io/node-type": "redis-cleanup",
+							"job-name":         job.Name,
+						})).To(gomega.Succeed())
+
+					for _, pod := range podList.Items {
+						for _, gate := range pod.Spec.SchedulingGates {
+							g.Expect(gate.Name).NotTo(gomega.Equal(kueue.ElasticJobSchedulingGate),
+								"Redis-cleanup pod should not have ElasticJobSchedulingGate")
+						}
+					}
+				}
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Verifying redis-cleanup pods can be scheduled immediately", func() {
+			podList := &corev1.PodList{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name),
+					client.MatchingLabels{"ray.io/node-type": "redis-cleanup"})).To(gomega.Succeed())
+
+				// Verify at least one redis-cleanup pod exists and is not blocked by scheduling gates
+				g.Expect(podList.Items).ToNot(gomega.BeEmpty(), "Expected at least one redis-cleanup pod")
+
+				// Check that pods are not stuck in Pending phase due to scheduling gates
+				for _, pod := range podList.Items {
+					// Pod should either be Running/Succeeded or Pending with a reason other than scheduling gates
+					if pod.Status.Phase == corev1.PodPending {
+						// If pending, it should not be due to scheduling gates
+						hasSchedulingGate := false
+						for _, condition := range pod.Status.Conditions {
+							if condition.Type == corev1.PodScheduled && condition.Status == corev1.ConditionFalse {
+								if condition.Reason == "SchedulingGated" {
+									hasSchedulingGate = true
+									break
+								}
+							}
+						}
+						g.Expect(hasSchedulingGate).To(gomega.BeFalse(),
+							"Redis-cleanup pod should not be gated by scheduling gates")
+					}
+				}
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})

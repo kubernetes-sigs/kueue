@@ -1021,13 +1021,297 @@ func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
 				{Name: kueue.ElasticJobSchedulingGate},
 			},
 		},
+		"FeatureEnabledAndOptIn_RayRedisCleanupJob": {
+			featureEnabled: true,
+			args: args{
+				job: &Job{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
+						},
+						Labels: map[string]string{
+							"ray.io/node-type": "redis-cleanup",
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								Kind:       "RayCluster",
+								APIVersion: "ray.io/v1",
+								Name:       "test-raycluster",
+								UID:        "test-uid",
+								Controller: ptr.To(true),
+							},
+						},
+					},
+					Spec: batchv1.JobSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								SchedulingGates: []corev1.PodSchedulingGate{
+									{Name: "SomeOtherGate"},
+								},
+							},
+						},
+					},
+				},
+			},
+			// Should NOT have the elastic job scheduling gate added due to redis-cleanup exclusion
+			want: []corev1.PodSchedulingGate{
+				{Name: "SomeOtherGate"},
+			},
+		},
+		"FeatureEnabledAndOptIn_RayRegularJob": {
+			featureEnabled: true,
+			args: args{
+				job: &Job{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
+						},
+						Labels: map[string]string{
+							"ray.io/node-type": "worker",
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								Kind:       "RayCluster",
+								APIVersion: "ray.io/v1",
+								Name:       "test-raycluster",
+								UID:        "test-uid",
+								Controller: ptr.To(true),
+							},
+						},
+					},
+					Spec: batchv1.JobSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								SchedulingGates: []corev1.PodSchedulingGate{
+									{Name: "SomeOtherGate"},
+								},
+							},
+						},
+					},
+				},
+			},
+			// Should have the elastic job scheduling gate added for regular Ray jobs
+			want: []corev1.PodSchedulingGate{
+				{Name: "SomeOtherGate"},
+				{Name: kueue.ElasticJobSchedulingGate},
+			},
+		},
+		"FeatureEnabledAndOptIn_NonRayJob": {
+			featureEnabled: true,
+			args: args{
+				job: &Job{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								Kind:       "SomeOtherController",
+								APIVersion: "example.com/v1",
+								Name:       "test-controller",
+								UID:        "test-uid",
+							},
+						},
+					},
+					Spec: batchv1.JobSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								SchedulingGates: []corev1.PodSchedulingGate{
+									{Name: "SomeOtherGate"},
+								},
+							},
+						},
+					},
+				},
+			},
+			// Should have the elastic job scheduling gate added for non-Ray jobs
+			want: []corev1.PodSchedulingGate{
+				{Name: "SomeOtherGate"},
+				{Name: kueue.ElasticJobSchedulingGate},
+			},
+		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tt.featureEnabled)
-			applyWorkloadSliceSchedulingGate(tt.args.job)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			applyWorkloadSliceSchedulingGate(ctx, tt.args.job)
 			if diff := cmp.Diff(tt.args.job.Spec.Template.Spec.SchedulingGates, tt.want); diff != "" {
 				t.Errorf("applyWorkloadSliceSchedulingGate() got(-),want(+): %s", diff)
+			}
+		})
+	}
+}
+
+func Test_isRayRedisCleanupJob(t *testing.T) {
+	tests := map[string]struct {
+		job  *Job
+		want bool
+	}{
+		"RayCluster_RedisCleanup": {
+			job: &Job{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"ray.io/node-type": "redis-cleanup",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Kind:       "RayCluster",
+							APIVersion: "ray.io/v1",
+							Name:       "test-raycluster",
+							UID:        "test-uid",
+							Controller: ptr.To(true),
+						},
+					},
+				},
+			},
+			want: true,
+		},
+		"RayCluster_Worker": {
+			job: &Job{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"ray.io/node-type": "worker",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Kind:       "RayCluster",
+							APIVersion: "ray.io/v1",
+							Name:       "test-raycluster",
+							UID:        "test-uid",
+							Controller: ptr.To(true),
+						},
+					},
+				},
+			},
+			want: false,
+		},
+		"RayCluster_Head": {
+			job: &Job{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"ray.io/node-type": "head",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Kind:       "RayCluster",
+							APIVersion: "ray.io/v1",
+							Name:       "test-raycluster",
+							UID:        "test-uid",
+							Controller: ptr.To(true),
+						},
+					},
+				},
+			},
+			want: false,
+		},
+		"RayCluster_NoNodeTypeLabel": {
+			job: &Job{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Kind:       "RayCluster",
+							APIVersion: "ray.io/v1",
+							Name:       "test-raycluster",
+							UID:        "test-uid",
+							Controller: ptr.To(true),
+						},
+					},
+				},
+			},
+			want: false,
+		},
+		"RayCluster_NoLabels": {
+			job: &Job{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Kind:       "RayCluster",
+							APIVersion: "ray.io/v1",
+							Name:       "test-raycluster",
+							UID:        "test-uid",
+							Controller: ptr.To(true),
+						},
+					},
+				},
+			},
+			want: false,
+		},
+		"NonRayCluster_RedisCleanup": {
+			job: &Job{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"ray.io/node-type": "redis-cleanup",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Kind:       "Job",
+							APIVersion: "batch/v1",
+							Name:       "test-job",
+							UID:        "test-uid",
+						},
+					},
+				},
+			},
+			want: false,
+		},
+		"RayJob_RedisCleanup": {
+			job: &Job{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"ray.io/node-type": "redis-cleanup",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Kind:       "RayJob",
+							APIVersion: "ray.io/v1",
+							Name:       "test-rayjob",
+							UID:        "test-uid",
+						},
+					},
+				},
+			},
+			want: false,
+		},
+		"RayCluster_v1alpha1_RedisCleanup": {
+			job: &Job{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"ray.io/node-type": "redis-cleanup",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Kind:       "RayCluster",
+							APIVersion: "ray.io/v1alpha1",
+							Name:       "test-raycluster",
+							UID:        "test-uid",
+						},
+					},
+				},
+			},
+			want: false,
+		},
+		"NoOwner_RedisCleanup": {
+			job: &Job{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"ray.io/node-type": "redis-cleanup",
+					},
+				},
+			},
+			want: false,
+		},
+		"EmptyJob": {
+			job:  &Job{},
+			want: false,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			got := isRayRedisCleanupJob(ctx, tt.job)
+			if got != tt.want {
+				t.Errorf("isRayRedisCleanupJob() = %v, want %v", got, tt.want)
 			}
 		})
 	}
