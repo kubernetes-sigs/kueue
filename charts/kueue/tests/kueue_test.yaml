@@ -2,6 +2,7 @@ suite: test kueueviz deployment
 templates:
   - kueueviz/backend-deployment.yaml
   - kueueviz/frontend-deployment.yaml
+  - kueueviz/frontend-configmap.yaml
   - kueueviz/backend-ingress.yaml
   - kueueviz/frontend-ingress.yaml
 tests:
@@ -47,24 +48,26 @@ tests:
     asserts:
       - notExists:
           path: spec.template.spec.priorityClassName
-  - it: should render the ingress value of backend ingress in frontend deployment as ENV variables
+  - it: should mount env-config volume in frontend deployment
     template: kueueviz/frontend-deployment.yaml
     set:
       enableKueueViz: true
-      kueueViz:
-        backend:
-          ingress:
-            ingressClassName: "ingress-external"
-            host: "backend.kueueviz.fr"
-            tlsSecretName: "kueueviz-frontend-tls"
-        frontend:
-          env:
-            - name: REACT_APP_WEBSOCKET_URL
-              value: "wss://backend.kueueviz.fr"
     asserts:
       - equal:
-          path: spec.template.spec.containers[0].env[0].value
-          value: "wss://backend.kueueviz.fr"
+          path: spec.template.spec.volumes[0].name
+          value: env-config
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[0].name
+          value: env-config
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[0].mountPath
+          value: /app/build/env.js
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[0].subPath
+          value: env.js
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[0].readOnly
+          value: true
   - it: should not render the tls if not set for backend ingress
     template: kueueviz/backend-ingress.yaml
     set:
@@ -226,32 +229,47 @@ tests:
     asserts:
       - notExists:
           path: spec.template.spec.containers[0].env[0]
-  - it: should set the environment variables for frontend deployment
-    template: kueueviz/frontend-deployment.yaml
+  - it: should render frontend configmap with wss when backend tls is set
+    template: kueueviz/frontend-configmap.yaml
     set:
       enableKueueViz: true
       kueueViz:
-        frontend:
-          env:
-            - name: REACT_APP_WEBSOCKET_URL
-              value: "wss://backend.kueueviz.local"
+        backend:
+          ingress:
+            host: "backend.kueueviz.local"
+            tlsSecretName: "kueueviz-backend-tls"
     asserts:
-      - equal:
-          path: spec.template.spec.containers[0].env[0].name
-          value: REACT_APP_WEBSOCKET_URL
-      - equal:
-          path: spec.template.spec.containers[0].env[0].value
-          value: "wss://backend.kueueviz.local"
-  - it: should not set the environment variables if not set for frontend deployment
-    template: kueueviz/frontend-deployment.yaml
+      - isKind:
+          of: ConfigMap
+      - matchRegex:
+          path: data["env.js"]
+          pattern: "wss://backend.kueueviz.local"
+  - it: should render frontend configmap with ws when backend tls is empty
+    template: kueueviz/frontend-configmap.yaml
     set:
       enableKueueViz: true
       kueueViz:
-        frontend:
-          env: []
+        backend:
+          ingress:
+            host: "backend.kueueviz.local"
+            tlsSecretName: ""
     asserts:
-      - notExists:
-          path: spec.template.spec.containers[0].env[0]
+      - matchRegex:
+          path: data["env.js"]
+          pattern: "ws://backend.kueueviz.local"
+  - it: should render frontend configmap with custom backend host
+    template: kueueviz/frontend-configmap.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          ingress:
+            host: "backend.kueueviz.fr"
+            tlsSecretName: "my-tls"
+    asserts:
+      - matchRegex:
+          path: data["env.js"]
+          pattern: "wss://backend.kueueviz.fr"
   - it: should not render backend ingress when backend ingress is disabled
     template: kueueviz/backend-ingress.yaml
     set:

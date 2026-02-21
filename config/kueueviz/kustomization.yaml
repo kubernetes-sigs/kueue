@@ -17,5 +17,5 @@ patches:
 - path: backend_ingress_patch.yaml
 # Add ingress annotations and tls config for nginx frontend ingress controller
 - path: frontend_ingress_patch.yaml
-# Add environment variables for frontend deployment
-- path: frontend_deployment_patch.yaml
+# Override frontend env.js ConfigMap with production websocket URL
+- path: frontend_configmap_patch.yaml

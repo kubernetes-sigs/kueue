@@ -3,6 +3,7 @@ resources:
 - cluster-role-binding.yaml
 - backend-deployment.yaml
 - frontend-deployment.yaml
+- frontend-configmap.yaml
 - backend-service.yaml
 - frontend-service.yaml
 - backend-ingress.yaml
