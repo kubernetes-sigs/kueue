@@ -158,8 +158,9 @@ func HasAllChecksReady(wl *kueue.Workload) bool {
 	return true
 }
 
-// HasAllChecks returns true if all the mustHaveChecks are present in the workload.
-func HasAllChecks(wl *kueue.Workload, mustHaveChecks sets.Set[kueue.AdmissionCheckReference]) bool {
+// HasAllRequiredChecks returns true if all the relevant checks are present in the workload.
+func HasAllRequiredChecks(wl *kueue.Workload, allChecks map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference]) bool {
+	mustHaveChecks := ChecksRequiredForAdmission(allChecks, wl.Status.Admission)
 	if mustHaveChecks.Len() == 0 {
 		return true
 	}
@@ -168,7 +169,6 @@ func HasAllChecks(wl *kueue.Workload, mustHaveChecks sets.Set[kueue.AdmissionChe
 		return false
 	}
 
-	mustHaveChecks = mustHaveChecks.Clone()
 	for i := range wl.Status.AdmissionChecks {
 		mustHaveChecks.Delete(wl.Status.AdmissionChecks[i].Name)
 	}
