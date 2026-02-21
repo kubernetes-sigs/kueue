@@ -147,14 +147,11 @@ var _ = ginkgo.Describe("MultiKueue with TAS", ginkgo.Label("feature:tas", "area
 			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", multiKueueConfig.Name).
 			Obj()
 		util.MustCreate(ctx, k8sManagerClient, multiKueueAc)
-		// Use StartUpTimeout because when running after the main multikueue suite,
-		// the controller may need extra time to re-establish MKC connections
-		// following operator update/recovery tests.
 		gomega.Eventually(func(g gomega.Gomega) {
 			readAc := &kueue.AdmissionCheck{}
 			g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(multiKueueAc), readAc)).To(gomega.Succeed())
 			g.Expect(readAc.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.AdmissionCheckActive))
-		}, util.StartUpTimeout, util.Interval).Should(gomega.Succeed())
+		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 
 		// Manager: 4 CPU quota with MultiKueue admission check
 		managerCq = utiltestingapi.MakeClusterQueue("tas-cq").

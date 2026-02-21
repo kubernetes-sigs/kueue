@@ -30,6 +30,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	rbacv1 "k8s.io/api/rbac/v1"
 	versionutil "k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
@@ -38,6 +39,20 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/test/util"
 )
+
+// multiKueueRules returns the RBAC rules for the MultiKueue worker SA.
+// When MULTIKUEUE_TAS_E2E is set, the TAS suite runs standalone with a
+// dedicated Kueue overlay that only registers batch/job, so minimal rules
+// suffice. When running as an extra target after the main multikueue suite,
+// Kueue has all framework integrations enabled, and the MKC controller
+// starts Watch calls for every registered adapter. Default rules grant the
+// necessary permissions for all adapter watchers to succeed.
+func multiKueueRules() []rbacv1.PolicyRule {
+	if _, ok := os.LookupEnv("MULTIKUEUE_TAS_E2E"); ok {
+		return util.MinimalMultiKueueRules()
+	}
+	return util.DefaultMultiKueueRules()
+}
 
 var (
 	managerClusterName string
@@ -93,11 +108,11 @@ var _ = ginkgo.BeforeSuite(func() {
 
 	ctx = ginkgo.GinkgoT().Context()
 
-	worker1KConfig, err := util.KubeconfigForMultiKueueSA(ctx, k8sWorker1Client, worker1Cfg, kueueNS, "mksa", worker1ClusterName, util.MinimalMultiKueueRules())
+	worker1KConfig, err := util.KubeconfigForMultiKueueSA(ctx, k8sWorker1Client, worker1Cfg, kueueNS, "mksa", worker1ClusterName, multiKueueRules())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(util.MakeMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue1", worker1KConfig)).To(gomega.Succeed())
 
-	worker2KConfig, err := util.KubeconfigForMultiKueueSA(ctx, k8sWorker2Client, worker2Cfg, kueueNS, "mksa", worker2ClusterName, util.MinimalMultiKueueRules())
+	worker2KConfig, err := util.KubeconfigForMultiKueueSA(ctx, k8sWorker2Client, worker2Cfg, kueueNS, "mksa", worker2ClusterName, multiKueueRules())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(util.MakeMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue2", worker2KConfig)).To(gomega.Succeed())
 
