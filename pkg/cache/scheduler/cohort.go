@@ -18,9 +18,14 @@ package scheduler
 
 import (
 	"iter"
+	"maps"
+
+	"github.com/go-logr/logr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/resources"
 )
 
 // cohort is a set of ClusterQueues that can borrow resources from each other.
@@ -94,5 +99,63 @@ func (c *cohort) PathSelfToRoot() iter.Seq[*cohort] {
 			}
 			cohort = cohort.Parent()
 		}
+	}
+}
+
+func (c *Cache) RecordCohortMetrics(log logr.Logger, cohortName kueue.CohortReference) {
+	cohortFound := false
+	cqCohortFound := false
+	for _, cohort := range c.hm.Cohorts() {
+		if cohort.Name != cohortName {
+			continue
+		}
+		cohortFound = true
+
+		c.Lock()
+		subtreeQuotas := maps.Clone(cohort.resourceNode.SubtreeQuota)
+		quotas := maps.Clone(cohort.resourceNode.Quotas)
+		c.Unlock()
+		log.V(4).Info("Recording subtree quotas for cohort", "cohort", cohort.Name, "subtreeQuotas", subtreeQuotas)
+		for flr, qty := range subtreeQuotas {
+			metrics.ReportCohortNominalQuotas(cohort.Name, string(flr.Flavor), string(flr.Resource), float64(qty), c.roleTracker)
+		}
+		for flr, rq := range quotas {
+			metrics.ReportCohortBorrowingLimit(cohort.Name, string(flr.Flavor), string(flr.Resource), float64(*rq.BorrowingLimit), c.roleTracker)
+		}
+
+		if cohort.HasParent() && !hierarchy.HasCycle(cohort) {
+			c.RecordCohortMetrics(log, cohort.Parent().GetName())
+			return
+		}
+	}
+
+	if !cohortFound {
+		subtreeQuotas := make(map[resources.FlavorResource]int64)
+		quotas := make(map[resources.FlavorResource]ResourceQuota)
+		for _, cq := range c.hm.ClusterQueues() {
+			if !cq.HasParent() || cq.Parent().GetName() != cohortName {
+				continue
+			}
+			cqCohortFound = true
+			c.Lock()
+			for flr, qty := range cq.resourceNode.SubtreeQuota {
+				subtreeQuotas[flr] += qty
+			}
+			quotas = maps.Clone(cq.resourceNode.Quotas)
+			c.Unlock()
+		}
+		log.V(4).Info("Recording subtree quotas for implicit cohort", "cohort", cohortName, "subtreeQuotas", subtreeQuotas)
+		for flr, qty := range subtreeQuotas {
+			metrics.ReportCohortNominalQuotas(cohortName, string(flr.Flavor), string(flr.Resource), float64(qty), c.roleTracker)
+		}
+		for flr, rq := range quotas {
+			metrics.ReportCohortBorrowingLimit(cohortName, string(flr.Flavor), string(flr.Resource), float64(*rq.BorrowingLimit), c.roleTracker)
+		}
+	}
+
+	if !cohortFound && !cqCohortFound {
+		log.V(4).Info("Cohort not found in cache, clearing metrics", "cohort", cohortName)
+		metrics.ClearCohortNominalQuotas(cohortName)
+		metrics.ClearCohortBorrowingLimit(cohortName)
 	}
 }

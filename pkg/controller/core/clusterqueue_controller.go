@@ -322,6 +322,7 @@ func (r *ClusterQueueReconciler) Create(e event.TypedCreateEvent[*kueue.ClusterQ
 
 	if r.reportResourceMetrics {
 		recordResourceMetrics(e.Object, r.roleTracker)
+		r.cache.RecordCohortMetrics(log, e.Object.Spec.CohortName)
 	}
 
 	return true
@@ -336,6 +337,7 @@ func (r *ClusterQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.ClusterQ
 	r.qManager.DeleteClusterQueue(e.Object)
 
 	metrics.ClearClusterQueueResourceMetrics(e.Object.Name)
+	r.cache.RecordCohortMetrics(log, e.Object.Spec.CohortName)
 	log.V(2).Info("Cleared resource metrics for deleted ClusterQueue.", "clusterQueue", klog.KObj(e.Object))
 
 	return true
@@ -360,6 +362,10 @@ func (r *ClusterQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.ClusterQ
 
 	if r.reportResourceMetrics {
 		updateResourceMetrics(e.ObjectOld, e.ObjectNew, r.roleTracker)
+		r.cache.RecordCohortMetrics(log, e.ObjectNew.Spec.CohortName)
+		if e.ObjectOld.Spec.CohortName != e.ObjectNew.Spec.CohortName {
+			r.cache.RecordCohortMetrics(log, e.ObjectOld.Spec.CohortName)
+		}
 	}
 	return true
 }

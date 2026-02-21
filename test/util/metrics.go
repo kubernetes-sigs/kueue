@@ -293,3 +293,15 @@ func expectGaugeMetric(metric prometheus.Gauge, matcher gomegatypes.GomegaMatche
 		g.Expect(v).Should(matcher, msgAndArgs...)
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
+
+func ExpectCohortNominalQuotaGaugeMetric(cohortName string, flavor, resource string, count float64) {
+	ginkgo.GinkgoHelper()
+	metric := metrics.CohortNominalQuota.WithLabelValues(cohortName, flavor, resource, roletracker.RoleStandalone)
+	expectGaugeMetric(metric, gomega.Equal(count))
+}
+
+func ExpectCohortBorrowingLimitGaugeMetric(cohortName string, flavor, resource string, count float64) {
+	ginkgo.GinkgoHelper()
+	metric := metrics.CohortBorrowingLimit.WithLabelValues(cohortName, flavor, resource, roletracker.RoleStandalone)
+	expectGaugeMetric(metric, gomega.Equal(count))
+}
