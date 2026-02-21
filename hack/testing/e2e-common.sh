@@ -547,6 +547,8 @@ function cluster_kueue_deploy {
         fi
     elif [[ -n ${DRA_EXAMPLE_DRIVER_VERSION:-} ]]; then
         build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra"
+    elif [[ -n ${MULTIKUEUE_TAS_E2E:-} ]]; then
+        build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/multikueue-tas"
     elif [ "$E2E_USE_HELM" == 'true' ]; then
         helm_install "$1" "${ROOT_DIR}/test/e2e/config/default/values.yaml"
     else
