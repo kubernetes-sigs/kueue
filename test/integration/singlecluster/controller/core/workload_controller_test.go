@@ -921,7 +921,7 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 			flavor          *kueue.ResourceFlavor
 		)
 
-		ginkgo.BeforeAll(func() {
+		startManager := func() {
 			fwk.StartManager(
 				ctx, cfg,
 				managerAndControllerSetup(
@@ -936,10 +936,23 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 					},
 				),
 			)
+		}
+
+		stopManager := func() {
+			fwk.StopManager(ctx)
+		}
+
+		restartManager := func() {
+			stopManager()
+			startManager()
+		}
+
+		ginkgo.BeforeAll(func() {
+			startManager()
 		})
 
 		ginkgo.AfterAll(func() {
-			fwk.StopManager(ctx)
+			stopManager()
 		})
 
 		ginkgo.BeforeEach(func() {
@@ -991,6 +1004,31 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 					})
 					g.Expect(k8sClient.Status().Update(ctx, &createdWorkload)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("workload should not be deleted before the retention period", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWorkload)).To(gomega.Succeed())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("restarting the manager", func() {
+				restartManager()
+			})
+
+			ginkgo.By("waiting for workload controller to be active after restart", func() {
+				// Probe that controllers are reconciling after restart
+				// by creating a workload and waiting for it to be reflected
+				// in the LocalQueue status.
+				probeWl := utiltestingapi.MakeWorkload("probe-wl", ns.Name).Queue("q").
+					Request(corev1.ResourceCPU, "1").Obj()
+				gomega.Expect(k8sClient.Create(ctx, probeWl)).To(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					var lq kueue.LocalQueue
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), &lq)).To(gomega.Succeed())
+					g.Expect(lq.Status.PendingWorkloads).To(gomega.Equal(int32(1)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, probeWl, true)
 			})
 
 			ginkgo.By("workload should not be deleted before the retention period", func() {
