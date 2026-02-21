@@ -62,7 +62,11 @@ spec:
                     cpu: "1"
 ```
 
-### c. 限制 {#c-limitations}
+### c. Suspend 控制 {#c-suspend-control}
+
+Kueue 控制 RayJob 的 `spec.suspend` 字段。当 RayJob 被 Kueue 接纳时，Kueue 会通过将 `spec.suspend` 设置为 `false` 来取消暂停，无论其之前的值是什么。
+
+### d. 限制 {#d-limitations}
 
 - 一个 Kueue 管理的 RayJob 不能使用现有的 RayCluster。
 - RayCluster 应在作业执行结束后删除，`spec.ShutdownAfterJobFinishes` 应为 `true`。
