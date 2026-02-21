@@ -74,7 +74,7 @@ type Assignment struct {
 }
 
 // UpdateForTASResult updates the Assignment with the TAS result
-func (a *Assignment) UpdateForTASResult(result schdcache.TASAssignmentsResult) {
+func (a *Assignment) UpdateForTASResult(cq *schdcache.ClusterQueueSnapshot, result schdcache.TASAssignmentsResult) {
 	for psName, psResult := range result {
 		psAssignment := a.podSetAssignmentByName(psName)
 		psAssignment.TopologyAssignment = psResult.TopologyAssignment
@@ -82,19 +82,32 @@ func (a *Assignment) UpdateForTASResult(result schdcache.TASAssignmentsResult) {
 			psAssignment.DelayedTopologyRequest = ptr.To(kueue.DelayedTopologyRequestStateReady)
 		}
 	}
-	a.Usage.TAS = a.ComputeTASNetUsage(nil)
+	a.Usage.TAS = a.ComputeTASNetUsage(cq, nil)
 }
 
 // ComputeTASNetUsage computes the net TAS usage for the assignment
-func (a *Assignment) ComputeTASNetUsage(prevAdmission *kueue.Admission) workload.TASUsage {
+func (a *Assignment) ComputeTASNetUsage(cq *schdcache.ClusterQueueSnapshot, prevAdmission *kueue.Admission) workload.TASUsage {
 	result := make(workload.TASUsage)
 	for i, psa := range a.PodSets {
 		if psa.TopologyAssignment != nil {
 			if prevAdmission != nil && prevAdmission.PodSetAssignments[i].TopologyAssignment != nil {
 				continue
 			}
-			singlePodRequests := resources.NewRequests(psa.Requests).ScaledDown(int64(psa.Count))
+			tasRequests := make(corev1.ResourceList, len(psa.Requests))
+			for resourceName, quantity := range psa.Requests {
+				flv := psa.Flavors[resourceName]
+				if flv == nil || cq.TASFlavors[flv.Name] == nil {
+					// skip any virtual resource, skip when computing TAS usage
+					continue
+				}
+				tasRequests[resourceName] = quantity
+			}
+			singlePodRequests := resources.NewRequests(tasRequests).ScaledDown(int64(psa.Count))
 			for _, flv := range psa.Flavors {
+				if cq.TASFlavors[flv.Name] == nil {
+					// this is a virtual flavor, skip when computing TAS usage
+					continue
+				}
 				if _, ok := result[flv.Name]; !ok {
 					result[flv.Name] = make(workload.TASFlavorUsage, 0)
 				}
@@ -260,7 +273,7 @@ func (psa *PodSetAssignment) RepresentativeMode() FlavorAssignmentMode {
 		return Fit
 	}
 	if psa.Status.IsError() {
-		// e.g. onlyFlavor failed in WorkloadsTopologyRequests, or TAS request build failed
+		// e.g. onlyTASFlavor failed in WorkloadsTopologyRequests, or TAS request build failed
 		return NoFit
 	}
 	if len(psa.Flavors) == 0 {
@@ -676,7 +689,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 				assignment.representativeMode = ptr.To(Preempt)
 			} else {
 				// All PodSets fit, we just update the TopologyAssignments
-				assignment.UpdateForTASResult(result)
+				assignment.UpdateForTASResult(a.cq, result)
 			}
 		}
 		if assignment.RepresentativeMode() == Preempt && !workload.HasUnhealthyNodes(a.wl.Obj) {
