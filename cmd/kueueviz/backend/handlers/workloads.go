@@ -40,15 +40,15 @@ type workloadResult struct {
 
 func (h *Handlers) WorkloadsWebSocketHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Extract namespace query parameter if provided
 		namespace := c.Query("namespace")
+
 		h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
 			workloads, err := h.fetchWorkloads(ctx, namespace)
 			result := map[string]any{
 				"workloads": workloads,
 			}
 			return result, err
-		})(c)
+		}, WorkloadsGVK())(c)
 	}
 }
 
@@ -56,9 +56,10 @@ func (h *Handlers) WorkloadDetailsWebSocketHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		namespace := c.Param("namespace")
 		workloadName := c.Param("workload_name")
+
 		h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
 			return h.fetchWorkloadDetails(ctx, namespace, workloadName)
-		})(c)
+		}, WorkloadsGVK())(c)
 	}
 }
 
@@ -123,15 +124,14 @@ func (h *Handlers) WorkloadEventsWebSocketHandler() gin.HandlerFunc {
 
 		h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
 			return h.fetchWorkloadEvents(ctx, namespace, workloadName)
-		})(c)
+		}, EventsGVK())(c)
 	}
 }
 
 func (h *Handlers) fetchWorkloadEvents(ctx context.Context, namespace, workloadName string) (any, error) {
 	el := &corev1.EventList{}
 	err := h.client.List(ctx, el, &ctrlclient.ListOptions{
-		Namespace: namespace,
-		// TODO: needed index here
+		Namespace:     namespace,
 		FieldSelector: fields.OneTermEqualSelector("involvedObject.name", workloadName),
 	})
 	if err != nil {

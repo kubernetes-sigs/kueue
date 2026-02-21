@@ -30,9 +30,10 @@ func (h *Handlers) LocalQueueWorkloadsWebSocketHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		namespace := c.Param("namespace")
 		queueName := c.Param("queue_name")
+
 		h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
 			return h.fetchLocalQueueWorkloads(ctx, namespace, queueName)
-		})(c)
+		}, WorkloadsGVK())(c)
 	}
 }
 

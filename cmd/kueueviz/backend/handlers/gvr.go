@@ -43,6 +43,73 @@ func NewClientFromManager(manager ctrlmanager.Manager) Client {
 	}
 }
 
+// GVK helper functions for informers
+
+// ClusterQueuesGVK returns the GroupVersionKind for ClusterQueues
+func ClusterQueuesGVK() schema.GroupVersionKind {
+	return schema.GroupVersionKind{
+		Group:   "kueue.x-k8s.io",
+		Version: "v1beta1",
+		Kind:    "ClusterQueue",
+	}
+}
+
+// WorkloadsGVK returns the GroupVersionKind for Workloads
+func WorkloadsGVK() schema.GroupVersionKind {
+	return schema.GroupVersionKind{
+		Group:   "kueue.x-k8s.io",
+		Version: "v1beta1",
+		Kind:    "Workload",
+	}
+}
+
+// LocalQueuesGVK returns the GroupVersionKind for LocalQueues
+func LocalQueuesGVK() schema.GroupVersionKind {
+	return schema.GroupVersionKind{
+		Group:   "kueue.x-k8s.io",
+		Version: "v1beta1",
+		Kind:    "LocalQueue",
+	}
+}
+
+// ResourceFlavorsGVK returns the GroupVersionKind for ResourceFlavors
+func ResourceFlavorsGVK() schema.GroupVersionKind {
+	return schema.GroupVersionKind{
+		Group:   "kueue.x-k8s.io",
+		Version: "v1beta1",
+		Kind:    "ResourceFlavor",
+	}
+}
+
+// PodsGVK returns the GroupVersionKind for Pods
+func PodsGVK() schema.GroupVersionKind {
+	return schema.GroupVersionKind{
+		Group:   "",
+		Version: "v1",
+		Kind:    "Pod",
+	}
+}
+
+// EventsGVK returns the GroupVersionKind for Events
+func EventsGVK() schema.GroupVersionKind {
+	return schema.GroupVersionKind{
+		Group:   "",
+		Version: "v1",
+		Kind:    "Event",
+	}
+}
+
+// NodesGVK returns the GroupVersionKind for Nodes
+func NodesGVK() schema.GroupVersionKind {
+	return schema.GroupVersionKind{
+		Group:   "",
+		Version: "v1",
+		Kind:    "Node",
+	}
+}
+
+// GVR helper functions for dynamic client operations
+
 // ClusterQueuesGVR defines the GroupVersionResource for ClusterQueues
 func ClusterQueuesGVR() schema.GroupVersionResource {
 	return schema.GroupVersionResource{

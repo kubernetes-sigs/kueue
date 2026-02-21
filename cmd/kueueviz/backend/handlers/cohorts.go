@@ -27,9 +27,10 @@ import (
 
 // CohortsWebSocketHandler streams all cohorts
 func (h *Handlers) CohortsWebSocketHandler() gin.HandlerFunc {
+	// Cohorts are derived from ClusterQueues, so use ClusterQueue informer
 	return h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
 		return h.fetchCohorts(ctx)
-	})
+	}, ClusterQueuesGVK())
 }
 
 // CohortDetailsWebSocketHandler streams details for a specific cohort
@@ -39,7 +40,7 @@ func (h *Handlers) CohortDetailsWebSocketHandler() gin.HandlerFunc {
 
 		h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
 			return h.fetchCohortDetails(ctx, cohortName)
-		})(c)
+		}, ClusterQueuesGVK())(c)
 	}
 }
 

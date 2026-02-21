@@ -93,6 +93,7 @@ func main() {
 	// Shutdown the server gracefully
 	if err := srv.Shutdown(context.Background()); err != nil {
 		slog.Error("Server forced to shutdown", "error", err)
+		cancel()
 		os.Exit(1)
 	}
 }

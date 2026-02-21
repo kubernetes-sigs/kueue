@@ -31,16 +31,22 @@ import (
 func (h *Handlers) ResourceFlavorsWebSocketHandler() gin.HandlerFunc {
 	return h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
 		return h.fetchResourceFlavors(ctx)
-	})
+	}, ResourceFlavorsGVK())
 }
 
 // ResourceFlavorDetailsWebSocketHandler streams details for a specific resource flavor
+// Watches both ResourceFlavors and ClusterQueues since the details depend on both
 func (h *Handlers) ResourceFlavorDetailsWebSocketHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		flavorName := c.Param("flavor_name")
+
 		h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
 			return h.fetchResourceFlavorDetails(ctx, flavorName)
-		})(c)
+		},
+			ResourceFlavorsGVK(),
+			ClusterQueuesGVK(),
+			NodesGVK(),
+		)(c)
 	}
 }
 
@@ -113,14 +119,13 @@ func (h *Handlers) fetchResourceFlavorDetails(ctx context.Context, flavorName st
 						"queueName": queueName,
 						"quota":     quotaInfo,
 					})
-					// log.Println(queuesUsingFlavor)
-					break // Stop searching this queue once the flavor is found
+					break
 				}
 			}
 		}
 	}
 
-	// Retrieve matching nodes for the flavor (assumes getNodesForFlavor is implemented)
+	// Retrieve matching nodes for the flavor
 	matchingNodes, _ := h.getNodesForFlavor(ctx, flavorName)
 
 	details := map[string]any{
