@@ -51,6 +51,8 @@ type TargetClusterQueueOrdering struct {
 
 	clusterQueueToTarget map[kueue.ClusterQueueReference][]*workload.Info
 
+	flavorWeights schdcache.FlavorResourceWeights
+
 	// pruned nodes are nodes which we are certain will never
 	// yield more preemption target candidates. We use this set to
 	// determine our stopping condition: once the rootCohort is in
@@ -61,7 +63,7 @@ type TargetClusterQueueOrdering struct {
 	log                 logr.Logger
 }
 
-func MakeClusterQueueOrdering(cq *schdcache.ClusterQueueSnapshot, candidates []*workload.Info, log logr.Logger, clk clock.Clock) TargetClusterQueueOrdering {
+func MakeClusterQueueOrdering(cq *schdcache.ClusterQueueSnapshot, candidates []*workload.Info, log logr.Logger, clk clock.Clock, flavorWeights schdcache.FlavorResourceWeights) TargetClusterQueueOrdering {
 	t := TargetClusterQueueOrdering{
 		clock: clk,
 
@@ -69,6 +71,8 @@ func MakeClusterQueueOrdering(cq *schdcache.ClusterQueueSnapshot, candidates []*
 		preemptorAncestors: sets.New[*schdcache.CohortSnapshot](),
 
 		clusterQueueToTarget: make(map[kueue.ClusterQueueReference][]*workload.Info),
+
+		flavorWeights: flavorWeights,
 
 		prunedClusterQueues: sets.New[*schdcache.ClusterQueueSnapshot](),
 		prunedCohorts:       sets.New[*schdcache.CohortSnapshot](),
@@ -146,7 +150,7 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot
 			continue
 		}
 
-		drs := cq.DominantResourceShare()
+		drs := cq.DominantResourceShare(t.flavorWeights)
 		// we can't prune the preemptor ClusterQueue itself,
 		// until it runs out of candidates.
 		switch {
@@ -171,7 +175,7 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot
 			continue
 		}
 
-		drs := cohort.DominantResourceShare()
+		drs := cohort.DominantResourceShare(t.flavorWeights)
 
 		// we prune a Cohort when it is no longer borrowing
 		// (DRS=0). Even when not borrowing, we can't prune a

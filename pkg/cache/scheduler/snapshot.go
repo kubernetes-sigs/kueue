@@ -40,7 +40,10 @@ import (
 
 type Snapshot struct {
 	hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]
-	ResourceFlavors          map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
+	ResourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
+	// Pre-computed (flavor, resource) → weight lookup derived from resourceFlavors.
+	// Avoids repeated map traversal and Quantity-to-float conversion on every DRS calculation.
+	FlavorWeights            FlavorResourceWeights
 	InactiveClusterQueueSets sets.Set[kueue.ClusterQueueReference]
 }
 
@@ -216,6 +219,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	}
 	// Shallow copy is enough
 	maps.Copy(snap.ResourceFlavors, c.resourceFlavors)
+	snap.FlavorWeights = c.flavorWeights
 	return &snap, nil
 }
 

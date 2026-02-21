@@ -2806,6 +2806,18 @@ When specified, it enables scraping of the topology information from the
 nodes matching to the Resource Flavor node labels.</p>
 </td>
 </tr>
+<tr><td><code>resourceWeights</code><br/>
+<a href="https://pkg.go.dev/k8s.io/apimachinery/pkg/api/resource#Quantity"><code>map[ResourceName]k8s.io/apimachinery/pkg/api/resource.Quantity</code></a>
+</td>
+<td>
+   <p>resourceWeights is a map from resource name to a scalar multiplier
+used when computing Dominant Resource Share (DRS) for Fair Sharing.
+Higher weights cause borrowing/lendable for this flavor-resource pair
+to contribute more to the DRS ratio.
+Missing entries default to a multiplier of 1.0.
+Values must be strictly greater than 0.</p>
+</td>
+</tr>
 </tbody>
 </table>
 

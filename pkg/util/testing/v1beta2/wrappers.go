@@ -1154,6 +1154,15 @@ func (rf *ResourceFlavorWrapper) Toleration(t corev1.Toleration) *ResourceFlavor
 	return rf
 }
 
+// ResourceWeight sets a per-resource weight used for flavor-aware DRS.
+func (rf *ResourceFlavorWrapper) ResourceWeight(r corev1.ResourceName, w string) *ResourceFlavorWrapper {
+	if rf.Spec.ResourceWeights == nil {
+		rf.Spec.ResourceWeights = make(map[corev1.ResourceName]resource.Quantity)
+	}
+	rf.Spec.ResourceWeights[r] = resource.MustParse(w)
+	return rf
+}
+
 // Creation sets the creation timestamp of the LocalQueue.
 func (rf *ResourceFlavorWrapper) Creation(t time.Time) *ResourceFlavorWrapper {
 	rf.CreationTimestamp = metav1.NewTime(t)

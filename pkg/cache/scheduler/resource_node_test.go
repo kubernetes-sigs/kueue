@@ -54,12 +54,12 @@ func TestCohortLendable(t *testing.T) {
 		t.Fatal("Failed to add CQ to cache", err)
 	}
 
-	wantLendable := map[corev1.ResourceName]int64{
+	wantLendable := map[corev1.ResourceName]float64{
 		corev1.ResourceCPU: 10_000,
 		"example.com/gpu":  3,
 	}
 
-	lendable := calculateLendable(cache.hm.Cohort("test-cohort"))
+	lendable := calculateWeightedLendable(cache.hm.Cohort("test-cohort"), nil)
 	if diff := cmp.Diff(wantLendable, lendable); diff != "" {
 		t.Errorf("Unexpected cohort lendable (-want,+got):\n%s", diff)
 	}

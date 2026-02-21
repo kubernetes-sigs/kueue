@@ -1191,6 +1191,67 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			util.ExpectEvictedWorkloadsTotalMetric(bestEffortCQB.Name, kueue.WorkloadEvictedByPreemption, "", "", 1)
 		})
 	})
+
+	ginkgo.When("using flavor-aware resource weights for DRS", func() {
+		var (
+			premiumFlavor *kueue.ResourceFlavor
+			cheapFlavor   *kueue.ResourceFlavor
+			cqA           *kueue.ClusterQueue
+			cqB           *kueue.ClusterQueue
+		)
+		ginkgo.BeforeEach(func() {
+			premiumFlavor = utiltestingapi.MakeResourceFlavor("premium").
+				ResourceWeight(corev1.ResourceCPU, "4").Obj()
+			util.MustCreate(ctx, k8sClient, premiumFlavor)
+
+			cheapFlavor = utiltestingapi.MakeResourceFlavor("cheap").
+				ResourceWeight(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, cheapFlavor)
+
+			createCohort(utiltestingapi.MakeCohort("weighted-drs").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("premium").Resource(corev1.ResourceCPU, "10").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("cheap").Resource(corev1.ResourceCPU, "10").Obj(),
+				).Obj())
+
+			cqA = createQueue(utiltestingapi.MakeClusterQueue("cq-premium").
+				Cohort("weighted-drs").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("premium").Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj())
+
+			cqB = createQueue(utiltestingapi.MakeClusterQueue("cq-cheap").
+				Cohort("weighted-drs").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("cheap").Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj())
+		})
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, premiumFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cheapFlavor, true)
+		})
+
+		ginkgo.It("should give higher weightedShare to CQ borrowing from higher-weight flavor", func() {
+			ginkgo.By("Submitting workloads: 3 CPU to each CQ")
+			for range 3 {
+				createWorkload("cq-premium", "1")
+				createWorkload("cq-cheap", "1")
+			}
+
+			ginkgo.By("Verifying both CQs have admitted workloads")
+			util.ExpectReservingActiveWorkloadsMetric(cqA, 3)
+			util.ExpectReservingActiveWorkloadsMetric(cqB, 3)
+
+			// DRS math:
+			// weightedLendable(cpu) = 10*4 + 10*1 = 50
+			// cqA borrows 3 from premium: weightedBorrowed = 3*4 = 12, ratio = 12/50*1000 = 240
+			// cqB borrows 3 from cheap:   weightedBorrowed = 3*1 = 3,  ratio = 3/50*1000  = 60
+			ginkgo.By("Verifying weighted share reflects flavor weights")
+			util.ExpectClusterQueueWeightedShareMetric(cqA, 240.0)
+			util.ExpectClusterQueueWeightedShareMetric(cqB, 60.0)
+		})
+	})
 })
 
 func expectCohortWeightedShare(cohortName string, weightedShare float64) {

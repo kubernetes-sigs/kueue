@@ -227,7 +227,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	entries, inadmissibleEntries := s.nominate(ctx, headWorkloads, snapshot)
 
 	// 4. Create iterator which returns ordered entries.
-	iterator := makeIterator(ctx, entries, s.workloadOrdering, fairsharing.Enabled(s.fairSharing))
+	iterator := makeIterator(ctx, entries, s.workloadOrdering, fairsharing.Enabled(s.fairSharing), snapshot.FlavorWeights)
 
 	// 5. Admit entries, ensuring that no more than one workload gets
 	// admitted by a cohort (if borrowing).
@@ -759,9 +759,9 @@ type entryIterator interface {
 	hasNext() bool
 }
 
-func makeIterator(ctx context.Context, entries []entry, workloadOrdering workload.Ordering, enableFairSharing bool) entryIterator {
+func makeIterator(ctx context.Context, entries []entry, workloadOrdering workload.Ordering, enableFairSharing bool, flavorWeights schdcache.FlavorResourceWeights) entryIterator {
 	if enableFairSharing {
-		return makeFairSharingIterator(ctx, entries, workloadOrdering)
+		return makeFairSharingIterator(ctx, entries, workloadOrdering, flavorWeights)
 	}
 	return makeClassicalIterator(entries, workloadOrdering)
 }

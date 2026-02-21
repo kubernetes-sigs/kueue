@@ -41,11 +41,12 @@ type fairSharingIterator struct {
 	log           logr.Logger
 }
 
-func makeFairSharingIterator(ctx context.Context, entries []entry, workloadOrdering workload.Ordering) *fairSharingIterator {
+func makeFairSharingIterator(ctx context.Context, entries []entry, workloadOrdering workload.Ordering, flavorWeights schdcache.FlavorResourceWeights) *fairSharingIterator {
 	f := fairSharingIterator{
 		cqToEntry: make(map[*schdcache.ClusterQueueSnapshot]*entry, len(entries)),
 		entryComparer: entryComparer{
 			workloadOrdering: workloadOrdering,
+			flavorWeights:    flavorWeights,
 		},
 		log: ctrl.LoggerFrom(ctx),
 	}
@@ -161,6 +162,7 @@ type drsKey struct {
 type entryComparer struct {
 	drsValues        map[drsKey]schdcache.DRS
 	workloadOrdering workload.Ordering
+	flavorWeights    schdcache.FlavorResourceWeights
 }
 
 func (e *entryComparer) less(a, b *entry, parentCohort kueue.CohortReference) bool {
@@ -204,13 +206,13 @@ func (e *entryComparer) computeDRS(rootCohort *schdcache.CohortSnapshot, cqToEnt
 		revert := cq.SimulateUsageAddition(entry.assignmentUsage())
 
 		// calculate DRS, with workload, for CQ.
-		dominantResourceShare := cq.DominantResourceShare()
+		dominantResourceShare := cq.DominantResourceShare(e.flavorWeights)
 
 		// calculate DRS, with workload, for all Cohorts on
 		// path to root.
 		for ancestor := range cq.PathParentToRoot() {
 			e.drsValues[drsKey{parentCohort: ancestor.GetName(), workloadKey: workload.Key(entry.Obj)}] = dominantResourceShare
-			dominantResourceShare = ancestor.DominantResourceShare()
+			dominantResourceShare = ancestor.DominantResourceShare(e.flavorWeights)
 		}
 
 		revert()
