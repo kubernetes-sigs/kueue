@@ -22,9 +22,11 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 )
@@ -41,6 +43,7 @@ func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
 		SetupIndexes:                    SetupIndexes,
 		NewReconciler:                   NewReconciler,
+		NewAdditionalReconcilers:        []jobframework.ReconcilerFactory{NewPodReconciler},
 		SetupWebhook:                    SetupWebhook,
 		JobType:                         &appsv1.StatefulSet{},
 		AddToScheme:                     appsv1.AddToScheme,
@@ -66,6 +69,15 @@ func (d *StatefulSet) GVK() schema.GroupVersionKind {
 
 func SetupIndexes(context.Context, client.FieldIndexer) error {
 	return nil
+}
+
+func GetOwnerUID(sts *appsv1.StatefulSet) types.UID {
+	if _, isMultiKueueRemote := sts.Labels[kueue.MultiKueueOriginLabel]; isMultiKueueRemote {
+		if originUID, ok := sts.Annotations[kueue.MultiKueueOriginUIDAnnotation]; ok {
+			return types.UID(originUID)
+		}
+	}
+	return sts.UID
 }
 
 // managedByAnotherFramework checks if the StatefulSet is managed by a framework other than the current one.

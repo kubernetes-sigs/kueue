@@ -80,6 +80,15 @@ func (ss *StatefulSetWrapper) Obj() *appsv1.StatefulSet {
 	return &ss.StatefulSet
 }
 
+// Annotation sets the annotation of the StatefulSet
+func (ss *StatefulSetWrapper) Annotation(k, v string) *StatefulSetWrapper {
+	if ss.Annotations == nil {
+		ss.Annotations = make(map[string]string)
+	}
+	ss.Annotations[k] = v
+	return ss
+}
+
 // Label sets the label of the StatefulSet
 func (ss *StatefulSetWrapper) Label(k, v string) *StatefulSetWrapper {
 	if ss.Labels == nil {

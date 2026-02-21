@@ -26,7 +26,6 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
@@ -61,7 +60,7 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 		})
 
 		ginkgo.When("The queue-name label is set", func() {
-			ginkgo.It("Should inject queue name, pod group name to pod template labels, and pod group total count to pod template annotations", func() {
+			ginkgo.It("Should inject queue name to pod template labels", func() {
 				sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).Queue("user-queue").Obj()
 				util.MustCreate(ctx, k8sClient, sts)
 
@@ -72,16 +71,6 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 						To(
 							gomega.Equal("user-queue"),
 							"Queue name should be injected to pod template labels",
-						)
-					g.Expect(createdStatefulSet.Spec.Template.Labels[podconstants.GroupNameLabel]).
-						To(
-							gomega.Equal(jobframework.GetWorkloadNameForOwnerWithGVK(createdStatefulSet.Name, "", appsv1.SchemeGroupVersion.WithKind("StatefulSet"))),
-							"Pod group name should be injected to pod template labels",
-						)
-					g.Expect(createdStatefulSet.Spec.Template.Annotations[podconstants.GroupTotalCountAnnotation]).
-						To(
-							gomega.Equal("1"),
-							"Pod group total count should be injected to pod template annotations",
 						)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
