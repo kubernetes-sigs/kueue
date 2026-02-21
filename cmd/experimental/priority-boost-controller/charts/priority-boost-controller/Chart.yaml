@@ -1,0 +1,11 @@
+apiVersion: v2
+name: priority-boost-controller
+description: A Helm chart for deploying the experimental Kueue priority-boost controller.
+type: application
+version: 0.15.2
+appVersion: "v0.15.2"
+dependencies:
+  - name: kueue
+    version: "~0.15.2"
+    repository: "file://../../../../../charts/kueue"
+    condition: kueue.enabled

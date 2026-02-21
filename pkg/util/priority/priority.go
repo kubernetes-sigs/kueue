@@ -18,6 +18,7 @@ package priority
 
 import (
 	"context"
+	"strconv"
 
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -26,6 +27,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 // Priority returns priority of the given workload.
@@ -34,6 +36,30 @@ func Priority(w *kueue.Workload) int32 {
 	// that there was no global default priority class and the priority class
 	// name of the pod was empty. So, we resolve to the static default priority.
 	return ptr.Deref(w.Spec.Priority, constants.DefaultPriority)
+}
+
+// PriorityBoost returns the priority boost read from the workload annotation.
+// Missing annotation is treated as 0.
+func PriorityBoost(w *kueue.Workload) (int32, error) {
+	value, found := w.Annotations[controllerconstants.PriorityBoostAnnotationKey]
+	if !found || value == "" {
+		return 0, nil
+	}
+	boost, err := strconv.ParseInt(value, 10, 32)
+	if err != nil {
+		return 0, err
+	}
+	return int32(boost), nil
+}
+
+// EffectivePriority returns priority adjusted by the priority boost annotation.
+// effectivePriority = workload.priority + priorityBoost
+func EffectivePriority(w *kueue.Workload) (int32, error) {
+	boost, err := PriorityBoost(w)
+	if err != nil {
+		return Priority(w), err
+	}
+	return Priority(w) + boost, nil
 }
 
 // GetPriorityFromPriorityClass returns the priority populated from

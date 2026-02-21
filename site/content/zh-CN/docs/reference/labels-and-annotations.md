@@ -158,6 +158,21 @@ Used on: [Plain Pods](/docs/tasks/run/plain_pods/).
 
 The annotation key is used to indicate the integration name of the Pod owner.
 
+### kueue.x-k8s.io/priority-boost
+
+Type: Annotation
+
+Example: `kueue.x-k8s.io/priority-boost: "10"`
+
+Used on: [Workload](/docs/concepts/workload/).
+
+可选的有符号整数注解，用于调整工作负载的有效优先级：
+`effectivePriority = workloadPriority + priorityBoost`。
+正值提高优先级，负值降低优先级。
+有效优先级同时用于调度排序和抢占候选排序。
+此注解由外部控制器直接设置在 Workload 上（不从 Job 传播）。
+如果值缺失或非法，会按 `0` 处理。
+
 
 ### kueue.x-k8s.io/prebuilt-workload-name
 

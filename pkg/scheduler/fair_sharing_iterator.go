@@ -172,10 +172,10 @@ func (e *entryComparer) less(a, b *entry, parentCohort kueue.CohortReference) bo
 		return cmp == -1
 	}
 
-	// 2: Priority
+	// 2: Effective priority
 	if features.Enabled(features.PrioritySortingWithinCohort) {
-		p1 := priority.Priority(a.Obj)
-		p2 := priority.Priority(b.Obj)
+		p1, _ := priority.EffectivePriority(a.Obj)
+		p2, _ := priority.EffectivePriority(b.Obj)
 		if p1 != p2 {
 			return p1 > p2
 		}

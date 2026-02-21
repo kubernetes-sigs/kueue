@@ -64,9 +64,19 @@ func CandidatesOrdering(log logr.Logger, afsEnabled bool, a, b *workload.Info, c
 			return 0
 		},
 		func() int {
+			priorityA, errA := priority.EffectivePriority(a.Obj)
+			if errA != nil {
+				log.V(5).Info("Invalid priority-boost annotation, defaulting to zero",
+					"workload", klog.KObj(a.Obj), "annotation", a.Obj.Annotations)
+			}
+			priorityB, errB := priority.EffectivePriority(b.Obj)
+			if errB != nil {
+				log.V(5).Info("Invalid priority-boost annotation, defaulting to zero",
+					"workload", klog.KObj(b.Obj), "annotation", b.Obj.Annotations)
+			}
 			return cmp.Compare(
-				priority.Priority(a.Obj),
-				priority.Priority(b.Obj),
+				priorityA,
+				priorityB,
 			)
 		},
 		func() int {

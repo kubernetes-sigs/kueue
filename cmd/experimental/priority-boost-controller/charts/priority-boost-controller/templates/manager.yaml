@@ -1,0 +1,122 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-priority-boost-controller
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-priority-boost-controller-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - kueue.x-k8s.io
+  resources:
+  - workloads
+  verbs:
+  - get
+  - list
+  - watch
+  - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-priority-boost-controller-role-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-priority-boost-controller-role
+subjects:
+- kind: ServiceAccount
+  name: {{ .Release.Name }}-priority-boost-controller
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-priority-boost-controller-config
+  namespace: {{ .Release.Namespace }}
+data:
+  controller_manager_config.yaml: |
+    maxBoost: {{ .Values.priorityBoostController.config.maxBoost }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-priority-boost-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: priority-boost-controller
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    control-plane: priority-boost-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      control-plane: priority-boost-controller
+      app.kubernetes.io/name: priority-boost-controller
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        control-plane: priority-boost-controller
+        app.kubernetes.io/name: priority-boost-controller
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}-priority-boost-controller
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - args:
+        - "--config=/etc/kueue/controller_manager_config.yaml"
+        - "--zap-log-level=2"
+        image: "{{ .Values.priorityBoostController.image.repository }}:{{ .Values.priorityBoostController.image.tag }}"
+        imagePullPolicy: {{ .Values.priorityBoostController.image.pullPolicy }}
+        name: manager
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 100m
+            memory: 100Mi
+          requests:
+            cpu: 100m
+            memory: 100Mi
+        volumeMounts:
+        - mountPath: /etc/kueue
+          name: manager-config
+      {{- with .Values.priorityBoostController.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 10
+      volumes:
+      - configMap:
+          name: {{ .Release.Name }}-priority-boost-controller-config
+        name: manager-config

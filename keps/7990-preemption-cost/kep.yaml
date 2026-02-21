@@ -1,0 +1,26 @@
+title: Support Workload Priority Boost By External Controllers
+kep-number: 7990
+authors:
+  - "@vladikkuzn"
+status: implementable
+creation-date: 2026-01-12
+reviewers:
+  - "@mimowo"
+  - "@tenzen-y"
+approvers:
+  - "@mimowo"
+  - "@tenzen-y"
+
+# The target maturity stage in the current dev cycle for this KEP.
+stage: alpha
+
+# The most recent milestone for which work toward delivery of this KEP has been
+# done. This can be the current (upcoming) milestone, if it is being actively
+# worked on.
+latest-milestone: "v0.17"
+
+# The milestone at which this feature was, or is targeted to be, at each stage.
+milestone:
+  alpha: "v0.17"
+
+
