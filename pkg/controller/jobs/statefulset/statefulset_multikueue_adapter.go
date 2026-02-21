@@ -32,7 +32,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/api"
-	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 )
 
 type multiKueueAdapter struct{}
@@ -52,12 +51,11 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 		return err
 	}
 
-	// if the remote exists, just copy the status
+	// If the remote exists, skip status sync.
+	// StatefulSet doesn't support managedBy, so the local StatefulSet controller
+	// would immediately overwrite any status we sync from the worker cluster.
 	if err == nil {
-		return clientutil.PatchStatus(ctx, localClient, &localStatefulSet, func() (bool, error) {
-			localStatefulSet.Status = remoteStatefulSet.Status
-			return true, nil
-		})
+		return nil
 	}
 
 	remoteStatefulSet = appsv1.StatefulSet{
