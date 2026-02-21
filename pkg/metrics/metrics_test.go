@@ -261,3 +261,23 @@ func TestMetricsWithDifferentRoles(t *testing.T) {
 	ClearClusterQueueMetrics("cq_leader")
 	ClearClusterQueueMetrics("cq_follower")
 }
+
+func TestCohortMetrics(t *testing.T) {
+	leaderTracker := roletracker.NewFakeRoleTracker(roletracker.RoleLeader)
+	followerTracker := roletracker.NewFakeRoleTracker(roletracker.RoleFollower)
+
+	ReportCohortNominalQuotas("cohort", "flavor", "res", 5, leaderTracker)
+	expectFilteredMetricsCount(t, CohortNominalQuota, 1, "cohort", "cohort", "replica_role", "leader")
+
+	ReportCohortNominalQuotas("cohort", "flavor", "res", 3, followerTracker)
+	expectFilteredMetricsCount(t, CohortNominalQuota, 1, "cohort", "cohort", "replica_role", "follower")
+
+	ReportCohortNominalQuotas("cohort_two", "flavor", "res", 5, leaderTracker)
+	expectFilteredMetricsCount(t, CohortNominalQuota, 1, "cohort", "cohort_two", "replica_role", "leader")
+
+	ClearCohortNominalQuotas("cohort", "", "")
+
+	expectFilteredMetricsCount(t, CohortNominalQuota, 1, "cohort", "cohort_two", "replica_role", "leader")
+
+	ClearCohortNominalQuotas("cohort_two", "", "")
+}

@@ -320,6 +320,7 @@ func (r *ClusterQueueReconciler) Create(e event.TypedCreateEvent[*kueue.ClusterQ
 		log.Error(err, "Failed to add clusterQueue to queue manager")
 	}
 
+	r.cache.RecordCohortMetrics(log, e.Object.Spec.CohortName)
 	if r.reportResourceMetrics {
 		recordResourceMetrics(e.Object, r.roleTracker)
 	}
@@ -334,8 +335,8 @@ func (r *ClusterQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.ClusterQ
 	log.V(2).Info("ClusterQueue delete event", "clusterQueue", klog.KObj(e.Object))
 	r.cache.DeleteClusterQueue(e.Object)
 	r.qManager.DeleteClusterQueue(e.Object)
-
 	metrics.ClearClusterQueueResourceMetrics(e.Object.Name)
+	r.cache.ClearCohortMetrics(log, e.Object.Spec.CohortName)
 	log.V(2).Info("Cleared resource metrics for deleted ClusterQueue.", "clusterQueue", klog.KObj(e.Object))
 
 	return true
@@ -356,6 +357,11 @@ func (r *ClusterQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.ClusterQ
 	}
 	if err := r.qManager.UpdateClusterQueue(context.Background(), e.ObjectNew, specUpdated); err != nil {
 		log.Error(err, "Failed to update clusterQueue in queue manager")
+	}
+
+	r.cache.RecordCohortMetrics(log, e.ObjectNew.Spec.CohortName)
+	if e.ObjectOld.Spec.CohortName != e.ObjectNew.Spec.CohortName {
+		r.cache.RecordCohortMetrics(log, e.ObjectOld.Spec.CohortName)
 	}
 
 	if r.reportResourceMetrics {
