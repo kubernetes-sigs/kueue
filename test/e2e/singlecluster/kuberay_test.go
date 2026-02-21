@@ -451,7 +451,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 				jobList := &batchv1.JobList{}
 				g.Expect(k8sClient.List(ctx, jobList, client.InNamespace(ns.Name),
 					client.MatchingLabels{"ray.io/node-type": "redis-cleanup"})).To(gomega.Succeed())
-				g.Expect(len(jobList.Items)).To(gomega.BeNumerically(">", 0), "Expected at least one redis-cleanup job to be created")
+				g.Expect(jobList.Items).ToNot(gomega.BeEmpty(), "Expected at least one redis-cleanup job to be created")
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -494,7 +494,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 					client.MatchingLabels{"ray.io/node-type": "redis-cleanup"})).To(gomega.Succeed())
 
 				// Verify at least one redis-cleanup pod exists and is not blocked by scheduling gates
-				g.Expect(len(podList.Items)).To(gomega.BeNumerically(">", 0), "Expected at least one redis-cleanup pod")
+				g.Expect(podList.Items).ToNot(gomega.BeEmpty(), "Expected at least one redis-cleanup pod")
 
 				// Check that pods are not stuck in Pending phase due to scheduling gates
 				for _, pod := range podList.Items {
