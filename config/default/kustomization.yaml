@@ -22,8 +22,7 @@ resources:
 - ../components/manager
 - ../components/internalcert
 - ../components/visibility
-# [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix including the one in
-#- ../components/crd/kustomization.yaml
+# [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix including the one in ../components/crd/kustomization.yaml
 - ../components/webhook
 # [CERTMANAGER] To enable cert-manager, uncomment all sections with 'CERTMANAGER'. 'WEBHOOK' components are required.
 #- ../components/certmanager
@@ -104,7 +103,6 @@ patches:
 #  target:
 #    kind: APIService
 #    name: v1beta1.visibility.kueue.x-k8s.io
-
 #- path: cert_visibility_manager_patch.yaml
 #  target:
 #    kind: Deployment
