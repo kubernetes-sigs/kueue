@@ -214,6 +214,7 @@ run-test-multikueue-e2e-%:
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
+		E2E_EXTRA_TARGET_FOLDERS="multikueue-tas" \
 		./hack/testing/e2e-multikueue-test.sh
 
 run-test-tas-e2e-%: K8S_VERSION = $(@:run-test-tas-e2e-%=%)

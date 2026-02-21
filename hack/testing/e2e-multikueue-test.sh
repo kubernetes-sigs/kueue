@@ -116,3 +116,10 @@ fi
 # shellcheck disable=SC2086
 $GINKGO $GINKGO_ARGS --junit-report=junit.xml --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/${E2E_TARGET_FOLDER}/...
 "$ROOT_DIR/bin/ginkgo-top" -i "$ARTIFACTS/e2e.json" > "$ARTIFACTS/e2e-top.yaml"
+
+# Run additional test suites against the same clusters if specified.
+for folder in ${E2E_EXTRA_TARGET_FOLDERS:-}; do
+    # shellcheck disable=SC2086
+    $GINKGO $GINKGO_ARGS --junit-report=junit-${folder}.xml --json-report=e2e-${folder}.json --output-dir="$ARTIFACTS" -v ./test/e2e/${folder}/...
+    "$ROOT_DIR/bin/ginkgo-top" -i "$ARTIFACTS/e2e-${folder}.json" > "$ARTIFACTS/e2e-${folder}-top.yaml"
+done
