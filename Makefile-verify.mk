@@ -79,7 +79,7 @@ verify-docs-prereqs: generate-apiref generate-kueuectl-docs generate-metrics-tab
 
 .PHONY: verify-helm-prereqs
 verify-helm-prereqs: ## Prerequisites for Helm checks.
-verify-helm-prereqs: compile-crd-manifests update-helm generate-helm-docs prepare-release-branch
+verify-helm-prereqs: verify-go-prereqs compile-crd-manifests update-helm generate-helm-docs prepare-release-branch
 
 .PHONY: verify-tree-prereqs
 verify-tree-prereqs: ## Prerequisites to ensure repo is fully regenerated.
