@@ -52,6 +52,7 @@ func getRayOwnerReference(jobObj client.Object, kind, apiVersion string, control
 	return nil
 }
 
+//lint:ignore U1000 Ignore unused function
 func isRaySubmitterJobWithAutoScaling(ctx context.Context, jobObj client.Object, k8sClient client.Client) (bool, *rayv1.RayJob, error) {
 	log := ctrl.LoggerFrom(ctx).WithValues("jobName", jobObj.GetName(), "jobNamespace", jobObj.GetNamespace())
 
@@ -90,6 +91,8 @@ func isRaySubmitterJobWithAutoScaling(ctx context.Context, jobObj client.Object,
 
 // copyRaySubmitterJobMetadata checks whether the job is Ray submitter job, if it is, copy queue label
 // and workload slicing annotation from the owner RayJob to the submitter job.
+//
+//lint:ignore U1000 Ignore unused function
 func copyRaySubmitterJobMetadata(ctx context.Context, jobObj client.Object, k8sClient client.Client) error {
 	if jobframework.QueueNameForObject(jobObj) != "" {
 		return nil
