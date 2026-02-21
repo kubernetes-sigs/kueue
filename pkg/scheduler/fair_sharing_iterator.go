@@ -164,15 +164,24 @@ type entryComparer struct {
 }
 
 func (e *entryComparer) less(a, b *entry, parentCohort kueue.CohortReference) bool {
+	// 1: Nominal first — a workload that fits within its CQ's nominal
+	// quota is always preferred over one that requires borrowing.
+	// This prevents heavy borrowing on one flavor from eroding a
+	// CQ's nominal entitlement on another flavor.
+	aBorrows := a.assignment.Borrows()
+	bBorrows := b.assignment.Borrows()
+	if aBorrows != bBorrows {
+		return aBorrows < bBorrows
+	}
+
+	// 2: DRF
 	aDrs := e.drsValues[drsKey{parentCohort: parentCohort, workloadKey: workload.Key(a.Obj)}]
 	bDrs := e.drsValues[drsKey{parentCohort: parentCohort, workloadKey: workload.Key(b.Obj)}]
-
-	// 1: DRF
 	if cmp := schdcache.CompareDRS(aDrs, bDrs); cmp != 0 {
 		return cmp == -1
 	}
 
-	// 2: Priority
+	// 3: Priority
 	if features.Enabled(features.PrioritySortingWithinCohort) {
 		p1 := priority.Priority(a.Obj)
 		p2 := priority.Priority(b.Obj)
@@ -181,7 +190,7 @@ func (e *entryComparer) less(a, b *entry, parentCohort kueue.CohortReference) bo
 		}
 	}
 
-	// 3: FIFO
+	// 4: FIFO
 	aComparisonTimestamp := e.workloadOrdering.GetQueueOrderTimestamp(a.Obj)
 	bComparisonTimestamp := e.workloadOrdering.GetQueueOrderTimestamp(b.Obj)
 	return aComparisonTimestamp.Before(bComparisonTimestamp)

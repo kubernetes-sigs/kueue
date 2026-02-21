@@ -951,3 +951,108 @@ func TestFairPreemptions(t *testing.T) {
 		})
 	}
 }
+
+// TestFairPreemptionsNominalFirst verifies that a workload fitting
+// within its CQ's nominal quota can preempt even when its CQ's
+// aggregate DRS is high from borrowing on a different flavor.
+func TestFairPreemptionsNominalFirst(t *testing.T) {
+	now := time.Now()
+	flavors := []*kueue.ResourceFlavor{
+		utiltestingapi.MakeResourceFlavor("premium").Obj(),
+		utiltestingapi.MakeResourceFlavor("cheap").Obj(),
+	}
+	// CQ "a": 3 CPU nominal on premium, 0 on cheap.
+	// CQ "b": 0 CPU nominal on premium, 6 on cheap.
+	//
+	// Admitted state:
+	//   a: 2 premium (within nominal) + 5 cheap (borrowed) → high DRS
+	//   b: 1 premium (borrowed from a's lendable) → low DRS
+	//
+	// Incoming: a wants 1 premium CPU (under nominal: 2+1=3 <= 3).
+	// Without nominal-first: DRS(a) > DRS(b) → preemption blocked.
+	// With nominal-first: a is under nominal for premium → preemption allowed.
+	cqs := []*kueue.ClusterQueue{
+		utiltestingapi.MakeClusterQueue("a").
+			Cohort("all").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("premium").Resource(corev1.ResourceCPU, "3").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("cheap").Resource(corev1.ResourceCPU, "0").Obj(),
+			).
+			Preemption(kueue.ClusterQueuePreemption{
+				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+			}).
+			Obj(),
+		utiltestingapi.MakeClusterQueue("b").
+			Cohort("all").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("premium").Resource(corev1.ResourceCPU, "0").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("cheap").Resource(corev1.ResourceCPU, "6").Obj(),
+			).
+			Obj(),
+	}
+	unitWl := *utiltestingapi.MakeWorkload("unit", "").Request(corev1.ResourceCPU, "1")
+	admitted := []kueue.Workload{
+		*unitWl.Clone().Name("a_prem1").SimpleReserveQuota("a", "premium", now).Obj(),
+		*unitWl.Clone().Name("a_prem2").SimpleReserveQuota("a", "premium", now).Obj(),
+		*unitWl.Clone().Name("a_cheap1").SimpleReserveQuota("a", "cheap", now).Obj(),
+		*unitWl.Clone().Name("a_cheap2").SimpleReserveQuota("a", "cheap", now).Obj(),
+		*unitWl.Clone().Name("a_cheap3").SimpleReserveQuota("a", "cheap", now).Obj(),
+		*unitWl.Clone().Name("a_cheap4").SimpleReserveQuota("a", "cheap", now).Obj(),
+		*unitWl.Clone().Name("a_cheap5").SimpleReserveQuota("a", "cheap", now).Obj(),
+		*unitWl.Clone().Name("b_prem1").SimpleReserveQuota("b", "premium", now).Obj(),
+	}
+
+	ctx, log := utiltesting.ContextWithLog(t)
+	for i := range admitted {
+		admitted[i].UID = types.UID(admitted[i].Name)
+	}
+	cl := utiltesting.NewClientBuilder().
+		WithLists(&kueue.WorkloadList{Items: admitted}).
+		Build()
+	cqCache := schdcache.New(cl)
+	for _, flv := range flavors {
+		cqCache.AddOrUpdateResourceFlavor(log, flv)
+	}
+	for _, cq := range cqs {
+		if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+			t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
+		}
+	}
+
+	broadcaster := record.NewBroadcaster()
+	scheme := runtime.NewScheme()
+	recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
+	preemptor := New(cl, workload.Ordering{}, recorder, &config.FairSharing{}, false, clocktesting.NewFakeClock(now), nil)
+
+	beforeSnapshot, err := cqCache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error while building snapshot: %v", err)
+	}
+	snapshotWorkingCopy, err := cqCache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error while building snapshot: %v", err)
+	}
+	incoming := unitWl.Clone().Name("a_incoming").Obj()
+	wlInfo := workload.NewInfo(incoming)
+	wlInfo.ClusterQueue = "a"
+	targets := preemptor.GetTargets(log, *wlInfo, singlePodSetAssignment(
+		flavorassigner.ResourceAssignment{
+			corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
+				Name: "premium", Mode: flavorassigner.Preempt,
+			},
+		},
+	), snapshotWorkingCopy)
+	gotTargets := sets.New(utilslices.Map(targets, func(t **Target) string {
+		return targetKeyReason(workload.Key((*t).WorkloadInfo.Obj), (*t).Reason)
+	})...)
+	wantPreempted := sets.New(
+		targetKeyReason("/b_prem1", kueue.InCohortFairSharingReason),
+	)
+	if diff := cmp.Diff(wantPreempted, gotTargets, cmpopts.EquateEmpty()); diff != "" {
+		t.Errorf("Issued preemptions (-want,+got):\n%s", diff)
+	}
+
+	if diff := cmp.Diff(beforeSnapshot, snapshotWorkingCopy, snapCmpOpts); diff != "" {
+		t.Errorf("Snapshot was modified (-initial,+end):\n%s", diff)
+	}
+}
