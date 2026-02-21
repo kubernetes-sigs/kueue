@@ -555,7 +555,6 @@ func queueUnderNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx)
 // preemptorWithinNominalForContestedResources checks whether the
 // preemptor CQ's usage INCLUDING the incoming workload stays within
 // nominal quota for all flavor-resources needing preemption.
-// Must be called before SimulateUsageAddition.
 func preemptorWithinNominalForContestedResources(preemptionCtx *preemptionCtx) bool {
 	for fr := range preemptionCtx.frsNeedPreemption {
 		totalUsage := preemptionCtx.preemptorCQ.ResourceNode.Usage[fr] + preemptionCtx.workloadUsage.Quota[fr]
