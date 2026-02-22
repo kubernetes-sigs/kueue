@@ -26,7 +26,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
-	"sigs.k8s.io/kueue/tools/yaml-processor/yamlproc"
+	"sigs.k8s.io/kueue/hack/tools/yaml-processor/yamlproc"
 )
 
 type options struct {

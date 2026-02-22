@@ -1,4 +1,4 @@
-module sigs.k8s.io/kueue/tools
+module sigs.k8s.io/kueue/hack/tools
 
 go 1.25.0
 
