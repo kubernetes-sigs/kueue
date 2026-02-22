@@ -228,18 +228,21 @@ root:
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, errs := fp.ProcessFileOperations([]byte(tt.data), FileOperations{
-				Operations: []Operation{
-					{
-						Type:            tt.opType,
-						Key:             tt.key,
-						Value:           tt.value,
-						AddKeyIfMissing: tt.addKeyIfMissing,
-						OnFileCondition: tt.onCondition,
-						Indentation:     tt.indentation,
-					},
-				},
-			})
+			op := Operation{
+				Type:            tt.opType,
+				Key:             tt.key,
+				Value:           tt.value,
+				AddKeyIfMissing: tt.addKeyIfMissing,
+				OnFileCondition: tt.onCondition,
+				Indentation:     tt.indentation,
+			}
+			fileOps := FileOperations{}
+			if tt.opType == InsertText {
+				fileOps.PostOperations = []Operation{op}
+			} else {
+				fileOps.Operations = []Operation{op}
+			}
+			got, errs := fp.ProcessFileOperations([]byte(tt.data), fileOps)
 			var gotErrs []string
 			for _, err := range errs {
 				gotErrs = append(gotErrs, err.Error())
