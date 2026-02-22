@@ -125,4 +125,20 @@ spec:
 
 ### Example RayJob with Autoscaling
 
+In this example, the code is provided to the Ray framework via a ConfigMap.
+
+{{< include "examples/jobs/ray-job-autoscaling-code-sample.yaml" "yaml" >}}
+
+The RayJob looks like the following:
+
 {{< include "examples/jobs/ray-job-autoscaling-sample.yaml" "yaml" >}}
+
+You can run this RayJob with the following commands:
+
+```sh
+# Create the code ConfigMap (once)
+kubectl apply -f ray-job-autoscaling-code-sample.yaml
+# Create a RayJob. You can run this command multiple times
+# to observe the queueing and admission of the jobs.
+kubectl create -f ray-job-autoscaling-sample.yaml
+```
