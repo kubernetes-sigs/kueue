@@ -1214,7 +1214,7 @@ spec:
                                     ClusterQueues in the cohort have enough unused quota.
                                     If null, it means that there is no borrowing limit.
                                     If not null, it must be non-negative.
-                                    borrowingLimit must be null if spec.cohort is empty.
+                                    borrowingLimit must be null if spec.cohortName is empty.
                                   pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                                   x-kubernetes-int-or-string: true
                                 lendingLimit:
@@ -1229,7 +1229,7 @@ spec:
                                     If null, it means that there is no lending limit, meaning that
                                     all the nominalQuota can be borrowed by other clusterQueues in the cohort.
                                     If not null, it must be non-negative.
-                                    lendingLimit must be null if spec.cohort is empty.
+                                    lendingLimit must be null if spec.cohortName is empty.
                                     This field is in beta stage and is enabled by default.
                                   pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                                   x-kubernetes-int-or-string: true

@@ -2972,7 +2972,7 @@ quantity of quota equal to nominalQuota+borrowingLimit, assuming the other
 ClusterQueues in the cohort have enough unused quota.
 If null, it means that there is no borrowing limit.
 If not null, it must be non-negative.
-borrowingLimit must be null if spec.cohort is empty.</p>
+borrowingLimit must be null if spec.cohortName is empty.</p>
 </td>
 </tr>
 <tr><td><code>lendingLimit</code><br/>
@@ -2986,7 +2986,7 @@ a quantity of quota equals to nominalQuota - lendingLimit.
 If null, it means that there is no lending limit, meaning that
 all the nominalQuota can be borrowed by other clusterQueues in the cohort.
 If not null, it must be non-negative.
-lendingLimit must be null if spec.cohort is empty.
+lendingLimit must be null if spec.cohortName is empty.
 This field is in beta stage and is enabled by default.</p>
 </td>
 </tr>
