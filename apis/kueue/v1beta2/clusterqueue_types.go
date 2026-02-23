@@ -257,7 +257,7 @@ type ResourceQuota struct {
 	// ClusterQueues in the cohort have enough unused quota.
 	// If null, it means that there is no borrowing limit.
 	// If not null, it must be non-negative.
-	// borrowingLimit must be null if spec.cohort is empty.
+	// borrowingLimit must be null if spec.cohortName is empty.
 	// +optional
 	BorrowingLimit *resource.Quantity `json:"borrowingLimit,omitempty"`
 
@@ -268,7 +268,7 @@ type ResourceQuota struct {
 	// If null, it means that there is no lending limit, meaning that
 	// all the nominalQuota can be borrowed by other clusterQueues in the cohort.
 	// If not null, it must be non-negative.
-	// lendingLimit must be null if spec.cohort is empty.
+	// lendingLimit must be null if spec.cohortName is empty.
 	// This field is in beta stage and is enabled by default.
 	// +optional
 	LendingLimit *resource.Quantity `json:"lendingLimit,omitempty"`
