@@ -24,8 +24,8 @@ stage: alpha
 latest-milestone: "v0.17"
 
 # The milestone at which this feature was, or is targeted to be, at each stage.
-# milestone:
-#   alpha: "v0.2"
+milestone:
+  alpha: "v0.17"
 #   beta: "v0.3"
 #   stable: "v0.5"
 

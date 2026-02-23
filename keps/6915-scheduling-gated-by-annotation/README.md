@@ -73,7 +73,8 @@ updates.
 [documentation style guide]: https://github.com/kubernetes/community/blob/master/contributors/guide/style-guide.md
 -->
 
-Introduce annotation `kueue.x-k8s.io/scheduling-gated-by` on supported Job-like objects to defer Workload scheduling. The annotation value must specify a controller name in domain-like format (e.g., `example.com/mygate`), similar to the `spec.managedBy` field in Jobs. When present, Kueue does not create a Workload object for the Job, consistent with the existing `JobWithSkip` interface behavior. Removing the annotation enables Kueue to create the Workload and proceed with normal admission and scheduling flow. For the alpha release, the annotation can only be set at Job creation time and cannot be added later; it can only be removed.
+Introduce annotation `kueue.x-k8s.io/scheduling-gated-by` on supported Job-like objects to defer Workload scheduling. The annotation value must specify a controller name in a domain-prefixed path (e.g., `example.com/mygate`), similar to the `spec.managedBy` field in Jobs, which requires that all characters before the first "/" must be a valid subdomain as defined by RFC 1123 and all characters trailing the first "/" must follow RFC 3986.
+When present, Kueue does not create a Workload object for the Job, consistent with the existing `JobWithSkip` interface behavior. Removing the annotation enables Kueue to create the Workload and proceed with normal admission and scheduling flow. For the alpha release, the annotation can only be set at Job creation time and cannot be added later; it can only be removed.
 
 ## Motivation
 
@@ -109,6 +110,7 @@ and make progress.
 
 - New CRDs or scheduler policy changes
 - Supporting multiple SchedulingGatedBy annotations for 1 Job
+- Supporting adding SchedulingGatedBy annotations, excluding Job creation time.
 
 ## Proposal
 
@@ -167,6 +169,13 @@ Go in to as much detail as necessary here.
 This might be a good place to talk about core concepts and how they relate.
 -->
 
+#### batch/v1 Job readinessGates discussion
+In Kubernetes, we are discussing about Job level `schedulingGate` field in https://github.com/kubernetes/kubernetes/issues/121681.
+But it is still under discussion, and it will take lots of time to release the feature to the production cluster (enabled by default).
+
+So, we decided to introduce `SchedulingGatedBy` annotations as a Kueue level. We will revisit this annotation support if job-level readiness gates are accepted.
+
+#### Adding SchedulingGatedBy is only possible in Job creations
 This feature enables users to defer Workload creation for their Jobs by using an annotation at Job creation time. The annotation acts as a scheduling gate, preventing Kueue from creating the associated Workload object until the annotation is removed. This is consistent with the existing `JobWithSkip` interface pattern in Kueue.
 
 ### Risks and Mitigations
