@@ -54,7 +54,7 @@ wait
 kind_load "$KIND_CLUSTER_NAME" ""
 kueue_deploy
 
-if [[ -n ${PROMETHEUS_OPERATOR_VERSION:-} ]]; then
+if [[ -n ${PROMETHEUS_OPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:prometheus || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     deploy_kueue_prometheus_config ""
 fi
 
