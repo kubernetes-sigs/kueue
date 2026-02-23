@@ -46,7 +46,7 @@ func SetupControllers(mgr ctrl.Manager, queues *qcache.Manager, cache *schdcache
 			return ctrlName, err
 		}
 	}
-	nonTasUsageController := newNonTasUsageReconciler(mgr.GetClient(), cache)
+	nonTasUsageController := newNonTasUsageReconciler(mgr.GetClient(), cache, roleTracker)
 	if ctrlName, err := nonTasUsageController.SetupWithManager(mgr); err != nil {
 		return ctrlName, err
 	}
