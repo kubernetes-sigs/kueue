@@ -360,7 +360,7 @@ func (r *nodeReconciler) getWorkloadStatus(ctx context.Context, nodeName string,
 	case !features.Enabled(features.TASReplaceNodeOnNodeTaints):
 		return workloadHealthCheck{status: workloadHealthy}, nil
 	default:
-		untolerated, temporarilyTolerated := classifyNoExecuteTaints(ctx, node.Spec.Taints, workload.PodSetsOnNode(wl, nodeName))
+		untolerated, temporarilyTolerated := classifyTaints(ctx, node.Spec.Taints, workload.PodSetsOnNode(wl, nodeName))
 
 		if len(untolerated) > 0 {
 			if !features.Enabled(features.TASReplaceNodeOnPodTermination) {
@@ -655,10 +655,10 @@ func checkTaintTolerations(logger logr.Logger, taint *corev1.Taint, podSets []ku
 	return toleratedPermanently
 }
 
-func classifyNoExecuteTaints(ctx context.Context, taints []corev1.Taint, podSets []kueue.PodSet) (untolerated, temporarilyTolerated []corev1.Taint) {
+func classifyTaints(ctx context.Context, taints []corev1.Taint, podSets []kueue.PodSet) (untolerated, temporarilyTolerated []corev1.Taint) {
 	logger := ctrl.LoggerFrom(ctx)
 	for _, taint := range taints {
-		if taint.Effect != corev1.TaintEffectNoExecute {
+		if taint.Effect != corev1.TaintEffectNoExecute && taint.Effect != corev1.TaintEffectNoSchedule {
 			continue
 		}
 
@@ -672,7 +672,7 @@ func classifyNoExecuteTaints(ctx context.Context, taints []corev1.Taint, podSets
 		}
 	}
 	if len(untolerated) > 0 || len(temporarilyTolerated) > 0 {
-		logger.V(3).Info("Classified NoExecute taints", "untolerated", untolerated, "temporarilyTolerated", temporarilyTolerated)
+		logger.V(3).Info("Classified taints", "untolerated", untolerated, "temporarilyTolerated", temporarilyTolerated)
 	}
 	return untolerated, temporarilyTolerated
 }
