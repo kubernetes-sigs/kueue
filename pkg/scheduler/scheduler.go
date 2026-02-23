@@ -188,7 +188,7 @@ func reportSkippedPreemptions(p map[kueue.ClusterQueueReference]int) {
 
 func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	s.schedulingCycle++
-	log := ctrl.LoggerFrom(ctx).WithValues("schedulingCycle", s.schedulingCycle)
+	log := roletracker.WithReplicaRole(ctrl.LoggerFrom(ctx), s.roleTracker).WithValues("schedulingCycle", s.schedulingCycle)
 	ctx = ctrl.LoggerInto(ctx, log)
 
 	// 1. Get the heads from the queues, including their desired clusterQueue.
