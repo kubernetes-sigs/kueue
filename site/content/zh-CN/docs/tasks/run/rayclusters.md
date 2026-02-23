@@ -63,7 +63,11 @@ spec:
 
 请注意，RayCluster 在存在期间会占用资源配额。为了优化资源管理，你应该删除不再使用的 RayCluster。
 
-### c. 限制 {#c-limitations}
+### c. Suspend 控制 {#c-suspend-control}
+
+Kueue 控制 RayCluster 的 `spec.suspend` 字段。当 RayCluster 被 Kueue 接纳时，Kueue 会通过将 `spec.suspend` 设置为 `false` 来取消暂停，无论其之前的值是什么。
+
+### d. 限制 {#d-limitations}
 - 有限的 Worker Groups：由于 Kueue 工作负载最多可以有 8 个 PodSets，`spec.workerGroupSpecs` 的最大数量为 7
 - 内建自动扩缩禁用：Kueue 管理 RayCluster 的资源分配；因此，集群的内部自动扩缩机制需要禁用
 
