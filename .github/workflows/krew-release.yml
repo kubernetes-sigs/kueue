@@ -9,4 +9,4 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
       - name: Update new version in krew-index
-        uses: rajatjindal/krew-release-bot@v0.0.47
+        uses: rajatjindal/krew-release-bot@v0.0.50
