@@ -20,9 +20,11 @@ description: 将 LeaderWorkerSet 作为由 Kueue 管理的工作负载运行
 
 ## 开始之前 {#before-you-begin}
 
-1. 学习如何[安装 Kueue 并使用自定义管理器配置](/zh-CN/docs/installation/#install-a-custom-configured-released-version)。
+1. `leaderworkerset.x-k8s.io/leaderworkerset` 集成默认启用。
 
-2. 确保你已启用 `leaderworkerset.x-k8s.io/leaderworkerset` 集成，例如：
+2. 对于 Kueue v0.15 及更早版本，学习如何[安装 Kueue 并使用自定义管理器配置](/zh-CN/docs/installation/#install-a-custom-configured-released-version)，
+   并确保你已启用 `leaderworkerset.x-k8s.io/leaderworkerset` 集成，例如：
+
    ```yaml
    apiVersion: config.kueue.x-k8s.io/v1beta2
    kind: Configuration
@@ -31,6 +33,7 @@ description: 将 LeaderWorkerSet 作为由 Kueue 管理的工作负载运行
       - "pod"
       - "leaderworkerset.x-k8s.io/leaderworkerset"
    ```
+   
    同时，请参见[运行普通 Pod](/zh-CN/docs/tasks/run/plain_pods/#before-you-begin) 中所述的步骤，
    了解如何启用和配置 Pod 集成。
 
