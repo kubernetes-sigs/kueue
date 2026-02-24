@@ -150,12 +150,15 @@ func TestFSWatch(t *testing.T) {
 			ctx := context.Background()
 			ctrl.LoggerInto(ctx, utiltesting.NewLogger(t))
 			ctx, cancel := context.WithTimeout(ctx, time.Second)
-			defer cancel()
+			wg := sync.WaitGroup{}
+			defer func() {
+				cancel()
+				wg.Wait()
+			}()
 			watcher := newKubeConfigFSWatcher()
 
-			// start the recorder
+			// start the recorder and the watcher
 			gotEventsForClusters := set.New[string]()
-			wg := sync.WaitGroup{}
 			wg.Go(func() {
 				for {
 					select {
@@ -169,7 +172,10 @@ func TestFSWatch(t *testing.T) {
 					}
 				}
 			})
-			_ = watcher.Start(ctx)
+			wg.Go(func() {
+				_ = watcher.Start(ctx)
+			})
+			<-watcher.ready
 
 			gotAddErrors := map[string]error{}
 			for c, p := range tc.clusters {
@@ -202,7 +208,11 @@ func TestFSWatchAddRm(t *testing.T) {
 	ctx := context.Background()
 	ctrl.LoggerInto(ctx, utiltesting.NewLogger(t))
 	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	wg := sync.WaitGroup{}
+	defer func() {
+		cancel()
+		wg.Wait()
+	}()
 	basePath := t.TempDir()
 	f1Path := filepath.Join(basePath, "file.one")
 	f2Path := filepath.Join(basePath, "file.two")
@@ -227,7 +237,11 @@ func TestFSWatchAddRm(t *testing.T) {
 		{
 			name: "start",
 			opFnc: func(kcf *KubeConfigFSWatcher) error {
-				return kcf.Start(ctx)
+				wg.Go(func() {
+					_ = kcf.Start(ctx)
+				})
+				<-kcf.ready
+				return nil
 			},
 			wantClustersToFile: map[string]string{},
 			wantFileToClusters: map[string]set.Set[string]{},
