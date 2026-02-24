@@ -106,7 +106,7 @@ func managerSetup(options ...managerSetupOption) framework.ManagerSetup {
 		controllersCfg.Metrics.EnableClusterQueueResources = true
 
 		cCache := schdcache.New(mgr.GetClient())
-		queues := util.NewManagerForIntegrationTests(mgr.GetClient(), cCache)
+		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache)
 
 		if opts.runJobController {
 			var err error

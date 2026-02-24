@@ -76,7 +76,7 @@ func managerAndSchedulerSetup(transformations []config.ResourceTransformation) f
 		if len(transformations) > 0 {
 			queueOptions = append(queueOptions, qcache.WithResourceTransformations(transformations))
 		}
-		queues := util.NewManagerForIntegrationTests(mgr.GetClient(), cCache, queueOptions...)
+		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
 
 		configuration := &config.Configuration{}
 		mgr.GetScheme().Default(configuration)

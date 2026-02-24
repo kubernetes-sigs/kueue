@@ -87,7 +87,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	controllersCfg.Metrics.EnableClusterQueueResources = true
 
 	cCache := schdcache.New(mgr.GetClient())
-	queues := util.NewManagerForIntegrationTests(mgr.GetClient(), cCache)
+	queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache)
 
 	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
