@@ -147,8 +147,7 @@ func TestFSWatch(t *testing.T) {
 				}
 			}
 			// Using an empty context here to avoid a race condition with the test context when setting the logger.
-			ctx := context.Background()
-			ctrl.LoggerInto(ctx, utiltesting.NewLogger(t))
+			ctx := ctrl.LoggerInto(context.Background(), utiltesting.NewLogger(t))
 			ctx, cancel := context.WithTimeout(ctx, time.Second)
 			defer cancel()
 			watcher := newKubeConfigFSWatcher()
@@ -199,8 +198,7 @@ func TestFSWatch(t *testing.T) {
 
 func TestFSWatchAddRm(t *testing.T) {
 	// Using an empty context here to avoid a race condition with the test context when setting the logger.
-	ctx := context.Background()
-	ctrl.LoggerInto(ctx, utiltesting.NewLogger(t))
+	ctx := ctrl.LoggerInto(context.Background(), utiltesting.NewLogger(t))
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	basePath := t.TempDir()

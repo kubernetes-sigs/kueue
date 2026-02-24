@@ -464,7 +464,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		remoteWl := group.remotes[reservingRemote]
 
 		log = log.WithValues("remote", reservingRemote, "remoteWorkload", klog.KObj(remoteWl))
-		ctrl.LoggerInto(ctx, log)
+		ctx = ctrl.LoggerInto(ctx, log)
 
 		evictedCond := apimeta.FindStatusCondition(group.local.Status.Conditions, kueue.WorkloadEvicted)
 		if workload.HasQuotaReservation(group.local) && evictedCond != nil && evictedCond.Status == metav1.ConditionTrue {

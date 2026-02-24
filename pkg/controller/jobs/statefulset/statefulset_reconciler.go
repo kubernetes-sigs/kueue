@@ -239,9 +239,8 @@ func (r *Reconciler) handle(obj client.Object) bool {
 		return true
 	}
 
-	ctx := context.Background()
 	log := r.logger().WithValues("statefulset", klog.KObj(sts))
-	ctrl.LoggerInto(ctx, log)
+	ctx := ctrl.LoggerInto(context.Background(), log)
 
 	if frameworkName, managed := managedByAnotherFramework(sts); managed {
 		log.V(3).Info("Skipping reconciliation because the object is managed by another framework", "framework", frameworkName)
