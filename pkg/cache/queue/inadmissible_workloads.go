@@ -196,8 +196,7 @@ func notifyRetryInadmissibleWithoutLock(m *Manager, cqNames sets.Set[kueue.Clust
 		}
 		if !cq.HasParent() {
 			m.requeuer.notifyClusterQueue(cq.name)
-		}
-		if cq.HasParent() && !hierarchy.HasCycle(cq.Parent()) {
+		} else if !hierarchy.HasCycle(cq.Parent()) {
 			rootName := cq.Parent().getRootUnsafe().GetName()
 			if processedRoots.Has(rootName) {
 				continue
@@ -205,6 +204,9 @@ func notifyRetryInadmissibleWithoutLock(m *Manager, cqNames sets.Set[kueue.Clust
 			m.requeuer.notifyCohort(rootName)
 			processedRoots.Insert(rootName)
 		}
+		// We silently ignore Cohort trees with cycles.
+		// Once the cycle is removed, we will reconcile
+		// and process the entire tree(s).
 	}
 }
 
