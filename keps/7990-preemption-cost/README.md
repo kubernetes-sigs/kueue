@@ -33,8 +33,9 @@ priority. Kueue computes the **effective priority** as:
 
 `effectivePriority = workload.priority + priorityBoost`
 
-and uses it wherever workload priority is currently used for ordering within a
-ClusterQueue (both scheduling and preemption candidate ordering).
+and uses it wherever workload priority is currently used within a ClusterQueue,
+including scheduling order, preemption candidate ordering, and preemption
+eligibility evaluation.
 
 This enables platform teams to dynamically adjust workload priority based on
 runtime signals (e.g. checkpoint status, execution phase, number of prior
@@ -139,8 +140,8 @@ mid and high.
     with the external controller. The reference controller (see below) is
     designed to limit oscillation by using bounded, threshold-based increments
     rather than reacting to every preemption.
-  - **Safeguard**: As an additional safety measure, Kueue may skip recently
-    admitted workloads when selecting preemption candidates.
+  - For Alpha, Kueue does not implement admission cooldown. This will be
+    evaluated for Beta based on real-world feedback.
 
 - **Risk**: Malicious or misconfigured users set extreme boost values on their
   workloads to avoid preemption.
@@ -156,8 +157,8 @@ mid and high.
     preserve deterministic ordering.
 
 - **Risk**: Annotation value is invalid or out of expected range.
-  - **Mitigation**: Treat invalid/unparsable values as zero and emit a warning
-    event/log.
+  - **Mitigation**: Treat invalid/unparsable values as zero, emit a warning
+    Event on the Workload, and log the issue.
 
 ## Design Details
 
@@ -171,7 +172,7 @@ Add a new optional annotation on `Workload`:
     values decrease it.
   - **Unset**: equivalent to zero.
   - **Alpha behavior**: if the value is invalid/unparsable, it is treated as
-    zero and a warning is logged.
+    zero, a warning Event is emitted on the Workload, and the issue is logged.
 
 The annotation is set directly on the `Workload` object by an external
 controller (not propagated from Jobs).
@@ -179,7 +180,7 @@ controller (not propagated from Jobs).
 YAML example (`Workload`):
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: Workload
 metadata:
   name: example-workload
@@ -203,8 +204,9 @@ where `priorityBoost` is read from `Workload` annotation
 `kueue.x-k8s.io/priority-boost` (default `0`).
 
 This affects ordering within a ClusterQueue for both scheduling and preemption
-candidate selection. It does not change DRS calculations or preemption
-eligibility rules (preemption policies, reclaim rules).
+candidate selection. For preemption policies such as `LowerPriority` and
+`LowerOrNewerEqualPriority`, Kueue uses effective priority (instead of raw
+priority) when evaluating eligibility. It does not change DRS calculations.
 
 ### Reference controller
 
@@ -222,7 +224,8 @@ Reference algorithm (example):
   observed in the Workload's `schedulingStats`. To avoid preemption flapping,
   use a threshold-based approach: increase the boost only after every N
   preemptions (e.g. every 2nd preemption), so that in the worst case a single
-  extra preemption can occur but the cycle does not recur.
+  extra preemption can occur but the cycle does not recur. Note: this approach
+  bounds the frequency of flapping but does not eliminate it entirely.
 - Optionally add a bounded phase-based increment (for example, running
   workloads can receive a higher boost than initializing workloads).
 - The controller can combine multiple factors (preemption count, job phase,
@@ -236,8 +239,10 @@ platform teams can plug in richer, organization-specific logic.
 
 No new scheduler metrics are required initially.
 
-- Kueue should log invalid `kueue.x-k8s.io/priority-boost` annotation values
-  at a low verbosity level.
+- Kueue should emit a warning Event on the Workload and log invalid
+  `kueue.x-k8s.io/priority-boost` annotation values at a low verbosity level.
+- When a preemption happens, Kueue should log the effective priority (base +
+  boost) of both the preemptor and the victim.
 - The reference controller should log annotation updates and expose
   reconciliation errors.
 
@@ -276,6 +281,9 @@ annotation.
   selection order.
 - Run a scenario where boost crosses priority class boundaries and confirm that
   the boosted low-priority workload is ordered above a medium-priority workload.
+- With `LowerPriority` policy, confirm that a low-priority workload with boost
+  giving it effective priority above medium cannot be preempted by
+  medium-priority workloads.
 - Add integration coverage where the reference controller updates Workload
   annotations and preemption order changes accordingly.
 
@@ -290,6 +298,11 @@ Alpha -> Beta:
   preemption candidate ordering, not scheduling) is needed alongside
   `priority-boost`.
 - Validate anti-flapping safeguards are sufficient.
+- Validate interaction with `LowerOrNewerEqualPriority`: if two workloads have
+  different base priorities but the same effective priority after boost, confirm
+  the policy treats them as equal-priority.
+- Evaluate whether a `maxPriorityBoost` cap on ClusterQueue is needed as a
+  safety valve against runaway controllers.
 
 ## Implementation History
 
