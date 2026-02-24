@@ -395,7 +395,7 @@ milestones with these graduation criteria:
 #### Alpha
 
 - support the `SchedulingGatedBy` feature gate, disabled by default
-- implement gating of scheduling by defering Workload creation
+- implement gating of scheduling by deferring Workload creation
 
 #### Beta
 
@@ -403,7 +403,7 @@ milestones with these graduation criteria:
 - Re-evaluate deferring workload scheduling instead of creation
 - Re-evaluate the activation-based approach (label-based design described in Alternatives)
 - Re-evaluate adding the annotation later in the lifetime of a Job
-- Re-evaluate support JSON-style annotations
+- Re-evaluate support for JSON-style annotation
 
 ## Implementation History
 
