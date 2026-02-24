@@ -23,10 +23,13 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 )
 
-// NewManagerForIntegrationTests is a factory for cache.queue.Manager for Integration Tests.
+// NewManagerForIntegrationTests is a factory for cache.queue.Manager for Integration Tests,
+// which configures the Requeuer with a shorter timeout and starts it up.
 func NewManagerForIntegrationTests(ctx context.Context, client client.Client, checker qcache.StatusChecker, options ...qcache.Option) *qcache.Manager {
 	requeuer := qcache.NewRequeuer(100 * time.Millisecond)
-	options = append(options, qcache.WithInadmissibleRequeuer(requeuer))
-
-	return qcache.NewManager(client, checker, options...)
+	go func() {
+		// ignore error to make linter happy.
+		_ = requeuer.Start(ctx)
+	}()
+	return qcache.NewManager(client, checker, requeuer, options...)
 }

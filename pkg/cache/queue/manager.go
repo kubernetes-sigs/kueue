@@ -95,13 +95,6 @@ func WithRoleTracker(tracker *roletracker.RoleTracker) Option {
 	}
 }
 
-func WithInadmissibleRequeuer(requeuer inadmissibleRequeuer) Option {
-	return func(m *Manager) {
-		m.requeuer = requeuer
-		requeuer.setManager(m)
-	}
-}
-
 // SetDRAReconcileChannel sets the DRA reconcile channel after manager creation.
 func (m *Manager) SetDRAReconcileChannel(ch chan<- event.TypedGenericEvent[*kueue.Workload]) {
 	m.draReconcileChannel = ch
@@ -148,15 +141,10 @@ type Manager struct {
 	requeuer inadmissibleRequeuer
 }
 
-func SetupControllers(mgr ctrl.Manager, qManager *Manager) error {
-	reconciler := qManager.requeuer.(*controllerRequeuer)
-	return reconciler.setupWithManager(mgr)
-}
-
 // NewManager is a factory for cache.queue.Manager. For tests,
 // NewManagerForUnitTests or NewManagerForIntegrationTests should be
 // used.
-func NewManager(client client.Client, checker StatusChecker, options ...Option) *Manager {
+func NewManager(client client.Client, checker StatusChecker, requeuer inadmissibleRequeuer, options ...Option) *Manager {
 	m := &Manager{
 		clock:                  realClock,
 		client:                 client,
@@ -174,18 +162,13 @@ func NewManager(client client.Client, checker StatusChecker, options ...Option) 
 		secondPassQueue:        newSecondPassQueue(),
 		AfsEntryPenalties:      queueafs.NewPenaltyMap(),
 		AfsConsumedResources:   queueafs.NewAfsConsumedResources(),
+		requeuer:               requeuer,
 	}
+	m.requeuer.setManager(m)
+
 	for _, option := range options {
 		option(m)
 	}
-
-	// requeuer is a required component. if it wasn't overridden in options
-	// via WithInadmissibleRequeuer, we use a default.
-	if m.requeuer == nil {
-		setupRequeuer := WithInadmissibleRequeuer(newRequeuer())
-		setupRequeuer(m)
-	}
-
 	m.cond.L = &m.RWMutex
 	return m
 }

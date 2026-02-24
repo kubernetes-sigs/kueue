@@ -25,13 +25,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
@@ -39,7 +34,7 @@ import (
 )
 
 const (
-	requeueBatchPeriodProd = 1 * time.Second
+	RequeueBatchPeriodProd = 1 * time.Second
 )
 
 // inadmissibleWorkloads is a thin wrapper around a map to encapsulate
@@ -226,67 +221,55 @@ type requeueRequest struct {
 	Cohort       kueue.CohortReference
 }
 
-// controllerRequeuer satisfies the inadmissibleRequeuer
-// interface, implemented via a controller-runtime
-// controller.
-type controllerRequeuer struct {
+// workqueueRequeuer satisfies the inadmissibleRequeuer
+// interface, implemented via a workqueue.TypedDelayingQueue.
+type workqueueRequeuer struct {
 	manager     *Manager
-	eventCh     chan event.TypedGenericEvent[requeueRequest]
+	queue       workqueue.TypedDelayingInterface[requeueRequest]
 	batchPeriod time.Duration
 }
 
-// newRequeuer is factory with production batch period.
-func newRequeuer() *controllerRequeuer {
-	return NewRequeuer(requeueBatchPeriodProd)
-}
-
-func NewRequeuer(batchPeriod time.Duration) *controllerRequeuer {
-	return &controllerRequeuer{
-		eventCh:     make(chan event.TypedGenericEvent[requeueRequest], 128),
+func NewRequeuer(batchPeriod time.Duration) *workqueueRequeuer {
+	return &workqueueRequeuer{
+		queue:       workqueue.NewTypedDelayingQueue[requeueRequest](),
 		batchPeriod: batchPeriod,
 	}
 }
 
-func (r *controllerRequeuer) Reconcile(ctx context.Context, req requeueRequest) (ctrl.Result, error) {
+func (r *workqueueRequeuer) notifyClusterQueue(cqName kueue.ClusterQueueReference) {
+	r.queue.AddAfter(requeueRequest{ClusterQueue: cqName}, r.batchPeriod)
+}
+
+func (r *workqueueRequeuer) notifyCohort(cohortName kueue.CohortReference) {
+	r.queue.AddAfter(requeueRequest{Cohort: cohortName}, r.batchPeriod)
+}
+
+func (r *workqueueRequeuer) setManager(manager *Manager) {
+	r.manager = manager
+}
+
+func (r *workqueueRequeuer) Start(ctx context.Context) error {
+	log := ctrl.LoggerFrom(ctx).WithName("inadmissible_workload_requeue_worker")
+	ctx = ctrl.LoggerInto(ctx, log)
+	go func() {
+		<-ctx.Done()
+		r.queue.ShutDown()
+	}()
+	for {
+		item, shutdown := r.queue.Get()
+		if shutdown {
+			return nil
+		}
+		r.reconcile(ctx, item)
+		r.queue.Done(item)
+	}
+}
+
+func (r *workqueueRequeuer) reconcile(ctx context.Context, req requeueRequest) {
 	if req.ClusterQueue != "" {
 		requeueWorkloadsCQ(ctx, r.manager, req.ClusterQueue)
 	}
 	if req.Cohort != "" {
 		requeueWorkloadsCohort(ctx, r.manager, req.Cohort)
 	}
-	return ctrl.Result{}, nil
-}
-
-func (r *controllerRequeuer) notifyClusterQueue(cqName kueue.ClusterQueueReference) {
-	r.eventCh <- event.TypedGenericEvent[requeueRequest]{Object: requeueRequest{ClusterQueue: cqName}}
-}
-
-func (r *controllerRequeuer) notifyCohort(cohortName kueue.CohortReference) {
-	r.eventCh <- event.TypedGenericEvent[requeueRequest]{Object: requeueRequest{Cohort: cohortName}}
-}
-
-func (r *controllerRequeuer) setManager(manager *Manager) {
-	r.manager = manager
-}
-
-func (r *controllerRequeuer) Create(context.Context, event.TypedCreateEvent[requeueRequest], workqueue.TypedRateLimitingInterface[requeueRequest]) {
-}
-func (r *controllerRequeuer) Update(context.Context, event.TypedUpdateEvent[requeueRequest], workqueue.TypedRateLimitingInterface[requeueRequest]) {
-}
-func (r *controllerRequeuer) Delete(context.Context, event.TypedDeleteEvent[requeueRequest], workqueue.TypedRateLimitingInterface[requeueRequest]) {
-}
-func (r *controllerRequeuer) Generic(_ context.Context, e event.TypedGenericEvent[requeueRequest], q workqueue.TypedRateLimitingInterface[requeueRequest]) {
-	q.AddAfter(e.Object, r.batchPeriod)
-}
-
-func (r *controllerRequeuer) setupWithManager(mgr ctrl.Manager) error {
-	return builder.TypedControllerManagedBy[requeueRequest](mgr).
-		Named("inadmissible_workload_requeue_controller").
-		WatchesRawSource(source.TypedChannel(r.eventCh, r)).
-		WithOptions(controller.TypedOptions[requeueRequest]{
-			NeedLeaderElection: ptr.To(false),
-			// since a lock is required to requeue, no point in more than 1.
-			MaxConcurrentReconciles: 1,
-		}).
-		Complete(r)
 }

@@ -73,8 +73,7 @@ func NewManagerForUnitTestsWithRequeuer(client client.Client, checker StatusChec
 		cqs:     sets.New[kueue.ClusterQueueReference](),
 		cohorts: sets.New[kueue.CohortReference](),
 	}
-	options = append(options, WithInadmissibleRequeuer(requeuer))
 
-	manager := NewManager(client, checker, options...)
+	manager := NewManager(client, checker, requeuer, options...)
 	return manager, requeuer
 }
