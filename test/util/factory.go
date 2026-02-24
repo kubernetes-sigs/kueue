@@ -15,12 +15,14 @@
 package util
 
 import (
+	"context"
+
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 )
 
 // NewManagerForIntegrationTests is a factory for cache.queue.Manager for Integration Tests.
-func NewManagerForIntegrationTests(client client.Client, checker qcache.StatusChecker, options ...qcache.Option) *qcache.Manager {
+func NewManagerForIntegrationTests(ctx context.Context, client client.Client, checker qcache.StatusChecker, options ...qcache.Option) *qcache.Manager {
 	return qcache.NewManager(client, checker, options...)
 }

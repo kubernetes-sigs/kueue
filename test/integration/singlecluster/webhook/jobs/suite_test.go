@@ -74,7 +74,7 @@ var _ = ginkgo.AfterSuite(func() {
 func managerSetup(setup func(ctrl.Manager, ...jobframework.Option) error, opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
 		cCache := schdcache.New(mgr.GetClient())
-		queues := util.NewManagerForIntegrationTests(mgr.GetClient(), cCache)
+		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache)
 		opts = append(opts, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
 
 		err := setup(mgr, opts...)
