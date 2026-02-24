@@ -141,9 +141,9 @@ nitty-gritty.
 - Kueue managed Jobs can have an annotation `kueue.x-k8s.io/scheduling-gated-by` at creation time
 - The annotation value must conform to a domain-like format (e.g., `example.com/mygate`), similar to the `spec.managedBy` field in Kubernetes Jobs
 - **Validation rules (alpha):**
-  - The annotation can only be set at Job creation time
   - Adding the annotation after Job creation is prevented by validation
-  - The annotation can only be completely removed, or modified to remove one or more controller names
+  - After creation, the annotation can only be completely removed, or modified to remove one or more controller names
+  - For each controller name, the characters before the first "/" must be a valid subdomain as defined by RFC 1123 and all characters trailing the first "/" must follow RFC 3986.
 - **When annotation is present:** Kueue does not create a Workload object for the Job, consistent with the existing `JobWithSkip` interface behavior when `Skip(ctx)` returns true
 - **When annotation is removed:** Jobs follow the standard Kueue workflow (Workload created immediately)
 - Jobs without the annotation follow the standard Kueue workflow (Workload created immediately)
@@ -221,11 +221,12 @@ proposal will be implemented, this is the place to discuss them.
 -->
 
 - No new API fields required
-- Annotation contract: `kueue.x-k8s.io/scheduling-gated-by` with domain-like format value (e.g., `example.com/mygate`)
+- Annotation contract: `kueue.x-k8s.io/scheduling-gated-by` is a comma separated string of controller names (e.g., `example.com/mygate,example.com/mygate2`)
 - Validation enforces:
-  - Annotation can only be set at Job creation time
-  - Annotation cannot be added after creation (only removed)
-  - Value must conform to domain-like format (similar to `spec.managedBy`)
+  - Annotation cannot be added after creation
+  - Annotation can be updated after creation to remove one or more controller names
+  - Annotation cannot be updated after creation to add new controller names
+  - Controller names are validated against a set of rules.
 - Feature gate: `SchedulingGatedBy` (Alpha, default off)
 
 ### Implementation
