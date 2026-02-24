@@ -921,10 +921,11 @@ the rules is deactivated):
 - the value of `kueue.x-k8s.io/podset-slice-size` has to be a numeric value greater or equal
   than 1. It has to evenly divide the size of a PodSet.
 - multi-layer topology constraints (`kueue.x-k8s.io/podset-slice-required-topology-constraints`):
-  - it has to be exclusively used with `kueue.x-k8s.io/podset-slice-required-topology` and `kueue.x-k8s.io/podset-slice-size`
+  - it is mutually exclusive with `kueue.x-k8s.io/podset-slice-required-topology` and `kueue.x-k8s.io/podset-slice-size`
   - it must be ordered from coarsest to finest
   - each layer's size must be evenly divisible by the size of the layer immediately below it
   - the number of layers must be less than or equal to the number of levels in the topology
+  - topology labels must be unique within the constraints list
 - if `kueue.x-k8s.io/podset-group-name` is specified, the `kueue.x-k8s.io/podset-required-topology`
   or `kueue.x-k8s.io/podset-preferred-topology` has to also be specified in all other
   PodTemplates included in the PodSet Group and it has to have the same value.
@@ -1602,6 +1603,11 @@ on the child domains as `state / innerSliceSize`, since the `sliceState`
 populated during phase 1 reflects only the outermost slice size. The same
 sorting and selection logic (BestFit / BalancedPlacement) is applied at each
 level.
+
+> [!NOTE]
+> BalancedPlacement applies to the two-level topology path only, so it's not fully compatible with
+> multi-layer slice constraints because the domain-selection step does not account for deeper
+> slicing constraints.
 
 #### Example
 
