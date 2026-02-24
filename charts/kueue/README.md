@@ -147,7 +147,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | kueueViz.backend.resources | object | `{"limits":{"cpu":"500m","memory":"512Mi"},"requests":{"cpu":"500m","memory":"512Mi"}}` | KueueViz backend pod resources |
 | kueueViz.backend.tolerations | list | `[]` | KueueViz backend tolerations |
 | kueueViz.frontend.containerSecurityContext | object | `{}` | KueueViz frontend container securityContext |
-| kueueViz.frontend.env | list | `[{"name":"REACT_APP_WEBSOCKET_URL","value":"wss://backend.kueueviz.local"}]` | Environment variables for KueueViz frontend deployment |
+| kueueViz.frontend.env | list | `[]` | Environment variables for KueueViz frontend deployment |
 | kueueViz.frontend.image.pullPolicy | string | `"Always"` | KueueViz dashboard frontend image pullPolicy. This should be set to 'IfNotPresent' for released version |
 | kueueViz.frontend.image.repository | string | `"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend"` | KueueViz dashboard frontend image repository |
 | kueueViz.frontend.image.tag | string | `"main"` | KueueViz dashboard frontend image tag |
