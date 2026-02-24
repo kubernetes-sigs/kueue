@@ -341,6 +341,9 @@ func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue
 	// TODO(#8): Selectively move workloads based on the exact event.
 	// If any workload becomes admissible or the queue becomes active.
 	if specUpdated {
+		// Broadcast occurs after inadmissible workloads are requeued.
+		// Immediate broadcast is no-op, as there are no workloads
+		// to process.
 		notifyRetryInadmissibleWithoutLock(m, sets.New(cqName))
 	}
 	if !oldActive && cqImpl.Active() {
