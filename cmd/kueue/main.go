@@ -293,7 +293,15 @@ func main() {
 		cacheOptions = append(cacheOptions, schdcache.WithAdmissionFairSharing(cfg.AdmissionFairSharing))
 	}
 	cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
-	queues := qcache.NewManager(mgr.GetClient(), cCache, queueOptions...)
+
+	// setup inadmissible workload requeuer
+	requeuer := qcache.NewRequeuer(qcache.RequeueBatchPeriodProd)
+	if err := mgr.Add(requeuer); err != nil {
+		setupLog.Error(err, "Unable to add workloadRequeuer to manager")
+		os.Exit(1)
+	}
+
+	queues := qcache.NewManager(mgr.GetClient(), cCache, requeuer, queueOptions...)
 
 	if err := setupIndexes(ctx, mgr, &cfg); err != nil {
 		setupLog.Error(err, "Unable to setup indexes")

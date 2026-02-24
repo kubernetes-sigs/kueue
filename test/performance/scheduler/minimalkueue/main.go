@@ -183,7 +183,15 @@ func run() int {
 	}
 
 	cCache := schdcache.New(mgr.GetClient())
-	queues := qcache.NewManager(mgr.GetClient(), cCache)
+
+	// setup inadmissible workload requeuer
+	requeuer := qcache.NewRequeuer(qcache.RequeueBatchPeriodProd)
+	if err := mgr.Add(requeuer); err != nil {
+		log.Error(err, "Unable to add workloadRequeuer to manager")
+		return 1
+	}
+
+	queues := qcache.NewManager(mgr.GetClient(), cCache, requeuer)
 
 	go queues.CleanUpOnContext(ctx)
 	go cCache.CleanUpOnContext(ctx)
