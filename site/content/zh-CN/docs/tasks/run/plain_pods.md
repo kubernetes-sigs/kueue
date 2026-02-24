@@ -15,7 +15,9 @@ Kueue 支持管理[单个 Pod](#running-a-single-pod-admitted-by-kueue)
 
 ## 开始之前
 
-1. 默认情况下，`pod` 集成未启用。
+1. `pod` 集成默认启用。
+
+2. 对于 Kueue v0.15 及更早版本，
    学习如何[使用自定义管理器配置安装 Kueue](/zh-CN/docs/installation/#install-a-custom-configured-released-version)
    并启用 `pod` 集成。
 
@@ -48,13 +50,13 @@ Kueue 支持管理[单个 Pod](#running-a-single-pod-admitted-by-kueue)
    ```
 
 {{% alert title="注意" color="primary" %}}
-  在 Kueue v0.10 之前，使用的是配置字段 `integrations.podOptions.namespaceSelector`
-  和 `integrations.podOptions.podSelector`。`podOptions` 的使用在 Kueue v0.11 中已被弃用。
-  用户应迁移到使用 `managedJobsNamespaceSelector`。
+在 Kueue v0.10 之前，使用的是配置字段 `integrations.podOptions.namespaceSelector`
+和 `integrations.podOptions.podSelector`。`podOptions` 的使用在 Kueue v0.11 中已被弃用。
+用户应迁移到使用 `managedJobsNamespaceSelector`。
 {{% /alert %}}
 
 
-2. 如果启用了 Pod 集成，Kueue 将为所有创建的 Pod 运行 Webhook。Webhook namespaceSelector
+3. 如果启用了 Pod 集成，Kueue 将为所有创建的 Pod 运行 Webhook。Webhook namespaceSelector
    可用于过滤需要协调的 Pod。默认的 Webhook namespaceSelector 是：
    ```yaml
    matchExpressions:
@@ -62,17 +64,17 @@ Kueue 支持管理[单个 Pod](#running-a-single-pod-admitted-by-kueue)
      operator: NotIn
      values: [ kube-system, kueue-system ]
    ```
-   
+
    当您[通过 Helm 安装 Kueue](/zh-CN/docs/installation/#install-via-helm) 时，Webhook
    命名空间选择器将匹配 `values.yaml` 中的 `managedJobsNamespaceSelector`。
 
    确保 namespaceSelector 永远不匹配 kueue 命名空间，否则
    Kueue 部署将无法创建 Pod。
 
-3. 属于 Kueue 管理的其他 API 资源的 Pod 被排除在 `pod` 集成的队列之外。
+4. 属于 Kueue 管理的其他 API 资源的 Pod 被排除在 `pod` 集成的队列之外。
    例如，由 `batch/v1.Job` 管理的 Pod 不会被 `pod` 集成管理。
 
-4. 查看[管理集群配额](/zh-CN/docs/tasks/manage/administer_cluster_quotas)了解初始 Kueue 设置的详细信息。
+5. 查看[管理集群配额](/zh-CN/docs/tasks/manage/administer_cluster_quotas)了解初始 Kueue 设置的详细信息。
 
 ## 运行由 Kueue 准入的单个 Pod
 
