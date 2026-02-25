@@ -53,6 +53,13 @@ const (
 	// Enable priority sorting within the cohort.
 	PrioritySortingWithinCohort featuregate.Feature = "PrioritySortingWithinCohort"
 
+	// owner: @mukund-wayve
+	// kep: https://github.com/kubernetes-sigs/kueue/issues/9406
+	//
+	// In fair sharing admission ordering, prefer workloads that fit
+	// within their CQ's nominal quota over workloads that require borrowing.
+	FairSharingPrioritizeNonBorrowing featuregate.Feature = "FairSharingPrioritizeNonBorrowing"
+
 	// owner: @trasc
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/693-multikueue
 	//
@@ -279,6 +286,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	PrioritySortingWithinCohort: {
 		{Version: version.MustParse("0.6"), Default: true, PreRelease: featuregate.Beta},
+	},
+	FairSharingPrioritizeNonBorrowing: {
+		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Alpha},
 	},
 	MultiKueue: {
 		{Version: version.MustParse("0.6"), Default: false, PreRelease: featuregate.Alpha},

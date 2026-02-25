@@ -169,10 +169,12 @@ func (e *entryComparer) less(a, b *entry, parentCohort kueue.CohortReference) bo
 	// quota is always preferred over one that requires borrowing.
 	// This prevents heavy borrowing on one flavor from eroding a
 	// CQ's nominal entitlement on another flavor.
-	aRequiresBorrowing := a.assignment.RequiresBorrowing()
-	bRequiresBorrowing := b.assignment.RequiresBorrowing()
-	if aRequiresBorrowing != bRequiresBorrowing {
-		return !aRequiresBorrowing
+	if features.Enabled(features.FairSharingPrioritizeNonBorrowing) {
+		aRequiresBorrowing := a.assignment.RequiresBorrowing()
+		bRequiresBorrowing := b.assignment.RequiresBorrowing()
+		if aRequiresBorrowing != bRequiresBorrowing {
+			return !aRequiresBorrowing
+		}
 	}
 
 	// 2: DRF
