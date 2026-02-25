@@ -47,6 +47,7 @@ tags, and then generate with `hack/update-toc.sh`.
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
+  - [JSON values for SchedulingGatedBy annotation](#json-values-for-schedulinggatedby-annotation)
   - [Label-based Activation/Deactivation Approach](#label-based-activationdeactivation-approach)
     - [Job Controller State Transitions](#job-controller-state-transitions)
     - [Workload Controller State Transitions](#workload-controller-state-transitions)
