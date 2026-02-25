@@ -407,9 +407,9 @@ func isPreferred(a, b granularMode, fungibilityConfig kueue.FlavorFungibility) b
 	if fungibilityConfig.Preference != nil {
 		switch *fungibilityConfig.Preference {
 		case kueue.BorrowingOverPreemption:
-			return preemptionOverBorrowing()
-		case kueue.PreemptionOverBorrowing:
 			return borrowingOverPreemption()
+		case kueue.PreemptionOverBorrowing:
+			return preemptionOverBorrowing()
 		}
 	}
 
