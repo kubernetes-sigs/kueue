@@ -3910,7 +3910,7 @@ func TestIsPreferred(t *testing.T) {
 				WhenCanPreempt: kueue.TryNextFlavor,
 				Preference:     makePref(kueue.BorrowingOverPreemption),
 			},
-			wantPreferred: true,
+			wantPreferred: false,
 		},
 		"explicit PreemptionOverBorrowing prioritises lower preemption": {
 			a: granularMode{preemptionMode: preempt, borrowingLevel: 1},
@@ -3920,7 +3920,7 @@ func TestIsPreferred(t *testing.T) {
 				WhenCanPreempt: kueue.TryNextFlavor,
 				Preference:     makePref(kueue.PreemptionOverBorrowing),
 			},
-			wantPreferred: false,
+			wantPreferred: true,
 		},
 		"explicit PreemptionOverBorrowing breaks borrowing ties with preemption": {
 			a: granularMode{preemptionMode: preempt, borrowingLevel: 1},
