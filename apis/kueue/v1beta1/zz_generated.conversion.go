@@ -2715,6 +2715,7 @@ func autoConvert_v1beta2_WorkloadSpec_To_v1beta1_WorkloadSpec(in *v1beta2.Worklo
 	out.Priority = (*int32)(unsafe.Pointer(in.Priority))
 	out.Active = (*bool)(unsafe.Pointer(in.Active))
 	out.MaximumExecutionTimeSeconds = (*int32)(unsafe.Pointer(in.MaximumExecutionTimeSeconds))
+	// WARNING: in.PreemptionGates requires manual conversion: does not exist in peer-type
 	return nil
 }
 
@@ -2761,5 +2762,6 @@ func autoConvert_v1beta2_WorkloadStatus_To_v1beta1_WorkloadStatus(in *v1beta2.Wo
 	out.NominatedClusterNames = *(*[]string)(unsafe.Pointer(&in.NominatedClusterNames))
 	out.ClusterName = (*string)(unsafe.Pointer(in.ClusterName))
 	out.UnhealthyNodes = *(*[]UnhealthyNode)(unsafe.Pointer(&in.UnhealthyNodes))
+	// WARNING: in.PreemptionGates requires manual conversion: does not exist in peer-type
 	return nil
 }
