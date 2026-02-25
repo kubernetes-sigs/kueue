@@ -435,6 +435,28 @@ not need to be as detailed as the proposal, but should include enough
 information to express the idea and why it was not acceptable.
 -->
 
+### JSON values for SchedulingGatedBy annotation
+
+Instead of using a comma‑separated list of controller names, we considered a JSON array encoded as a string. This would allow each gate to include the controller name along with optional additional metadata.
+
+For example, declaring two scheduling gates could look like this:
+
+```yaml
+metadata:
+  annotations:
+    # A JSON array encoded as a string
+    kueue.x-k8s.io/scheduling-gated-by: |
+      [
+        {"name": "example.com/alpha"},
+        {"name": "example.com/beta"}
+      ]
+```
+
+We ultimately decided against this approach because:
+
+- A simple comma‑separated list of controller names is easier to implement
+- We may eventually use [batch/v1 Job readinessGates](#batchv1-job-readinessgates-discussion), which reduces the need for adding structured metadata directly into this annotation.
+
 ### Label-based Activation/Deactivation Approach
 
 An alternative design allows users to interact directly with a managed Job object (where Job is a CR that Kueue manages like Job, PyTorchJob, Deployment, etc.) to declare their intent that Kueue should "deactivate" or "activate" it. They do this by using two labels:
