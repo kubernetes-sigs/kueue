@@ -20,9 +20,27 @@ description: >
 
 ## 开始之前
 
-1. 学习如何[使用自定义管理器配置来安装 Kueue](/docs/installation/#install-a-custom-configured-released-version)。
+1. `deployment` 集成默认启用。
 
-2. 按照[运行 Plain Pod](/zh-CN/docs/tasks/run/plain_pods/#before-you-begin)中的步骤学习如何启用和配置 `pod` 集成。
+2. 对于 Kueue v0.15 及更早版本，
+   了解如何[使用自定义管理器配置安装 Kueue](/docs/installation/#install-a-custom-configured-released-version)，
+   并确保启用了 `deployment` 集成，例如：
+
+   ```yaml
+    apiVersion: config.kueue.x-k8s.io/v1beta2
+    kind: Configuration
+    integrations:
+      frameworks:
+       - "deployment"
+   ```
+
+   {{% alert title="Pod 集成要求" color="primary" %}}
+   自 Kueue v0.15 起，你不需要显式启用 `"pod"` 集成即可使用 `"deployment"` 集成。
+   
+   对于 Kueue v0.14 及更早版本，必须显式启用 `"pod"` 集成。
+   
+   有关配置详情，请参阅运行普通 Pod。
+   {{% /alert %}}
 
 3. 查看[管理集群配额](/zh-CN/docs/tasks/manage/administer_cluster_quotas)了解初始 Kueue 设置的详细信息。
 
