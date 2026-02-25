@@ -199,6 +199,14 @@ func setSkipped(e *entry, inadmissibleMsg string) {
 	e.LastAssignment = nil
 }
 
+func setPreemptionGated(e *entry, preemptionGatedMsg string) {
+	e.status = preemptionGated
+	e.inadmissibleMsg = preemptionGatedMsg
+	// Reset assignment so that we retry all flavors
+	// after being gated.
+	e.LastAssignment = nil
+}
+
 func (s *Scheduler) reportSkippedPreemptions(p map[kueue.ClusterQueueReference]int) {
 	for cqName, count := range p {
 		metrics.AdmissionCyclePreemptionSkips.WithLabelValues(string(cqName), roletracker.GetRole(s.roleTracker)).Set(float64(count))
@@ -290,21 +298,30 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			continue
 		}
 
-		if mode == flavorassigner.Preempt && len(e.preemptionTargets) == 0 {
-			log.V(2).Info("Workload requires preemption, but there are no candidate workloads allowed for preemption", "preemption", cq.Preemption)
-			// we reserve capacity if we are uncertain
-			// whether we can reclaim the capacity
-			// later. Otherwise, we allow other workloads
-			// in the Cohort to borrow this capacity,
-			// confident we can reclaim it later.
-			if !preemption.CanAlwaysReclaim(cq) {
-				// reserve capacity up to the
-				// borrowing limit, so that
-				// lower-priority workloads in another
-				// Cohort cannot admit before us.
-				cq.AddUsage(resourcesToReserve(e, cq))
+		if mode == flavorassigner.Preempt {
+			if len(e.preemptionTargets) == 0 {
+				log.V(2).Info("Workload requires preemption, but there are no candidate workloads allowed for preemption", "preemption", cq.Preemption)
+				// we reserve capacity if we are uncertain
+				// whether we can reclaim the capacity
+				// later. Otherwise, we allow other workloads
+				// in the Cohort to borrow this capacity,
+				// confident we can reclaim it later.
+				if !preemption.CanAlwaysReclaim(cq) {
+					// reserve capacity up to the
+					// borrowing limit, so that
+					// lower-priority workloads in another
+					// Cohort cannot admit before us.
+					cq.AddUsage(resourcesToReserve(e, cq))
+				}
+				continue
 			}
-			continue
+
+			if features.Enabled(features.MultiKueueOrchestratedPreemption) && workload.HasClosedPreemptionGate(e.Obj) {
+				gatedMsg := "Workload requires preemption, but it's gated"
+				log.V(3).Info(gatedMsg, e.Obj.Spec.PreemptionGates)
+				setPreemptionGated(e, gatedMsg)
+				continue
+			}
 		}
 
 		// We skip multiple-preemptions per cohort if any of the targets are overlapping
@@ -423,6 +440,8 @@ const (
 	nominated entryStatus = "nominated"
 	// indicates if the workload was skipped in this cycle.
 	skipped entryStatus = "skipped"
+	// indicates if the workload was preemptionGated in this cycle.
+	preemptionGated entryStatus = "preemptionGated"
 	// indicates if the workload was evicted in this cycle.
 	evicted entryStatus = "evicted"
 	// indicates if the workload was assumed to have been admitted.
@@ -825,12 +844,15 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 
 	added := s.queues.RequeueWorkload(ctx, &e.Info, e.requeueReason)
 	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "added", added, "status", e.status)
-	if e.status == notNominated || e.status == skipped {
+	if e.status == notNominated || e.status == skipped || e.status == preemptionGated {
 		wl := e.Obj.DeepCopy()
 		if err := workload.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
 			updated := workload.UnsetQuotaReservationWithCondition(wl, "Pending", e.inadmissibleMsg, s.clock.Now())
 			if workload.PropagateResourceRequests(wl, &e.Info) {
 				updated = true
+			}
+			if e.status == preemptionGated {
+				updated = workload.SetPreemptionBlockedCondition(wl, s.clock.Now(), kueue.PreemptionGated, e.inadmissibleMsg)
 			}
 			return updated, nil
 		}, workload.WithLooseOnApply(), workload.WithRetryOnConflictForPatch()); err != nil {
