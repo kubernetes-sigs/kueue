@@ -1308,8 +1308,7 @@ func Test_isRayRedisCleanupJob(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
-			got := isRayRedisCleanupJob(ctx, tt.job)
+			got := isRayRedisCleanupJob(tt.job)
 			if got != tt.want {
 				t.Errorf("isRayRedisCleanupJob() = %v, want %v", got, tt.want)
 			}

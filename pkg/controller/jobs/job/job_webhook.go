@@ -63,12 +63,9 @@ var (
 //
 // Note: This function modifies the Job's pod template in-place.
 func applyWorkloadSliceSchedulingGate(ctx context.Context, job *Job) {
-	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
+	log := ctrl.LoggerFrom(ctx)
 
 	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {
-		log.V(3).Info("ElasticJobsViaWorkloadSlices feature disabled, skipping scheduling gate",
-			"jobName", job.Name,
-			"jobNamespace", job.Namespace)
 		return
 	}
 
@@ -76,8 +73,8 @@ func applyWorkloadSliceSchedulingGate(ctx context.Context, job *Job) {
 	// annotation will not be set. So, workloadslicing.Enabled(job.Object()) will
 	// return false. Still, we should rm the elastic job scheduling gate.
 
-	if isRayRedisCleanupJob(ctx, job) {
-		log.V(3).Info("Detected Ray redis-cleanup job - removing any inherited elastic scheduling gates",
+	if isRayRedisCleanupJob(job) {
+		log.V(3).Info("Detected Ray redis_cleanup job - removing any inherited elastic scheduling gates",
 			"jobName", job.Name,
 			"jobNamespace", job.Namespace)
 
