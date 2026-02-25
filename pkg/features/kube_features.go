@@ -276,6 +276,12 @@ const (
 	// layers (in addition to the podset-level constraint) for fine-grained
 	// placement across deep topology hierarchies.
 	TASMultiLayerTopology featuregate.Feature = "TASMultiLayerTopology"
+
+	// owner: @kshalot
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/8303
+	// Enables pod labeling with corresponding cluster and local queue names
+	MultiKueueOrchestratedPreemption featuregate.Feature = "MultiKueueOrchestratedPreemption"
 )
 
 func init() {
@@ -430,7 +436,11 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	AssignQueueLabelsForPods: {
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
 	},
+<<<<<<< HEAD
 	TASMultiLayerTopology: {
+=======
+	MultiKueueOrchestratedPreemption: {
+>>>>>>> 69151f053 (Add `MultiKueueOrchestratedPreemption` feature gate)
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
