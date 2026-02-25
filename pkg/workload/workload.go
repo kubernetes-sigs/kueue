@@ -69,6 +69,7 @@ const (
 var (
 	admissionManagedConditions = []string{
 		kueue.WorkloadQuotaReserved,
+		kueue.WorkloadPreemptionBlocked,
 		kueue.WorkloadEvicted,
 		kueue.WorkloadAdmitted,
 		kueue.WorkloadPreempted,
@@ -889,6 +890,37 @@ func SetFinishedCondition(w *kueue.Workload, now time.Time, reason string, messa
 		ObservedGeneration: w.Generation,
 	}
 	return apimeta.SetStatusCondition(&w.Status.Conditions, condition)
+}
+
+func SetPreemptionBlockedCondition(w *kueue.Workload, now time.Time, reason string, message string) bool {
+	condition := metav1.Condition{
+		Type:               kueue.WorkloadPreemptionBlocked,
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.NewTime(now),
+		Reason:             reason,
+		Message:            api.TruncateConditionMessage(message),
+		ObservedGeneration: w.Generation,
+	}
+	return apimeta.SetStatusCondition(&w.Status.Conditions, condition)
+}
+
+// HasClosedPreemptionGate checks if the workload contains any PreemptionGate
+// that is considered closed, preventing it from triggering preemptions.
+func HasClosedPreemptionGate(w *kueue.Workload) bool {
+	gateStates := make(map[string]kueue.GateState)
+	for _, gateState := range w.Status.PreemptionGates {
+		gateStates[gateState.Name] = gateState.State
+	}
+
+	return slices.ContainsFunc(w.Spec.PreemptionGates, func(pg kueue.PreemptionGate) bool {
+		state, hasState := gateStates[pg.Name]
+		// Preemption gates that are present only in `.spec` are considered closed.
+		// This ensures that the workload can be created gated atomically.
+		if !hasState {
+			return true
+		}
+		return state == kueue.GateStateClosed
+	})
 }
 
 // PropagateResourceRequests synchronizes w.Status.ResourceRequests to
