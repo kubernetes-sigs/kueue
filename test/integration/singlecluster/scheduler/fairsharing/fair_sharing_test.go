@@ -23,6 +23,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/metrics/testutil"
@@ -1035,33 +1036,41 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 		})
 
 		ginkgo.It("admits one workload from each LocalQueue when quota is limited", framework.SlowSpec, func() {
-			ginkgo.By("Saturating the cq with lq-a and lq-b")
-			initialWls := []*kueue.Workload{
-				createWorkload("lq-a", "4"),
-				createWorkload("lq-b", "4"),
-			}
-			util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 2)
-			util.ExpectReservingActiveWorkloadsMetric(cq1, 2)
+			ginkgo.By("Pausing admissions to CQ")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq1), cq1)).To(gomega.Succeed())
+				cq1.Spec.StopPolicy = ptr.To(kueue.Hold)
+				g.Expect(k8sClient.Update(ctx, cq1)).Should(gomega.Succeed())
+			}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
+
+			// this sync step is to stop a (rare, 2/1024 runs) race, where one of the
+			// workloads admits before the CQ is stoppped.
+			ginkgo.By("Wait for CQ to stop")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq1), cq1)).To(gomega.Succeed())
+				activeCond := meta.FindStatusCondition(cq1.Status.Conditions, kueue.ClusterQueueActive)
+				g.Expect(activeCond).NotTo(gomega.BeNil())
+				g.Expect(activeCond.Status).To(gomega.Equal(metav1.ConditionFalse))
+				g.Expect(activeCond.Reason).To(gomega.Equal(kueue.ClusterQueueActiveReasonStopped))
+			}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
 
 			ginkgo.By("Creating two pending workloads for each lq")
 			lqAWls := []*kueue.Workload{
 				createWorkload("lq-a", "4"),
 				createWorkload("lq-a", "4"),
 			}
-			util.ExpectPendingWorkloadsMetric(cq1, 0, 2)
-
 			lqBWls := []*kueue.Workload{
 				createWorkload("lq-b", "4"),
 				createWorkload("lq-b", "4"),
 			}
 			util.ExpectPendingWorkloadsMetric(cq1, 0, 4)
 
-			ginkgo.By("Checking that LQ's resource usage is updated")
-			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqA), ">", 3_900)
-			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqB), ">", 3_900)
-
-			ginkgo.By("Releasing quota")
-			util.FinishWorkloads(ctx, k8sClient, initialWls...)
+			ginkgo.By("Resuming admissions to CQ")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq1), cq1)).To(gomega.Succeed())
+				cq1.Spec.StopPolicy = ptr.To(kueue.None)
+				g.Expect(k8sClient.Update(ctx, cq1)).Should(gomega.Succeed())
+			}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
 
 			ginkgo.By("Verifying one workload from each lq is admitted")
 			util.ExpectWorkloadsToBeAdmittedCount(ctx, k8sClient, 1, lqAWls...)
