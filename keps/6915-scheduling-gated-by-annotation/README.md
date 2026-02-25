@@ -454,7 +454,7 @@ metadata:
 
 We ultimately decided against this approach because:
 
-- A simple comma‑separated list of controller names is easier to implement
+- A simple comma‑separated list of controller names is easier to implement.
 - We may eventually use [batch/v1 Job readinessGates](#batchv1-job-readinessgates-discussion), which reduces the need for adding structured metadata directly into this annotation.
 
 ### Label-based Activation/Deactivation Approach
