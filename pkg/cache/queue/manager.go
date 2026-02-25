@@ -863,6 +863,22 @@ func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload, iterat
 	}
 }
 
+// ResyncGaugeMetrics re-reports pending and finished workload gauge metrics.
+func (m *Manager) ResyncGaugeMetrics() {
+	m.RLock()
+	defer m.RUnlock()
+	for _, cq := range m.hm.ClusterQueues() {
+		reportCQPendingWorkloads(m, cq)
+		reportCQFinishedWorkloads(cq, m.roleTracker)
+	}
+	if features.Enabled(features.LocalQueueMetrics) {
+		for _, lq := range m.localQueues {
+			reportLQPendingWorkloads(m, lq)
+			reportLQFinishedWorkloads(m, lq)
+		}
+	}
+}
+
 type WorkloadUpdateWatcher interface {
 	NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload)
 }

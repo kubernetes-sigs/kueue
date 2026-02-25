@@ -89,6 +89,71 @@ func TestRoleTracker_StartLeaderElection(t *testing.T) {
 	}
 }
 
+func TestOnElected(t *testing.T) {
+	tests := []struct {
+		name            string
+		registerCb      bool
+		closeChannel    bool
+		cancelContext   bool
+		expectCalled    bool
+		expectFinalRole string
+	}{
+		{
+			name:            "called on election",
+			registerCb:      true,
+			closeChannel:    true,
+			expectCalled:    true,
+			expectFinalRole: RoleLeader,
+		},
+		{
+			name:            "not called when no callback registered",
+			closeChannel:    true,
+			expectCalled:    false,
+			expectFinalRole: RoleLeader,
+		},
+		{
+			name:            "not called when context cancelled",
+			registerCb:      true,
+			cancelContext:   true,
+			expectCalled:    false,
+			expectFinalRole: RoleFollower,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			electedChan := make(chan struct{})
+			rt := NewRoleTracker(electedChan)
+
+			var called bool
+			if tc.registerCb {
+				rt.OnElected(func() {
+					called = true
+				})
+			}
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			if tc.closeChannel {
+				close(electedChan)
+			}
+			if tc.cancelContext {
+				cancel()
+			}
+
+			rt.Start(ctx, logr.Discard())
+
+			if called != tc.expectCalled {
+				t.Errorf("callback called = %v, want %v", called, tc.expectCalled)
+			}
+			if got := rt.GetRole(); got != tc.expectFinalRole {
+				t.Errorf("final role = %q, want %q", got, tc.expectFinalRole)
+			}
+		})
+	}
+}
+
 func TestGetMetricsRole(t *testing.T) {
 	tests := []struct {
 		name     string

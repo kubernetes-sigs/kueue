@@ -33,6 +33,7 @@ const (
 type RoleTracker struct {
 	role        atomic.Value
 	electedChan <-chan struct{}
+	onElected   func()
 }
 
 // NewRoleTracker creates a RoleTracker that starts as follower and becomes leader when electedChan closes.
@@ -51,12 +52,21 @@ func NewFakeRoleTracker(role string) *RoleTracker {
 	return rt
 }
 
+// OnElected registers a callback invoked after the tracker becomes leader.
+// Must be called before Start.
+func (rt *RoleTracker) OnElected(fn func()) {
+	rt.onElected = fn
+}
+
 // Start blocks until leadership is acquired or context is cancelled.
 func (rt *RoleTracker) Start(ctx context.Context, log logr.Logger) {
 	select {
 	case <-rt.electedChan:
 		rt.role.Store(RoleLeader)
 		log.Info("RoleTracker: transitioned to leader")
+		if rt.onElected != nil {
+			rt.onElected()
+		}
 	case <-ctx.Done():
 		return
 	}
