@@ -35,6 +35,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.15"
+- name: FairSharingPrioritizeNonBorrowing
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.17"
 - name: FlavorFungibility
   versionedSpecs:
   - default: true

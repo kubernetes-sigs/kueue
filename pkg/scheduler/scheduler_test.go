@@ -2909,9 +2909,9 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
-				"eng-alpha/spot-heavy":  *utiltestingapi.MakeAdmission("fs-nom-a").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "spot", "80").Count(80).Obj()).Obj(),
-				"eng-beta/light-usage":  *utiltestingapi.MakeAdmission("fs-nom-b").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "5").Count(5).Obj()).Obj(),
-				"eng-alpha/nom-wl":      *utiltestingapi.MakeAdmission("fs-nom-a").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "45").Count(45).Obj()).Obj(),
+				"eng-alpha/spot-heavy": *utiltestingapi.MakeAdmission("fs-nom-a").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "spot", "80").Count(80).Obj()).Obj(),
+				"eng-beta/light-usage": *utiltestingapi.MakeAdmission("fs-nom-b").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "5").Count(5).Obj()).Obj(),
+				"eng-alpha/nom-wl":     *utiltestingapi.MakeAdmission("fs-nom-a").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "45").Count(45).Obj()).Obj(),
 			},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"fs-nom-b": {"eng-beta/borrow-wl"},

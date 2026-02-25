@@ -288,7 +288,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.6"), Default: true, PreRelease: featuregate.Beta},
 	},
 	FairSharingPrioritizeNonBorrowing: {
-		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
 	},
 	MultiKueue: {
 		{Version: version.MustParse("0.6"), Default: false, PreRelease: featuregate.Alpha},
