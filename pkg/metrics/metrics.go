@@ -847,6 +847,18 @@ func ReportCohortWeightedShare(cohort string, weightedShare float64, tracker *ro
 	CohortWeightedShare.WithLabelValues(cohort, roletracker.GetRole(tracker)).Set(weightedShare)
 }
 
+var allGaugeVecs []*prometheus.GaugeVec
+
+// ClearGaugeMetricsForRole deletes all gauge metric time series matching
+// replica_role=role. Called during HA role transitions to remove stale
+// time series reported under the old role.
+func ClearGaugeMetricsForRole(role string) {
+	lbls := prometheus.Labels{"replica_role": role}
+	for _, g := range allGaugeVecs {
+		g.DeletePartialMatch(lbls)
+	}
+}
+
 func ClearClusterQueueResourceMetrics(cqName string) {
 	lbls := prometheus.Labels{
 		"cluster_queue": cqName,
@@ -908,18 +920,20 @@ func ClearClusterQueueResourceReservations(cqName, flavor, resource string) {
 	ClusterQueueResourceReservations.DeletePartialMatch(lbls)
 }
 
+func registerGaugeVecs(gauges ...*prometheus.GaugeVec) {
+	for _, g := range gauges {
+		metrics.Registry.MustRegister(g)
+		allGaugeVecs = append(allGaugeVecs, g)
+	}
+}
+
 func Register() {
 	metrics.Registry.MustRegister(
 		buildInfo,
 		AdmissionAttemptsTotal,
 		admissionAttemptDuration,
-		AdmissionCyclePreemptionSkips,
-		PendingWorkloads,
-		ReservingActiveWorkloads,
-		AdmittedActiveWorkloads,
 		QuotaReservedWorkloadsTotal,
 		QuotaReservedWaitTime,
-		FinishedWorkloads,
 		FinishedWorkloadsTotal,
 		PodsReadyToEvictedTimeSeconds,
 		AdmittedWorkloadsTotal,
@@ -930,6 +944,13 @@ func Register() {
 		AdmissionChecksWaitTime,
 		QueuedUntilReadyWaitTime,
 		AdmittedUntilReadyWaitTime,
+	)
+	registerGaugeVecs(
+		AdmissionCyclePreemptionSkips,
+		PendingWorkloads,
+		ReservingActiveWorkloads,
+		AdmittedActiveWorkloads,
+		FinishedWorkloads,
 		ClusterQueueResourceUsage,
 		ClusterQueueByStatus,
 		ClusterQueueResourceReservations,
@@ -946,11 +967,7 @@ func Register() {
 
 func RegisterLQMetrics() {
 	metrics.Registry.MustRegister(
-		LocalQueuePendingWorkloads,
-		LocalQueueReservingActiveWorkloads,
-		LocalQueueAdmittedActiveWorkloads,
 		LocalQueueQuotaReservedWorkloadsTotal,
-		LocalQueueFinishedWorkloads,
 		LocalQueueFinishedWorkloadsTotal,
 		LocalQueueQuotaReservedWaitTime,
 		LocalQueueAdmittedWorkloadsTotal,
@@ -959,6 +976,12 @@ func RegisterLQMetrics() {
 		LocalQueueQueuedUntilReadyWaitTime,
 		LocalQueueAdmittedUntilReadyWaitTime,
 		LocalQueueEvictedWorkloadsTotal,
+	)
+	registerGaugeVecs(
+		LocalQueuePendingWorkloads,
+		LocalQueueReservingActiveWorkloads,
+		LocalQueueAdmittedActiveWorkloads,
+		LocalQueueFinishedWorkloads,
 		LocalQueueByStatus,
 		LocalQueueResourceReservations,
 		LocalQueueResourceUsage,

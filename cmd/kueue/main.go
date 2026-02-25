@@ -272,6 +272,7 @@ func main() {
 	cacheOptions := []schdcache.Option{
 		schdcache.WithPodsReadyTracking(blockForPodsReady(&cfg)),
 		schdcache.WithRoleTracker(roleTracker),
+		schdcache.WithResourceMetrics(cfg.Metrics.EnableClusterQueueResources),
 	}
 	queueOptions := []qcache.Option{
 		qcache.WithPodsReadyRequeuingTimestamp(podsReadyRequeuingTimestamp(&cfg)),
@@ -332,6 +333,14 @@ func main() {
 	if err := setupProbeEndpoints(mgr, certsReady); err != nil {
 		setupLog.Error(err, "Unable to setup probe endpoints")
 		os.Exit(1)
+	}
+
+	if roleTracker != nil {
+		roleTracker.OnElected(func() {
+			metrics.ClearGaugeMetricsForRole(roletracker.RoleFollower)
+			cCache.ResyncMetrics()
+			queues.ResyncMetrics()
+		})
 	}
 
 	preemptionExpectations := preemptexpectations.New()
