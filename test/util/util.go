@@ -560,19 +560,22 @@ func ExpectWorkloadToBeAdmittedAs(ctx context.Context, k8sClient client.Client, 
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
-var attemptStatuses = []metrics.AdmissionResult{metrics.AdmissionResultInadmissible, metrics.AdmissionResultSuccess}
+func ExpectPendingAdmissionAttempts(want int, operation string) {
+	expectAdmissionAttempts(want, operation, metrics.AdmissionResultInadmissible)
+}
 
-func ExpectAdmissionAttemptsMetric(pending, admitted int) {
-	vals := []int{pending, admitted}
+func ExpectSuccessfulAdmissionAttempts(want int, operation string) {
+	expectAdmissionAttempts(want, operation, metrics.AdmissionResultSuccess)
+}
 
-	for i, status := range attemptStatuses {
-		metric := metrics.AdmissionAttemptsTotal.WithLabelValues(string(status))
-		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-			v, err := testutil.GetCounterMetricValue(metric)
-			g.Expect(err).ToNot(gomega.HaveOccurred())
-			g.Expect(int(v)).Should(gomega.Equal(vals[i]), "pending_workloads with status=%s", status)
-		}, Timeout, Interval).Should(gomega.Succeed())
-	}
+func expectAdmissionAttempts(want int, operation string, result metrics.AdmissionResult) {
+	ginkgo.GinkgoHelper()
+	metric := metrics.AdmissionAttemptsTotal.WithLabelValues(string(result))
+	gomega.Eventually(func(g gomega.Gomega) {
+		v, err := testutil.GetCounterMetricValue(metric)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(int(v)).Should(gomega.BeNumerically(operation, want), "pending_workloads with status=%s", result)
+	}, Timeout, Interval).WithOffset(2).Should(gomega.Succeed())
 }
 
 var pendingStatuses = []string{metrics.PendingStatusActive, metrics.PendingStatusInadmissible}
