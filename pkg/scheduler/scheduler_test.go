@@ -8894,6 +8894,134 @@ func TestRequeueAndUpdate(t *testing.T) {
 	}
 }
 
+func TestEntryComparerLess(t *testing.T) {
+	now := time.Now()
+	cohort := kueue.CohortReference("test-cohort")
+
+	for _, tc := range []struct {
+		name      string
+		a         *entry
+		b         *entry
+		drsValues map[drsKey]schdcache.DRS
+		wantLess  bool
+	}{
+		{
+			name: "nominal preferred over borrowing",
+			a: &entry{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "nominal",
+						Namespace:         "default",
+						CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
+					}},
+				},
+				assignment: flavorassigner.Assignment{Borrowing: 0},
+			},
+			b: &entry{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "borrowing",
+						Namespace:         "default",
+						CreationTimestamp: metav1.NewTime(now),
+					}},
+				},
+				assignment: flavorassigner.Assignment{Borrowing: 1},
+			},
+			wantLess: true,
+		},
+		{
+			name: "both borrowing at different levels falls through to FIFO",
+			a: &entry{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "borrow-level-1",
+						Namespace:         "default",
+						CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
+					}},
+				},
+				assignment: flavorassigner.Assignment{Borrowing: 1},
+			},
+			b: &entry{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "borrow-level-2",
+						Namespace:         "default",
+						CreationTimestamp: metav1.NewTime(now),
+					}},
+				},
+				assignment: flavorassigner.Assignment{Borrowing: 2},
+			},
+			wantLess: false,
+		},
+		{
+			name: "lower DRS preferred when both borrow",
+			a: &entry{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "lower-drs",
+						Namespace:         "default",
+						CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
+					}},
+				},
+				assignment: flavorassigner.Assignment{Borrowing: 2},
+			},
+			b: &entry{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "higher-drs",
+						Namespace:         "default",
+						CreationTimestamp: metav1.NewTime(now),
+					}},
+				},
+				assignment: flavorassigner.Assignment{Borrowing: 1},
+			},
+			drsValues: map[drsKey]schdcache.DRS{
+				{parentCohort: cohort, workloadKey: "default/lower-drs"}:  schdcache.NegativeDRS(),
+				{parentCohort: cohort, workloadKey: "default/higher-drs"}: {},
+			},
+			wantLess: true,
+		},
+		{
+			name: "both nominal falls through to FIFO",
+			a: &entry{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "older",
+						Namespace:         "default",
+						CreationTimestamp: metav1.NewTime(now),
+					}},
+				},
+				assignment: flavorassigner.Assignment{Borrowing: 0},
+			},
+			b: &entry{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "newer",
+						Namespace:         "default",
+						CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
+					}},
+				},
+				assignment: flavorassigner.Assignment{Borrowing: 0},
+			},
+			wantLess: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			drsValues := tc.drsValues
+			if drsValues == nil {
+				drsValues = make(map[drsKey]schdcache.DRS)
+			}
+			ec := &entryComparer{
+				drsValues: drsValues,
+			}
+			got := ec.less(tc.a, tc.b, cohort)
+			if got != tc.wantLess {
+				t.Errorf("less(%s, %s) = %v, want %v", tc.a.Obj.Name, tc.b.Obj.Name, got, tc.wantLess)
+			}
+		})
+	}
+}
+
 func TestResourcesToReserve(t *testing.T) {
 	resourceFlavors := []*kueue.ResourceFlavor{
 		utiltestingapi.MakeResourceFlavor("on-demand").Obj(),
