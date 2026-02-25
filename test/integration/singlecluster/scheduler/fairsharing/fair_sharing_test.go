@@ -1140,10 +1140,8 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 
 		ginkgo.It("admits workloads from less active LocalQueues after quota is released", framework.SlowSpec, func() {
 			ginkgo.By("Saturating the cq with lq-a")
-			initialWls := []*kueue.Workload{
-				createWorkload("lq-a", "4"),
-				createWorkload("lq-a", "4"),
-			}
+			wl1 := createWorkload("lq-a", "4")
+			wl2 := createWorkload("lq-a", "4")
 			util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 2)
 			util.ExpectReservingActiveWorkloadsMetric(cq1, 2)
 
@@ -1163,8 +1161,17 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqB), "==", 0)
 			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqC), "==", 0)
 
-			ginkgo.By("Releasing quota")
-			util.FinishWorkloads(ctx, k8sClient, initialWls...)
+			ginkgo.By("Release wl1 quota")
+			util.FinishWorkloads(ctx, k8sClient, wl1)
+
+			ginkgo.By("Workload admits")
+			util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 3)
+
+			ginkgo.By("Release wl2 quota")
+			util.FinishWorkloads(ctx, k8sClient, wl2)
+
+			ginkgo.By("Workload admits")
+			util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 4)
 
 			ginkgo.By("Verifying one workload from lq-b and one from lq-c to be admitted")
 			util.ExpectWorkloadsToBeAdmittedCount(ctx, k8sClient, 1, lqBWls...)
