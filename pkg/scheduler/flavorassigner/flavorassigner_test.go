@@ -4235,3 +4235,31 @@ func TestAssignment_TotalRequestsFor(t *testing.T) {
 		})
 	}
 }
+
+func TestAssignment_RequiresBorrowing(t *testing.T) {
+	tests := map[string]struct {
+		borrowing int
+		want      bool
+	}{
+		"no borrowing": {
+			borrowing: 0,
+			want:      false,
+		},
+		"borrows at level 1": {
+			borrowing: 1,
+			want:      true,
+		},
+		"borrows at level 2": {
+			borrowing: 2,
+			want:      true,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			a := &Assignment{Borrowing: tc.borrowing}
+			if got := a.RequiresBorrowing(); got != tc.want {
+				t.Errorf("RequiresBorrowing() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
