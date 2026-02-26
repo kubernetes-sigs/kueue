@@ -748,6 +748,21 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 				ginkgo.By(fmt.Sprintf("Verify rolling update completes successfully with %d replicas running", lwsReplicas), func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
+						fmt.Fprintf(ginkgo.GinkgoWriter, "LWS status: spec.Replicas=%d status.Replicas=%d updatedReplicas=%d readyReplicas=%d\n",
+							ptr.Deref(createdLeaderWorkerSet.Spec.Replicas, 1),
+							createdLeaderWorkerSet.Status.Replicas,
+							createdLeaderWorkerSet.Status.UpdatedReplicas,
+							createdLeaderWorkerSet.Status.ReadyReplicas)
+						for i := range lwsReplicas + maxSurge {
+							wl := &kueue.Workload{}
+							wlKey := util.WorkloadKeyForLeaderWorkerSet(lws, strconv.Itoa(i))
+							if err := k8sClient.Get(ctx, wlKey, wl); err == nil {
+								fmt.Fprintf(ginkgo.GinkgoWriter, "  workload[%d] %s: admitted=%v\n", i, wlKey.Name, wl.Status.Admission != nil)
+							} else {
+								fmt.Fprintf(ginkgo.GinkgoWriter, "  workload[%d] %s: not found\n", i, wlKey.Name)
+							}
+						}
+
 						g.Expect(createdLeaderWorkerSet.Status.UpdatedReplicas).To(gomega.Equal(int32(lwsReplicas)))
 						g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(lwsReplicas)))
 						g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
