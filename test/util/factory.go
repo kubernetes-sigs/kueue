@@ -26,7 +26,11 @@ import (
 // NewManagerForIntegrationTests is a factory for cache.queue.Manager for Integration Tests,
 // which configures the Requeuer with a shorter timeout and starts it up.
 func NewManagerForIntegrationTests(ctx context.Context, client client.Client, checker qcache.StatusChecker, options ...qcache.Option) *qcache.Manager {
-	requeuer := qcache.NewRequeuer(100 * time.Millisecond)
+	return NewManagerForIntegrationTestsWithBatchPeriod(ctx, client, checker, 100*time.Millisecond, options...)
+}
+
+func NewManagerForIntegrationTestsWithBatchPeriod(ctx context.Context, client client.Client, checker qcache.StatusChecker, batchPeriod time.Duration, options ...qcache.Option) *qcache.Manager {
+	requeuer := qcache.NewRequeuer(batchPeriod)
 	go func() {
 		// ignore error to make linter happy.
 		_ = requeuer.Start(ctx)
