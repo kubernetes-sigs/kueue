@@ -275,7 +275,7 @@ The label 'underlying_cause' can have the following values:
 			Subsystem: constants.KueueName,
 			Name:      "admission_wait_time_seconds",
 			Help:      "The time between a workload was created or requeued until admission, per 'cluster_queue'",
-			Buckets:   generateExponentialBuckets(15),
+			Buckets:   generateExponentialBuckets(16),
 		}, []string{"cluster_queue", "priority_class", "replica_role"},
 	)
 
