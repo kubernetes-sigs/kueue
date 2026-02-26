@@ -47,15 +47,18 @@ func (r *testInadmissibleWorkloadRequeuer) setManager(manager *Manager) {
 
 // ProcessRequeues requeues all the inadmissible workloads
 // belonging to Cohorts/Queues which were notified.
-func (w *testInadmissibleWorkloadRequeuer) ProcessRequeues(ctx context.Context) {
+// Returns the total number of workloads moved.
+func (w *testInadmissibleWorkloadRequeuer) ProcessRequeues(ctx context.Context) int {
+	total := 0
 	for cqName := range w.cqs {
-		requeueWorkloadsCQ(ctx, w.manager, cqName)
+		total += requeueWorkloadsCQ(ctx, w.manager, cqName)
 	}
 	for cohortName := range w.cohorts {
-		requeueWorkloadsCohort(ctx, w.manager, cohortName)
+		total += requeueWorkloadsCohort(ctx, w.manager, cohortName)
 	}
 	w.cqs.Clear()
 	w.cohorts.Clear()
+	return total
 }
 
 // NewManagerForUnitTests creates a new Manager for testing purposes.

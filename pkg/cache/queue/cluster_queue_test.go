@@ -401,7 +401,7 @@ func TestClusterQueueImpl(t *testing.T) {
 		queueInadmissibleWorkloads        bool
 		wantActiveWorkloads               []workload.Reference
 		wantPending                       int
-		wantInadmissibleWorkloadsRequeued bool
+		wantInadmissibleWorkloadsRequeued int
 	}{
 		"add, update, delete workload": {
 			workloadsToAdd:                 []*kueue.Workload{workloads[0], workloads[1], workloads[3]},
@@ -430,7 +430,36 @@ func TestClusterQueueImpl(t *testing.T) {
 			queueInadmissibleWorkloads:        true,
 			wantActiveWorkloads:               []workload.Reference{workload.Key(workloads[0]), workload.Key(workloads[1])},
 			wantPending:                       3,
-			wantInadmissibleWorkloadsRequeued: true,
+			wantInadmissibleWorkloadsRequeued: 1,
+		},
+		"re-queue multiple inadmissible workloads and count": {
+			inadmissibleWorkloadsToRequeue:    []*workload.Info{workload.NewInfo(workloads[0]), workload.NewInfo(workloads[1])},
+			queueInadmissibleWorkloads:        true,
+			wantActiveWorkloads:               []workload.Reference{workload.Key(workloads[0]), workload.Key(workloads[1])},
+			wantPending:                       2,
+			wantInadmissibleWorkloadsRequeued: 2,
+		},
+		// workloads[1] (ns2/sales) matches the namespace selector and moves
+		// to the heap, but workloads[2] (ns3/marketing) does not match and
+		// stays inadmissible. Verify the count reflects only the one that moved.
+		"count only workloads that actually moved": {
+			workloadsToAdd:                    []*kueue.Workload{workloads[0]},
+			inadmissibleWorkloadsToRequeue:    []*workload.Info{workload.NewInfo(workloads[1]), workload.NewInfo(workloads[2])},
+			queueInadmissibleWorkloads:        true,
+			wantActiveWorkloads:               []workload.Reference{workload.Key(workloads[0]), workload.Key(workloads[1])},
+			wantPending:                       3,
+			wantInadmissibleWorkloadsRequeued: 1,
+		},
+		// workloads[1] is already on the heap via PushOrUpdate, so
+		// requeueIfNotPresent skips adding it to inadmissible. The flush
+		// finds an empty inadmissible map and returns 0.
+		"workload already on heap is not made inadmissible": {
+			workloadsToAdd:                    []*kueue.Workload{workloads[1]},
+			inadmissibleWorkloadsToRequeue:    []*workload.Info{workload.NewInfo(workloads[1])},
+			queueInadmissibleWorkloads:        true,
+			wantActiveWorkloads:               []workload.Reference{workload.Key(workloads[1])},
+			wantPending:                       1,
+			wantInadmissibleWorkloadsRequeued: 0,
 		},
 		"avoid re-queueing inadmissible workloads not matching namespace selector": {
 			workloadsToAdd:                 []*kueue.Workload{workloads[0]},
