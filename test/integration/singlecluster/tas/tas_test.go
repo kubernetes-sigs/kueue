@@ -4915,6 +4915,218 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			})
 		})
 	})
+
+	ginkgo.When("Multi-layer topology constraints", func() {
+		var (
+			nodes        []corev1.Node
+			topology     *kueue.Topology
+			tasFlavor    *kueue.ResourceFlavor
+			clusterQueue *kueue.ClusterQueue
+			localQueue   *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASMultiLayerTopology, true)
+
+			// Topology:
+			//             b1
+			//         /         \
+			//       r1           r2
+			//    /     \       /    \
+			//  x1(6)  x2(8)  x3(2)  x4(8)
+			//
+			// Node allocatable:
+			// x1: 6 GPUs, x2: 8 GPUs, x3: 2 GPUs, x4: 8 GPUs
+			nodes = []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label("node-group", "tas").
+					Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+					Label(utiltesting.DefaultRackTopologyLevel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						"nvidia.com/gpu":    resource.MustParse("6"),
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label("node-group", "tas").
+					Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+					Label(utiltesting.DefaultRackTopologyLevel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						"nvidia.com/gpu":    resource.MustParse("8"),
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x3").
+					Label("node-group", "tas").
+					Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+					Label(utiltesting.DefaultRackTopologyLevel, "r2").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						"nvidia.com/gpu":    resource.MustParse("2"),
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x4").
+					Label("node-group", "tas").
+					Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+					Label(utiltesting.DefaultRackTopologyLevel, "r2").
+					Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{
+						"nvidia.com/gpu":    resource.MustParse("8"),
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			}
+			util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+
+			topology = utiltestingapi.MakeDefaultThreeLevelTopology("default")
+			util.MustCreate(ctx, k8sClient, topology)
+
+			tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
+				NodeLabel("node-group", "tas").
+				TopologyName("default").Obj()
+			util.MustCreate(ctx, k8sClient, tasFlavor)
+
+			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).
+					Resource("nvidia.com/gpu", "40").Obj()).
+				Obj()
+			util.MustCreate(ctx, k8sClient, clusterQueue)
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+
+			localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			util.MustCreate(ctx, k8sClient, localQueue)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+			for _, node := range nodes {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
+			}
+		})
+
+		ginkgo.It("should admit workload with single constraint layer", func() {
+			// Constraints: [{rack, 8}] with required=block.
+			var wl1 *kueue.Workload
+
+			ginkgo.By("creating a workload with one constraint layer", func() {
+				wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
+					PodSets(*utiltestingapi.MakePodSet("worker", 16).
+						RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+						SliceRequiredTopologyConstraints(
+							kueue.PodsetSliceRequiredTopologyConstraint{
+								Topology: utiltesting.DefaultRackTopologyLevel,
+								Size:     8,
+							},
+						).
+						Obj()).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					Request("nvidia.com/gpu", "1").Obj()
+				util.MustCreate(ctx, k8sClient, wl1)
+			})
+
+			ginkgo.By("verify the workload is admitted", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+				gomega.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+					utiltas.V1Beta2From(&utiltas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []utiltas.TopologyDomainAssignment{
+							{Count: 6, Values: []string{"x1"}},
+							{Count: 2, Values: []string{"x2"}},
+							{Count: 2, Values: []string{"x3"}},
+							{Count: 6, Values: []string{"x4"}},
+						},
+					}),
+				))
+			})
+		})
+
+		ginkgo.It("should admit workload with two constraint layers", func() {
+			// Constraints: [{rack, 8}, {hostname, 4}] with required=block.
+			var wl1 *kueue.Workload
+
+			ginkgo.By("creating a workload with two constraint layers", func() {
+				wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
+					PodSets(*utiltestingapi.MakePodSet("worker", 16).
+						RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+						SliceRequiredTopologyConstraints(
+							kueue.PodsetSliceRequiredTopologyConstraint{
+								Topology: utiltesting.DefaultRackTopologyLevel,
+								Size:     8,
+							},
+							kueue.PodsetSliceRequiredTopologyConstraint{
+								Topology: corev1.LabelHostname,
+								Size:     4,
+							},
+						).
+						Obj()).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					Request("nvidia.com/gpu", "1").Obj()
+				util.MustCreate(ctx, k8sClient, wl1)
+			})
+
+			ginkgo.By("verify the workload is admitted", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+				gomega.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+					utiltas.V1Beta2From(&utiltas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []utiltas.TopologyDomainAssignment{
+							{Count: 4, Values: []string{"x1"}},
+							{Count: 4, Values: []string{"x2"}},
+							{Count: 8, Values: []string{"x4"}},
+						},
+					}),
+				))
+			})
+		})
+
+		ginkgo.It("should not admit workload when resources are insufficient for constraints", func() {
+			// Constraints: [{rack, 10}, {hostname, 5}] with required=block.
+			// It cannot fit on rack2.
+			var wl1 *kueue.Workload
+
+			ginkgo.By("creating a workload that cannot fit", func() {
+				wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
+					PodSets(*utiltestingapi.MakePodSet("worker", 20).
+						RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+						SliceRequiredTopologyConstraints(
+							kueue.PodsetSliceRequiredTopologyConstraint{
+								Topology: utiltesting.DefaultRackTopologyLevel,
+								Size:     10,
+							},
+							kueue.PodsetSliceRequiredTopologyConstraint{
+								Topology: corev1.LabelHostname,
+								Size:     5,
+							},
+						).
+						Obj()).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					Request("nvidia.com/gpu", "1").Obj()
+				util.MustCreate(ctx, k8sClient, wl1)
+			})
+
+			ginkgo.By("verify the workload is not admitted", func() {
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl1)
+			})
+		})
+	})
 })
 
 // Tests the "Retain" resource transformation strategy: regular CPU requests are
