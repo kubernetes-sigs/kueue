@@ -102,9 +102,9 @@ metadata:
 ```yaml
 resources:
   limits:
-    nvidia.com/gpu: "2"         # Number of vGPU instances
-    nvidia.com/gpucores: "20"   # Cores per vGPU
-    nvidia.com/gpumem: "1024"   # Memory per vGPU (MiB)
+    nvidia.com/gpu: "2"         # vGPU 数量
+    nvidia.com/gpucores: "20"   # 每个 vGPU 的核心数
+    nvidia.com/gpumem: "1024"   # 每个 vGPU 的内存（MiB）
 ```
 
 Kueue 会自动将这些转换为总资源：
@@ -138,7 +138,7 @@ status:
   - name: hami-flavor
     resources:
     - name: nvidia.com/total-gpucores
-      total: "60"  # Current usage (30 cores × 2 vGPUs)
+      total: "60"  # 当前使用情况 (30 cores × 2 vGPUs)
     - name: nvidia.com/total-gpumem
-      total: "2048"  # Current usage (1024 MiB × 2 vGPUs)
+      total: "2048"  # 当前使用情况 (1024 MiB × 2 vGPUs)
 ```
