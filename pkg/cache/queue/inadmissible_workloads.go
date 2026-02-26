@@ -177,27 +177,17 @@ func NotifyRetryInadmissible(m *Manager, cqNames sets.Set[kueue.ClusterQueueRefe
 }
 
 func notifyRetryInadmissibleWithoutLock(m *Manager, cqNames sets.Set[kueue.ClusterQueueReference]) {
-	if len(cqNames) == 0 {
-		return
-	}
-
-	// Track processed cohort roots to avoid requeuing the same hierarchy
-	// multiple times when multiple CQs in cqNames share a root.
-	processedRoots := sets.New[kueue.CohortReference]()
 	for name := range cqNames {
 		cq := m.hm.ClusterQueue(name)
 		if cq == nil {
 			continue
 		}
-		if !cq.HasParent() {
+		switch {
+		case !cq.HasParent():
 			m.requeuer.notifyClusterQueue(cq.name)
-		} else if !hierarchy.HasCycle(cq.Parent()) {
+		case !hierarchy.HasCycle(cq.Parent()):
 			rootName := cq.Parent().getRootUnsafe().GetName()
-			if processedRoots.Has(rootName) {
-				continue
-			}
 			m.requeuer.notifyCohort(rootName)
-			processedRoots.Insert(rootName)
 		}
 		// We silently ignore Cohort trees with cycles.
 		// Once the cycle is removed, we will reconcile
