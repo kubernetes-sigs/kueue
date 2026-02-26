@@ -26,6 +26,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
@@ -44,6 +45,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
+	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/routine"
@@ -62,8 +64,9 @@ type Preemptor struct {
 	enableFairSharing bool
 	fsStrategies      []fairsharing.Strategy
 
-	enabledAfs  bool
-	roleTracker *roletracker.RoleTracker
+	enabledAfs             bool
+	roleTracker            *roletracker.RoleTracker
+	preemptionExpectations *expectations.Store
 }
 
 type preemptionCtx struct {
@@ -85,16 +88,18 @@ func New(
 	enabledAfs bool,
 	clock clock.Clock,
 	tracker *roletracker.RoleTracker,
+	preemptionExpectations *expectations.Store,
 ) *Preemptor {
 	p := &Preemptor{
-		clock:             clock,
-		client:            cl,
-		recorder:          recorder,
-		workloadOrdering:  workloadOrdering,
-		enableFairSharing: fairsharing.Enabled(fs),
-		fsStrategies:      parseStrategies(fs),
-		enabledAfs:        enabledAfs,
-		roleTracker:       tracker,
+		clock:                  clock,
+		client:                 cl,
+		recorder:               recorder,
+		workloadOrdering:       workloadOrdering,
+		enableFairSharing:      fairsharing.Enabled(fs),
+		fsStrategies:           parseStrategies(fs),
+		enabledAfs:             enabledAfs,
+		roleTracker:            tracker,
+		preemptionExpectations: preemptionExpectations,
 	}
 	return p
 }
@@ -170,33 +175,45 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 	defer cancel()
 	workqueue.ParallelizeUntil(ctx, parallelPreemptions, len(targets), func(i int) {
 		target := targets[i]
-		if !workload.IsEvicted(target.WorkloadInfo.Obj) {
-			preemptorPath := buildCQPath(string(preemptor.ClusterQueue), snap)
-			preempteePath := buildCQPath(string(target.WorkloadInfo.ClusterQueue), target.WorkloadCq)
-
-			message := preemptionMessage(preemptor.Obj, target.Reason, preemptorPath, preempteePath)
-			wlCopy := target.WorkloadInfo.Obj.DeepCopy()
-			err := workload.Evict(
-				ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, "", p.clock, p.roleTracker,
-				workload.WithCustomPrepare(func(wl *kueue.Workload) {
-					workload.SetPreemptedCondition(wl, p.clock.Now(), target.Reason, message)
-				}),
-				workload.EvictWithLooseOnApply(), workload.EvictWithRetryOnConflictForPatch(),
-			)
-			if err != nil {
-				errCh.SendErrorWithCancel(err, cancel)
-				preemptionErrors.Add(1)
-				return
-			}
-
-			log.V(3).Info("Preempted", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj), "preemptorUID", string(preemptor.Obj.UID),
-				"preemptorJobUID", preemptor.Obj.Labels[constants.JobUIDLabel], "reason", target.Reason, "message", message, "targetClusterQueue", klog.KRef("", string(target.WorkloadInfo.ClusterQueue)),
-				"preemptorPath", preemptorPath, "preempteePath", preempteePath)
-			p.recorder.Eventf(target.WorkloadInfo.Obj, corev1.EventTypeNormal, "Preempted", message)
-			workload.ReportPreemption(preemptor.ClusterQueue, target.Reason, target.WorkloadInfo.ClusterQueue, p.roleTracker)
-		} else {
+		targetKey := types.NamespacedName{Name: target.WorkloadInfo.Obj.Name, Namespace: target.WorkloadInfo.Obj.Namespace}
+		if workload.IsEvicted(target.WorkloadInfo.Obj) {
 			log.V(3).Info("Preemption ongoing", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj))
+			successfullyPreempted.Add(1)
+			return
 		}
+		if !p.preemptionExpectations.Satisfied(log, targetKey) {
+			log.V(3).Info("Preemption already issued, waiting for observation",
+				"targetWorkload", klog.KObj(target.WorkloadInfo.Obj),
+				"preemptingWorkload", klog.KObj(preemptor.Obj))
+			successfullyPreempted.Add(1)
+			return
+		}
+
+		preemptorPath := buildCQPath(string(preemptor.ClusterQueue), snap)
+		preempteePath := buildCQPath(string(target.WorkloadInfo.ClusterQueue), target.WorkloadCq)
+
+		p.preemptionExpectations.ExpectUIDs(log, targetKey, []types.UID{target.WorkloadInfo.Obj.UID})
+
+		message := preemptionMessage(preemptor.Obj, target.Reason, preemptorPath, preempteePath)
+		wlCopy := target.WorkloadInfo.Obj.DeepCopy()
+		err := workload.Evict(
+			ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, "", p.clock, p.roleTracker,
+			workload.WithCustomPrepare(func(wl *kueue.Workload) {
+				workload.SetPreemptedCondition(wl, p.clock.Now(), target.Reason, message)
+			}),
+			workload.EvictWithLooseOnApply(), workload.EvictWithRetryOnConflictForPatch(),
+		)
+		if err != nil {
+			p.preemptionExpectations.ObservedUID(log, targetKey, target.WorkloadInfo.Obj.UID)
+			errCh.SendErrorWithCancel(err, cancel)
+			preemptionErrors.Add(1)
+			return
+		}
+		log.V(3).Info("Preempted", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj), "preemptorUID", string(preemptor.Obj.UID),
+			"preemptorJobUID", preemptor.Obj.Labels[constants.JobUIDLabel], "reason", target.Reason, "message", message, "targetClusterQueue", klog.KRef("", string(target.WorkloadInfo.ClusterQueue)),
+			"preemptorPath", preemptorPath, "preempteePath", preempteePath)
+		p.recorder.Eventf(target.WorkloadInfo.Obj, corev1.EventTypeNormal, "Preempted", message)
+		workload.ReportPreemption(preemptor.ClusterQueue, target.Reason, target.WorkloadInfo.ClusterQueue, p.roleTracker)
 		successfullyPreempted.Add(1)
 	})
 	return int(successfullyPreempted.Load()), int(preemptionErrors.Load()), errCh.ReceiveError()

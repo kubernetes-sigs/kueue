@@ -59,6 +59,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	"sigs.k8s.io/kueue/pkg/util/expectations"
 	qutil "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -123,24 +124,32 @@ func WithWorkloadRoleTracker(value *roletracker.RoleTracker) Option {
 	}
 }
 
+// WithPreemptionExpectations sets the store used to track in-flight preemptions.
+func WithPreemptionExpectations(value *expectations.Store) Option {
+	return func(r *WorkloadReconciler) {
+		r.preemptionExpectations = value
+	}
+}
+
 type WorkloadUpdateWatcher interface {
 	NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload)
 }
 
 // WorkloadReconciler reconciles a Workload object
 type WorkloadReconciler struct {
-	logName             string
-	queues              *qcache.Manager
-	cache               *schdcache.Cache
-	client              client.Client
-	watchers            []WorkloadUpdateWatcher
-	waitForPodsReady    *waitForPodsReadyConfig
-	recorder            record.EventRecorder
-	clock               clock.Clock
-	workloadRetention   *workloadRetentionConfig
-	draReconcileChannel chan event.TypedGenericEvent[*kueue.Workload]
-	admissionFSConfig   *config.AdmissionFairSharing
-	roleTracker         *roletracker.RoleTracker
+	logName                string
+	queues                 *qcache.Manager
+	cache                  *schdcache.Cache
+	client                 client.Client
+	watchers               []WorkloadUpdateWatcher
+	waitForPodsReady       *waitForPodsReadyConfig
+	recorder               record.EventRecorder
+	clock                  clock.Clock
+	workloadRetention      *workloadRetentionConfig
+	draReconcileChannel    chan event.TypedGenericEvent[*kueue.Workload]
+	admissionFSConfig      *config.AdmissionFairSharing
+	roleTracker            *roletracker.RoleTracker
+	preemptionExpectations *expectations.Store
 }
 
 var _ reconcile.Reconciler = (*WorkloadReconciler)(nil)
@@ -850,6 +859,11 @@ func (r *WorkloadReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) b
 	ctx := ctrl.LoggerInto(context.Background(), log)
 	wlKey := workload.Key(e.Object)
 
+	if !e.DeleteStateUnknown {
+		r.preemptionExpectations.ObservedUID(r.logger(),
+			client.ObjectKeyFromObject(e.Object), e.Object.UID)
+	}
+
 	// Delete from cache unconditionally. Pending workloads may have been "assumed"
 	// by the scheduler, and leaving them blocks ClusterQueue finalizer removal.
 	// The operation is idempotent if the workload was never in the cache.
@@ -889,6 +903,11 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		log = log.WithValues("prevClusterQueue", e.ObjectOld.Status.Admission.ClusterQueue)
 	}
 	log.V(2).Info("Workload update event")
+
+	if workload.IsEvicted(e.ObjectNew) && !workload.IsEvicted(e.ObjectOld) {
+		r.preemptionExpectations.ObservedUID(log,
+			client.ObjectKeyFromObject(e.ObjectNew), e.ObjectNew.UID)
+	}
 
 	wlCopy := e.ObjectNew.DeepCopy()
 	wlKey := workload.Key(e.ObjectNew)

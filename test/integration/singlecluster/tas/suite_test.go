@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/scheduler"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -93,7 +94,8 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache)
 	qManager = queues
 
-	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil)
+	preemptionExpectations := preemptexpectations.New()
+	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil, preemptionExpectations)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "Core controller", failedCtrl)
 
 	failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, controllersCfg, nil)
@@ -113,7 +115,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	err = reconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName))
+	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptionExpectations))
 	err = sched.Start(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
