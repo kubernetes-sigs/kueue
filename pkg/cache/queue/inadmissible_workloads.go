@@ -82,19 +82,21 @@ func (iw *inadmissibleWorkloads) replaceAll(newMap inadmissibleWorkloads) {
 // cohort with this ClusterQueue from inadmissibleWorkloads to heap.
 // It expects to be passed a ClusterQueue without any Cohort.
 // WARNING: must only be called by the InadmissibleWorkloadRequeuer
-func requeueWorkloadsCQ(ctx context.Context, m *Manager, clusterQueueName kueue.ClusterQueueReference) {
+func requeueWorkloadsCQ(ctx context.Context, m *Manager, clusterQueueName kueue.ClusterQueueReference) int {
 	m.Lock()
 	defer m.Unlock()
 	cq := m.hm.ClusterQueue(clusterQueueName)
 	if cq == nil {
-		return
+		return 0
 	}
-	if queueInadmissibleWorkloads(ctx, cq, m.client) {
+	moved := queueInadmissibleWorkloads(ctx, cq, m.client)
+	if moved > 0 {
 		log := ctrl.LoggerFrom(ctx)
-		log.V(2).Info("Moved workloads", "clusterqueue", cq.name)
+		log.V(2).Info("Moved workloads", "clusterqueue", cq.name, "count", moved)
 		reportPendingWorkloads(m, cq.name)
 		m.Broadcast()
 	}
+	return moved
 }
 
 // requeueWorkloadsCohort moves all inadmissible
@@ -102,62 +104,64 @@ func requeueWorkloadsCQ(ctx context.Context, m *Manager, clusterQueueName kueue.
 // passed a root Cohort. If at least one workload queued,
 // we will broadcast the event.
 // WARNING: must only be called by the InadmissibleWorkloadRequeuer
-func requeueWorkloadsCohort(ctx context.Context, m *Manager, rootCohortName kueue.CohortReference) {
+func requeueWorkloadsCohort(ctx context.Context, m *Manager, rootCohortName kueue.CohortReference) int {
 	m.Lock()
 	defer m.Unlock()
 	cohort := m.hm.Cohort(rootCohortName)
 	if cohort == nil {
-		return
+		return 0
 	}
 	log := ctrl.LoggerFrom(ctx)
 
 	if hierarchy.HasCycle(cohort) {
 		log.V(2).Info("Attempted to move workloads from Cohort which has cycle", "cohort", cohort.GetName())
-		return
+		return 0
 	}
 	log.V(2).Info("Attempting to move workloads", "rootCohort", cohort.Name)
-	if requeueWorkloadsCohortSubtree(ctx, m, cohort) {
-		log.V(2).Info("Moved all inadmissible workloads in tree", "rootCohort", cohort.Name)
+	moved := requeueWorkloadsCohortSubtree(ctx, m, cohort)
+	if moved > 0 {
+		log.V(2).Info("Moved inadmissible workloads in tree", "rootCohort", cohort.Name, "count", moved)
 		m.Broadcast()
 	}
+	return moved
 }
 
 // WARNING: must only be called (indirectly) by InadmissibleWorkloadRequeuer.
-func requeueWorkloadsCohortSubtree(ctx context.Context, m *Manager, cohort *cohort) bool {
-	queued := false
+func requeueWorkloadsCohortSubtree(ctx context.Context, m *Manager, cohort *cohort) int {
+	total := 0
 	for _, clusterQueue := range cohort.ChildCQs() {
-		if queueInadmissibleWorkloads(ctx, clusterQueue, m.client) {
+		if moved := queueInadmissibleWorkloads(ctx, clusterQueue, m.client); moved > 0 {
 			reportPendingWorkloads(m, clusterQueue.name)
-			queued = true
+			total += moved
 		}
 	}
 	for _, childCohort := range cohort.ChildCohorts() {
-		queued = requeueWorkloadsCohortSubtree(ctx, m, childCohort) || queued
+		total += requeueWorkloadsCohortSubtree(ctx, m, childCohort)
 	}
-	return queued
+	return total
 }
 
 // queueInadmissibleWorkloads moves all workloads from inadmissibleWorkloads to heap.
-// If at least one workload is moved, returns true, otherwise returns false.
+// Returns the number of workloads moved.
 // WARNING: must only be called (indirectly) by InadmissibleWorkloadRequeuer.
-func queueInadmissibleWorkloads(ctx context.Context, c *ClusterQueue, client client.Client) bool {
+func queueInadmissibleWorkloads(ctx context.Context, c *ClusterQueue, client client.Client) int {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	log := ctrl.LoggerFrom(ctx)
 	c.queueInadmissibleCycle = c.popCycle
 	if c.inadmissibleWorkloads.empty() {
-		return false
+		return 0
 	}
 	log.V(2).Info("Resetting the head of the ClusterQueue", "clusterQueue", c.name)
 	newInadmissibleWorkloads := make(inadmissibleWorkloads)
-	moved := false
+	moved := 0
 	for key, wInfo := range c.inadmissibleWorkloads {
 		ns := corev1.Namespace{}
 		err := client.Get(ctx, types.NamespacedName{Name: wInfo.Obj.Namespace}, &ns)
 		if err != nil || !c.namespaceSelector.Matches(labels.Set(ns.Labels)) || !c.backoffWaitingTimeExpired(wInfo) {
 			newInadmissibleWorkloads.insert(key, wInfo)
-		} else {
-			moved = c.heap.PushIfNotPresent(wInfo) || moved
+		} else if c.heap.PushIfNotPresent(wInfo) {
+			moved++
 		}
 	}
 

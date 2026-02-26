@@ -265,6 +265,7 @@ func TestQueueInadmissibleWorkloads(t *testing.T) {
 		wantInadmissible          map[kueue.ClusterQueueReference][]workload.Reference
 		wantActive                map[kueue.ClusterQueueReference][]workload.Reference
 		wantMoveWorkloadsLogCount int
+		wantMovedCount            int
 	}{
 		"deduplication with shared root": {
 			// Tree structure:
@@ -299,6 +300,45 @@ func TestQueueInadmissibleWorkloads(t *testing.T) {
 			// Verify deduplication: although cq1 and cq2 share the same root, the
 			// "Attempting to move workloads" log should appear only once.
 			wantMoveWorkloadsLogCount: 1,
+			wantMovedCount:            2,
+		},
+		"cohort subtree aggregates count across multiple cluster queues": {
+			// Tree structure:
+			//   root
+			//   ├── child1
+			//   │   ├── cq1 (1 workload)
+			//   │   └── cq2 (1 workload)
+			//   └── child2
+			//       └── cq3 (2 workload)
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("child1").Parent("root").Obj(),
+				utiltestingapi.MakeCohort("child2").Parent("root").Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq1").Cohort("child1").Obj(),
+				utiltestingapi.MakeClusterQueue("cq2").Cohort("child1").Obj(),
+				utiltestingapi.MakeClusterQueue("cq3").Cohort("child2").Obj(),
+			},
+			localQueues: []*kueue.LocalQueue{
+				utiltestingapi.MakeLocalQueue("q1", defaultNamespace).ClusterQueue("cq1").Obj(),
+				utiltestingapi.MakeLocalQueue("q2", defaultNamespace).ClusterQueue("cq2").Obj(),
+				utiltestingapi.MakeLocalQueue("q3", defaultNamespace).ClusterQueue("cq3").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("a", defaultNamespace).Queue("q1").Creation(now).Obj(),
+				utiltestingapi.MakeWorkload("b", defaultNamespace).Queue("q2").Creation(now.Add(time.Second)).Obj(),
+				utiltestingapi.MakeWorkload("c", defaultNamespace).Queue("q3").Creation(now.Add(2 * time.Second)).Obj(),
+				utiltestingapi.MakeWorkload("d", defaultNamespace).Queue("q3").Creation(now.Add(3 * time.Second)).Obj(),
+			},
+			cqNames: sets.New[kueue.ClusterQueueReference]("cq1", "cq2", "cq3"),
+			wantActive: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq1": {"default/a"},
+				"cq2": {"default/b"},
+				"cq3": {"default/c", "default/d"},
+			},
+			wantMoveWorkloadsLogCount: 1,
+			wantMovedCount:            4,
 		},
 		"cohort cycle": {
 			// cohort-a -> cohort-b -> cohort-c -> cohort-a
@@ -361,7 +401,10 @@ func TestQueueInadmissibleWorkloads(t *testing.T) {
 			// Reset the counter before testing. Setup operations also trigger the log.
 			moveWorkloadsLogCount = 0
 
-			watcher.ProcessRequeues(ctx)
+			gotMoved := watcher.ProcessRequeues(ctx)
+			if gotMoved != tc.wantMovedCount {
+				t.Errorf("Expected %d moved workloads, got %d", tc.wantMovedCount, gotMoved)
+			}
 			if diff := cmp.Diff(tc.wantInadmissible, manager.DumpInadmissible()); diff != "" {
 				t.Errorf("Unexpected inadmissible workloads (-want +got):\n%s", diff)
 			}
