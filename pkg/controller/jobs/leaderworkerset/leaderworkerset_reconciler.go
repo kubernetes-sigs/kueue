@@ -130,6 +130,24 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 
 	toCreate, toUpdate, toDelete := r.filterWorkloads(lws, wlList.Items)
 
+	log.V(2).Info("filterWorkloads result",
+		"specReplicas", ptr.Deref(lws.Spec.Replicas, 1),
+		"statusReplicas", lws.Status.Replicas,
+		"updatedReplicas", lws.Status.UpdatedReplicas,
+		"readyReplicas", lws.Status.ReadyReplicas,
+		"isRollingUpdateWithSurge", isRollingUpdateWithSurge(lws),
+		"toCreateCount", len(toCreate),
+		"toUpdateCount", len(toUpdate),
+		"toDeleteCount", len(toDelete),
+	)
+	if len(toDelete) > 0 {
+		deleteNames := make([]string, len(toDelete))
+		for i, wl := range toDelete {
+			deleteNames[i] = wl.Name
+		}
+		log.V(2).Info("Deleting workloads", "workloads", deleteNames)
+	}
+
 	eg, ctx := errgroup.WithContext(ctx)
 
 	eg.Go(func() error {
