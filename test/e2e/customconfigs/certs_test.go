@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package e2e
+package customconfigse2e
 
 import (
 	"github.com/onsi/ginkgo/v2"
