@@ -37,6 +37,12 @@ no_list: true
 
 ![组件](/images/queueing-components.svg)
 
+### [Topology](/docs/concepts/topology)
+
+集群范围的资源，表示数据中心内节点的层次结构。
+`Topology` 使用节点标签定义组织单元的级别（如块和机架），并从 `ResourceFlavor`
+引用以启用[拓扑感知调度](/docs/concepts/topology_aware_scheduling)。
+
 ### [拓扑感知调度](/docs/concepts/topology_aware_scheduling) {#topology-aware-scheduling}
 
 一种机制，允许调度工作负载时优化 Pod 之间的网络吞吐量。
