@@ -681,7 +681,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			})
 		})
 
-		for i := range 100 {
+		for i := range 200 {
 			ginkgo.FIt(fmt.Sprintf("Rolling update with maxSurge creates workloads for surge pods and completes successfully %d", i), func() {
 				const (
 					lwsReplicas    = 4
