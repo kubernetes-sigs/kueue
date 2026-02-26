@@ -46,6 +46,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
@@ -267,12 +268,24 @@ func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName kueue.Admi
 }
 
 func (w *wlReconciler) adapter(local *kueue.Workload) (jobframework.MultiKueueAdapter, *metav1.OwnerReference) {
+	// Try job owner annotations for workloads without a controller owner ref (e.g., StatefulSet).
+	if gvkStr, ok := local.Annotations[constants.JobOwnerGVKAnnotation]; ok {
+		if adapter, found := w.adapters[gvkStr]; found {
+			if jobName, ok := local.Annotations[constants.JobOwnerNameAnnotation]; ok && jobName != "" {
+				apiVersion, kind := adapter.GVK().ToAPIVersionAndKind()
+				return adapter, &metav1.OwnerReference{
+					APIVersion: apiVersion,
+					Kind:       kind,
+					Name:       jobName,
+				}
+			}
+		}
+	}
+
 	if controller := metav1.GetControllerOf(local); controller != nil {
 		adapterKey := schema.FromAPIVersionAndKind(controller.APIVersion, controller.Kind).String()
 		return w.adapters[adapterKey], controller
 	} else if refs := local.GetOwnerReferences(); len(refs) > 0 {
-		// For workloads without a controller but with owner references,
-		// use the first owner reference to find the adapter. This supports composable workloads.
 		adapterKey := schema.FromAPIVersionAndKind(refs[0].APIVersion, refs[0].Kind).String()
 		return w.adapters[adapterKey], &refs[0]
 	}
