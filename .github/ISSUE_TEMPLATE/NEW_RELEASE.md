@@ -53,9 +53,9 @@ Please do not remove items from the checklist
 - [ ] Run the [openvex action](https://github.com/kubernetes-sigs/kueue/actions/workflows/openvex.yaml) to generate openvex data. The action will add the file to the release artifacts.
 - [ ] Run the [SBOM action](https://github.com/kubernetes-sigs/kueue/actions/workflows/sbom.yaml) to generate the SBOM and add it to the release.
 - [ ] Update the `main` branch :
-  - [ ] for both releases:
-    - [ ] manually update changelog
-  - [ ] for the latest release:
+  - [ ] for each release:
+    - [ ] update the changelog (example #9578)
+  - [ ] for only the latest release:
     - [ ] Run `./hack/releasing/prepare_pull.sh --target main $VERSION`
     - [ ] Submit a pull request with the changes: <!-- example #3007 -->
     - [ ] Cherry-pick the pull request onto the `website` branch
