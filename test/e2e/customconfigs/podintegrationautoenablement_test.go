@@ -90,7 +90,7 @@ var _ = ginkgo.Describe("Auto-Enablement of Pod Integration for Pod-Dependent Fr
 		util.MustCreate(ctx, k8sClient, testSts)
 
 		ginkgo.By("verifying StatefulSet workload is created and admitted", func() {
-			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(testSts.Name), Namespace: ns.Name}
+			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(testSts.UID, testSts.Name), Namespace: ns.Name}
 			createdWorkload := &kueue.Workload{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())

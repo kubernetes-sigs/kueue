@@ -79,21 +79,16 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile StatefulSet")
 
+	sts := &appsv1.StatefulSet{}
+	if err := r.client.Get(ctx, req.NamespacedName, sts); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
 	podList := &corev1.PodList{}
 	if err := r.client.List(ctx, podList, client.InNamespace(req.Namespace), client.MatchingLabels{
-		podconstants.GroupNameLabel: GetWorkloadName(req.Name),
+		podconstants.GroupNameLabel: GetWorkloadName(GetOwnerUID(sts), sts.Name),
 	}); err != nil {
 		return ctrl.Result{}, err
-	}
-
-	sts := &appsv1.StatefulSet{}
-	err := r.client.Get(ctx, req.NamespacedName, sts)
-	if client.IgnoreNotFound(err) != nil {
-		return ctrl.Result{}, err
-	}
-
-	if err != nil {
-		sts = nil
 	}
 
 	if err := r.syncQueueLabel(ctx, sts, podList.Items); err != nil {
@@ -110,8 +105,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return r.reconcileWorkload(ctx, sts)
 	})
 
-	err = eg.Wait()
-	return ctrl.Result{}, err
+	return ctrl.Result{}, eg.Wait()
 }
 
 func (r *Reconciler) finalizePods(ctx context.Context, sts *appsv1.StatefulSet, pods []corev1.Pod) error {
@@ -190,7 +184,7 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 	queueName := jobframework.QueueNameForObject(sts)
 
 	wl := &kueue.Workload{}
-	err := r.client.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: GetWorkloadName(sts.Name)}, wl)
+	err := r.client.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: GetWorkloadName(GetOwnerUID(sts), sts.Name)}, wl)
 
 	if apierrors.IsNotFound(err) {
 		_, isMultiKueueRemote := sts.Labels[kueue.MultiKueueOriginLabel]
@@ -280,7 +274,7 @@ func (r *Reconciler) constructWorkload(sts *appsv1.StatefulSet) (*kueue.Workload
 		podSet.TopologyRequest = topologyRequest
 	}
 
-	wl := podcontroller.NewGroupWorkload(GetWorkloadName(sts.Name), sts, []kueue.PodSet{podSet}, nil)
+	wl := podcontroller.NewGroupWorkload(GetWorkloadName(GetOwnerUID(sts), sts.Name), sts, []kueue.PodSet{podSet}, nil)
 
 	if wl.Annotations == nil {
 		wl.Annotations = make(map[string]string)

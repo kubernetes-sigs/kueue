@@ -93,7 +93,7 @@ func TestPodReconciler(t *testing.T) {
 			},
 		},
 		"shouldn't set default values without queue name": {
-			sts: statefulsettesting.MakeStatefulSet("sts", "ns").Obj(),
+			sts: statefulsettesting.MakeStatefulSet("sts", "ns").UID("sts-uid").Obj(),
 			pod: testingjobspod.MakePod("pod", "ns").
 				OwnerReference("sts", gvk).
 				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
@@ -107,6 +107,7 @@ func TestPodReconciler(t *testing.T) {
 		},
 		"should set default values": {
 			sts: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
 				Queue("queue").
 				Replicas(3).
 				Obj(),
@@ -119,9 +120,9 @@ func TestPodReconciler(t *testing.T) {
 					OwnerReference("sts", gvk).
 					Queue("queue").
 					ManagedByKueueLabel().
-					Group(GetWorkloadName("sts")).
+					Group(GetWorkloadName("sts-uid", "sts")).
 					GroupTotalCount("3").
-					PrebuiltWorkload(GetWorkloadName("sts")).
+					PrebuiltWorkload(GetWorkloadName("sts-uid", "sts")).
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
@@ -132,6 +133,7 @@ func TestPodReconciler(t *testing.T) {
 		},
 		"should set default values with priority class": {
 			sts: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
 				Queue("queue").
 				Replicas(3).
 				WorkloadPriorityClass("high-priority").
@@ -145,10 +147,10 @@ func TestPodReconciler(t *testing.T) {
 					OwnerReference("sts", gvk).
 					Queue("queue").
 					ManagedByKueueLabel().
-					Group(GetWorkloadName("sts")).
+					Group(GetWorkloadName("sts-uid", "sts")).
 					GroupTotalCount("3").
 					Label(controllerconstants.WorkloadPriorityClassLabel, "high-priority").
-					PrebuiltWorkload(GetWorkloadName("sts")).
+					PrebuiltWorkload(GetWorkloadName("sts-uid", "sts")).
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
@@ -159,6 +161,7 @@ func TestPodReconciler(t *testing.T) {
 		},
 		"shouldn't update pod if already labeled": {
 			sts: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
 				Queue("queue").
 				Replicas(3).
 				Obj(),
@@ -166,7 +169,7 @@ func TestPodReconciler(t *testing.T) {
 				OwnerReference("sts", gvk).
 				Queue("queue").
 				ManagedByKueueLabel().
-				Group(GetWorkloadName("sts")).
+				Group(GetWorkloadName("sts-uid", "sts")).
 				GroupTotalCount("3").
 				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Obj(),
@@ -175,7 +178,7 @@ func TestPodReconciler(t *testing.T) {
 					OwnerReference("sts", gvk).
 					Queue("queue").
 					ManagedByKueueLabel().
-					Group(GetWorkloadName("sts")).
+					Group(GetWorkloadName("sts-uid", "sts")).
 					GroupTotalCount("3").
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Obj(),
@@ -183,6 +186,7 @@ func TestPodReconciler(t *testing.T) {
 		},
 		"should sync queue label on already labeled pod": {
 			sts: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
 				Queue("new-queue").
 				Replicas(3).
 				Obj(),
@@ -190,7 +194,7 @@ func TestPodReconciler(t *testing.T) {
 				OwnerReference("sts", gvk).
 				Queue("old-queue").
 				ManagedByKueueLabel().
-				Group(GetWorkloadName("sts")).
+				Group(GetWorkloadName("sts-uid", "sts")).
 				GroupTotalCount("3").
 				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Obj(),
@@ -199,7 +203,7 @@ func TestPodReconciler(t *testing.T) {
 					OwnerReference("sts", gvk).
 					Queue("new-queue").
 					ManagedByKueueLabel().
-					Group(GetWorkloadName("sts")).
+					Group(GetWorkloadName("sts-uid", "sts")).
 					GroupTotalCount("3").
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Obj(),
@@ -208,6 +212,7 @@ func TestPodReconciler(t *testing.T) {
 		"should set default values without queue name when manageJobsWithoutQueueName": {
 			manageJobsWithoutQueueName: true,
 			sts: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
 				Replicas(3).
 				Obj(),
 			pod: testingjobspod.MakePod("pod", "ns").
@@ -218,9 +223,9 @@ func TestPodReconciler(t *testing.T) {
 				*testingjobspod.MakePod("pod", "ns").
 					OwnerReference("sts", gvk).
 					ManagedByKueueLabel().
-					Group(GetWorkloadName("sts")).
+					Group(GetWorkloadName("sts-uid", "sts")).
 					GroupTotalCount("3").
-					PrebuiltWorkload(GetWorkloadName("sts")).
+					PrebuiltWorkload(GetWorkloadName("sts-uid", "sts")).
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
