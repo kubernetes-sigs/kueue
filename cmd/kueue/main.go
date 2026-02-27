@@ -136,6 +136,11 @@ func main() {
 	zapOptions.BindFlags(flag.CommandLine)
 	flag.Parse()
 
+	var kubeConfigPath string
+	if kubeConfigFlag := flag.Lookup("kubeconfig"); kubeConfigFlag != nil {
+		kubeConfigPath = kubeConfigFlag.Value.String()
+	}
+
 	logger := zap.New(zap.UseFlagOptions(&zapOptions))
 	ctrl.SetLogger(logger)
 
@@ -347,7 +352,7 @@ func main() {
 
 	if features.Enabled(features.VisibilityOnDemand) {
 		go func() {
-			if err := visibility.CreateAndStartVisibilityServer(ctx, queues, *cfg.InternalCertManagement.Enable, kubeConfig, parsedTLSConfig); err != nil {
+			if err := visibility.CreateAndStartVisibilityServer(ctx, queues, *cfg.InternalCertManagement.Enable, kubeConfig, kubeConfigPath, parsedTLSConfig); err != nil {
 				setupLog.Error(err, "Unable to create and start visibility server")
 				os.Exit(1)
 			}
