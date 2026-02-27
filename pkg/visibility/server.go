@@ -109,6 +109,10 @@ func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, en
 		o.SecureServing.ServerCert.CertKey.CertFile = certDir + "/tls.crt"
 		o.SecureServing.ServerCert.CertKey.KeyFile = certDir + "/tls.key"
 	}
+	if kubeConfigPath != "" {
+		o.Authentication.RemoteKubeConfigFile = kubeConfigPath
+		o.Authorization.RemoteKubeConfigFile = kubeConfigPath
+	}
 	o.Admission.DisablePlugins = disabledPlugins
 	if err := o.SecureServing.MaybeDefaultWithSelfSignedCerts("localhost", nil, []net.IP{net.ParseIP("127.0.0.1")}); err != nil {
 		return fmt.Errorf("error creating self-signed certificates: %v", err)
