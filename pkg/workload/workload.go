@@ -981,6 +981,32 @@ func HasClosedPreemptionGate(w *kueue.Workload) bool {
 	})
 }
 
+func SetPreemptionGateState(w *kueue.Workload, gateName string, gateState kueue.GateState, transitionTime metav1.Time) bool {
+	gateIdx := slices.IndexFunc(w.Spec.PreemptionGates, func(gate kueue.PreemptionGate) bool {
+		return gate.Name == gateName
+	})
+	if gateIdx == -1 {
+		return false
+	}
+
+	gateStateIdx := slices.IndexFunc(w.Status.PreemptionGates, func(gate kueue.PreemptionGateState) bool {
+		return gate.Name == gateName
+	})
+
+	if gateStateIdx == -1 {
+		w.Status.PreemptionGates = append(w.Status.PreemptionGates, kueue.PreemptionGateState{
+			Name:               gateName,
+			State:              gateState,
+			LastTransitionTime: transitionTime,
+		})
+	} else {
+		w.Status.PreemptionGates[gateStateIdx].State = kueue.GateStateOpen
+		w.Status.PreemptionGates[gateStateIdx].LastTransitionTime = transitionTime
+	}
+
+	return true
+}
+
 // PropagateResourceRequests synchronizes w.Status.ResourceRequests to
 // with info.TotalRequests if the feature gate is enabled and returns true if w was updated
 func PropagateResourceRequests(w *kueue.Workload, info *Info) bool {
