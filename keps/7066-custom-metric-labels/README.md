@@ -29,9 +29,9 @@
 ## Summary
 
 Allow cluster admins to configure Kueue to promote specific Kubernetes
-labels or annotations from ClusterQueue and LocalQueue objects into
-Prometheus metric labels (with a mandatory `custom_` prefix), enabling
-filtering and aggregation by organizational metadata.
+labels or annotations from ClusterQueue, LocalQueue, and Cohort objects
+into Prometheus metric labels (with a mandatory `custom_` prefix),
+enabling filtering and aggregation by organizational metadata.
 
 ## Motivation
 
@@ -43,21 +43,14 @@ it easier to build dashboards and filter or aggregate metrics.
 
 ### Goals
 
-- Configure which Kubernetes labels or annotations on ClusterQueue and
-  LocalQueue objects become Prometheus metric labels.
-- Enforce a `custom_` prefix on all user-defined Prometheus labels to
-  prevent collisions with built-in names.
+- Configure which Kubernetes labels or annotations on ClusterQueue,
+  LocalQueue, and Cohort objects become Prometheus metric labels.
 - Keep the metrics documentation auto-generation working.
 - Validate configuration at startup.
 
 ### Non-Goals
 
 - Runtime-dynamic label set changes (requires restart).
-- Custom labels on non-queue metrics (workload, cohort). Metrics that
-  are not keyed by a specific queue (e.g., `AdmissionAttemptsTotal`,
-  `PreemptedWorkloadsTotal`, `CohortWeightedShare`) are excluded.
-- User-chosen Prometheus label names (the admin picks a `name` suffix
-  and Kueue prepends `custom_` automatically).
 
 ## Proposal
 
@@ -66,10 +59,10 @@ has a `name` (used as the Prometheus label suffix after prepending
 `custom_`), and optionally a `sourceLabelKey` or `sourceAnnotationKey`
 to specify where to read the value from. If neither source field is
 set, `name` is used as the Kubernetes label key. At startup, Kueue
-validates the configuration and initializes ClusterQueue and LocalQueue
-metric vectors with the additional label dimensions. When reporting
-metrics, the corresponding Kubernetes label or annotation values are
-included in the label set.
+validates the configuration and initializes ClusterQueue, LocalQueue,
+and Cohort metric vectors with the additional label dimensions. When
+reporting metrics, the corresponding Kubernetes label or annotation
+values are included in the label set.
 
 ### User Stories
 
@@ -140,7 +133,7 @@ type ControllerMetrics struct {
     EnableClusterQueueResources bool     `json:"enableClusterQueueResources,omitempty"`
 
     // CustomLabels is a list of entries whose values will be added as extra
-    // Prometheus labels on ClusterQueue and LocalQueue metrics.
+    // Prometheus labels on ClusterQueue, LocalQueue, and Cohort metrics.
     // +optional
     CustomLabels []ControllerMetricsCustomLabel `json:"customLabels,omitempty"`
 }
@@ -204,18 +197,23 @@ configuration will have no effect until the gate is enabled.
 
 ### Affected Metrics
 
-Custom labels are appended to metrics that report about a specific
-queue. The selection criteria is: ClusterQueue metrics whose label set
-includes `cluster_queue`, and LocalQueue metrics whose label set
-includes `name`/`namespace`.
+Custom labels are appended to every metric that is keyed by a specific
+Kubernetes object — ClusterQueue, LocalQueue, or Cohort. The selection
+criteria:
 
-Metrics that are not keyed by a specific queue are excluded:
-`AdmissionAttemptsTotal`, `PreemptedWorkloadsTotal`, and
-`CohortWeightedShare`.
+- **ClusterQueue metrics**: label set includes `cluster_queue`.
+  `PreemptedWorkloadsTotal` is also included — its
+  `preempting_cluster_queue` label identifies a ClusterQueue, so custom
+  label values are read from that ClusterQueue object.
+- **LocalQueue metrics**: label set includes `name`/`namespace`.
+- **Cohort metrics**: `CohortWeightedShare` (keyed by `cohort`). Custom
+  label values are read from the Cohort object's labels or annotations.
 
-All ClusterQueue and LocalQueue metrics matching the criteria above
-are affected. The full set is determined by the metric definitions in
-`pkg/metrics/metrics.go` at the time of implementation.
+Truly global metrics that have no object key are excluded:
+`AdmissionAttemptsTotal`, `admissionAttemptDuration`, and `buildInfo`.
+
+The full set of affected metrics is determined by the metric definitions
+in `pkg/metrics/metrics.go` at the time of implementation.
 
 ### Implementation Approach
 
@@ -234,22 +232,31 @@ are affected. The full set is determined by the metric definitions in
    `[]string` parameter to each `Report*` function for the custom
    label values. For each custom label entry, the source key (`Name`
    when neither source field is set, `SourceLabelKey`, or
-   `SourceAnnotationKey`) determines where
-   to read the value — from `queue.Labels[key]` or
-   `queue.Annotations[key]`. Missing keys produce an empty string value.
+   `SourceAnnotationKey`) determines where to read the value — from
+   `obj.Labels[key]` or `obj.Annotations[key]` on the relevant object
+   (ClusterQueue, LocalQueue, or Cohort). For Cohort metrics
+   (`CohortWeightedShare`), labels are read from the Cohort object.
+   For `PreemptedWorkloadsTotal`, labels are read from the preempting
+   ClusterQueue. Missing keys produce an empty string value.
 4. **Deletion cleanup**: Existing `Clear*Metrics` functions use
    `DeletePartialMatch` and will match custom label dimensions
-   automatically when a queue is deleted.
+   automatically when a queue is deleted. For Cohort, the
+   `CohortWeightedShare` series must also be deleted when a Cohort is
+   removed; the Cohort reconciler's delete path must call
+   `DeletePartialMatch` for it.
 5. **Value-change cleanup**: The controller keeps an in-memory map
-   from queue name to last-reported custom label values. On every
-   queue reconciliation:
-   1. Read the configured source keys (labels or annotations) from the
-      queue object to get the new values.
-   2. Look up the previous values for this queue in the map.
-   3. If any value differs: remove the old series from every
-      queue-scoped metric vector (ClusterQueue and LocalQueue; core,
-      cache, and resource metrics), then report with the new values.
+   from object name to last-reported custom label values. On every
+   reconciliation of a ClusterQueue, LocalQueue, or Cohort:
+   1. Read the configured source keys (labels or annotations) from
+      the object to get the new values.
+   2. Look up the previous values for this object in the map.
+   3. If any value differs: remove the old series from every metric
+      vector scoped to that object type, then report with the new
+      values.
    4. Update the map entry with the new values.
+
+   For Cohort specifically, the Cohort reconciler must perform this
+   check before calling `ReportCohortWeightedShare`.
 
    For cumulative metrics (counters and histograms), removing and
    re-creating a series resets it to zero. This is expected; `rate()`
@@ -303,6 +310,10 @@ committing the changes necessary to implement this enhancement.
   empty string values appear in metric series.
 - Label value change on a queue: stale series cleaned up, new series
   appears.
+- Cohort with custom labels: `CohortWeightedShare` carries the custom
+  label values read from the Cohort object.
+- `PreemptedWorkloadsTotal` with custom labels: custom label values are
+  read from the preempting ClusterQueue.
 - Empty `customLabels`: only built-in labels (backward compatibility).
 - `CustomMetricLabels` enabled with `LocalQueueMetrics` disabled:
   ClusterQueue metrics get custom labels, LocalQueue metrics are not
@@ -311,10 +322,10 @@ committing the changes necessary to implement this enhancement.
 ### Graduation Criteria
 
 **Alpha (v0.17)**: Feature gate `CustomMetricLabels` (disabled by default),
-config field, ClusterQueue and LocalQueue metrics support, validation,
-tests, docs. LocalQueue custom labels require the `LocalQueueMetrics`
-gate to also be enabled (still alpha); otherwise only ClusterQueue
-metrics carry custom labels.
+config field, ClusterQueue, LocalQueue, and Cohort metrics support,
+validation, tests, docs. LocalQueue custom labels require the
+`LocalQueueMetrics` gate to also be enabled (still alpha); otherwise
+only ClusterQueue and Cohort metrics carry custom labels.
 
 **Beta**: Positive feedback, gate defaults to enabled.
 
