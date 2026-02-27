@@ -95,11 +95,11 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}
 
 			// schedule attempt is proxy for requeue
-			ginkgo.By("between 1-5 schedule attempts occur")
+			ginkgo.By("between 1-11 schedule attempts occur")
 			util.ExpectPendingWorkloadsMetric(cq, 0, 1)
 			util.ExpectSuccessfulAdmissionAttempts(0, "==")
 			util.ExpectPendingAdmissionAttempts(1, ">=")
-			util.ExpectPendingAdmissionAttempts(5, "<=")
+			util.ExpectPendingAdmissionAttempts(11, "<=")
 		})
 
 		ginkgo.It("Should collapse requeue requests to Cohort", func() {
@@ -147,7 +147,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectPendingWorkloadsMetric(cq, 0, 1)
 			util.ExpectSuccessfulAdmissionAttempts(0, "==")
 			util.ExpectPendingAdmissionAttempts(1, ">=")
-			util.ExpectPendingAdmissionAttempts(5, "<=")
+			util.ExpectPendingAdmissionAttempts(11, "<=")
 		})
 	})
 })
