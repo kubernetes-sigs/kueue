@@ -42,7 +42,7 @@ require (
 	sigs.k8s.io/cluster-inventory-api v0.0.0-20251028164203-2e3fabb46733
 	sigs.k8s.io/controller-runtime v0.23.1
 	sigs.k8s.io/dra-example-driver v0.2.1
-	sigs.k8s.io/jobset v0.11.0
+	sigs.k8s.io/jobset v0.11.1
 	sigs.k8s.io/lws v0.8.0
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.2
 	sigs.k8s.io/yaml v1.6.0
