@@ -74,13 +74,14 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 		defaultRf = utiltestingapi.MakeResourceFlavor("default").Obj()
 		util.MustCreate(ctx, k8sClient, defaultRf)
-		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+		clusterQueueName := "cluster-queue-" + ns.Name
+		clusterQueue = utiltestingapi.MakeClusterQueue(clusterQueueName).
 			ResourceGroup(
 				*utiltestingapi.MakeFlavorQuotas(defaultRf.Name).
 					Resource(corev1.ResourceCPU, "2").
 					Resource(corev1.ResourceMemory, "2G").Obj()).Obj()
 		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
-		localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
+		localQueue = utiltestingapi.MakeLocalQueue("main-"+ns.Name, ns.Name).ClusterQueue(clusterQueueName).Obj()
 		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 	})
 	ginkgo.AfterEach(func() {
@@ -178,7 +179,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			var jobLookupKey types.NamespacedName
 
 			ginkgo.By("creating a default LocalQueue", func() {
-				localQueue = utiltestingapi.MakeLocalQueue("default", ns.Name).ClusterQueue("cluster-queue").Obj()
+				localQueue = utiltestingapi.MakeLocalQueue("default-"+ns.Name, ns.Name).ClusterQueue("cluster-queue-" + ns.Name).Obj()
 				util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 			})
 
@@ -203,7 +204,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 				jobLookupKey = types.NamespacedName{Name: testJob.Name, Namespace: ns.Name}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, jobLookupKey, createdJob)).Should(gomega.Succeed())
-					g.Expect(createdJob.Labels).Should(gomega.HaveKeyWithValue(controllerconstants.QueueLabel, "default"))
+					g.Expect(createdJob.Labels).Should(gomega.HaveKeyWithValue(controllerconstants.QueueLabel, localQueue.Name))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -953,13 +954,14 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName without JobSet integration",
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 		defaultRf = utiltestingapi.MakeResourceFlavor("default").Obj()
 		util.MustCreate(ctx, k8sClient, defaultRf)
-		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+		clusterQueueName := "cluster-queue-" + ns.Name
+		clusterQueue = utiltestingapi.MakeClusterQueue(clusterQueueName).
 			ResourceGroup(
 				*utiltestingapi.MakeFlavorQuotas(defaultRf.Name).
 					Resource(corev1.ResourceCPU, "2").
 					Resource(corev1.ResourceMemory, "2G").Obj()).Obj()
 		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
-		localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
+		localQueue = utiltestingapi.MakeLocalQueue("main-"+ns.Name, ns.Name).ClusterQueue(clusterQueueName).Obj()
 		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 	})
 
