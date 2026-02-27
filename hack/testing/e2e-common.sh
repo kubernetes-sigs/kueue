@@ -164,7 +164,15 @@ function cluster_cleanup {
     local retry_delay=1
 
     for attempt in $(seq 1 "$max_retries"); do
-        if $KIND delete cluster --name "$cluster_name"; then
+        local output
+        if output=$($KIND delete cluster --name "$cluster_name" 2>&1); then
+            echo "$output"
+            return 0
+        fi
+        echo "$output"
+
+        if [[ "$output" == *"unknown cluster"* ]]; then
+            echo "Cluster '$cluster_name' is already deleted (unknown cluster)."
             return 0
         fi
 
