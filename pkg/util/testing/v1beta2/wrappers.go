@@ -410,6 +410,11 @@ func (w *WorkloadWrapper) PreemptionGates(preemptionGates ...kueue.PreemptionGat
 	return w
 }
 
+func (w *WorkloadWrapper) PreemptionGateStates(preemptionGateStates ...kueue.PreemptionGateState) *WorkloadWrapper {
+	w.Status.PreemptionGates = preemptionGateStates
+	return w
+}
+
 func AppendOwnerReference(obj client.Object, gvk schema.GroupVersionKind, name, uid string, controller, blockDeletion *bool) {
 	obj.SetOwnerReferences(append(obj.GetOwnerReferences(), metav1.OwnerReference{
 		APIVersion:         gvk.GroupVersion().String(),
