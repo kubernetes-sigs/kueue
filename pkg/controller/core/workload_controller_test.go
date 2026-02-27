@@ -402,7 +402,8 @@ func TestReconcile(t *testing.T) {
 	fakeClock := testingclock.NewFakeClock(now)
 
 	cases := map[string]struct {
-		enableDRAFeature bool
+		enableDRAFeature                      bool
+		enableMKOrchestratedPreemptionFeature bool
 
 		workload                  *kueue.Workload
 		cq                        *kueue.ClusterQueue
@@ -2561,11 +2562,97 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			wantResult: reconcile.Result{},
 		},
+		"should synchronize the status of preemption gates": {
+			enableMKOrchestratedPreemptionFeature: true,
+
+			cq: utiltestingapi.MakeClusterQueue("cq").Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				PreemptionGates(
+					kueue.PreemptionGate{
+						Name: "synchronized",
+					},
+					kueue.PreemptionGate{
+						Name: "desynchronized-status",
+					}).
+				PreemptionGateStates(
+					kueue.PreemptionGateState{
+						Name:               "synchronized",
+						State:              kueue.GateStateClosed,
+						LastTransitionTime: metav1.NewTime(now),
+					},
+					kueue.PreemptionGateState{
+						Name:               "desynchronized-spec",
+						State:              kueue.GateStateClosed,
+						LastTransitionTime: metav1.NewTime(now),
+					},
+				).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				PreemptionGates(
+					kueue.PreemptionGate{
+						Name: "synchronized",
+					},
+					kueue.PreemptionGate{
+						Name: "desynchronized-status",
+					}).
+				PreemptionGateStates(
+					kueue.PreemptionGateState{
+						Name:               "synchronized",
+						State:              kueue.GateStateClosed,
+						LastTransitionTime: metav1.NewTime(now),
+					},
+					kueue.PreemptionGateState{
+						Name:               "desynchronized-status",
+						State:              kueue.GateStateClosed,
+						LastTransitionTime: metav1.NewTime(now),
+					},
+				).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "ClusterQueue cq is inactive",
+				}).
+				Obj(),
+			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				PreemptionGates(
+					kueue.PreemptionGate{
+						Name: "synchronized",
+					},
+					kueue.PreemptionGate{
+						Name: "desynchronized-status",
+					}).
+				PreemptionGateStates(
+					kueue.PreemptionGateState{
+						Name:               "synchronized",
+						State:              kueue.GateStateClosed,
+						LastTransitionTime: metav1.NewTime(now),
+					},
+					kueue.PreemptionGateState{
+						Name:               "desynchronized-status",
+						State:              kueue.GateStateClosed,
+						LastTransitionTime: metav1.NewTime(now),
+					},
+				).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "ClusterQueue cq is inactive",
+				}).
+				Obj(),
+			wantResult: reconcile.Result{},
+		},
 	}
 	for name, tc := range cases {
 		for _, enabled := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.DynamicResourceAllocation, tc.enableDRAFeature)
+				features.SetFeatureGateDuringTest(t, features.MultiKueueOrchestratedPreemption, tc.enableMKOrchestratedPreemptionFeature)
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
 
 				testWl := tc.workload.DeepCopy()

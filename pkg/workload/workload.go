@@ -1039,6 +1039,7 @@ func admissionStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload) {
 	wlCopy.Status.ClusterName = w.Status.ClusterName
 	wlCopy.Status.NominatedClusterNames = w.Status.NominatedClusterNames
 	wlCopy.Status.UnhealthyNodes = w.Status.UnhealthyNodes
+	wlCopy.Status.PreemptionGates = w.Status.PreemptionGates
 }
 
 func admissionChecksStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, c clock.Clock) {
