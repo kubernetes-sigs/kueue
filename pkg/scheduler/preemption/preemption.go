@@ -319,6 +319,15 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 
 	var targets []*Target
 	var retryCandidates []*workload.Info
+
+	// If the preemptor CQ stays within nominal quota for the contested
+	// resources (including the incoming workload, already simulated),
+	// preemption is allowed regardless of DRS (nominal entitlement).
+	// When true, all cross-CQ candidates are preempted unconditionally
+	// (bypassing the strategy check), so no retryCandidates are produced
+	// and runSecondFsStrategy has nothing to do.
+	preemptorWithinNominal := features.Enabled(features.FairSharingPreemptWithinNominal) &&
+		queueWithinNominalInResourcesNeedingPreemption(preemptionCtx)
 	for candCQ := range ordering.Iter() {
 		if candCQ.InClusterQueuePreemption() {
 			candWl := candCQ.PopWorkload()
@@ -334,17 +343,29 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 			continue
 		}
 
+		if preemptorWithinNominal {
+			candWl := candCQ.PopWorkload()
+			preemptionCtx.snapshot.RemoveWorkload(candWl)
+			targets = append(targets, &Target{
+				WorkloadInfo: candWl,
+				Reason:       kueue.InCohortReclamationReason,
+				WorkloadCq:   candCQ.GetTargetCq(),
+			})
+			if workloadFitsForFairSharing(preemptionCtx) {
+				return true, targets, nil
+			}
+			continue
+		}
+
 		preemptorNewShare, targetOldShare := candCQ.ComputeShares()
 		for candCQ.HasWorkload() {
 			candWl := candCQ.PopWorkload()
 			targetNewShare := candCQ.ComputeTargetShareAfterRemoval(candWl)
 			if strategy(preemptorNewShare, targetOldShare, targetNewShare) {
 				preemptionCtx.snapshot.RemoveWorkload(candWl)
-				reason := kueue.InCohortFairSharingReason
-
 				targets = append(targets, &Target{
 					WorkloadInfo: candWl,
-					Reason:       reason,
+					Reason:       kueue.InCohortFairSharingReason,
 					WorkloadCq:   candCQ.GetTargetCq(),
 				})
 				if workloadFitsForFairSharing(preemptionCtx) {
@@ -529,9 +550,26 @@ func workloadFitsForFairSharing(preemptionCtx *preemptionCtx) bool {
 	return res
 }
 
+// queueUnderNominalInResourcesNeedingPreemption checks whether the
+// preemptor CQ's usage is strictly below nominal quota (usage < nominal)
+// for all flavor-resources needing preemption.
 func queueUnderNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx) bool {
 	for fr := range preemptionCtx.frsNeedPreemption {
 		if preemptionCtx.preemptorCQ.ResourceNode.Usage[fr] >= preemptionCtx.preemptorCQ.QuotaFor(fr).Nominal {
+			return false
+		}
+	}
+	return true
+}
+
+// queueWithinNominalInResourcesNeedingPreemption checks whether the
+// preemptor CQ's usage is at or below nominal quota (usage <= nominal)
+// for all flavor-resources needing preemption.
+// The difference from queueUnderNominalInResourcesNeedingPreemption is
+// that this treats usage exactly equal to nominal as "within nominal."
+func queueWithinNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx) bool {
+	for fr := range preemptionCtx.frsNeedPreemption {
+		if preemptionCtx.preemptorCQ.Borrowing(fr) {
 			return false
 		}
 	}
