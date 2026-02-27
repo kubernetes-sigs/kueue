@@ -200,9 +200,9 @@ def my_task(x, s):
 print([ray.get(my_task.remote(i, 1)) for i in range(4)])
 
 # run tasks in parallel to trigger autoscaling (scaling up)
-# Use longer sleep (8s) to give autoscaler time to detect demand,
-# create workload slices, and schedule new workers.
-print(ray.get([my_task.remote(i, 8) for i in range(16)]))
+# Use longer sleep (18s) to give autoscaler time to detect demand,
+# create workload slices, and schedule new workers without flaking.
+print(ray.get([my_task.remote(i, 18) for i in range(16)]))
 
 # run tasks in sequence to trigger scaling down
 print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
