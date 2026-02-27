@@ -80,8 +80,10 @@ func (r *reconciler) Create(ev event.CreateEvent) bool {
 	wl, isWl := (ev.Object).(*kueue.Workload)
 	if isWl {
 		r.recorder.RecordWorkloadState(wl)
+		admitted := apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadAdmitted)
+		return admitted && !workload.IsFinished(wl)
 	}
-	return !isWl
+	return true
 }
 
 func (r *reconciler) Delete(_ event.DeleteEvent) bool {
