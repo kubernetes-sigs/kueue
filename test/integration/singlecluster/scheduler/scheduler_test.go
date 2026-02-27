@@ -974,10 +974,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, "", 0)
 
 			// we send a requeue request upon CQ creation,
-			// so we may end up processing workload twice
+			// so we may end up processing workload twice (or more in slower environments)
 			// before it settles in inadmissible.
 			util.ExpectPendingAdmissionAttempts(1, ">=")
-			util.ExpectPendingAdmissionAttempts(2, "<=")
+			util.ExpectPendingAdmissionAttempts(3, "<=")
 			util.ExpectSuccessfulAdmissionAttempts(0, "==")
 
 			ginkgo.By("updating ClusterQueue")
@@ -1000,7 +1000,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectReservingActiveWorkloadsMetric(cq, 1)
 			util.ExpectQuotaReservedWorkloadsTotalMetric(cq, "", 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, "", 1)
-			util.ExpectPendingAdmissionAttempts(2, "<=")
+			util.ExpectPendingAdmissionAttempts(3, "<=")
 			util.ExpectSuccessfulAdmissionAttempts(1, "==")
 		})
 	})
