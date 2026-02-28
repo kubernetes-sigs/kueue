@@ -76,7 +76,7 @@ func managerAndSchedulerSetup(admissionFairSharing *config.AdmissionFairSharing)
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		_ = features.SetEnable(features.AdmissionFairSharing, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionFairSharing, true)
 		cCache := schdcache.New(mgr.GetClient(), schdcache.WithFairSharing(fairsharing.Enabled(fairSharing)), schdcache.WithAdmissionFairSharing(admissionFairSharing))
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, qcache.WithAdmissionFairSharing(admissionFairSharing))
 
