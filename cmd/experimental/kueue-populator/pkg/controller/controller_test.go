@@ -18,7 +18,6 @@ package controller
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -28,12 +27,12 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/experimental/kueue-populator/pkg/constants"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 // Event is a simplified representation of a Kubernetes event for testing purposes.
@@ -354,7 +353,7 @@ func TestKueuePopulatorReconciler(t *testing.T) {
 				{
 					EventType: corev1.EventTypeWarning,
 					Reason:    "LocalQueueExists",
-					Message:   "Skipping LocalQueue creation in namespace ns, a LocalQueue with name default-lq already exists",
+					Message:   "LocalQueue with name default-lq already exists in namespace ns",
 				},
 			},
 		},
@@ -437,7 +436,7 @@ func TestKueuePopulatorReconciler(t *testing.T) {
 			}
 
 			k8sclient := builder.Build()
-			recorder := record.NewFakeRecorder(10)
+			recorder := &utiltesting.EventRecorder{}
 
 			var opts []KueuePopulatorReconcilerOption
 			if tc.globalNsSelectorStr != "" {
@@ -470,20 +469,13 @@ func TestKueuePopulatorReconciler(t *testing.T) {
 				t.Errorf("LocalQueues (-want +got):\n%s", diff)
 			}
 
-			close(recorder.Events)
 			var gotEvents []Event
-			for event := range recorder.Events {
-				e := Event{}
-				parts := strings.SplitN(event, " ", 3)
-				if len(parts) < 2 {
-					t.Fatalf("Invalid event format: %q", event)
-				}
-				e.EventType = parts[0]
-				e.Reason = parts[1]
-				if len(parts) > 2 {
-					e.Message = strings.Trim(parts[2], "`")
-				}
-				gotEvents = append(gotEvents, e)
+			for _, recordedEvent := range recorder.RecordedEvents {
+				gotEvents = append(gotEvents, Event{
+					EventType: recordedEvent.EventType,
+					Reason:    recordedEvent.Reason,
+					Message:   recordedEvent.Message,
+				})
 			}
 
 			if diff := cmp.Diff(tc.wantEvents, gotEvents); diff != "" {
