@@ -212,6 +212,37 @@ func Test_Pop(t *testing.T) {
 	}
 }
 
+func TestPushOrUpdateSkipsInflightWorkload(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	now := time.Now()
+	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
+
+	wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).Creation(now).Obj()
+	cq.PushOrUpdate(workload.NewInfo(wl))
+
+	// Pop makes the workload inflight.
+	head := cq.Pop()
+	if head == nil {
+		t.Fatal("expected to pop workload")
+	}
+
+	// Simulate a concurrent PushOrUpdate while the workload is inflight.
+	updatedWl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).
+		Creation(now).ResourceVersion("1").Obj()
+	cq.PushOrUpdate(workload.NewInfo(updatedWl))
+
+	// The workload should not be on the heap or in inadmissible.
+	activeWorkloads, _ := cq.Dump()
+	if len(activeWorkloads) != 0 {
+		t.Errorf("expected empty heap while workload is inflight, got %v", activeWorkloads)
+	}
+
+	inadmissibleWorkloads, _ := cq.DumpInadmissible()
+	if len(inadmissibleWorkloads) != 0 {
+		t.Errorf("expected no inadmissible workloads while workload is inflight, got %v", inadmissibleWorkloads)
+	}
+}
+
 func Test_Delete(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()))
