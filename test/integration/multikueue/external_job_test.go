@@ -101,7 +101,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 					ctx,
 					mgr.GetClient(),
 					mgr.GetFieldIndexer(),
-					mgr.GetEventRecorderFor(constants.JobControllerName))
+					mgr.GetEventRecorder(constants.JobControllerName))
 				err = rayclusterReconciler.SetupWithManager(mgr)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

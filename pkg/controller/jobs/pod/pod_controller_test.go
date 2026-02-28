@@ -30,7 +30,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -5795,7 +5794,7 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 			if err := kClient.Create(ctx, &wl); err != nil {
 				t.Fatalf("Could not create workload: %v", err)
 			}
-			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
+			recorder := &utiltesting.EventRecorder{}
 
 			reconciler, err := NewReconciler(ctx, kClient, nil, recorder, jobframework.WithClock(testingclock.NewFakeClock(now)))
 			if err != nil {
@@ -6010,7 +6009,7 @@ func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.
 		t.Fatalf("Could not create workload: %v", err)
 	}
 
-	recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
+	recorder := &utiltesting.EventRecorder{}
 	reconciler, err := NewReconciler(ctx, kClient, indexer, recorder, jobframework.WithClock(testingclock.NewFakeClock(now)))
 	if err != nil {
 		t.Errorf("Error creating the reconciler: %v", err)

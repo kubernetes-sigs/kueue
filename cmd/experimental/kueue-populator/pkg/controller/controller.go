@@ -25,7 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -42,7 +42,7 @@ const ControllerName = "kueue-populator"
 type KueuePopulatorReconciler struct {
 	client            client.Client
 	log               logr.Logger
-	recorder          record.EventRecorder
+	recorder          events.EventRecorder
 	namespaceSelector labels.Selector
 	localQueueName    string
 }
@@ -72,7 +72,7 @@ var defaultPopulatorOptions = KueuePopulatorReconcilerOptions{}
 
 func NewKueuePopulatorReconciler(
 	client client.Client,
-	recorder record.EventRecorder,
+	recorder events.EventRecorder,
 	opts ...KueuePopulatorReconcilerOption,
 ) *KueuePopulatorReconciler {
 	options := defaultPopulatorOptions

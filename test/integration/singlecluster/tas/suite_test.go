@@ -114,13 +114,13 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 
 	reconciler, err := provisioning.NewController(
 		mgr.GetClient(),
-		mgr.GetEventRecorderFor("kueue-provisioning-request-controller"), nil)
+		mgr.GetEventRecorder("kueue-provisioning-request-controller"), nil)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = reconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptionExpectations))
+	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorder(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptionExpectations))
 	err = sched.Start(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
