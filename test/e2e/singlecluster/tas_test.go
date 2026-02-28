@@ -19,10 +19,12 @@ package e2e
 import (
 	"fmt"
 
+	sparkv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
 	kftrainerapi "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -33,6 +35,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/sparkapplication"
 	workloadtrainjob "sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -40,6 +43,7 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	sparkapplicationtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/sparkapplication"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
@@ -553,6 +557,166 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", ginkgo.Label("area:singleclus
 					g.Expect(workload.HasQuotaReservation(createdWorkload)).Should(gomega.BeTrue())
 					g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
+
+	ginkgo.When("Creating a SparkApplication requesting TAS", func() {
+		const (
+			serviceAccountName = "sparkapplication-sa"
+			roleBindingName    = "sparkapplication-sa-edit"
+		)
+
+		var (
+			topology     *kueue.Topology
+			onDemandRF   *kueue.ResourceFlavor
+			clusterQueue *kueue.ClusterQueue
+			localQueue   *kueue.LocalQueue
+			sa           *corev1.ServiceAccount
+		)
+
+		ginkgo.BeforeEach(func() {
+			topology = utiltestingapi.MakeDefaultOneLevelTopology("hostname-" + ns.Name)
+			util.MustCreate(ctx, k8sClient, topology)
+
+			onDemandRF = utiltestingapi.MakeResourceFlavor("on-demand-"+ns.Name).
+				NodeLabel("instance-type", "on-demand").
+				TopologyName(topology.Name).
+				Obj()
+
+			util.MustCreate(ctx, k8sClient, onDemandRF)
+			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue-" + ns.Name).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(onDemandRF.Name).
+						Resource(corev1.ResourceCPU, "1").
+						Resource(corev1.ResourceMemory, "1Gi").
+						Obj(),
+				).
+				Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+
+			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+
+			sa = &corev1.ServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceAccountName,
+					Namespace: ns.Name,
+				},
+			}
+			util.MustCreate(ctx, k8sClient, sa)
+
+			util.MustCreate(ctx, k8sClient, &rbacv1.RoleBinding{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      roleBindingName,
+					Namespace: ns.Name,
+				},
+				Subjects: []rbacv1.Subject{
+					{
+						Kind:      rbacv1.ServiceAccountKind,
+						Name:      serviceAccountName,
+						Namespace: ns.Name,
+					},
+				},
+				RoleRef: rbacv1.RoleRef{
+					Kind:     "ClusterRole",
+					Name:     "edit",
+					APIGroup: rbacv1.GroupName,
+				},
+			})
+		})
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			// Force remove workloads to be sure that cluster queue can be removed.
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandRF, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+		})
+
+		ginkgo.It("should admit a SparkApplication via TAS", func() {
+			sparkApp := sparkapplicationtesting.MakeSparkApplication("test-sparkapplication-tas", ns.Name).
+				DriverAnnotation(
+					kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname,
+				).
+				DriverServiceAccount(sa.Name).
+				DriverCoreRequest("0.1").
+				DriverMemoryRequest("512m"). // 512MB
+				ExecutorAnnotation(
+					kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname,
+				).
+				ExecutorServiceAccount(sa.Name).
+				ExecutorCoreRequest("0.1").
+				ExecutorMemoryRequest("512m"). // 512MB
+				ExecutorInstances(1).
+				Queue(localQueue.Name).
+				Obj()
+
+			ginkgo.By("Creating the SparkApplication", func() {
+				util.MustCreate(ctx, k8sClient, sparkApp)
+			})
+
+			ginkgo.By("waiting for the SparkApplication to be running", func() {
+				sparkAppKey := client.ObjectKeyFromObject(sparkApp)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, sparkAppKey, sparkApp)).To(gomega.Succeed())
+					g.Expect(sparkApp.Status.AppState.State).Should(gomega.Equal(sparkv1beta2.ApplicationStateRunning))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verify the SparkApplication has nodeSelector set", func() {
+				gomega.Expect(sparkApp.Spec.Driver.NodeSelector).To(gomega.Equal(
+					map[string]string{
+						"instance-type": "on-demand",
+					},
+				))
+				gomega.Expect(sparkApp.Spec.Executor.NodeSelector).To(gomega.Equal(
+					map[string]string{
+						"instance-type": "on-demand",
+					},
+				))
+			})
+
+			wlLookupKey := types.NamespacedName{
+				Name:      sparkapplication.GetWorkloadNameForSparkApplication(sparkApp.Name, sparkApp.UID),
+				Namespace: ns.Name,
+			}
+			createdWorkload := &kueue.Workload{}
+
+			ginkgo.By(fmt.Sprintf("await for admission of workload %q and verify TopologyAssignment", wlLookupKey), func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+					g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				gomega.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
+				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(2))
+				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+					tas.V1Beta2From(&tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{{
+							Count:  1,
+							Values: []string{"kind-worker"},
+						}},
+					}),
+				))
+				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[1].TopologyAssignment).Should(gomega.BeComparableTo(
+					tas.V1Beta2From(&tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{{
+							Count:  1,
+							Values: []string{"kind-worker"},
+						}},
+					}),
+				))
+			})
+
+			ginkgo.By(fmt.Sprintf("verify the workload %q gets finished", wlLookupKey), func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(createdWorkload)).Should(gomega.BeTrue())
+					g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
