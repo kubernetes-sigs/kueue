@@ -19,8 +19,7 @@ package features
 import (
 	"testing"
 
-	utilfeature "k8s.io/apiserver/pkg/util/feature"
-	featuregatetesting "k8s.io/component-base/featuregate/testing"
+	
 )
 
 func TestFeatureGate(t *testing.T) {
