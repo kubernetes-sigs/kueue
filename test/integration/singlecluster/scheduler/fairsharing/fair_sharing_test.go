@@ -87,7 +87,6 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 	}
 
 	ginkgo.BeforeEach(func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionFairSharing, true)
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(
 			&config.AdmissionFairSharing{
 				UsageHalfLifeTime: metav1.Duration{
@@ -961,7 +960,6 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 		)
 
 		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionFairSharing, true)
 			cq1 = utiltestingapi.MakeClusterQueue("cq1").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "8").Obj()).
 				AdmissionMode(kueue.UsageBasedAdmissionFairSharing).
@@ -1270,7 +1268,6 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 	}
 
 	ginkgo.BeforeEach(func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionFairSharing, true)
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(
 			&config.AdmissionFairSharing{
 				UsageHalfLifeTime: metav1.Duration{
@@ -1315,8 +1312,6 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 		)
 
 		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionFairSharing, true)
-
 			cq1 = utiltestingapi.MakeClusterQueue("cq1").
 				Cohort("all").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "16").Obj()).
@@ -1426,7 +1421,6 @@ var _ = ginkgo.Describe("Scheduler with AdmissionFairSharing = nil", ginkgo.Labe
 	}
 
 	ginkgo.BeforeEach(func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionFairSharing, true)
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(nil))
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		util.MustCreate(ctx, k8sClient, defaultFlavor)
@@ -1459,8 +1453,6 @@ var _ = ginkgo.Describe("Scheduler with AdmissionFairSharing = nil", ginkgo.Labe
 		)
 
 		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionFairSharing, true)
-
 			cq1 = utiltestingapi.MakeClusterQueue("cq1").
 				Cohort("all").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "32").Obj()).
