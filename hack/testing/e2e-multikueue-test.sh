@@ -85,11 +85,12 @@ function kueue_deploy {
 trap cleanup EXIT
 startup 
 prepare_docker_images
-wait # for clusters creation
+for job in $(jobs -p); do wait "$job"; done # wait for clusters creation
+
 kind_load "$MANAGER_KIND_CLUSTER_NAME" "$MANAGER_KUBECONFIG" &
 kind_load "$WORKER1_KIND_CLUSTER_NAME" "$WORKER1_KUBECONFIG" &
 kind_load "$WORKER2_KIND_CLUSTER_NAME" "$WORKER2_KUBECONFIG" &
-wait # for libraries installation
+for job in $(jobs -p); do wait "$job"; done # wait for libraries installation
 echo "Add contexts to default kubeconfig"
 $KIND export kubeconfig --name "$MANAGER_KIND_CLUSTER_NAME"
 $KIND export kubeconfig --name "$WORKER1_KIND_CLUSTER_NAME"
