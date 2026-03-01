@@ -5442,7 +5442,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			for _, ps := range tc.podSets {
 				tasInput := TASPodSetRequests{
 					PodSet: &kueue.PodSet{
-						Name:            kueue.PodSetReference(ps.podSetName),
+						Name:            kueue.NewPodSetReference(ps.podSetName),
 						TopologyRequest: ps.topologyRequest,
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
@@ -5469,7 +5469,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				if ps.wantAssignment != nil {
 					wantPodSetResult.TopologyAssignment = ps.wantAssignment
 				}
-				wantResult[kueue.PodSetReference(ps.podSetName)] = wantPodSetResult
+				wantResult[kueue.NewPodSetReference(ps.podSetName)] = wantPodSetResult
 			}
 			gotResult := snapshot.FindTopologyAssignmentsForFlavor(flavorTASRequests)
 			if diff := cmp.Diff(wantResult, gotResult); diff != "" {
