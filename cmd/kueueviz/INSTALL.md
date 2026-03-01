@@ -23,7 +23,7 @@ by ensuring that `enableKueueViz` is set to `true`:
 
 ```
 helm upgrade --install kueue oci://registry.k8s.io/kueue/charts/kueue \
-  --version="0.15.5"
+  --version="0.15.5" \
   --namespace kueue-system \
   --set enableKueueViz=true \
   --create-namespace
