@@ -2369,8 +2369,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				for _, node := range nodes {
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
 				}
-
-				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASBalancedPlacement, false)
 			})
 
 			ginkgo.It("place the workers evenly on selected nodes", func() {
