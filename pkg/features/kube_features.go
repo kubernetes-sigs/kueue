@@ -17,7 +17,6 @@ limitations under the License.
 package features
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -432,13 +431,6 @@ func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) 
 // Enabled is helper for `utilfeature.DefaultFeatureGate.Enabled()`
 func Enabled(f featuregate.Feature) bool {
 	return utilfeature.DefaultFeatureGate.Enabled(f)
-}
-
-// SetEnable helper function that can be used to set the enabled value of a feature gate,
-// it should only be used in integration test pending the merge of
-// https://github.com/kubernetes/kubernetes/pull/118346
-func SetEnable(f featuregate.Feature, v bool) error {
-	return utilfeature.DefaultMutableFeatureGate.Set(fmt.Sprintf("%s=%v", f, v))
 }
 
 func LogFeatureGates(log logr.Logger) {

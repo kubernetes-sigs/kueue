@@ -2283,6 +2283,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				nodes []corev1.Node
 			)
 			ginkgo.BeforeEach(func() {
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASBalancedPlacement, true)
 				nodes = []corev1.Node{
 					*testingnode.MakeNode("x1").
 						Label("node-group", "tas").
@@ -2355,8 +2356,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 				util.MustCreate(ctx, k8sClient, localQueue)
-
-				_ = features.SetEnable(features.TASBalancedPlacement, true)
 			})
 
 			ginkgo.AfterEach(func() {
@@ -2369,8 +2368,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				for _, node := range nodes {
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
 				}
-
-				_ = features.SetEnable(features.TASBalancedPlacement, false)
 			})
 
 			ginkgo.It("place the workers evenly on selected nodes", func() {

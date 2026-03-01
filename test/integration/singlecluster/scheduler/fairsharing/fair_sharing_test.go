@@ -87,6 +87,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 	}
 
 	ginkgo.BeforeEach(func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionFairSharing, true)
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(
 			&config.AdmissionFairSharing{
 				UsageHalfLifeTime: metav1.Duration{
@@ -1269,6 +1270,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 	}
 
 	ginkgo.BeforeEach(func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionFairSharing, true)
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(
 			&config.AdmissionFairSharing{
 				UsageHalfLifeTime: metav1.Duration{
@@ -1424,6 +1426,7 @@ var _ = ginkgo.Describe("Scheduler with AdmissionFairSharing = nil", ginkgo.Labe
 	}
 
 	ginkgo.BeforeEach(func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionFairSharing, true)
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(nil))
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		util.MustCreate(ctx, k8sClient, defaultFlavor)
