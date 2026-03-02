@@ -40,7 +40,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
 	versionutil "k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/apimachinery/pkg/version"
 	"k8s.io/client-go/tools/clientcmd/api"
@@ -1597,15 +1596,18 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			var createdLeaderWorkload *kueue.Workload
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
 
-			ginkgo.By("Confirming Manager Workload configured correctly and got quota", func() {
+			ginkgo.By("Confirming Manager Workload has all checks pending", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdLeaderWorkload = &kueue.Workload{}
 					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
-					g.Expect(createdLeaderWorkload.Status.Admission).ToNot(gomega.BeNil())
-					g.Expect(workload.HasAllChecks(createdLeaderWorkload, sets.New(
-						kueue.AdmissionCheckReference(multiKueueAc.Name),
-						kueue.AdmissionCheckReference(testAc.Name),
-					))).To(gomega.BeTrue())
+					g.Expect(admissioncheck.FindAdmissionCheck(createdLeaderWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAc.Name))).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
+						Name:  kueue.AdmissionCheckReference(multiKueueAc.Name),
+						State: kueue.CheckStatePending,
+					}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "Message")))
+					g.Expect(admissioncheck.FindAdmissionCheck(createdLeaderWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(testAc.Name))).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
+						Name:  kueue.AdmissionCheckReference(testAc.Name),
+						State: kueue.CheckStatePending,
+					}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "Message")))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
