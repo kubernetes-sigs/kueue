@@ -1222,7 +1222,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, testAc, true, util.LongTimeout)
 		})
 
-		ginkgo.FIt("Should be admitted when worker admitted", func() {
+		ginkgo.FIt("BUG - WHEN REMOTE ADMITTED BUT MANAGER WORKLOAD HAS PENDING ADMISSION CHECK - WILL FAIL ON CHECKING IF MANAGER WORKLOAD HAS ADMITTED CONDITION", func() {
 			groupName := "test-group"
 			podgroup := testingpod.MakePod(groupName, managerNs.Name).
 				Queue(managerLq.Name).
@@ -1288,6 +1288,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 					g.Expect(acs).NotTo(gomega.BeNil())
 					g.Expect(acs.State).To(gomega.Equal(kueue.CheckStateReady))
 					g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
+					// BUG: WILL FAIL HERE
 					g.Expect(apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, corev1.Event{

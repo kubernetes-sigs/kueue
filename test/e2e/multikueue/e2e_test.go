@@ -96,6 +96,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		workerCluster2   *kueue.MultiKueueCluster
 		multiKueueConfig *kueue.MultiKueueConfig
 		multiKueueAc     *kueue.AdmissionCheck
+		testAc           *kueue.AdmissionCheck
 		managerHighWPC   *kueue.WorkloadPriorityClass
 		managerLowWPC    *kueue.WorkloadPriorityClass
 		managerFlavor    *kueue.ResourceFlavor
@@ -135,6 +136,12 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			Obj()
 		util.CreateAdmissionChecksAndWaitForActive(ctx, k8sManagerClient, multiKueueAc)
 
+		testAc = utiltestingapi.MakeAdmissionCheck("test-ac").
+			ControllerName("test-controller").
+			Active(metav1.ConditionTrue).
+			Obj()
+		util.MustCreate(ctx, k8sManagerClient, testAc)
+
 		managerHighWPC = utiltestingapi.MakeWorkloadPriorityClass("high-workload").PriorityValue(300).Obj()
 		util.MustCreate(ctx, k8sManagerClient, managerHighWPC)
 
@@ -151,7 +158,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					Resource(corev1.ResourceMemory, "4G").
 					Obj(),
 			).
-			AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAc.Name)).
+			AdmissionChecks(
+				kueue.AdmissionCheckReference(multiKueueAc.Name),
+				kueue.AdmissionCheckReference(testAc.Name),
+			).
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 			}).
@@ -226,6 +236,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerHighWPC, true, util.LongTimeout)
 		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerLowWPC, true, util.LongTimeout)
 		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, multiKueueAc, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, testAc, true, util.LongTimeout)
 		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, multiKueueConfig, true, util.LongTimeout)
 		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, workerCluster1, true, util.LongTimeout)
 		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, workerCluster2, true, util.LongTimeout)
@@ -1542,38 +1553,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 	})
 
 	ginkgo.When("A multikueue and a non-multikueue admission checks are defined", func() {
-		var (
-			testAc *kueue.AdmissionCheck
-		)
-
-		ginkgo.BeforeEach(func() {
-			testAc = utiltestingapi.MakeAdmissionCheck("test-ac").
-				ControllerName("test-controller").
-				Active(metav1.ConditionTrue).
-				Obj()
-			util.MustCreate(ctx, k8sManagerClient, testAc)
-
-			gomega.Eventually(func(g gomega.Gomega) {
-				updatedManagerCq := kueue.ClusterQueue{}
-				g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(managerCq), &updatedManagerCq))
-				updatedManagerCq.Spec.AdmissionChecksStrategy.AdmissionChecks = append(
-					updatedManagerCq.Spec.AdmissionChecksStrategy.AdmissionChecks,
-					kueue.AdmissionCheckStrategyRule{
-						Name:      kueue.AdmissionCheckReference(testAc.Name),
-						OnFlavors: []kueue.ResourceFlavorReference{kueue.ResourceFlavorReference(managerFlavor.Name)},
-					},
-				)
-				g.Expect(k8sManagerClient.Update(ctx, &updatedManagerCq)).To(gomega.Succeed())
-				managerCq = &updatedManagerCq
-			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.AfterEach(func() {
-			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerCq, true, util.LongTimeout)
-			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, testAc, true, util.LongTimeout)
-		})
-
-		ginkgo.FIt("Manager workload should be admitted and have all checks ready", func() {
+		ginkgo.FIt("BUG - WHEN REMOTE ADMITTED BUT MANAGER WORKLOAD HAS PENDING ADMISSION CHECK - WILL FAIL ON CHECKING IF MANAGER WORKLOAD HAS ADMITTED CONDITION", func() {
 			// Since it requires 2G of memory, this job can only be admitted in worker 2.
 			job := testingjob.MakeJob("job", managerNs.Name).
 				Queue(kueue.LocalQueueName(managerLq.Name)).
@@ -1611,7 +1591,16 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
+			ginkgo.By("Waiting for quota reservation on the manager", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdLeaderWorkload = &kueue.Workload{}
+					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(createdLeaderWorkload)).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
 			// the execution should be given to the worker
+			// BUG: WE WILL BE ADMITTED, BUT DUE TO PENDING AC WE WILL NOT GET THE ADMITTED CONDITION ON MANAGER
 			ginkgo.By("Waiting to be admitted in worker2, and the manager's job unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdLeaderWorkload = &kueue.Workload{}
@@ -1643,6 +1632,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			ginkgo.By("Checking if manager worklaod is admitted with all admission checks Ready", func() {
 				managerWl := kueue.Workload{}
 				gomega.Expect(k8sManagerClient.Get(ctx, wlLookupKey, &managerWl)).To(gomega.Succeed())
+				// BUG: WILL FAIL HERE
 				gomega.Expect(workload.IsAdmitted(&managerWl)).To(gomega.BeTrue())
 				gomega.Expect(workload.HasAllChecksReady(&managerWl)).To(gomega.BeTrue())
 			})
