@@ -354,7 +354,7 @@ func (r *nodeReconciler) checkPodsOnNode(ctx context.Context, nodeName string, w
 	// Identify pods that need to be terminated (pending pods on tainted nodes)
 	// and check if there are any pods that should be retained (e.g. running or gated).
 	podsToTerminate, hasPodsToRetain := classifyPodsForReplacement(podsAssigned)
-	if len(untolerated) > 0 && len(podsToTerminate) > 0 || len(podsToTerminate) > 0 && !ready {
+	if (len(untolerated) > 0 && len(podsToTerminate) > 0) || (len(podsToTerminate) > 0 && !ready) {
 		return workloadHealthCheck{status: workloadUnhealthy, podsToTerminate: podsToTerminate}, nil
 	}
 	if hasPodsToRetain {
