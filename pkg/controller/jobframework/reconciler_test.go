@@ -48,8 +48,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
@@ -897,6 +899,224 @@ func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
 				}}, tc.job)
 			if !errors.Is(err, tc.wantError) {
 				t.Errorf("unexpected reconcile error want %s got %s)", tc.wantError, err)
+			}
+		})
+	}
+}
+
+func TestReconcilePodsReadyWorkloadsMetrics(t *testing.T) {
+	const (
+		testJobName = "test-job-pods-ready-metrics"
+		testUID     = "test-job-pods-ready-metrics"
+		testNS      = metav1.NamespaceDefault
+	)
+
+	var (
+		testLocalQueueName = kueue.LocalQueueName("default")
+		testClusterQueue   = kueue.ClusterQueueReference("default-cq")
+		testGVK            = batchv1.SchemeGroupVersion.WithKind("Job")
+		lqRef              = metrics.LocalQueueReference{Name: testLocalQueueName, Namespace: testNS}
+	)
+
+	testCases := map[string]struct {
+		enableLocalQueueMetrics bool
+
+		preSeedClusterGauge bool
+		preSeedLocalGauge   bool
+
+		initialPodsReadyStatus metav1.ConditionStatus
+		initialPodsReadyReason string
+		addEvictedCondition    bool
+
+		jobReady     int32
+		jobFinished  bool
+		jobSuspended bool
+
+		wantClusterSeries int
+		wantClusterValue  float64
+		wantLocalSeries   int
+		wantLocalValue    float64
+	}{
+		"pods ready false to true increments cluster queue gauge": {
+			initialPodsReadyStatus: metav1.ConditionFalse,
+			initialPodsReadyReason: kueue.WorkloadWaitForStart,
+			jobReady:               1,
+			wantClusterSeries:      1,
+			wantClusterValue:       1,
+		},
+		"pods ready true to false decrements cluster queue gauge": {
+			preSeedClusterGauge:    true,
+			initialPodsReadyStatus: metav1.ConditionTrue,
+			initialPodsReadyReason: kueue.WorkloadStarted,
+			jobReady:               0,
+			wantClusterSeries:      1,
+			wantClusterValue:       0,
+		},
+		"job finished while pods ready true decrements cluster queue gauge": {
+			preSeedClusterGauge:    true,
+			initialPodsReadyStatus: metav1.ConditionTrue,
+			initialPodsReadyReason: kueue.WorkloadStarted,
+			jobFinished:            true,
+			wantClusterSeries:      1,
+			wantClusterValue:       0,
+		},
+		"job finished while pods ready false does not decrement gauge": {
+			initialPodsReadyStatus: metav1.ConditionFalse,
+			initialPodsReadyReason: kueue.WorkloadWaitForStart,
+			jobFinished:            true,
+			wantClusterSeries:      0,
+		},
+		"evicted workload while pods ready true decrements cluster queue gauge": {
+			preSeedClusterGauge:    true,
+			initialPodsReadyStatus: metav1.ConditionTrue,
+			initialPodsReadyReason: kueue.WorkloadStarted,
+			addEvictedCondition:    true,
+			jobReady:               1,
+			jobSuspended:           true,
+			wantClusterSeries:      1,
+			wantClusterValue:       0,
+		},
+		"pods ready false to true increments local queue gauge when feature enabled": {
+			enableLocalQueueMetrics: true,
+			initialPodsReadyStatus:  metav1.ConditionFalse,
+			initialPodsReadyReason:  kueue.WorkloadWaitForStart,
+			jobReady:                1,
+			wantClusterSeries:       1,
+			wantClusterValue:        1,
+			wantLocalSeries:         1,
+			wantLocalValue:          1,
+		},
+		"job finished while pods ready true decrements local queue gauge when feature enabled": {
+			enableLocalQueueMetrics: true,
+			preSeedClusterGauge:     true,
+			preSeedLocalGauge:       true,
+			initialPodsReadyStatus:  metav1.ConditionTrue,
+			initialPodsReadyReason:  kueue.WorkloadStarted,
+			jobFinished:             true,
+			wantClusterSeries:       1,
+			wantClusterValue:        0,
+			wantLocalSeries:         1,
+			wantLocalValue:          0,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, tc.enableLocalQueueMetrics)
+			features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, true)
+
+			metrics.ClearClusterQueueMetrics(testClusterQueue)
+			metrics.ClearLocalQueueMetrics(lqRef)
+			t.Cleanup(func() {
+				metrics.ClearClusterQueueMetrics(testClusterQueue)
+				metrics.ClearLocalQueueMetrics(lqRef)
+			})
+
+			if tc.preSeedClusterGauge {
+				metrics.IncrementPodsReadyWorkloads(testClusterQueue, nil)
+			}
+			if tc.preSeedLocalGauge {
+				metrics.IncrementLocalQueuePodsReadyWorkloads(lqRef, nil)
+			}
+
+			startTime := time.Now().Truncate(time.Second)
+			workloadConds := []metav1.Condition{
+				{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					Reason:             "Admitted",
+					Message:            "The workload is admitted",
+					LastTransitionTime: metav1.NewTime(startTime.Add(-1 * time.Minute)),
+				},
+				{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             tc.initialPodsReadyStatus,
+					Reason:             tc.initialPodsReadyReason,
+					Message:            "PodsReady condition for test",
+					LastTransitionTime: metav1.NewTime(startTime.Add(-30 * time.Second)),
+				},
+			}
+			if tc.addEvictedCondition {
+				workloadConds = append(workloadConds, metav1.Condition{
+					Type:               kueue.WorkloadEvicted,
+					Status:             metav1.ConditionTrue,
+					Reason:             kueue.WorkloadEvictedByPreemption,
+					Message:            "Evicted by test",
+					LastTransitionTime: metav1.NewTime(startTime.Add(-10 * time.Second)),
+				})
+			}
+
+			wl := utiltestingapi.MakeWorkload("job-"+testJobName, testNS).
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				Label(constants.JobUIDLabel, testUID).
+				ControllerReference(testGVK, testJobName, testUID).
+				Queue(testLocalQueueName).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+				Conditions(workloadConds...).
+				Admission(&kueue.Admission{ClusterQueue: testClusterQueue}).
+				Obj()
+
+			jobBuilder := testingjob.MakeJob(testJobName, testNS).
+				UID(testUID).
+				Label(constants.QueueLabel, string(testLocalQueueName)).
+				Parallelism(1).
+				Suspend(tc.jobSuspended).
+				Containers(corev1.Container{
+					Name: "c",
+					Resources: corev1.ResourceRequirements{
+						Requests: make(corev1.ResourceList),
+					},
+				}).
+				Ready(tc.jobReady)
+			if tc.jobFinished {
+				jobBuilder = jobBuilder.Condition(batchv1.JobCondition{
+					Type:    batchv1.JobComplete,
+					Status:  corev1.ConditionTrue,
+					Message: "Completed by test",
+				})
+			}
+			jobObj := (*job.Job)(jobBuilder.Obj())
+
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
+				WithObjects(wl, jobObj.Object(), utiltesting.MakeNamespace(testNS)).
+				WithStatusSubresource(wl, jobObj.Object()).
+				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(testGVK), indexer.WorkloadOwnerIndexFunc(testGVK)).
+				Build()
+
+			recorder := &utiltesting.EventRecorder{}
+			r := NewReconciler(cl, recorder,
+				WithClock(testingclock.NewFakeClock(startTime)),
+				WithWaitForPodsReady(&configapi.WaitForPodsReady{}),
+			)
+
+			_, err := r.ReconcileGenericJob(ctx, controllerruntime.Request{NamespacedName: types.NamespacedName{
+				Name:      testJobName,
+				Namespace: testNS,
+			}}, jobObj)
+			if err != nil {
+				t.Fatalf("ReconcileGenericJob() error = %v", err)
+			}
+
+			cqDPs := testingmetrics.CollectFilteredGaugeVec(metrics.PodsReadyWorkloads, map[string]string{
+				"cluster_queue": string(testClusterQueue),
+			})
+			if len(cqDPs) != tc.wantClusterSeries {
+				t.Fatalf("Unexpected cluster queue metric series count: got %d, want %d", len(cqDPs), tc.wantClusterSeries)
+			}
+			if tc.wantClusterSeries > 0 && cqDPs[0].Value != tc.wantClusterValue {
+				t.Errorf("Unexpected cluster queue gauge value: got %v, want %v", cqDPs[0].Value, tc.wantClusterValue)
+			}
+
+			lqDPs := testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePodsReadyWorkloads, map[string]string{
+				"name":      string(testLocalQueueName),
+				"namespace": testNS,
+			})
+			if len(lqDPs) != tc.wantLocalSeries {
+				t.Fatalf("Unexpected local queue metric series count: got %d, want %d", len(lqDPs), tc.wantLocalSeries)
+			}
+			if tc.wantLocalSeries > 0 && lqDPs[0].Value != tc.wantLocalValue {
+				t.Errorf("Unexpected local queue gauge value: got %v, want %v", lqDPs[0].Value, tc.wantLocalValue)
 			}
 		})
 	}
