@@ -1554,56 +1554,28 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 	ginkgo.When("A multikueue and a non-multikueue admission checks are defined", func() {
 		ginkgo.FIt("BUG - WHEN REMOTE ADMITTED BUT MANAGER WORKLOAD HAS PENDING ADMISSION CHECK - WILL FAIL ON CHECKING IF MANAGER WORKLOAD HAS ADMITTED CONDITION", func() {
-			// Since it requires 2G of memory, this job can only be admitted in worker 2.
-			job := testingjob.MakeJob("job", managerNs.Name).
-				Queue(kueue.LocalQueueName(managerLq.Name)).
+			pod := testingpod.MakePod("pod", managerNs.Name).
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				RequestAndLimit(corev1.ResourceMemory, "2G").
-				TerminationGracePeriod(1).
-				// Give it the time to be observed Active in the live status update step.
-				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Queue(managerLq.Name).
 				Obj()
+			// Since it requires 2G of memory, this pod can only be admitted in worker 2.
 
-			ginkgo.By("Creating the job", func() {
-				util.MustCreate(ctx, k8sManagerClient, job)
+			ginkgo.By("Creating the pod", func() {
+				util.MustCreate(ctx, k8sManagerClient, pod)
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdJob := &batchv1.Job{}
-					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
-					g.Expect(ptr.Deref(createdJob.Spec.ManagedBy, "")).To(gomega.BeEquivalentTo(kueue.MultiKueueControllerName))
+					createdPod := &corev1.Pod{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(pod), createdPod)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			var createdLeaderWorkload *kueue.Workload
-			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
+			createdLeaderWorkload := &kueue.Workload{}
+			wlLookupKey := types.NamespacedName{Name: workloadpod.GetWorkloadNameForPod(pod.Name, pod.UID), Namespace: managerNs.Name}
 
-			ginkgo.By("Confirming Manager Workload has all checks pending", func() {
+			// the execution should be given to worker2
+			ginkgo.By("Waiting to be admitted in worker2", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdLeaderWorkload = &kueue.Workload{}
-					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
-					g.Expect(admissioncheck.FindAdmissionCheck(createdLeaderWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAc.Name))).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
-						Name:  kueue.AdmissionCheckReference(multiKueueAc.Name),
-						State: kueue.CheckStatePending,
-					}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "Message")))
-					g.Expect(admissioncheck.FindAdmissionCheck(createdLeaderWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(testAc.Name))).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
-						Name:  kueue.AdmissionCheckReference(testAc.Name),
-						State: kueue.CheckStatePending,
-					}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "Message")))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Waiting for quota reservation on the manager", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					createdLeaderWorkload = &kueue.Workload{}
-					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
-					g.Expect(workload.HasQuotaReservation(createdLeaderWorkload)).To(gomega.BeTrue())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			// the execution should be given to the worker
-			// BUG: WE WILL BE ADMITTED, BUT DUE TO PENDING AC WE WILL NOT GET THE ADMITTED CONDITION ON MANAGER
-			ginkgo.By("Waiting to be admitted in worker2, and the manager's job unsuspended", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					createdLeaderWorkload = &kueue.Workload{}
 					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
 					g.Expect(admissioncheck.FindAdmissionCheck(createdLeaderWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAc.Name))).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
 						Name:    kueue.AdmissionCheckReference(multiKueueAc.Name),
@@ -1613,28 +1585,18 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdJob := &batchv1.Job{}
-					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
-					g.Expect(ptr.Deref(createdJob.Spec.Suspend, false)).To(gomega.BeFalse())
+					createdPod := &corev1.Pod{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(pod), createdPod)).To(gomega.Succeed())
+					g.Expect(utilpod.HasGate(createdPod, podconstants.SchedulingGateName)).To(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Waiting for the job to get status updates", func() {
+			// BUG: WE EXPECT TO FAIL HERE SINCE THE CURRECT LOGIC DOES NOT SAFEGUARD AGAINST ADMITING ON THE REMOTE WITHOUT ALL MANAGER CHECKS READY
+			ginkgo.By("Confirming the manager workload has the Admitted condition", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdJob := batchv1.Job{}
-					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
-					g.Expect(createdJob.Status.StartTime).NotTo(gomega.BeNil())
-					g.Expect(createdJob.Status.Active).To(gomega.Equal(int32(1)))
-					g.Expect(createdJob.Status.CompletionTime).To(gomega.BeNil())
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Checking if manager worklaod is admitted with all admission checks Ready", func() {
-				managerWl := kueue.Workload{}
-				gomega.Expect(k8sManagerClient.Get(ctx, wlLookupKey, &managerWl)).To(gomega.Succeed())
-				// BUG: WILL FAIL HERE
-				gomega.Expect(workload.IsAdmitted(&managerWl)).To(gomega.BeTrue())
-				gomega.Expect(workload.HasAllChecksReady(&managerWl)).To(gomega.BeTrue())
+					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(createdLeaderWorkload)).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
