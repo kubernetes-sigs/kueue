@@ -69,3 +69,4 @@ managerConfig:
       LocalQueueMetrics: true
       ElasticJobsViaWorkloadSlices: true
       ElasticJobsViaWorkloadSlicesWithTAS: true
+      SparkApplicationIntegration: true

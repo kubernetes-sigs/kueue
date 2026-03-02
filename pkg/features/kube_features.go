@@ -269,6 +269,12 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/9156
 	// Enables pod labeling with corresponding cluster and local queue names
 	AssignQueueLabelsForPods featuregate.Feature = "AssignQueueLabelsForPods"
+
+	// owner: @everpeace
+	//
+	// pr: https://github.com/kubernetes-sigs/kueue/pull/7268#issuecomment-3890609376
+	// Enables the Kubeflow's SparkApplication integration
+	SparkApplicationIntegration featuregate.Feature = "SparkApplicationIntegration"
 )
 
 func init() {
@@ -421,6 +427,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	AssignQueueLabelsForPods: {
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
+	},
+	SparkApplicationIntegration: {
+		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
