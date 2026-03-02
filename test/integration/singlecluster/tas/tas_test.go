@@ -1978,6 +1978,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						NodeName(nodeName).
 						Obj()
 					util.MustCreate(ctx, k8sClient, pod)
+					util.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pod)
 				})
 
 				ginkgo.By("applying NoExecute taint to the node", func() {

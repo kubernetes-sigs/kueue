@@ -303,9 +303,6 @@ func (r *nodeFailureReconciler) checkPodsOnNode(ctx context.Context, nodeName st
 	// and check if there are any pods that should be retained (e.g. running or gated).
 	podsToTerminate, hasPodsToRetain := classifyPodsForReplacement(podsAssigned)
 	if len(podsToTerminate) > 0 && (len(untolerated) > 0 || !ready) {
-		if features.Enabled(features.TASReplaceNodeOnPodTermination) {
-			return workloadHealthCheck{status: workloadHealthUnknown, podsToTerminate: podsToTerminate}, nil
-		}
 		return workloadHealthCheck{status: workloadUnhealthy, podsToTerminate: podsToTerminate}, nil
 	}
 	if hasPodsToRetain && (len(untolerated) == 0 || features.Enabled(features.TASReplaceNodeOnPodTermination)) {
