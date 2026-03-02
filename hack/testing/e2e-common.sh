@@ -130,7 +130,7 @@ if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:leaderworker
     export LEADERWORKERSET_IMAGE=registry.k8s.io/lws/lws:${LEADERWORKERSET_VERSION}
 fi
 
-if [[ -n ${SPARKOPERATOR_VERSION:-} ]]; then
+if [[ -n ${SPARKOPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:sparkapplication || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export SPARKOPERATOR_IMAGE="ghcr.io/kubeflow/spark-operator/controller:${SPARKOPERATOR_VERSION#v}"
 fi
 
@@ -449,7 +449,7 @@ function kind_load {
     if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         install_kuberay "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
-    if [[ -n ${SPARKOPERATOR_VERSION:-} ]]; then
+    if [[ -n ${SPARKOPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:sparkapplication || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         install_sparkoperator "$1" "$2"
     fi
     if [[ -n ${CERTMANAGER_VERSION:-} ]]; then
@@ -897,13 +897,43 @@ function install_lws {
 # $1 cluster name
 # $2 kubeconfig option
 function install_sparkoperator {
-    cluster_kind_load_image "${1}" "${SPARKOPERATOR_IMAGE}"
+    local cluster_name=$1
+    local kubeconfig=${2:-}
+    local ns="${SPARKOPERATOR_NAMESPACE:-spark-operator}"
+    local helm_release_name="${SPARKOPERATOR_HELM_RELEASE_NAME:-spark-operator}"
+    local expected_version="${SPARKOPERATOR_VERSION:-}"
+    expected_version="${expected_version#v}"
+    local install_cmd="install"
+    cluster_kind_load_image "${cluster_name}" "${SPARKOPERATOR_IMAGE}"
+
     ${HELM} repo add --force-update spark-operator https://kubeflow.github.io/spark-operator
-    ${HELM} upgrade --install spark-operator spark-operator/spark-operator \
-    --version "${SPARKOPERATOR_VERSION#v}" \
-    --namespace spark-operator \
+
+    if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}" ; then
+        if helm list --namespace "${ns}" | grep -q "${helm_release_name}"; then
+            local installed_version=""
+            installed_version=$(helm get values --namespace="${ns}" "${helm_release_name}" -o json | jq -r '.image.tag')
+            if [[ -n "${installed_version}" ]] && { [[ -z "${expected_version}" ]] || e2e_versions_match "${installed_version}" "${expected_version}"; }; then
+                echo "Spark operator already installed (${installed_version}); skipping install (E2E_MODE=dev)."
+                return 0
+            fi
+            install_cmd="upgrade"
+            if [[ -n "${installed_version}" && -n "${expected_version}" ]]; then
+                echo "Spark operator installed version (${installed_version}) does not match requested (${expected_version}); upgrading."
+            else
+                echo "Spark operator already present; upgrading."
+            fi
+        else 
+            echo "Spark operator helm release not found; installing."
+        fi
+    fi
+
+    ${HELM} --kubeconfig="${kubeconfig}" \
+    ${install_cmd} "${helm_release_name}" spark-operator/spark-operator \
+    --version "${expected_version}" \
+    --namespace "${ns}" \
     --create-namespace \
-    --set image.tag="${SPARKOPERATOR_VERSION#v}" \
+    --wait \
+    --set image.tag="${expected_version}" \
     --set 'spark.jobNamespaces[0]='
 }
 
