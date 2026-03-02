@@ -138,9 +138,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 		testAc = utiltestingapi.MakeAdmissionCheck("test-ac").
 			ControllerName("test-controller").
-			Active(metav1.ConditionTrue).
 			Obj()
 		util.MustCreate(ctx, k8sManagerClient, testAc)
+		util.SetAdmissionCheckActive(ctx, k8sManagerClient, testAc, metav1.ConditionTrue)
 
 		managerHighWPC = utiltestingapi.MakeWorkloadPriorityClass("high-workload").PriorityValue(300).Obj()
 		util.MustCreate(ctx, k8sManagerClient, managerHighWPC)
