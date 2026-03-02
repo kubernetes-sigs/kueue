@@ -38,6 +38,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/ray"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -62,7 +63,7 @@ func init() {
 		SetupWebhook:      SetupRayJobWebhook,
 		JobType:           &rayv1.RayJob{},
 		AddToScheme:       rayv1.AddToScheme,
-		MultiKueueAdapter: &multiKueueAdapter{},
+		MultiKueueAdapter: ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy),
 	}))
 }
 
