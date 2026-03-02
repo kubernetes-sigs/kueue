@@ -59,7 +59,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 		util.MustCreate(ctx, k8sClient, tasFlavor)
 
 		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
-			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-flavor").Resource(extraResource, "8").Resource(corev1.ResourceCPU, "1").Obj()).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-flavor").Resource(extraResource, "8").Resource(corev1.ResourceCPU, "2").Obj()).
 			Obj()
 		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
@@ -449,11 +449,11 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 								Args:  util.BehaviorWaitForDeletion,
 								Resources: corev1.ResourceRequirements{
 									Limits: map[corev1.ResourceName]resource.Quantity{
-										corev1.ResourceCPU: resource.MustParse("100m"),
+										corev1.ResourceCPU: resource.MustParse("200m"),
 										extraResource:      resource.MustParse("1"),
 									},
 									Requests: map[corev1.ResourceName]resource.Quantity{
-										corev1.ResourceCPU: resource.MustParse("100m"),
+										corev1.ResourceCPU: resource.MustParse("200m"),
 										extraResource:      resource.MustParse("1"),
 									},
 								},
@@ -476,10 +476,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 								Args:  util.BehaviorWaitForDeletion,
 								Resources: corev1.ResourceRequirements{
 									Limits: map[corev1.ResourceName]resource.Quantity{
-										corev1.ResourceCPU: resource.MustParse("100m"),
+										corev1.ResourceCPU: resource.MustParse("200m"),
 									},
 									Requests: map[corev1.ResourceName]resource.Quantity{
-										corev1.ResourceCPU: resource.MustParse("100m"),
+										corev1.ResourceCPU: resource.MustParse("200m"),
 									},
 								},
 							},
