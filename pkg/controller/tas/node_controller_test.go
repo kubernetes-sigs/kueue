@@ -579,7 +579,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:     true,
+				features.TASReplaceNodeOnNodeTaints: true,
 			},
 		},
 		"Node has untolerated NoExecute taint, pod pending (gated by TopologySchedulingGate) -> Healthy (wait)": {
@@ -596,7 +596,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantUnhealthyNodes: nil,
 			wantRequeue:        1 * time.Second,
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:     true,
+				features.TASReplaceNodeOnNodeTaints: true,
 			},
 		},
 	}
