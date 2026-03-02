@@ -22,7 +22,7 @@ tool (
 )
 
 require (
-	github.com/gohugoio/hugo v0.155.3
+	github.com/gohugoio/hugo v0.157.0
 	github.com/golangci/golangci-lint/v2 v2.10.1
 	github.com/google/go-cmp v0.7.0
 	github.com/helm-unittest/helm-unittest v1.0.3
@@ -52,7 +52,7 @@ require (
 	al.essio.dev/pkg/shellescape v1.5.1 // indirect
 	cel.dev/expr v0.25.1 // indirect
 	cloud.google.com/go v0.123.0 // indirect
-	cloud.google.com/go/auth v0.17.0 // indirect
+	cloud.google.com/go/auth v0.18.1 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	cloud.google.com/go/iam v1.5.3 // indirect
@@ -141,15 +141,15 @@ require (
 	github.com/bep/godartsass/v2 v2.5.0 // indirect
 	github.com/bep/golibsass v1.2.0 // indirect
 	github.com/bep/goportabletext v0.1.0 // indirect
-	github.com/bep/helpers v0.6.0 // indirect
-	github.com/bep/imagemeta v0.14.0 // indirect
+	github.com/bep/helpers v0.7.0 // indirect
+	github.com/bep/imagemeta v0.15.0 // indirect
 	github.com/bep/lazycache v0.8.1 // indirect
 	github.com/bep/logg v0.4.0 // indirect
 	github.com/bep/mclib v1.20400.20402 // indirect
 	github.com/bep/overlayfs v0.10.0 // indirect
-	github.com/bep/simplecobra v0.6.1 // indirect
-	github.com/bep/textandbinarywriter v0.0.0-20251212174530-cd9f0732f60f // indirect
-	github.com/bep/tmc v0.5.1 // indirect
+	github.com/bep/simplecobra v0.7.0 // indirect
+	github.com/bep/textandbinarywriter v0.1.0 // indirect
+	github.com/bep/tmc v0.6.0 // indirect
 	github.com/bitfield/gotestdox v0.2.2 // indirect
 	github.com/bits-and-blooms/bitset v1.24.4 // indirect
 	github.com/bkielbasa/cyclop v1.2.3 // indirect
@@ -262,8 +262,8 @@ require (
 	github.com/gohugoio/go-radix v1.2.0 // indirect
 	github.com/gohugoio/hashstructure v0.6.0 // indirect
 	github.com/gohugoio/httpcache v0.8.0 // indirect
-	github.com/gohugoio/hugo-goldmark-extensions/extras v0.5.0 // indirect
-	github.com/gohugoio/hugo-goldmark-extensions/passthrough v0.3.1 // indirect
+	github.com/gohugoio/hugo-goldmark-extensions/extras v0.6.0 // indirect
+	github.com/gohugoio/hugo-goldmark-extensions/passthrough v0.4.0 // indirect
 	github.com/gohugoio/locales v0.14.0 // indirect
 	github.com/gohugoio/localescompressed v1.0.1 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
@@ -285,8 +285,8 @@ require (
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/google/wire v0.7.0 // indirect
-	github.com/googleapis/enterprise-certificate-proxy v0.3.7 // indirect
-	github.com/googleapis/gax-go/v2 v2.15.0 // indirect
+	github.com/googleapis/enterprise-certificate-proxy v0.3.11 // indirect
+	github.com/googleapis/gax-go/v2 v2.17.0 // indirect
 	github.com/gordonklaus/ineffassign v0.2.0 // indirect
 	github.com/gorilla/css v1.0.1 // indirect
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 // indirect
@@ -433,8 +433,8 @@ require (
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
-	github.com/tdewolff/minify/v2 v2.24.8 // indirect
-	github.com/tdewolff/parse/v2 v2.8.5 // indirect
+	github.com/tdewolff/minify/v2 v2.24.9 // indirect
+	github.com/tdewolff/parse/v2 v2.8.8 // indirect
 	github.com/tetafro/godot v1.5.4 // indirect
 	github.com/tetratelabs/wabin v0.0.0-20230304001439-f6f874872834 // indirect
 	github.com/tetratelabs/wazero v1.11.0 // indirect
@@ -485,10 +485,10 @@ require (
 	golang.org/x/crypto v0.48.0 // indirect
 	golang.org/x/exp v0.0.0-20251113190631-e25ba8c21ef6 // indirect
 	golang.org/x/exp/typeparams v0.0.0-20260209203927-2842357ff358 // indirect
-	golang.org/x/image v0.35.0 // indirect
+	golang.org/x/image v0.36.0 // indirect
 	golang.org/x/mod v0.33.0 // indirect
 	golang.org/x/net v0.50.0 // indirect
-	golang.org/x/oauth2 v0.34.0 // indirect
+	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
 	golang.org/x/term v0.40.0 // indirect
@@ -496,11 +496,11 @@ require (
 	golang.org/x/time v0.14.0 // indirect
 	golang.org/x/tools v0.42.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
-	google.golang.org/api v0.256.0 // indirect
-	google.golang.org/genproto v0.0.0-20251111163417-95abcf5c77ba // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20251111163417-95abcf5c77ba // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20251111163417-95abcf5c77ba // indirect
-	google.golang.org/grpc v1.77.0 // indirect
+	google.golang.org/api v0.267.0 // indirect
+	google.golang.org/genproto v0.0.0-20260128011058-8636f8732409 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20260128011058-8636f8732409 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260203192932-546029d2fa20 // indirect
+	google.golang.org/grpc v1.78.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
