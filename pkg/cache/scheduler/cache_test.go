@@ -40,7 +40,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -3579,7 +3578,6 @@ func TestSnapshotError(t *testing.T) {
 	var (
 		connectionRefusedErr = errors.New("connection refused")
 	)
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	ctx, log := utiltesting.ContextWithLog(t)
 
 	topology := *utiltestingapi.MakeDefaultOneLevelTopology("default")
