@@ -1570,7 +1570,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, testAc, true, util.LongTimeout)
 		})
 
-		ginkgo.It("Manager workload should be admitted and have all-", func() {
+		ginkgo.It("Manager workload should be admitted and have all checks ready", func() {
 			// Since it requires 2G of memory, this job can only be admitted in worker 2.
 			job := testingjob.MakeJob("job", managerNs.Name).
 				Queue(kueue.LocalQueueName(managerLq.Name)).
