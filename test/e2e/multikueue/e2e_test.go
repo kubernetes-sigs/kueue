@@ -191,7 +191,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		worker2Cq = utiltestingapi.MakeClusterQueue("q1").
 			ResourceGroup(
 				*utiltestingapi.MakeFlavorQuotas(worker2Flavor.Name).
-					Resource(corev1.ResourceCPU, "1").
+					Resource(corev1.ResourceCPU, "1200m").
 					Resource(corev1.ResourceMemory, "2G").
 					Obj(),
 			).
