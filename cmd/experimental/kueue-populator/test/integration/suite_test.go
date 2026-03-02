@@ -83,9 +83,9 @@ func managerAndControllerSetup(controllersCfg *config.Configuration) framework.M
 		controllersCfg.Metrics.EnableClusterQueueResources = true
 
 		cCache := schdcache.New(mgr.GetClient())
-		queues := qcache.NewManager(mgr.GetClient(), cCache, nil)
+		queues := qcache.NewManager(mgr.GetClient(), cCache)
 
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil, nil)
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		opts := []controller.KueuePopulatorReconcilerOption{
@@ -99,7 +99,7 @@ func managerAndControllerSetup(controllersCfg *config.Configuration) framework.M
 
 		reconciler := controller.NewKueuePopulatorReconciler(
 			mgr.GetClient(),
-			mgr.GetEventRecorder(controller.ControllerName),
+			mgr.GetEventRecorderFor(controller.ControllerName),
 			opts...,
 		)
 		err = reconciler.SetupWithManager(mgr)
