@@ -22,6 +22,8 @@ import (
 	"net"
 	"strings"
 
+	"github.com/spf13/pflag"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -74,9 +76,9 @@ func init() {
 // +kubebuilder:rbac:groups=flowcontrol.apiserver.k8s.io,resources=flowschemas/status,verbs=patch
 
 // CreateAndStartVisibilityServer creates a visibility server injecting KueueManager and starts it
-func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manager, enableInternalCertManagement bool, kubeConfig *rest.Config, tlsOpts *tlsconfig.TLS) error {
+func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manager, enableInternalCertManagement bool, kubeConfig *rest.Config, tlsOpts *tlsconfig.TLS, apiServerFlags string) error {
 	config := newVisibilityServerConfig(kubeConfig)
-	if err := applyVisibilityServerOptions(config, enableInternalCertManagement, tlsOpts); err != nil {
+	if err := applyVisibilityServerOptions(config, enableInternalCertManagement, tlsOpts, apiServerFlags); err != nil {
 		return fmt.Errorf("unable to apply VisibilityServerOptions: %w", err)
 	}
 
@@ -96,13 +98,24 @@ func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manage
 	return nil
 }
 
-func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, enableInternalCertManagement bool, tlsOpts *tlsconfig.TLS) error {
+func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, enableInternalCertManagement bool, tlsOpts *tlsconfig.TLS, apiServerFlags string) error {
 	o := genericoptions.NewRecommendedOptions("", codecs.LegacyCodec(
 		visibilityv1beta2.SchemeGroupVersion,
 		visibilityv1beta1.SchemeGroupVersion,
 	))
 	o.Etcd = nil
 	o.SecureServing.BindPort = 8082
+
+	if apiServerFlags != "" {
+		fs := pflag.NewFlagSet("visibility-server", pflag.ContinueOnError)
+		o.AddFlags(fs)
+
+		args := strings.Fields(apiServerFlags)
+		if err := fs.Parse(args); err != nil {
+			return fmt.Errorf("failed to parse api-server-flags: %w", err)
+		}
+	}
+
 	if enableInternalCertManagement {
 		// The directory where TLS certs will be created
 		o.SecureServing.ServerCert.CertDirectory = certDir
