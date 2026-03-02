@@ -81,9 +81,9 @@ const (
 	// and is ready for eviction (e.g. all of its pods on the node have fully terminated).
 	workloadUnhealthy
 
-	// workloadTemporarilyHealthy indicates that the workload will need to be evicted from the node,
+	// workloadHealthUnknown indicates that the workload will need to be evicted from the node,
 	// but is not ready yet (e.g. pods are still terminating, or taints are only temporarily tolerated).
-	workloadTemporarilyHealthy
+	workloadHealthUnknown
 )
 
 type taintToleration int
@@ -348,17 +348,20 @@ func (r *nodeReconciler) checkPodsOnNode(ctx context.Context, nodeName string, w
 		// but they are still pending nodeSelector injection by TopologyUngater.
 		log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KRef(wlKey.Namespace, wlKey.Name))
 		log.V(2).Info("Found gated pods for assigned workload, waiting for TopologyUngater to inject nodeSelector")
-		return workloadHealthCheck{status: workloadTemporarilyHealthy}, nil
+		return workloadHealthCheck{status: workloadHealthUnknown}, nil
 	}
 
 	// Identify pods that need to be terminated (pending pods on tainted nodes)
 	// and check if there are any pods that should be retained (e.g. running or gated).
 	podsToTerminate, hasPodsToRetain := classifyPodsForReplacement(podsAssigned)
 	if len(podsToTerminate) > 0 && (len(untolerated) > 0 || !ready) {
+		if features.Enabled(features.TASReplaceNodeOnPodTermination) {
+			return workloadHealthCheck{status: workloadHealthUnknown, podsToTerminate: podsToTerminate}, nil
+		}
 		return workloadHealthCheck{status: workloadUnhealthy, podsToTerminate: podsToTerminate}, nil
 	}
 	if hasPodsToRetain && (len(untolerated) == 0 || features.Enabled(features.TASReplaceNodeOnPodTermination)) {
-		return workloadHealthCheck{status: workloadTemporarilyHealthy}, nil
+		return workloadHealthCheck{status: workloadHealthUnknown}, nil
 	}
 	return workloadHealthCheck{status: workloadUnhealthy}, nil
 }
@@ -444,7 +447,7 @@ func (r *nodeReconciler) reconcileWorkloadsOnNode(ctx context.Context, nodeName 
 		switch result.status {
 		case workloadUnhealthy:
 			unhealthyWorkloads.Insert(wlKey)
-		case workloadTemporarilyHealthy:
+		case workloadHealthUnknown:
 			hasWaitingWorkloads = true
 			notUnhealthyWorkloads.Insert(wlKey)
 		case workloadHealthy:
