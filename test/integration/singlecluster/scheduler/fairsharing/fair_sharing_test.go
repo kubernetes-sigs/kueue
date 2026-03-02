@@ -1312,7 +1312,6 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 		)
 
 		ginkgo.BeforeEach(func() {
-
 			cq1 = utiltestingapi.MakeClusterQueue("cq1").
 				Cohort("all").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "16").Obj()).
@@ -1454,7 +1453,6 @@ var _ = ginkgo.Describe("Scheduler with AdmissionFairSharing = nil", ginkgo.Labe
 		)
 
 		ginkgo.BeforeEach(func() {
-
 			cq1 = utiltestingapi.MakeClusterQueue("cq1").
 				Cohort("all").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "32").Obj()).
