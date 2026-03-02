@@ -2,8 +2,6 @@ module sigs.k8s.io/kueue/cmd/experimental/kueue-populator
 
 go 1.25.0
 
-replace sigs.k8s.io/kueue => ../../../
-
 require (
 	github.com/go-logr/logr v1.4.3
 	github.com/google/go-cmp v0.7.0
@@ -15,7 +13,7 @@ require (
 	k8s.io/client-go v0.35.2
 	k8s.io/klog/v2 v2.130.1
 	sigs.k8s.io/controller-runtime v0.23.1
-	sigs.k8s.io/kueue v0.16.1
+	sigs.k8s.io/kueue v0.16.2
 	sigs.k8s.io/yaml v1.6.0
 )
 

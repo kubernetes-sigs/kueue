@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	kueuepopulatorconfig "sigs.k8s.io/kueue/cmd/experimental/kueue-populator/pkg/config"
 	"sigs.k8s.io/kueue/cmd/experimental/kueue-populator/pkg/controller"
 )
@@ -93,7 +93,7 @@ func start(configFile string) error {
 
 	if err = controller.NewKueuePopulatorReconciler(
 		mgr.GetClient(),
-		mgr.GetEventRecorder("kueue-populator"),
+		mgr.GetEventRecorderFor("kueue-populator"),
 		reconcilerOpts...,
 	).SetupWithManager(mgr); err != nil {
 		log.Error(err, "Unable to create controller", "controller", "KueuePopulator")

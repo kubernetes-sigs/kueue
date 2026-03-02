@@ -25,7 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/events"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/cmd/experimental/kueue-populator/pkg/constants"
 )
 
@@ -42,7 +42,7 @@ const ControllerName = "kueue-populator"
 type KueuePopulatorReconciler struct {
 	client            client.Client
 	log               logr.Logger
-	recorder          events.EventRecorder
+	recorder          record.EventRecorder
 	namespaceSelector labels.Selector
 	localQueueName    string
 }
@@ -72,7 +72,7 @@ var defaultPopulatorOptions = KueuePopulatorReconcilerOptions{}
 
 func NewKueuePopulatorReconciler(
 	client client.Client,
-	recorder events.EventRecorder,
+	recorder record.EventRecorder,
 	opts ...KueuePopulatorReconcilerOption,
 ) *KueuePopulatorReconciler {
 	options := defaultPopulatorOptions
@@ -214,7 +214,7 @@ func (r *KueuePopulatorReconciler) ensureLocalQueueExists(ctx context.Context, c
 		if lq.Spec.ClusterQueue == kueue.ClusterQueueReference(cq.Name) {
 			return nil
 		}
-		r.recorder.Eventf(cq, nil, corev1.EventTypeWarning, "LocalQueueExists", "LocalQueueExists", "LocalQueue with name %s already exists in namespace %s", targetLQ.Name, ns.Name)
+		r.recorder.Eventf(cq, corev1.EventTypeWarning, "LocalQueueExists", "Skipping LocalQueue creation in namespace %s, a LocalQueue with name %s already exists", ns.Name, targetLQ.Name)
 		return nil
 	} else if !apierrors.IsNotFound(err) {
 		return err
@@ -236,9 +236,9 @@ func (r *KueuePopulatorReconciler) ensureLocalQueueExists(ctx context.Context, c
 	}
 
 	if err := r.client.Create(ctx, newLQ); err != nil {
-		r.recorder.Eventf(cq, nil, corev1.EventTypeWarning, "LocalQueueCreationFailed", "LocalQueueCreationFailed", "Failed to create LocalQueue %s in namespace %s: %v", newLQ.Name, newLQ.Namespace, err)
+		r.recorder.Eventf(cq, corev1.EventTypeWarning, "LocalQueueCreationFailed", "Failed to create LocalQueue %s in namespace %s: %v", newLQ.Name, newLQ.Namespace, err)
 		return err
 	}
-	r.recorder.Eventf(cq, nil, corev1.EventTypeNormal, "LocalQueueCreated", "LocalQueueCreated", "Created LocalQueue %s in namespace %s", newLQ.Name, newLQ.Namespace)
+	r.recorder.Eventf(cq, corev1.EventTypeNormal, "LocalQueueCreated", "Created LocalQueue %s in namespace %s", newLQ.Name, newLQ.Namespace)
 	return nil
 }
