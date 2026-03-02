@@ -50,12 +50,13 @@ const (
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:  SetupIndexes,
-		NewJob:        NewJob,
-		NewReconciler: NewReconciler,
-		SetupWebhook:  SetupWebhook,
-		JobType:       &sparkv1beta2.SparkApplication{},
-		AddToScheme:   sparkv1beta2.AddToScheme,
+		SetupIndexes:          SetupIndexes,
+		NewJob:                NewJob,
+		NewReconciler:         NewReconciler,
+		SetupWebhook:          SetupWebhook,
+		JobType:               &sparkv1beta2.SparkApplication{},
+		AddToScheme:           sparkv1beta2.AddToScheme,
+		CanSupportIntegration: CanSupportIntegration,
 	}))
 }
 
@@ -301,6 +302,13 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 
 func GetWorkloadNameForSparkApplication(sparkAppName string, sparkAppUID types.UID) string {
 	return jobframework.GetWorkloadNameForOwnerWithGVK(sparkAppName, sparkAppUID, gvk)
+}
+
+func CanSupportIntegration(opts ...jobframework.Option) (bool, error) {
+	if !features.Enabled(features.SparkApplicationIntegration) {
+		return false, fmt.Errorf("%s integration is alpha feature. please enable %s featuregate", FrameworkName, features.SparkApplicationIntegration)
+	}
+	return true, nil
 }
 
 func fromObject(o runtime.Object) *SparkApplication {

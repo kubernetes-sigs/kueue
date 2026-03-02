@@ -40,6 +40,7 @@ integrations:
 featureGates:
   LocalQueueMetrics: true
   ElasticJobsViaWorkloadSlices: true
+  SparkApplicationIntegration: true
 tls:
   minVersion: "VersionTLS12"
   # this is the default ciphersuite for golang 1.25

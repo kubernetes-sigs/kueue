@@ -267,6 +267,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.16"
+- name: SparkApplicationIntegration
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.17"
 - name: TASBalancedPlacement
   versionedSpecs:
   - default: false
