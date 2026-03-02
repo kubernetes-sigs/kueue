@@ -336,7 +336,7 @@ ClusterQueue 可以借用所有名义配额从 cohort 中的所有 ClusterQueues
 `.spec.resourcesGroup[*].flavors[*].resource[*].lendingLimit`
 [quantity](https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/quantity/) 字段。
 
-{{< feature-state state="stable" for_version="v0.18" >}}
+{{< feature-state state="stable" for_version="v0.17" >}}
 
 例如，假设你创建了以下两个 ClusterQueues：
 
