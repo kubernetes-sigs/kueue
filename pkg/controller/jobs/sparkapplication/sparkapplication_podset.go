@@ -97,6 +97,8 @@ func (j *SparkApplication) buildExecutorPodTemplateSpec() (*corev1.PodTemplateSp
 
 // NOTE: Most of the below code is adapted from kubeflow/spark-operator internal code
 // ref: https://github.com/kubeflow/spark-operator/blob/v2.4.0/internal/webhook/sparkpod_defaulter.go
+// TODO: replace them with exported functions once the below PR is merged and released.
+// PR: https://github.com/kubeflow/spark-operator/pull/2857
 
 func hasContainer(pod *corev1.Pod, container *corev1.Container) bool {
 	return slices.ContainsFunc(pod.Spec.Containers, func(c corev1.Container) bool {
