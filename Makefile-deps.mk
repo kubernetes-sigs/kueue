@@ -265,8 +265,8 @@ clusterprofile-crd: gomod-download
 
 .PHONY: spark-operator-crd
 spark-operator-crd: ## Copy the CRDs from the spark-operator to the dep-crds directory.
-	mkdir -p $(EXTERNAL_CRDS_DIR)/spark-operator/
-	cp -rf $(SPARKOPERATOR_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/spark-operator/
+	mkdir -p $(EXTERNAL_CRDS_DIR)/spark-operator-crds/
+	cp -rf $(SPARKOPERATOR_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/spark-operator-crds/
 
 .PHONY: dep-crds
 dep-crds: mpi-operator-crd kf-training-operator-crd kf-trainer-crd kf-trainer-runtimes ray-operator-crd jobset-operator-crd leaderworkerset-operator-crd cluster-autoscaler-crd appwrapper-crd appwrapper-manifests kf-training-operator-manifests ray-operator-manifests kf-trainer-manifests clusterprofile-crd spark-operator-crd ## Copy the CRDs from the external operators to the dep-crds directory.
