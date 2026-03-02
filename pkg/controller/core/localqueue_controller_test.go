@@ -38,7 +38,6 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/features"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -576,7 +575,6 @@ func TestLocalQueueReconcile(t *testing.T) {
 				tc.clusterQueue,
 				tc.localQueue,
 			}
-			features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
 			cl := utiltesting.NewClientBuilder().
 				WithObjects(objs...).
 				WithStatusSubresource(objs...).

@@ -5810,7 +5810,6 @@ func TestScheduleForTASCohorts(t *testing.T) {
 		for _, enabled := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
-				features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 				ctx, log := utiltesting.ContextWithLog(t)
 
 				testWls := make([]kueue.Workload, 0, len(tc.workloads))
