@@ -56,6 +56,13 @@ const (
 	// owner: @mukund-wayve
 	// kep: https://github.com/kubernetes-sigs/kueue/issues/9406
 	//
+	// In fair sharing preemption, allow preemption when the preemptor CQ
+	// is within nominal quota for contested resources, bypassing DRS gates.
+	FairSharingPreemptWithinNominal featuregate.Feature = "FairSharingPreemptWithinNominal"
+
+	// owner: @mukund-wayve
+	// kep: https://github.com/kubernetes-sigs/kueue/issues/9406
+	//
 	// In fair sharing admission ordering, prefer workloads that fit
 	// within their CQ's nominal quota over workloads that require borrowing.
 	FairSharingPrioritizeNonBorrowing featuregate.Feature = "FairSharingPrioritizeNonBorrowing"
@@ -289,6 +296,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	PrioritySortingWithinCohort: {
 		{Version: version.MustParse("0.6"), Default: true, PreRelease: featuregate.Beta},
+	},
+	FairSharingPreemptWithinNominal: {
+		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
 	},
 	FairSharingPrioritizeNonBorrowing: {
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},

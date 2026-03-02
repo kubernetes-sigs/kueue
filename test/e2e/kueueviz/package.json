@@ -1,13 +1,13 @@
 {
   "name": "kueueviz-frontend-tests",
-  "version": "0.16.1",
+  "version": "0.16.2",
   "scripts": {
     "cypress:run": "cypress run --headless",
     "check-unused": "depcheck"
   },
   "devDependencies": {
     "@testing-library/cypress": "^10.1.0",
-    "cypress": "^15.10.0",
+    "cypress": "^15.11.0",
     "depcheck": "^1.4.7"
   }
 }

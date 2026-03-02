@@ -42,6 +42,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
@@ -2867,7 +2868,7 @@ func TestScheduleForTAS(t *testing.T) {
 						fakeClock.Step(time.Second)
 					}
 				}
-				scheduler := New(qManager, cqCache, cl, recorder)
+				scheduler := New(qManager, cqCache, cl, recorder, WithPreemptionExpectations(preemptexpectations.New()))
 				wg := sync.WaitGroup{}
 				scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
 					func() { wg.Add(1) },
@@ -4082,7 +4083,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 						initiallyAdmittedWorkloads.Insert(workload.Key(&w))
 					}
 				}
-				scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, testingclock.NewFakeClock(now)))
+				scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, testingclock.NewFakeClock(now)), WithPreemptionExpectations(preemptexpectations.New()))
 				wg := sync.WaitGroup{}
 				scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
 					func() { wg.Add(1) },
@@ -6039,7 +6040,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						initiallyAdmittedWorkloads.Insert(workload.Key(&w))
 					}
 				}
-				scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, testingclock.NewFakeClock(now)))
+				scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, testingclock.NewFakeClock(now)), WithPreemptionExpectations(preemptexpectations.New()))
 				wg := sync.WaitGroup{}
 				scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
 					func() { wg.Add(1) },
@@ -6248,7 +6249,7 @@ func TestScheduleForTASWhenWorkloadModifiedConcurrently(t *testing.T) {
 				if qManager.QueueSecondPassIfNeeded(ctx, tc.workload, 0) {
 					fakeClock.Step(time.Second)
 				}
-				scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, fakeClock))
+				scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, fakeClock), WithPreemptionExpectations(preemptexpectations.New()))
 				wg := sync.WaitGroup{}
 				scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
 					func() { wg.Add(1) },
