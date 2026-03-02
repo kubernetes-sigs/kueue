@@ -37,6 +37,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -622,7 +623,8 @@ func TestScheduleForAFS(t *testing.T) {
 				scheduler := New(qManager, cqCache, cl, recorder,
 					WithFairSharing(preemptionFairSharing),
 					WithAdmissionFairSharing(afsConfig),
-					WithClock(t, fakeClock))
+					WithClock(t, fakeClock),
+					WithPreemptionExpectations(preemptexpectations.New()))
 				wg := sync.WaitGroup{}
 				scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
 					func() { wg.Add(1) },
