@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -697,14 +696,6 @@ func CreatePrometheusClient(cfg *rest.Config) prometheusv1.API {
 // KPortForward establishes a port-forward connection to a pod and returns
 // the local port, a stop channel to close the connection, and any error.
 func KPortForward(cfg *rest.Config, restClient *rest.RESTClient, ns, podName string, remotePort int) (int, chan struct{}, error) {
-	// Find an available local port
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, nil, fmt.Errorf("finding available port: %w", err)
-	}
-	localPort := listener.Addr().(*net.TCPAddr).Port
-	listener.Close()
-
 	// Build the URL to the pod's portforward endpoint
 	url := restClient.Post().
 		Resource("pods").
@@ -725,8 +716,9 @@ func KPortForward(cfg *rest.Config, restClient *rest.RESTClient, ns, podName str
 	stopChan := make(chan struct{})
 	readyChan := make(chan struct{})
 
-	// Port mappings: local:remote
-	ports := []string{fmt.Sprintf("%d:%d", localPort, remotePort)}
+	// Use port 0 so the OS atomically assigns a free local port, avoiding the
+	// TOCTOU race of finding a port and then trying to bind it separately.
+	ports := []string{fmt.Sprintf("0:%d", remotePort)}
 
 	// Create port forwarder
 	pf, err := portforward.New(dialer, ports, stopChan, readyChan, io.Discard, io.Discard)
@@ -743,7 +735,12 @@ func KPortForward(cfg *rest.Config, restClient *rest.RESTClient, ns, podName str
 	// Wait for ready or error
 	select {
 	case <-readyChan:
-		return localPort, stopChan, nil
+		forwardedPorts, err := pf.GetPorts()
+		if err != nil {
+			close(stopChan)
+			return 0, nil, fmt.Errorf("getting forwarded ports: %w", err)
+		}
+		return int(forwardedPorts[0].Local), stopChan, nil
 	case err := <-errChan:
 		return 0, nil, fmt.Errorf("port forward failed: %w", err)
 	}
