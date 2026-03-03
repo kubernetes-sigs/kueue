@@ -987,6 +987,13 @@ func MustCreate(ctx context.Context, c client.Client, obj client.Object) {
 	gomega.Expect(c.Create(ctx, obj)).Should(gomega.Succeed())
 }
 
+func MustCreateWithRetry(ctx context.Context, c client.Client, obj client.Object) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(client.IgnoreAlreadyExists(c.Create(ctx, obj))).ToNot(gomega.HaveOccurred())
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
 func CreateClusterQueuesAndWaitForActive(ctx context.Context, c client.Client, cqs ...*kueue.ClusterQueue) {
 	ginkgo.GinkgoHelper()
 	for _, cq := range cqs {
