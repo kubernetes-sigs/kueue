@@ -109,6 +109,7 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Ordered, ginkgo.Contin
 			pod      *corev1.Pod
 			nodeName string
 		)
+
 		ginkgo.BeforeEach(func() {
 			cq = utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
@@ -129,22 +130,21 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Ordered, ginkgo.Contin
 				g.Expect(*job.Spec.Suspend).To(gomega.BeFalse())
 				g.Expect(job.Status.Active).To(gomega.Equal(int32(1)))
 				g.Expect(job.Status.Ready).To(gomega.Equal(ptr.To(int32(1))))
-			}, util.Timeout, util.Interval)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			// Get the pod and its node
 			gomega.Eventually(func(g gomega.Gomega) {
 				pods := &corev1.PodList{}
-				gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels(job.Spec.Selector.MatchLabels))).To(gomega.Succeed())
-				gomega.Expect(pods.Items).To(gomega.HaveLen(1))
+				g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels(job.Spec.Selector.MatchLabels))).To(gomega.Succeed())
+				g.Expect(pods.Items).To(gomega.HaveLen(1))
 
 				pod = &pods.Items[0]
 				nodeName = pod.Spec.NodeName
-			})
+				g.Expect(nodeName).ToNot(gomega.BeEmpty())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			// Stop kubelet on the node
 			cmd := exec.Command("docker", "exec", nodeName, "systemctl", "stop", "kubelet")
 			gomega.Expect(cmd.Run()).To(gomega.Succeed())
-
 		})
 
 		ginkgo.AfterEach(func() {
@@ -155,7 +155,6 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Ordered, ginkgo.Contin
 		})
 
 		ginkgo.It("should delete pods running on an unreachable node", func() {
-			// Wait for pod to be deleted (forcefully terminated)
 			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, pod, false, forcefulTerminationCheckTimeout+util.LongTimeout)
 		})
 
