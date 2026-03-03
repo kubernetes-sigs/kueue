@@ -163,7 +163,7 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Ordered, ginkgo.Contin
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
 				g.Expect(pod.DeletionTimestamp).ToNot(gomega.BeNil())
-			}, util.Timeout, util.Interval)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Expect(k8sClient.Delete(ctx, job, &client.DeleteOptions{PropagationPolicy: ptr.To(metav1.DeletePropagationForeground)})).To(gomega.Succeed())
 			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, job, false, forcefulTerminationCheckTimeout+util.Timeout)
