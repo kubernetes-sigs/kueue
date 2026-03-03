@@ -49,7 +49,7 @@ var realClock = clock.RealClock{}
 
 const (
 	KueueFailureRecoveryConditionType = "KueueFailureRecovery"
-	KueueForcefulTerminationReason    = "KueueForcefullyTerminated"
+	KueueForcefulTerminationReason    = "KueueForcefullyDeleted"
 )
 
 type TerminatingPodReconciler struct {
@@ -170,7 +170,7 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		"Pod forcefully terminated after %s grace period due to unreachable node `%s` (triggered by `%s` annotation)",
 		totalDeletionGracePeriod,
 		node.Name,
-		constants.SafeToForcefullyTerminateAnnotationKey,
+		constants.SafeToForcefullyDeleteAnnotationKey,
 	)
 
 	err := utilclient.PatchStatus(ctx, r.client, pod, func() (bool, error) {
@@ -199,8 +199,8 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 }
 
 func podEligibleForTermination(p *corev1.Pod) bool {
-	annotationValue, hasAnnotation := p.Annotations[constants.SafeToForcefullyTerminateAnnotationKey]
-	if !hasAnnotation || annotationValue != constants.SafeToForcefullyTerminateAnnotationValue {
+	annotationValue, hasAnnotation := p.Annotations[constants.SafeToForcefullyDeleteAnnotationKey]
+	if !hasAnnotation || annotationValue != constants.SafeToForcefullyDeleteAnnotationValue {
 		return false
 	}
 

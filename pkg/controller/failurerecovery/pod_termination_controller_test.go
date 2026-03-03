@@ -56,7 +56,7 @@ func TestCreateEventFilter(t *testing.T) {
 
 	podToReconcile := testingpod.MakePod("pod", "ns").
 		StatusPhase(corev1.PodRunning).
-		Annotation(constants.SafeToForcefullyTerminateAnnotationKey, constants.SafeToForcefullyTerminateAnnotationValue).
+		Annotation(constants.SafeToForcefullyDeleteAnnotationKey, constants.SafeToForcefullyDeleteAnnotationValue).
 		DeletionTimestamp(now).
 		KueueFinalizer()
 
@@ -71,7 +71,7 @@ func TestCreateEventFilter(t *testing.T) {
 		"pod is not annotated": {
 			pod: podToReconcile.
 				Clone().
-				Annotation(constants.SafeToForcefullyTerminateAnnotationKey, "false").
+				Annotation(constants.SafeToForcefullyDeleteAnnotationKey, "false").
 				Obj(),
 			wantResult: false,
 		},
@@ -104,7 +104,7 @@ func TestUpdateEventFilter(t *testing.T) {
 
 	oldPod := testingpod.MakePod("pod", "ns").
 		StatusPhase(corev1.PodRunning).
-		Annotation(constants.SafeToForcefullyTerminateAnnotationKey, constants.SafeToForcefullyTerminateAnnotationValue)
+		Annotation(constants.SafeToForcefullyDeleteAnnotationKey, constants.SafeToForcefullyDeleteAnnotationValue)
 	newPodToReconcile := oldPod.Clone().DeletionTimestamp(now)
 
 	cases := map[string]struct {
@@ -126,7 +126,7 @@ func TestUpdateEventFilter(t *testing.T) {
 			oldPod: oldPod.Obj(),
 			newPod: newPodToReconcile.
 				Clone().
-				Annotation(constants.SafeToForcefullyTerminateAnnotationKey, "false").
+				Annotation(constants.SafeToForcefullyDeleteAnnotationKey, "false").
 				Obj(),
 			wantResult: false,
 		},
@@ -152,9 +152,9 @@ func TestReconciler(t *testing.T) {
 	unreachableNode := testingnode.MakeNode("unreachable-node").
 		Taints(corev1.Taint{Key: corev1.TaintNodeUnreachable}).Obj()
 	healthyNode := testingnode.MakeNode("healthy-node").Obj()
-	podToForcefullyTerminate := testingpod.MakePod("pod", "ns").
+	podToForcefullyDelete := testingpod.MakePod("pod", "ns").
 		StatusPhase(corev1.PodRunning).
-		Annotation(constants.SafeToForcefullyTerminateAnnotationKey, constants.SafeToForcefullyTerminateAnnotationValue).
+		Annotation(constants.SafeToForcefullyDeleteAnnotationKey, constants.SafeToForcefullyDeleteAnnotationValue).
 		NodeName(unreachableNode.Name).
 		DeletionTimestamp(beforeGracePeriod).
 		KueueFinalizer()
@@ -167,68 +167,68 @@ func TestReconciler(t *testing.T) {
 		wantEvents []utiltesting.EventRecord
 	}{
 		"pod is in failed phase": {
-			testPod: podToForcefullyTerminate.
+			testPod: podToForcefullyDelete.
 				Clone().
 				StatusPhase(corev1.PodFailed).
 				Obj(),
 			wantResult: ctrl.Result{},
 			wantErr:    nil,
-			wantPod: podToForcefullyTerminate.
+			wantPod: podToForcefullyDelete.
 				Clone().
 				StatusPhase(corev1.PodFailed).
 				Obj(),
 			wantEvents: nil,
 		},
 		"pod is in succeeded phase": {
-			testPod: podToForcefullyTerminate.
+			testPod: podToForcefullyDelete.
 				Clone().
 				StatusPhase(corev1.PodSucceeded).
 				Obj(),
 			wantResult: ctrl.Result{},
 			wantErr:    nil,
-			wantPod: podToForcefullyTerminate.
+			wantPod: podToForcefullyDelete.
 				Clone().
 				StatusPhase(corev1.PodSucceeded).
 				Obj(),
 			wantEvents: nil,
 		},
 		"pod is not scheduled on an unreachable node": {
-			testPod: podToForcefullyTerminate.
+			testPod: podToForcefullyDelete.
 				Clone().
 				NodeName(healthyNode.Name).
 				Obj(),
 			wantResult: ctrl.Result{},
 			wantErr:    nil,
-			wantPod: podToForcefullyTerminate.
+			wantPod: podToForcefullyDelete.
 				Clone().
 				NodeName(healthyNode.Name).
 				Obj(),
 			wantEvents: nil,
 		},
 		"forceful termination grace period did not elapse for pod": {
-			testPod: podToForcefullyTerminate.
+			testPod: podToForcefullyDelete.
 				Clone().
 				DeletionTimestamp(now).
 				Obj(),
 			wantResult: ctrl.Result{RequeueAfter: nowSecondPrecision.Add(time.Minute).Sub(now)},
 			wantErr:    nil,
-			wantPod: podToForcefullyTerminate.
+			wantPod: podToForcefullyDelete.
 				Clone().
 				DeletionTimestamp(now).
 				Obj(),
 			wantEvents: nil,
 		},
 		"forceful termination grace period elapsed for pod": {
-			testPod:    podToForcefullyTerminate.Clone().Obj(),
+			testPod:    podToForcefullyDelete.Clone().Obj(),
 			wantResult: ctrl.Result{},
 			wantErr:    nil,
-			wantPod: podToForcefullyTerminate.Clone().
+			wantPod: podToForcefullyDelete.Clone().
 				StatusPhase(corev1.PodFailed).
 				StatusConditions(corev1.PodCondition{
 					Type:    KueueFailureRecoveryConditionType,
 					Status:  "True",
 					Reason:  KueueForcefulTerminationReason,
-					Message: "Pod forcefully terminated after 1m0s grace period due to unreachable node `unreachable-node` (triggered by `kueue.x-k8s.io/safe-to-forcefully-terminate` annotation)",
+					Message: "Pod forcefully terminated after 1m0s grace period due to unreachable node `unreachable-node` (triggered by `kueue.x-k8s.io/safe-to-forcefully-delete` annotation)",
 				}).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
@@ -236,15 +236,15 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Namespace: "ns", Name: "pod"},
 					EventType: "Warning",
 					Reason:    KueueForcefulTerminationReason,
-					Message:   "Pod forcefully terminated after 1m0s grace period due to unreachable node `unreachable-node` (triggered by `kueue.x-k8s.io/safe-to-forcefully-terminate` annotation)",
+					Message:   "Pod forcefully terminated after 1m0s grace period due to unreachable node `unreachable-node` (triggered by `kueue.x-k8s.io/safe-to-forcefully-delete` annotation)",
 				},
 			},
 		},
 		"pod is scheduled on a node that does not exist": {
-			testPod:    podToForcefullyTerminate.Clone().NodeName("missing-node").Obj(),
+			testPod:    podToForcefullyDelete.Clone().NodeName("missing-node").Obj(),
 			wantResult: ctrl.Result{},
 			wantErr:    nil,
-			wantPod:    podToForcefullyTerminate.Clone().NodeName("missing-node").Obj(),
+			wantPod:    podToForcefullyDelete.Clone().NodeName("missing-node").Obj(),
 			wantEvents: nil,
 		},
 	}
@@ -271,7 +271,7 @@ func TestReconciler(t *testing.T) {
 				t.Errorf("unexpected reconcile error (-want/+got):\n%s", diff)
 			}
 
-			gotPod := podToForcefullyTerminate.Clone().Obj()
+			gotPod := podToForcefullyDelete.Clone().Obj()
 			if err := cl.Get(ctx, client.ObjectKeyFromObject(tc.testPod), gotPod); err != nil {
 				t.Fatalf("could not get pod after reconcile")
 			}

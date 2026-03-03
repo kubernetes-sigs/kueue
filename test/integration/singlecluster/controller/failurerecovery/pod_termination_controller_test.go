@@ -58,7 +58,7 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 			StatusPhase(corev1.PodPending).
 			TerminationGracePeriod(1).
 			NodeName(unreachableNodeName).
-			Annotation(constants.SafeToForcefullyTerminateAnnotationKey, constants.SafeToForcefullyTerminateAnnotationValue)
+			Annotation(constants.SafeToForcefullyDeleteAnnotationKey, constants.SafeToForcefullyDeleteAnnotationValue)
 	})
 
 	ginkgo.It("forcefully terminates pods that opt-in, scheduled on unreachable nodes", func() {
@@ -76,7 +76,7 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 		nonMatchingPod := matchingPodWrapper.
 			Clone().
 			Name("non-matching-pod").
-			Annotation(constants.SafeToForcefullyTerminateAnnotationKey, "false").
+			Annotation(constants.SafeToForcefullyDeleteAnnotationKey, "false").
 			Obj()
 		util.MustCreate(ctx, k8sClient, nonMatchingPod)
 		gomega.Expect(k8sClient.Delete(ctx, nonMatchingPod)).To(gomega.Succeed())
