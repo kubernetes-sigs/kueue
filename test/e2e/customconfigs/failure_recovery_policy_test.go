@@ -66,7 +66,7 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Ordered, ginkgo.Contin
 			RequestAndLimit(corev1.ResourceMemory, "20Mi").
 			Parallelism(1).
 			PodReplacementPolicy(ptr.To(batchv1.Failed)).
-			PodAnnotation(constants.SafeToForcefullyTerminateAnnotationKey, constants.SafeToForcefullyTerminateAnnotationValue).
+			PodAnnotation(constants.SafeToForcefullyDeleteAnnotationKey, constants.SafeToForcefullyDeleteAnnotationValue).
 			PodAffinity(&corev1.Affinity{
 				PodAntiAffinity: &corev1.PodAntiAffinity{
 					PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{
