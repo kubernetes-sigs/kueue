@@ -61,8 +61,8 @@ func waitForTopologyAssignment(workerClient client.Client, wlLookupKey types.Nam
 
 func waitForDelayedTopologyRequestReady(wlLookupKey types.NamespacedName) {
 	ginkgo.GinkgoHelper()
+	managerWl := &kueue.Workload{}
 	gomega.Eventually(func(g gomega.Gomega) {
-		managerWl := &kueue.Workload{}
 		g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
 		g.Expect(managerWl.Status.Admission).NotTo(gomega.BeNil())
 		g.Expect(managerWl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
