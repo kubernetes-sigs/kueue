@@ -17,7 +17,6 @@ limitations under the License.
 package tase2e
 
 import (
-	"context"
 	"fmt"
 
 	kftrainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
@@ -116,7 +115,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", func() {
 				Obj()
 
 			util.MustCreate(ctx, k8sClient, trainingRuntime)
-			createTrainJobWithRetry(ctx, k8sClient, trainjob)
+			util.MustCreateWithRetry(ctx, k8sClient, trainjob)
 
 			ginkgo.By("TrainJob is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -188,7 +187,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", func() {
 				Obj()
 
 			util.MustCreate(ctx, k8sClient, trainingRuntime)
-			createTrainJobWithRetry(ctx, k8sClient, trainjob)
+			util.MustCreateWithRetry(ctx, k8sClient, trainjob)
 
 			ginkgo.By("TrainJob is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -259,7 +258,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", func() {
 				Obj()
 
 			util.MustCreate(ctx, k8sClient, trainingRuntime)
-			createTrainJobWithRetry(ctx, k8sClient, trainjob)
+			util.MustCreateWithRetry(ctx, k8sClient, trainjob)
 
 			ginkgo.By("TrainJob is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -312,12 +311,4 @@ func readRankAssignmentsFromTrainJobPods(pods []corev1.Pod) map[string]string {
 		assignment[key] = pod.Spec.NodeName
 	}
 	return assignment
-}
-
-func createTrainJobWithRetry(ctx context.Context, c client.Client, trainJob *kftrainer.TrainJob) {
-	gomega.Eventually(func(g gomega.Gomega) {
-		err := c.Create(ctx, trainJob)
-		// Ignore transient webhook errors (e.g., TrainingRuntime not yet visible)
-		g.Expect(client.IgnoreAlreadyExists(err)).ToNot(gomega.HaveOccurred())
-	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 }
