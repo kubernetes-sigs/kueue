@@ -134,6 +134,21 @@ E2E_MODE=dev make kind-image-build test-multikueue-e2e
 E2E_MODE=dev GINKGO_ARGS="--until-it-fails" make kind-image-build  test-e2e
 ```
 
+To use a **released** or **staging** Kueue image instead of building from source (no `kind-image-build` needed), pass `IMAGE_TAG` with the desired image:
+
+```shell
+# Released version
+E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-e2e
+E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-multikueue-e2e
+
+# Staging image (e.g. from a PR or nightly)
+E2E_MODE=dev IMAGE_TAG=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:v0.17.0-devel-332-g701268f80 make test-e2e
+```
+
+For the correct manifests for a given release (e.g. CRDs and other resources that match the image), see [Install a released version](/docs/installation/#install-a-released-version).
+
+To reproduce issues reported by users on a specific released version (e.g. for on-call debugging), checkout that version's tag, build the manifests, then run the `E2E_MODE=dev IMAGE_TAG=...` command above so the e2e framework uses the built manifests and the specified image.
+
 {{% alert title="Note" color="primary" %}}
 When reusing a kept cluster in `E2E_MODE=dev`, external operators (MPI, KubeRay, etc.) are installed only once.
 To force re-installing them on every run, set `E2E_ENFORCE_OPERATOR_UPDATE=true`.
