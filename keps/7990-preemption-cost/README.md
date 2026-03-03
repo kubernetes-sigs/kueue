@@ -12,6 +12,7 @@
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [API changes](#api-changes)
+  - [Validation](#validation)
   - [Scheduler changes](#scheduler-changes)
   - [Reference controller](#reference-controller)
   - [Observability](#observability)
@@ -87,6 +88,8 @@ eventually makes progress.
 - Define anti-flapping policies inside Kueue; it is the responsibility of the
   external controller to avoid pathological update patterns.
 - Provide guarantees about graceful termination or checkpointing.
+- Expose Job-level APIs (annotations) for priority boost; the mechanism stays
+  Workload-only so that batch users cannot set boost on their Jobs.
 
 ## Proposal
 
@@ -147,9 +150,14 @@ mid and high.
   workloads to avoid preemption.
   - **Mitigation**: The annotation is on the `Workload` object, which is not
     directly user-editable in typical deployments (users submit Jobs; Kueue
-    creates Workloads). For Alpha, restricting the annotation to `Workload`
-    prevents batch users from exploiting the mechanism. RBAC on the `Workload`
-    resource should be configured to allow only trusted controllers to patch it.
+    creates Workloads). We do not plan to expose Job-level annotations for
+    priority boost at beta or GA, to avoid giving batch users direct control of
+    boost. In typical setups, `Workload` is used internally by Kueue and
+    cluster admins; giving batch users writable access to `Workload` is not
+    recommended. Security in practice relies on: (a) restricting who can patch
+    `Workload` (RBAC so only trusted controllers can patch it) and optionally
+    admin-configured validation (e.g. ValidationAdmissionPolicies), and (b)
+    FairSharing can help mitigate excessive priority bumping across teams.
 
 - **Risk**: Users/platform automation set unexpected values, causing undesirable
   ordering.
@@ -157,8 +165,8 @@ mid and high.
     preserve deterministic ordering.
 
 - **Risk**: Annotation value is invalid or out of expected range.
-  - **Mitigation**: Treat invalid/unparsable values as zero, emit a warning
-    Event on the Workload, and log the issue.
+  - **Mitigation**: Reject Workload creation or update when the value is
+    invalid or unparsable.
 
 ## Design Details
 
@@ -171,8 +179,13 @@ Add a new optional annotation on `Workload`:
     values increase priority (harder to preempt, scheduled sooner); negative
     values decrease it.
   - **Unset**: equivalent to zero.
-  - **Alpha behavior**: if the value is invalid/unparsable, it is treated as
-    zero, a warning Event is emitted on the Workload, and the issue is logged.
+  - **Applicability**: Priority boost applies regardless of how the Workload's
+    base priority is derived (Pod PriorityClass, WorkloadPriorityClass, or
+    custom logic in an integration helper). Boost also applies when no
+    PriorityClass is specified (base priority 0); effective priority is then
+    `0 + priorityBoost`.
+  - **Alpha behavior**: if the value is invalid/unparsable, the Workload
+    creation or update is rejected.
 
 The annotation is set directly on the `Workload` object by an external
 controller (not propagated from Jobs).
@@ -193,20 +206,28 @@ spec:
   # ... rest of spec
 ```
 
+### Validation
+
+When the `kueue.x-k8s.io/priority-boost` annotation is set or updated on a
+Workload, Kueue validates that the value is a valid signed integer. Invalid or
+unparsable values cause the Workload creation or update to be rejected (see API
+changes above).
+
 ### Scheduler changes
 
-Update workload ordering and preemption candidate ordering to use effective
-priority:
+Kueue-scheduler uses **effective priority** for all mechanics where **base
+priority** is currently used. In particular, it is used for:
+
+1. Ordering of heads for scheduling.
+2. Selection of preemption candidates.
 
 `effectivePriority = workload.priority + priorityBoost`
 
 where `priorityBoost` is read from `Workload` annotation
-`kueue.x-k8s.io/priority-boost` (default `0`).
-
-This affects ordering within a ClusterQueue for both scheduling and preemption
-candidate selection. For preemption policies such as `LowerPriority` and
-`LowerOrNewerEqualPriority`, Kueue uses effective priority (instead of raw
-priority) when evaluating eligibility. It does not change DRS calculations.
+`kueue.x-k8s.io/priority-boost` (default `0`). For preemption policies such as
+`LowerPriority` and `LowerOrNewerEqualPriority`, Kueue uses effective priority
+(instead of raw priority) when evaluating eligibility. It does not change DRS
+calculations.
 
 ### Reference controller
 
@@ -239,10 +260,11 @@ platform teams can plug in richer, organization-specific logic.
 
 No new scheduler metrics are required initially.
 
-- Kueue should emit a warning Event on the Workload and log invalid
-  `kueue.x-k8s.io/priority-boost` annotation values at a low verbosity level.
+- When a Workload create or update is rejected due to an invalid
+  `kueue.x-k8s.io/priority-boost` value, the admission response (or status)
+  should indicate the reason; optional low-verbosity log.
 - When a preemption happens, Kueue should log the effective priority (base +
-  boost) of both the preemptor and the victim.
+  boost) of both the preemptor and the preemptees.
 - The reference controller should log annotation updates and expose
   reconciliation errors.
 
@@ -251,10 +273,15 @@ No new scheduler metrics are required initially.
 Scheduler side: no additional RBAC is required beyond existing permissions for
 reading `Workload` objects.
 
+RBAC on the `Workload` resource should be configured so that only trusted
+controllers can patch it.
+
 Reference controller requires permissions to:
 
-- `get`, `list`, `watch` `workloads.kueue.x-k8s.io`
-- `patch` `workloads.kueue.x-k8s.io`
+- `workloads.kueue.x-k8s.io`:
+  - `get`, `list`, `watch`
+- `workloads.kueue.x-k8s.io`:
+  - `patch`
 
 Cluster administrators should ensure that only trusted controllers have `patch`
 access to `Workload` objects to prevent abuse of the `priority-boost`
@@ -267,7 +294,8 @@ annotation.
 - Extend existing unit tests for workload ordering and preemption candidate
   ordering to validate:
   - effective priority uses `priority + priorityBoost`
-  - missing or invalid annotation values are treated as zero
+  - missing annotation is treated as zero; invalid annotation value causes
+    create/update to be rejected
   - boost can cross priority class boundaries
 - Add unit tests for the reference controller:
   - computes expected boost for representative Workload states
@@ -291,8 +319,8 @@ annotation.
 
 Alpha -> Beta:
 
-- Re-evaluate user-facing API: consider whether to add a Job-level annotation
-  that Kueue propagates to `Workload`, or keep it Workload-only.
+- Keep the mechanism Workload-only: no Job-level annotation is planned for beta
+  or GA, to avoid exposing boost to batch users.
 - Gather feedback from real-world adoption on the `priority-boost` semantics.
 - Evaluate whether an additional "preemption-cost" mechanism (affecting only
   preemption candidate ordering, not scheduling) is needed alongside
@@ -303,6 +331,14 @@ Alpha -> Beta:
   the policy treats them as equal-priority.
 - Evaluate whether a `maxPriorityBoost` cap on ClusterQueue is needed as a
   safety valve against runaway controllers.
+
+Interaction of DRS (Dominant Resource Share) with priority-boost is out of scope
+for this KEP; it may be re-evaluated for GA or handled in a separate KEP/Issue.
+
+Beta -> GA:
+
+- After Beta validation, graduate to GA per standard criteria. The Alpha -> Beta
+  items above are the main gates; DRS interaction may be re-evaluated at GA.
 
 ## Implementation History
 
