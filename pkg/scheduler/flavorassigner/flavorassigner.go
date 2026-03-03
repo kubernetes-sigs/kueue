@@ -111,9 +111,16 @@ func (a *Assignment) ComputeTASNetUsage(prevAdmission *kueue.Admission) workload
 	return result
 }
 
-// Borrows return whether assignment requires borrowing.
+// Borrows returns the borrowing level of the assignment.
+// It equals 0 if no borrowing is required.
 func (a *Assignment) Borrows() int {
 	return a.Borrowing
+}
+
+// RequiresBorrowing returns whether the assignment requires borrowing
+// at any level.
+func (a *Assignment) RequiresBorrowing() bool {
+	return a.Borrowing > 0
 }
 
 func (a *Assignment) podSetAssignmentByName(psName kueue.PodSetReference) *PodSetAssignment {
@@ -412,9 +419,9 @@ func isPreferred(a, b granularMode, fungibilityConfig kueue.FlavorFungibility) b
 	if fungibilityConfig.Preference != nil {
 		switch *fungibilityConfig.Preference {
 		case kueue.BorrowingOverPreemption:
-			return preemptionOverBorrowing()
-		case kueue.PreemptionOverBorrowing:
 			return borrowingOverPreemption()
+		case kueue.PreemptionOverBorrowing:
+			return preemptionOverBorrowing()
 		}
 	}
 

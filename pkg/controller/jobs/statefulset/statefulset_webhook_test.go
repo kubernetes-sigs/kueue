@@ -65,13 +65,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 			want: testingstatefulset.MakeStatefulSet("test-pod", "test-ns").
 				Replicas(10).
-				PodTemplateManagedByKueue().
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
-				PodTemplateSpecPodGroupTotalCountAnnotation(10).
-				PodTemplateSpecPodGroupFastAdmissionAnnotation().
-				PodTemplateSpecPodGroupServingAnnotation().
-				PodTemplateSpecPodGroupPodIndexLabelAnnotation(appsv1.PodIndexLabel).
 				Obj(),
 		},
 		"statefulset with queue": {
@@ -83,14 +77,7 @@ func TestDefault(t *testing.T) {
 			want: testingstatefulset.MakeStatefulSet("test-pod", "").
 				Replicas(10).
 				Queue("test-queue").
-				PodTemplateSpecQueue("test-queue").
-				PodTemplateManagedByKueue().
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
-				PodTemplateSpecPodGroupTotalCountAnnotation(10).
-				PodTemplateSpecPodGroupFastAdmissionAnnotation().
-				PodTemplateSpecPodGroupServingAnnotation().
-				PodTemplateSpecPodGroupPodIndexLabelAnnotation(appsv1.PodIndexLabel).
 				Obj(),
 		},
 		"statefulset managed by another framework": {
@@ -117,15 +104,7 @@ func TestDefault(t *testing.T) {
 				Replicas(10).
 				Queue("test-queue").
 				Label(constants.WorkloadPriorityClassLabel, "test").
-				PodTemplateSpecQueue("test-queue").
-				PodTemplateManagedByKueue().
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-				PodTemplateSpecLabel(constants.WorkloadPriorityClassLabel, "test").
-				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
-				PodTemplateSpecPodGroupTotalCountAnnotation(10).
-				PodTemplateSpecPodGroupFastAdmissionAnnotation().
-				PodTemplateSpecPodGroupServingAnnotation().
-				PodTemplateSpecPodGroupPodIndexLabelAnnotation(appsv1.PodIndexLabel).
 				Obj(),
 		},
 		"statefulset without replicas": {
@@ -135,14 +114,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 			want: testingstatefulset.MakeStatefulSet("test-pod", "").
 				Queue("test-queue").
-				PodTemplateManagedByKueue().
-				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
-				PodTemplateSpecPodGroupTotalCountAnnotation(1).
-				PodTemplateSpecQueue("test-queue").
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-				PodTemplateSpecPodGroupFastAdmissionAnnotation().
-				PodTemplateSpecPodGroupServingAnnotation().
-				PodTemplateSpecPodGroupPodIndexLabelAnnotation(appsv1.PodIndexLabel).
 				Obj(),
 		},
 		"default lq is created, job doesn't have queue label": {
@@ -150,14 +122,7 @@ func TestDefault(t *testing.T) {
 			statefulset:    testingstatefulset.MakeStatefulSet("test-pod", "default").Obj(),
 			want: testingstatefulset.MakeStatefulSet("test-pod", "default").
 				Queue("default").
-				PodTemplateSpecQueue("default").
-				PodTemplateManagedByKueue().
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
-				PodTemplateSpecPodGroupTotalCountAnnotation(1).
-				PodTemplateSpecPodGroupFastAdmissionAnnotation().
-				PodTemplateSpecPodGroupServingAnnotation().
-				PodTemplateSpecPodGroupPodIndexLabelAnnotation(appsv1.PodIndexLabel).
 				Obj(),
 		},
 		"default lq is created, job has queue label": {
@@ -165,14 +130,7 @@ func TestDefault(t *testing.T) {
 			statefulset:    testingstatefulset.MakeStatefulSet("test-pod", "").Queue("test-queue").Obj(),
 			want: testingstatefulset.MakeStatefulSet("test-pod", "").
 				Queue("test-queue").
-				PodTemplateSpecQueue("test-queue").
-				PodTemplateManagedByKueue().
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
-				PodTemplateSpecPodGroupTotalCountAnnotation(1).
-				PodTemplateSpecPodGroupFastAdmissionAnnotation().
-				PodTemplateSpecPodGroupServingAnnotation().
-				PodTemplateSpecPodGroupPodIndexLabelAnnotation(appsv1.PodIndexLabel).
 				Obj(),
 		},
 		"default lq isn't created, job doesn't have queue label": {

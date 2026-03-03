@@ -334,12 +334,17 @@ func TestReconciler(t *testing.T) {
 				Suspend(false).
 				NodeSelectorHeadGroup(corev1.LabelArchStable, "arm64").
 				NodeLabel(rayv1.HeadNode, constants.PodSetLabel, "head").
+				NodeLabel(rayv1.HeadNode, constants.LocalQueueLabel, localQueueName).
+				NodeLabel(rayv1.HeadNode, constants.ClusterQueueLabel, clusterQueueName).
 				NodeLabel(rayv1.WorkerNode, constants.PodSetLabel, "workers-group-0").
+				NodeLabel(rayv1.WorkerNode, constants.LocalQueueLabel, localQueueName).
+				NodeLabel(rayv1.WorkerNode, constants.ClusterQueueLabel, clusterQueueName).
 				NodeAnnotation(rayv1.HeadNode, kueue.WorkloadAnnotation, "test").
 				NodeAnnotation(rayv1.WorkerNode, kueue.WorkloadAnnotation, "test").
 				Obj(),
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test", "ns").
+					Queue(localQueueName).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
@@ -393,6 +398,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("a", "ns").
+					Queue(localQueueName).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
@@ -566,12 +572,17 @@ func TestReconciler(t *testing.T) {
 				NodeSelectorHeadGroup(corev1.LabelArchStable, "arm64").
 				WithNumOfHosts("workers-group-0", 2).
 				NodeLabel(rayv1.HeadNode, constants.PodSetLabel, "head").
+				NodeLabel(rayv1.HeadNode, constants.LocalQueueLabel, localQueueName).
+				NodeLabel(rayv1.HeadNode, constants.ClusterQueueLabel, clusterQueueName).
 				NodeLabel(rayv1.WorkerNode, constants.PodSetLabel, "workers-group-0").
+				NodeLabel(rayv1.WorkerNode, constants.LocalQueueLabel, localQueueName).
+				NodeLabel(rayv1.WorkerNode, constants.ClusterQueueLabel, clusterQueueName).
 				NodeAnnotation(rayv1.HeadNode, kueue.WorkloadAnnotation, "test").
 				NodeAnnotation(rayv1.WorkerNode, kueue.WorkloadAnnotation, "test").
 				Obj(),
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test", "ns").
+					Queue(localQueueName).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
@@ -627,6 +638,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("a", "ns").
+					Queue(localQueueName).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(headGroupPodSetName, 1).

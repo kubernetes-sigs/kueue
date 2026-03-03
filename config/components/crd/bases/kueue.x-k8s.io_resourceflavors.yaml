@@ -189,8 +189,15 @@ spec:
             x-kubernetes-validations:
             - message: at least one nodeLabel is required when topology is set
               rule: '!has(self.topologyName) || self.nodeLabels.size() >= 1'
-            - message: resourceFlavorSpec are immutable when topologyName is set
-              rule: '!has(oldSelf.topologyName) || self == oldSelf'
+            - message: nodeLabels are immutable when topologyName is set
+              rule: '!has(oldSelf.topologyName) || (has(self.nodeLabels) == has(oldSelf.nodeLabels)
+                && (!has(self.nodeLabels) || self.nodeLabels == oldSelf.nodeLabels))'
+            - message: tolerations are immutable when topologyName is set
+              rule: '!has(oldSelf.topologyName) || (has(self.tolerations) == has(oldSelf.tolerations)
+                && (!has(self.tolerations) || self.tolerations == oldSelf.tolerations))'
+            - message: topologyName is immutable when topologyName is set
+              rule: '!has(oldSelf.topologyName) || (has(self.topologyName) && self.topologyName
+                == oldSelf.topologyName)'
         type: object
     served: true
     storage: false
@@ -363,8 +370,15 @@ spec:
             x-kubernetes-validations:
             - message: at least one nodeLabel is required when topology is set
               rule: '!has(self.topologyName) || self.nodeLabels.size() >= 1'
-            - message: resourceFlavorSpec are immutable when topologyName is set
-              rule: '!has(oldSelf.topologyName) || self == oldSelf'
+            - message: nodeLabels are immutable when topologyName is set
+              rule: '!has(oldSelf.topologyName) || (has(self.nodeLabels) == has(oldSelf.nodeLabels)
+                && (!has(self.nodeLabels) || self.nodeLabels == oldSelf.nodeLabels))'
+            - message: tolerations are immutable when topologyName is set
+              rule: '!has(oldSelf.topologyName) || (has(self.tolerations) == has(oldSelf.tolerations)
+                && (!has(self.tolerations) || self.tolerations == oldSelf.tolerations))'
+            - message: topologyName is immutable when topologyName is set
+              rule: '!has(oldSelf.topologyName) || (has(self.topologyName) && self.topologyName
+                == oldSelf.topologyName)'
         type: object
     served: true
     storage: true

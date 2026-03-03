@@ -337,9 +337,8 @@ func (r *Reconciler) handle(obj client.Object) bool {
 		return false
 	}
 
-	ctx := context.Background()
 	log := r.logger().WithValues("leaderworkerset", klog.KObj(lws))
-	ctrl.LoggerInto(ctx, log)
+	ctx := ctrl.LoggerInto(context.Background(), log)
 
 	// Handle only leaderworkerset managed by kueue.
 	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, lws, r.client, r.manageJobsWithoutQueueName, r.managedJobsNamespaceSelector)

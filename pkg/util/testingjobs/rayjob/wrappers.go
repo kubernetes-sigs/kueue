@@ -290,6 +290,36 @@ func (j *JobWrapper) Env(rayType rayv1.RayNodeType, name, value string) *JobWrap
 	return j
 }
 
+// Volumes sets the volumes for the specified ray node type.
+func (j *JobWrapper) Volumes(rayType rayv1.RayNodeType, volumes []corev1.Volume) *JobWrapper {
+	switch rayType {
+	case rayv1.HeadNode:
+		j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Volumes = volumes
+	case rayv1.WorkerNode:
+		j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Volumes = volumes
+	}
+	return j
+}
+
+// VolumeMounts sets the VolumeMounts for the specified ray node type.
+func (j *JobWrapper) VolumeMounts(rayType rayv1.RayNodeType, volumeMounts []corev1.VolumeMount) *JobWrapper {
+	switch rayType {
+	case rayv1.HeadNode:
+		j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].VolumeMounts = volumeMounts
+	case rayv1.WorkerNode:
+		j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].VolumeMounts = volumeMounts
+	}
+	return j
+}
+
+func (j *JobWrapper) TerminationGracePeriodSeconds(seconds int64) *JobWrapper {
+	j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.TerminationGracePeriodSeconds = ptr.To(seconds)
+	for i := range len(j.Spec.RayClusterSpec.WorkerGroupSpecs) {
+		j.Spec.RayClusterSpec.WorkerGroupSpecs[i].Template.Spec.TerminationGracePeriodSeconds = ptr.To(seconds)
+	}
+	return j
+}
+
 func (j *JobWrapper) ManagedBy(c string) *JobWrapper {
 	j.Spec.ManagedBy = &c
 	return j

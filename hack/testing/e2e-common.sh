@@ -168,7 +168,15 @@ function cluster_cleanup {
     local retry_delay=1
 
     for attempt in $(seq 1 "$max_retries"); do
-        if $KIND delete cluster --name "$cluster_name"; then
+        local output
+        if output=$($KIND delete cluster --name "$cluster_name" 2>&1); then
+            echo "$output"
+            return 0
+        fi
+        echo "$output"
+
+        if [[ "$output" == *"unknown cluster"* ]]; then
+            echo "Cluster '$cluster_name' is already deleted (unknown cluster)."
             return 0
         fi
 
@@ -780,14 +788,7 @@ function install_mpi {
     fi
 
     cluster_kind_load_image "${name}" "${KUBEFLOW_MPI_IMAGE/#v}"
-    # NOTE: When reusing an existing cluster (E2E_MODE=dev), aggregated ClusterRoles may already have
-    # their `.rules` field managed by the `clusterrole-aggregation-controller`. The upstream MPI
-    # operator manifest can include `rules: []` for such ClusterRoles, which causes SSA conflicts.
-    #
-    # To keep installs idempotent without `--force-conflicts`, drop empty `rules: []` only for
-    # ClusterRoles that define an `aggregationRule`.
     curl -sSL "${KUBEFLOW_MPI_MANIFEST}" \
-        | $YQ eval '(. | select(.kind == "ClusterRole" and has("aggregationRule"))) |= del(.rules | select(length == 0))' - \
         | kubectl apply --kubeconfig="${kubeconfig}" --server-side -f -
     kubectl wait --kubeconfig="${kubeconfig}" deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m || true
 }

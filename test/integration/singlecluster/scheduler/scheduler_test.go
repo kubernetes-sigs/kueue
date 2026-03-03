@@ -76,7 +76,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	}
 
 	ginkgo.BeforeEach(func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FlavorFungibility, true)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
 		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
@@ -972,7 +971,13 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectReservingActiveWorkloadsMetric(cq, 0)
 			util.ExpectQuotaReservedWorkloadsTotalMetric(cq, "", 0)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, "", 0)
-			util.ExpectAdmissionAttemptsMetric(1, 0)
+
+			// we send a requeue request upon CQ creation,
+			// so we may end up processing workload twice (or more in slower environments)
+			// before it settles in inadmissible.
+			util.ExpectPendingAdmissionAttempts(1, ">=")
+			util.ExpectPendingAdmissionAttempts(3, "<=")
+			util.ExpectSuccessfulAdmissionAttempts(0, "==")
 
 			ginkgo.By("updating ClusterQueue")
 			updatedCq := &kueue.ClusterQueue{}
@@ -994,7 +999,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectReservingActiveWorkloadsMetric(cq, 1)
 			util.ExpectQuotaReservedWorkloadsTotalMetric(cq, "", 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, "", 1)
-			util.ExpectAdmissionAttemptsMetric(1, 1)
+			util.ExpectPendingAdmissionAttempts(3, "<=")
+			util.ExpectSuccessfulAdmissionAttempts(1, "==")
 		})
 	})
 

@@ -477,6 +477,26 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 		})
 
 		ginkgo.It("should ensure the eviction and preemption metrics are available", func() {
+			// anti-flake synchronization to ensure both workloads are processed in same
+			// scheduling cycle after deactivation of blocker workload.
+			ginkgo.By("Wait for higher-priority workloads to be pending (inadmissible)", func() {
+				higherWorkload1 := &kueue.Workload{}
+				higherWorkload2 := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+						Name:      job.GetWorkloadNameForJob(higherJob1.Name, higherJob1.UID),
+						Namespace: ns.Name,
+					}, higherWorkload1)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+						Name:      job.GetWorkloadNameForJob(higherJob2.Name, higherJob2.UID),
+						Namespace: ns.Name,
+					}, higherWorkload2)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, higherWorkload1, higherWorkload2)
+			})
+
 			ginkgo.By("Deactivate the blocker workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, blockerWorkloadKey, blockerWorkload)).To(gomega.Succeed())

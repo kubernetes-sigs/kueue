@@ -9,7 +9,7 @@ description: >
 
 This page shows how to leverage Kueue's scheduling and resource management capabilities when running [RayService](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/rayservice-quick-start.html).
 
-Kueue manages the RayService through the RayCluster created for it. Therefore, RayService needs the label of `kueue.x-k8s.io/queue-name: user-queue` and this label is propagated to the relevant RayCluster to trigger Kueue's management.
+Before v0.17.0, Kueue manages the RayService through the RayCluster created for it. Since v0.17.0, Kueue manages the RayService as top level job which is similar like how Kueue manages the RayJob.
 
 This guide is for [serving users](/docs/tasks#serving-user) that have a basic understanding of Kueue. For more information, see [Kueue's overview](/docs/overview).
 
@@ -22,7 +22,7 @@ This guide is for [serving users](/docs/tasks#serving-user) that have a basic un
 3. See [KubeRay Installation](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/kuberay-operator-installation.html) for installation and configuration details of KubeRay.
 
 {{% alert title="Note" color="primary" %}}
-RayService is managed by Kueue through RayCluster, and in order to use RayCluster, prior to v0.8.1, you need to restart Kueue after the installation.
+RayService is managed by Kueue through RayCluster, and in order to use RayCluster, prior to v0.17.0, you need to restart Kueue after the installation.
 You can do it by running: `kubectl delete pods -l control-plane=controller-manager -n kueue-system`.
 {{% /alert %}}
 
@@ -63,7 +63,11 @@ spec:
                   cpu: "1"
 ```
 
-### c. Limitations
+### c. Suspend control
+
+Kueue controls the `spec.suspend` field of the RayService. When a RayService is admitted by Kueue, Kueue will unsuspend it by setting `spec.suspend` to `false`, regardless of its previous value.
+
+### d. Limitations
 - Limited Worker Groups: Because a Kueue workload can have a maximum of 8 PodSets, the maximum number of `spec.rayClusterConfig.workerGroupSpecs` is 7
 - In-Tree Autoscaling Disabled: Kueue manages resource allocation for the RayService; therefore, the internal autoscaling mechanisms need to be disabled
 

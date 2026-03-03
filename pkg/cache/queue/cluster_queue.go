@@ -252,7 +252,11 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	key := workload.Key(wInfo.Obj)
-	c.forgetInflightByKey(key)
+	// Skip if the scheduler is actively processing this workload.
+	// RequeueWorkload will handle placement with the latest version.
+	if c.inflight != nil && workload.Key(c.inflight.Obj) == key {
+		return
+	}
 	if oldInfo := c.inadmissibleWorkloads.get(key); oldInfo != nil {
 		// update in place if the workload was inadmissible and didn't change
 		// to potentially become admissible, unless the Eviction status changed

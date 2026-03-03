@@ -605,6 +605,16 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 				gomega.Expect(initialRoleHash).NotTo(gomega.BeEmpty())
 			})
 
+			ginkgo.By("Verify pod has queue labels assigned", func() {
+				pKey := client.ObjectKey{Namespace: ns.Name, Name: "pod-0"}
+				gomega.Eventually(func(g gomega.Gomega) {
+					var runningPod corev1.Pod
+					g.Expect(k8sClient.Get(ctx, pKey, &runningPod)).To(gomega.Succeed())
+					g.Expect(runningPod.Labels[constants.ClusterQueueLabel]).To(gomega.Equal(cq.Name))
+					g.Expect(runningPod.Labels[constants.LocalQueueLabel]).To(gomega.Equal(lq.Name))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
 			ginkgo.By("Verify the pod is scheduled and runs", func() {
 				pKey := client.ObjectKey{Namespace: ns.Name, Name: "pod-0"}
 				gomega.Eventually(func(g gomega.Gomega) {

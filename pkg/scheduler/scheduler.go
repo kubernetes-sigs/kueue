@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -93,6 +94,7 @@ type options struct {
 	admissionFairSharing        *config.AdmissionFairSharing
 	clock                       clock.Clock
 	roleTracker                 *roletracker.RoleTracker
+	preemptionExpectations      *expectations.Store
 }
 
 // Option configures the reconciler.
@@ -138,6 +140,13 @@ func WithRoleTracker(tracker *roletracker.RoleTracker) Option {
 	}
 }
 
+// WithPreemptionExpectations sets the store for tracking in-flight preemptions.
+func WithPreemptionExpectations(store *expectations.Store) Option {
+	return func(o *options) {
+		o.preemptionExpectations = store
+	}
+}
+
 func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recorder record.EventRecorder, opts ...Option) *Scheduler {
 	options := defaultOptions
 	for _, opt := range opts {
@@ -152,7 +161,7 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 		cache:                   cache,
 		client:                  cl,
 		recorder:                recorder,
-		preemptor:               preemption.New(cl, wo, recorder, options.fairSharing, afs.Enabled(options.admissionFairSharing), options.clock, options.roleTracker),
+		preemptor:               preemption.New(cl, wo, recorder, options.fairSharing, afs.Enabled(options.admissionFairSharing), options.clock, options.roleTracker, options.preemptionExpectations),
 		admissionRoutineWrapper: routine.DefaultWrapper,
 		workloadOrdering:        wo,
 		clock:                   options.clock,
@@ -164,7 +173,7 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 
 // Start implements the Runnable interface to run scheduler as a controller.
 func (s *Scheduler) Start(ctx context.Context) error {
-	log := roletracker.WithReplicaRole(ctrl.LoggerFrom(ctx).WithName("scheduler"), s.roleTracker)
+	log := ctrl.LoggerFrom(ctx).WithName("scheduler")
 	ctx = ctrl.LoggerInto(ctx, log)
 	go wait.UntilWithBackoff(ctx, s.schedule)
 	return nil
@@ -198,7 +207,7 @@ func (s *Scheduler) reportSkippedPreemptions(p map[kueue.ClusterQueueReference]i
 
 func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	s.schedulingCycle++
-	log := ctrl.LoggerFrom(ctx).WithValues("schedulingCycle", s.schedulingCycle)
+	log := roletracker.WithReplicaRole(ctrl.LoggerFrom(ctx), s.roleTracker).WithValues("schedulingCycle", s.schedulingCycle)
 	ctx = ctrl.LoggerInto(ctx, log)
 
 	// 1. Get the heads from the queues, including their desired clusterQueue.

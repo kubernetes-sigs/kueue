@@ -87,8 +87,6 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantManagersStatefulSets: []appsv1.StatefulSet{
 				*utiltestingstatefulset.MakeStatefulSet("statefulset1", TestNamespace).
-					StatusReplicas(3).
-					ReadyReplicas(2).
 					Obj(),
 			},
 			wantWorkerStatefulSets: []appsv1.StatefulSet{

@@ -19,6 +19,10 @@ MPIJob 时，如何利用 Kueue 的调度和资源管理能力。
 
 查阅 [MPI Operator 安装指南](https://github.com/kubeflow/mpi-operator#installation)。
 
+{{% alert title="Note" color="primary" %}}
+MPI Operator 的最低版本要求为 v0.8.0。
+{{% /alert %}}
+
 你可以[修改已安装版本的 Kueue 配置](/zh-CN/docs/installation#install-a-custom-configured-released-version)，
 以将 MPIJob 添加到允许的工作负载中。
 

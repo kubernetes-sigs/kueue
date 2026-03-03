@@ -24,6 +24,7 @@ import (
 
 	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -136,12 +137,14 @@ type Manager struct {
 	draReconcileChannel chan<- event.TypedGenericEvent[*kueue.Workload]
 
 	roleTracker *roletracker.RoleTracker
+
+	requeuer inadmissibleRequeuer
 }
 
 // NewManager is a factory for cache.queue.Manager. For tests,
 // NewManagerForUnitTests or NewManagerForIntegrationTests should be
 // used.
-func NewManager(client client.Client, checker StatusChecker, options ...Option) *Manager {
+func NewManager(client client.Client, checker StatusChecker, requeuer inadmissibleRequeuer, options ...Option) *Manager {
 	m := &Manager{
 		clock:                  realClock,
 		client:                 client,
@@ -159,7 +162,10 @@ func NewManager(client client.Client, checker StatusChecker, options ...Option) 
 		secondPassQueue:        newSecondPassQueue(),
 		AfsEntryPenalties:      queueafs.NewPenaltyMap(),
 		AfsConsumedResources:   queueafs.NewAfsConsumedResources(),
+		requeuer:               requeuer,
 	}
+	m.requeuer.setManager(m)
+
 	for _, option := range options {
 		option(m)
 	}
@@ -240,8 +246,9 @@ func (m *Manager) AddOrUpdateCohort(ctx context.Context, cohort *kueue.Cohort) {
 
 	m.hm.AddCohort(cohortName)
 	m.hm.UpdateCohortEdge(cohortName, cohort.Spec.ParentName)
-	if requeueWorkloadsCohort(ctx, m, m.hm.Cohort(cohortName)) {
-		m.Broadcast()
+	c := m.hm.Cohort(cohortName)
+	if !hierarchy.HasCycle(c) {
+		m.requeuer.notifyCohort(c.getRootUnsafe().GetName())
 	}
 }
 
@@ -288,10 +295,10 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 		}
 	}
 
-	queued := requeueWorkloadsCQ(ctx, m, cqImpl)
-	reportPendingWorkloads(m, kueue.ClusterQueueReference(cq.Name))
+	notifyRetryInadmissibleWithoutLock(m, sets.New(cqImpl.name))
+	reportPendingWorkloads(m, cqImpl.name)
 
-	if queued || addedWorkloads {
+	if addedWorkloads {
 		m.Broadcast()
 	}
 	return nil
@@ -316,7 +323,13 @@ func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue
 
 	// TODO(#8): Selectively move workloads based on the exact event.
 	// If any workload becomes admissible or the queue becomes active.
-	if (specUpdated && requeueWorkloadsCQ(ctx, m, cqImpl)) || (!oldActive && cqImpl.Active()) {
+	if specUpdated {
+		// Broadcast occurs after inadmissible workloads are requeued.
+		// Immediate broadcast is no-op, as there are no workloads
+		// to process.
+		notifyRetryInadmissibleWithoutLock(m, sets.New(cqName))
+	}
+	if !oldActive && cqImpl.Active() {
 		reportPendingWorkloads(m, cqName)
 		m.Broadcast()
 	}
@@ -647,9 +660,7 @@ func (m *Manager) QueueAssociatedInadmissibleWorkloadsAfter(ctx context.Context,
 		return
 	}
 
-	if requeueWorkloadsCQ(ctx, m, cq) {
-		m.Broadcast()
-	}
+	notifyRetryInadmissibleWithoutLock(m, sets.New(cq.name))
 }
 
 // UpdateWorkload updates the workload to the corresponding queue or adds it if

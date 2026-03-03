@@ -6,6 +6,31 @@ date: 2024-10-09
 
 This page serves as a reference for all labels and annotations in Kueue.
 
+### kueue.x-k8s.io/cluster-queue-name
+
+Type: Label
+
+Example: `kueue.x-k8s.io/cluster-queue-name: "my-cluster-queue"`
+
+Used on: Pods.
+
+This label requires `AssignQueueLabelsForPods` feature that is enabled by default.
+
+The label key in all pods created by Kueue's workloads or managed by Kueue.
+It indicates which cluster queue admitted the Kueue's workload
+that the pod is corresponding to.
+It can be used, for example to aggregate the actual resource usage (cpu/mem)
+coming from workloads admitted to a given cluster queue.
+
+{{% alert title="Warning" color="warning" %}}
+
+This label is added only if cluster queue name is a valid label value.
+For limitations see Kubernetes [documentation](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set)
+
+{{% /alert %}}
+
+
+
 ### kueue.x-k8s.io/is-group-workload
 
 Type: Annotation
@@ -68,6 +93,23 @@ Example: `kueue.x-k8s.io/job-uid: "46ef6b23-a7d9-42b1-b0f8-071bbb29a94d"`
 Used on: [Workload](/docs/concepts/workload/).
 
 The label key in the workload resource holds the UID of the owner job.
+
+### kueue.x-k8s.io/local-queue-name
+
+Type: Label
+
+Example: `kueue.x-k8s.io/local-queue-name: "my-local-queue"`
+
+Used on: Pods.
+
+This label requires `AssignQueueLabelsForPods` feature that is enabled by default.
+
+The label key in all pods created by queue workloads or managed by Kueue.
+It indicates to which local queue a workload corresponding to the pod has been assigned.
+In case of managed pods equal to name of the local queue to which the pod has been assigned.
+
+It can be used, for example to aggregate the actual resource usage (cpu/mem)
+coming from workloads assigned to a given local queue.
 
 ### kueue.x-k8s.io/managed
 
@@ -195,7 +237,7 @@ Example: `kueue.x-k8s.io/podset: "main"`
 
 Used on: Kueue-managed Jobs.
 
-The label key is used on the Job's PodTemplate to indicate the name 
+The label key is used on the Job's PodTemplate to indicate the name
 of the PodSet of the admitted Workload corresponding to the PodTemplate.
 The label is set when starting the Job, and removed on stopping the Job.
 
@@ -222,7 +264,7 @@ The label key of the job holds the name of the pre-built workload to be used.
 The intended use of prebuilt workload is to create the Job once the workload
 is created. In other scenarios the behavior is undefined.
 
-Note: When using `kueue.x-k8s.io/pod-group-name`, the prebuilt workload name 
+Note: When using `kueue.x-k8s.io/pod-group-name`, the prebuilt workload name
 and the pod group name should be the same.
 
 ### kueue.x-k8s.io/priority-class

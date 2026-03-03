@@ -10,8 +10,8 @@ description: >
 本页演示如何利用 Kueue 的调度与资源管理能力运行
 [RayService](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/rayservice-quick-start.html) 。
 
-Kueue 通过为 RayService 创建的 RayCluster 来管理 RayService。
-因此，RayService 需要在 metadata.labels 中包含 `kueue.x-k8s.io/queue-name: user-queue` 标签，该标签会被传递到相应的 RayCluster，以触发 Kueue 的管理。
+在v0.17.0之前，Kueue 通过为 RayService 创建的 RayCluster 来管理 RayService。从v0.17.0开始，Kueue 可以直接管理 RayService，类似其直接管理 RayJob，
+不再通过 RayCluster。
 
 本指南面向对 Kueue 有基本了解的、[对外提供服务的用户](/zh-CN/docs/tasks#serving-user)。
 更多信息，请参见 [Kueue 概览](/zh-CN/docs/overview)。
@@ -26,7 +26,7 @@ Kueue 通过为 RayService 创建的 RayCluster 来管理 RayService。
 
 {{% alert title="注意" color="primary" %}}
 RayService 通过 RayCluster 由 Kueue 管理；
-在 v0.8.1 之前，你需要在完成安装后重启 Kueue 才能使用 RayCluster。你可以通过运行
+在 v0.17.0 之前，你需要在完成安装后重启 Kueue 才能使用 RayCluster。你可以通过运行
 `kubectl delete pods -l control-plane=controller-manager -n kueue-system` 来完成此操作。
 {{% /alert %}}
 
@@ -69,7 +69,11 @@ spec:
                   cpu: "1"
 ```
 
-### c. 限制事项 {#c-limitations}
+### c. Suspend 控制 {#c-suspend-control}
+
+Kueue 控制 RayService 的 `spec.suspend` 字段。当 RayService 被 Kueue 接纳时，Kueue 会通过将 `spec.suspend` 设置为 `false` 来取消暂停，无论其之前的值是什么。
+
+### d. 限制事项 {#c-limitations}
 - 有限的 Worker Group：由于 Kueue 工作负载最多可以有 8 个 PodSet,
   所以`spec.rayClusterConfig.workerGroupSpecs` 的最大数量为 7。
 - 内建自动扩缩禁用：Kueue 管理 RayService 的资源分配，因此，集群的内部自动扩缩机制需要禁用。

@@ -11,6 +11,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
+- name: AssignQueueLabelsForPods
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.17"
 - name: DynamicResourceAllocation
   versionedSpecs:
   - default: false
@@ -35,6 +41,18 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.15"
+- name: FairSharingPreemptWithinNominal
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.17"
+- name: FairSharingPrioritizeNonBorrowing
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.17"
 - name: FlavorFungibility
   versionedSpecs:
   - default: true
@@ -190,7 +208,7 @@
     preRelease: Beta
     version: "0.15"
   - default: true
-    lockToDefault: false
+    lockToDefault: true
     preRelease: GA
     version: "0.17"
 - name: ReclaimablePods
@@ -259,9 +277,9 @@
     version: "0.15"
 - name: TASReplaceNodeOnNodeTaints
   versionedSpecs:
-  - default: false
+  - default: true
     lockToDefault: false
-    preRelease: Alpha
+    preRelease: Beta
     version: "0.17"
 - name: TASReplaceNodeOnPodTermination
   versionedSpecs:

@@ -32,6 +32,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -87,8 +88,8 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	controllersCfg.Metrics.EnableClusterQueueResources = true
 
 	cCache := schdcache.New(mgr.GetClient())
-	queues := util.NewManagerForIntegrationTests(mgr.GetClient(), cCache)
+	queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache)
 
-	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil)
+	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil, preemptexpectations.New())
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 }

@@ -194,7 +194,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 			ginkgo.By("Creating Job with ResourceClaimTemplate reference on manager")
 			job := testingjob.MakeJob("dra-job", managerNs.Name).
 				Queue(kueue.LocalQueueName(managerLq.Name)).
-				Request(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				ResourceClaimTemplate("gpu", "gpu-template").
 				Obj()
@@ -294,7 +294,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 			ginkgo.By("Creating Job on manager")
 			job := testingjob.MakeJob("missing-rct-job", managerNs.Name).
 				Queue(kueue.LocalQueueName(managerLq.Name)).
-				Request(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				ResourceClaimTemplate("gpu", "missing-rct").
 				Obj()
@@ -338,7 +338,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 			ginkgo.By("Creating Job with ResourceClaimTemplate on manager")
 			job := testingjob.MakeJob("heterogeneous-dra-job", managerNs.Name).
 				Queue(kueue.LocalQueueName(managerLq.Name)).
-				Request(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				ResourceClaimTemplate("gpu", "worker1-only-rct").
 				Obj()
@@ -414,7 +414,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				Parallelism(2).
 				Completions(2).
-				Request(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				ResourceClaimTemplate("gpu", "multi-pod-gpu-template").
 				Obj()

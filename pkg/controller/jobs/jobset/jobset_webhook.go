@@ -172,7 +172,7 @@ func (w *JobSetWebhook) validateTopologyRequest(ctx context.Context, jobSet *Job
 func buildPodSetAnnotationsPathByNameMap(jobSet *JobSet) map[kueue.PodSetReference]*field.Path {
 	podSetAnnotationsPathByName := make(map[kueue.PodSetReference]*field.Path)
 	for i, job := range jobSet.Spec.ReplicatedJobs {
-		podSetAnnotationsPathByName[kueue.PodSetReference(job.Name)] = replicatedJobsPath.Index(i).Child("template", "spec", "template", "metadata", "annotations")
+		podSetAnnotationsPathByName[kueue.NewPodSetReference(job.Name)] = replicatedJobsPath.Index(i).Child("template", "spec", "template", "metadata", "annotations")
 	}
 	return podSetAnnotationsPathByName
 }

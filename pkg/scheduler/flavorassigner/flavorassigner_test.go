@@ -3910,7 +3910,7 @@ func TestIsPreferred(t *testing.T) {
 				WhenCanPreempt: kueue.TryNextFlavor,
 				Preference:     makePref(kueue.BorrowingOverPreemption),
 			},
-			wantPreferred: true,
+			wantPreferred: false,
 		},
 		"explicit PreemptionOverBorrowing prioritises lower preemption": {
 			a: granularMode{preemptionMode: preempt, borrowingLevel: 1},
@@ -3920,7 +3920,7 @@ func TestIsPreferred(t *testing.T) {
 				WhenCanPreempt: kueue.TryNextFlavor,
 				Preference:     makePref(kueue.PreemptionOverBorrowing),
 			},
-			wantPreferred: false,
+			wantPreferred: true,
 		},
 		"explicit PreemptionOverBorrowing breaks borrowing ties with preemption": {
 			a: granularMode{preemptionMode: preempt, borrowingLevel: 1},
@@ -4407,6 +4407,34 @@ func TestAssignment_TotalRequestsFor(t *testing.T) {
 			got := a.TotalRequestsFor(tt.args.wl)
 			if diff := cmp.Diff(got, tt.want); diff != "" {
 				t.Errorf("TotalRequestsFor() (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestAssignment_RequiresBorrowing(t *testing.T) {
+	tests := map[string]struct {
+		borrowing int
+		want      bool
+	}{
+		"no borrowing": {
+			borrowing: 0,
+			want:      false,
+		},
+		"borrows at level 1": {
+			borrowing: 1,
+			want:      true,
+		},
+		"borrows at level 2": {
+			borrowing: 2,
+			want:      true,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			a := &Assignment{Borrowing: tc.borrowing}
+			if got := a.RequiresBorrowing(); got != tc.want {
+				t.Errorf("RequiresBorrowing() = %v, want %v", got, tc.want)
 			}
 		})
 	}

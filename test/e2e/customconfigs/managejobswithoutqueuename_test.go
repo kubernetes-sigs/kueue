@@ -705,18 +705,25 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					RequestAndLimit(corev1.ResourceMemory, "2Gi").
 					Replicas(2).
+					TerminationGracePeriod(1).
 					Obj()
 				util.MustCreate(ctx, k8sClient, testSts)
 			})
 
-			ginkgo.By("verifying that the pods of the StatefulSet are running", func() {
+			ginkgo.By("verifying that the pods of the StatefulSet are ready", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					pods := &corev1.PodList{}
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace("kube-system"),
 						client.MatchingLabels(testSts.Spec.Selector.MatchLabels))).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(2))
 					for _, pod := range pods.Items {
-						g.Expect(pod.Status.Phase).Should(gomega.Equal(corev1.PodRunning))
+						g.Expect(pod.Status.Conditions).Should(gomega.ContainElement(gomega.BeComparableTo(
+							corev1.PodCondition{
+								Type:   corev1.PodReady,
+								Status: corev1.ConditionTrue,
+							},
+							util.IgnorePodConditionTimestampsMessageAndObservedGeneration,
+						)))
 					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
