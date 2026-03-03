@@ -102,12 +102,13 @@ var _ = ginkgo.FDescribe("Failure Recovery Policy", ginkgo.Ordered, ginkgo.Conti
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
 	})
 
-	ginkgo.When("job", func() {
+	ginkgo.When("the kubelet on a node goes down goes down", func() {
 		var (
-			cq *kueue.ClusterQueue
-			lq *kueue.LocalQueue
+			cq       *kueue.ClusterQueue
+			lq       *kueue.LocalQueue
+			pod      *corev1.Pod
+			nodeName string
 		)
-
 		ginkgo.BeforeEach(func() {
 			cq = utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
@@ -126,41 +127,47 @@ var _ = ginkgo.FDescribe("Failure Recovery Policy", ginkgo.Ordered, ginkgo.Conti
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
 				g.Expect(*job.Spec.Suspend).To(gomega.BeFalse())
-			}, util.Timeout, util.Interval)
-
-		})
-
-		ginkgo.AfterEach(func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-		})
-
-		ginkgo.It("should delete pods running on an unreachable node", func() {
-			// Wait for pods to be ready
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
 				g.Expect(job.Status.Active).To(gomega.Equal(int32(1)))
 				g.Expect(job.Status.Ready).To(gomega.Equal(ptr.To(int32(1))))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval)
 
-			// Get the pod
-			pods := &corev1.PodList{}
-			gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels(job.Spec.Selector.MatchLabels))).To(gomega.Succeed())
-			gomega.Expect(pods.Items).To(gomega.HaveLen(1))
-			pod := &pods.Items[0]
-			nodeName := pod.Spec.NodeName
+			// Get the pod and its node
+			gomega.Eventually(func(g gomega.Gomega) {
+				pods := &corev1.PodList{}
+				gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels(job.Spec.Selector.MatchLabels))).To(gomega.Succeed())
+				gomega.Expect(pods.Items).To(gomega.HaveLen(1))
+
+				pod = &pods.Items[0]
+				nodeName = pod.Spec.NodeName
+			})
 
 			// Stop kubelet on the node
 			cmd := exec.Command("docker", "exec", nodeName, "systemctl", "stop", "kubelet")
 			gomega.Expect(cmd.Run()).To(gomega.Succeed())
 
-			// Defer restart of kubelet
-			ginkgo.DeferCleanup(func() {
-				cmd := exec.Command("docker", "exec", nodeName, "systemctl", "start", "kubelet")
-				gomega.Expect(cmd.Run()).To(gomega.Succeed())
-			})
+		})
 
+		ginkgo.AfterEach(func() {
+			cmd := exec.Command("docker", "exec", nodeName, "systemctl", "start", "kubelet")
+			gomega.Expect(cmd.Run()).To(gomega.Succeed())
+
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		})
+
+		ginkgo.It("should delete pods running on an unreachable node", func() {
 			// Wait for pod to be deleted (forcefully terminated)
 			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, pod, false, forcefulTerminationCheckTimeout+util.LongTimeout)
+		})
+
+		ginkgo.It("should unblock the stuck pod's parents that are being deleted with foreground propagation", func() {
+			// Pod is being terminated after toleration elapses
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
+				g.Expect(pod.DeletionTimestamp).ToNot(gomega.BeNil())
+			}, util.Timeout, util.Interval)
+
+			gomega.Expect(k8sClient.Delete(ctx, job, &client.DeleteOptions{PropagationPolicy: ptr.To(metav1.DeletePropagationForeground)})).To(gomega.Succeed())
+			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, job, false, forcefulTerminationCheckTimeout+util.Timeout)
 		})
 	})
 })
