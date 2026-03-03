@@ -37,12 +37,11 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
-	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
 )
 
-// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;delete
 // +kubebuilder:rbac:groups="",resources=pods/status,verbs=get;patch
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 
@@ -191,6 +190,11 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	r.recorder.Event(pod, corev1.EventTypeWarning, KueueForcefulTerminationReason, eventMessage)
 
+	// Forcefully delete the pod object
+	if err = r.client.Delete(ctx, pod, &client.DeleteOptions{GracePeriodSeconds: ptr.To(int64(0))}); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -204,7 +208,9 @@ func podEligibleForTermination(p *corev1.Pod) bool {
 		return false
 	}
 
-	if utilpod.IsTerminated(p) {
+	// Do not filter out `corev1.PodFailed` to handle partial failure of the controller
+	// (pod marked as failed, but not deleted).
+	if p.Status.Phase == corev1.PodSucceeded {
 		return false
 	}
 
