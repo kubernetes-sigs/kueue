@@ -162,8 +162,8 @@ func main() {
 		}
 	}
 
-	var visbilityServerFlags string
-	flag.StringVar(&visbilityServerFlags, "visibility-server-flags", "",
+	var visibilityServerFlags string
+	flag.StringVar(&visibilityServerFlags, "visibility-server-flags", "",
 		"A space-separated list of flags to pass to the embedded visibility API server "+
 			"(e.g., '--secure-port=8443 --authentication-kubeconfig=/path/to/kubeconfig').")
 
@@ -352,7 +352,7 @@ func main() {
 
 	if features.Enabled(features.VisibilityOnDemand) {
 		go func() {
-			if err := visibility.CreateAndStartVisibilityServer(ctx, queues, *cfg.InternalCertManagement.Enable, kubeConfig, parsedTLSConfig, visbilityServerFlags); err != nil {
+			if err := visibility.CreateAndStartVisibilityServer(ctx, queues, *cfg.InternalCertManagement.Enable, kubeConfig, parsedTLSConfig, visibilityServerFlags); err != nil {
 				setupLog.Error(err, "Unable to create and start visibility server")
 				os.Exit(1)
 			}
