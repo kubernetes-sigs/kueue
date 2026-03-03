@@ -172,6 +172,7 @@ func NewManager(client client.Client, checker StatusChecker, requeuer inadmissib
 		AfsEntryPenalties:      queueafs.NewPenaltyMap(),
 		AfsConsumedResources:   queueafs.NewAfsConsumedResources(),
 		requeuer:               requeuer,
+		lqMetrics:              metrics.NewDefaultLocalQueueMetricsConfig(),
 	}
 	m.requeuer.setManager(m)
 

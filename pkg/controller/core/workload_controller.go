@@ -165,6 +165,7 @@ func NewWorkloadReconciler(client client.Client, queues *qcache.Manager, cache *
 		recorder:            recorder,
 		clock:               realClock,
 		draReconcileChannel: make(chan event.TypedGenericEvent[*kueue.Workload], updateChBuffer),
+		lqMetrics:           metrics.NewDefaultLocalQueueMetricsConfig(),
 	}
 	for _, option := range options {
 		option(r)

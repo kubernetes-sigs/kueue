@@ -105,6 +105,7 @@ type Option func(*options)
 var defaultOptions = options{
 	podsReadyRequeuingTimestamp: config.EvictionTimestamp,
 	clock:                       realClock,
+	lqMetrics:                   metrics.NewDefaultLocalQueueMetricsConfig(),
 }
 
 // WithPodsReadyRequeuingTimestamp sets the timestamp that is used for ordering

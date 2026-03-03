@@ -27,23 +27,25 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
-var DefaultLocalQueueMetricsConfig = &LocalQueueMetricsConfig{
-	enabled:       true,
-	queueSelector: labels.Everything(),
+type LocalQueueMetricsConfig struct {
+	Enabled       bool
+	QueueSelector labels.Selector
 }
 
-type LocalQueueMetricsConfig struct {
-	enabled       bool
-	queueSelector labels.Selector
+func NewDefaultLocalQueueMetricsConfig() *LocalQueueMetricsConfig {
+	return &LocalQueueMetricsConfig{
+		Enabled:       true,
+		QueueSelector: labels.Everything(),
+	}
 }
 
 func NewLocalQueueMetricsConfig(cfg *configapi.LocalQueueMetrics) *LocalQueueMetricsConfig {
 	if cfg == nil {
-		return DefaultLocalQueueMetricsConfig
+		return NewDefaultLocalQueueMetricsConfig()
 	}
 
 	lqMetricsConfig := &LocalQueueMetricsConfig{
-		enabled: cfg.Enable,
+		Enabled: cfg.Enable,
 	}
 
 	if !cfg.Enable {
@@ -58,7 +60,7 @@ func NewLocalQueueMetricsConfig(cfg *configapi.LocalQueueMetrics) *LocalQueueMet
 		q = labels.Everything()
 	}
 
-	lqMetricsConfig.queueSelector = q
+	lqMetricsConfig.QueueSelector = q
 
 	return lqMetricsConfig
 }
@@ -66,7 +68,7 @@ func NewLocalQueueMetricsConfig(cfg *configapi.LocalQueueMetrics) *LocalQueueMet
 // ShouldExposeLocalQueueMetrics determines if a specific LocalQueue should report metrics
 // based on the global configuration.
 func (cfg LocalQueueMetricsConfig) ShouldExposeLocalQueueMetrics(lqLabels map[string]string) bool {
-	return cfg.enabled && cfg.queueSelector.Matches(labels.Set(lqLabels))
+	return cfg.Enabled && cfg.QueueSelector.Matches(labels.Set(lqLabels))
 }
 
 // LQFromRef retrieves a LocalQueue object from the Kubernetes API based on the provided reference.

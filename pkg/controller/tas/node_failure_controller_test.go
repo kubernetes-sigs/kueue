@@ -554,7 +554,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			}
 			cl := clientBuilder.Build()
 			recorder := &utiltesting.EventRecorder{}
-			r := newNodeFailureReconciler(cl, recorder, metrics.DefaultLocalQueueMetricsConfig, nil)
+			r := newNodeFailureReconciler(cl, recorder, metrics.NewDefaultLocalQueueMetricsConfig(), nil)
 			r.clock = fakeClock
 
 			var result reconcile.Result

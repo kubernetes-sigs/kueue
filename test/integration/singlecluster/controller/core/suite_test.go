@@ -27,12 +27,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
-	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
-	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/webhooks"
@@ -106,15 +104,15 @@ func managerAndControllerSetup(controllersCfg *config.Configuration, options ...
 
 		controllersCfg.Metrics.EnableClusterQueueResources = true
 
-		cCache := schdcache.New(mgr.GetClient(), schdcache.WithLocalQueueMetrics(metrics.DefaultLocalQueueMetricsConfig))
-		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, qcache.WithLocalQueueMetrics(metrics.DefaultLocalQueueMetricsConfig))
+		cCache := schdcache.New(mgr.GetClient())
+		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache)
 
 		preemptionExpectations := preemptexpectations.New()
 		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil, preemptionExpectations)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		if opts.runScheduler {
-			sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptionExpectations), scheduler.WithLocalQueueMetrics(metrics.DefaultLocalQueueMetricsConfig))
+			sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptionExpectations))
 			err = sched.Start(ctx)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}

@@ -249,7 +249,8 @@ func WithLocalQueueMetrics(value *metrics.LocalQueueMetricsConfig) Option {
 }
 
 var defaultOptions = Options{
-	Clock: clock.RealClock{},
+	Clock:     clock.RealClock{},
+	LqMetrics: metrics.NewDefaultLocalQueueMetricsConfig(),
 }
 
 func NewReconciler(

@@ -101,7 +101,8 @@ func WithLocalQueueMetrics(value *metrics.LocalQueueMetricsConfig) LocalQueueRec
 }
 
 var defaultLQOptions = LocalQueueReconcilerOptions{
-	clock: realClock,
+	clock:     realClock,
+	lqMetrics: metrics.NewDefaultLocalQueueMetricsConfig(),
 }
 
 // LocalQueueReconciler reconciles a LocalQueue object

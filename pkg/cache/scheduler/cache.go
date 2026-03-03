@@ -140,6 +140,7 @@ func New(client client.Client, options ...Option) *Cache {
 		workloadAssignedQueues: make(map[workload.Reference]kueue.ClusterQueueReference),
 		hm:                     hierarchy.NewManager(newCohort),
 		tasCache:               NewTASCache(client),
+		lqMetrics:              metrics.NewDefaultLocalQueueMetricsConfig(),
 	}
 	for _, option := range options {
 		option(cache)

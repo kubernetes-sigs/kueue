@@ -45,7 +45,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -74,7 +73,6 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 			jobframework.WithManageJobsWithoutQueueName(true),
 			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns")),
 			jobframework.WithLabelKeysToCopy([]string{"toCopyKey"}),
-			jobframework.WithLocalQueueMetrics(metrics.DefaultLocalQueueMetricsConfig),
 		))
 		unmanagedNamespace := utiltesting.MakeNamespace("unmanaged-ns")
 		util.MustCreate(ctx, k8sClient, unmanagedNamespace)
@@ -936,8 +934,7 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{}),
-			jobframework.WithLocalQueueMetrics(metrics.DefaultLocalQueueMetricsConfig)))
+		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{})))
 		ginkgo.By("Create a resource flavor")
 		util.MustCreate(ctx, k8sClient, defaultFlavor)
 	})
@@ -1249,7 +1246,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 	)
 
 	startManager := func() {
-		fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, true, nil, jobframework.WithLocalQueueMetrics(metrics.DefaultLocalQueueMetricsConfig)))
+		fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, true, nil))
 	}
 
 	stopManager := func() {
@@ -2751,8 +2748,6 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 		})
 
 		ginkgo.It("Should readmit preempted Job with priorityClass in alternative flavor with admission check", func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
-
 			lowJob := testingjob.MakeJob("low", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				WorkloadPriorityClass(lowPriorityClass.Name).
@@ -2872,7 +2867,6 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			false,
 			&configapi.Configuration{WaitForPodsReady: waitForPodsReady},
 			jobframework.WithWaitForPodsReady(waitForPodsReady),
-			jobframework.WithLocalQueueMetrics(metrics.DefaultLocalQueueMetricsConfig),
 		))
 
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
@@ -3293,8 +3287,6 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 		})
 
 		ginkgo.It("should record ready wait time metrics with workload priority class label", func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
-
 			ginkgo.By("creating workload priority classes")
 			lowPriorityClass := utiltestingapi.MakeWorkloadPriorityClass("low-priority").PriorityValue(priorityValue).Obj()
 			util.MustCreate(ctx, k8sClient, lowPriorityClass)
@@ -3408,7 +3400,7 @@ var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", ginkgo.Or
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerAndControllersSetup(true, true, nil, jobframework.WithLocalQueueMetrics(metrics.DefaultLocalQueueMetricsConfig)))
+		fwk.StartManager(ctx, cfg, managerAndControllersSetup(true, true, nil))
 	})
 
 	ginkgo.AfterAll(func() {
@@ -3581,7 +3573,7 @@ var _ = ginkgo.Describe("Job controller with TAS and ElasticJobsViaWorkloadSlice
 		gomega.Expect(utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{
 			string(features.ElasticJobsViaWorkloadSlices): true,
 		})).Should(gomega.Succeed())
-		fwk.StartManager(ctx, cfg, managerAndControllersSetup(true, true, nil, jobframework.WithLocalQueueMetrics(metrics.DefaultLocalQueueMetricsConfig)))
+		fwk.StartManager(ctx, cfg, managerAndControllersSetup(true, true, nil))
 	})
 
 	ginkgo.AfterAll(func() {
@@ -3739,7 +3731,6 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 		fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, false, configuration,
 			jobframework.WithObjectRetentionPolicies(configuration.ObjectRetentionPolicies),
 			jobframework.WithWaitForPodsReady(waitForPodsReady),
-			jobframework.WithLocalQueueMetrics(metrics.DefaultLocalQueueMetricsConfig),
 		))
 
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
@@ -4028,7 +4019,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 
 	ginkgo.BeforeAll(func() {
 		gomega.Expect(utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{string(features.ElasticJobsViaWorkloadSlices): true})).Should(gomega.Succeed())
-		fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, true, nil, jobframework.WithLocalQueueMetrics(metrics.DefaultLocalQueueMetricsConfig)))
+		fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, true, nil))
 	})
 	ginkgo.AfterAll(func() {
 		fwk.StopManager(ctx)
@@ -4232,7 +4223,6 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 
 	ginkgo.It("Should mark old pending workload-slice evicted by scheduler as finished", func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 
 		ginkgo.By("create low priority class")
 		lowPriorityClass := utiltestingapi.MakeWorkloadPriorityClass("low").PriorityValue(int32(priorityValue)).Obj()
@@ -4355,7 +4345,6 @@ var _ = ginkgo.Describe("Job reconciliation", ginkgo.Ordered, func() {
 		fwk.StartManager(ctx, cfg,
 			managerSetup(
 				jobframework.WithManagedJobsNamespaceSelector(labels.NewSelector().Add(*managedByQueueRequirement)),
-				jobframework.WithLocalQueueMetrics(metrics.DefaultLocalQueueMetricsConfig),
 			),
 		)
 

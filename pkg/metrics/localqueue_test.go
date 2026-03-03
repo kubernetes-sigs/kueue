@@ -30,32 +30,32 @@ func TestShouldExposeLocalQueueMetrics(t *testing.T) {
 	}{
 		"should not expose metrics; disabled": {
 			cfg: &LocalQueueMetricsConfig{
-				enabled:       false,
-				queueSelector: labels.SelectorFromSet(map[string]string{"env": "prod"}),
+				Enabled:       false,
+				QueueSelector: labels.SelectorFromSet(map[string]string{"env": "prod"}),
 			},
 			lqLabels: map[string]string{"env": "prod"},
 			want:     false,
 		},
 		"should expose metrics; enabled with no selector": {
 			cfg: &LocalQueueMetricsConfig{
-				enabled:       true,
-				queueSelector: labels.Everything(),
+				Enabled:       true,
+				QueueSelector: labels.Everything(),
 			},
 			lqLabels: map[string]string{"env": "prod"},
 			want:     true,
 		},
 		"should expose metrics; enabled with matching selector": {
 			cfg: &LocalQueueMetricsConfig{
-				enabled:       true,
-				queueSelector: labels.SelectorFromSet(map[string]string{"env": "prod"}),
+				Enabled:       true,
+				QueueSelector: labels.SelectorFromSet(map[string]string{"env": "prod"}),
 			},
 			lqLabels: map[string]string{"env": "prod"},
 			want:     true,
 		},
 		"should not expose metrics; enabled with selector that does not match": {
 			cfg: &LocalQueueMetricsConfig{
-				enabled:       true,
-				queueSelector: labels.SelectorFromSet(map[string]string{"env": "prod"}),
+				Enabled:       true,
+				QueueSelector: labels.SelectorFromSet(map[string]string{"env": "prod"}),
 			},
 			lqLabels: map[string]string{"env": "dev"},
 			want:     false,

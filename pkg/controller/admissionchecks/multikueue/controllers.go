@@ -125,6 +125,7 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		eventsBatchPeriod: constants.UpdatesBatchPeriod,
 		adapters:          make(map[string]jobframework.MultiKueueAdapter),
 		dispatcherName:    configapi.MultiKueueDispatcherModeAllAtOnce,
+		lqMetrics:         metrics.NewDefaultLocalQueueMetricsConfig(),
 	}
 
 	for _, o := range opts {
