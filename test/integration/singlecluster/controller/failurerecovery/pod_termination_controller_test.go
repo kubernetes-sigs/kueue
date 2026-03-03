@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util"
@@ -67,8 +68,7 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: matchingPod.Name, Namespace: matchingPod.Namespace}, matchingPod)).
-				To(gomega.Succeed())
-			g.Expect(matchingPod.Status.Phase).Should(gomega.Equal(corev1.PodFailed))
+				To(utiltesting.BeNotFoundError())
 		}, forcefulTerminationCheckTimeout, util.Interval).Should(gomega.Succeed())
 	})
 
