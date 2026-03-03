@@ -172,6 +172,38 @@ Later, when the user is ready for Kueue to manage the Job, they remove the annot
 Kueue detects the annotation removal, creates the Workload object, and proceeds with
 normal admission checks and scheduling. The Job now flows through the standard Kueue
 workflow.
+#### Story 2
+
+A user has an AI tuning Job that will run for days or weeks. They want to optimize the
+resource requirements before the Job starts executing, but the optimization process itself
+may take time (e.g., calling a REST API that runs an AI model, or running a short canary
+job to validate recommendations).
+
+The goal of the user is to create a Job without worrying about setting its resource
+requirements accurately.
+
+The user creates the Job with:
+- Default resource requests as a starting point
+- The annotation `kueue.x-k8s.io/scheduling-gated-by: "example.com/resource-optimizer"`
+  to opt-in for automatic patching by their external controller
+
+Kueue detects the annotation and does not consider the job eligible for admission. 
+The Job remains gated, ensuring it cannot execute before the optimization is complete.
+
+An external controller picks up the Job and computes the recommended resource configuration.
+This process may take seconds or even minutes, but this is acceptable since the Job itself
+will run for much longer.
+
+Once the optimization is complete, the controller patches the Job to:
+- Update the resource requirements with the optimized values
+- Remove the `kueue.x-k8s.io/scheduling-gated-by` annotation
+
+Kueue detects the annotation removal, and proceeds with normal admission checks and 
+scheduling. The Job now has the updated resource requirements. The Job flows 
+through the standard Kueue workflow with the correct resource configuration,
+avoiding the risk of preemption and restart that could occur if the Job were patched
+after it had already started executing.
+
 
 
 ### Notes/Constraints/Caveats
