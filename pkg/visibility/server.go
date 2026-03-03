@@ -105,16 +105,6 @@ func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, en
 	o.Etcd = nil
 	o.SecureServing.BindPort = 8082
 
-	if visibilityServerFlags != "" {
-		fs := pflag.NewFlagSet("visibility-server", pflag.ContinueOnError)
-		o.AddFlags(fs)
-
-		args := strings.Fields(visibilityServerFlags)
-		if err := fs.Parse(args); err != nil {
-			return fmt.Errorf("failed to parse visibility-server-flags: %w", err)
-		}
-	}
-
 	if enableInternalCertManagement {
 		// The directory where TLS certs will be created
 		o.SecureServing.ServerCert.CertDirectory = certDir
@@ -125,6 +115,16 @@ func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, en
 	o.Admission.DisablePlugins = disabledPlugins
 	if err := o.SecureServing.MaybeDefaultWithSelfSignedCerts("localhost", nil, []net.IP{net.ParseIP("127.0.0.1")}); err != nil {
 		return fmt.Errorf("error creating self-signed certificates: %v", err)
+	}
+
+	if visibilityServerFlags != "" {
+		fs := pflag.NewFlagSet("visibility-server", pflag.ContinueOnError)
+		o.AddFlags(fs)
+
+		args := strings.Fields(visibilityServerFlags)
+		if err := fs.Parse(args); err != nil {
+			return fmt.Errorf("failed to parse visibility-server-flags: %w", err)
+		}
 	}
 
 	if err := o.ApplyTo(config); err != nil {
