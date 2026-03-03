@@ -70,5 +70,5 @@ fi
 
 # Quote GINKGO_ARGS so values with spaces (e.g. --focus='should ensure the eviction') are not
 # word-split; otherwise fragments get interpreted as packages and cause "flag after package list".
-$GINKGO ${GINKGO_ARGS:+"$GINKGO_ARGS"} --junit-report=junit.xml --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/$E2E_TARGET_FOLDER/...
+$GINKGO ${GINKGO_ARGS:+"$GINKGO_ARGS"} --junit-report=junit.xml --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/"${E2E_TARGET_FOLDER}"/...
 "$ROOT_DIR/bin/ginkgo-top" -i "$ARTIFACTS/e2e.json" > "$ARTIFACTS/e2e-top.yaml"
