@@ -208,7 +208,7 @@
     preRelease: Beta
     version: "0.15"
   - default: true
-    lockToDefault: false
+    lockToDefault: true
     preRelease: GA
     version: "0.17"
 - name: ReclaimablePods

@@ -393,7 +393,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	// PropagateBatchJobLabelsToWorkload is enabled from 0.13.10 and 0.14.5.
 	PropagateBatchJobLabelsToWorkload: {
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
-		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.GA},
+		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.19
 	},
 	MultiKueueClusterProfile: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
