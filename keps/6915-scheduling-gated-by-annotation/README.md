@@ -57,6 +57,7 @@ tags, and then generate with `hack/update-toc.sh`.
     - [What are the benefit of this approach over AdmissionGatedBy](#what-are-the-benefit-of-this-approach-over-admissiongatedby)
   - [Admission policy-based activation or queue-level configuration](#admission-policy-based-activation-or-queue-level-configuration)
   - [Direct Workload Interaction](#direct-workload-interaction)
+  - [Mutating Webhook to Patch Jobs at Creation Time](#mutating-webhook-to-patch-jobs-at-creation-time)
 <!-- /toc -->
 
 ## Summary
@@ -654,3 +655,17 @@ modifying Kueue CRs.
 
 Also, this would break abstraction as users will interact with internal
 Kueue objects instead of their own Jobs.
+### Mutating Webhook to Patch Jobs at Creation Time
+
+An alternative to implementing this KEP altogether would be to patch Jobs via
+Kubernetes mutating webhooks instead of controllers. These webhooks would
+effectively update the Jobs at creation time which is guaranteed to take place
+before the Kueue admission checks. 
+
+However, if the webhook performs time-consuming operations like calling external
+APIs for resource optimization, it can cause API server timeouts, causing Job
+creation to fail. Moreover, slow or misbehaving webhooks can cause cluster-wide
+performance degradation and instability that affects all cluster operations. 
+
+In contrast, the `AdmissionGatedBy` annotation approach allows Jobs to be 
+created immediately and processed asynchronously, avoiding these cluster stability risks.
