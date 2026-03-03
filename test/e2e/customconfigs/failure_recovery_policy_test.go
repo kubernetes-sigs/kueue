@@ -42,7 +42,7 @@ const (
 	forcefulTerminationCheckTimeout = (50 + 1 + 30 + 60) * time.Second
 )
 
-var _ = ginkgo.FDescribe("Failure Recovery Policy", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		job *batchv1.Job
 		ns  *corev1.Namespace
@@ -102,7 +102,7 @@ var _ = ginkgo.FDescribe("Failure Recovery Policy", ginkgo.Ordered, ginkgo.Conti
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
 	})
 
-	ginkgo.When("the kubelet on a node goes down goes down", func() {
+	ginkgo.When("the kubelet on a node goes down", func() {
 		var (
 			cq       *kueue.ClusterQueue
 			lq       *kueue.LocalQueue
