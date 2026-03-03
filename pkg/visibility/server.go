@@ -76,9 +76,9 @@ func init() {
 // +kubebuilder:rbac:groups=flowcontrol.apiserver.k8s.io,resources=flowschemas/status,verbs=patch
 
 // CreateAndStartVisibilityServer creates a visibility server injecting KueueManager and starts it
-func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manager, enableInternalCertManagement bool, kubeConfig *rest.Config, tlsOpts *tlsconfig.TLS, apiServerFlags string) error {
+func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manager, enableInternalCertManagement bool, kubeConfig *rest.Config, tlsOpts *tlsconfig.TLS, visibilityServerFlags string) error {
 	config := newVisibilityServerConfig(kubeConfig)
-	if err := applyVisibilityServerOptions(config, enableInternalCertManagement, tlsOpts, apiServerFlags); err != nil {
+	if err := applyVisibilityServerOptions(config, enableInternalCertManagement, tlsOpts, visibilityServerFlags); err != nil {
 		return fmt.Errorf("unable to apply VisibilityServerOptions: %w", err)
 	}
 
