@@ -28,6 +28,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/sparkapplication"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	sparkapplicationtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/sparkapplication"
 	"sigs.k8s.io/kueue/test/util"
@@ -153,7 +154,13 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("area:singl
 			})
 
 			ginkgo.By("Check workload is finished", func() {
-				util.ExpectWorkloadToFinish(ctx, k8sClient, wlLookupKey)
+				// Using longer timeout instead of util.ExpectWorkloadToFinish
+				// because SparkApplication may take longer time to finish
+				gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+					var wl kueue.Workload
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, &wl)).To(gomega.Succeed())
+					g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished), "it's finished")
+				}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Delete the SparkApplication", func() {
