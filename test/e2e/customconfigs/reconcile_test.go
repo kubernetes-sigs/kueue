@@ -17,6 +17,8 @@ limitations under the License.
 package customconfigse2e
 
 import (
+	"slices"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
@@ -26,6 +28,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/sparkapplication"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -59,6 +62,12 @@ var _ = ginkgo.Describe("Job reconciliation with ManagedJobsNamespaceSelectorAlw
 					},
 				},
 			}
+			// SparkApplication integration is behind the SparkApplicationIntegration feature gate(currently alpha).
+			// So, we ensure to remove the integration if the feature gate is disabled in the config
+			// to avoid validation error for the SparkApplication integration enablement.
+			cfg.Integrations.Frameworks = slices.DeleteFunc(cfg.Integrations.Frameworks, func(frameworkName string) bool {
+				return frameworkName == sparkapplication.FrameworkName
+			})
 		})
 
 		ns = &corev1.Namespace{

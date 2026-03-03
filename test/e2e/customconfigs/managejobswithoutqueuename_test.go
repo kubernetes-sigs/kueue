@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/sparkapplication"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -883,6 +884,12 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName with ManagedJobsNamespaceSel
 					Values:   []string{ns.Name, "kueue-system", "kube-system"},
 				}},
 			}
+			// SparkApplication integration is behind the SparkApplicationIntegration feature gate(currently alpha).
+			// So, we ensure to remove the integration if the feature gate is disabled in the config
+			// to avoid validation error for the SparkApplication integration enablement.
+			cfg.Integrations.Frameworks = slices.DeleteFunc(cfg.Integrations.Frameworks, func(frameworkName string) bool {
+				return frameworkName == sparkapplication.FrameworkName
+			})
 		})
 	})
 
