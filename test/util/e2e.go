@@ -21,6 +21,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -52,6 +55,8 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	"k8s.io/client-go/tools/portforward"
+	"k8s.io/client-go/transport/spdy"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
@@ -687,4 +692,59 @@ func CreatePrometheusClient(cfg *rest.Config) prometheusv1.API {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	return prometheusv1.NewAPI(client)
+}
+
+// KPortForward establishes a port-forward connection to a pod and returns
+// the local port, a stop channel to close the connection, and any error.
+func KPortForward(cfg *rest.Config, restClient *rest.RESTClient, ns, podName string, remotePort int) (int, chan struct{}, error) {
+	// Find an available local port
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, nil, fmt.Errorf("finding available port: %w", err)
+	}
+	localPort := listener.Addr().(*net.TCPAddr).Port
+	listener.Close()
+
+	// Build the URL to the pod's portforward endpoint
+	url := restClient.Post().
+		Resource("pods").
+		Namespace(ns).
+		Name(podName).
+		SubResource("portforward").
+		URL()
+
+	// Create SPDY transport
+	transport, upgrader, err := spdy.RoundTripperFor(cfg)
+	if err != nil {
+		return 0, nil, fmt.Errorf("creating SPDY round tripper: %w", err)
+	}
+
+	dialer := spdy.NewDialer(upgrader, &http.Client{Transport: transport}, "POST", url)
+
+	// Setup channels
+	stopChan := make(chan struct{})
+	readyChan := make(chan struct{})
+
+	// Port mappings: local:remote
+	ports := []string{fmt.Sprintf("%d:%d", localPort, remotePort)}
+
+	// Create port forwarder
+	pf, err := portforward.New(dialer, ports, stopChan, readyChan, io.Discard, io.Discard)
+	if err != nil {
+		return 0, nil, fmt.Errorf("creating port forwarder: %w", err)
+	}
+
+	// Run in goroutine
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- pf.ForwardPorts()
+	}()
+
+	// Wait for ready or error
+	select {
+	case <-readyChan:
+		return localPort, stopChan, nil
+	case err := <-errChan:
+		return 0, nil, fmt.Errorf("port forward failed: %w", err)
+	}
 }
