@@ -84,6 +84,30 @@ is configured with `name: "cost_center"` and
 `sourceAnnotationKey: "billing.company.com/budget"`, producing
 `custom_budget_code="ABC-123"` in metrics.
 
+**Example configuration:**
+
+```yaml
+metrics:
+  enableClusterQueueResources: true
+  customLabels:
+    - name: "team"                                        # reads from label "team"
+    - name: "env"                                         # reads from label "env"
+    - name: "cost_center"
+      sourceLabelKey: "cost-center"                       # reads from label "cost-center"
+    - name: "budget_code"
+      sourceAnnotationKey: "billing.company.com/budget"   # reads from annotation
+```
+
+Resulting metric:
+
+```
+kueue_cluster_queue_resource_usage{
+  cluster_queue="cq-1", cohort="c", ...,
+  custom_team="platform", custom_env="prod",
+  custom_cost_center="12345",
+  custom_budget_code="ABC-123"} 4.5
+```
+
 ### Risks and Mitigations
 
 **Metric series growth.** Custom labels do not increase active series
@@ -130,37 +154,12 @@ type ControllerMetricsCustomLabel struct {
 
 type ControllerMetrics struct {
     ...
-    EnableClusterQueueResources bool     `json:"enableClusterQueueResources,omitempty"`
-
     // CustomLabels is a list of entries whose values will be added as extra
     // Prometheus labels on ClusterQueue, LocalQueue, and Cohort metrics.
     // +optional
+    // +kubebuilder:validation:MaxItems=8
     CustomLabels []ControllerMetricsCustomLabel `json:"customLabels,omitempty"`
 }
-```
-
-Example configuration:
-
-```yaml
-metrics:
-  enableClusterQueueResources: true
-  customLabels:
-    - name: "team"                                        # reads from label "team"
-    - name: "env"                                         # reads from label "env"
-    - name: "cost_center"
-      sourceLabelKey: "cost-center"                       # reads from label "cost-center"
-    - name: "budget_code"
-      sourceAnnotationKey: "billing.company.com/budget"   # reads from annotation
-```
-
-Resulting metric (existing labels truncated with `...`):
-
-```
-kueue_cluster_queue_resource_usage{
-  cluster_queue="cq-1", cohort="c", ...,
-  custom_team="platform", custom_env="prod",
-  custom_cost_center="12345",
-  custom_budget_code="ABC-123"} 4.5
 ```
 
 ### Label Name Validation
@@ -321,15 +320,29 @@ committing the changes necessary to implement this enhancement.
 
 ### Graduation Criteria
 
-**Alpha (v0.17)**: Feature gate `CustomMetricLabels` (disabled by default),
-config field, ClusterQueue, LocalQueue, and Cohort metrics support,
-validation, tests, docs. LocalQueue custom labels require the
-`LocalQueueMetrics` gate to also be enabled (still alpha); otherwise
-only ClusterQueue and Cohort metrics carry custom labels.
+**Alpha**
 
-**Beta**: Positive feedback, gate defaults to enabled.
+- Feature gate `CustomMetricLabels` (disabled by default).
+- Configuration field `customLabels` under `metrics`.
+- Custom labels applied to ClusterQueue, LocalQueue, and Cohort metrics.
+- LocalQueue custom labels require the `LocalQueueMetrics` gate to also
+  be enabled (still alpha); otherwise only ClusterQueue and Cohort
+  metrics carry custom labels.
+- Startup validation and tests.
+- Documentation.
 
-**GA**: No open bugs, gate locked on.
+**Beta**
+
+- Positive feedback from users.
+- Gate defaults to enabled.
+- Re-evaluate whether to support a `SourceKinds` parameter (e.g.,
+  `["ClusterQueue", "LocalQueue", "Cohort", "Workload"]`) to let admins
+  select which object types carry custom labels.
+
+**GA**
+
+- Address all reported bugs.
+- Gate locked on.
 
 ## Implementation History
 
