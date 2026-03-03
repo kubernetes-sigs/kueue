@@ -181,7 +181,7 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	// Forcefully delete the pod object
 	if err = r.client.Delete(ctx, pod, &client.DeleteOptions{GracePeriodSeconds: ptr.To(int64(0))}); err != nil {
-		return ctrl.Result{}, err
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	return ctrl.Result{}, nil
