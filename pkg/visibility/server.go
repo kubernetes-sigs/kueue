@@ -98,7 +98,7 @@ func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manage
 	return nil
 }
 
-func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, enableInternalCertManagement bool, tlsOpts *tlsconfig.TLS, apiServerFlags string) error {
+func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, enableInternalCertManagement bool, tlsOpts *tlsconfig.TLS, visibilityServerFlags string) error {
 	o := genericoptions.NewRecommendedOptions("", codecs.LegacyCodec(
 		visibilityv1beta2.SchemeGroupVersion,
 		visibilityv1beta1.SchemeGroupVersion,
@@ -106,13 +106,13 @@ func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, en
 	o.Etcd = nil
 	o.SecureServing.BindPort = 8082
 
-	if apiServerFlags != "" {
+	if visibilityServerFlags != "" {
 		fs := pflag.NewFlagSet("visibility-server", pflag.ContinueOnError)
 		o.AddFlags(fs)
 
-		args := strings.Fields(apiServerFlags)
+		args := strings.Fields(visibilityServerFlags)
 		if err := fs.Parse(args); err != nil {
-			return fmt.Errorf("failed to parse api-server-flags: %w", err)
+			return fmt.Errorf("failed to parse visibility-server-flags: %w", err)
 		}
 	}
 
