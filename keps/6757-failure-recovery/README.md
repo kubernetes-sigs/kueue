@@ -84,7 +84,7 @@ In particular, `Job`-based `Workload`s with `podReplacementPolicy: Failed` are u
 
 * Introduce a controller that moves zombie `Pod`s into the `Failed` phase and forcefully deletes them.
   * The controller is enabled via a feature gate.
-* Introduce a `kueue.x-k8s.io/safe-to-forcefully-terminate` annotation that limits which pods are affected by the new controller.
+* Introduce a `kueue.x-k8s.io/safe-to-forcefully-delete` annotation that limits which pods are affected by the new controller.
 
 ### User Stories (Optional)
 
@@ -122,7 +122,7 @@ Controlling the covered workloads, instead of applying the recovery globally, wi
 
 In order to allow the first adopters to control which pods are affected by the new controller, a new `Pod` annotation will be introduced:
 ```yaml
-kueue.x-k8s.io/safe-to-forcefully-terminate: "true"
+kueue.x-k8s.io/safe-to-forcefully-delete: "true"
 ```
 
 Only pods containing the new annotation will be affected by the controller, for example:
@@ -141,7 +141,7 @@ spec:
   template:
     metadata:
       annotations:
-        kueue.x-k8s.io/safe-to-forcefully-terminate: "true"  // <- new annotation
+        kueue.x-k8s.io/safe-to-forcefully-delete: "true"  // <- new annotation
     spec:
       containers:
       - name: dummy-job
@@ -181,7 +181,7 @@ spec:
 status:
   conditions:
   # grace period = `terminationGracePeriodSeconds` + 60s (default threshold in the KEP)
-  - message: 'Pod forcefully terminated after 90s grace period due to unreachable node `node-a` (triggered by `kueue.x-k8s.io/safe-to-forcefully-terminate annotation`)'
+  - message: 'Pod forcefully terminated after 90s grace period due to unreachable node `node-a` (triggered by `kueue.x-k8s.io/safe-to-forcefully-delete annotation`)'
     reason: KueueForcefullyTerminated
     status: "True"
     type: KueueFailureRecovery
@@ -199,7 +199,7 @@ involvedObject:
   kind: Pod
   name: pod-a
   namespace: default
-message: 'Pod forcefully terminated after 90s grace period due to unreachable node `node-a` (triggered by `kueue.x-k8s.io/safe-to-forcefully-terminate annotation`)'
+message: 'Pod forcefully terminated after 90s grace period due to unreachable node `node-a` (triggered by `kueue.x-k8s.io/safe-to-forcefully-delete annotation`)'
 reason: KueueForcefullyTerminated
 reportingComponent: pod-termination-controller
 source:
@@ -215,7 +215,7 @@ The controller has to **ignore** updates to pods that:
     * `pod.DeletionTimestamp == nil`
 1. Are in a terminal phase.
     * `pod.Status.Phase != corev1.PodRunning && pod.Status.Phase != corev1.PodPending`
-1. Are not annotated with the new `kueue.x-k8s.io/safe-to-forcefully-terminate` annotation.
+1. Are not annotated with the new `kueue.x-k8s.io/safe-to-forcefully-delete` annotation.
 1. Are **not** scheduled on a node tainted with `node.kubernetes.io/unreachable`.
     * This explicitly ignores pods assigned to nodes that still have a running kubelet.
     For example, nodes with the `node.kubernetes.io/not-ready` taint experiencing resource pressure
