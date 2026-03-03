@@ -17,6 +17,8 @@ limitations under the License.
 package customconfigse2e
 
 import (
+	"slices"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
@@ -29,6 +31,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/sparkapplication"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -81,6 +84,12 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Ordered, ginkgo.Contin
 			cfg.FeatureGates = nil
 			cfg.ObjectRetentionPolicies = nil
 			cfg.WaitForPodsReady = waitForPodsReady.DeepCopy()
+			// SparkApplication integration is behind the SparkApplicationIntegration feature gate(currently alpha).
+			// So, we ensure to remove the integration if the feature gate is disabled in the config
+			// to avoid validation error for the SparkApplication integration enablement.
+			cfg.Integrations.Frameworks = slices.DeleteFunc(cfg.Integrations.Frameworks, func(frameworkName string) bool {
+				return frameworkName == sparkapplication.FrameworkName
+			})
 		})
 
 		job := testingjob.MakeJob("job", ns.Name).
@@ -114,6 +123,12 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Ordered, ginkgo.Contin
 					},
 				}
 				cfg.WaitForPodsReady = waitForPodsReady.DeepCopy()
+				// SparkApplication integration is behind the SparkApplicationIntegration feature gate(currently alpha).
+				// So, we ensure to remove the integration if the feature gate is disabled in the config
+				// to avoid validation error for the SparkApplication integration enablement.
+				cfg.Integrations.Frameworks = slices.DeleteFunc(cfg.Integrations.Frameworks, func(frameworkName string) bool {
+					return frameworkName == sparkapplication.FrameworkName
+				})
 			})
 		})
 
@@ -149,6 +164,12 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Order
 					AfterDeactivatedByKueue: &metav1.Duration{Duration: util.TinyTimeout},
 				},
 			}
+			// SparkApplication integration is behind the SparkApplicationIntegration feature gate(currently alpha).
+			// So, we ensure to remove the integration if the feature gate is disabled in the config
+			// to avoid validation error for the SparkApplication integration enablement.
+			cfg.Integrations.Frameworks = slices.DeleteFunc(cfg.Integrations.Frameworks, func(frameworkName string) bool {
+				return frameworkName == sparkapplication.FrameworkName
+			})
 		})
 	})
 
@@ -290,6 +311,12 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout and RequeuingL
 					BackoffLimitCount:  ptr.To(int32(1)),
 				},
 			}
+			// SparkApplication integration is behind the SparkApplicationIntegration feature gate(currently alpha).
+			// So, we ensure to remove the integration if the feature gate is disabled in the config
+			// to avoid validation error for the SparkApplication integration enablement.
+			cfg.Integrations.Frameworks = slices.DeleteFunc(cfg.Integrations.Frameworks, func(frameworkName string) bool {
+				return frameworkName == sparkapplication.FrameworkName
+			})
 		})
 	})
 
