@@ -1,4 +1,4 @@
-title: AdmissionGatedBy annotation to gate admission by external controllers
+title: AdmissionGatedBy annotation to prevent admission immediately after creation
 kep-number: 6915
 authors:
   - "@VassilisVassiliadis"

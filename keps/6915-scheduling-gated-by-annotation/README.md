@@ -1,4 +1,4 @@
-# KEP-6915: AdmissionGatedBy annotation to gate admission by external controllers
+# KEP-6915: AdmissionGatedBy annotation to prevent admission immediately after creation
 
 <!--
 This is the title of your KEP. Keep it short, simple, and descriptive. A good
