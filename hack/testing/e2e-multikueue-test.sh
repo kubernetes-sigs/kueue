@@ -86,7 +86,7 @@ for job in $(jobs -p); do wait "$job" || { echo "Cluster creation failed!"; exit
 kind_load "$MANAGER_KIND_CLUSTER_NAME" "$MANAGER_KUBECONFIG" &
 kind_load "$WORKER1_KIND_CLUSTER_NAME" "$WORKER1_KUBECONFIG" &
 kind_load "$WORKER2_KIND_CLUSTER_NAME" "$WORKER2_KUBECONFIG" &
-for job in $(jobs -p); do wait "$job" || { echo "Library installation failed!"; exit 1; } done # wait for libraries installation
+for job in $(jobs -p); do wait "$job" || { echo "Dependency installation failed!"; exit 1; } done # wait for dependency installation
 echo "Add contexts to default kubeconfig"
 $KIND export kubeconfig --name "$MANAGER_KIND_CLUSTER_NAME"
 $KIND export kubeconfig --name "$WORKER1_KIND_CLUSTER_NAME"
