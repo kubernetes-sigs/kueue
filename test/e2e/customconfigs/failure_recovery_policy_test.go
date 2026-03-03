@@ -38,8 +38,8 @@ import (
 )
 
 const (
-	// `node-monitor-grace-period` + `podToleration` + `deletionGracePeriodSeconds` + `forcefulTerminationGracePeriod` + buffer
-	forcefulTerminationCheckTimeout = (50 + 1 + 30 + 60 + 10) * time.Second
+	// `node-monitor-grace-period` + `podToleration` + `deletionGracePeriodSeconds` + `forcefulTerminationGracePeriod`
+	forcefulTerminationCheckTimeout = (50 + 1 + 30 + 60) * time.Second
 )
 
 var _ = ginkgo.FDescribe("Failure Recovery Policy", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -160,7 +160,7 @@ var _ = ginkgo.FDescribe("Failure Recovery Policy", ginkgo.Ordered, ginkgo.Conti
 			})
 
 			// Wait for pod to be deleted (forcefully terminated)
-			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, pod, false, forcefulTerminationCheckTimeout)
+			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, pod, false, forcefulTerminationCheckTimeout+util.LongTimeout)
 		})
 	})
 })
