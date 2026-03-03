@@ -524,7 +524,7 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 			Suspend(false).
 			Obj()
 		gomega.Expect(ctrl.SetControllerReference(parentJob, childJob, k8sClient.Scheme())).To(gomega.Succeed())
-		util.MustCreate(ctx, k8sClient, childJob)
+		util.MustCreateWithRetry(ctx, k8sClient, childJob)
 
 		ginkgo.By("checking that the child job is suspended")
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -547,7 +547,7 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 			Suspend(false).
 			Obj()
 		gomega.Expect(ctrl.SetControllerReference(parentJob, childJob, k8sClient.Scheme())).To(gomega.Succeed())
-		util.MustCreate(ctx, k8sClient, childJob)
+		util.MustCreateWithRetry(ctx, k8sClient, childJob)
 
 		ginkgo.By("Checking that the child job isn't suspended")
 		gomega.Eventually(func(g gomega.Gomega) {
