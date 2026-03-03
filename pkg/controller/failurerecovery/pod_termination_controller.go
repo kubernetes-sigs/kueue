@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
 )
@@ -208,13 +209,13 @@ func podEligibleForTermination(p *corev1.Pod) bool {
 		return false
 	}
 
-	// Do not filter out `corev1.PodFailed` to handle partial failure of the controller
-	// (pod marked as failed, but not deleted).
-	if p.Status.Phase == corev1.PodSucceeded {
-		return false
-	}
+	// Do not filter out partially terminated (condition set, but not deleted) pods to handle
+	// partial executions of the controller caused by errors (for example network errors).
+	return isPodPartiallyForcefullyTerminated(p) || !utilpod.IsTerminated(p)
+}
 
-	return true
+func isPodPartiallyForcefullyTerminated(p *corev1.Pod) bool {
+	return utilpod.HasCondition(p, &corev1.PodCondition{Type: KueueFailureRecoveryConditionType, Status: corev1.ConditionTrue})
 }
 
 const ControllerName = "failure-recovery-pod-termination-controller"
