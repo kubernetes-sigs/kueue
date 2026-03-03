@@ -20,6 +20,8 @@
     - [Integration tests](#integration-tests)
     - [e2e tests](#e2e-tests)
   - [Graduation Criteria](#graduation-criteria)
+    - [Alpha (v0.17)](#alpha-v017)
+    - [Beta (v0.18)](#beta-v018)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
@@ -28,11 +30,22 @@
 
 ## Summary
 
-This KEP introduces the `PodIntegrationFastQuotaRelease` feature gate to align
-the Pod integration's quota release behavior with other integrations (e.g.,
-batch/v1 Job). When enabled, quota from "plain pods" are released as soon as the
-pods are terminating (i.e. has a `deletionTimestamp`), rather than waiting for pods
-to fully terminate.
+This KEP introduces two feature gates to give users control over when the Pod
+integration releases quota:
+
+- `FastQuotaRelease`: Aligns the Pod integration's quota release behavior with
+  other integrations (e.g., batch/v1 Job). When enabled, quota from "plain pods"
+  is released as soon as the pods are terminating (i.e. have a
+  `deletionTimestamp`), rather than waiting for pods to fully terminate.
+- `DelayedQuotaRelease`: Preserves the current Pod integration behavior where
+  quota is only released once all pods have reached a terminal phase
+  (`Succeeded` or `Failed`). This is important for fixed-size clusters where
+  strict quota management is required.
+
+Both feature gates are introduced as Alpha (disabled by default) in v0.17. In
+v0.18, these feature gates will be replaced by configuration knobs in the
+Kueue Configuration API, allowing cluster administrators to select the
+appropriate quota release mode for their environment.
 
 This addresses a consistency gap where the Job integration is considered not active
 as soon as `status.active == 0` on the job, and the Kubernetes job controller considers
@@ -59,19 +72,28 @@ Ultimately, this behavioral inconsistency between integrations leads to:
 
 ### Goals
 
-- Align the Pod integration's quota release behavior with the Job integration
-- Release quota for Pod workloads as soon as all Pods have a
-  `deletionTimestamp`, without waiting for Pods to reach a terminal phase.
-- Provide a feature gate (`PodIntegrationFastQuotaRelease`) to control this behavior.
-- Target Beta in v0.17, with backports as Alpha to v0.15 and v0.16.
+- Provide two quota release modes for the Pod integration:
+  - **Fast quota release** (`FastQuotaRelease`): Release quota as soon as all
+    Pods have a `deletionTimestamp`, aligning with current Job integration
+    behavior.
+  - **Delayed quota release** (`DelayedQuotaRelease`): Release quota only after
+    all Pods have reached a terminal phase, preserving strict quota tracking for
+    fixed-size clusters.
+- Introduce both modes behind feature gates in v0.17 (Alpha, disabled by default).
+- Convert feature gates into configuration knobs in the Kueue Configuration API
+  in v0.18 (Beta).
 
 ### Non-Goals
 
 ## Proposal
 
+Introduce two mutually exclusive quota release modes for the Pod integration,
+each controlled by a feature gate:
+
+**`FastQuotaRelease` (Alpha, disabled by default)**
+
 Modify the Pod integration's `IsActive()` method to treat Pods with a
-`deletionTimestamp` as inactive when the `PodIntegrationFastQuotaRelease`
-feature gate is enabled. This means:
+`deletionTimestamp` as inactive. This means:
 
 - A Pod with a `deletionTimestamp` is considered inactive, regardless of its
   current phase (including `Running`).
@@ -83,6 +105,18 @@ feature gate is enabled. This means:
 This aligns with how the Kubernetes Job controller handles its `status.active`
 field: a Pod is no longer counted as active as soon as it has a
 `deletionTimestamp`, even if it is still running.
+
+**`DelayedQuotaRelease` (Alpha, disabled by default)**
+
+When enabled, this explicitly preserves and formalizes the current Pod
+integration behavior: quota is only released once all Pods in the workload
+have reached a terminal phase (`Succeeded` or `Failed`). This mode exists to
+provide strict quota tracking for environments (e.g., fixed-size clusters
+without autoscaling) where temporary quota oversubscription is not acceptable.
+
+When neither feature gate is enabled, the current default behavior is retained
+(delayed quota release). When both feature gates are enabled, `FastQuotaRelease`
+takes precedence.
 
 ### User Stories
 
@@ -105,24 +139,27 @@ within a reasonable amount of time.
 
 ### Risks and Mitigations
 
-**Risk**: This could cause an increase in node churn if the cluster autoscaler
-is being used. While pods are pending, the cluster autoscaler may trigger scale-up
-even though pods could be terminating on existing nodes.
+**Risk**: `FastQuotaRelease` could cause an increase in node churn if the
+cluster autoscaler is being used. While pods are pending, the cluster
+autoscaler may trigger scale-up even though pods could be terminating on
+existing nodes.
 
 **Mitigation**: This is the same behavior that already exists for the Job
 integration and other integrations, so it's a well established/understood
-behavior. Furthermore, the feature is behind a feature gate if the change in
-behavior proves problematic.
+behavior. Users on fixed-size clusters can use `DelayedQuotaRelease` to
+maintain strict quota tracking.
 
-**Risk**: If a pod gets "stuck" in a terminating state for whatever reason,
-there may be a discrepancy in the amount of quota available and the amount
-of resources available on the kubernetes cluster.
+**Risk**: With `FastQuotaRelease`, if a pod gets "stuck" in a terminating
+state, there may be a discrepancy between the amount of quota available and the
+actual resources available on the cluster. In fixed-size clusters where the sum
+of nominal quotas strictly equals cluster capacity, this can cause temporary
+capacity oversubscription.
 
-**Mitigation**: This is the same behavior that already exists for the Job
-integration and other integrations, so it's a well established/understood
-behavior. Additionally, [setup failure recovery](https://kueue.sigs.k8s.io/docs/tasks/manage/setup_failure_recovery/)
+**Mitigation**: Users who require strict quota management should use
+`DelayedQuotaRelease`. Additionally, [setup failure recovery](https://kueue.sigs.k8s.io/docs/tasks/manage/setup_failure_recovery/)
 provides a failure recovery mechanism that automatically transitions
-pods into the Failed phase when they are assigned to unreachable nodes and stuck terminating.
+pods into the Failed phase when they are assigned to unreachable nodes and stuck
+terminating.
 
 ## Design Details
 
@@ -131,9 +168,12 @@ The change is scoped to the Pod controller in
 
 ### `IsActive()` modification
 
-When the `PodIntegrationFastQuotaRelease` feature gate is enabled, the
-`IsActive()` method is modified to treat any Pod with a `deletionTimestamp` as
-inactive:
+When the `FastQuotaRelease` feature gate is enabled, the `IsActive()` method is
+modified to treat any Pod with a `deletionTimestamp` as inactive.
+
+When the `DelayedQuotaRelease` feature gate is enabled (or neither gate is
+enabled), the existing behavior is preserved: a Pod is only considered inactive
+once it has reached a terminal phase (`Succeeded` or `Failed`).
 
 ### Reconciliation flow
 
@@ -158,11 +198,13 @@ None.
 
 #### Unit tests
 
-- `pkg/controller/jobs/pod`: Test `IsActive()` with the feature gate enabled
-  and disabled, covering:
-  - Pod with `deletionTimestamp` and feature gate enabled returns inactive.
-  - Pod with `deletionTimestamp` and feature gate disabled returns active
-    (unless past grace period).
+- `pkg/controller/jobs/pod`: Test `IsActive()` with each feature gate
+  combination, covering:
+  - Pod with `deletionTimestamp` and `FastQuotaRelease` enabled returns inactive.
+  - Pod with `deletionTimestamp` and `DelayedQuotaRelease` enabled returns
+    active (unless in terminal phase).
+  - Pod with `deletionTimestamp` and neither gate enabled preserves current
+    behavior.
   - Mixed groups with some terminating and some running Pods.
   - Single Pod (non-group) behavior.
 
@@ -181,13 +223,30 @@ None.
 
 ### Graduation Criteria
 
+#### Alpha (v0.17)
+
+- `FastQuotaRelease` feature gate (disabled by default)
+- `DelayedQuotaRelease` feature gate (disabled by default)
+- Unit and integration tests covering both modes
+- e2e tests for fast quota release preemption scenario
+- Backport to v0.15 and v0.16 with feature gates disabled by default
+
+#### Beta (v0.18)
+
+- Replace feature gates with configuration knobs in the Kueue Configuration API
+  to select the quota release mode
+- `FastQuotaRelease` enabled by default
+- Address feedback from Alpha users
+- Evaluate whether to extend the configuration to other integrations (e.g., Job)
+
 ## Implementation History
 
 ## Drawbacks
 
-- Adds a feature gate for a relatively small behavioral change. However, this
-  is warranted because it changes when resources are released, which could
-  affect scheduling behavior in surprising ways for some users.
+- Introduces two feature gates for a relatively small behavioral change.
+  However, this is warranted because different cluster environments (autoscaled
+  vs. fixed-size) have different requirements for when quota should be released.
+  The two modes give administrators explicit control over this trade-off.
 
 ## Alternatives
 

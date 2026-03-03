@@ -16,16 +16,17 @@ approvers:
 see-also:
   - "/keps/976-plain-pods"
 
-stage: beta
+stage: alpha
 latest-milestone: "v0.17"
 
 milestone:
-  alpha: "v0.15"
-  beta: "v0.17"
+  alpha: "v0.17"
+  beta: "v0.18"
   stable:
 
 feature-gates:
-  - name: PodIntegrationFastQuotaRelease
+  - name: FastQuotaRelease
+  - name: DelayedQuotaRelease
 disable-supported: true
 
 metrics:
