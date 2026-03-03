@@ -90,88 +90,6 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
-	ginkgo.When("manageJobsWithoutQueueName=true and ManagedJobsNamespaceSelectorAlwaysRespected=false", func() {
-		ginkgo.BeforeEach(func() {
-			util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
-				cfg.ManageJobsWithoutQueueName = true
-				cfg.FeatureGates = map[string]bool{string(features.ManagedJobsNamespaceSelectorAlwaysRespected): false}
-				cfg.ManagedJobsNamespaceSelector = &metav1.LabelSelector{
-					MatchExpressions: []metav1.LabelSelectorRequirement{
-						{
-							Key:      "kubernetes.io/metadata.name",
-							Operator: metav1.LabelSelectorOpNotIn,
-							Values:   []string{ns.Name, "kueue-system", "kube-system"},
-						},
-					},
-				}
-			})
-		})
-		ginkgo.AfterEach(func() {
-			util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
-				cfg.ManageJobsWithoutQueueName = true
-			})
-		})
-
-		ginkgo.It("should not suspend Jobs from unmanaged JobSet", func() {
-			var newJobSet *v1alpha2.JobSet
-
-			ginkgo.By("creating a JobSet", func() {
-				newJobSet = testingjobset.MakeJobSet("job-set", ns.Name).
-					Suspend(false).
-					ReplicatedJobs(
-						testingjobset.ReplicatedJobRequirements{
-							Name:        "test-job-1",
-							Replicas:    1,
-							Parallelism: 1,
-							Completions: 1,
-							Image:       util.GetAgnHostImage(),
-							Args:        util.BehaviorExitFast,
-						},
-						testingjobset.ReplicatedJobRequirements{
-							Name:        "test-job-2",
-							Replicas:    1,
-							Parallelism: 1,
-							Completions: 1,
-							Image:       util.GetAgnHostImage(),
-							Args:        util.BehaviorExitFast,
-						},
-					).Obj()
-				util.MustCreate(ctx, k8sClient, newJobSet)
-			})
-
-			ginkgo.By("verifying that the jobs are not suspended", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					jobs := &batchv1.JobList{}
-					g.Expect(k8sClient.List(ctx, jobs, client.InNamespace(ns.Name))).To(gomega.Succeed())
-					g.Expect(jobs.Items).To(gomega.HaveLen(2))
-					for _, job := range jobs.Items {
-						g.Expect(job.Spec.Suspend).To(gomega.HaveValue(gomega.BeFalse()))
-					}
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("verifying that the jobs are complete", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					jobs := &batchv1.JobList{}
-					g.Expect(k8sClient.List(ctx, jobs, client.InNamespace(ns.Name))).To(gomega.Succeed())
-					g.Expect(jobs.Items).To(gomega.HaveLen(2))
-					for _, job := range jobs.Items {
-						g.Expect(job.Spec.Suspend).To(gomega.HaveValue(gomega.BeFalse()))
-						g.Expect(job.Status.Succeeded).To(gomega.Equal(int32(1)))
-					}
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("verifying that the jobset is completed", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					createjobset := &v1alpha2.JobSet{}
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(newJobSet), createjobset)).To(gomega.Succeed())
-					g.Expect(createjobset.Status.TerminalState).To(gomega.Equal(string(v1alpha2.JobSetCompleted)))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-			})
-		})
-	})
-
 	ginkgo.When("manageJobsWithoutQueueName=true", func() {
 		ginkgo.It("should not suspend a job", func() {
 			var testJob, createdJob *batchv1.Job
@@ -217,9 +135,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
-	})
 
-	ginkgo.When("manageJobsWithoutQueueName=true", func() {
 		ginkgo.It("should suspend a job", func() {
 			var testJob, createdJob *batchv1.Job
 			var jobLookupKey types.NamespacedName
@@ -928,6 +844,110 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 					g.Expect(k8sClient.Get(ctx, util.WorkloadKeyForLeaderWorkerSet(lws, "0"), createdWorkload)).To(utiltesting.BeNotFoundError())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
+		})
+	})
+})
+
+var _ = ginkgo.Describe("ManageJobsWithoutQueueName with ManagedJobsNamespaceSelectorAlwaysRespected=false", func() {
+	var (
+		ns           *corev1.Namespace
+		defaultRf    *kueue.ResourceFlavor
+		localQueue   *kueue.LocalQueue
+		clusterQueue *kueue.ClusterQueue
+	)
+
+	ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
+
+		defaultRf = utiltestingapi.MakeResourceFlavor("default").Obj()
+		util.MustCreate(ctx, k8sClient, defaultRf)
+
+		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas(defaultRf.Name).
+					Resource(corev1.ResourceCPU, "2").
+					Resource(corev1.ResourceMemory, "2G").Obj()).Obj()
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+
+		localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+
+		// Unfortunately, we can't move it to BeforeAll, due to we need to know the namespace name.
+		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
+			cfg.ManageJobsWithoutQueueName = true
+			cfg.FeatureGates = map[string]bool{string(features.ManagedJobsNamespaceSelectorAlwaysRespected): false}
+			cfg.ManagedJobsNamespaceSelector = &metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{{
+					Key:      "kubernetes.io/metadata.name",
+					Operator: metav1.LabelSelectorOpNotIn,
+					Values:   []string{ns.Name, "kueue-system", "kube-system"},
+				}},
+			}
+		})
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, clusterQueue, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, defaultRf, true, util.LongTimeout)
+		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+	})
+
+	ginkgo.It("should not suspend Jobs from unmanaged JobSet", func() {
+		jobSet := testingjobset.MakeJobSet("job-set", ns.Name).
+			Suspend(false).
+			ReplicatedJobs(
+				testingjobset.ReplicatedJobRequirements{
+					Name:        "test-job-1",
+					Replicas:    1,
+					Parallelism: 1,
+					Completions: 1,
+					Image:       util.GetAgnHostImage(),
+					Args:        util.BehaviorExitFast,
+				},
+				testingjobset.ReplicatedJobRequirements{
+					Name:        "test-job-2",
+					Replicas:    1,
+					Parallelism: 1,
+					Completions: 1,
+					Image:       util.GetAgnHostImage(),
+					Args:        util.BehaviorExitFast,
+				},
+			).Obj()
+
+		ginkgo.By("creating a JobSet", func() {
+			util.MustCreate(ctx, k8sClient, jobSet)
+		})
+
+		jobs := &batchv1.JobList{}
+
+		ginkgo.By("verifying that the jobs are not suspended", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.List(ctx, jobs, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				g.Expect(jobs.Items).To(gomega.HaveLen(2))
+				for _, job := range jobs.Items {
+					g.Expect(job.Spec.Suspend).To(gomega.HaveValue(gomega.BeFalse()))
+				}
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verifying that the jobs are completed", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.List(ctx, jobs, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				g.Expect(jobs.Items).To(gomega.HaveLen(2))
+				for _, job := range jobs.Items {
+					g.Expect(job.Spec.Suspend).To(gomega.HaveValue(gomega.BeFalse()))
+					g.Expect(job.Status.Succeeded).To(gomega.Equal(int32(1)))
+				}
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verifying that the JobSet is completed", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdJobSet := &v1alpha2.JobSet{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(jobSet), createdJobSet)).To(gomega.Succeed())
+				g.Expect(createdJobSet.Status.TerminalState).To(gomega.Equal(string(v1alpha2.JobSetCompleted)))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })
