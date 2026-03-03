@@ -1,4 +1,4 @@
-# KEP-6915: SchedulingGatedBy annotation to prevent scheduling immediately after creation
+# KEP-6915: AdmissionGatedBy annotation to gate admission by external controllers
 
 <!--
 This is the title of your KEP. Keep it short, simple, and descriptive. A good
@@ -25,9 +25,10 @@ tags, and then generate with `hack/update-toc.sh`.
   - [Behavior](#behavior)
   - [User Stories](#user-stories)
     - [Story 1](#story-1)
+    - [Story 2](#story-2)
   - [Notes/Constraints/Caveats](#notesconstraintscaveats)
     - [batch/v1 Job readinessGates discussion](#batchv1-job-readinessgates-discussion)
-    - [Adding SchedulingGatedBy is only possible in Job creations](#adding-schedulinggatedby-is-only-possible-in-job-creations)
+    - [Adding AdmissionGatedBy is only possible in Job creations](#adding-admissiongatedby-is-only-possible-in-job-creations)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [Implementation](#implementation)
@@ -36,24 +37,24 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Unit Tests](#unit-tests)
     - [Integration tests](#integration-tests)
       - [Toggle Workload Creation via Annotation Removal](#toggle-workload-creation-via-annotation-removal)
-      - [Forbid adding SchedulingGatedBy post creation](#forbid-adding-schedulinggatedby-post-creation)
-      - [Forbid modifying SchedulingGatedBy to add controller names post creation](#forbid-modifying-schedulinggatedby-to-add-controller-names-post-creation)
-      - [Forbid modifying SchedulingGatedBy to swap controller names post creation](#forbid-modifying-schedulinggatedby-to-swap-controller-names-post-creation)
-      - [Allow removing 1 SchedulingGatedBy controller name post creation](#allow-removing-1-schedulinggatedby-controller-name-post-creation)
-      - [Forbid using a SchedulingGatedBy that is not domain-like](#forbid-using-a-schedulinggatedby-that-is-not-domain-like)
+      - [Forbid adding AdmissionGatedBy post creation](#forbid-adding-admissiongatedby-post-creation)
+      - [Forbid modifying AdmissionGatedBy to add controller names post creation](#forbid-modifying-admissiongatedby-to-add-controller-names-post-creation)
+      - [Forbid modifying AdmissionGatedBy to swap controller names post creation](#forbid-modifying-admissiongatedby-to-swap-controller-names-post-creation)
+      - [Allow removing 1 AdmissionGatedBy controller name post creation](#allow-removing-1-admissiongatedby-controller-name-post-creation)
+      - [Forbid using an AdmissionGatedBy that is not domain-like](#forbid-using-an-admissiongatedby-that-is-not-domain-like)
   - [Graduation Criteria](#graduation-criteria)
     - [Alpha](#alpha)
     - [Beta](#beta)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
-  - [JSON values for SchedulingGatedBy annotation](#json-values-for-schedulinggatedby-annotation)
+  - [JSON values for AdmissionGatedBy annotation](#json-values-for-admissiongatedby-annotation)
   - [Label-based Activation/Deactivation Approach](#label-based-activationdeactivation-approach)
     - [Job Controller State Transitions](#job-controller-state-transitions)
     - [Workload Controller State Transitions](#workload-controller-state-transitions)
     - [Usage Pattern](#usage-pattern)
     - [Why This Approach is Deferred](#why-this-approach-is-deferred)
-    - [What are the benefit of this approach over SchedulingGatedBy](#what-are-the-benefit-of-this-approach-over-schedulinggatedby)
+    - [What are the benefit of this approach over AdmissionGatedBy](#what-are-the-benefit-of-this-approach-over-admissiongatedby)
   - [Admission policy-based activation or queue-level configuration](#admission-policy-based-activation-or-queue-level-configuration)
   - [Direct Workload Interaction](#direct-workload-interaction)
 <!-- /toc -->
@@ -79,9 +80,22 @@ updates.
 [documentation style guide]: https://github.com/kubernetes/community/blob/master/contributors/guide/style-guide.md
 -->
 
-Introduce annotation `kueue.x-k8s.io/scheduling-gated-by` on supported Job-like objects to defer Workload scheduling. The annotation value must specify a controller name in a domain-prefixed path (e.g., `example.com/mygate`), similar to the `spec.managedBy` field in Jobs, which requires that all characters before the first "/" must be a valid subdomain as defined by RFC 1123 and all characters trailing the first "/" must follow RFC 3986. Multiple controllers can be listed by separating them with commas, for example: `kueue.x-k8s.io/scheduling-gated-by: example.com/alpha,example.com/beta`.
+Introduce annotation `kueue.x-k8s.io/admission-gated-by` on supported Job-like
+objects to defer Kueue's admission logic. The annotation value must specify a
+controller name in a domain-prefixed path (e.g., `example.com/mygate`), similar
+to the `spec.managedBy` field in Jobs, which requires that all characters
+before the first "/" must be a valid subdomain as defined by RFC 1123 and all
+characters trailing the first "/" must follow RFC 3986. Multiple controllers
+can be listed by separating them with commas, for example: 
 
-When present, Kueue does not create a Workload object for the Job, consistent with the existing `JobWithSkip` interface behavior. Removing the annotation enables Kueue to create the Workload and proceed with normal admission and scheduling flow. For the alpha release, the annotation can only be set at Job creation time and cannot be added later; it can only be removed or modified to remove 1 or more controller names.
+`kueue.x-k8s.io/admission-gated-by: example.com/alpha,example.com/beta`.
+
+When present, Kueue does not create a Workload object for the Job, consistent
+with the existing `JobWithSkip` interface behavior. Removing the annotation
+enables Kueue to create the Workload and proceed with normal admission and
+scheduling flow. For the alpha release, the annotation can only be set at Job
+creation time and cannot be added later; it can only be removed or modified to
+remove 1 or more controller names.
 
 ## Motivation
 
@@ -94,15 +108,28 @@ demonstrate the interest in a KEP within the wider Kubernetes community.
 [experience reports]: https://github.com/golang/go/wiki/ExperienceReports
 -->
 
-Kueue’s mutating webhook immediately suspends any Job it manages. For Job types that support native suspension (e.g., `Job`, `PyTorchJob`, etc), Kueue enforces this by setting `spec.suspend=true`. By taking ownership of the suspension fields in the Job APIs it manages, Kueue ensures that all such Jobs remain suspended until they pass its standard admission checks. Once Kueue observes the creation of a managed Job, it creates the corresponding Workload object and begins considering the Job for admission.
+Kueue’s mutating webhook immediately suspends any Job it manages. For Job types
+that support native suspension (e.g., `Job`, `PyTorchJob`, etc), Kueue enforces
+this by setting `spec.suspend=true`. By taking ownership of the suspension
+fields in the Job APIs it manages, Kueue ensures that all such Jobs remain
+suspended until they pass its standard admission checks. Once Kueue observes
+the creation of a managed Job, it creates the corresponding Workload object and
+begins considering the Job for admission.
 
-This behavior, however, stops users from creating a Job and deferring when Kueue should start considering it for admission. Even if a user initially sets `spec.suspend=true`, Kueue will still consider it for admission and override it after admitting the Job. As a result, there is currently no clean mechanism for users to express the following intent:
+This behavior, however, stops users from creating a Job and deferring when
+Kueue should start considering it for admission. Even if a user initially
+sets `spec.suspend=true`, Kueue will still consider it for admission and 
+override it after admitting the Job. As a result, there is currently no clean 
+mechanism for users to express the following intent:
 
 > Create this Job now, but do not admit it until I explicitly release it.
 
-The proposed `SchedulingGatedBy` annotation fills this gap. 
+The proposed `AdmissionGatedBy` annotation fills this gap.
 
-`SchedulingGatedBy` enables users to declare, only at Job creation time, that the Job’s scheduling should be gated (i.e., ignored by Kueue for admission) while there is at least 1 gate enabled. By removing the gate(s) later, users gain explicit control over when Kueue should begin its standard admission workflow. 
+`AdmissionGatedBy` enables users to declare that the Job's admission should be
+gated (i.e., ignored by Kueue for admission) while there is at least 1 gate 
+enabled. By removing the gate(s) later, users gain explicit control over when
+Kueue should begin its standard admission workflow.
 
 ### Goals
 
@@ -124,7 +151,7 @@ and make progress.
 -->
 
 - New CRDs or scheduler policy changes
-- Supporting adding `SchedulingGatedBy` annotations, excluding Job creation time.
+- Supporting adding `AdmissionGatedBy` annotations, excluding Job creation time.
 
 ## Proposal
 
@@ -139,15 +166,25 @@ nitty-gritty.
 
 ### Behavior
 
-- Kueue managed Jobs can have an annotation `kueue.x-k8s.io/scheduling-gated-by` at creation time
-- The annotation value must conform to a domain-like format (e.g., `example.com/mygate`), similar to the `spec.managedBy` field in Kubernetes Jobs
+- Kueue managed Jobs can have an annotation `kueue.x-k8s.io/admission-gated-by`
+  at creation time
+- The annotation value must conform to a domain-like format 
+  (e.g., `example.com/mygate`), similar to the `spec.managedBy` field in 
+  Kubernetes Jobs
 - **Validation rules (alpha):**
   - Adding the annotation after Job creation is prevented by validation
-  - After creation, the annotation can only be completely removed, or modified to remove one or more controller names
-  - For each controller name, the characters before the first "/" must be a valid subdomain as defined by RFC 1123 and all characters trailing the first "/" must follow RFC 3986.
-- **When annotation is present:** Kueue does not create a Workload object for the Job, consistent with the existing `JobWithSkip` interface behavior when `Skip(ctx)` returns true
-- **When annotation is removed:** Jobs follow the standard Kueue workflow (Workload created immediately)
-- Jobs without the annotation follow the standard Kueue workflow (Workload created immediately)
+  - After creation, the annotation can only be completely removed, or modified
+    to remove one or more controller names
+  - For each controller name, the characters before the first "/" must be a
+    valid subdomain as defined by RFC 1123 and all characters trailing the
+    first "/" must follow RFC 3986.
+- **When annotation is present:** Kueue does not create a Workload object for
+  the Job, consistent with the existing `JobWithSkip` interface behavior when 
+  `Skip(ctx)` returns true
+- **When annotation is removed:** Jobs follow the standard Kueue workflow 
+  (Workload created immediately)
+- Jobs without the annotation follow the standard Kueue workflow (Workload
+  created immediately)
 
 
 ### User Stories
@@ -161,50 +198,52 @@ bogged down.
 
 #### Story 1
 
-A user is preparing a Job but does not want Kueue to admit it yet. They create the Job
-with the annotation `kueue.x-k8s.io/scheduling-gated-by: "example.com/mygate"`.
+A user is preparing a Job but does not want Kueue to admit it yet. They create
+the Job with the annotation `kueue.x-k8s.io/admission-gated-by: "example.com/mygate"`.
 
-Kueue detects the annotation and does not create a Workload object for this Job. The Job
-remains in a gated state, not subject to Kueue's admission checks or scheduling decisions.
+Kueue detects the annotation and does not create a Workload object for this
+Job. The Job remains in a gated state, not subject to Kueue's admission checks
+or scheduling decisions.
 
-Later, when the user is ready for Kueue to manage the Job, they remove the annotation.
+Later, when the user is ready for Kueue to manage the Job, they remove the
+annotation.
 
-Kueue detects the annotation removal, creates the Workload object, and proceeds with
-normal admission checks and scheduling. The Job now flows through the standard Kueue
-workflow.
+Kueue detects the annotation removal, creates the Workload object, and proceeds
+with normal admission checks and scheduling. The Job now flows through the 
+standard Kueue workflow.
+
 #### Story 2
 
-A user has an AI tuning Job that will run for days or weeks. They want to optimize the
-resource requirements before the Job starts executing, but the optimization process itself
-may take time (e.g., calling a REST API that runs an AI model, or running a short canary
-job to validate recommendations).
+A user has an AI tuning Job that will run for days or weeks. They want to
+optimize the resource requirements before the Job starts executing, but the
+optimization process itself may take time (e.g., calling a REST API that runs
+an AI model, or running a short canary job to validate recommendations).
 
-The goal of the user is to create a Job without worrying about setting its resource
-requirements accurately.
+The goal of the user is to create a Job without worrying about setting its
+resource requirements accurately.
 
 The user creates the Job with:
 - Default resource requests as a starting point
-- The annotation `kueue.x-k8s.io/scheduling-gated-by: "example.com/resource-optimizer"`
+- The annotation `kueue.x-k8s.io/admission-gated-by: "example.com/resource-optimizer"`
   to opt-in for automatic patching by their external controller
 
-Kueue detects the annotation and does not consider the job eligible for admission. 
-The Job remains gated, ensuring it cannot execute before the optimization is complete.
+Kueue detects the annotation and does not consider the job eligible for
+admission. The Job remains gated, ensuring it cannot execute before the 
+optimization is complete.
 
-An external controller picks up the Job and computes the recommended resource configuration.
-This process may take seconds or even minutes, but this is acceptable since the Job itself
-will run for much longer.
+An external controller picks up the Job and computes the recommended resource
+configuration. This process may take seconds or even minutes, but this is 
+acceptable since the Job itself will run for much longer.
 
 Once the optimization is complete, the controller patches the Job to:
 - Update the resource requirements with the optimized values
-- Remove the `kueue.x-k8s.io/scheduling-gated-by` annotation
+- Remove the `kueue.x-k8s.io/admission-gated-by` annotation
 
-Kueue detects the annotation removal, and proceeds with normal admission checks and 
-scheduling. The Job now has the updated resource requirements. The Job flows 
+Kueue detects the annotation removal, and proceeds with normal admission checks
+and scheduling. The Job now has the updated resource requirements. The Job flows 
 through the standard Kueue workflow with the correct resource configuration,
 avoiding the risk of preemption and restart that could occur if the Job were patched
 after it had already started executing.
-
-
 
 ### Notes/Constraints/Caveats
 
@@ -216,13 +255,22 @@ This might be a good place to talk about core concepts and how they relate.
 -->
 
 #### batch/v1 Job readinessGates discussion
-In Kubernetes, we are discussing about Job level `schedulingGate` field in https://github.com/kubernetes/kubernetes/issues/121681.
-But it is still under discussion, and it will take lots of time to release the feature to the production cluster (enabled by default).
+In Kubernetes, we are discussing about Job level `schedulingGate` field in 
+<https://github.com/kubernetes/kubernetes/issues/121681>. But it is still 
+under discussion, and it will take lots of time to release the feature to the
+production cluster (enabled by default).
 
-So, we decided to introduce `SchedulingGatedBy` annotations as a Kueue level. We will revisit this annotation support if job-level readiness gates are accepted.
+So, we decided to introduce `AdmissionGatedBy` annotations as a Kueue level.
+We will revisit this annotation support if job-level readiness gates are accepted.
 
-#### Adding SchedulingGatedBy is only possible in Job creations
-This feature enables users to defer Workload creation for their Jobs by using an annotation at Job creation time. The annotation acts as a scheduling gate, preventing Kueue from creating the associated Workload object until the annotation is removed. This is consistent with the existing `JobWithSkip` interface pattern in Kueue.
+#### Adding AdmissionGatedBy is only possible in Job creations
+
+This feature enables users to defer Workload creation for their Jobs by using
+an annotation at Job creation time. The annotation acts as an admission gate,
+preventing Kueue from creating the associated Workload object until the 
+annotation is removed. 
+
+This is consistent with the existing `JobWithSkip` interface pattern in Kueue.
 
 ### Risks and Mitigations
 
@@ -238,7 +286,7 @@ How will UX be reviewed, and by whom?
 Consider including folks who also work outside the SIG or subproject.
 -->
 
-- Risk: Uncontrolled accumulation of SchedulingGatedBy Jobs.
+- Risk: Uncontrolled accumulation of `AdmissionGatedBy` Jobs.
   - Mitigation: Document best practices and warn in status conditions (future).
 - Risk: Users may not understand the implications of using the annotation.
   - Mitigation: Document the feature and provide examples.
@@ -254,23 +302,27 @@ proposal will be implemented, this is the place to discuss them.
 -->
 
 - No new API fields required
-- Annotation contract: `kueue.x-k8s.io/scheduling-gated-by` is a comma separated string of controller names (e.g., `example.com/mygate,example.com/mygate2`)
+- Annotation contract: `kueue.x-k8s.io/admission-gated-by` is a comma separated string of 
+  controller names (e.g., `example.com/mygate,example.com/mygate2`)
 - Validation enforces:
   - Annotation cannot be added after creation
   - Annotation can be updated after creation to remove one or more controller names
   - Annotation cannot be updated after creation to add new controller names
   - Controller names are validated against a set of rules.
-- Feature gate: `SchedulingGatedBy` (Alpha, default off)
+- Feature gate: `AdmissionGatedBy` (Alpha, default off)
 
 ### Implementation
 
-When the `kueue.x-k8s.io/scheduling-gated-by` annotation is present on a Job, the reconciler
-skips creating the Workload object for that Job. This behavior is consistent with Jobs that
-implement the `JobWithSkip` interface, where the `Skip(ctx)` method returns `true`.
+When the `kueue.x-k8s.io/admission-gated-by` annotation is present on a Job,
+the reconciler skips creating the Workload object for that Job. This behavior
+is consistent with Jobs that implement the `JobWithSkip` interface, where the
+`Skip(ctx)` method returns `true`.
 
-The Kueue reconciler already continuously monitors Jobs for annotation changes. Therefore, when the annotation is removed:
+The Kueue reconciler already continuously monitors Jobs for annotation changes.
+Therefore, when the annotation is removed:
 1. The reconciler detects the change
-2. The Workload enters the standard Kueue admission and scheduling flow because the SchedulingByGate annotation is no longer present
+2. The Workload enters the standard Kueue admission and scheduling flow because
+    the `AdmissionGatedBy` annotation is no longer present
 
 This approach leverages the existing Kueue patterns for conditional Workload creation.
 
@@ -328,7 +380,9 @@ Describe what tests will be added to ensure proper quality of the enhancement.
 After the implementation PR is merged, add the names of the tests here.
 -->
 
-The `SchedulingGatedBy` mechanism configures Kueue to not consider a Job it manages as eligible for admission for as long as there is at least one scheduling gate. It should work for any kind of Job that Kueue supports.
+The `AdmissionGatedBy` mechanism configures Kueue to not consider a Job it manages as eligible
+for admission for as long as there is at least one admission gate. It should work for any kind
+of Job that Kueue supports.
 
 Therefore, we should repeat the tests for the following Job types:
 
@@ -343,56 +397,58 @@ Therefore, we should repeat the tests for the following Job types:
 
 ##### Toggle Workload Creation via Annotation Removal
 
-1. Create Job with scheduling gate annotation requesting 0.1 CPU cores
-   - Create a `batch/v1 Job` manifest with annotation `kueue.x-k8s.io/scheduling-gated-by: "example.com/mygate"`
+1. Create Job with admission gate annotation requesting 0.1 CPU cores
+   - Create a `batch/v1 Job` manifest with annotation `kueue.x-k8s.io/admission-gated-by: "example.com/mygate"`
 2. Verify no Workload is created
    - Confirm that no corresponding `Workload` resource exists
    - Job remains in gated state
 3. Patch the Job
    - Change its resource requirements to request 0.2 CPU cores
-   - Remove the `kueue.x-k8s.io/scheduling-gated-by` annotation from the Job object
+   - Remove the `kueue.x-k8s.io/admission-gated-by` annotation from the Job object
 4. Observe Workload creation and activation
    - Wait for corresponding `Workload` resource to be created
    - Verify the Workload reflects the updated resource requirements
    - Verify the Workload enters the normal Kueue admission flow
 
 
-##### Forbid adding SchedulingGatedBy post creation
+##### Forbid adding AdmissionGatedBy post creation
 
 1. Create Job without annotation
-   - Create a `batch/v1 Job` manifest without the SchedulingGatedBy annotation
+   - Create a `batch/v1 Job` manifest without the `AdmissionGatedBy` annotation
 2. Attempt to add annotation after creation
-   - Try to add `kueue.x-k8s.io/scheduling-gated-by` annotation to the existing Job
+   - Try to add `kueue.x-k8s.io/admission-gated-by` annotation to the existing Job
 3. Verify validation prevents addition
    - Confirm the annotation addition is rejected by validation
    - Verify appropriate error message is returned
 
-##### Forbid modifying SchedulingGatedBy to add controller names post creation
+##### Forbid modifying AdmissionGatedBy to add controller names post creation
 
 1. Create Job without annotation
-   - Create a `batch/v1 Job` manifest with annotation `kueue.x-k8s.io/scheduling-gated-by: "example.com/mygate"`
+   - Create a `batch/v1 Job` manifest with annotation `kueue.x-k8s.io/admission-gated-by: "example.com/mygate"`
 2. Attempt to add annotation after creation
-   - Try to set `kueue.x-k8s.io/scheduling-gated-by=example.com/mygate,example.com/mygate2` annotation to the existing Job
+   - Try to set `kueue.x-k8s.io/admission-gated-by=example.com/mygate,example.com/mygate2` 
+     annotation to the existing Job
 3. Verify validation prevents modification
    - Confirm the annotation modification is rejected by validation
    - Verify appropriate error message is returned
 
-##### Forbid modifying SchedulingGatedBy to swap controller names post creation
+##### Forbid modifying AdmissionGatedBy to swap controller names post creation
 
 1. Create Job without annotation
-   - Create a `batch/v1 Job` manifest with annotation `kueue.x-k8s.io/scheduling-gated-by=example.com/mygate,example.com/mygate2`
+   - Create a `batch/v1 Job` manifest with annotation `kueue.x-k8s.io/admission-gated-by=example.com/mygate,example.com/mygate2`
 2. Attempt to add annotation after creation
-   - Try to set `kueue.x-k8s.io/scheduling-gated-by=example.com/mygate2,example.com/mygate3` annotation to the existing Job
+   - Try to set `kueue.x-k8s.io/admission-gated-by=example.com/mygate2,example.com/mygate3`
+     annotation to the existing Job
 3. Verify validation prevents modification
    - Confirm the annotation modification is rejected by validation
    - Verify appropriate error message is returned
 
-##### Allow removing 1 SchedulingGatedBy controller name post creation
+##### Allow removing 1 AdmissionGatedBy controller name post creation
 
 1. Create Job without annotation
-   - Create a `batch/v1 Job` manifest with annotation `kueue.x-k8s.io/scheduling-gated-by=example.com/mygate,example.com/mygate2`
+   - Create a `batch/v1 Job` manifest with annotation `kueue.x-k8s.io/admission-gated-by=example.com/mygate,example.com/mygate2`
 2. Attempt to add annotation after creation
-   - Try to set `kueue.x-k8s.io/scheduling-gated-by=example.com/mygate2` annotation to the existing Job
+   - Try to set `kueue.x-k8s.io/admission-gated-by=example.com/mygate2` annotation to the existing Job
 3. Verify validation permits modification
    - Confirm the annotation modification is applied
    - Verify appropriate error message is returned
@@ -400,10 +456,10 @@ Therefore, we should repeat the tests for the following Job types:
    - Confirm that no corresponding `Workload` resource exists
    - Job remains in gated state
 
-##### Forbid using a SchedulingGatedBy that is not domain-like
+##### Forbid using an AdmissionGatedBy that is not domain-like
 
 1. Create Job with non domain-like annotation value
-   - Try to create a `batch/v1 Job` manifest with the annotation `kueue.x-k8s.io/scheduling-gated-by="not a domain"`
+   - Try to create a `batch/v1 Job` manifest with the annotation `kueue.x-k8s.io/admission-gated-by="not a domain"`
 2. Verify validation prevents creation
    - Confirm the object creation is rejected by validation
    - Verify appropriate error message is returned
@@ -428,12 +484,12 @@ milestones with these graduation criteria:
 
 #### Alpha
 
-- support the `SchedulingGatedBy` feature gate, disabled by default
-- implement gating of scheduling by deferring Workload creation
+- support the `AdmissionGatedBy` feature gate, disabled by default
+- implement gating of admission by deferring Workload creation
 
 #### Beta
 
-- `SchedulingGatedBy` enabled by default
+- `AdmissionGatedBy` enabled by default
 - Re-evaluate deferring workload scheduling instead of creation
 - Re-evaluate the activation-based approach (label-based design described in Alternatives)
 - Re-evaluate adding the annotation later in the lifetime of a Job
@@ -468,17 +524,19 @@ not need to be as detailed as the proposal, but should include enough
 information to express the idea and why it was not acceptable.
 -->
 
-### JSON values for SchedulingGatedBy annotation
+### JSON values for AdmissionGatedBy annotation
 
-Instead of using a comma‑separated list of controller names, we considered a JSON array encoded as a string. This would allow each gate to include the controller name along with optional additional metadata.
+Instead of using a comma‑separated list of controller names, we considered a JSON array encoded as
+a string. This would allow each gate to include the controller name along with optional additional
+metadata.
 
-For example, declaring two scheduling gates could look like this:
+For example, declaring two admission gates could look like this:
 
 ```yaml
 metadata:
   annotations:
     # A JSON array encoded as a string
-    kueue.x-k8s.io/scheduling-gated-by: |
+    kueue.x-k8s.io/admission-gated-by: |
       [
         {"name": "example.com/alpha"},
         {"name": "example.com/beta"}
@@ -488,20 +546,30 @@ metadata:
 We ultimately decided against this approach because:
 
 - A simple comma‑separated list of controller names is easier to implement.
-- We may eventually use [batch/v1 Job readinessGates](#batchv1-job-readinessgates-discussion), which reduces the need for adding structured metadata directly into this annotation.
+- We may eventually use [batch/v1 Job readinessGates](#batchv1-job-readinessgates-discussion),
+  which reduces the need for adding structured metadata directly into this annotation.
 
 ### Label-based Activation/Deactivation Approach
 
-An alternative design allows users to interact directly with a managed Job object (where Job is a CR that Kueue manages like Job, PyTorchJob, Deployment, etc.) to declare their intent that Kueue should "deactivate" or "activate" it. They do this by using two labels:
+An alternative design allows users to interact directly with a managed Job 
+object (where Job is a CR that Kueue manages like Job, PyTorchJob, Deployment, etc.)
+to declare their intent that Kueue should "deactivate" or "activate" it.
 
-- `kueue.x-k8s.io/activate=true`: Instructs Kueue to track this Job. The Job will flow through the normal Kueue path for admission checks and scheduling decisions.
-- `kueue.x-k8s.io/deactivate=true`: Instructs Kueue to ignore this Job. Kueue will not consider this Job eligible for admission.
+They do this by using two labels:
+
+- `kueue.x-k8s.io/activate=true`: Instructs Kueue to track this Job. The Job 
+   will flow through the normal Kueue path for admission checks and scheduling decisions.
+- `kueue.x-k8s.io/deactivate=true`: Instructs Kueue to ignore this Job. 
+   Kueue will not consider this Job eligible for admission.
 
 To keep things simple, a user can only manually activate/deactivate a suspended Job.
 
 #### Job Controller State Transitions
 
-The GenericJob controller in Kueue propagates the `activate=true` and `deactivate=true` labels to the Workload. If the labels have a value other than truth-y, it disregards them. Regardless of the value of the label, it removes the label from the Job object.
+The GenericJob controller in Kueue propagates the `activate=true` and `deactivate=true`
+labels to the Workload. If the labels have a value other than truth-y,
+it disregards them. Regardless of the value of the label, it removes the
+label from the Job object.
 
 Here's the state-transition diagram for the Job object and the changes it makes to the associated Workload:
 
@@ -521,8 +589,11 @@ flowchart TD;
 
 Below is how the Workload controller uses the labels to:
 
-- Mark an already Inactive Workload as unschedulable: Place the inactive Workload in a state which guides Kueue to ignore it during admission checks.
-- Mark an unschedulable Workload as "schedulable": Leave the inactive Workload in its inactive state, but allow Kueue to move it into the Active state using its regular admission checks.
+- Mark an already Inactive Workload as unschedulable: Place the inactive Workload in
+  a state which guides Kueue to ignore it during admission checks.
+- Mark an unschedulable Workload as "schedulable": Leave the inactive Workload
+  in its inactive state, but allow Kueue to move it into the Active state using its 
+  regular admission checks.
 
 ```mermaid
 flowchart TD;
@@ -545,28 +616,41 @@ flowchart TD;
 
 The idea is to:
 
-- Use `deactivate=true` to place a suspended Job into an inactive state and stop Kueue from ever scheduling this Job.
-- Use `activate=true` to place a suspended and "ignored" Job back into an "inactive" state and allow Kueue to eventually unsuspend it whenever it chooses to do so.
+- Use `deactivate=true` to place a suspended Job into an inactive state and
+  stop Kueue from ever scheduling this Job.
+- Use `activate=true` to place a suspended and "ignored" Job back into an
+  "inactive" state and allow Kueue to eventually unsuspend it whenever it 
+  chooses to do so.
 
 #### Why This Approach is Deferred
 
-This design is more complex than the proposed `SchedulingGatedBy` approach, as it requires:
+This design is more complex than the proposed `AdmissionGatedBy` approach, as it requires:
 - Managing two separate labels with specific semantics
 - Handling state transitions between Active, Inactive, and InactiveManual states
 - Propagating labels from Job to Workload and removing them from the Job
 - More complex validation and reconciliation logic
 
-Toggling on the ScheduleGatedBy annotation post creation of a Job may be reconsidered in future releases based on user feedback and requirements.
+Toggling on the `AdmissionGatedBy` annotation post creation of a Job may be 
+reconsidered in future releases based on user feedback and requirements.
 
-#### What are the benefit of this approach over SchedulingGatedBy
+#### What are the benefit of this approach over AdmissionGatedBy
 
-- It offers more flexibility for end-users. They could ScheduleGate a Job after it was created, patch it, and then restore it. For example, this is useful for dealing with Jobs that are queued for too long because they request too many resources. A controller could auto-patch such jobs with less resources to help them schedule faster.
+It offers more flexibility for end-users. They could gate admission for a Job 
+after it was created, patch it, and then restore it. For example, this is
+useful for dealing with Jobs that are queued for too long because they request
+too many resources. A controller could auto-patch such jobs with fewer 
+resources to help them schedule faster.
 
 ### Admission policy-based activation or queue-level configuration
 
-These methods do not allow per-job granularity and requires cluster admin intervention. In turn, they reduce flexibility for regular users.
+These methods do not allow per-job granularity and requires cluster admin
+intervention. In turn, they reduce flexibility for regular users.
 
 ### Direct Workload Interaction
 
-Users could patch the Workload object directly and toggle spec.active between true and false. This requires RBAC permissions for users to enable modifying Kueue CRs.
-Also, this would break abstraction as users will interact with internal Kueue objects instead of their own Jobs.
+Users could patch the Workload object directly and toggle `spec.active` 
+between true and false. This requires RBAC permissions for users to enable
+modifying Kueue CRs. 
+
+Also, this would break abstraction as users will interact with internal
+Kueue objects instead of their own Jobs.

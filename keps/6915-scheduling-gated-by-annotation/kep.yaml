@@ -1,4 +1,4 @@
-title: SchedulingGatedBy annotation to prevent scheduling immediately after creation
+title: AdmissionGatedBy annotation to gate admission by external controllers
 kep-number: 6915
 authors:
   - "@VassilisVassiliadis"
@@ -33,7 +33,7 @@ milestone:
 # The following PRR answers are required at alpha release
 # List the feature gate name and the components for which it must be enabled
 feature-gates:
-  - name: SchedulingGatedBy
+  - name: AdmissionGatedBy
 disable-supported: true
 
 # The following PRR answers are required at beta release
