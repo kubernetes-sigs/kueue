@@ -374,6 +374,15 @@ function prepare_docker_images {
     docker tag "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE_OLD"
     docker tag "$E2E_TEST_AGNHOST_IMAGE_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE"
 
+    # When using a pre-built Kueue image (released or staging), ensure it's available for kind load.
+    # Check remote first; if not found remotely, use local image if present; otherwise error.
+    if docker manifest inspect "$IMAGE_TAG" >/dev/null 2>&1; then
+        docker pull "$IMAGE_TAG"
+    elif ! docker image inspect "$IMAGE_TAG" >/dev/null 2>&1; then
+        echo "ERROR: Image '$IMAGE_TAG' not found remotely or locally." >&2
+        return 1
+    fi
+
     if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(appwrapper|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         docker pull "${APPWRAPPER_IMAGE}"
     fi
@@ -937,7 +946,7 @@ function install_sparkoperator {
             else
                 echo "Spark operator already present; upgrading."
             fi
-        else 
+        else
             echo "Spark operator helm release not found; installing."
         fi
     fi

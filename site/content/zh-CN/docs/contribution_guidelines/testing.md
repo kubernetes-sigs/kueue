@@ -125,14 +125,32 @@ func TestValidateClusterQueue(t *testing.T) {
 
 ```shell
 # 若不存在则创建；若已存在则复用。构建镜像、运行测试，并保留集群。
-E2E_MODE=dev make test-e2e
+E2E_MODE=dev make kind-image-build test-e2e
 
 # MultiKueue 的 dev 模式
-E2E_MODE=dev make test-multikueue-e2e
+E2E_MODE=dev make kind-image-build test-multikueue-e2e
 
 # 循环运行（直到失败），同时保留集群
-E2E_MODE=dev GINKGO_ARGS="--until-it-fails" make test-e2e
+E2E_MODE=dev GINKGO_ARGS="--until-it-fails" make kind-image-build  test-e2e
 ```
+
+若希望使用**已发布**或**预发布（staging）**的 Kueue 镜像而非从源码构建（无需执行 `kind-image-build`），可传入 `IMAGE_TAG` 并指定所需镜像：
+
+```shell
+# 已发布版本
+E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-e2e
+E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-multikueue-e2e
+
+# 预发布镜像（例如来自 PR 或每日构建）
+E2E_MODE=dev IMAGE_TAG=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:main make test-e2e
+```
+
+**使用与 manifest 匹配的已发布版本：** e2e 框架从仓库的 config 部署 CRD 等资源，仅通过 `IMAGE_TAG` 覆盖控制器镜像。若要对某一发布版本运行 e2e 且使用与该镜像匹配的 manifest：
+
+1. 检出该版本的 tag（例如 `git checkout v0.16.0`）。仓库中的 CRD 与部署配置在每个版本中均已提交，无需执行 `make manifests`。
+2. 使用相同镜像 tag 运行上述命令，例如 `E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-e2e`。
+
+适用于在特定已发布版本上复现问题（例如值班排查）。若要在真实集群（非 e2e）中安装已发布版本，请参阅[安装已发布版本](/zh-CN/docs/installation/#install-a-released-version)。
 
 {{% alert title="Note" color="primary" %}}
 当在 `E2E_MODE=dev` 下复用保留的集群时，外部算子（MPI、KubeRay 等）只会安装一次。
@@ -140,10 +158,14 @@ E2E_MODE=dev GINKGO_ARGS="--until-it-fails" make test-e2e
 {{% /alert %}}
 
 测试结束后如需删除保留的集群：
-
-```shell
-kind delete clusters kind kind-manager kind-worker1 kind-worker2
-```
+- 常规 e2e 测试，请运行：
+    ```shell
+    kind delete clusters kind
+    ```
+- MultiKueue 测试，请运行：
+    ```shell
+    kind delete clusters kind kind-manager kind-worker1 kind-worker2
+    ```
 
 ### 旧方式：交互式附加模式
 运行 `E2E_RUN_ONLY_ENV=true make kind-image-build test-multikueue-e2e` 并等待 `Do you want to cleanup? [Y/n] ` 出现（CI 风格行为）。

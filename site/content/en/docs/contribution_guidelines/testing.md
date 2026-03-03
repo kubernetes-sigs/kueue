@@ -138,6 +138,24 @@ E2E_MODE=dev E2E_SKIP_REINSTALL=true make kind-image-build test-e2e
 E2E_MODE=dev E2E_SKIP_REINSTALL=true make kind-image-build test-multikueue-e2e
 ```
 
+To use a **released** or **staging** Kueue image instead of building from source (no `kind-image-build` needed), pass `IMAGE_TAG` with the desired image:
+
+```shell
+# Released version
+E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-e2e
+E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-multikueue-e2e
+
+# Staging image (e.g. from a PR or nightly)
+E2E_MODE=dev IMAGE_TAG=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:main make test-e2e
+```
+
+**Using a released version with matching manifests:** The e2e framework deploys CRDs and other resources from the repo's config and overrides only the controller image via `IMAGE_TAG`. To run e2e against a specific release with manifests that match that image:
+
+1. Check out that version's tag (e.g. `git checkout v0.16.0`). The CRD and deployment config in the repo are committed at each release, so no `make manifests` step is needed.
+2. Run the command above with the same image tag, e.g. `E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-e2e`.
+
+This is useful to reproduce issues on a specific released version (e.g. for on-call debugging). For installing a released version into a real cluster (not e2e), see [Install a released version](/docs/installation/#install-a-released-version).
+
 {{% alert title="Note" color="primary" %}}
 When reusing a kept cluster in `E2E_MODE=dev`, external operators (MPI, KubeRay, etc.) are installed only once.
 To force re-installing them on every run, set `E2E_ENFORCE_OPERATOR_UPDATE=true`.
