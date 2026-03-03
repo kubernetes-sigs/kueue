@@ -49,12 +49,15 @@ tags, and then generate with `hack/update-toc.sh`.
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
   - [JSON values for AdmissionGatedBy annotation](#json-values-for-admissiongatedby-annotation)
-  - [Label-based Activation/Deactivation Approach](#label-based-activationdeactivation-approach)
-    - [Job Controller State Transitions](#job-controller-state-transitions)
-    - [Workload Controller State Transitions](#workload-controller-state-transitions)
-    - [Usage Pattern](#usage-pattern)
+  - [Decoupling Workload Creation from Admission Gating](#decoupling-workload-creation-from-admission-gating)
+    - [Example Implementation: Annotation-based Activation](#example-implementation-annotation-based-activation)
+      - [Job Controller State Transitions](#job-controller-state-transitions)
+      - [Workload Controller State Transitions](#workload-controller-state-transitions)
+      - [Usage Pattern](#usage-pattern)
     - [Why This Approach is Deferred](#why-this-approach-is-deferred)
-    - [What are the benefit of this approach over AdmissionGatedBy](#what-are-the-benefit-of-this-approach-over-admissiongatedby)
+    - [Benefits of This Approach over AdmissionGatedBy](#benefits-of-this-approach-over-admissiongatedby)
+    - [Complexity of the Mechanism](#complexity-of-the-mechanism)
+    - [Recommendation for Beta](#recommendation-for-beta)
   - [Admission policy-based activation or queue-level configuration](#admission-policy-based-activation-or-queue-level-configuration)
   - [Direct Workload Interaction](#direct-workload-interaction)
   - [Mutating Webhook to Patch Jobs at Creation Time](#mutating-webhook-to-patch-jobs-at-creation-time)
@@ -550,45 +553,63 @@ We ultimately decided against this approach because:
 - We may eventually use [batch/v1 Job readinessGates](#batchv1-job-readinessgates-discussion),
   which reduces the need for adding structured metadata directly into this annotation.
 
-### Label-based Activation/Deactivation Approach
+### Decoupling Workload Creation from Admission Gating
 
-An alternative design allows users to interact directly with a managed Job 
-object (where Job is a CR that Kueue manages like Job, PyTorchJob, Deployment, etc.)
-to declare their intent that Kueue should "deactivate" or "activate" it.
+An alternative design would decouple the creation of the Workload object from
+the gating of admission. In this approach, Kueue would create the Workload
+when it observes that a Job is created, just like it currently does.
+However, the Workload would remain in an inactive state until explicitly 
+activated by the user or an external controller.
 
-They do this by using two labels:
+Implementing this alternative requires new mechanisms to manage Workload
+activation/deactivation, which would need careful design to ensure they do not
+conflict with Kueue's existing admission control logic.
 
-- `kueue.x-k8s.io/activate=true`: Instructs Kueue to track this Job. The Job 
-   will flow through the normal Kueue path for admission checks and scheduling decisions.
-- `kueue.x-k8s.io/deactivate=true`: Instructs Kueue to ignore this Job. 
-   Kueue will not consider this Job eligible for admission.
+#### Example Implementation: Annotation-based Activation
 
-To keep things simple, a user can only manually activate/deactivate a suspended Job.
+One possible implementation would allow users to interact directly with a managed
+Job object (where Job is a CR that Kueue manages like `batch/v1.Job`, `PyTorchJob`,
+`Deployment`, etc.) to declare their intent that Kueue should "deactivate" or
+"activate" the associated Workload.
 
-#### Job Controller State Transitions
+Users would do this by setting annotations on the Job:
 
-The GenericJob controller in Kueue propagates the `activate=true` and `deactivate=true`
-labels to the Workload. If the labels have a value other than truth-y,
-it disregards them. Regardless of the value of the label, it removes the
-label from the Job object.
+- `kueue.x-k8s.io/activate=true`: Instructs Kueue to make the Workload eligible
+   for admission. The Workload will flow through the normal Kueue admission checks
+   and scheduling decisions.
+- `kueue.x-k8s.io/deactivate=true`: Instructs Kueue to mark the Workload as
+   ineligible for admission. Kueue will not consider this Workload for admission
+   until it is activated.
+
+To keep things simple, users would only be able to manually activate/deactivate
+Workloads for suspended Jobs (i.e., Jobs where `spec.suspend=true`).
+
+##### Job Controller State Transitions
+
+The GenericJob controller in Kueue would propagate the `activate=true` and
+`deactivate=true` annotations from the Job to the Workload. If the annotations
+have a value other than a truthy value (e.g., "true", "True", "1"), the controller
+would disregard them. Regardless of the annotation value, the controller would
+remove the annotation from the Job object after processing it, ensuring that the
+Job object doesn't accumulate stale annotations.
 
 Here's the state-transition diagram for the Job object and the changes it makes to the associated Workload:
 
 ```mermaid
 flowchart TD;
-    Start[suspended Job with no labels];
+    Start[suspended Job with no annotations];
     DeadEnd[unsuspended Job];
-    UpdateActivate[suspended Job without a label and a Workload with label activate=True];
-    UpdateDeactivate[suspended Job without a label and a Workload with label deactivate=True];
+    UpdateActivate[suspended Job without a annotation and a Workload with annotation activate=True];
+    UpdateDeactivate[suspended Job without a annotation and a Workload with annotation deactivate=True];
     Start --> |set activate=True| UpdateActivate;
     Start --> |set deactivate=True| UpdateDeactivate;
     Start --> |set activate=$other or deactivate=$other| Start;
     DeadEnd --> |set activate=$Any or deactivate=$Any| DeadEnd
 ```
 
-#### Workload Controller State Transitions
+##### Workload Controller State Transitions
 
-Below is how the Workload controller uses the labels to:
+Below is how the Workload controller uses the annotations to:
 
 - Mark an already Inactive Workload as unschedulable: Place the inactive Workload in
   a state which guides Kueue to ignore it during admission checks.
@@ -598,8 +619,8 @@ Below is how the Workload controller uses the labels to:
 
 ```mermaid
 flowchart TD;
-    Active(["Active, no labels"]);
-    Inactive(["Inactive, no labels"])
+    Active(["Active, no annotations"]);
+    Inactive(["Inactive, no annotations"])
     InactiveManual(["Inactive, because of deactivate=True"]);
     
     Inactive --> |set activate=True| Inactive;
@@ -613,34 +634,59 @@ flowchart TD;
     Inactive --> |Kueue admits| Active;
 ```
 
-#### Usage Pattern
+##### Usage Pattern
 
 The idea is to:
 
-- Use `deactivate=true` to place a suspended Job into an inactive state and
-  stop Kueue from ever scheduling this Job.
-- Use `activate=true` to place a suspended and "ignored" Job back into an
-  "inactive" state and allow Kueue to eventually unsuspend it whenever it 
-  chooses to do so.
+- Set `kueue.x-k8s.io/deactivate=true` on a suspended Job to mark its Workload
+  as ineligible for admission.
+- Set `kueue.x-k8s.io/activate=true` on a previously deactivated Job to mark
+  its Workload as eligible for admission again.
 
 #### Why This Approach is Deferred
 
 This design is more complex than the proposed `AdmissionGatedBy` approach, as it requires:
-- Managing two separate labels with specific semantics
+- Managing two separate annotations with specific semantics
 - Handling state transitions between Active, Inactive, and InactiveManual states
-- Propagating labels from Job to Workload and removing them from the Job
+- Propagating annotations from Job to Workload and removing them from the Job
 - More complex validation and reconciliation logic
 
 Toggling on the `AdmissionGatedBy` annotation post creation of a Job may be 
 reconsidered in future releases based on user feedback and requirements.
 
-#### What are the benefit of this approach over AdmissionGatedBy
 
-It offers more flexibility for end-users. They could gate admission for a Job 
-after it was created, patch it, and then restore it. For example, this is
-useful for dealing with Jobs that are queued for too long because they request
-too many resources. A controller could auto-patch such jobs with fewer 
-resources to help them schedule faster.
+#### Benefits of This Approach over AdmissionGatedBy
+
+This approach offers advantages:
+
+- **Post-creation Gating**: Users can gate admission after Job creation,
+  enabling dynamic resource optimization for already-queued Jobs
+- **Workload Visibility**: The Workload exists shortly after creation
+  which is consistent with the current behavior of Kueue
+- **Flexible Control**: Controllers can dynamically activate/deactivate
+  Workloads based on cluster conditions or policies
+
+#### Complexity of the Mechanism
+
+This alternate mechanism must handle scenarios like:
+
+- What happens if a Workload is deactivated while Active?
+- How to prevent race conditions between admission and deactivation?
+- How to handle Workloads that transition between states rapidly?
+- How to resolve conflicts between activation/deactivation decisions that
+  Kueue makes and those that the user wants to make?
+
+#### Recommendation for Beta
+
+The proposed `AdmissionGatedBy` approach (deferring Workload creation) is
+simpler and sufficient for the alpha release. It addresses the primary use
+case of gating admission at Job creation time without introducing significant
+complexity.
+
+Prior to promoting the feature to beta, we should re-evaluate whether to support
+decoupling Workload creation from admission gating. For example, this would be
+desirable for scenarios where Kueue requires the Workload object to exist for
+certain operations, like modifying the nodeAffinity of Jobs.
 
 ### Admission policy-based activation or queue-level configuration
 
@@ -655,6 +701,7 @@ modifying Kueue CRs.
 
 Also, this would break abstraction as users will interact with internal
 Kueue objects instead of their own Jobs.
+
 ### Mutating Webhook to Patch Jobs at Creation Time
 
 An alternative to implementing this KEP altogether would be to patch Jobs via
