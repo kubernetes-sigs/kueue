@@ -164,8 +164,9 @@ func main() {
 
 	var visibilityServerFlags string
 	flag.StringVar(&visibilityServerFlags, "visibility-server-flags", "",
-		"A space-separated list of flags to pass to the embedded visibility API server "+
-			"(e.g., '--secure-port=8443 --authentication-kubeconfig=/path/to/kubeconfig').")
+		"A space-separated list of flags to pass to the embedded visibility API server. "+
+			"(e.g., '--secure-port=8443 --authentication-kubeconfig=/path/to/kubeconfig'). "+
+			"For a full list of available options, please see https://pkg.go.dev/k8s.io/apiserver/pkg/server/options#RecommendedOptions.")
 
 	setupLog.Info("Initializing", "gitVersion", version.GitVersion, "gitCommit", version.GitCommit, "buildDate", version.BuildDate)
 
