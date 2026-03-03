@@ -74,6 +74,7 @@ In particular, `Job`-based `Workload`s with `podReplacementPolicy: Failed` are u
 
 * Maximize the quota usage for `Workload`s by recovering from a common failure pattern that:
   * Prevents `Job`s using `podReplacementPolicy: Failed` from making progress.
+  * Prevents `Job`s with stuck pods from being deleted when using foreground propagation.
 
 ### Non-Goals
 
@@ -81,7 +82,7 @@ In particular, `Job`-based `Workload`s with `podReplacementPolicy: Failed` are u
 
 ## Proposal
 
-* Introduce a controller that moves zombie `Pod`s into the `Failed` phase.
+* Introduce a controller that moves zombie `Pod`s into the `Failed` phase and forcefully deletes them.
   * The controller is enabled via a feature gate.
 * Introduce a `kueue.x-k8s.io/safe-to-forcefully-terminate` annotation that limits which pods are affected by the new controller.
 
@@ -223,7 +224,7 @@ The controller has to **ignore** updates to pods that:
 For relevant (not ignored) terminating pods, the reconciliation behaves in the following way:
 1. It computes the amount of time elapsed since the the pod's `gracefulTerminationGracePeriod` elapsed:
     1. If it's below the default timeout of **1 minute**, the reconciler will requeue the object to be re-evaluated once the thershold is reached.
-    1. Otherwise, if the threshold of **1 minute** was reached, the pod will be deemed "zombie" and transitioned into the `PodFailed` phase.
+    1. Otherwise, if the threshold of **1 minute** was reached, the pod will be deemed "zombie", transitioned into the `PodFailed` phase and deleted without grace period.
 
 ### Test Plan
 
@@ -244,7 +245,7 @@ The proposal will be covered with unit tests for:
 
 The proposal will be covered with integrations tests that check whether:
 1. Adding a deletion timestamp to the pod requeues a reconciliation loop for when the grace period elapses.
-1. After the grace period elapses, the pod is marked as `Failed`.
+1. After the grace period elapses, the pod is marked as `Failed` and deleted.
 1. Replacement pods are scheduled in the place of the failed pod (optional, technically 1+2 is sufficient to prove this).
 
 Existing integration tests should prove that this feature does not impact Kueue during normal operation.
