@@ -258,10 +258,12 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 		return
 	}
 	if oldInfo := c.inadmissibleWorkloads.get(key); oldInfo != nil {
-		// update in place if the workload was inadmissible and didn't change
-		// to potentially become admissible, unless the Eviction status changed
-		// which can affect the workloads order in the queue.
-		if equality.Semantic.DeepEqual(oldInfo.Obj.Spec, wInfo.Obj.Spec) &&
+		specChangedSinceEval := oldInfo.LastEvaluatedGeneration != 0 &&
+			wInfo.Obj.Generation != oldInfo.LastEvaluatedGeneration
+
+		// Update in place if the workload didn't change to potentially become admissible.
+		if !specChangedSinceEval &&
+			equality.Semantic.DeepEqual(oldInfo.Obj.Spec, wInfo.Obj.Spec) &&
 			equality.Semantic.DeepEqual(oldInfo.Obj.Status.ReclaimablePods, wInfo.Obj.Status.ReclaimablePods) &&
 			equality.Semantic.DeepEqual(apimeta.FindStatusCondition(oldInfo.Obj.Status.Conditions, kueue.WorkloadEvicted),
 				apimeta.FindStatusCondition(wInfo.Obj.Status.Conditions, kueue.WorkloadEvicted)) &&
@@ -468,6 +470,7 @@ func (c *ClusterQueue) Pop() *workload.Info {
 		return nil
 	}
 	c.inflight = c.heap.Pop()
+	c.inflight.LastEvaluatedGeneration = c.inflight.Obj.Generation
 	return c.inflight
 }
 
