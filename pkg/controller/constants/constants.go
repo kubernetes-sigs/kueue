@@ -44,10 +44,10 @@ const (
 	// MaxExecTimeSecondsLabel is the label key in the job that holds the maximum execution time.
 	MaxExecTimeSecondsLabel = `kueue.x-k8s.io/max-exec-time-seconds`
 
-	// SafeToForcefullyTerminateAnnotationKey is the annotation key that controls whether a pod opted in to FailureRecoveryPolicy.
-	SafeToForcefullyTerminateAnnotationKey = "kueue.x-k8s.io/safe-to-forcefully-terminate"
-	// SafeToForcefullyTerminateAnnotationValue is the value of that annotation that enables FailureRecoveryPolicy for that pod.
-	SafeToForcefullyTerminateAnnotationValue = "true"
+	// SafeToForcefullyDeleteAnnotationKey is the annotation key that controls whether a pod opted in to FailureRecoveryPolicy.
+	SafeToForcefullyDeleteAnnotationKey = "kueue.x-k8s.io/safe-to-forcefully-delete"
+	// SafeToForcefullyDeleteAnnotationValue is the value of that annotation that enables FailureRecoveryPolicy for that pod.
+	SafeToForcefullyDeleteAnnotationValue = "true"
 
 	// JobOwnerGVKAnnotation is the annotation key in the workload that holds the GVK of the owner job.
 	JobOwnerGVKAnnotation = "kueue.x-k8s.io/job-owner-gvk"

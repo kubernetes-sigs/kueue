@@ -169,6 +169,12 @@ func (j *JobWrapper) NodeSelector(k, v string) *JobWrapper {
 	return j
 }
 
+// PodReplacementPolicy sets the pod replacement policy on the job object.
+func (j *JobWrapper) PodReplacementPolicy(policy *batchv1.PodReplacementPolicy) *JobWrapper {
+	j.Spec.PodReplacementPolicy = policy
+	return j
+}
+
 // PodAnnotation sets annotation at the pod template level
 func (j *JobWrapper) PodAnnotation(k, v string) *JobWrapper {
 	if j.Spec.Template.Annotations == nil {
@@ -184,6 +190,12 @@ func (j *JobWrapper) PodLabel(k, v string) *JobWrapper {
 		j.Spec.Template.Labels = make(map[string]string)
 	}
 	j.Spec.Template.Labels[k] = v
+	return j
+}
+
+// PodAffinity sets the pod affinity at the pod template level
+func (j *JobWrapper) PodAffinity(affinity *corev1.Affinity) *JobWrapper {
+	j.Spec.Template.Spec.Affinity = affinity
 	return j
 }
 
