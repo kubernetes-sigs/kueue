@@ -213,7 +213,9 @@ Enabling the `FailureRecoveryPolicy` feature gate will turn on a controller, whi
 The controller has to **ignore** updates to pods that:
 1. Are not terminating.
     * `pod.DeletionTimestamp == nil`
-1. Are in a terminal phase.
+1. Are in a terminal phase, but do not have the `KueueFailureRecovery` Condition with `KueueForcefullyTerminated` reason.
+    * The condition check handles partial success of the reconciler - the pod is transitioned to `Failed` and assigned the condition,
+    but the forceful deletion failed.
     * `pod.Status.Phase != corev1.PodRunning && pod.Status.Phase != corev1.PodPending`
 1. Are not annotated with the new `kueue.x-k8s.io/safe-to-forcefully-delete` annotation.
 1. Are **not** scheduled on a node tainted with `node.kubernetes.io/unreachable`.
