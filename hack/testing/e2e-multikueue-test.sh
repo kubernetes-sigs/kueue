@@ -81,12 +81,16 @@ function kueue_deploy {
 trap cleanup EXIT
 startup 
 prepare_docker_images
-for job in $(jobs -p); do wait "$job" || { echo "Cluster creation failed!"; exit 1; } done # wait for clusters creation
+for job in $(jobs -p); do 
+    wait "$job" || { echo "Cluster creation failed!"; exit 1; } 
+done # wait for clusters creation
 
 kind_load "$MANAGER_KIND_CLUSTER_NAME" "$MANAGER_KUBECONFIG" &
 kind_load "$WORKER1_KIND_CLUSTER_NAME" "$WORKER1_KUBECONFIG" &
 kind_load "$WORKER2_KIND_CLUSTER_NAME" "$WORKER2_KUBECONFIG" &
-for job in $(jobs -p); do wait "$job" || { echo "Dependency installation failed!"; exit 1; } done # wait for dependency installation
+for job in $(jobs -p); do 
+    wait "$job" || { echo "Dependency installation failed!"; exit 1; } 
+done # wait for dependency installation
 echo "Add contexts to default kubeconfig"
 $KIND export kubeconfig --name "$MANAGER_KIND_CLUSTER_NAME"
 $KIND export kubeconfig --name "$WORKER1_KIND_CLUSTER_NAME"
