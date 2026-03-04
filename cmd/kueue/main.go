@@ -162,12 +162,6 @@ func main() {
 		}
 	}
 
-	var visibilityServerFlags string
-	flag.StringVar(&visibilityServerFlags, "visibility-server-flags", "",
-		"A space-separated list of flags to pass to the embedded visibility API server. "+
-			"(e.g., '--secure-port=8443 --authentication-kubeconfig=/path/to/kubeconfig'). "+
-			"For a full list of available options, please see https://pkg.go.dev/k8s.io/apiserver/pkg/server/options#RecommendedOptions.")
-
 	setupLog.Info("Initializing", "gitVersion", version.GitVersion, "gitCommit", version.GitCommit, "buildDate", version.BuildDate)
 
 	features.LogFeatureGates(setupLog)
@@ -353,7 +347,7 @@ func main() {
 
 	if features.Enabled(features.VisibilityOnDemand) {
 		go func() {
-			if err := visibility.CreateAndStartVisibilityServer(ctx, queues, &cfg, kubeConfig, parsedTLSConfig, visibilityServerFlags); err != nil {
+			if err := visibility.CreateAndStartVisibilityServer(ctx, queues, &cfg, kubeConfig, parsedTLSConfig); err != nil {
 				setupLog.Error(err, "Unable to create and start visibility server")
 				os.Exit(1)
 			}
