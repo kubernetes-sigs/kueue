@@ -39,11 +39,10 @@ function cleanup {
             mkdir -p "$ARTIFACTS"
         fi
 
-        cluster_cleanup "$MANAGER_KIND_CLUSTER_NAME" "$MANAGER_KUBECONFIG" &
-        cluster_cleanup "$WORKER1_KIND_CLUSTER_NAME" "$WORKER1_KUBECONFIG" &
-        cluster_cleanup "$WORKER2_KIND_CLUSTER_NAME" "$WORKER2_KUBECONFIG" &
+        cluster_cleanup "$MANAGER_KIND_CLUSTER_NAME" "$MANAGER_KUBECONFIG" 
+        cluster_cleanup "$WORKER1_KIND_CLUSTER_NAME" "$WORKER1_KUBECONFIG" 
+        cluster_cleanup "$WORKER2_KIND_CLUSTER_NAME" "$WORKER2_KUBECONFIG" 
     fi
-    wait
 }
 
 
