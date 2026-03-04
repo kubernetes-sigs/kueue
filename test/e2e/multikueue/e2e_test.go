@@ -821,6 +821,14 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
+			ginkgo.By("Checking that the low-priority job is active", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					admittedJob := &batchv1.Job{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(lowJob), admittedJob)).To(gomega.Succeed())
+					g.Expect(admittedJob.Status.Active).To(gomega.Equal(1))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
 			highJob := testingjob.MakeJob("high-job", managerNs.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				WorkloadPriorityClass(managerHighWPC.Name).
@@ -863,6 +871,22 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker1Client.Get(ctx, lowWlKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
 					g.Expect(k8sWorker2Client.Get(ctx, lowWlKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the high-priority job is active", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					admittedJob := &batchv1.Job{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(highJob), admittedJob)).To(gomega.Succeed())
+					g.Expect(admittedJob.Status.Active).To(gomega.Equal(1))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the low-priority job is no longer active", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					admittedJob := &batchv1.Job{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(lowJob), admittedJob)).To(gomega.Succeed())
+					g.Expect(admittedJob.Status.Active).To(gomega.Equal(0))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
