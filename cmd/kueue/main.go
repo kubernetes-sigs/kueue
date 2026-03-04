@@ -136,11 +136,6 @@ func main() {
 	zapOptions.BindFlags(flag.CommandLine)
 	flag.Parse()
 
-	var kubeConfigPath string
-	if kubeConfigFlag := flag.Lookup("kubeconfig"); kubeConfigFlag != nil {
-		kubeConfigPath = kubeConfigFlag.Value.String()
-	}
-
 	logger := zap.New(zap.UseFlagOptions(&zapOptions))
 	ctrl.SetLogger(logger)
 
@@ -352,10 +347,10 @@ func main() {
 
 	if features.Enabled(features.VisibilityOnDemand) {
 		go func() {
-			// We need to pass both kubeConfig and kubeConfigPath. kubeConfig is used to create the
-			// client for the visibility server, while kubeConfigPath is used to configure the
-			// delegated authentication and authorization.
-			if err := visibility.CreateAndStartVisibilityServer(ctx, queues, *cfg.InternalCertManagement.Enable, kubeConfig, kubeConfigPath, parsedTLSConfig); err != nil {
+			// We need to pass kubeConfig to create the client for the visibility server.
+			// The kubeConfigPath for delegated authentication and authorization is looked up
+			// from the flags in the visibility server setup.
+			if err := visibility.CreateAndStartVisibilityServer(ctx, queues, *cfg.InternalCertManagement.Enable, kubeConfig, parsedTLSConfig); err != nil {
 				setupLog.Error(err, "Unable to create and start visibility server")
 				os.Exit(1)
 			}
