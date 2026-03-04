@@ -117,47 +117,58 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Ordered, ginkgo.Contin
 		)
 
 		ginkgo.BeforeEach(func() {
-			cq = utiltestingapi.MakeClusterQueue("cq").
-				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
-					Resource(corev1.ResourceCPU, "8").
-					Resource(corev1.ResourceMemory, "36G").
-					Obj()).
-				Obj()
-			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+			ginkgo.By("creating the cluster queue and local queue", func() {
+				cq = utiltestingapi.MakeClusterQueue("cq").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
+						Resource(corev1.ResourceCPU, "8").
+						Resource(corev1.ResourceMemory, "36G").
+						Obj()).
+					Obj()
+				util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 
-			lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).
-				ClusterQueue(cq.Name).
-				Obj()
-			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+				lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).
+					ClusterQueue(cq.Name).
+					Obj()
+				util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+			})
 
-			util.MustCreate(ctx, k8sClient, job)
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
-				g.Expect(*job.Spec.Suspend).To(gomega.BeFalse())
-				g.Expect(job.Status.Active).To(gomega.Equal(int32(1)))
-				g.Expect(job.Status.Ready).To(gomega.Equal(ptr.To(int32(1))))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			ginkgo.By("creating the job and waiting for it to start", func() {
+				util.MustCreate(ctx, k8sClient, job)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+					g.Expect(*job.Spec.Suspend).To(gomega.BeFalse())
+					g.Expect(job.Status.Active).To(gomega.Equal(int32(1)))
+					g.Expect(job.Status.Ready).To(gomega.Equal(ptr.To(int32(1))))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
 
-			gomega.Eventually(func(g gomega.Gomega) {
-				pods := &corev1.PodList{}
-				g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels(job.Spec.Selector.MatchLabels))).To(gomega.Succeed())
-				g.Expect(pods.Items).To(gomega.HaveLen(1))
+			ginkgo.By("ensuring the pod is scheduled on a worker node", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					pods := &corev1.PodList{}
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels(job.Spec.Selector.MatchLabels))).To(gomega.Succeed())
+					g.Expect(pods.Items).To(gomega.HaveLen(1))
 
-				pod = &pods.Items[0]
-				nodeName = pod.Spec.NodeName
-				g.Expect(nodeName).ToNot(gomega.BeEmpty())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					pod = &pods.Items[0]
+					nodeName = pod.Spec.NodeName
+					g.Expect(nodeName).ToNot(gomega.BeEmpty())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
 
-			// Stop kubelet on the node
-			cmd := exec.Command("docker", "exec", nodeName, "systemctl", "stop", "kubelet")
-			gomega.Expect(cmd.Run()).To(gomega.Succeed())
+			ginkgo.By("stopping the kubelet on the node running the pod", func() {
+				cmd := exec.Command("docker", "exec", nodeName, "systemctl", "stop", "kubelet")
+				gomega.Expect(cmd.Run()).To(gomega.Succeed())
+			})
 		})
 
 		ginkgo.AfterEach(func() {
-			cmd := exec.Command("docker", "exec", nodeName, "systemctl", "start", "kubelet")
-			gomega.Expect(cmd.Run()).To(gomega.Succeed())
+			ginkgo.By("starting the kubelet on the node running the pod", func() {
+				cmd := exec.Command("docker", "exec", nodeName, "systemctl", "start", "kubelet")
+				gomega.Expect(cmd.Run()).To(gomega.Succeed())
+			})
 
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			ginkgo.By("deleting the cluster queue", func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			})
 		})
 
 		ginkgo.It("should delete pods running on an unreachable node", func() {
