@@ -21,8 +21,11 @@ integrations:
   - "pod"
 featureGates:
   DynamicResourceAllocation: true
+  DRAExtendedResources: true
 resources:
   deviceClassMappings:
   - name: gpu
     deviceClassNames:
     - gpu.example.com
+    # DeviceClass with extendedResourceName for Extended Resources backed by DRA testing
+    - gpu-extended.example.com
