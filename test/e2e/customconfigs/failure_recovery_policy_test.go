@@ -38,8 +38,11 @@ import (
 )
 
 const (
-	// `node-monitor-grace-period` + `podToleration` + `deletionGracePeriodSeconds` + `forcefulTerminationGracePeriod`
-	forcefulTerminationCheckTimeout = (50 + 1 + 30 + 60) * time.Second
+	// Unresponsive node is marked as unreachable after the grace period.
+	nodeMonitorGracePeriod = 50 * time.Second
+
+	// `podToleration` + `deletionGracePeriodSeconds` + `forcefulTerminationGracePeriod`
+	unhealthyNodeforcefulTerminationCheckTimeout = (1 + 30 + 60) * time.Second
 )
 
 var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -155,7 +158,7 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Ordered, ginkgo.Contin
 		})
 
 		ginkgo.It("should delete pods running on an unreachable node", func() {
-			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, pod, false, forcefulTerminationCheckTimeout+util.LongTimeout)
+			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, pod, false, nodeMonitorGracePeriod+unhealthyNodeforcefulTerminationCheckTimeout+util.LongTimeout)
 		})
 
 		ginkgo.It("should unblock the stuck pod's parents that are being deleted with foreground propagation", func() {
@@ -163,10 +166,10 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Ordered, ginkgo.Contin
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
 				g.Expect(pod.DeletionTimestamp).ToNot(gomega.BeNil())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, nodeMonitorGracePeriod+util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Expect(k8sClient.Delete(ctx, job, &client.DeleteOptions{PropagationPolicy: ptr.To(metav1.DeletePropagationForeground)})).To(gomega.Succeed())
-			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, job, false, forcefulTerminationCheckTimeout+util.Timeout)
+			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, job, false, unhealthyNodeforcefulTerminationCheckTimeout+util.Timeout)
 		})
 	})
 })
