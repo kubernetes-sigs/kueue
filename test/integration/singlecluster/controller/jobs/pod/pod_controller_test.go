@@ -2540,6 +2540,7 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 					g.Expect(pod.Spec.NodeName).Should(gomega.Equal(nodeName))
 				}
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, podgroup...)
 		})
 
 		ginkgo.By("making the node NotReady", func() {
@@ -2555,10 +2556,12 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 		ginkgo.By("terminating a pod", func() {
 			for _, p := range podgroup {
 				podKey := client.ObjectKeyFromObject(p)
-				podToTerminate := &corev1.Pod{}
-				gomega.Expect(k8sClient.Get(ctx, podKey, podToTerminate)).To(gomega.Succeed())
-				podToTerminate.Status.Phase = corev1.PodFailed
-				gomega.Expect(k8sClient.Status().Update(ctx, podToTerminate)).Should(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					pod := &corev1.Pod{}
+					g.Expect(k8sClient.Get(ctx, podKey, pod)).To(gomega.Succeed())
+					pod.Status.Phase = corev1.PodFailed
+					g.Expect(k8sClient.Status().Update(ctx, pod)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			}
 		})
 
