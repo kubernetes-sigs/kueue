@@ -272,6 +272,11 @@ Existing integration tests should prove that this feature does not impact Kueue 
 
 2025-10-17: First draft of the KEP.
 
+2026-03-04: The controller is [changed](https://github.com/kubernetes-sigs/kueue/pull/9651) to delete pods in addition to marking them as failed,
+to handle [foreground propagated deletion](https://github.com/kubernetes-sigs/kueue/issues/9649).
+Additionally, the annotation used by the feature was renamed from `kueue.x-k8s.io/safe-to-forcefully-terminate` to `kueue.x-k8s.io/safe-to-forcefully-delete`
+in versions `>=0.15.6`, `>=0.16.3` and `>=0.17.0`. Previous releases retain the old behaviour and annotation name.
+
 ## Drawbacks
 
 * The same feature is discussed in core Kubernetes ([kubernetes/issues/134038](https://github.com/kubernetes/kubernetes/issues/134038)), so the underlying issue could potentially be fixed upstream. The timeline of an upstream change is long, but if the feature is deemed not time-critical, it could be fixed at the source instead of in Kueue.
