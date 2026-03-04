@@ -100,6 +100,18 @@ func (j *SparkApplication) PodSets(ctx context.Context) ([]kueue.PodSet, error) 
 	// driver and executor
 	podSets := make([]kueue.PodSet, 2)
 
+	setTopologyRequestToPodSetIfEnabled := func(podSet *kueue.PodSet, podTemplateSpec *corev1.PodTemplateSpec) error {
+		if features.Enabled(features.TopologyAwareScheduling) {
+			topologyRequest, err := jobframework.NewPodSetTopologyRequest(
+				&podTemplateSpec.ObjectMeta).Build()
+			if err != nil {
+				return err
+			}
+			podSet.TopologyRequest = topologyRequest
+		}
+		return nil
+	}
+
 	// driver
 	driverPodTemplateSpec, err := j.buildDriverPodTemplateSpec()
 	if err != nil {
@@ -111,13 +123,10 @@ func (j *SparkApplication) PodSets(ctx context.Context) ([]kueue.PodSet, error) 
 		Count:    1,
 	}
 
-	if features.Enabled(features.TopologyAwareScheduling) {
-		topologyRequest, err := jobframework.NewPodSetTopologyRequest(
-			&driverPodTemplateSpec.ObjectMeta).Build()
-		if err != nil {
-			return nil, err
-		}
-		podSets[0].TopologyRequest = topologyRequest
+	if err := setTopologyRequestToPodSetIfEnabled(
+		&podSets[0], driverPodTemplateSpec,
+	); err != nil {
+		return nil, err
 	}
 
 	// executors
@@ -131,13 +140,10 @@ func (j *SparkApplication) PodSets(ctx context.Context) ([]kueue.PodSet, error) 
 		Count:    j.numInitialExecutors(),
 	}
 
-	if features.Enabled(features.TopologyAwareScheduling) {
-		topologyRequest, err := jobframework.NewPodSetTopologyRequest(
-			&executorPodTemplateSpec.ObjectMeta).Build()
-		if err != nil {
-			return nil, err
-		}
-		podSets[1].TopologyRequest = topologyRequest
+	if err := setTopologyRequestToPodSetIfEnabled(
+		&podSets[1], executorPodTemplateSpec,
+	); err != nil {
+		return nil, err
 	}
 
 	return podSets, nil
