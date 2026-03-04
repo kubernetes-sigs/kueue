@@ -78,8 +78,8 @@ func (iw *inadmissibleWorkloads) replaceAll(newMap inadmissibleWorkloads) {
 	*iw = newMap
 }
 
-// requeueWorkloadsCQ moves all workloads in the same
-// cohort with this ClusterQueue from inadmissibleWorkloads to heap.
+// requeueWorkloadsCQ moves all workloads in this ClusterQueue
+// from inadmissibleWorkloads to heap.
 // It expects to be passed a ClusterQueue without any Cohort.
 // WARNING: must only be called by the InadmissibleWorkloadRequeuer
 func requeueWorkloadsCQ(ctx context.Context, m *Manager, clusterQueueName kueue.ClusterQueueReference) int {
@@ -141,7 +141,7 @@ func requeueWorkloadsCohortSubtree(ctx context.Context, m *Manager, cohort *coho
 	return total
 }
 
-// queueInadmissibleWorkloads moves all workloads from inadmissibleWorkloads to heap.
+// queueInadmissibleWorkloads moves all (eligible) workloads from inadmissibleWorkloads to heap.
 // Returns the number of workloads moved.
 // WARNING: must only be called (indirectly) by InadmissibleWorkloadRequeuer.
 func queueInadmissibleWorkloads(ctx context.Context, c *ClusterQueue, client client.Client) int {
@@ -166,7 +166,7 @@ func queueInadmissibleWorkloads(ctx context.Context, c *ClusterQueue, client cli
 	}
 
 	c.inadmissibleWorkloads.replaceAll(newInadmissibleWorkloads)
-	log.V(5).Info("Moved all workloads from inadmissibleWorkloads back to heap", "clusterQueue", c.name)
+	log.V(5).Info("Moved workloads from inadmissibleWorkloads back to heap", "clusterQueue", c.name, "workloadsMoved", moved, "workloadsNotMoved", len(c.inadmissibleWorkloads))
 	return moved
 }
 
