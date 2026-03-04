@@ -352,6 +352,9 @@ func main() {
 
 	if features.Enabled(features.VisibilityOnDemand) {
 		go func() {
+			// We need to pass both kubeConfig and kubeConfigPath. kubeConfig is used to create the
+			// client for the visibility server, while kubeConfigPath is used to configure the
+			// delegated authentication and authorization.
 			if err := visibility.CreateAndStartVisibilityServer(ctx, queues, *cfg.InternalCertManagement.Enable, kubeConfig, kubeConfigPath, parsedTLSConfig); err != nil {
 				setupLog.Error(err, "Unable to create and start visibility server")
 				os.Exit(1)
