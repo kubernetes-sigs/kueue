@@ -89,55 +89,6 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
-	ginkgo.When("manageJobsWithoutQueueName=true and LocalQueueDefaulting=false", func() {
-		ginkgo.It("should suspend a job", func() {
-			var testJob, createdJob *batchv1.Job
-			var jobLookupKey types.NamespacedName
-
-			ginkgo.By("setting local queue defulting as false", func() {
-				util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
-					cfg.FeatureGates = map[string]bool{string(features.LocalQueueDefaulting): false}
-					cfg.ManageJobsWithoutQueueName = true
-				})
-			})
-
-			ginkgo.By("creating a default LocalQueue", func() {
-				localQueue = utiltestingapi.MakeLocalQueue("default", ns.Name).ClusterQueue("cluster-queue").Obj()
-				util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
-			})
-
-			ginkgo.By("creating an unsuspended job without a queue name", func() {
-				testJob = testingjob.MakeJob("test-job", ns.Name).
-					Suspend(false).
-					Image(util.GetAgnHostImage(), util.BehaviorExitFast).
-					Obj()
-				util.MustCreate(ctx, k8sClient, testJob)
-			})
-
-			ginkgo.By("verifying that the job does get suspended", func() {
-				createdJob = &batchv1.Job{}
-				jobLookupKey = types.NamespacedName{Name: testJob.Name, Namespace: ns.Name}
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, jobLookupKey, createdJob)).Should(gomega.Succeed())
-					g.Expect(ptr.Deref(createdJob.Spec.Suspend, false)).To(gomega.BeTrue())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("verifying no existence of kueue labels", func() {
-				jobLookupKey = types.NamespacedName{Name: testJob.Name, Namespace: ns.Name}
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, jobLookupKey, createdJob)).Should(gomega.Succeed())
-					g.Expect(createdJob.Labels).ShouldNot(gomega.HaveKeyWithValue(controllerconstants.QueueLabel, "default"))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-			ginkgo.By("setting feature gates back to its original state", func() {
-				util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
-					cfg.ManageJobsWithoutQueueName = true
-				})
-			})
-		})
-	})
-
 	ginkgo.When("manageJobsWithoutQueueName=true", func() {
 		ginkgo.It("should not suspend a job", func() {
 			var testJob, createdJob *batchv1.Job
@@ -899,6 +850,75 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
+})
+
+var _ = ginkgo.Describe("ManageJobsWithoutQueueName with LocalQueueDefaulting=false", ginkgo.Ordered, func() {
+	var (
+		ns           *corev1.Namespace
+		defaultRf    *kueue.ResourceFlavor
+		clusterQueue *kueue.ClusterQueue
+		localQueue   *kueue.LocalQueue
+	)
+
+	ginkgo.BeforeAll(func() {
+		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
+			cfg.FeatureGates = map[string]bool{string(features.LocalQueueDefaulting): false}
+			cfg.ManageJobsWithoutQueueName = true
+		})
+	})
+
+	ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
+
+		defaultRf = utiltestingapi.MakeResourceFlavor("default").Obj()
+		util.MustCreate(ctx, k8sClient, defaultRf)
+
+		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas(defaultRf.Name).
+					Resource(corev1.ResourceCPU, "2").
+					Resource(corev1.ResourceMemory, "2G").Obj()).Obj()
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+
+		localQueue = utiltestingapi.MakeLocalQueue("default", ns.Name).ClusterQueue("cluster-queue").Obj()
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, clusterQueue, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, defaultRf, true, util.LongTimeout)
+		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+	})
+
+	ginkgo.When("manageJobsWithoutQueueName=true and LocalQueueDefaulting=false", func() {
+		ginkgo.It("should suspend a job", func() {
+			job := testingjob.MakeJob("test-job", ns.Name).
+				Suspend(false).
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+				Obj()
+
+			ginkgo.By("creating an unsuspended job without a queue name", func() {
+				util.MustCreate(ctx, k8sClient, job)
+			})
+
+			createdJob := &batchv1.Job{}
+
+			ginkgo.By("verifying that the job does get suspended", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).Should(gomega.Succeed())
+					g.Expect(ptr.Deref(createdJob.Spec.Suspend, false)).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying no existence of kueue labels", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).Should(gomega.Succeed())
+					g.Expect(createdJob.Labels).ShouldNot(gomega.HaveKeyWithValue(controllerconstants.QueueLabel, "default"))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
