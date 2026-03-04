@@ -795,7 +795,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				WorkloadPriorityClass(managerLowWPC.Name).
 				Queue(kueue.LocalQueueName(managerLq.Name)).
-				RequestAndLimit(corev1.ResourceCPU, "2").
+				RequestAndLimit(corev1.ResourceCPU, "500m").
 				RequestAndLimit(corev1.ResourceMemory, "1G").
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, lowJob)
@@ -833,7 +833,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				WorkloadPriorityClass(managerHighWPC.Name).
 				Queue(kueue.LocalQueueName(managerLq.Name)).
-				RequestAndLimit(corev1.ResourceCPU, "2").
+				RequestAndLimit(corev1.ResourceCPU, "1500m").
 				RequestAndLimit(corev1.ResourceMemory, "1G").
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, highJob)
@@ -864,6 +864,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(k8sManagerClient.Get(ctx, lowWlKey, managerLowWl)).To(gomega.Succeed())
 					g.Expect(workload.IsEvicted(managerLowWl)).To(gomega.BeTrue())
 					g.Expect(managerLowWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPreempted))
+					g.Expect(managerLowWl.Status.Conditions).To(utiltesting.HaveConditionStatusFalse(kueue.WorkloadQuotaReserved))
+					g.Expect(managerLowWl.Status.Conditions).To(utiltesting.HaveConditionStatusFalse(kueue.WorkloadAdmitted))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -878,14 +880,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					admittedJob := &batchv1.Job{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(highJob), admittedJob)).To(gomega.Succeed())
-					g.Expect(admittedJob.Status.Active).To(gomega.Equal(int32(1)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Checking that the low-priority job is no longer active", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					admittedJob := &batchv1.Job{}
-					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(lowJob), admittedJob)).To(gomega.Succeed())
 					g.Expect(admittedJob.Status.Active).To(gomega.Equal(int32(1)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
