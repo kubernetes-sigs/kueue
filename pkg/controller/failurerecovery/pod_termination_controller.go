@@ -215,7 +215,11 @@ func podEligibleForTermination(p *corev1.Pod) bool {
 }
 
 func isPodPartiallyForcefullyTerminated(p *corev1.Pod) bool {
-	return utilpod.HasCondition(p, &corev1.PodCondition{Type: KueueFailureRecoveryConditionType, Status: corev1.ConditionTrue})
+	return utilpod.HasCondition(p, &corev1.PodCondition{
+		Type:   KueueFailureRecoveryConditionType,
+		Reason: KueueForcefulTerminationReason,
+		Status: corev1.ConditionTrue,
+	})
 }
 
 const ControllerName = "failure-recovery-pod-termination-controller"
