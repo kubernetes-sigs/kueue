@@ -38,11 +38,7 @@ import (
 )
 
 const (
-	// Unresponsive node is marked as unreachable after the grace period.
-	nodeMonitorGracePeriod = 50 * time.Second
-
-	// `podToleration` + `deletionGracePeriodSeconds` + `forcefulTerminationGracePeriod`
-	unhealthyNodeforcefulTerminationCheckTimeout = (1 + 30 + 60) * time.Second
+	podTerminationGracePeriodSeconds = 1
 )
 
 var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -68,6 +64,7 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Ordered, ginkgo.Contin
 			RequestAndLimit(corev1.ResourceCPU, "100m").
 			RequestAndLimit(corev1.ResourceMemory, "20Mi").
 			Parallelism(1).
+			TerminationGracePeriod(podTerminationGracePeriodSeconds).
 			PodReplacementPolicy(ptr.To(batchv1.Failed)).
 			PodAnnotation(constants.SafeToForcefullyDeleteAnnotationKey, constants.SafeToForcefullyDeleteAnnotationValue).
 			PodAffinity(&corev1.Affinity{
@@ -111,6 +108,12 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Ordered, ginkgo.Contin
 			lq       *kueue.LocalQueue
 			pod      *corev1.Pod
 			nodeName string
+
+			// Unresponsive node is marked as unreachable after the grace period.
+			nodeMonitorGracePeriod = 50 * time.Second
+
+			// `podToleration` + `deletionGracePeriodSeconds` + `forcefulTerminationGracePeriod`
+			unhealthyNodeforcefulTerminationCheckTimeout = (1 + podTerminationGracePeriodSeconds + 60) * time.Second
 		)
 
 		ginkgo.BeforeEach(func() {
