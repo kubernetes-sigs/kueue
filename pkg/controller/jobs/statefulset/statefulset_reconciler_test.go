@@ -321,6 +321,73 @@ func TestReconciler(t *testing.T) {
 				UID("sts-uid").
 				DeepCopy(),
 		},
+		"should adopt legacy workload instead of creating duplicate": {
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("", "sts"), "ns").
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", "ns").
+					Label(podconstants.GroupNameLabel, GetWorkloadName("", "sts")).
+					Obj(),
+			},
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				DeepCopy(),
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", "ns").
+					Label(podconstants.GroupNameLabel, GetWorkloadName("", "sts")).
+					Queue("lq").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("", "sts"), "ns").
+					Queue("lq").
+					OwnerReference(gvk, "sts", "sts-uid").
+					Obj(),
+			},
+		},
+		"should list pods by legacy workload name": {
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Replicas(0).
+				Queue("lq").
+				DeepCopy(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("", "sts"), "ns").
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", "ns").
+					Label(podconstants.GroupNameLabel, GetWorkloadName("", "sts")).
+					KueueFinalizer().
+					StatusPhase(corev1.PodSucceeded).
+					Obj(),
+			},
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Replicas(0).
+				Queue("lq").
+				DeepCopy(),
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", "ns").
+					Label(podconstants.GroupNameLabel, GetWorkloadName("", "sts")).
+					Queue("lq").
+					StatusPhase(corev1.PodSucceeded).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("", "sts"), "ns").
+					Obj(),
+			},
+		},
 		"should finalize deleted pod": {
 			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").

@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	statefulsettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 )
@@ -42,6 +43,7 @@ func TestPodReconciler(t *testing.T) {
 		manageJobsWithoutQueueName bool
 		sts                        *appsv1.StatefulSet
 		pod                        *corev1.Pod
+		workloads                  []kueue.Workload
 		wantPods                   []corev1.Pod
 		wantErr                    error
 	}{
@@ -209,6 +211,63 @@ func TestPodReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
+		"shouldn't relabel pod with legacy workload name when legacy workload exists": {
+			sts: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("queue").
+				Replicas(3).
+				Obj(),
+			pod: testingjobspod.MakePod("pod", "ns").
+				OwnerReference("sts", gvk).
+				Queue("queue").
+				ManagedByKueueLabel().
+				Group(GetWorkloadName("", "sts")).
+				GroupTotalCount("3").
+				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("", "sts"), "ns").Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod", "ns").
+					OwnerReference("sts", gvk).
+					Queue("queue").
+					ManagedByKueueLabel().
+					Group(GetWorkloadName("", "sts")).
+					GroupTotalCount("3").
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Obj(),
+			},
+		},
+		"should label new pod with legacy name when legacy workload exists": {
+			sts: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("queue").
+				Replicas(3).
+				Obj(),
+			pod: testingjobspod.MakePod("pod", "ns").
+				OwnerReference("sts", gvk).
+				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("", "sts"), "ns").Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod", "ns").
+					OwnerReference("sts", gvk).
+					Queue("queue").
+					ManagedByKueueLabel().
+					Group(GetWorkloadName("", "sts")).
+					GroupTotalCount("3").
+					PrebuiltWorkload(GetWorkloadName("", "sts")).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
+					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+					Annotation(kueue.PodGroupPodIndexLabelAnnotation, appsv1.PodIndexLabel).
+					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					Obj(),
+			},
+		},
 		"should set default values without queue name when manageJobsWithoutQueueName": {
 			manageJobsWithoutQueueName: true,
 			sts: statefulsettesting.MakeStatefulSet("sts", "ns").
@@ -240,7 +299,11 @@ func TestPodReconciler(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder()
 
-			kClient := clientBuilder.WithObjects(tc.sts, tc.pod).Build()
+			objs := []client.Object{tc.sts, tc.pod}
+			for i := range tc.workloads {
+				objs = append(objs, tc.workloads[i].DeepCopy())
+			}
+			kClient := clientBuilder.WithObjects(objs...).Build()
 
 			var opts []jobframework.Option
 			if tc.manageJobsWithoutQueueName {
