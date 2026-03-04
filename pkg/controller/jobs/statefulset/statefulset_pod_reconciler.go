@@ -129,7 +129,7 @@ func (r *PodReconciler) setDefault(ctx context.Context, pod *corev1.Pod) (bool, 
 	}
 
 	queueName := jobframework.QueueNameForObject(sts)
-	wlName := GetWorkloadName(GetOwnerUID(sts), sts.Name)
+	wlName := findWorkloadName(ctx, r.client, sts)
 
 	if pod.Labels[podconstants.GroupNameLabel] == wlName {
 		if queueName != "" && pod.Labels[controllerconstants.QueueLabel] != string(queueName) {
