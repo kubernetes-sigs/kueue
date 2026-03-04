@@ -18,6 +18,7 @@ package visibility
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"net"
 	"strings"
@@ -108,6 +109,11 @@ func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, en
 	} else {
 		o.SecureServing.ServerCert.CertKey.CertFile = certDir + "/tls.crt"
 		o.SecureServing.ServerCert.CertKey.KeyFile = certDir + "/tls.key"
+	}
+
+	var kubeConfigPath string
+	if f := flag.Lookup("kubeconfig"); f != nil {
+		kubeConfigPath = f.Value.String()
 	}
 	if kubeConfigPath != "" {
 		o.Authentication.RemoteKubeConfigFile = kubeConfigPath
