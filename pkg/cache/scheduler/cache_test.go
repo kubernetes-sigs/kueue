@@ -3647,7 +3647,6 @@ func TestSnapshotError(t *testing.T) {
 	var (
 		connectionRefusedErr = errors.New("connection refused")
 	)
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	ctx, log := utiltesting.ContextWithLog(t)
 
 	topology := *utiltestingapi.MakeDefaultOneLevelTopology("default")
