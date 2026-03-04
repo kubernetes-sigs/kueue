@@ -162,14 +162,20 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Ordered, ginkgo.Contin
 		})
 
 		ginkgo.It("should unblock the stuck pod's parents that are being deleted with foreground propagation", func() {
-			// Pod is being terminated after toleration elapses
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
-				g.Expect(pod.DeletionTimestamp).ToNot(gomega.BeNil())
-			}, nodeMonitorGracePeriod+util.Timeout, util.Interval).Should(gomega.Succeed())
+			ginkgo.By("waiting for pods to be marked for termination", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
+					g.Expect(pod.DeletionTimestamp).ToNot(gomega.BeNil())
+				}, nodeMonitorGracePeriod+util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
 
-			gomega.Expect(k8sClient.Delete(ctx, job, &client.DeleteOptions{PropagationPolicy: ptr.To(metav1.DeletePropagationForeground)})).To(gomega.Succeed())
-			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, job, false, unhealthyNodeforcefulTerminationCheckTimeout+util.Timeout)
+			ginkgo.By("deleting the job with foreground propagation", func() {
+				gomega.Expect(k8sClient.Delete(ctx, job, &client.DeleteOptions{PropagationPolicy: ptr.To(metav1.DeletePropagationForeground)})).To(gomega.Succeed())
+			})
+
+			ginkgo.By("ensuring the job is deleted", func() {
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, job, false, unhealthyNodeforcefulTerminationCheckTimeout+util.Timeout)
+			})
 		})
 	})
 })
