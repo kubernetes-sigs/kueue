@@ -797,6 +797,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "500m").
 				RequestAndLimit(corev1.ResourceMemory, "1G").
+				RequestAndLimit(corev1.ResourceStorage, "5G").
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, lowJob)
 
@@ -835,6 +836,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "1500m").
 				RequestAndLimit(corev1.ResourceMemory, "1G").
+				RequestAndLimit(corev1.ResourceStorage, "5G").
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, highJob)
 
