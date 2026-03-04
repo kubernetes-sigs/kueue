@@ -38,12 +38,9 @@ func HasGate(pod *corev1.Pod, gateName string) bool {
 // HasCondition checks if there is a condition in the Pod's status
 // with exactly the same Type and Status.
 func HasCondition(p *corev1.Pod, cond *corev1.PodCondition) bool {
-	for _, statusCond := range p.Status.Conditions {
-		if statusCond.Type == cond.Type && statusCond.Status == cond.Status {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(p.Status.Conditions, func(c corev1.PodCondition) bool {
+		return c.Type == cond.Type && c.Status == cond.Status
+	})
 }
 
 // Ungate removes scheduling gate from the Pod if present.
