@@ -186,10 +186,9 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldSTSObj, newSTSObj *app
 				allErrs = append(allErrs, field.Forbidden(replicasPath, "scaling down is still in progress"))
 			} else {
 				// Block if workload is still being deleted
-				workloadName := GetWorkloadName(oldStatefulSet.GetUID(), oldStatefulSet.GetName())
-				wlKey := client.ObjectKey{Namespace: oldStatefulSet.GetNamespace(), Name: workloadName}
+				wlName := findWorkloadName(ctx, wh.client, oldSTSObj)
 				var wl kueue.Workload
-				err := wh.client.Get(ctx, wlKey, &wl)
+				err := wh.client.Get(ctx, client.ObjectKey{Namespace: oldSTSObj.GetNamespace(), Name: wlName}, &wl)
 				if client.IgnoreNotFound(err) != nil {
 					return nil, err
 				} else if err == nil {

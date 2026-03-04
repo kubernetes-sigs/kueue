@@ -84,9 +84,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	wlName := findWorkloadName(ctx, r.client, sts)
+
 	podList := &corev1.PodList{}
 	if err := r.client.List(ctx, podList, client.InNamespace(req.Namespace), client.MatchingLabels{
-		podconstants.GroupNameLabel: GetWorkloadName(GetOwnerUID(sts), sts.Name),
+		podconstants.GroupNameLabel: wlName,
 	}); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -175,6 +177,22 @@ func (r *Reconciler) syncQueueLabel(ctx context.Context, sts *appsv1.StatefulSet
 	})
 }
 
+// findWorkloadName returns the workload name for the given StatefulSet,
+// falling back to the legacy name (without UID) if no workload exists under the new name.
+// TODO(#9497, v0.20): Remove legacy fallback.
+func findWorkloadName(ctx context.Context, c client.Client, sts *appsv1.StatefulSet) string {
+	wlName := GetWorkloadName(GetOwnerUID(sts), sts.Name)
+	wl := &kueue.Workload{}
+	if apierrors.IsNotFound(c.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: wlName}, wl)) {
+		legacyName := GetWorkloadName("", sts.Name)
+		if c.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: legacyName}, wl) == nil {
+			ctrl.LoggerFrom(ctx).V(3).Info("Using legacy workload name", "legacyName", legacyName, "newName", wlName)
+			return legacyName
+		}
+	}
+	return wlName
+}
+
 func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.StatefulSet) error {
 	if sts == nil {
 		return nil
@@ -184,7 +202,8 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 	queueName := jobframework.QueueNameForObject(sts)
 
 	wl := &kueue.Workload{}
-	err := r.client.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: GetWorkloadName(GetOwnerUID(sts), sts.Name)}, wl)
+	wlName := findWorkloadName(ctx, r.client, sts)
+	err := r.client.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: wlName}, wl)
 
 	if apierrors.IsNotFound(err) {
 		_, isMultiKueueRemote := sts.Labels[kueue.MultiKueueOriginLabel]
