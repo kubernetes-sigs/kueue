@@ -599,6 +599,36 @@ func TestNodeFailureReconciler(t *testing.T) {
 				features.TASReplaceNodeOnNodeTaints: true,
 			},
 		},
+		"Node NotReady, pod pending, no hostname topology level -> Healthy (ignore)": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionFalse,
+					LastTransitionTime: now}).Obj(),
+				utiltestingapi.MakeWorkload(wlName, nsName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{"rack"}).
+									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"rack-1"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), testStartTime,
+					).
+					AdmittedAt(true, testStartTime).
+					Obj(),
+				testingpod.MakePod("pending-pod-rack", nsName).
+					Annotation(kueue.WorkloadAnnotation, wlName).
+					NodeSelector("rack", "rack-1").
+					StatusPhase(corev1.PodPending).
+					Obj(),
+			},
+			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantUnhealthyNodes: nil,
+		},
 	}
 	for name, tc := range tests {
 		fakeClock.SetTime(testStartTime)
