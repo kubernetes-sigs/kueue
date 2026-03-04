@@ -562,12 +562,10 @@ func (c *ClusterQueue) Active() bool {
 }
 
 // RequeueIfNotPresent inserts a workload that was not
-// admitted back into the ClusterQueue. If the boolean is true,
-// the workloads should be put back in the queue immediately,
-// because we couldn't determine if the workload was admissible
-// in the last cycle. If the boolean is false, the implementation might
-// choose to keep it in temporary placeholder stage where it doesn't
-// compete with other workloads, until cluster events free up quota.
+// admitted back into the ClusterQueue.
+// This may be done either "immediately" or "non-immediately";
+// in the latter case the implementation may choose to keep the workload in "inadmissible workloads"
+// where it doesn't compete with other workloads, until cluster events free up quota.
 // The workload should not be reinserted if it's already in the ClusterQueue.
 // Returns true if the workload was inserted.
 func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.Info, reason RequeueReason) bool {
@@ -582,13 +580,15 @@ func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.
 		c.sw.set(workload.Key(wInfo.Obj))
 	}
 
+	var immediate bool
 	if c.queueingStrategy == kueue.StrictFIFO {
-		return c.requeueIfNotPresent(log, wInfo, reason != RequeueReasonNamespaceMismatch)
-	}
-	return c.requeueIfNotPresent(log, wInfo,
-		reason == RequeueReasonFailedAfterNomination ||
+		immediate = reason != RequeueReasonNamespaceMismatch
+	} else {
+		immediate = reason == RequeueReasonFailedAfterNomination ||
 			reason == RequeueReasonPendingPreemption ||
-			reason == RequeueReasonPreemptionFailed)
+			reason == RequeueReasonPreemptionFailed
+	}
+	return c.requeueIfNotPresent(log, wInfo, immediate)
 }
 
 // queueOrderingFunc returns a comparison function used to sort workloads.
