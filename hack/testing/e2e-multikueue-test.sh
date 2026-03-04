@@ -42,10 +42,10 @@ function cleanup {
     wait
 
     if e2e_should_delete_cluster; then
-        cluster_cleanup "$MANAGER_KIND_CLUSTER_NAME" &
-        cluster_cleanup "$WORKER1_KIND_CLUSTER_NAME" &
-        cluster_cleanup "$WORKER2_KIND_CLUSTER_NAME" &
-        wait
+        # Run cleanup sequentially to prevent kubeconfig lock collisions
+        cluster_cleanup "$MANAGER_KIND_CLUSTER_NAME" 
+        cluster_cleanup "$WORKER1_KIND_CLUSTER_NAME" 
+        cluster_cleanup "$WORKER2_KIND_CLUSTER_NAME"
         return 0
     fi
 
@@ -81,11 +81,16 @@ function kueue_deploy {
 trap cleanup EXIT
 startup 
 prepare_docker_images
-wait # for clusters creation
+for job in $(jobs -p); do 
+    wait "$job" || { echo "Cluster creation failed!"; exit 1; } 
+done # wait for clusters creation
+
 kind_load "$MANAGER_KIND_CLUSTER_NAME" "$MANAGER_KUBECONFIG" &
 kind_load "$WORKER1_KIND_CLUSTER_NAME" "$WORKER1_KUBECONFIG" &
 kind_load "$WORKER2_KIND_CLUSTER_NAME" "$WORKER2_KUBECONFIG" &
-wait # for libraries installation
+for job in $(jobs -p); do 
+    wait "$job" || { echo "Dependency installation failed!"; exit 1; } 
+done # wait for dependency installation
 echo "Add contexts to default kubeconfig"
 $KIND export kubeconfig --name "$MANAGER_KIND_CLUSTER_NAME"
 $KIND export kubeconfig --name "$WORKER1_KIND_CLUSTER_NAME"
