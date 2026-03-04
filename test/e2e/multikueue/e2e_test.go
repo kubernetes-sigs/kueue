@@ -149,7 +149,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				*utiltestingapi.MakeFlavorQuotas(managerFlavor.Name).
 					Resource(corev1.ResourceCPU, "2").
 					Resource(corev1.ResourceMemory, "4G").
-					Resource(corev1.ResourceStorage, "10G").
 					Obj(),
 			).
 			AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAc.Name)).
@@ -176,7 +175,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				*utiltestingapi.MakeFlavorQuotas(worker1Flavor.Name).
 					Resource(corev1.ResourceCPU, "2").
 					Resource(corev1.ResourceMemory, "1G").
-					Resource(corev1.ResourceStorage, "8G").
 					Obj(),
 			).
 			Preemption(kueue.ClusterQueuePreemption{
@@ -202,7 +200,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				*utiltestingapi.MakeFlavorQuotas(worker2Flavor.Name).
 					Resource(corev1.ResourceCPU, "1200m").
 					Resource(corev1.ResourceMemory, "4G").
-					Resource(corev1.ResourceStorage, "2G").
 					Obj(),
 			).
 			Obj()
@@ -783,13 +780,20 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		})
 
 		ginkgo.It("Should preempt a running low-priority workload when a high-priority workload is admitted (same worker)", func() {
+			ginkgo.By("Ensuring worker2 does not have enough quota to handle created workloads", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sWorker2Client.Get(ctx, client.ObjectKeyFromObject(worker2Cq), worker2Cq)).To(gomega.Succeed())
+					worker2Cq.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("100m")
+					g.Expect(k8sWorker2Client.Update(ctx, worker2Cq)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
 			lowJob := testingjob.MakeJob("low-job", managerNs.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				WorkloadPriorityClass(managerLowWPC.Name).
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "500m").
 				RequestAndLimit(corev1.ResourceMemory, "1G").
-				RequestAndLimit(corev1.ResourceStorage, "5G").
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, lowJob)
 
@@ -828,7 +832,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "1500m").
 				RequestAndLimit(corev1.ResourceMemory, "1G").
-				RequestAndLimit(corev1.ResourceStorage, "5G").
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, highJob)
 
