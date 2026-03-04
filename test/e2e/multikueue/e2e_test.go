@@ -149,6 +149,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				*utiltestingapi.MakeFlavorQuotas(managerFlavor.Name).
 					Resource(corev1.ResourceCPU, "2").
 					Resource(corev1.ResourceMemory, "4G").
+					Resource(corev1.ResourceStorage, "10G").
 					Obj(),
 			).
 			AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAc.Name)).
@@ -175,6 +176,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				*utiltestingapi.MakeFlavorQuotas(worker1Flavor.Name).
 					Resource(corev1.ResourceCPU, "2").
 					Resource(corev1.ResourceMemory, "1G").
+					Resource(corev1.ResourceStorage, "8G").
 					Obj(),
 			).
 			Preemption(kueue.ClusterQueuePreemption{
@@ -200,6 +202,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				*utiltestingapi.MakeFlavorQuotas(worker2Flavor.Name).
 					Resource(corev1.ResourceCPU, "1200m").
 					Resource(corev1.ResourceMemory, "4G").
+					Resource(corev1.ResourceStorage, "2G").
 					Obj(),
 			).
 			Obj()
@@ -786,6 +789,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "500m").
 				RequestAndLimit(corev1.ResourceMemory, "1G").
+				RequestAndLimit(corev1.ResourceStorage, "5G").
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, lowJob)
 
@@ -824,6 +828,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "1500m").
 				RequestAndLimit(corev1.ResourceMemory, "1G").
+				RequestAndLimit(corev1.ResourceStorage, "5G").
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, highJob)
 
