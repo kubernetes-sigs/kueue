@@ -236,7 +236,7 @@ func hasTASAssignmentOnNode(wl *kueue.Workload, nodeName string) bool {
 		if topologyAssignment == nil {
 			continue
 		}
-		if !utiltas.IsLowestLevelHostname(topologyAssignment.Levels) {
+		if len(topologyAssignment.Levels) == 0 || !utiltas.IsLowestLevelHostname(topologyAssignment.Levels) {
 			continue
 		}
 		for value := range utiltas.LowestLevelValues(topologyAssignment) {
@@ -384,8 +384,8 @@ func (r *nodeFailureReconciler) reconcileWorkloadsOnNode(ctx context.Context, no
 		}
 
 		if len(result.podsToTerminate) > 0 {
-			if err := r.terminatePods(ctx, result.podsToTerminate); err != nil {
-				return ctrl.Result{}, fmt.Errorf("terminating pods: %w", err)
+			if err := r.markPodsFailed(ctx, result.podsToTerminate); err != nil {
+				return ctrl.Result{}, fmt.Errorf("marking pods as failed: %w", err)
 			}
 		}
 
@@ -434,7 +434,7 @@ func classifyPodsForReplacement(pods []*corev1.Pod) (podsToTerminate []*corev1.P
 	return
 }
 
-func (r *nodeFailureReconciler) terminatePods(ctx context.Context, pods []*corev1.Pod) error {
+func (r *nodeFailureReconciler) markPodsFailed(ctx context.Context, pods []*corev1.Pod) error {
 	for _, p := range pods {
 		err := utilclient.PatchStatus(ctx, r.client, p, func() (bool, error) {
 			p.Status.Phase = corev1.PodFailed
@@ -521,18 +521,10 @@ func isPodAssignedToNode(pod *corev1.Pod, nodeName string, levels []string) bool
 	if pod.Spec.NodeName != "" {
 		return pod.Spec.NodeName == nodeName
 	}
-	if len(pod.Spec.NodeSelector) == 0 || len(levels) == 0 {
+	if len(levels) == 0 || !utiltas.IsLowestLevelHostname(levels) {
 		return false
 	}
-	key := levels[len(levels)-1]
-	val, ok := pod.Spec.NodeSelector[key]
-	if !ok {
-		return false
-	}
-	if val != nodeName {
-		return false
-	}
-	return true
+	return pod.Spec.NodeSelector[corev1.LabelHostname] == nodeName
 }
 
 func getTopologyAssignmentLevelsForPod(pod *corev1.Pod, wl *kueue.Workload, psaMap map[kueue.PodSetReference]*kueue.PodSetAssignment) []string {
