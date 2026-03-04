@@ -28,6 +28,7 @@ import (
 
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	resourceapi "k8s.io/api/resource/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -101,6 +102,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(schedulingv1.AddToScheme(scheme))
+	utilruntime.Must(resourceapi.AddToScheme(scheme))
 
 	utilruntime.Must(kueue.AddToScheme(scheme))
 	utilruntime.Must(kueuev1beta1.AddToScheme(scheme))
@@ -285,12 +287,13 @@ func main() {
 		cacheOptions = append(cacheOptions, schdcache.WithResourceTransformations(cfg.Resources.Transformations))
 		queueOptions = append(queueOptions, qcache.WithResourceTransformations(cfg.Resources.Transformations))
 	}
-	if features.Enabled(features.DynamicResourceAllocation) && cfg.Resources != nil && len(cfg.Resources.DeviceClassMappings) > 0 {
-		if err := dra.CreateMapperFromConfiguration(cfg.Resources.DeviceClassMappings); err != nil {
-			setupLog.Error(err, "Failed to initialize DRA mapper from configuration")
-			os.Exit(1)
+	if features.Enabled(features.DynamicResourceAllocation) {
+		if cfg.Resources != nil && len(cfg.Resources.DeviceClassMappings) > 0 {
+			if err := dra.CreateMapperFromConfiguration(cfg.Resources.DeviceClassMappings); err != nil {
+				setupLog.Error(err, "Failed to initialize DRA mapper from configuration")
+				os.Exit(1)
+			}
 		}
-		setupLog.Info("DRA mapper initialized from configuration")
 	}
 	if cfg.FairSharing != nil {
 		cacheOptions = append(cacheOptions, schdcache.WithFairSharing(fairsharing.Enabled(cfg.FairSharing)))
