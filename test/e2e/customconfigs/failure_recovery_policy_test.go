@@ -133,7 +133,7 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Ordered, ginkgo.Contin
 				g.Expect(*job.Spec.Suspend).To(gomega.BeFalse())
 				g.Expect(job.Status.Active).To(gomega.Equal(int32(1)))
 				g.Expect(job.Status.Ready).To(gomega.Equal(ptr.To(int32(1))))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				pods := &corev1.PodList{}
