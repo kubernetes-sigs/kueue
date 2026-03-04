@@ -197,6 +197,11 @@ type Info struct {
 
 	// SecondPassIteration indicates the current iteration of the second pass scheduling.
 	SecondPassIteration int
+
+	// LastEvaluatedGeneration stores the Obj.Generation at the time the scheduler
+	// popped this workload for evaluation. Used by PushOrUpdate to detect spec
+	// changes masked by RequeueWorkload's info.Update.
+	LastEvaluatedGeneration int64
 }
 
 type PodSetResources struct {

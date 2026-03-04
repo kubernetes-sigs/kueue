@@ -242,6 +242,66 @@ func TestPushOrUpdateSkipsInflightWorkload(t *testing.T) {
 	}
 }
 
+func TestPushOrUpdateGenerationChanged(t *testing.T) {
+	now := time.Now()
+
+	cases := map[string]struct {
+		updatedWorkload           *kueue.Workload
+		wantActiveWorkloads       int
+		wantInadmissibleWorkloads int
+	}{
+		"moves to heap when generation changed": {
+			updatedWorkload: utiltestingapi.MakeWorkload("workload-1", defaultNamespace).
+				Creation(now).Generation(2).ResourceVersion("2").Priority(300).Obj(),
+			wantActiveWorkloads:       1,
+			wantInadmissibleWorkloads: 0,
+		},
+		"stays inadmissible when generation changed but backoff unexpired": {
+			updatedWorkload: utiltestingapi.MakeWorkload("workload-1", defaultNamespace).
+				Creation(now).Generation(2).ResourceVersion("2").Priority(300).
+				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(now.Add(time.Hour)))).
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadRequeued,
+					Status: metav1.ConditionFalse,
+					Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
+				}).Obj(),
+			wantActiveWorkloads:       0,
+			wantInadmissibleWorkloads: 1,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
+
+			wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).
+				Creation(now).Generation(1).Obj()
+			cq.PushOrUpdate(workload.NewInfo(wl))
+
+			head := cq.Pop()
+			if head == nil {
+				t.Fatal("expected to pop workload")
+			}
+
+			// Simulate RequeueWorkload with info.Update: inadmissible entry gets new generation.
+			updatedInfo := workload.NewInfo(tc.updatedWorkload)
+			updatedInfo.LastEvaluatedGeneration = head.LastEvaluatedGeneration
+			cq.requeueIfNotPresent(updatedInfo, false)
+
+			// PushOrUpdate from informer event with the updated workload.
+			cq.PushOrUpdate(workload.NewInfo(tc.updatedWorkload))
+
+			if active, _ := cq.Dump(); len(active) != tc.wantActiveWorkloads {
+				t.Errorf("got %d active workloads, want %d", len(active), tc.wantActiveWorkloads)
+			}
+			if inadmissible, _ := cq.DumpInadmissible(); len(inadmissible) != tc.wantInadmissibleWorkloads {
+				t.Errorf("got %d inadmissible workloads, want %d", len(inadmissible), tc.wantInadmissibleWorkloads)
+			}
+		})
+	}
+}
+
 func Test_Delete(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()))
