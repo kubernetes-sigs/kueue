@@ -177,6 +177,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					Resource(corev1.ResourceMemory, "1G").
 					Obj(),
 			).
+			Preemption(kueue.ClusterQueuePreemption{
+				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+			}).
 			Obj()
 		util.CreateClusterQueuesAndWaitForActive(ctx, k8sWorker1Client, worker1Cq)
 
