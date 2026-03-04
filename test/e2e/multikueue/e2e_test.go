@@ -791,6 +791,83 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		})
 
 		ginkgo.It("Should preempt a running low-priority workload when a high-priority workload is admitted (same worker)", func() {
+			lowJob := testingjob.MakeJob("low-job", managerNs.Name).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				WorkloadPriorityClass(managerLowWPC.Name).
+				Queue(kueue.LocalQueueName(managerLq.Name)).
+				RequestAndLimit(corev1.ResourceCPU, "2").
+				RequestAndLimit(corev1.ResourceMemory, "1G").
+				Obj()
+			util.MustCreate(ctx, k8sManagerClient, lowJob)
+
+			lowWlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(lowJob.Name, lowJob.UID), Namespace: managerNs.Name}
+
+			managerLowWl := &kueue.Workload{}
+			workerLowWorkload := &kueue.Workload{}
+
+			ginkgo.By("Checking that the low-priority workload is created and admitted in the manager cluster", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sManagerClient.Get(ctx, lowWlKey, managerLowWl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(managerLowWl)).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the low-priority workload is created in worker1 and not in worker2, and that its spec matches the manager workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sWorker1Client.Get(ctx, lowWlKey, workerLowWorkload)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(workerLowWorkload)).To(gomega.BeTrue())
+					g.Expect(workerLowWorkload.Spec).To(gomega.BeComparableTo(managerLowWl.Spec))
+					g.Expect(k8sWorker2Client.Get(ctx, lowWlKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			highJob := testingjob.MakeJob("high-job", managerNs.Name).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				WorkloadPriorityClass(managerHighWPC.Name).
+				Queue(kueue.LocalQueueName(managerLq.Name)).
+				RequestAndLimit(corev1.ResourceCPU, "2").
+				RequestAndLimit(corev1.ResourceMemory, "1G").
+				Obj()
+			util.MustCreate(ctx, k8sManagerClient, highJob)
+
+			highWlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(highJob.Name, highJob.UID), Namespace: managerNs.Name}
+
+			managerHighWl := &kueue.Workload{}
+			workerHighWorkload := &kueue.Workload{}
+
+			ginkgo.By("Checking that the high-priority workload is created and admitted in the manager cluster", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sManagerClient.Get(ctx, highWlKey, managerHighWl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(managerHighWl)).To(gomega.BeTrue())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the high-priority workload is created in worker1 and not in worker2, and that its spec matches the manager workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sWorker1Client.Get(ctx, highWlKey, workerHighWorkload)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(workerHighWorkload)).To(gomega.BeTrue())
+					g.Expect(workerHighWorkload.Spec).To(gomega.BeComparableTo(managerHighWl.Spec))
+					g.Expect(k8sWorker2Client.Get(ctx, highWlKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the low-priority workload is preempted in the manager cluster", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sManagerClient.Get(ctx, lowWlKey, managerLowWl)).To(gomega.Succeed())
+					g.Expect(workload.IsEvicted(managerLowWl)).To(gomega.BeTrue())
+					g.Expect(managerLowWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPreempted))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the low-priority workload is deleted from the worker clusters", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sWorker1Client.Get(ctx, lowWlKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+					g.Expect(k8sWorker2Client.Get(ctx, lowWlKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("Should preempt a running low-priority workload on a worker when a high-priority workload is admitted to it by manager", func() {
 			ginkgo.By("Ensuring worker2 does not have enough quota to handle created workloads", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker2Client.Get(ctx, client.ObjectKeyFromObject(worker2Cq), worker2Cq)).To(gomega.Succeed())
@@ -867,13 +944,19 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Checking that the low-priority workload is preempted in the manager cluster", func() {
+			ginkgo.By("Checking that the low-priority workload was evicted on the manager cluster", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, lowWlKey, managerLowWl)).To(gomega.Succeed())
 					g.Expect(workload.IsEvicted(managerLowWl)).To(gomega.BeTrue())
-					g.Expect(managerLowWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPreempted))
-					g.Expect(managerLowWl.Status.Conditions).To(utiltesting.HaveConditionStatusFalse(kueue.WorkloadQuotaReserved))
 					g.Expect(managerLowWl.Status.Conditions).To(utiltesting.HaveConditionStatusFalse(kueue.WorkloadAdmitted))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the low-priority job is not active", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					admittedJob := &batchv1.Job{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(lowJob), admittedJob)).To(gomega.Succeed())
+					g.Expect(admittedJob.Status.Active).To(gomega.Equal(int32(0)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
