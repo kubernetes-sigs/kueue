@@ -79,21 +79,21 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile StatefulSet")
 
+	sts := &appsv1.StatefulSet{}
+	if err := r.client.Get(ctx, req.NamespacedName, sts); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	wlName, err := findWorkloadName(ctx, r.client, sts)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
 	podList := &corev1.PodList{}
 	if err := r.client.List(ctx, podList, client.InNamespace(req.Namespace), client.MatchingLabels{
-		podconstants.GroupNameLabel: GetWorkloadName(req.Name),
+		podconstants.GroupNameLabel: wlName,
 	}); err != nil {
 		return ctrl.Result{}, err
-	}
-
-	sts := &appsv1.StatefulSet{}
-	err := r.client.Get(ctx, req.NamespacedName, sts)
-	if client.IgnoreNotFound(err) != nil {
-		return ctrl.Result{}, err
-	}
-
-	if err != nil {
-		sts = nil
 	}
 
 	if err := r.syncQueueLabel(ctx, sts, podList.Items); err != nil {
@@ -110,8 +110,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return r.reconcileWorkload(ctx, sts)
 	})
 
-	err = eg.Wait()
-	return ctrl.Result{}, err
+	return ctrl.Result{}, eg.Wait()
 }
 
 func (r *Reconciler) finalizePods(ctx context.Context, sts *appsv1.StatefulSet, pods []corev1.Pod) error {
@@ -181,6 +180,28 @@ func (r *Reconciler) syncQueueLabel(ctx context.Context, sts *appsv1.StatefulSet
 	})
 }
 
+// findWorkloadName returns the workload name for the given StatefulSet,
+// falling back to the legacy name (without UID) if no workload exists under the new name.
+// TODO(#9497, v0.20): Remove legacy fallback.
+func findWorkloadName(ctx context.Context, c client.Client, sts *appsv1.StatefulSet) (string, error) {
+	wlName := GetWorkloadName(GetOwnerUID(sts), sts.Name)
+	wl := &kueue.Workload{}
+	err := c.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: wlName}, wl)
+	if client.IgnoreNotFound(err) != nil {
+		return wlName, err
+	}
+	if apierrors.IsNotFound(err) {
+		legacyName := GetWorkloadName("", sts.Name)
+		if err := c.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: legacyName}, wl); err == nil {
+			ctrl.LoggerFrom(ctx).V(3).Info("Using legacy workload name", "legacyName", legacyName, "newName", wlName)
+			return legacyName, nil
+		} else if !apierrors.IsNotFound(err) {
+			return wlName, err
+		}
+	}
+	return wlName, nil
+}
+
 func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.StatefulSet) error {
 	if sts == nil {
 		return nil
@@ -190,7 +211,11 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 	queueName := jobframework.QueueNameForObject(sts)
 
 	wl := &kueue.Workload{}
-	err := r.client.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: GetWorkloadName(sts.Name)}, wl)
+	wlName, err := findWorkloadName(ctx, r.client, sts)
+	if err != nil {
+		return err
+	}
+	err = r.client.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: wlName}, wl)
 
 	if apierrors.IsNotFound(err) {
 		_, isMultiKueueRemote := sts.Labels[kueue.MultiKueueOriginLabel]
@@ -280,7 +305,7 @@ func (r *Reconciler) constructWorkload(sts *appsv1.StatefulSet) (*kueue.Workload
 		podSet.TopologyRequest = topologyRequest
 	}
 
-	wl := podcontroller.NewGroupWorkload(GetWorkloadName(sts.Name), sts, []kueue.PodSet{podSet}, nil)
+	wl := podcontroller.NewGroupWorkload(GetWorkloadName(GetOwnerUID(sts), sts.Name), sts, []kueue.PodSet{podSet}, nil)
 
 	if wl.Annotations == nil {
 		wl.Annotations = make(map[string]string)

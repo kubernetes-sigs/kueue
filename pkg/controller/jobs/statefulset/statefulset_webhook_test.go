@@ -762,13 +762,15 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		"scale up from zero blocked by existing workload": {
 			objs: []runtime.Object{
-				utiltestingapi.MakeWorkload(GetWorkloadName("test-statefulset"), "test-ns").Obj(),
+				utiltestingapi.MakeWorkload(GetWorkloadName("test-uid", "test-statefulset"), "test-ns").Obj(),
 			},
 			oldObj: testingstatefulset.MakeStatefulSet("test-statefulset", "test-ns").
+				UID("test-uid").
 				Queue("test-queue").
 				Replicas(0).
 				Obj(),
 			newObj: testingstatefulset.MakeStatefulSet("test-statefulset", "test-ns").
+				UID("test-uid").
 				Queue("test-queue").
 				Replicas(3).
 				Obj(),
