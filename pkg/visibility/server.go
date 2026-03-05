@@ -98,25 +98,6 @@ func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manage
 }
 
 func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, enableInternalCertManagement bool, tlsOpts *tlsconfig.TLS) error {
-	o, err := createVisibilityServerOptions(enableInternalCertManagement)
-	if err != nil {
-		return err
-	}
-
-	if err := o.ApplyTo(config); err != nil {
-		return err
-	}
-
-	// Only apply TLS options if the feature gate is enabled
-	if tlsOpts != nil && config.SecureServing != nil {
-		config.SecureServing.MinTLSVersion = tlsOpts.MinVersion
-		config.SecureServing.CipherSuites = tlsOpts.CipherSuites
-	}
-
-	return nil
-}
-
-func createVisibilityServerOptions(enableInternalCertManagement bool) (*genericoptions.RecommendedOptions, error) {
 	o := genericoptions.NewRecommendedOptions("", codecs.LegacyCodec(
 		visibilityv1beta2.SchemeGroupVersion,
 		visibilityv1beta1.SchemeGroupVersion,
@@ -132,17 +113,27 @@ func createVisibilityServerOptions(enableInternalCertManagement bool) (*generico
 	}
 
 	if f := flag.Lookup("kubeconfig"); f != nil {
-		if kubeConfigPath := f.Value.String(); kubeConfigPath != "" {
-			o.Authentication.RemoteKubeConfigFile = kubeConfigPath
-			o.Authorization.RemoteKubeConfigFile = kubeConfigPath
-		}
+		kubeConfigPath := f.Value.String()
+		o.Authentication.RemoteKubeConfigFile = kubeConfigPath
+		o.Authorization.RemoteKubeConfigFile = kubeConfigPath
 	}
 
 	o.Admission.DisablePlugins = disabledPlugins
 	if err := o.SecureServing.MaybeDefaultWithSelfSignedCerts("localhost", nil, []net.IP{net.ParseIP("127.0.0.1")}); err != nil {
-		return nil, fmt.Errorf("error creating self-signed certificates: %v", err)
+		return fmt.Errorf("error creating self-signed certificates: %v", err)
 	}
-	return o, nil
+
+	if err := o.ApplyTo(config); err != nil {
+		return err
+	}
+
+	// Only apply TLS options if the feature gate is enabled
+	if tlsOpts != nil && config.SecureServing != nil {
+		config.SecureServing.MinTLSVersion = tlsOpts.MinVersion
+		config.SecureServing.CipherSuites = tlsOpts.CipherSuites
+	}
+
+	return nil
 }
 
 func newVisibilityServerConfig(kubeConfig *rest.Config) *genericapiserver.RecommendedConfig {
