@@ -34,7 +34,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -500,8 +499,22 @@ app = HelloWorld.bind()`,
 			gomega.Expect(k8sClient.Create(ctx, rayService)).Should(gomega.Succeed())
 		})
 
-		gvk := rayv1.GroupVersion.WithKind("RayService")
-		wlLookupKey := types.NamespacedName{Name: jobframework.GetWorkloadNameForOwnerWithGVK(rayService.Name, rayService.UID, gvk), Namespace: ns.Name}
+		// Kueue manages RayService through the child RayCluster created by KubeRay.
+		// Get the child RayCluster name from RayService status, then look up its workload.
+		var childRayCluster rayv1.RayCluster
+		ginkgo.By("Waiting for the child RayCluster to be created", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdRayService := &rayv1.RayService{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayService), createdRayService)).To(gomega.Succeed())
+				g.Expect(createdRayService.Status.ActiveServiceStatus.RayClusterName).NotTo(gomega.BeEmpty())
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Name:      createdRayService.Status.ActiveServiceStatus.RayClusterName,
+					Namespace: ns.Name,
+				}, &childRayCluster)).To(gomega.Succeed())
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		wlLookupKey := types.NamespacedName{Name: workloadraycluster.GetWorkloadNameForRayCluster(childRayCluster.Name, childRayCluster.UID), Namespace: ns.Name}
 		createdWorkload := &kueue.Workload{}
 		ginkgo.By("Checking workload is created", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -515,9 +528,10 @@ app = HelloWorld.bind()`,
 
 		ginkgo.By("Checking the RayService is running", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&childRayCluster), &childRayCluster)).To(gomega.Succeed())
+				g.Expect(childRayCluster.Spec.Suspend).To(gomega.Equal(ptr.To(false)))
 				createdRayService := &rayv1.RayService{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayService), createdRayService)).To(gomega.Succeed())
-				g.Expect(createdRayService.Spec.RayClusterSpec.Suspend).To(gomega.Equal(ptr.To(false)))
 				g.Expect(apimeta.IsStatusConditionTrue(createdRayService.Status.Conditions, string(rayv1.RayServiceReady))).To(gomega.BeTrue())
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
