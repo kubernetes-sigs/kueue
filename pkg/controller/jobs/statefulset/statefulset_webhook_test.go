@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -67,13 +68,8 @@ func TestDefault(t *testing.T) {
 				Obj(),
 			want: testingstatefulset.MakeStatefulSet("test-pod", "test-ns").
 				Replicas(10).
-				PodTemplateManagedByKueue().
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
-				PodTemplateSpecPodGroupTotalCountAnnotation(10).
-				PodTemplateSpecPodGroupFastAdmissionAnnotation().
-				PodTemplateSpecPodGroupServingAnnotation().
-				PodTemplateSpecPodGroupPodIndexLabelAnnotation(appsv1.PodIndexLabel).
+				PodTemplateAnnotation(kueue.PodGroupPodIndexLabelAnnotation, appsv1.PodIndexLabel).
 				Obj(),
 		},
 		"statefulset with queue": {
@@ -85,14 +81,8 @@ func TestDefault(t *testing.T) {
 			want: testingstatefulset.MakeStatefulSet("test-pod", "").
 				Replicas(10).
 				Queue("test-queue").
-				PodTemplateSpecQueue("test-queue").
-				PodTemplateManagedByKueue().
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
-				PodTemplateSpecPodGroupTotalCountAnnotation(10).
-				PodTemplateSpecPodGroupFastAdmissionAnnotation().
-				PodTemplateSpecPodGroupServingAnnotation().
-				PodTemplateSpecPodGroupPodIndexLabelAnnotation(appsv1.PodIndexLabel).
+				PodTemplateAnnotation(kueue.PodGroupPodIndexLabelAnnotation, appsv1.PodIndexLabel).
 				Obj(),
 		},
 		"statefulset managed by another framework": {
@@ -119,15 +109,8 @@ func TestDefault(t *testing.T) {
 				Replicas(10).
 				Queue("test-queue").
 				Label(constants.WorkloadPriorityClassLabel, "test").
-				PodTemplateSpecQueue("test-queue").
-				PodTemplateManagedByKueue().
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-				PodTemplateSpecLabel(constants.WorkloadPriorityClassLabel, "test").
-				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
-				PodTemplateSpecPodGroupTotalCountAnnotation(10).
-				PodTemplateSpecPodGroupFastAdmissionAnnotation().
-				PodTemplateSpecPodGroupServingAnnotation().
-				PodTemplateSpecPodGroupPodIndexLabelAnnotation(appsv1.PodIndexLabel).
+				PodTemplateAnnotation(kueue.PodGroupPodIndexLabelAnnotation, appsv1.PodIndexLabel).
 				Obj(),
 		},
 		"statefulset without replicas": {
@@ -137,14 +120,8 @@ func TestDefault(t *testing.T) {
 				Obj(),
 			want: testingstatefulset.MakeStatefulSet("test-pod", "").
 				Queue("test-queue").
-				PodTemplateManagedByKueue().
-				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
-				PodTemplateSpecPodGroupTotalCountAnnotation(1).
-				PodTemplateSpecQueue("test-queue").
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-				PodTemplateSpecPodGroupFastAdmissionAnnotation().
-				PodTemplateSpecPodGroupServingAnnotation().
-				PodTemplateSpecPodGroupPodIndexLabelAnnotation(appsv1.PodIndexLabel).
+				PodTemplateAnnotation(kueue.PodGroupPodIndexLabelAnnotation, appsv1.PodIndexLabel).
 				Obj(),
 		},
 		"LocalQueueDefaulting enabled, default lq is created, job doesn't have queue label": {
@@ -153,14 +130,8 @@ func TestDefault(t *testing.T) {
 			statefulset:          testingstatefulset.MakeStatefulSet("test-pod", "default").Obj(),
 			want: testingstatefulset.MakeStatefulSet("test-pod", "default").
 				Queue("default").
-				PodTemplateSpecQueue("default").
-				PodTemplateManagedByKueue().
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
-				PodTemplateSpecPodGroupTotalCountAnnotation(1).
-				PodTemplateSpecPodGroupFastAdmissionAnnotation().
-				PodTemplateSpecPodGroupServingAnnotation().
-				PodTemplateSpecPodGroupPodIndexLabelAnnotation(appsv1.PodIndexLabel).
+				PodTemplateAnnotation(kueue.PodGroupPodIndexLabelAnnotation, appsv1.PodIndexLabel).
 				Obj(),
 		},
 		"LocalQueueDefaulting enabled, default lq is created, job has queue label": {
@@ -169,14 +140,8 @@ func TestDefault(t *testing.T) {
 			statefulset:          testingstatefulset.MakeStatefulSet("test-pod", "").Queue("test-queue").Obj(),
 			want: testingstatefulset.MakeStatefulSet("test-pod", "").
 				Queue("test-queue").
-				PodTemplateSpecQueue("test-queue").
-				PodTemplateManagedByKueue().
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
-				PodTemplateSpecPodGroupTotalCountAnnotation(1).
-				PodTemplateSpecPodGroupFastAdmissionAnnotation().
-				PodTemplateSpecPodGroupServingAnnotation().
-				PodTemplateSpecPodGroupPodIndexLabelAnnotation(appsv1.PodIndexLabel).
+				PodTemplateAnnotation(kueue.PodGroupPodIndexLabelAnnotation, appsv1.PodIndexLabel).
 				Obj(),
 		},
 		"LocalQueueDefaulting enabled, default lq isn't created, job doesn't have queue label": {
@@ -810,13 +775,15 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		"scale up from zero blocked by existing workload": {
 			objs: []runtime.Object{
-				utiltestingapi.MakeWorkload(GetWorkloadName("test-statefulset"), "test-ns").Obj(),
+				utiltestingapi.MakeWorkload(GetWorkloadName("test-uid", "test-statefulset"), "test-ns").Obj(),
 			},
 			oldObj: testingstatefulset.MakeStatefulSet("test-statefulset", "test-ns").
+				UID("test-uid").
 				Queue("test-queue").
 				Replicas(0).
 				Obj(),
 			newObj: testingstatefulset.MakeStatefulSet("test-statefulset", "test-ns").
+				UID("test-uid").
 				Queue("test-queue").
 				Replicas(3).
 				Obj(),
