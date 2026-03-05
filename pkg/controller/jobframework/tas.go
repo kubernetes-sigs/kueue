@@ -29,7 +29,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 )
 
-var errParseTopologyConstraints = errors.New("failed to parse multi-layer topology constraints annotation")
+var (
+	errParseTopologyConstraints      = errors.New("failed to parse multi-layer topology constraints annotation")
+	errTopologyConstraintsLayerCount = errors.New("topology constraints must contain between 1 and 3 entries")
+)
 
 type podSetTopologyRequestBuilder struct {
 	podIndexLabel      *string
@@ -90,6 +93,9 @@ func (p *podSetTopologyRequestBuilder) Build() (*kueue.PodSetTopologyRequest, er
 		var constraints []kueue.PodsetSliceRequiredTopologyConstraint
 		if err := json.Unmarshal([]byte(constraintsJSON), &constraints); err != nil {
 			return nil, fmt.Errorf("%w: %w", errParseTopologyConstraints, err)
+		}
+		if len(constraints) == 0 || len(constraints) > 3 {
+			return nil, fmt.Errorf("%w: got %d", errTopologyConstraintsLayerCount, len(constraints))
 		}
 		psTopologyReq.PodsetSliceRequiredTopologyConstraints = constraints
 	} else if sliceRequiredTopologyFound && sliceSizeFound {

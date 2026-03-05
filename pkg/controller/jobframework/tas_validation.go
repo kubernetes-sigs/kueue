@@ -337,12 +337,9 @@ func validateSliceRequiredTopologyConstraintsAnnotation(annotationsPath *field.P
 		return allErrs
 	}
 
-	if len(constraints) == 0 {
-		allErrs = append(allErrs, field.Invalid(fldPath, constraintsJSON, "must contain at least 1 entry"))
+	if len(constraints) == 0 || len(constraints) > 3 {
+		allErrs = append(allErrs, field.Invalid(fldPath, constraintsJSON, errTopologyConstraintsLayerCount.Error()))
 		return allErrs
-	}
-	if len(constraints) > 3 {
-		allErrs = append(allErrs, field.Invalid(fldPath, constraintsJSON, "must contain at most 3 entries"))
 	}
 
 	// Validate each entry.

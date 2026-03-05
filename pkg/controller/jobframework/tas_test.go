@@ -24,6 +24,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -33,13 +34,13 @@ import (
 
 func TestPodSetTopologyRequestBuilder(t *testing.T) {
 	testCases := map[string]struct {
-		enableTASMultiLayer bool
-		meta                *metav1.ObjectMeta
-		podIndexLabel       *string
-		subGroupIndexLabel  *string
-		subGroupCount       *int32
-		wantReq             *kueue.PodSetTopologyRequest
-		wantErr             error
+		featureGates       map[featuregate.Feature]bool
+		meta               *metav1.ObjectMeta
+		podIndexLabel      *string
+		subGroupIndexLabel *string
+		subGroupCount      *int32
+		wantReq            *kueue.PodSetTopologyRequest
+		wantErr            error
 	}{
 		"required annotation": {
 			meta: &metav1.ObjectMeta{
@@ -194,8 +195,34 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 			},
 			wantErr: strconv.ErrSyntax,
 		},
+		"multi-layer: zero constraint layers with feature gate": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology: true,
+			},
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+					kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[]`,
+				},
+			},
+			wantErr: errTopologyConstraintsLayerCount,
+		},
+		"multi-layer: four constraint layers with feature gate": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology: true,
+			},
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+					kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","size":32},{"topology":"cloud.com/sub-rack","size":16},{"topology":"cloud.com/cluster","size":4},{"topology":"kubernetes.io/hostname","size":2}]`,
+				},
+			},
+			wantErr: errTopologyConstraintsLayerCount,
+		},
 		"multi-layer: three constraint layers with feature gate": {
-			enableTASMultiLayer: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology: true,
+			},
 			meta: &metav1.ObjectMeta{
 				Annotations: map[string]string{
 					kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
@@ -212,7 +239,9 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 			},
 		},
 		"multi-layer: two constraint layers with feature gate": {
-			enableTASMultiLayer: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology: true,
+			},
 			meta: &metav1.ObjectMeta{
 				Annotations: map[string]string{
 					kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
@@ -242,7 +271,9 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 			},
 		},
 		"multi-layer: invalid JSON in constraints annotation": {
-			enableTASMultiLayer: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology: true,
+			},
 			meta: &metav1.ObjectMeta{
 				Annotations: map[string]string{
 					kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
@@ -252,7 +283,9 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 			wantErr: errParseTopologyConstraints,
 		},
 		"multi-layer: invalid JSON in constraints annotation - expect size as integer": {
-			enableTASMultiLayer: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology: true,
+			},
 			meta: &metav1.ObjectMeta{
 				Annotations: map[string]string{
 					kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
@@ -264,7 +297,9 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TASMultiLayerTopology, tc.enableTASMultiLayer)
+			for fg, enabled := range tc.featureGates {
+				features.SetFeatureGateDuringTest(t, fg, enabled)
+			}
 			b := NewPodSetTopologyRequest(tc.meta)
 			b.PodIndexLabel(tc.podIndexLabel)
 			b.SubGroup(tc.subGroupIndexLabel, tc.subGroupCount)

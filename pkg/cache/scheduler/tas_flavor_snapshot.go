@@ -778,44 +778,10 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		return nil, fmt.Sprintf("podset slice topology %s is above the podset topology %s", sliceTopologyKey, *topologyKey)
 	}
 
-	// Build the map of slice sizes per level for multi-layer support.
-	// sliceSizeAtLevel map is keyed with topology level index and valued with the slice size that
-	// applies when distributing pods into domains at that level.
-	// All levels between the outermost slice level and the innermost additional layer
-	// must distribute in multiples of the inner layer's size to ensure
-	// clean grouping at the leaf level.
-	sliceSizeAtLevel := make(map[int]int32)
-	if features.Enabled(features.TASMultiLayerTopology) && workersTasPodSetRequests.PodSet.TopologyRequest != nil {
-		prevSize := sliceSize
-		prevLevelIdx := sliceLevelIdx
-		// TODO: once TASMultiLayerTopology graduates to beta, use "PodsetSliceRequiredTopologyConstraints" as
-		// first-class citizen to generalize the logic of handling N-layer topology constraint.
-		minusOneLayers := workersTasPodSetRequests.PodSet.TopologyRequest.PodsetSliceRequiredTopologyConstraints
-		if len(minusOneLayers) > 1 {
-			minusOneLayers = minusOneLayers[1:] // skip the first (outermost) layer, already handled above
-		} else {
-			minusOneLayers = nil
-		}
-		for _, layer := range minusOneLayers {
-			innerLevelIdx, innerFound := s.resolveLevelIdx(layer.Topology)
-			if !innerFound {
-				return nil, fmt.Sprintf("no requested topology level for additional slice layer: %s", layer.Topology)
-			}
-			if innerLevelIdx <= prevLevelIdx {
-				return nil, fmt.Sprintf("additional slice layer topology %s must be at a lower level than %s", layer.Topology, s.levelKeys[prevLevelIdx])
-			}
-			if prevSize%layer.Size != 0 {
-				return nil, fmt.Sprintf("additional slice layer size %d must evenly divide parent layer size %d", layer.Size, prevSize)
-			}
-			// Fill all levels from prevLevelIdx+1 through innerLevelIdx
-			// so that intermediate levels also distribute in multiples
-			// of this layer's size.
-			for lvl := prevLevelIdx + 1; lvl <= innerLevelIdx; lvl++ {
-				sliceSizeAtLevel[lvl] = layer.Size
-			}
-			prevSize = layer.Size
-			prevLevelIdx = innerLevelIdx
-		}
+	// for feature TASMultiLayerTopology
+	sliceSizeAtLevel, reason := s.buildSliceSizeAtLevel(workersTasPodSetRequests, sliceSize, sliceLevelIdx)
+	if len(reason) > 0 {
+		return nil, reason
 	}
 
 	var selector labels.Selector
@@ -954,6 +920,70 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	assignments[workersTasPodSetRequests.PodSet.Name] = s.buildAssignment(currFitDomain)
 
 	return assignments, ""
+}
+
+// buildSliceSizeAtLevel builds a map from topology level index to the slice
+// size used when distributing pods at that level, for multi-layer topology
+// support.
+//
+// The outermost constraint layer (index 0 in PodsetSliceRequiredTopologyConstraints)
+// is already handled by the caller as sliceSize/sliceLevelIdx, so this method
+// processes the remaining (inner) layers. For each inner layer it:
+//  1. Resolves the topology key to a level index and checks it is strictly
+//     finer-grained than the previous layer.
+//  2. Verifies the parent layer's size is evenly divisible by this layer's size,
+//     so pods group cleanly at every level.
+//  3. Fills all intermediate levels between the previous and current layer with
+//     this layer's size, ensuring that intermediate levels also distribute in
+//     multiples of the inner layer's size.
+//
+// TODO: once TASMultiLayerTopology graduates to beta, use this function to unify logic for both
+// 1-layer (kueue.x-k8s.io/podset-slice-size) and multi-layer topology constraints.
+func (s *TASFlavorSnapshot) buildSliceSizeAtLevel(
+	workersTasPodSetRequests TASPodSetRequests,
+	sliceSize int32,
+	sliceLevelIdx int,
+) (map[int]int32, string) {
+	sliceSizeAtLevel := make(map[int]int32)
+	if !features.Enabled(features.TASMultiLayerTopology) || workersTasPodSetRequests.PodSet.TopologyRequest == nil {
+		return sliceSizeAtLevel, ""
+	}
+
+	prevSize := sliceSize
+	prevLevelIdx := sliceLevelIdx
+
+	// Skip the first (outermost) constraint layer — it is already represented
+	// by sliceSize / sliceLevelIdx which the caller resolved from the annotation.
+	// Process only the inner layers that introduce additional grouping.
+	innerLayers := workersTasPodSetRequests.PodSet.TopologyRequest.PodsetSliceRequiredTopologyConstraints
+	if len(innerLayers) > 1 {
+		innerLayers = innerLayers[1:]
+	} else {
+		innerLayers = nil
+	}
+
+	for _, layer := range innerLayers {
+		innerLevelIdx, innerFound := s.resolveLevelIdx(layer.Topology)
+		if !innerFound {
+			return nil, fmt.Sprintf("no requested topology level for additional slice layer: %s", layer.Topology)
+		}
+		if innerLevelIdx <= prevLevelIdx {
+			return nil, fmt.Sprintf("additional slice layer topology %s must be at a lower level than %s", layer.Topology, s.levelKeys[prevLevelIdx])
+		}
+		if prevSize%layer.Size != 0 {
+			return nil, fmt.Sprintf("additional slice layer size %d must evenly divide parent layer size %d", layer.Size, prevSize)
+		}
+		// Fill all levels from prevLevelIdx+1 through innerLevelIdx
+		// so that intermediate levels also distribute in multiples
+		// of this layer's size.
+		for lvl := prevLevelIdx + 1; lvl <= innerLevelIdx; lvl++ {
+			sliceSizeAtLevel[lvl] = layer.Size
+		}
+		prevSize = layer.Size
+		prevLevelIdx = innerLevelIdx
+	}
+
+	return sliceSizeAtLevel, ""
 }
 
 func (s *TASFlavorSnapshot) HasLevel(r *kueue.PodSetTopologyRequest) bool {
