@@ -94,9 +94,6 @@ Kueue 提供了两种抢占算法。它们的主要区别在于：当抢占 Clus
 公平共享引入了 ClusterQueue 份额值和抢占策略的概念。这些与 `withinClusterQueue` 和 `reclaimWithinCohort`（但__不包括__ `borrowWithinCohort`）中设置的抢占策略共同决定在公平共享下，待处理 Workload 是否可以抢占已准入 Workload。公平共享通过抢占实现 cohort 租户间可借用资源的等量或加权分配。
 
 {{< feature-state state="stable" for_version="v0.7" >}}
-{{% alert title="注意" color="primary" %}}
-自 v0.11 起，公平共享兼容分层 cohort（即有父级的 cohort）。在 V0.9 和 V0.10 中同时使用这些功能是不支持的，会导致未定义行为。
-{{% /alert %}}
 
 要启用公平共享，[请使用如下 Kueue 配置](/docs/installation#install-a-custom-configured-release-version)：
 
@@ -117,7 +114,8 @@ Kueue 配置中的各属性将在下文中说明。
 在准入过程中，Kueue 优先从份额值最低的 ClusterQueue 中准入 Workload。
 在抢占过程中，Kueue 优先从份额值最高的 ClusterQueue 中抢占 Workload。
 
-你可以在 `.status.fairSharing.weightedShare` 字段或通过查询 [`kueue_cluster_queue_weighted_share` 指标](/docs/reference/metrics#optional-metrics) 获取 ClusterQueue 的份额值。
+你可以在 `.status.fairSharing.weightedShare` 字段或通过查询
+[`kueue_cluster_queue_weighted_share` 指标](/docs/reference/metrics#optional-metrics)获取 ClusterQueue 的份额值。
 
 ### 抢占策略
 
