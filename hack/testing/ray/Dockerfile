@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 SHELL ["/bin/bash", "-c"]
 
-RUN pip3 install --no-cache-dir ray[default]==${RAY_VERSION} \
+RUN pip3 install --no-cache-dir ray[default,serve]==${RAY_VERSION} \
     && rm -rf ~/.cache
 
 RUN useradd -ms /bin/bash -d /home/ray ray --uid $RAY_UID --gid $RAY_GID || echo "Group already exists" \
