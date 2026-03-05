@@ -261,14 +261,18 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 		specChangedSinceEval := oldInfo.LastEvaluatedGeneration != 0 &&
 			wInfo.Obj.Generation != oldInfo.LastEvaluatedGeneration
 
-		// Update in place if the workload didn't change to potentially become admissible.
+		// Update in place if the workload didn't change to potentially become admissible,
+		// unless Eviction/Requeued status changed which can affect queue order.
+		// Also check TotalRequests since DRA resources may change computed
+		// resource requests without changing the Spec.
 		if !specChangedSinceEval &&
 			equality.Semantic.DeepEqual(oldInfo.Obj.Spec, wInfo.Obj.Spec) &&
 			equality.Semantic.DeepEqual(oldInfo.Obj.Status.ReclaimablePods, wInfo.Obj.Status.ReclaimablePods) &&
 			equality.Semantic.DeepEqual(apimeta.FindStatusCondition(oldInfo.Obj.Status.Conditions, kueue.WorkloadEvicted),
 				apimeta.FindStatusCondition(wInfo.Obj.Status.Conditions, kueue.WorkloadEvicted)) &&
 			equality.Semantic.DeepEqual(apimeta.FindStatusCondition(oldInfo.Obj.Status.Conditions, kueue.WorkloadRequeued),
-				apimeta.FindStatusCondition(wInfo.Obj.Status.Conditions, kueue.WorkloadRequeued)) {
+				apimeta.FindStatusCondition(wInfo.Obj.Status.Conditions, kueue.WorkloadRequeued)) &&
+			equality.Semantic.DeepEqual(oldInfo.TotalRequests, wInfo.TotalRequests) {
 			c.inadmissibleWorkloads.insert(key, wInfo)
 			return
 		}

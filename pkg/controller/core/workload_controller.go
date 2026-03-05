@@ -176,6 +176,7 @@ func (r *WorkloadReconciler) logger() logr.Logger {
 // +kubebuilder:rbac:groups=node.k8s.io,resources=runtimeclasses,verbs=get;list;watch
 // +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceclaims,verbs=get;list;watch
 // +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceclaimtemplates,verbs=get;list;watch
+// +kubebuilder:rbac:groups=resource.k8s.io,resources=deviceclasses,verbs=get;list;watch
 
 func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
@@ -234,8 +235,13 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		})
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
+	// Check if workload needs DRA processing - either via ResourceClaimTemplates or
+	// Extended Resources backed by DRA (resources.requests with DeviceClass mapping)
+	hasDRATemplates := workload.HasDRA(&wl)
+	hasExtendedResourcesDRA := dra.HasExtendedResourcesBackedByDRA(ctx, r.client, &wl)
+
 	if features.Enabled(features.DynamicResourceAllocation) && workload.Status(&wl) == workload.StatusPending &&
-		workload.HasDRA(&wl) {
+		(hasDRATemplates || hasExtendedResourcesDRA) {
 		workload.AdjustResources(ctx, r.client, &wl)
 		if workload.HasResourceClaim(&wl) {
 			log.V(3).Info("Workload is inadmissible because it uses resource claims which is not supported")
@@ -253,6 +259,8 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 
 		log.V(3).Info("Processing DRA resources for workload")
+
+		// Process ResourceClaimTemplates (existing DRA path)
 		draResources, fieldErrs := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, &wl)
 		if len(fieldErrs) > 0 {
 			err := fieldErrs.ToAggregate()
@@ -268,6 +276,39 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA error: %w", updateErr)
 			}
 			return ctrl.Result{}, err
+		}
+
+		// Process Extended Resources backed by DRA (new path)
+		extendedResources, replacedExtendedResources, extFieldErrs := dra.GetResourceRequestsFromExtendedResources(ctx, r.client, &wl)
+		if len(extFieldErrs) > 0 {
+			err := extFieldErrs.ToAggregate()
+			log.Error(err, "Failed to process DRA extended resources for workload")
+			updateErr := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+				updated := workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadInadmissible, err.Error(), r.clock.Now())
+				if updated && workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible, err.Error(), false) {
+					updated = true
+				}
+				return updated, nil
+			})
+			if updateErr != nil {
+				return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA extended resources error: %w", updateErr)
+			}
+			return ctrl.Result{}, err
+		}
+
+		// Merge extended resources into draResources.
+		// No double-counting risk: ResourceClaimTemplates use DeviceClasses without extendedResourceName,
+		// while extended resources use DeviceClasses with extendedResourceName - mutually exclusive.
+		for podSetName, resources := range extendedResources {
+			if existing, ok := draResources[podSetName]; ok {
+				// Merge resources for the same podset
+				draResources[podSetName] = resource.MergeResourceListKeepSum(existing, resources)
+			} else {
+				if draResources == nil {
+					draResources = make(map[kueue.PodSetReference]corev1.ResourceList)
+				}
+				draResources[podSetName] = resources
+			}
 		}
 
 		quotaReservedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
@@ -288,8 +329,8 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 
 		var queueOptions []workload.InfoOption
-		if len(draResources) > 0 {
-			queueOptions = append(queueOptions, workload.WithPreprocessedDRAResources(draResources))
+		if len(draResources) > 0 || len(replacedExtendedResources) > 0 {
+			queueOptions = append(queueOptions, workload.WithPreprocessedDRAResources(draResources, replacedExtendedResources))
 		}
 
 		if workload.IsAdmissible(&wl) {
@@ -861,6 +902,12 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 		return true
 	}
 
+	// Extended Resources backed by DRA are handled in Reconcile for proper error handling.
+	if features.Enabled(features.DRAExtendedResources) && dra.HasExtendedResourcesBackedByDRA(context.Background(), r.client, e.Object) {
+		log.V(2).Info("DRA extended resources workload will be handled in Reconcile")
+		return true
+	}
+
 	if workload.IsAdmissible(e.Object) {
 		if err := r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
 			log.V(2).Info("ignored an error for now", "error", err)
@@ -941,12 +988,13 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		})
 
 	case prevStatus == workload.StatusPending && status == workload.StatusPending:
-		// Skip queue operations for DRA workloads - they are handled in Reconcile loop
-		if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(e.ObjectNew) {
-			log.V(2).Info("Skipping queue update for DRA workload - handled in Reconcile")
-		} else {
-			err := r.queues.UpdateWorkload(log, wlCopy)
-			if err != nil {
+		switch {
+		case features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(e.ObjectNew):
+			// DRA workloads with ResourceClaimTemplates are handled in Reconcile.
+		case features.Enabled(features.DRAExtendedResources) && dra.HasExtendedResourcesBackedByDRA(context.Background(), r.client, e.ObjectNew):
+			// Extended Resources backed by DRA are handled in Reconcile.
+		default:
+			if err := r.queues.UpdateWorkload(log, wlCopy); err != nil {
 				log.V(2).Info("ignored an error for now", "error", err)
 			}
 		}
@@ -980,7 +1028,9 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			// reconciler, we would execute it on every run, which might mess up the state.
 			if immediate {
 				// Skip queue operations for DRA workloads - they are handled in Reconcile loop
-				if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(e.ObjectNew) {
+				// This includes both ResourceClaimTemplates and Extended Resources backed by DRA
+				if (features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(e.ObjectNew)) ||
+					(features.Enabled(features.DRAExtendedResources) && dra.HasExtendedResourcesBackedByDRA(context.Background(), r.client, e.ObjectNew)) {
 					log.V(2).Info("Skipping immediate requeue for DRA workload - handled in Reconcile")
 				} else {
 					if err := r.queues.AddOrUpdateWorkloadWithoutLock(log, wlCopy); err != nil {
@@ -1057,7 +1107,7 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 	ruh := &resourceUpdatesHandler{r: r}
 	wqh := &workloadQueueHandler{r: r}
 	deh := &draEventHandler{}
-	return builder.TypedControllerManagedBy[reconcile.Request](mgr).
+	b := builder.TypedControllerManagedBy[reconcile.Request](mgr).
 		Named("workload_controller").
 		WatchesRawSource(source.TypedKind(
 			mgr.GetCache(),
@@ -1074,8 +1124,9 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 		Watches(&corev1.LimitRange{}, ruh).
 		Watches(&nodev1.RuntimeClass{}, ruh).
 		Watches(&kueue.ClusterQueue{}, wqh).
-		Watches(&kueue.LocalQueue{}, wqh).
-		Complete(WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
+		Watches(&kueue.LocalQueue{}, wqh)
+
+	return b.Complete(WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
 }
 
 // admittedNotReadyWorkload checks if a workload counts toward the PodsReady timeout

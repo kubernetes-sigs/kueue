@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	resourceapi "k8s.io/api/resource/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -33,15 +34,16 @@ import (
 )
 
 const (
-	WorkloadQueueKey           = "spec.queueName"
-	WorkloadClusterQueueKey    = "status.admission.clusterQueue"
-	QueueClusterQueueKey       = "spec.clusterQueue"
-	LimitRangeHasContainerType = "spec.hasContainerType"
-	WorkloadQuotaReservedKey   = "status.quotaReserved"
-	WorkloadRuntimeClassKey    = "spec.runtimeClass"
-	OwnerReferenceUID          = "metadata.ownerReferences.uid"
-	WorkloadAdmissionCheckKey  = "status.admissionChecks"
-	WorkloadPriorityClassKey   = "spec.priorityClassRef"
+	WorkloadQueueKey                     = "spec.queueName"
+	WorkloadClusterQueueKey              = "status.admission.clusterQueue"
+	QueueClusterQueueKey                 = "spec.clusterQueue"
+	LimitRangeHasContainerType           = "spec.hasContainerType"
+	WorkloadQuotaReservedKey             = "status.quotaReserved"
+	WorkloadRuntimeClassKey              = "spec.runtimeClass"
+	OwnerReferenceUID                    = "metadata.ownerReferences.uid"
+	WorkloadAdmissionCheckKey            = "status.admissionChecks"
+	WorkloadPriorityClassKey             = "spec.priorityClassRef"
+	DeviceClassExtendedResourceNameIndex = "spec.extendedResourceName"
 	// WorkloadSliceNameKey is an index for pods by their workload slice name annotation.
 	// Used to find pods belonging to an elastic workload slice chain.
 	WorkloadSliceNameKey = "metadata.workloadSliceName"
@@ -212,6 +214,18 @@ func IndexWorkloadPriorityClass(obj client.Object) []string {
 	return []string{wl.Spec.PriorityClassRef.Name}
 }
 
+// IndexDeviceClassExtendedResourceName indexes DeviceClasses by spec.extendedResourceName.
+func IndexDeviceClassExtendedResourceName(obj client.Object) []string {
+	dc, ok := obj.(*resourceapi.DeviceClass)
+	if !ok {
+		return nil
+	}
+	if dc.Spec.ExtendedResourceName == nil || *dc.Spec.ExtendedResourceName == "" {
+		return nil
+	}
+	return []string{*dc.Spec.ExtendedResourceName}
+}
+
 // Setup sets the index with the given fields for core apis.
 func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadQueueKey, IndexWorkloadQueue); err != nil {
@@ -251,6 +265,12 @@ func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 		// TODO(sohankunkerkar): remove in 0.18
 		if err := indexer.IndexField(ctx, &corev1.Pod{}, OwnerReferenceUID, IndexOwnerUID); err != nil {
 			return fmt.Errorf("setting index on ownerReferences.uid for Pod: %w", err)
+		}
+	}
+	// Index DeviceClasses by extendedResourceName for fast lookup during extended resource translation.
+	if features.Enabled(features.DRAExtendedResources) {
+		if err := indexer.IndexField(ctx, &resourceapi.DeviceClass{}, DeviceClassExtendedResourceNameIndex, IndexDeviceClassExtendedResourceName); err != nil {
+			return fmt.Errorf("setting index on extendedResourceName for DeviceClass: %w", err)
 		}
 	}
 	return nil

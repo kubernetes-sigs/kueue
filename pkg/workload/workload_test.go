@@ -1674,7 +1674,88 @@ func TestWithPreprocessedDRAResources(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			info := NewInfo(&tc.workload, WithPreprocessedDRAResources(tc.draResources))
+			info := NewInfo(&tc.workload, WithPreprocessedDRAResources(tc.draResources, nil))
+
+			if diff := cmp.Diff(tc.wantInfo.TotalRequests, info.TotalRequests); diff != "" {
+				t.Errorf("Unexpected TotalRequests (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestWithPreprocessedDRAResourcesReplacesExtendedResources(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.DynamicResourceAllocation, true)
+
+	cases := map[string]struct {
+		workload                  kueue.Workload
+		draResources              map[kueue.PodSetReference]corev1.ResourceList
+		replacedExtendedResources map[kueue.PodSetReference]sets.Set[corev1.ResourceName]
+		wantInfo                  Info
+	}{
+		"extended resource replaced with DRA resource": {
+			workload: *utiltestingapi.MakeWorkload("test-wl", "default").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Request(corev1.ResourceCPU, "100m").
+					Request("example.com/gpu", "1").
+					Obj()).
+				Obj(),
+			draResources: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"gpu": resource.MustParse("1"),
+				},
+			},
+			replacedExtendedResources: map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+				"main": sets.New[corev1.ResourceName]("example.com/gpu"),
+			},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name:  "main",
+						Count: 1,
+						Requests: resources.Requests{
+							corev1.ResourceCPU: 100,
+							"gpu":              1,
+						},
+					},
+				},
+			},
+		},
+		"multiple extended resources replaced": {
+			workload: *utiltestingapi.MakeWorkload("test-wl", "default").
+				PodSets(*utiltestingapi.MakePodSet("main", 2).
+					Request(corev1.ResourceCPU, "100m").
+					Request("example.com/gpu", "2").
+					Request("example.com/tpu", "1").
+					Obj()).
+				Obj(),
+			draResources: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"gpu": resource.MustParse("2"),
+					"tpu": resource.MustParse("1"),
+				},
+			},
+			replacedExtendedResources: map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+				"main": sets.New[corev1.ResourceName]("example.com/gpu", "example.com/tpu"),
+			},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name:  "main",
+						Count: 2,
+						Requests: resources.Requests{
+							corev1.ResourceCPU: 200,
+							"gpu":              4,
+							"tpu":              2,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			info := NewInfo(&tc.workload, WithPreprocessedDRAResources(tc.draResources, tc.replacedExtendedResources))
 
 			if diff := cmp.Diff(tc.wantInfo.TotalRequests, info.TotalRequests); diff != "" {
 				t.Errorf("Unexpected TotalRequests (-want,+got):\n%s", diff)
