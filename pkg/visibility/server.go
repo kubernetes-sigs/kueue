@@ -115,6 +115,7 @@ func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, en
 		kubeConfigPath := f.Value.String()
 		o.Authentication.RemoteKubeConfigFile = kubeConfigPath
 		o.Authorization.RemoteKubeConfigFile = kubeConfigPath
+		o.CoreAPI.CoreAPIKubeconfigPath = kubeConfigPath
 	}
 
 	o.Admission.DisablePlugins = disabledPlugins
