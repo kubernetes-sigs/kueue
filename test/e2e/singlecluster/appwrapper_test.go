@@ -84,7 +84,7 @@ var _ = ginkgo.Describe("AppWrapper", ginkgo.Label("area:singlecluster", "featur
 		aw := awtesting.MakeAppWrapper("appwrapper", ns.Name).
 			Component(awtesting.Component{
 				Template: utiltestingjob.MakeJob("job-0", ns.Name).
-					RequestAndLimit(corev1.ResourceCPU, "100m").
+					RequestAndLimit(corev1.ResourceCPU, "200m").
 					Parallelism(int32(numPods)).
 					Completions(int32(numPods)).
 					Suspend(false).

@@ -86,7 +86,7 @@ var _ = ginkgo.Describe("DRA", func() {
 			ginkgo.By("Creating Job with ResourceClaimTemplate reference")
 			job := testingjob.MakeJob("dra-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
-				Request(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				ResourceClaimTemplate("gpu", "gpu-template").
 				Obj()
@@ -131,7 +131,7 @@ var _ = ginkgo.Describe("DRA", func() {
 			ginkgo.By("Creating Job with large DRA request")
 			job := testingjob.MakeJob("large-dra-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
-				Request(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				ResourceClaimTemplate("gpu", "large-gpu-template").
 				Obj()
@@ -178,7 +178,7 @@ var _ = ginkgo.Describe("DRA", func() {
 			ginkgo.By("Creating first job requesting 2 GPUs")
 			job1 := testingjob.MakeJob("dra-job-1", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
-				Request(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				ResourceClaimTemplate("gpu", "gpu-template-1").
 				Obj()
@@ -187,7 +187,7 @@ var _ = ginkgo.Describe("DRA", func() {
 			ginkgo.By("Creating second job requesting 2 GPUs")
 			job2 := testingjob.MakeJob("dra-job-2", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
-				Request(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				ResourceClaimTemplate("gpu", "gpu-template-2").
 				Obj()
@@ -245,7 +245,7 @@ var _ = ginkgo.Describe("DRA", func() {
 			ginkgo.By("Creating first job that uses 2 GPUs and completes quickly")
 			job1 := testingjob.MakeJob("dra-job-a", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
-				Request(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				ResourceClaimTemplate("gpu", "gpu-template-a").
 				Obj()
@@ -254,7 +254,7 @@ var _ = ginkgo.Describe("DRA", func() {
 			ginkgo.By("Creating second job that uses 2 GPUs and completes quickly")
 			job2 := testingjob.MakeJob("dra-job-b", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
-				Request(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				ResourceClaimTemplate("gpu", "gpu-template-b").
 				Obj()
@@ -263,7 +263,7 @@ var _ = ginkgo.Describe("DRA", func() {
 			ginkgo.By("Creating third job that needs 2 GPUs (quota now full with 4)")
 			job3 := testingjob.MakeJob("dra-job-c", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
-				Request(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				ResourceClaimTemplate("gpu", "gpu-template-c").
 				Obj()
@@ -292,7 +292,7 @@ var _ = ginkgo.Describe("DRA", func() {
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Parallelism(2).
 				Completions(2).
-				Request(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				ResourceClaimTemplate("gpu", "multi-pod-gpu-template").
 				Obj()

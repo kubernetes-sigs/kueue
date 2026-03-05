@@ -110,13 +110,6 @@ func WithWorkloadRetention(value *workloadRetentionConfig) Option {
 	}
 }
 
-// WithAdmissionFairSharing allows to specify the admission fair sharing configuration
-func WithAdmissionFairSharing(value *config.AdmissionFairSharing) Option {
-	return func(r *WorkloadReconciler) {
-		r.admissionFSConfig = value
-	}
-}
-
 // WithWorkloadRoleTracker sets the role tracker for HA setups.
 func WithWorkloadRoleTracker(value *roletracker.RoleTracker) Option {
 	return func(r *WorkloadReconciler) {

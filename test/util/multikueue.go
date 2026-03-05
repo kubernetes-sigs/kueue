@@ -154,8 +154,9 @@ func KubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig 
 	// get the token
 	token := &authenticationv1.TokenRequest{
 		Spec: authenticationv1.TokenRequestSpec{
-			// The 1h expiration duration is the default value.
-			ExpirationSeconds: ptr.To[int64](3600),
+			// The 7d expiration duration matches the max expiration time value for this token
+			// and is configured in [hack/testing/multikueue/worker-cluster.kind.yaml].
+			ExpirationSeconds: ptr.To[int64](7 * 24 * 3600),
 		},
 	}
 	err = c.SubResource("token").Create(ctx, sa, token)

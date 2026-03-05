@@ -977,29 +977,37 @@ func TestValidateFeatureGates(t *testing.T) {
 		featureGatesCLI   string
 		featureGateMap    map[string]bool
 		setupFeatureGates map[featuregate.Feature]bool
-		errorStr          string
+		wantErr           field.ErrorList
 	}{
 		"no feature gates is null": {
 			featureGatesCLI: "",
-			featureGateMap:  nil,
-			errorStr:        "",
 		},
 		"feature gate cli": {
 			featureGatesCLI: "test:true",
-			featureGateMap:  nil,
-			errorStr:        "",
 		},
 		"cannot specify both feature gates": {
 			featureGatesCLI: "test:true",
 			featureGateMap:  map[string]bool{"test": true},
-			errorStr:        "feature gates for CLI and configuration cannot both specified",
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "feature gates for CLI and configuration cannot both specified",
+				},
+			},
 		},
 		"cannot set TAS profile with TAS disabled": {
 			setupFeatureGates: map[featuregate.Feature]bool{
 				features.TASProfileMixed:         true,
 				features.TopologyAwareScheduling: false,
 			},
-			errorStr: "cannot use a TAS profile with TAS disabled",
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "cannot use a TAS profile with TAS disabled",
+				},
+			},
 		},
 		"ElasticJobsViaWorkloadSlicesWithTAS requires ElasticJobsViaWorkloadSlices": {
 			setupFeatureGates: map[featuregate.Feature]bool{
@@ -1008,7 +1016,13 @@ func TestValidateFeatureGates(t *testing.T) {
 				features.ElasticJobsViaWorkloadSlices:        false,
 				features.TASProfileMixed:                     false,
 			},
-			errorStr: "ElasticJobsViaWorkloadSlicesWithTAS requires ElasticJobsViaWorkloadSlices to be enabled",
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "ElasticJobsViaWorkloadSlicesWithTAS requires ElasticJobsViaWorkloadSlices to be enabled",
+				},
+			},
 		},
 		"ElasticJobsViaWorkloadSlicesWithTAS requires TopologyAwareScheduling": {
 			setupFeatureGates: map[featuregate.Feature]bool{
@@ -1017,7 +1031,13 @@ func TestValidateFeatureGates(t *testing.T) {
 				features.TopologyAwareScheduling:             false,
 				features.TASProfileMixed:                     false,
 			},
-			errorStr: "ElasticJobsViaWorkloadSlicesWithTAS requires TopologyAwareScheduling to be enabled",
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "ElasticJobsViaWorkloadSlicesWithTAS requires TopologyAwareScheduling to be enabled",
+				},
+			},
 		},
 		"ElasticJobsViaWorkloadSlicesWithTAS valid when all dependencies enabled": {
 			setupFeatureGates: map[featuregate.Feature]bool{
@@ -1026,7 +1046,31 @@ func TestValidateFeatureGates(t *testing.T) {
 				features.TopologyAwareScheduling:             true,
 				features.TASProfileMixed:                     false,
 			},
-			errorStr: "",
+		},
+		"multiple FG validation errors at once": {
+			setupFeatureGates: map[featuregate.Feature]bool{
+				features.TASProfileMixed:                     true,
+				features.TopologyAwareScheduling:             false,
+				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
+				features.ElasticJobsViaWorkloadSlices:        false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "cannot use a TAS profile with TAS disabled",
+				},
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "ElasticJobsViaWorkloadSlicesWithTAS requires ElasticJobsViaWorkloadSlices to be enabled",
+				},
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "ElasticJobsViaWorkloadSlicesWithTAS requires TopologyAwareScheduling to be enabled",
+				},
+			},
 		},
 	}
 	for name, tc := range cases {
@@ -1036,12 +1080,8 @@ func TestValidateFeatureGates(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, fg, enabled)
 			}
 			got := ValidateFeatureGates(tc.featureGatesCLI, tc.featureGateMap)
-			gotErr := ""
-			if got != nil {
-				gotErr = got.Error()
-			}
-			if gotErr != tc.errorStr {
-				t.Errorf("Unexpected result from ValidateFeatureGates\nwant: %q\ngot: %q\n", tc.errorStr, gotErr)
+			if diff := cmp.Diff(tc.wantErr, got, cmpopts.IgnoreFields(field.Error{}, "BadValue")); diff != "" {
+				t.Errorf("Unexpected result from ValidateFeatureGates (-want,+got):\n%s", diff)
 			}
 		})
 	}

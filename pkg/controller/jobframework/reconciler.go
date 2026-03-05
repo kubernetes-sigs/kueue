@@ -160,17 +160,6 @@ func WithKubeServerVersion(v *kubeversion.ServerVersionFetcher) Option {
 	}
 }
 
-// WithIntegrationOptions adds integrations options like podOptions.
-// The second arg, `opts` should be recognized as any option struct.
-func WithIntegrationOptions(integrationName string, opts any) Option {
-	return func(o *Options) {
-		if len(o.IntegrationOptions) == 0 {
-			o.IntegrationOptions = make(map[string]any)
-		}
-		o.IntegrationOptions[integrationName] = opts
-	}
-}
-
 // WithEnabledFrameworks adds framework names enabled in the ConfigAPI.
 func WithEnabledFrameworks(frameworks []string) Option {
 	return func(o *Options) {

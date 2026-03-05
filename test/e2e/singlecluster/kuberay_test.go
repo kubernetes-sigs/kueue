@@ -17,6 +17,9 @@ limitations under the License.
 package e2e
 
 import (
+	"fmt"
+	"io"
+	"net/http"
 	"strings"
 
 	"github.com/onsi/ginkgo/v2"
@@ -526,6 +529,38 @@ app = HelloWorld.bind()`,
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayService), createdRayService)).To(gomega.Succeed())
 				g.Expect(createdRayService.Spec.RayClusterSpec.Suspend).To(gomega.Equal(ptr.To(false)))
 				g.Expect(apimeta.IsStatusConditionTrue(createdRayService.Status.Conditions, string(rayv1.RayServiceReady))).To(gomega.BeTrue())
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Verifying the RayService responds to HTTP requests via port-forward", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				// Find the head pod in this namespace
+				pods := &corev1.PodList{}
+				g.Expect(k8sClient.List(ctx, pods,
+					client.InNamespace(ns.Name),
+					client.MatchingLabels{
+						"ray.io/node-type": "head",
+					},
+				)).To(gomega.Succeed())
+				g.Expect(pods.Items).NotTo(gomega.BeEmpty())
+
+				headPodName := pods.Items[0].Name
+
+				// Port-forward to the head pod on port 8000 (Ray Serve default)
+				localPort, stopChan, err := util.KPortForward(cfg, restClient, ns.Name, headPodName, 8000)
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				defer close(stopChan)
+
+				// Send HTTP GET to the Ray Serve endpoint
+				resp, err := http.Get(fmt.Sprintf("http://localhost:%d/", localPort))
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				defer resp.Body.Close()
+
+				g.Expect(resp.StatusCode).To(gomega.Equal(http.StatusOK))
+
+				body, err := io.ReadAll(resp.Body)
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(strings.TrimSpace(string(body))).To(gomega.ContainSubstring("Hello, World!"))
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})

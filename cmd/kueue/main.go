@@ -147,7 +147,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := config.ValidateFeatureGates(featureGates, cfg.FeatureGates); err != nil {
+	if err := config.ValidateFeatureGates(featureGates, cfg.FeatureGates).ToAggregate(); err != nil {
 		setupLog.Error(err, "conflicting feature gates detected")
 		os.Exit(1)
 	}
