@@ -122,7 +122,7 @@ func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, en
 	flag.StringVar(&visibilityServerFlags, "visibility-server-flags", "",
 		"A space-separated list of flags to pass to the embedded visibility API server. "+
 			"(e.g., '--secure-port=8443 --authentication-kubeconfig=/path/to/kubeconfig'). "+
-			"For a full list of available options, please see https://pkg.go.dev/k8s.io/apiserver/pkg/server/options#RecommendedOptions.")
+			"For a description of the available flags, please see https://kubernetes.io/docs/reference/command-line-tools-reference/kube-apiserver/")
 
 	if visibilityServerFlags != "" {
 		fs := pflag.NewFlagSet("visibility-server", pflag.ContinueOnError)
