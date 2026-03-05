@@ -112,15 +112,14 @@ func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, en
 	}
 
 	if f := flag.Lookup("kubeconfig"); f != nil {
-		if kubeConfigPath := f.Value.String(); kubeConfigPath != "" {
-			o.Authentication.RemoteKubeConfigFile = kubeConfigPath
-			o.Authorization.RemoteKubeConfigFile = kubeConfigPath
-		}
+		kubeConfigPath := f.Value.String()
+		o.Authentication.RemoteKubeConfigFile = kubeConfigPath
+		o.Authorization.RemoteKubeConfigFile = kubeConfigPath
 	}
 
 	o.Admission.DisablePlugins = disabledPlugins
 	if err := o.SecureServing.MaybeDefaultWithSelfSignedCerts("localhost", nil, []net.IP{net.ParseIP("127.0.0.1")}); err != nil {
-		return nil, fmt.Errorf("error creating self-signed certificates: %v", err)
+		return fmt.Errorf("error creating self-signed certificates: %v", err)
 	}
 	return o.ApplyTo(config)
 }
