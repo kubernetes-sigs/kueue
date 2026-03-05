@@ -4095,7 +4095,7 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 			}),
 			wantErr: "workload requires Topology, but there is no TAS cache information",
 		},
-		"workload requires Topology, but there is no TAS cache information for the assigned flavor": {
+		"workload requires Topology, but there is no TAS flavor assigned": {
 			cq: schdcache.ClusterQueueSnapshot{
 				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{"tas": nil},
 			},
@@ -4119,7 +4119,7 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 					},
 				},
 			}),
-			wantErr: "workload requires Topology, but there is no TAS cache information for the assigned flavor",
+			wantErr: "no TAS flavor assigned",
 		},
 	}
 

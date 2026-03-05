@@ -19,8 +19,12 @@ package flavorassigner
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
+	"strings"
 
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -73,7 +77,7 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 		return nil, errors.New("workload requires Topology, but there is no TAS cache information")
 	}
 	podCount := psAssignment.Count
-	tasFlvr, err := onlyFlavor(psAssignment.Flavors)
+	tasFlvr, err := onlyTASFlavor(psAssignment.Flavors, cq.TASFlavors)
 	if err != nil {
 		return nil, err
 	}
@@ -82,9 +86,6 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 		// For ProvisioningRequest, delay TAS on first scheduling pass only (topology assigned after provisioning).
 		psAssignment.DelayedTopologyRequest = ptr.To(kueue.DelayedTopologyRequestStatePending)
 		return nil, nil
-	}
-	if cq.TASFlavors[*tasFlvr] == nil {
-		return nil, errors.New("workload requires Topology, but there is no TAS cache information for the assigned flavor")
 	}
 	podSet := &wl.Obj.Spec.PodSets[podSetIndex]
 	// Use PodSpec directly for TAS placement, not quota-filtered admission values.
@@ -115,22 +116,35 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 	}, nil
 }
 
-func onlyFlavor(ra ResourceAssignment) (*kueue.ResourceFlavorReference, error) {
-	var result *kueue.ResourceFlavorReference
-	for _, v := range ra {
-		if result == nil {
-			result = &v.Name
-		} else if *result != v.Name {
-			return nil, fmt.Errorf("more than one flavor assigned: %s, %s", v.Name, *result)
+func onlyTASFlavor(
+	resourceAssignment ResourceAssignment,
+	tasFlavors map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot,
+) (*kueue.ResourceFlavorReference, error) {
+	flavors := sets.New[kueue.ResourceFlavorReference]()
+
+	for _, flavorAssignment := range resourceAssignment {
+		if tasFlavors[flavorAssignment.Name] != nil {
+			flavors.Insert(flavorAssignment.Name)
 		}
 	}
-	if result != nil {
-		return result, nil
+
+	if flavors.Len() == 0 {
+		return nil, errors.New("no TAS flavor assigned")
 	}
-	return nil, errors.New("no flavor assigned")
+
+	if flavors.Len() == 1 {
+		return ptr.To(sets.List(flavors)[0]), nil
+	}
+
+	list := sets.List(flavors)
+	names := make([]string, len(list))
+	for i, n := range list {
+		names[i] = string(n)
+	}
+	return nil, fmt.Errorf("more than one TAS flavor assigned: %s", strings.Join(names, ", "))
 }
 
-func checkPodSetAndFlavorMatchForTAS(cq *schdcache.ClusterQueueSnapshot, ps *kueue.PodSet, flavor *kueue.ResourceFlavor) *string {
+func checkPodSetAndFlavorMatchForTAS(cq *schdcache.ClusterQueueSnapshot, ps *kueue.PodSet, flavor *kueue.ResourceFlavor, rg *schdcache.ResourceGroup) *string {
 	if isTASRequested(ps, cq) {
 		if isTASImplied(ps, cq) {
 			// If this is a TAS-only CQ, then we don't need to check the flavor because
@@ -140,6 +154,12 @@ func checkPodSetAndFlavorMatchForTAS(cq *schdcache.ClusterQueueSnapshot, ps *kue
 		}
 		// PodSet explicitly requires TAS, so we need to check if the flavor supports it.
 		if flavor.Spec.TopologyName == nil {
+			if !hasOverlapWithPodRequestedResources(ps, rg.CoveredResources) {
+				// We only accept the flavor if it does not have any intersection with
+				// the resources which are going to be provided by the TAS flavor.
+				// This flavor may still provide quota-only resources using ResourceTransformations.
+				return nil
+			}
 			return ptr.To(fmt.Sprintf("Flavor %q does not support TopologyAwareScheduling", flavor.Name))
 		}
 		s := cq.TASFlavors[kueue.ResourceFlavorReference(flavor.Name)]
@@ -162,6 +182,12 @@ func checkPodSetAndFlavorMatchForTAS(cq *schdcache.ClusterQueueSnapshot, ps *kue
 	}
 	// PodSet doesn't require TAS and the flavor doesn't support it, so it's a match.
 	return nil
+}
+
+// hasOverlapWithPodRequestedResources checks if the PodSet's resource requests overlap with the specified flavor resources.
+func hasOverlapWithPodRequestedResources(ps *kueue.PodSet, flavorResources sets.Set[corev1.ResourceName]) bool {
+	requests := resources.NewRequestsFromPodSpec(&ps.Template.Spec)
+	return flavorResources.HasAny(slices.Collect(maps.Keys(requests))...)
 }
 
 // isTASImplied returns true if TAS is requested implicitly.
