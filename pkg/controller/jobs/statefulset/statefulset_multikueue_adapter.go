@@ -70,6 +70,11 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	remoteStatefulSet.Labels[constants.PrebuiltWorkloadLabel] = workloadName
 	remoteStatefulSet.Labels[kueue.MultiKueueOriginLabel] = origin
 
+	if remoteStatefulSet.Annotations == nil {
+		remoteStatefulSet.Annotations = make(map[string]string, 1)
+	}
+	remoteStatefulSet.Annotations[kueue.MultiKueueOriginUIDAnnotation] = string(localStatefulSet.UID)
+
 	return remoteClient.Create(ctx, &remoteStatefulSet)
 }
 
