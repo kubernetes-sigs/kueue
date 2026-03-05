@@ -379,7 +379,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		ctx = ctrl.LoggerInto(ctx, log)
 
 		// workload evicted on manager cluster
-		if remoteEvictCond.Reason == workload.ReasonWithCause(kueue.WorkloadDeactivated, kueue.WorkloadEvictedOnManagerCluster) {
+		if workload.IsEvicted(group.local) {
 			if err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin); err != nil {
 				log.Error(err, "Syncing remote controller object")
 				// We'll retry this in the next reconciling.
