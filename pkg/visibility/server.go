@@ -22,6 +22,7 @@ import (
 	"net"
 	"strings"
 
+	"github.com/spf13/pflag"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -38,10 +39,10 @@ import (
 	"k8s.io/component-base/compatibility"
 	"k8s.io/component-base/version"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	generatedopenapi "sigs.k8s.io/kueue/apis/visibility/openapi"
 	visibilityv1beta1 "sigs.k8s.io/kueue/apis/visibility/v1beta1"
 	visibilityv1beta2 "sigs.k8s.io/kueue/apis/visibility/v1beta2"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/util/tlsconfig"
 	"sigs.k8s.io/kueue/pkg/visibility/storage"
@@ -75,9 +76,9 @@ func init() {
 // +kubebuilder:rbac:groups=flowcontrol.apiserver.k8s.io,resources=flowschemas/status,verbs=patch
 
 // CreateAndStartVisibilityServer creates a visibility server injecting KueueManager and starts it
-func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manager, cfg *configapi.Configuration, kubeConfig *rest.Config, tlsOpts *tlsconfig.TLS) error {
+func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manager, cfg *configapi.Configuration, kubeConfig *rest.Config, tlsOpts *tlsconfig.TLS, visibilityServerFlags string) error {
 	config := newVisibilityServerConfig(kubeConfig)
-	if err := applyVisibilityServerOptions(config, cfg, tlsOpts); err != nil {
+	if err := applyVisibilityServerOptions(config, cfg, tlsOpts, visibilityServerFlags); err != nil {
 		return fmt.Errorf("unable to apply VisibilityServerOptions: %w", err)
 	}
 
@@ -97,7 +98,7 @@ func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manage
 	return nil
 }
 
-func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, cfg *configapi.Configuration, tlsOpts *tlsconfig.TLS) error {
+func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, cfg *configapi.Configuration, tlsOpts *tlsconfig.TLS, visibilityServerFlags string) error {
 	o := genericoptions.NewRecommendedOptions("", codecs.LegacyCodec(
 		visibilityv1beta2.SchemeGroupVersion,
 		visibilityv1beta1.SchemeGroupVersion,
@@ -106,14 +107,14 @@ func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, cf
 	o.SecureServing.BindPort = 8082
 
 	// Apply visibility overrides from Configuration API if present
-	if cfg.Visibility != nil {
-		if cfg.Visibility.BindPort != nil {
-			o.SecureServing.BindPort = int(*cfg.Visibility.BindPort)
-		}
-		if cfg.Visibility.BindAddress != nil && *cfg.Visibility.BindAddress != "" {
-			o.SecureServing.BindAddress = net.ParseIP(*cfg.Visibility.BindAddress)
-		}
-	}
+    if cfg.Visibility != nil {
+        if cfg.Visibility.BindPort != nil {
+            o.SecureServing.BindPort = int(*cfg.Visibility.BindPort)
+        }
+        if cfg.Visibility.BindAddress != nil && *cfg.Visibility.BindAddress != "" {
+            o.SecureServing.BindAddress = net.ParseIP(*cfg.Visibility.BindAddress)
+        }
+    }
 
 	if cfg.InternalCertManagement != nil && *cfg.InternalCertManagement.Enable {
 		// The directory where TLS certs will be created
@@ -125,6 +126,16 @@ func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, cf
 	o.Admission.DisablePlugins = disabledPlugins
 	if err := o.SecureServing.MaybeDefaultWithSelfSignedCerts("localhost", nil, []net.IP{net.ParseIP("127.0.0.1")}); err != nil {
 		return fmt.Errorf("error creating self-signed certificates: %v", err)
+	}
+
+	if visibilityServerFlags != "" {
+		fs := pflag.NewFlagSet("visibility-server", pflag.ContinueOnError)
+		o.AddFlags(fs)
+
+		args := strings.Fields(visibilityServerFlags)
+		if err := fs.Parse(args); err != nil {
+			return fmt.Errorf("failed to parse visibility-server-flags: %w", err)
+		}
 	}
 
 	if err := o.ApplyTo(config); err != nil {
