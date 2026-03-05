@@ -25,6 +25,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"kueueviz/middleware"
 )
 
 // WebSocket upgrader
@@ -32,6 +33,7 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		return true
 	},
+	Subprotocols: []string{middleware.WebSocketBaseProtocol},
 }
 
 // GenericWebSocketHandler creates a WebSocket endpoint with periodic data updates

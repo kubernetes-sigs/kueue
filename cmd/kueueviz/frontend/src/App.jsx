@@ -16,12 +16,14 @@ limitations under the License.
 
 import React from 'react';
 import { Route, BrowserRouter as Router, Routes } from 'react-router-dom';
+import { AuthProvider, RequireAuth } from './AuthContext';
 import ClusterQueues from './ClusterQueues';
 import CohortDetail from './CohortDetail';
 import Cohorts from './Cohorts';
 import Dashboard from './Dashboard';
 import LocalQueueDetail from './LocalQueueDetail';
 import LocalQueues from './LocalQueues';
+import Login from './Login';
 import Navbar from './Navbar';
 import ResourceFlavorDetail from './ResourceFlavorDetail';
 import ResourceFlavors from './ResourceFlavors';
@@ -32,23 +34,24 @@ import ClusterQueueDetail from './ClusterQueueDetail';
 const App = () => {
   return (
     <Router>
-      <Navbar />
-      <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/workloads" element={<Workloads/>} />
-        <Route path="/local-queues" element={<LocalQueues />} />
-        <Route path="/cluster-queues" element={<ClusterQueues />} />
-        <Route path="/resource-flavors" element={<ResourceFlavors />} />
-        <Route path="/cohorts" element={<Cohorts />} />
+      <AuthProvider>
+        <Navbar />
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/" element={<RequireAuth><Dashboard /></RequireAuth>} />
+          <Route path="/workloads" element={<RequireAuth><Workloads/></RequireAuth>} />
+          <Route path="/local-queues" element={<RequireAuth><LocalQueues /></RequireAuth>} />
+          <Route path="/cluster-queues" element={<RequireAuth><ClusterQueues /></RequireAuth>} />
+          <Route path="/resource-flavors" element={<RequireAuth><ResourceFlavors /></RequireAuth>} />
+          <Route path="/cohorts" element={<RequireAuth><Cohorts /></RequireAuth>} />
 
-
-        <Route path="/workload/:namespace/:workloadName" element={<WorkloadDetail />} />
-        <Route path="/local-queue/:namespace/:queueName" element={<LocalQueueDetail />} />
-        <Route path="/cluster-queue/:clusterQueueName" element={<ClusterQueueDetail />} />
-        <Route path="/resource-flavor/:flavorName" element={<ResourceFlavorDetail />} />
-        <Route path="/cohort/:cohortName" element={<CohortDetail />} />
-
-      </Routes>
+          <Route path="/workload/:namespace/:workloadName" element={<RequireAuth><WorkloadDetail /></RequireAuth>} />
+          <Route path="/local-queue/:namespace/:queueName" element={<RequireAuth><LocalQueueDetail /></RequireAuth>} />
+          <Route path="/cluster-queue/:clusterQueueName" element={<RequireAuth><ClusterQueueDetail /></RequireAuth>} />
+          <Route path="/resource-flavor/:flavorName" element={<RequireAuth><ResourceFlavorDetail /></RequireAuth>} />
+          <Route path="/cohort/:cohortName" element={<RequireAuth><CohortDetail /></RequireAuth>} />
+        </Routes>
+      </AuthProvider>
     </Router>
   );
 };
