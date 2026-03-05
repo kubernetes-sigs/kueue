@@ -33,8 +33,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -75,7 +75,6 @@ func managerAndSchedulerSetup(admissionFairSharing *config.AdmissionFairSharing)
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		_ = features.SetEnable(features.AdmissionFairSharing, true)
 		cCache := schdcache.New(mgr.GetClient(), schdcache.WithFairSharing(fairsharing.Enabled(fairSharing)), schdcache.WithAdmissionFairSharing(admissionFairSharing))
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, qcache.WithAdmissionFairSharing(admissionFairSharing))
 
@@ -83,7 +82,8 @@ func managerAndSchedulerSetup(admissionFairSharing *config.AdmissionFairSharing)
 		configuration.Metrics.EnableClusterQueueResources = true
 		mgr.GetScheme().Default(configuration)
 
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil)
+		preemptionExpectations := preemptexpectations.New()
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil, preemptionExpectations)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		failedWebhook, err := webhooks.Setup(mgr, nil)
@@ -93,7 +93,7 @@ func managerAndSchedulerSetup(admissionFairSharing *config.AdmissionFairSharing)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName),
-			scheduler.WithFairSharing(fairSharing), scheduler.WithAdmissionFairSharing(admissionFairSharing))
+			scheduler.WithFairSharing(fairSharing), scheduler.WithAdmissionFairSharing(admissionFairSharing), scheduler.WithPreemptionExpectations(preemptionExpectations))
 		err = sched.Start(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}

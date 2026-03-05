@@ -53,7 +53,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 		sampleJob = testingjob.MakeJob("test-job", ns.Name).
 			Queue("main").
 			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
-			RequestAndLimit(corev1.ResourceCPU, "100m").
+			RequestAndLimit(corev1.ResourceCPU, "200m").
 			RequestAndLimit(corev1.ResourceMemory, "20Mi").
 			Obj()
 		jobKey = client.ObjectKeyFromObject(sampleJob)

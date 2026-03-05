@@ -42,7 +42,7 @@ import (
 	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
 )
 
-// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;delete
 // +kubebuilder:rbac:groups="",resources=pods/status,verbs=get;patch
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 
@@ -50,7 +50,7 @@ var realClock = clock.RealClock{}
 
 const (
 	KueueFailureRecoveryConditionType = "KueueFailureRecovery"
-	KueueForcefulTerminationReason    = "KueueForcefullyTerminated"
+	KueueForcefulTerminationReason    = "KueueForcefullyDeleted"
 )
 
 type TerminatingPodReconciler struct {
@@ -171,7 +171,7 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		"Pod forcefully terminated after %s grace period due to unreachable node `%s` (triggered by `%s` annotation)",
 		totalDeletionGracePeriod,
 		node.Name,
-		constants.SafeToForcefullyTerminateAnnotationKey,
+		constants.SafeToForcefullyDeleteAnnotationKey,
 	)
 
 	err := utilclient.PatchStatus(ctx, r.client, pod, func() (bool, error) {
@@ -191,12 +191,17 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	r.recorder.Event(pod, corev1.EventTypeWarning, KueueForcefulTerminationReason, eventMessage)
 
+	// Forcefully delete the pod object
+	if err = r.client.Delete(ctx, pod, &client.DeleteOptions{GracePeriodSeconds: ptr.To(int64(0))}); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
 	return ctrl.Result{}, nil
 }
 
 func podEligibleForTermination(p *corev1.Pod) bool {
-	annotationValue, hasAnnotation := p.Annotations[constants.SafeToForcefullyTerminateAnnotationKey]
-	if !hasAnnotation || annotationValue != constants.SafeToForcefullyTerminateAnnotationValue {
+	annotationValue, hasAnnotation := p.Annotations[constants.SafeToForcefullyDeleteAnnotationKey]
+	if !hasAnnotation || annotationValue != constants.SafeToForcefullyDeleteAnnotationValue {
 		return false
 	}
 
@@ -204,11 +209,17 @@ func podEligibleForTermination(p *corev1.Pod) bool {
 		return false
 	}
 
-	if utilpod.IsTerminated(p) {
-		return false
-	}
+	// Do not filter out partially terminated (condition set, but not deleted) pods to handle
+	// partial executions of the controller caused by errors (for example network errors).
+	return isPodPartiallyForcefullyTerminated(p) || !utilpod.IsTerminated(p)
+}
 
-	return true
+func isPodPartiallyForcefullyTerminated(p *corev1.Pod) bool {
+	return utilpod.HasCondition(p, &corev1.PodCondition{
+		Type:   KueueFailureRecoveryConditionType,
+		Reason: KueueForcefulTerminationReason,
+		Status: corev1.ConditionTrue,
+	})
 }
 
 const ControllerName = "failure-recovery-pod-termination-controller"

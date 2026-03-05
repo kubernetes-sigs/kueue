@@ -17,7 +17,6 @@ limitations under the License.
 package config
 
 import (
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -64,6 +63,7 @@ var (
 	objectRetentionPoliciesPath                  = field.NewPath("objectRetentionPolicies")
 	objectRetentionPoliciesWorkloadsPath         = objectRetentionPoliciesPath.Child("workloads")
 	tlsPath                                      = field.NewPath("tls")
+	featureGatesPath                             = field.NewPath("featureGates")
 )
 
 func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorList {
@@ -492,9 +492,10 @@ func validateManagedJobsNamespaceSelector(c *configapi.Configuration) field.Erro
 	return allErrs
 }
 
-func ValidateFeatureGates(featureGateCLI string, featureGateMap map[string]bool) error {
+func ValidateFeatureGates(featureGateCLI string, featureGateMap map[string]bool) field.ErrorList {
+	var allErrs field.ErrorList
 	if featureGateCLI != "" && featureGateMap != nil {
-		return errors.New("feature gates for CLI and configuration cannot both specified")
+		allErrs = append(allErrs, field.Invalid(featureGatesPath, featureGateMap, "feature gates for CLI and configuration cannot both specified"))
 	}
 	TASProfilesEnabled := []bool{features.Enabled(features.TASProfileMixed)}
 	enabledProfilesCount := 0
@@ -505,22 +506,22 @@ func ValidateFeatureGates(featureGateCLI string, featureGateMap map[string]bool)
 	}
 	// Currently dead code but leaving in if more TASProfiles are added
 	if enabledProfilesCount > 1 {
-		return errors.New("cannot use more than one TAS profiles")
+		allErrs = append(allErrs, field.Invalid(featureGatesPath, TASProfilesEnabled, "cannot use more than one TAS profiles"))
 	}
 	if !features.Enabled(features.TopologyAwareScheduling) && enabledProfilesCount > 0 {
-		return errors.New("cannot use a TAS profile with TAS disabled")
+		allErrs = append(allErrs, field.Invalid(featureGatesPath, enabledProfilesCount, "cannot use a TAS profile with TAS disabled"))
 	}
 
 	if features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) {
 		if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {
-			return errors.New("ElasticJobsViaWorkloadSlicesWithTAS requires ElasticJobsViaWorkloadSlices to be enabled")
+			allErrs = append(allErrs, field.Invalid(featureGatesPath, "ElasticJobsViaWorkloadSlicesWithTAS", "ElasticJobsViaWorkloadSlicesWithTAS requires ElasticJobsViaWorkloadSlices to be enabled"))
 		}
 		if !features.Enabled(features.TopologyAwareScheduling) {
-			return errors.New("ElasticJobsViaWorkloadSlicesWithTAS requires TopologyAwareScheduling to be enabled")
+			allErrs = append(allErrs, field.Invalid(featureGatesPath, "ElasticJobsViaWorkloadSlicesWithTAS", "ElasticJobsViaWorkloadSlicesWithTAS requires TopologyAwareScheduling to be enabled"))
 		}
 	}
 
-	return nil
+	return allErrs
 }
 
 func validateObjectRetentionPolicies(c *configapi.Configuration) field.ErrorList {

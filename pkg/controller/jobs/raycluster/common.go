@@ -248,7 +248,7 @@ func BuildPodSetAnnotationsPathByNameMap(rayClusterSpec *rayv1.RayClusterSpec, h
 	podSetAnnotationsPathByName := make(map[kueue.PodSetReference]*field.Path)
 	podSetAnnotationsPathByName[headGroupPodSetName] = headGroupMetaPath.Child("annotations")
 	for i, wgs := range rayClusterSpec.WorkerGroupSpecs {
-		podSetAnnotationsPathByName[kueue.PodSetReference(wgs.GroupName)] = workerGroupSpecsPath.Index(i).Child("template", "metadata", "annotations")
+		podSetAnnotationsPathByName[kueue.NewPodSetReference(wgs.GroupName)] = workerGroupSpecsPath.Index(i).Child("template", "metadata", "annotations")
 	}
 	return podSetAnnotationsPathByName
 }

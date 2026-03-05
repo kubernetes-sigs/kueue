@@ -115,7 +115,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", func() {
 				Obj()
 
 			util.MustCreate(ctx, k8sClient, trainingRuntime)
-			util.MustCreate(ctx, k8sClient, trainjob)
+			util.MustCreateWithRetry(ctx, k8sClient, trainjob)
 
 			ginkgo.By("TrainJob is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -187,7 +187,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", func() {
 				Obj()
 
 			util.MustCreate(ctx, k8sClient, trainingRuntime)
-			util.MustCreate(ctx, k8sClient, trainjob)
+			util.MustCreateWithRetry(ctx, k8sClient, trainjob)
 
 			ginkgo.By("TrainJob is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -258,7 +258,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", func() {
 				Obj()
 
 			util.MustCreate(ctx, k8sClient, trainingRuntime)
-			util.MustCreate(ctx, k8sClient, trainjob)
+			util.MustCreateWithRetry(ctx, k8sClient, trainjob)
 
 			ginkgo.By("TrainJob is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {

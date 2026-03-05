@@ -20,7 +20,6 @@ import (
 	"context"
 	"strconv"
 	"sync"
-	"testing"
 	"time"
 
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -155,34 +154,12 @@ func (r *reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	return reconcile.Result{}, nil
 }
 
-func NewReconciler(c client.Client, r *recorder.Recorder, opts ...Option) *reconciler {
-	options := defaultOptions
-
-	for _, opt := range opts {
-		opt(&options)
-	}
-
+func NewReconciler(c client.Client, r *recorder.Recorder) *reconciler {
 	return &reconciler{
 		client:        c,
 		admissionTime: map[types.UID]time.Time{},
 		recorder:      r,
-		clock:         options.clock,
-	}
-}
-
-type options struct {
-	clock clock.Clock
-}
-
-type Option func(*options)
-
-var defaultOptions = options{
-	clock: util.RealClock,
-}
-
-func WithClock(_ testing.TB, c clock.Clock) Option {
-	return func(o *options) {
-		o.clock = c
+		clock:         util.RealClock,
 	}
 }
 

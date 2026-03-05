@@ -91,33 +91,3 @@ func ResourceFlavorsGVR() schema.GroupVersionResource {
 	}
 	return resourceFlavorsGVR
 }
-
-// NodesGVR defines the GroupVersionResource for Nodes
-func NodesGVR() schema.GroupVersionResource {
-	nodeGVR := schema.GroupVersionResource{
-		Group:    "",
-		Version:  "v1",
-		Resource: "nodes",
-	}
-	return nodeGVR
-}
-
-// EventsGVR defines the GroupVersionResource for Events
-func EventsGVR() schema.GroupVersionResource {
-	eventsGVR := schema.GroupVersionResource{
-		Group:    "",
-		Version:  "v1",
-		Resource: "events",
-	}
-	return eventsGVR
-}
-
-// PodsGVR defines the GroupVersionResource Pods
-func PodsGVR() schema.GroupVersionResource {
-	podsGVR := schema.GroupVersionResource{
-		Group:    "",
-		Version:  "v1",
-		Resource: "pods",
-	}
-	return podsGVR
-}

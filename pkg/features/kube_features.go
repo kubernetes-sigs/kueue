@@ -17,7 +17,6 @@ limitations under the License.
 package features
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -52,6 +51,13 @@ const (
 	//
 	// Enable priority sorting within the cohort.
 	PrioritySortingWithinCohort featuregate.Feature = "PrioritySortingWithinCohort"
+
+	// owner: @mukund-wayve
+	// kep: https://github.com/kubernetes-sigs/kueue/issues/9406
+	//
+	// In fair sharing preemption, allow preemption when the preemptor CQ
+	// is within nominal quota for contested resources, bypassing DRS gates.
+	FairSharingPreemptWithinNominal featuregate.Feature = "FairSharingPreemptWithinNominal"
 
 	// owner: @mukund-wayve
 	// kep: https://github.com/kubernetes-sigs/kueue/issues/9406
@@ -290,6 +296,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	PrioritySortingWithinCohort: {
 		{Version: version.MustParse("0.6"), Default: true, PreRelease: featuregate.Beta},
 	},
+	FairSharingPreemptWithinNominal: {
+		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
+	},
 	FairSharingPrioritizeNonBorrowing: {
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
 	},
@@ -384,7 +393,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	// PropagateBatchJobLabelsToWorkload is enabled from 0.13.10 and 0.14.5.
 	PropagateBatchJobLabelsToWorkload: {
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
-		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.GA},
+		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.19
 	},
 	MultiKueueClusterProfile: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
@@ -422,13 +431,6 @@ func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) 
 // Enabled is helper for `utilfeature.DefaultFeatureGate.Enabled()`
 func Enabled(f featuregate.Feature) bool {
 	return utilfeature.DefaultFeatureGate.Enabled(f)
-}
-
-// SetEnable helper function that can be used to set the enabled value of a feature gate,
-// it should only be used in integration test pending the merge of
-// https://github.com/kubernetes/kubernetes/pull/118346
-func SetEnable(f featuregate.Feature, v bool) error {
-	return utilfeature.DefaultMutableFeatureGate.Set(fmt.Sprintf("%s=%v", f, v))
 }
 
 func LogFeatureGates(log logr.Logger) {

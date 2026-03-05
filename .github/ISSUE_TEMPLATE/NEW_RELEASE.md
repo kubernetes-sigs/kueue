@@ -21,9 +21,12 @@ Please do not remove items from the checklist
   - [ ] An OWNER pushes the new release branch with
         `git push upstream release-$MAJ.$MIN`
 - [ ] Update the release branch:
+  - [ ] Ensure there are no unstaged changes in your directory (the script adds everything)
   - [ ] Run `./hack/releasing/prepare_pull.sh --target release $VERSION`
   - [ ] Wait for this PR to merge <!-- PREPARE_PULL --> <!-- example #211 #214 -->
-- [ ] An OWNER creates a signed tag running
+- [ ] An OWNER creates a signed tag
+  - [ ] pull the release branch after PR from previous step merged
+  - [ ] run
      `git tag -s $VERSION`
       and inserts the changelog into the tag description.
       To perform this step, you need [a PGP key registered on github](https://docs.github.com/en/authentication/managing-commit-signature-verification/checking-for-existing-gpg-keys).
@@ -50,9 +53,12 @@ Please do not remove items from the checklist
 - [ ] Run the [openvex action](https://github.com/kubernetes-sigs/kueue/actions/workflows/openvex.yaml) to generate openvex data. The action will add the file to the release artifacts.
 - [ ] Run the [SBOM action](https://github.com/kubernetes-sigs/kueue/actions/workflows/sbom.yaml) to generate the SBOM and add it to the release.
 - [ ] Update the `main` branch :
-  - [ ] Run `./hack/releasing/prepare_pull.sh --target main $VERSION`
-  - [ ] Submit a pull request with the changes: <!-- example #3007 -->
-  - [ ] Cherry-pick the pull request onto the `website` branch
+  - [ ] for each release:
+    - [ ] update the changelog (example #9578)
+  - [ ] for only the latest release:
+    - [ ] Run `./hack/releasing/prepare_pull.sh --target main $VERSION`
+    - [ ] Submit a pull request with the changes: <!-- example #3007 -->
+    - [ ] Cherry-pick the pull request onto the `website` branch
 - [ ] For major or minor releases, merge the `main` branch into the `website` branch to publish the updated documentation.
 - [ ] Send an announcement email to `sig-scheduling@kubernetes.io` and `wg-batch@kubernetes.io` with the subject `[ANNOUNCE] kueue $VERSION is released`.   <!--Link: example https://groups.google.com/a/kubernetes.io/g/wg-batch/c/-gZOrSnwDV4 -->
 - [ ] For a major or minor release, prepare the repo for the next version:
