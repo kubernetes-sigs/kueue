@@ -33,8 +33,8 @@ KueueViz currently exposes all Kueue resources without authentication.
 This KEP adds optional bearer token authentication using the Kubernetes
 TokenReview API, the same mechanism Kubernetes Dashboard uses.
 
-Authentication is controlled by a feature gate (`KueueVizAuth`), disabled
-by default in Alpha. Users opt in via Helm values (`auth.mode: TokenReview`).
+Authentication is configured through Helm values. In Alpha, the default mode
+is `Disabled`, and users opt in via `auth.mode: TokenReview`.
 
 ## Motivation
 
@@ -272,7 +272,6 @@ E2E tests (`test/e2e/kueueviz/`):
 
 Alpha (v0.17, disabled by default):
 
-- [ ] Feature gate `KueueVizAuth` added (default: false)
 - [ ] Middleware implemented with unit tests (>80% coverage)
 - [ ] Integration tests passing
 - [ ] E2E tests in CI
