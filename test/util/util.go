@@ -135,6 +135,9 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 	if err := DeleteAllRayJobsInNamespace(ctx, c, ns); err != nil {
 		return err
 	}
+	if err := DeleteAllRayServicesInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
 	if err := DeleteAllTrainingRuntimesInNamespace(ctx, c, ns); err != nil {
 		return err
 	}
@@ -208,6 +211,10 @@ func DeleteAllAppWrappersInNamespace(ctx context.Context, c client.Client, ns *c
 
 func DeleteAllRayJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
 	return deleteAllObjectsInNamespace(ctx, c, ns, &rayv1.RayJob{})
+}
+
+func DeleteAllRayServicesInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	return deleteAllObjectsInNamespace(ctx, c, ns, &rayv1.RayService{})
 }
 
 func DeleteAllPodsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
