@@ -5,17 +5,17 @@ authors:
 status: provisional
 creation-date: 2026-02-04
 reviewers:
-  - TBD
   - "@mimowo"
+  - "@tenzen-y"
 approvers:
-  - TBD
+  - "@mimowo"
 
 see-also:
   - "https://github.com/kubernetes-sigs/kueue/issues/5993"
   - "https://github.com/kubernetes-sigs/kueue/issues/8969"
 
 # The target maturity stage in the current dev cycle for this KEP.
-stage: beta
+stage: alpha
 
 # The most recent milestone for which work toward delivery of this KEP has been
 # done. This can be the current (upcoming) milestone, if it is being actively
@@ -24,5 +24,6 @@ latest-milestone: "v0.17"
 
 # The milestone at which this feature was, or is targeted to be, at each stage.
 milestone:
-  beta: "v0.17"
-  stable: "v0.18"
+  alpha: "v0.17"
+  beta: "v0.18"
+  stable: "v0.19"

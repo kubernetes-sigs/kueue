@@ -29,12 +29,12 @@
 
 ## Summary
 
-KueueViz currently exposes all Kueue resoruces without authentication.
+KueueViz currently exposes all Kueue resources without authentication.
 This KEP adds optional bearer token authentication using the Kubernetes
 TokenReview API, the same mechanism Kubernetes Dashboard uses.
 
-Authentication is enabled by default, and can be disabled with
-`auth.enabled: false`.
+Authentication is controlled by a feature gate (`KueueVizAuth`), disabled
+by default in Alpha. Users opt in via Helm values (`auth.mode: TokenReview`).
 
 ## Motivation
 
@@ -52,9 +52,9 @@ There is no way to safely expose it via Ingress, and no audit trail.
 1. Add optional authentication using Kubernetes TokenReview API
 2. Support bearer token via `Authorization: Bearer <token>` header
 3. Authenticate WebSocket connections at upgrade time
-4. Enable authentication by default
-5. Provide a login page with token input and validation flow
-6. Add metrics for authentication attempts
+4. Provide a login page with token input and validation flow
+5. Add metrics for authentication attempts
+6. Minimize manual steps for users when authenticating
 
 ### Non-Goals
 
@@ -87,7 +87,7 @@ with per-user authentication and audit logging.
 
 | Risk | Mitigation |
 |------|------------|
-| Breaking existing deployments | Users can set `auth.enabled: false` |
+| Breaking existing deployments | Disabled by default in Alpha; opt-in via `auth.mode: TokenReview` |
 | Token exposure in logs | Never log tokens |
 | TokenReview latency | Cache with configurable TTL |
 | API server load from invalid tokens | Negative caching (5s TTL) for failed auth results |
@@ -121,42 +121,45 @@ Client                    KueueViz Backend         K8s API Server
 **New file:** `cmd/kueueviz/backend/middleware/auth.go`
 
 Gin middleware that extracts bearer token from `Authorization` header or
-`?token=` query param, validates via TokenReview API, caches successful
-authentications, and returns HTTP 401 with `WWW-Authenticate: Bearer` on
-failure.
+`Sec-WebSocket-Protocol` subprotocol, validates via TokenReview API, and returns HTTP 401
+with `WWW-Authenticate: Bearer` on failure.
+
+Caching protects the API server from excessive TokenReview calls:
+- Successful auth results are cached with configurable TTL (default 60s).
+- Failed auth results are cached with a short TTL (default 5s) so the same
+  invalid token does not trigger repeated calls.
+- The API server's own API Priority and Fairness (`--max-requests-inflight`)
+  provides additional protection; application-layer caching is a second line.
 
 **Modified:** `cmd/kueueviz/backend/config/server.go`
 
 Add fields to `ServerConfig`:
 
-- `AuthEnabled bool`
-- `AuthAudiences []string`
-- `AuthCacheTTL time.Duration`
-- `AuthNegativeCacheTTL time.Duration`
+- `AuthMode string` — authentication mode; one of `Disabled` or `TokenReview`
+- `AuthTokenReviewAudiences []string` — optional token audiences to validate against; empty means any audience is accepted
+- `AuthTokenReviewCacheTTL time.Duration` — TTL for caching successful TokenReview results (default 60s)
+- `AuthTokenReviewNegativeCacheTTL time.Duration` — TTL for caching failed TokenReview results (default 5s)
 
 Load from environment variables:
 
-- `KUEUEVIZ_AUTH_ENABLED`
-- `KUEUEVIZ_AUTH_AUDIENCES`
-- `KUEUEVIZ_AUTH_CACHE_TTL`
-- `KUEUEVIZ_AUTH_NEGATIVE_CACHE_TTL`
+- `KUEUEVIZ_AUTH_MODE`
+- `KUEUEVIZ_AUTH_TOKEN_REVIEW_AUDIENCES`
+- `KUEUEVIZ_AUTH_TOKEN_REVIEW_CACHE_TTL`
+- `KUEUEVIZ_AUTH_TOKEN_REVIEW_NEGATIVE_CACHE_TTL`
 
 **Modified:** `cmd/kueueviz/backend/main.go`
 
 - Create `kubernetes.Clientset` for TokenReview calls
-- Register auth middleware when `AuthEnabled` is true
+- Register auth middleware when `AuthMode` is `TokenReview`
 
 ### WebSocket Authentication
 
 Tokens can be provided via:
 
 1. `Authorization: Bearer <token>` header (preferred)
-2. `?token=<token>` query parameter (browser fallback)
+2. `Sec-WebSocket-Protocol: kueueviz.auth.<base64-token>` subprotocol (browser fallback)
 
 Authentication happens at the HTTP upgrade request. No per-message auth.
-
-Future versions may use `Sec-WebSocket-Protocol` header instead of query
-parameter to avoid URL logging exposure.
 
 ### Login Page
 
@@ -167,7 +170,7 @@ The frontend provides a login page at `/login` with:
 3. Instructions for obtaining a token:
 
 ```text
-kubectl create token <service-account> -n <namespace>
+kubectl create token <service-account> -n <namespace> --duration=168h
 ```
 
 Authentication flow on the frontend:
@@ -185,7 +188,9 @@ Add to `charts/kueue/templates/kueueviz/clusterrole.yaml`:
 ```yaml
 - apiGroups: ["authentication.k8s.io"]
   resources: ["tokenreviews"]
-  verbs: ["create"] # TokenReview is a create-only API
+  # TokenReview is a create-only API in Kubernetes (no get/list/watch/delete).
+  # The client POSTs a token and receives an authentication result.
+  verbs: ["create"]
 ```
 
 ### Helm Configuration
@@ -196,33 +201,44 @@ Add to `charts/kueue/templates/kueueviz/clusterrole.yaml`:
 kueueViz:
   backend:
     auth:
-      enabled: true           # enabled by default
-      audiences: ""           # optional, comma-separated
-      cacheTTL: "60s"
-      negativeCacheTTL: "5s"  # cache failed auth results
+      mode: "Disabled"          # Disabled | TokenReview
+      tokenReviewConfig:
+        audiences: ""           # optional, comma-separated; empty means any audience
+        cacheTTL: "60s"         # how long a successful auth result is cached
+        negativeCacheTTL: "5s"  # how long a failed auth result is cached to prevent API server abuse
 ```
 
 `charts/kueue/templates/kueueviz/backend-deployment.yaml`:
 
 ```yaml
-{{- if .Values.kueueViz.backend.auth.enabled }}
-- name: KUEUEVIZ_AUTH_ENABLED
-  value: "true"
-{{- if .Values.kueueViz.backend.auth.audiences }}
-- name: KUEUEVIZ_AUTH_AUDIENCES
-  value: {{ .Values.kueueViz.backend.auth.audiences | quote }}
+{{- if eq .Values.kueueViz.backend.auth.mode "TokenReview" }}
+- name: KUEUEVIZ_AUTH_MODE
+  value: "TokenReview"
+{{- if .Values.kueueViz.backend.auth.tokenReviewConfig.audiences }}
+- name: KUEUEVIZ_AUTH_TOKEN_REVIEW_AUDIENCES
+  value: {{ .Values.kueueViz.backend.auth.tokenReviewConfig.audiences | quote }}
 {{- end }}
-- name: KUEUEVIZ_AUTH_CACHE_TTL
-  value: {{ .Values.kueueViz.backend.auth.cacheTTL | default "60s" | quote }}
+- name: KUEUEVIZ_AUTH_TOKEN_REVIEW_CACHE_TTL
+  value: {{ .Values.kueueViz.backend.auth.tokenReviewConfig.cacheTTL | default "60s" | quote }}
+- name: KUEUEVIZ_AUTH_TOKEN_REVIEW_NEGATIVE_CACHE_TTL
+  value: {{ .Values.kueueViz.backend.auth.tokenReviewConfig.negativeCacheTTL | default "5s" | quote }}
 {{- end }}
 ```
 
 ### Frontend Considerations
 
-Initial release: out of scope. Users can use `kubectl proxy` or add headers
-manually.
+The frontend handles authentication with minimal user friction:
 
-Future: may add login dialog with token input and localStorage persistence.
+1. When auth is enabled, the frontend detects HTTP 401 and redirects to `/login`.
+2. The login page provides a token input field and a helper command:
+   `kubectl create token <service-account> -n <namespace> --duration=168h`.
+3. Once entered, the token is stored in sessionStorage (scoped to the browser
+   tab, cleared on tab close) and attached to all subsequent HTTP and WebSocket
+   requests automatically.
+4. On token expiry (HTTP 401), the user is prompted to re-authenticate.
+
+Future: automatic token acquisition via `kubectl proxy` or browser-based
+OIDC, removing the need to copy-paste tokens.
 
 ### Test Plan
 
@@ -232,7 +248,7 @@ to implement this enhancement.
 
 Unit tests (`middleware/auth_test.go`):
 
-- Token extraction from header and query param
+- Token extraction from header and WebSocket subprotocol
 - Cache hit/miss
 - Expired cache entries
 - Disabled auth passthrough
@@ -254,19 +270,29 @@ E2E tests (`test/e2e/kueueviz/`):
 
 ### Graduation Criteria
 
-Beta (v0.17):
+Alpha (v0.17, disabled by default):
 
+- [ ] Feature gate `KueueVizAuth` added (default: false)
 - [ ] Middleware implemented with unit tests (>80% coverage)
 - [ ] Integration tests passing
 - [ ] E2E tests in CI
 - [ ] Helm values documented
+- [ ] Negative caching for failed auth results
 - [ ] INSTALL.md updated
 
-Stable (v0.18):
+Beta (v0.18, re-evaluate enabling by default based on user feedback):
 
-- [ ] Auth metrics added
-- [ ] Positive user feedback
+- [ ] Positive user feedback from Alpha adopters
+- [ ] Auth metrics added (success/failure counters, latency histogram)
+- [ ] Frontend login flow fully integrated
+- [ ] DDoS mitigation validated (negative cache + rate limiting)
+- [ ] Documentation for migration from unauthenticated deployments
+
+Stable (v0.19):
+
 - [ ] Production usage confirmed
+- [ ] Enabled by default
+- [ ] Secure by default: evaluate automatic token acquisition
 
 ## Implementation History
 
@@ -278,9 +304,10 @@ Adds middleware, configuration, and RBAC complexity. Users must obtain and
 manage tokens themselves. Some users may expect OAuth login instead. Note
 that revoked tokens remain valid until cache expires.
 
-This is a breaking change for existing deployments that had no authentication.
-Users upgrading must either obtain a token or set `auth.enabled: false` in
-Helm values. Migration steps will be documented in release notes.
+Starting with Alpha disabled by default avoids breaking existing deployments.
+When graduating to Beta/Stable with auth enabled by default, users upgrading
+must either obtain a token or set `auth.mode: Disabled`. Migration steps
+will be documented in release notes.
 
 ## Alternatives
 
