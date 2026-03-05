@@ -18281,6 +18281,22 @@ spec:
                 x-kubernetes-list-map-keys:
                 - name
                 x-kubernetes-list-type: map
+              preemptionGates:
+                description: |-
+                  preemptionGates is a list of gates governing whether the workload
+                  can trigger preemptions.
+                  The gates are closed by default.
+                items:
+                  properties:
+                    name:
+                      description: name identifies the preemption gate.
+                      maxLength: 63
+                      minLength: 1
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
               priority:
                 description: |-
                   priority determines the order of access to the resources managed by the
@@ -18893,6 +18909,34 @@ spec:
                 maxItems: 20
                 type: array
                 x-kubernetes-list-type: atomic
+              preemptionGates:
+                description: |-
+                  preemptionGates is a list of states of gates governing whether the workload
+                  can trigger preemptions.
+                items:
+                  properties:
+                    lastTransitionTime:
+                      description: lastTransitionTime is the last time the gate transitioned
+                        from one status to another.
+                      format: date-time
+                      type: string
+                    name:
+                      description: name identifies the preemption gate.
+                      maxLength: 63
+                      minLength: 1
+                      type: string
+                    state:
+                      description: state of the preemption gate. One of
+                      enum:
+                      - Closed
+                      - Open
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - name
+                  - state
+                  type: object
+                type: array
               reclaimablePods:
                 description: |-
                   reclaimablePods keeps track of the number pods within a podset for which
