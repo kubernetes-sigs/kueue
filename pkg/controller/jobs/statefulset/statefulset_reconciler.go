@@ -86,7 +86,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 
 	podList := &corev1.PodList{}
 	if sts != nil {
-		wlName := findWorkloadName(ctx, r.client, sts)
+		wlName, err := findWorkloadName(ctx, r.client, sts)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
 		if err := r.client.List(ctx, podList, client.InNamespace(req.Namespace), client.MatchingLabels{
 			podconstants.GroupNameLabel: wlName,
 		}); err != nil {
@@ -180,17 +183,23 @@ func (r *Reconciler) syncQueueLabel(ctx context.Context, sts *appsv1.StatefulSet
 // findWorkloadName returns the workload name for the given StatefulSet,
 // falling back to the legacy name (without UID) if no workload exists under the new name.
 // TODO(#9497, v0.20): Remove legacy fallback.
-func findWorkloadName(ctx context.Context, c client.Client, sts *appsv1.StatefulSet) string {
+func findWorkloadName(ctx context.Context, c client.Client, sts *appsv1.StatefulSet) (string, error) {
 	wlName := GetWorkloadName(GetOwnerUID(sts), sts.Name)
 	wl := &kueue.Workload{}
-	if apierrors.IsNotFound(c.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: wlName}, wl)) {
+	err := c.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: wlName}, wl)
+	if client.IgnoreNotFound(err) != nil {
+		return wlName, err
+	}
+	if apierrors.IsNotFound(err) {
 		legacyName := GetWorkloadName("", sts.Name)
-		if c.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: legacyName}, wl) == nil {
+		if err := c.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: legacyName}, wl); err == nil {
 			ctrl.LoggerFrom(ctx).V(3).Info("Using legacy workload name", "legacyName", legacyName, "newName", wlName)
-			return legacyName
+			return legacyName, nil
+		} else if !apierrors.IsNotFound(err) {
+			return wlName, err
 		}
 	}
-	return wlName
+	return wlName, nil
 }
 
 func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.StatefulSet) error {
@@ -204,8 +213,11 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 	)
 
 	wl := &kueue.Workload{}
-	wlName := findWorkloadName(ctx, r.client, sts)
-	err := r.client.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: wlName}, wl)
+	wlName, err := findWorkloadName(ctx, r.client, sts)
+	if err != nil {
+		return err
+	}
+	err = r.client.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: wlName}, wl)
 
 	if apierrors.IsNotFound(err) {
 		if replicas > 0 && (queueName != "" || r.manageJobsWithoutQueueName) {

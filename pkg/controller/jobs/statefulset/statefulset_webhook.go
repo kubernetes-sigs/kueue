@@ -199,9 +199,12 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 			} else {
 				// Block if workload is still being deleted
 				oldSTS := oldStatefulSet.Object().(*appsv1.StatefulSet)
-				wlName := findWorkloadName(ctx, wh.client, oldSTS)
+				wlName, err := findWorkloadName(ctx, wh.client, oldSTS)
+				if err != nil {
+					return nil, err
+				}
 				var wl kueue.Workload
-				err := wh.client.Get(ctx, client.ObjectKey{Namespace: oldSTS.GetNamespace(), Name: wlName}, &wl)
+				err = wh.client.Get(ctx, client.ObjectKey{Namespace: oldSTS.GetNamespace(), Name: wlName}, &wl)
 				if client.IgnoreNotFound(err) != nil {
 					return nil, err
 				} else if err == nil {

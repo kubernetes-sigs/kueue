@@ -105,14 +105,14 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache)
 		opts = append(opts, jobframework.WithQueues(queues), jobframework.WithCache(cCache))
 
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &config.Configuration{}, nil, preemptexpectations.New())
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &config.Configuration{}, preemptexpectations.New())
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		err = statefulset.SetupWebhook(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = pod.SetupWebhook(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		failedWebhook, err := webhooks.Setup(mgr, nil)
+		failedWebhook, err := webhooks.Setup(mgr)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 		jobframework.EnableIntegration(statefulset.FrameworkName)
