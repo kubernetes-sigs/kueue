@@ -1393,12 +1393,15 @@ type EvictOptions struct {
 	CustomPrepare           func(wl *kueue.Workload)
 	StrictApply             bool
 	RetryOnConflictForPatch bool
+	Clock                   clock.Clock
+	RoleTracker             *roletracker.RoleTracker
 }
 
 func DefaultEvictOptions() *EvictOptions {
 	return &EvictOptions{
 		CustomPrepare: nil,
 		StrictApply:   true,
+		Clock:         clock.RealClock{},
 	}
 }
 
@@ -1422,7 +1425,19 @@ func EvictWithRetryOnConflictForPatch() EvictOption {
 	}
 }
 
-func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, wl *kueue.Workload, reason, msg string, underlyingCause kueue.EvictionUnderlyingCause, clock clock.Clock, tracker *roletracker.RoleTracker, options ...EvictOption) error {
+func EvictWithClock(clock clock.Clock) EvictOption {
+	return func(o *EvictOptions) {
+		o.Clock = clock
+	}
+}
+
+func EvictWithRoleTracker(tracker *roletracker.RoleTracker) EvictOption {
+	return func(o *EvictOptions) {
+		o.RoleTracker = tracker
+	}
+}
+
+func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, wl *kueue.Workload, reason, msg string, underlyingCause kueue.EvictionUnderlyingCause, options ...EvictOption) error {
 	opts := DefaultEvictOptions()
 	for _, opt := range options {
 		opt(opts)
@@ -1443,7 +1458,7 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 		patchOpts = append(patchOpts, WithRetryOnConflictForPatch())
 	}
 
-	if err := PatchAdmissionStatus(ctx, c, wl, clock, func(wl *kueue.Workload) (bool, error) {
+	if err := PatchAdmissionStatus(ctx, c, wl, opts.Clock, func(wl *kueue.Workload) (bool, error) {
 		if opts.CustomPrepare != nil {
 			opts.CustomPrepare(wl)
 		}
@@ -1452,7 +1467,7 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 		if reason == kueue.WorkloadDeactivated && underlyingCause != "" {
 			evictionReason = ReasonWithCause(evictionReason, string(underlyingCause))
 		}
-		prepareForEviction(wl, clock.Now(), evictionReason, msg)
+		prepareForEviction(wl, opts.Clock.Now(), evictionReason, msg)
 		reportWorkloadEvictedOnce = workloadEvictionStateInc(wl, reason, underlyingCause)
 		return true, nil
 	}, patchOpts...); err != nil {
@@ -1466,27 +1481,56 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 		log.V(3).Info("WARNING: unexpected eviction of workload without status.Admission", "workload", klog.KObj(wl))
 		return nil
 	}
-	reportEvictedWorkload(recorder, wl, wl.Status.Admission.ClusterQueue, reason, msg, underlyingCause, tracker)
+	reportEvictedWorkload(recorder, wl, wl.Status.Admission.ClusterQueue, reason, msg, underlyingCause, opts.RoleTracker)
 	if reportWorkloadEvictedOnce {
-		metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, reason, string(underlyingCause), PriorityClassName(wl), tracker)
+		metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, reason, string(underlyingCause), PriorityClassName(wl), opts.RoleTracker)
 	}
 	return nil
 }
 
-func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, msg string, clock clock.Clock, tracker *roletracker.RoleTracker) error {
+type FinishOption func(*FinishOptions)
+
+type FinishOptions struct {
+	Clock       clock.Clock
+	RoleTracker *roletracker.RoleTracker
+}
+
+func DefaultFinishOptions() *FinishOptions {
+	return &FinishOptions{
+		Clock: clock.RealClock{},
+	}
+}
+
+func FinishWithClock(clock clock.Clock) FinishOption {
+	return func(o *FinishOptions) {
+		o.Clock = clock
+	}
+}
+
+func FinishWithRoleTracker(tracker *roletracker.RoleTracker) FinishOption {
+	return func(o *FinishOptions) {
+		o.RoleTracker = tracker
+	}
+}
+
+func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, msg string, options ...FinishOption) error {
+	opts := DefaultFinishOptions()
+	for _, opt := range options {
+		opt(opts)
+	}
+
 	if IsFinished(wl) {
 		return nil
 	}
-	err := PatchAdmissionStatus(ctx, c, wl, clock, func(wl *kueue.Workload) (bool, error) {
-		return SetFinishedCondition(wl, clock.Now(), reason, msg), nil
-	})
-	if err != nil {
+	if err := PatchAdmissionStatus(ctx, c, wl, opts.Clock, func(wl *kueue.Workload) (bool, error) {
+		return SetFinishedCondition(wl, opts.Clock.Now(), reason, msg), nil
+	}); err != nil {
 		return err
 	}
 	priorityClassName := PriorityClassName(wl)
-	metrics.IncrementFinishedWorkloadTotal(ptr.Deref(wl.Status.Admission, kueue.Admission{}).ClusterQueue, priorityClassName, tracker)
+	metrics.IncrementFinishedWorkloadTotal(ptr.Deref(wl.Status.Admission, kueue.Admission{}).ClusterQueue, priorityClassName, opts.RoleTracker)
 	if features.Enabled(features.LocalQueueMetrics) {
-		metrics.IncrementLocalQueueFinishedWorkloadTotal(metrics.LQRefFromWorkload(wl), priorityClassName, tracker)
+		metrics.IncrementLocalQueueFinishedWorkloadTotal(metrics.LQRefFromWorkload(wl), priorityClassName, opts.RoleTracker)
 	}
 	return nil
 }
