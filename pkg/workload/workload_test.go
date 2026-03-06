@@ -506,7 +506,7 @@ func TestNewInfo(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, fg, enabled)
 			}
 			info := NewInfo(&tc.workload, tc.infoOptions...)
-			if diff := cmp.Diff(info, &tc.wantInfo, cmpopts.IgnoreFields(Info{}, "Obj")); diff != "" {
+			if diff := cmp.Diff(info, &tc.wantInfo, cmpopts.IgnoreFields(Info{}, "Obj", "SchedulingHash")); diff != "" {
 				t.Errorf("NewInfo(_) = (-want,+got):\n%s", diff)
 			}
 		})
@@ -2563,6 +2563,64 @@ func TestGetLocalQueueFromWorkload(t *testing.T) {
 			gotLq := GetLocalQueue(tc.wl)
 			if gotLq != tc.wantLq {
 				t.Errorf("invalid local queue identified: got \"%v\", want \"%v\"", gotLq, tc.wantLq)
+			}
+		})
+	}
+}
+
+func TestSchedulingHash(t *testing.T) {
+	cases := map[string]struct {
+		wl1      *kueue.Workload
+		wl2      *kueue.Workload
+		wantSame bool
+	}{
+		"same spec different identity produces same hash": {
+			wl1: utiltestingapi.MakeWorkload("wl1", "ns1").
+				Request(corev1.ResourceCPU, "2").
+				Request(corev1.ResourceMemory, "1Gi").Obj(),
+			wl2: utiltestingapi.MakeWorkload("wl2", "ns2").
+				Request(corev1.ResourceCPU, "2").
+				Request(corev1.ResourceMemory, "1Gi").Obj(),
+			wantSame: true,
+		},
+		"different resource requests": {
+			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
+				Request(corev1.ResourceCPU, "1").Obj(),
+			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
+				Request(corev1.ResourceCPU, "2").Obj(),
+			wantSame: false,
+		},
+		"different pod counts": {
+			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
+					Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
+					Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+			wantSame: false,
+		},
+		"different workload priorities": {
+			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
+				Priority(100).
+				Request(corev1.ResourceCPU, "1").Obj(),
+			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
+				Priority(200).
+				Request(corev1.ResourceCPU, "1").Obj(),
+			wantSame: false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			info1 := NewInfo(tc.wl1)
+			info2 := NewInfo(tc.wl2)
+			if info1.SchedulingHash == "" {
+				t.Error("SchedulingHash should not be empty")
+			}
+			if tc.wantSame && info1.SchedulingHash != info2.SchedulingHash {
+				t.Errorf("expected same hash, got %q and %q", info1.SchedulingHash, info2.SchedulingHash)
+			}
+			if !tc.wantSame && info1.SchedulingHash == info2.SchedulingHash {
+				t.Errorf("expected different hashes, got same %q", info1.SchedulingHash)
 			}
 		})
 	}
