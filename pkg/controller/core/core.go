@@ -60,15 +60,13 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 
 	fairSharingEnabled := fairsharing.Enabled(cfg.FairSharing)
 	watchers := []ClusterQueueUpdateWatcher{rfRec, acRec}
-	if features.Enabled(features.HierarchicalCohorts) {
-		cohortRec := NewCohortReconciler(mgr.GetClient(), cc, qManager,
-			CohortReconcilerWithFairSharing(fairSharingEnabled),
-			CohortReconcilerWithRoleTracker(roleTracker))
-		if err := cohortRec.SetupWithManager(mgr, cfg); err != nil {
-			return "Cohort", err
-		}
-		watchers = append(watchers, cohortRec)
+	cohortRec := NewCohortReconciler(mgr.GetClient(), cc, qManager,
+		CohortReconcilerWithFairSharing(fairSharingEnabled),
+		CohortReconcilerWithRoleTracker(roleTracker))
+	if err := cohortRec.SetupWithManager(mgr, cfg); err != nil {
+		return "Cohort", err
 	}
+	watchers = append(watchers, cohortRec)
 
 	cqRec := NewClusterQueueReconciler(
 		mgr.GetClient(),

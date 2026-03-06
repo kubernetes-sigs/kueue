@@ -72,15 +72,14 @@ kubectl config use-context kind-manager
 # Install Kueue
 if [ "$USE_MAIN_BRANCH" = "true" ]; then
     echo "[2/5] Installing Kueue from main branch..."
-    KUEUE_APPLY_FLAGS="-k github.com/kubernetes-sigs/kueue/config/default?ref=main"
+    KUEUE_APPLY_FLAGS=(-k "github.com/kubernetes-sigs/kueue/config/default?ref=main")
 else
     echo "[2/5] Installing Kueue ${KUEUE_VERSION}..."
-    KUEUE_APPLY_FLAGS="-f https://github.com/kubernetes-sigs/kueue/releases/download/${KUEUE_VERSION}/manifests.yaml"
+    KUEUE_APPLY_FLAGS=(-f "https://github.com/kubernetes-sigs/kueue/releases/download/${KUEUE_VERSION}/manifests.yaml")
 fi
 
 for cluster in manager ${WORKER_CLUSTERS}; do
-    # shellcheck disable=SC2086
-    kubectl --context "kind-${cluster}" apply --server-side ${KUEUE_APPLY_FLAGS}
+    kubectl --context "kind-${cluster}" apply --server-side "${KUEUE_APPLY_FLAGS[@]}"
     kubectl --context "kind-${cluster}" wait --for=condition=available --timeout=300s deployment/kueue-controller-manager -n kueue-system
 done
 
