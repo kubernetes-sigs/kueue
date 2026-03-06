@@ -28,6 +28,10 @@ import (
 
 func SetupControllers(mgr ctrl.Manager, queues *qcache.Manager, cache *schdcache.Cache, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker) (string, error) {
 	recorder := mgr.GetEventRecorderFor(TASResourceFlavorController)
+	nodeRec := newNodeReconciler(mgr.GetClient(), cache.TASCache(), roleTracker)
+	if ctrName, err := nodeRec.setupWithManager(mgr, cfg); err != nil {
+		return ctrName, err
+	}
 	topologyRec := newTopologyReconciler(mgr.GetClient(), queues, cache, roleTracker)
 	if ctrlName, err := topologyRec.setupWithManager(mgr, cfg); err != nil {
 		return ctrlName, err
