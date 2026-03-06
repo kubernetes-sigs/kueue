@@ -347,8 +347,8 @@ func TestMergeTopologyAssignments(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
 			s := newTASFlavorSnapshot(log, "dummy", levels, nil)
-			for _, node := range nodes {
-				s.addNode(node)
+			for i := range nodes {
+				s.addNode(newNodeInfo(&nodes[i]))
 			}
 			s.initialize()
 
