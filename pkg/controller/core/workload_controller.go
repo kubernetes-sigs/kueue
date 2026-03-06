@@ -52,6 +52,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -60,6 +61,7 @@ import (
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
+	"sigs.k8s.io/kueue/pkg/util/priority"
 	qutil "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -194,6 +196,16 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		// manual deletion triggered by the user
 		err := workload.RemoveFinalizer(ctx, r.client, &wl)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// KEP-7990: admission normally rejects invalid priority-boost; here we treat as 0 and emit Event + log as defense-in-depth.
+	if _, err := priority.EffectivePriority(&wl); err != nil {
+		log.V(2).Info("Invalid priority-boost annotation, treating as zero",
+			"annotation", wl.Annotations[controllerconstants.PriorityBoostAnnotationKey], "error", err)
+		r.recorder.Eventf(&wl, corev1.EventTypeWarning, "InvalidPriorityBoost",
+			"Invalid value %q for annotation %s, treating as zero: %v",
+			wl.Annotations[controllerconstants.PriorityBoostAnnotationKey],
+			controllerconstants.PriorityBoostAnnotationKey, err)
 	}
 
 	finishedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished)

@@ -53,6 +53,9 @@ readonly default_kueueviz_frontend_image_repo
 default_kueue_populator_image_repo=$(${YQ} ".kueuePopulator.image.repository" cmd/experimental/kueue-populator/charts/kueue-populator/values.yaml)
 readonly default_kueue_populator_image_repo
 
+default_priority_boost_controller_image_repo=$(${YQ} ".priorityBoostController.image.repository" cmd/experimental/priority-boost-controller/charts/priority-boost-controller/values.yaml)
+readonly default_priority_boost_controller_image_repo
+
 default_image_tag=$(${YQ} ".controllerManager.manager.image.tag" charts/kueue/values.yaml)
 readonly default_image_tag
 
@@ -65,6 +68,9 @@ readonly default_kueueviz_frontend_image_tag
 default_kueue_populator_image_tag=$(${YQ} ".kueuePopulator.image.tag" cmd/experimental/kueue-populator/charts/kueue-populator/values.yaml)
 readonly default_kueue_populator_image_tag
 
+default_priority_boost_controller_image_tag=$(${YQ} ".priorityBoostController.image.tag" cmd/experimental/priority-boost-controller/charts/priority-boost-controller/values.yaml)
+readonly default_priority_boost_controller_image_tag
+
 # Update the image repo, tag and policy
 ${YQ}  e  ".controllerManager.manager.image.repository = \"${IMAGE_REGISTRY}/kueue\" | .controllerManager.manager.image.tag = \"${GIT_TAG}\" | .controllerManager.manager.image.pullPolicy = \"IfNotPresent\"" -i charts/kueue/values.yaml
 
@@ -75,12 +81,19 @@ ${YQ}  e  ".kueueViz.frontend.image.repository = \"${IMAGE_REGISTRY}/kueueviz-fr
 # Update the KueuePopulator repo, tag and policy
 ${YQ}  e  ".kueuePopulator.image.repository = \"${IMAGE_REGISTRY}/kueue-populator\" | .kueuePopulator.image.tag = \"${GIT_TAG}\" | .kueuePopulator.image.pullPolicy = \"IfNotPresent\"" -i cmd/experimental/kueue-populator/charts/kueue-populator/values.yaml
 
+# Update the priority-boost-controller repo, tag and policy
+${YQ}  e  ".priorityBoostController.image.repository = \"${IMAGE_REGISTRY}/priority-boost-controller\" | .priorityBoostController.image.tag = \"${GIT_TAG}\" | .priorityBoostController.image.pullPolicy = \"IfNotPresent\"" -i cmd/experimental/priority-boost-controller/charts/priority-boost-controller/values.yaml
+
 # TODO: consider signing it
 rm -Rf cmd/experimental/kueue-populator/charts/kueue-populator/charts
 rm -f cmd/experimental/kueue-populator/charts/kueue-populator/Chart.lock
+rm -Rf cmd/experimental/priority-boost-controller/charts/priority-boost-controller/charts
+rm -f cmd/experimental/priority-boost-controller/charts/priority-boost-controller/Chart.lock
 ${HELM} package --version "${chart_version}" --app-version "${GIT_TAG}" charts/kueue -d "${DEST_CHART_DIR}"
 ${HELM} dependency build cmd/experimental/kueue-populator/charts/kueue-populator
 ${HELM} package --version "${chart_version}" --app-version "${GIT_TAG}" cmd/experimental/kueue-populator/charts/kueue-populator -d "${DEST_CHART_DIR}"
+${HELM} dependency build cmd/experimental/priority-boost-controller/charts/priority-boost-controller
+${HELM} package --version "${chart_version}" --app-version "${GIT_TAG}" cmd/experimental/priority-boost-controller/charts/priority-boost-controller -d "${DEST_CHART_DIR}"
 
 # Revert the image changes
 ${YQ}  e  ".controllerManager.manager.image.repository = \"${default_image_repo}\" | .controllerManager.manager.image.tag = \"${default_image_tag}\" | .controllerManager.manager.image.pullPolicy = \"Always\"" -i charts/kueue/values.yaml
@@ -92,7 +105,11 @@ ${YQ}  e  ".kueueViz.frontend.image.repository = \"${default_kueueviz_frontend_i
 # Revert the KueuePopulator image changes
 ${YQ}  e  ".kueuePopulator.image.repository = \"${default_kueue_populator_image_repo}\" | .kueuePopulator.image.tag = \"${default_kueue_populator_image_tag}\" | .kueuePopulator.image.pullPolicy = \"Always\"" -i cmd/experimental/kueue-populator/charts/kueue-populator/values.yaml
 
+# Revert the priority-boost-controller image changes
+${YQ}  e  ".priorityBoostController.image.repository = \"${default_priority_boost_controller_image_repo}\" | .priorityBoostController.image.tag = \"${default_priority_boost_controller_image_tag}\" | .priorityBoostController.image.pullPolicy = \"Always\"" -i cmd/experimental/priority-boost-controller/charts/priority-boost-controller/values.yaml
+
 if [ "$HELM_CHART_PUSH" = "true" ]; then
   ${HELM} push "${DEST_CHART_DIR}/kueue-${chart_version}.tgz" "oci://${HELM_CHART_REPO}"
   ${HELM} push "${DEST_CHART_DIR}/kueue-populator-${chart_version}.tgz" "oci://${HELM_CHART_REPO}"
+  ${HELM} push "${DEST_CHART_DIR}/priority-boost-controller-${chart_version}.tgz" "oci://${HELM_CHART_REPO}"
 fi

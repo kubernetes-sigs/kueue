@@ -1,0 +1,12 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: priority-boost-controller-role-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: priority-boost-controller-role
+subjects:
+- kind: ServiceAccount
+  name: priority-boost-controller
+  namespace: kueue-system

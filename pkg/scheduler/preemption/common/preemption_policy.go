@@ -23,8 +23,8 @@ import (
 )
 
 func SatisfiesPreemptionPolicy(preemptor, candidate *kueue.Workload, workloadOrdering workload.Ordering, policy kueue.PreemptionPolicy) bool {
-	preemptorPriority := priority.Priority(preemptor)
-	candidatePriority := priority.Priority(candidate)
+	preemptorPriority, _ := priority.EffectivePriority(preemptor)
+	candidatePriority, _ := priority.EffectivePriority(candidate)
 
 	lowerPriority := preemptorPriority > candidatePriority
 	if policy == kueue.PreemptionPolicyLowerPriority {

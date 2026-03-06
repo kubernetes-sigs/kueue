@@ -13,6 +13,7 @@ steps:
       - helm-chart-push
       - kueueviz-image-push
       - kueue-populator-image-push
+      - priority-boost-controller-image-push
     env:
       - DOCKER_BUILDX_CMD=/buildx-entrypoint
       - GOTOOLCHAIN=auto

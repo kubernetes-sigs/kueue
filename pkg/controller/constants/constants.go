@@ -58,4 +58,9 @@ const (
 	// ComponentWorkloadIndexAnnotation stores the numeric index for component workloads
 	// in multi-workload jobs (e.g., LeaderWorkerSet replicas).
 	ComponentWorkloadIndexAnnotation = "kueue.x-k8s.io/component-workload-index"
+
+	// PriorityBoostAnnotationKey is the annotation key on a Workload that allows
+	// external controllers to adjust a workload's effective priority.
+	// Positive values increase priority; negative values decrease it.
+	PriorityBoostAnnotationKey = "kueue.x-k8s.io/priority-boost"
 )

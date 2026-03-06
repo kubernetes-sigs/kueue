@@ -47,6 +47,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/logging"
+	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -156,6 +157,12 @@ var HumanReadablePreemptionReasons = map[string]string{
 	"": "UNKNOWN",
 }
 
+func priorityInfo(w *kueue.Workload) (effectivePri, basePri, boost int32) {
+	basePri = priority.Priority(w)
+	boost, _ = priority.PriorityBoost(w)
+	return basePri + boost, basePri, boost
+}
+
 func preemptionMessage(preemptor *kueue.Workload, reason, preemptorPath, preempteePath string) string {
 	wUID := cmp.Or(string(preemptor.UID), "UNKNOWN")
 	uid := preemptor.Labels[constants.JobUIDLabel]
@@ -209,10 +216,20 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 			preemptionErrors.Add(1)
 			return
 		}
+		preemptorEffPri, preemptorBase, preemptorBoost := priorityInfo(preemptor.Obj)
+		targetEffPri, targetBase, targetBoost := priorityInfo(target.WorkloadInfo.Obj)
 		log.V(3).Info("Preempted", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj), "preemptorUID", string(preemptor.Obj.UID),
 			"preemptorJobUID", preemptor.Obj.Labels[constants.JobUIDLabel], "reason", target.Reason, "message", message, "targetClusterQueue", klog.KRef("", string(target.WorkloadInfo.ClusterQueue)),
-			"preemptorPath", preemptorPath, "preempteePath", preempteePath)
-		p.recorder.Eventf(target.WorkloadInfo.Obj, corev1.EventTypeNormal, "Preempted", message)
+			"preemptorPath", preemptorPath, "preempteePath", preempteePath,
+			"preemptorEffectivePriority", preemptorEffPri, "preemptorBoost", preemptorBoost,
+			"targetEffectivePriority", targetEffPri, "targetBoost", targetBoost)
+		p.recorder.Eventf(target.WorkloadInfo.Obj, corev1.EventTypeNormal, "Preempted", message+
+			fmt.Sprintf("; preemptor effective priority: %d (base: %d, boost: %d); preemptee effective priority: %d (base: %d, boost: %d)",
+				preemptorEffPri, preemptorBase, preemptorBoost, targetEffPri, targetBase, targetBoost))
+		p.recorder.Eventf(preemptor.Obj, corev1.EventTypeNormal, "PreemptedWorkload",
+			"Preempted workload %s (UID: %s) in ClusterQueue %s; preemptor effective priority: %d (base: %d, boost: %d); preemptee effective priority: %d (base: %d, boost: %d)",
+			klog.KObj(target.WorkloadInfo.Obj), target.WorkloadInfo.Obj.UID, target.WorkloadInfo.ClusterQueue,
+			preemptorEffPri, preemptorBase, preemptorBoost, targetEffPri, targetBase, targetBoost)
 		workload.ReportPreemption(preemptor.ClusterQueue, target.Reason, target.WorkloadInfo.ClusterQueue, p.roleTracker)
 		successfullyPreempted.Add(1)
 	})
