@@ -3213,8 +3213,7 @@ func TestClusterQueueReadiness(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
-			_, log := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 			cache := New(utiltesting.NewFakeClient())
 			for _, rf := range tc.resourceFlavors {
 				cache.AddOrUpdateResourceFlavor(log, rf)
