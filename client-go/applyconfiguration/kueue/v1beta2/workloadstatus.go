@@ -78,6 +78,9 @@ type WorkloadStatusApplyConfiguration struct {
 	// It indicates Kueue's scheduler is searching for replacements of the failed nodes.
 	// Requires enabling the TASFailedNodeReplacement feature gate.
 	UnhealthyNodes []UnhealthyNodeApplyConfiguration `json:"unhealthyNodes,omitempty"`
+	// preemptionGates is a list of states of gates governing whether the workload
+	// can trigger preemptions.
+	PreemptionGates []PreemptionGateStateApplyConfiguration `json:"preemptionGates,omitempty"`
 }
 
 // WorkloadStatusApplyConfiguration constructs a declarative configuration of the WorkloadStatus type for use with
@@ -197,6 +200,19 @@ func (b *WorkloadStatusApplyConfiguration) WithUnhealthyNodes(values ...*Unhealt
 			panic("nil value passed to WithUnhealthyNodes")
 		}
 		b.UnhealthyNodes = append(b.UnhealthyNodes, *values[i])
+	}
+	return b
+}
+
+// WithPreemptionGates adds the given value to the PreemptionGates field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the PreemptionGates field.
+func (b *WorkloadStatusApplyConfiguration) WithPreemptionGates(values ...*PreemptionGateStateApplyConfiguration) *WorkloadStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithPreemptionGates")
+		}
+		b.PreemptionGates = append(b.PreemptionGates, *values[i])
 	}
 	return b
 }

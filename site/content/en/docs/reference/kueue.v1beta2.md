@@ -1514,6 +1514,18 @@ There could be up to 64 resources.</p>
 </tbody>
 </table>
 
+## `GateState`     {#kueue-x-k8s-io-v1beta2-GateState}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [PreemptionGateState](#kueue-x-k8s-io-v1beta2-PreemptionGateState)
+
+
+
+
+
 ## `KubeConfig`     {#kueue-x-k8s-io-v1beta2-KubeConfig}
     
 
@@ -2458,6 +2470,68 @@ result in failure during workload admission.</p>
 </td>
 <td>
    <p>size indicates the number of pods in each group at this slice layer.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `PreemptionGate`     {#kueue-x-k8s-io-v1beta2-PreemptionGate}
+    
+
+**Appears in:**
+
+- [WorkloadSpec](#kueue-x-k8s-io-v1beta2-WorkloadSpec)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>name identifies the preemption gate.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `PreemptionGateState`     {#kueue-x-k8s-io-v1beta2-PreemptionGateState}
+    
+
+**Appears in:**
+
+- [WorkloadStatus](#kueue-x-k8s-io-v1beta2-WorkloadStatus)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>name identifies the preemption gate.</p>
+</td>
+</tr>
+<tr><td><code>state</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta2-GateState"><code>GateState</code></a>
+</td>
+<td>
+   <p>state of the preemption gate. One of</p>
+</td>
+</tr>
+<tr><td><code>lastTransitionTime,omitempty,omitzero</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Time</code></a>
+</td>
+<td>
+   <p>lastTransitionTime is the last time the gate transitioned from one status to another.</p>
 </td>
 </tr>
 </tbody>
@@ -3505,6 +3579,15 @@ the workload can be admitted before it's automatically deactivated.</p>
 <p>If unspecified, no execution time limit is enforced on the Workload.</p>
 </td>
 </tr>
+<tr><td><code>preemptionGates</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-PreemptionGate"><code>[]PreemptionGate</code></a>
+</td>
+<td>
+   <p>preemptionGates is a list of gates governing whether the workload
+can trigger preemptions.
+The gates are closed by default.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -3626,6 +3709,14 @@ affinity or propagation policies across workload slices.</p>
 when Topology-Aware Scheduling is used. This field should not be set by the users.
 It indicates Kueue's scheduler is searching for replacements of the failed nodes.
 Requires enabling the TASFailedNodeReplacement feature gate.</p>
+</td>
+</tr>
+<tr><td><code>preemptionGates</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-PreemptionGateState"><code>[]PreemptionGateState</code></a>
+</td>
+<td>
+   <p>preemptionGates is a list of states of gates governing whether the workload
+can trigger preemptions.</p>
 </td>
 </tr>
 </tbody>
