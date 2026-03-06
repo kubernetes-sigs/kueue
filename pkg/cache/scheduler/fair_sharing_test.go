@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"fmt"
+	"github.com/go-logr/logr"
 	"math"
 	"testing"
 	"time"
@@ -723,7 +724,7 @@ func TestDominantResourceShare(t *testing.T) {
 				wl := utiltestingapi.MakeWorkload(fmt.Sprintf("workload-%d", i), "default-namespace").ReserveQuotaAt(admission.Obj(), now).Obj()
 
 				cache.AddOrUpdateWorkload(log, wl)
-				snapshot.AddWorkload(workload.NewInfo(wl))
+				snapshot.AddWorkload(workload.NewInfo(logr.Discard(), wl))
 				i++
 			}
 

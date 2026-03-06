@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/go-logr/logr"
 	"testing"
 	"time"
 
@@ -505,7 +506,7 @@ func TestNewInfo(t *testing.T) {
 			for fg, enabled := range tc.featureGates {
 				features.SetFeatureGateDuringTest(t, fg, enabled)
 			}
-			info := NewInfo(&tc.workload, tc.infoOptions...)
+			info := NewInfo(logr.Discard(), &tc.workload, tc.infoOptions...)
 			if diff := cmp.Diff(info, &tc.wantInfo, cmpopts.IgnoreFields(Info{}, "Obj", "SchedulingHash")); diff != "" {
 				t.Errorf("NewInfo(_) = (-want,+got):\n%s", diff)
 			}
@@ -1674,7 +1675,7 @@ func TestWithPreprocessedDRAResources(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			info := NewInfo(&tc.workload, WithPreprocessedDRAResources(tc.draResources))
+			info := NewInfo(logr.Discard(), &tc.workload, WithPreprocessedDRAResources(tc.draResources))
 
 			if diff := cmp.Diff(tc.wantInfo.TotalRequests, info.TotalRequests); diff != "" {
 				t.Errorf("Unexpected TotalRequests (-want,+got):\n%s", diff)
@@ -2611,8 +2612,8 @@ func TestSchedulingHash(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			info1 := NewInfo(tc.wl1)
-			info2 := NewInfo(tc.wl2)
+			info1 := NewInfo(logr.Discard(), tc.wl1)
+			info2 := NewInfo(logr.Discard(), tc.wl2)
 			if info1.SchedulingHash == "" {
 				t.Error("SchedulingHash should not be empty")
 			}

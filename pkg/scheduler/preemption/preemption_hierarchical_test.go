@@ -18,6 +18,7 @@ package preemption
 
 import (
 	"fmt"
+	"github.com/go-logr/logr"
 	"testing"
 	"time"
 
@@ -1859,7 +1860,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				if err != nil {
 					t.Fatalf("unexpected error while building snapshot: %v", err)
 				}
-				wlInfo := workload.NewInfo(tc.incoming)
+				wlInfo := workload.NewInfo(logr.Discard(), tc.incoming)
 				wlInfo.ClusterQueue = tc.targetCQ
 				targets := preemptor.GetTargets(log, *wlInfo, tc.assignment, snapshotWorkingCopy)
 				preempted, failed, err := preemptor.IssuePreemptions(ctx, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))

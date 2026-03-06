@@ -19,6 +19,7 @@ package workloadslicing
 import (
 	"context"
 	"errors"
+	"github.com/go-logr/logr"
 	"strconv"
 	"testing"
 	"time"
@@ -1161,20 +1162,20 @@ func TestReplacedWorkloadSlice(t *testing.T) {
 		"EdgeCase_SnapshotIsNil": {
 			featureEnabled: true,
 			args: args{
-				wl: workload.NewInfo(utiltestingapi.MakeWorkload("test", "default").Obj()),
+				wl: workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("test", "default").Obj()),
 			},
 		},
 		"WorkloadWithoutReplacementAnnotation": {
 			featureEnabled: true,
 			args: args{
-				wl:   workload.NewInfo(utiltestingapi.MakeWorkload("test", "default").Obj()),
+				wl:   workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("test", "default").Obj()),
 				snap: &schdcache.Snapshot{},
 			},
 		},
 		"ReplacedWorkloadIsNotFound_MissingClusterQueue": {
 			featureEnabled: true,
 			args: args{
-				wl: workload.NewInfo(utiltestingapi.MakeWorkload("test-new", "default").
+				wl: workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("test-new", "default").
 					Annotation(WorkloadSliceReplacementFor, "test-old").
 					Obj()),
 				snap: &schdcache.Snapshot{
@@ -1187,7 +1188,7 @@ func TestReplacedWorkloadSlice(t *testing.T) {
 		"EdgeCase_ReplacedWorkloadIsNotFound_NotInClusterQueue": {
 			featureEnabled: true,
 			args: args{
-				wl: workload.NewInfo(utiltestingapi.MakeWorkload("test-new", "default").
+				wl: workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("test-new", "default").
 					Annotation(WorkloadSliceReplacementFor, "test-old").
 					Admission(utiltestingapi.MakeAdmission("default").Obj()).
 					Obj()),
@@ -1203,7 +1204,7 @@ func TestReplacedWorkloadSlice(t *testing.T) {
 		"ReplacedWorkloadIsFound": {
 			featureEnabled: true,
 			args: args{
-				wl: workload.NewInfo(utiltestingapi.MakeWorkload("test-new", "default").
+				wl: workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("test-new", "default").
 					Annotation(WorkloadSliceReplacementFor, "test-old").
 					Admission(utiltestingapi.MakeAdmission("default").Obj()).
 					Obj()),
@@ -1213,16 +1214,16 @@ func TestReplacedWorkloadSlice(t *testing.T) {
 						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
 							"default": {
 								Workloads: map[workload.Reference]*workload.Info{
-									"test-old": workload.NewInfo(utiltestingapi.MakeWorkload("test-old", "default").Obj()),
+									"test-old": workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("test-old", "default").Obj()),
 								},
 							},
 						}),
 				},
 			},
 			want: want{
-				wl: workload.NewInfo(utiltestingapi.MakeWorkload("test-old", "default").Obj()),
+				wl: workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("test-old", "default").Obj()),
 				targets: []*preemption.Target{
-					{WorkloadInfo: workload.NewInfo(utiltestingapi.MakeWorkload("test-old", "default").Obj())},
+					{WorkloadInfo: workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("test-old", "default").Obj())},
 				},
 			},
 		},

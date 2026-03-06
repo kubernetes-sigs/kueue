@@ -3306,7 +3306,7 @@ func TestAssignFlavors(t *testing.T) {
 			for fg, enabled := range tc.featureGates {
 				features.SetFeatureGateDuringTest(t, fg, enabled)
 			}
-			wlInfo := workload.NewInfo(&kueue.Workload{
+			wlInfo := workload.NewInfo(logr.Discard(), &kueue.Workload{
 				Spec: kueue.WorkloadSpec{
 					PodSets: tc.wlPods,
 				},
@@ -3508,7 +3508,7 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 					*utiltestingapi.MakeFlavorQuotas("tre").Resource("compute", "0").Resource("gpu", "0").Obj(),
 				).Obj()
 
-			wlInfo := workload.NewInfo(&kueue.Workload{
+			wlInfo := workload.NewInfo(logr.Discard(), &kueue.Workload{
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
 						tc.workloadRequests.PodSet,
@@ -3648,7 +3648,7 @@ func TestDeletedFlavors(t *testing.T) {
 			log := testr.NewWithOptions(t, testr.Options{
 				Verbosity: 2,
 			})
-			wlInfo := workload.NewInfo(&kueue.Workload{
+			wlInfo := workload.NewInfo(logr.Discard(), &kueue.Workload{
 				Spec: kueue.WorkloadSpec{
 					PodSets: tc.wlPods,
 				},
@@ -3827,7 +3827,7 @@ func TestHierarchical(t *testing.T) {
 				*utiltestingapi.MakeFlavorQuotas("three").Resource(corev1.ResourceCPU, "0").Obj(),
 			).Obj()
 
-			wlInfo := workload.NewInfo(&kueue.Workload{
+			wlInfo := workload.NewInfo(logr.Discard(), &kueue.Workload{
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
 						tc.workloadRequests.PodSet,
@@ -3964,7 +3964,7 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 					Status: *NewStatus(),
 				}},
 			},
-			workload: *workload.NewInfo(&kueue.Workload{
+			workload: *workload.NewInfo(logr.Discard(), &kueue.Workload{
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -3990,7 +3990,7 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 					Status: *NewStatus(),
 				}},
 			},
-			workload: *workload.NewInfo(&kueue.Workload{
+			workload: *workload.NewInfo(logr.Discard(), &kueue.Workload{
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -4020,7 +4020,7 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 					Status: *NewStatus(),
 				}},
 			},
-			workload: *workload.NewInfo(&kueue.Workload{
+			workload: *workload.NewInfo(logr.Discard(), &kueue.Workload{
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -4082,7 +4082,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 					Count:  2,
 					Status: *NewStatus(),
 				}},
-				replaceWorkloadSlice: workload.NewInfo(&kueue.Workload{
+				replaceWorkloadSlice: workload.NewInfo(logr.Discard(), &kueue.Workload{
 					Status: kueue.WorkloadStatus{
 						Admission: &kueue.Admission{
 							PodSetAssignments: []kueue.PodSetAssignment{{
@@ -4093,7 +4093,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 					},
 				}),
 			},
-			workload: *workload.NewInfo(&kueue.Workload{
+			workload: *workload.NewInfo(logr.Discard(), &kueue.Workload{
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
@@ -4118,7 +4118,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 					Count:  2,
 					Status: *NewStatus(),
 				}},
-				replaceWorkloadSlice: workload.NewInfo(&kueue.Workload{
+				replaceWorkloadSlice: workload.NewInfo(logr.Discard(), &kueue.Workload{
 					Status: kueue.WorkloadStatus{
 						Admission: &kueue.Admission{
 							PodSetAssignments: []kueue.PodSetAssignment{{
@@ -4129,7 +4129,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 					},
 				}),
 			},
-			workload: *workload.NewInfo(&kueue.Workload{
+			workload: *workload.NewInfo(logr.Discard(), &kueue.Workload{
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
@@ -4154,7 +4154,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 					Count:  2,
 					Status: *NewStatus(),
 				}},
-				replaceWorkloadSlice: workload.NewInfo(&kueue.Workload{
+				replaceWorkloadSlice: workload.NewInfo(logr.Discard(), &kueue.Workload{
 					Status: kueue.WorkloadStatus{
 						Admission: &kueue.Admission{
 							PodSetAssignments: []kueue.PodSetAssignment{{
@@ -4165,7 +4165,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 					},
 				}),
 			},
-			workload: *workload.NewInfo(&kueue.Workload{
+			workload: *workload.NewInfo(logr.Discard(), &kueue.Workload{
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
@@ -4229,7 +4229,7 @@ func TestAssignment_TotalRequestsFor(t *testing.T) {
 				},
 			},
 			args: args{
-				wl: workload.NewInfo(utiltestingapi.MakeWorkload("test", "default").
+				wl: workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("test", "default").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Obj()). // Has 2 pods.
 					Request(corev1.ResourceCPU, "1").
 					Request(corev1.ResourceMemory, "1Mi").
@@ -4258,7 +4258,7 @@ func TestAssignment_TotalRequestsFor(t *testing.T) {
 				},
 			},
 			args: args{
-				wl: workload.NewInfo(utiltestingapi.MakeWorkload("test", "default").
+				wl: workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("test", "default").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Obj()). // Has 2 pods.
 					Request(corev1.ResourceCPU, "1").
 					Request(corev1.ResourceMemory, "1Mi").
@@ -4285,14 +4285,14 @@ func TestAssignment_TotalRequestsFor(t *testing.T) {
 						Count: 71, // Assigned 1 pod.
 					},
 				},
-				replaceWorkloadSlice: workload.NewInfo(utiltestingapi.MakeWorkload("test", "default").
+				replaceWorkloadSlice: workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("test", "default").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Obj()).
 					Request(corev1.ResourceCPU, "1").
 					Request(corev1.ResourceMemory, "1Mi").
 					Obj()),
 			},
 			args: args{
-				wl: workload.NewInfo(utiltestingapi.MakeWorkload("test", "default").
+				wl: workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("test", "default").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Obj()).
 					Request(corev1.ResourceCPU, "1").
 					Request(corev1.ResourceMemory, "1Mi").
@@ -4321,7 +4321,7 @@ func TestAssignment_TotalRequestsFor(t *testing.T) {
 				},
 			},
 			args: args{
-				wl: workload.NewInfo(utiltestingapi.MakeWorkload("test", "default").
+				wl: workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("test", "default").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Obj()).
 					Request(corev1.ResourceCPU, "1").
 					Request(corev1.ResourceMemory, "1Mi").
@@ -4361,7 +4361,7 @@ func TestAssignment_TotalRequestsFor(t *testing.T) {
 						Count: 3, // Changed: was 1, now 3
 					},
 				},
-				replaceWorkloadSlice: workload.NewInfo(utiltestingapi.MakeWorkload("test", "default").
+				replaceWorkloadSlice: workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("test", "default").
 					PodSets(
 						*utiltestingapi.MakePodSet("worker", 2).
 							Request(corev1.ResourceCPU, "1").
@@ -4375,7 +4375,7 @@ func TestAssignment_TotalRequestsFor(t *testing.T) {
 					Obj()),
 			},
 			args: args{
-				wl: workload.NewInfo(utiltestingapi.MakeWorkload("test", "default").
+				wl: workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("test", "default").
 					PodSets(
 						*utiltestingapi.MakePodSet("worker", 2).
 							Request(corev1.ResourceCPU, "1").

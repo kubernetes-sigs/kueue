@@ -274,7 +274,7 @@ func (p *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
 	return ret
 }
 
-func NewInfo(w *kueue.Workload, opts ...InfoOption) *Info {
+func NewInfo(log logr.Logger, w *kueue.Workload, opts ...InfoOption) *Info {
 	options := defaultOptions
 	for _, opt := range opts {
 		opt(&options)
@@ -288,7 +288,10 @@ func NewInfo(w *kueue.Workload, opts ...InfoOption) *Info {
 	} else {
 		info.TotalRequests = totalRequestsFromPodSets(w, &options)
 	}
-	info.SchedulingHash = computeSchedulingHash(log.Log, w, info.TotalRequests)
+	info.SchedulingHash = computeSchedulingHash(log, w, info.TotalRequests)
+	if logV := log.V(5); logV.Enabled() {
+		logV.Info("Workload info created", "workload", klog.KObj(w))
+	}
 	return info
 }
 

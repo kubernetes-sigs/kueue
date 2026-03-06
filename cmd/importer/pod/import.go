@@ -169,7 +169,7 @@ func createWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) er
 func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload, cq *kueue.ClusterQueue) error {
 	update := func(wl *kueue.Workload) (bool, error) {
 		// make its admission and update its status
-		info := workload.NewInfo(wl)
+		info := workload.NewInfo(ctrl.LoggerFrom(ctx), wl)
 
 		admission := kueue.Admission{
 			ClusterQueue: kueue.ClusterQueueReference(cq.Name),

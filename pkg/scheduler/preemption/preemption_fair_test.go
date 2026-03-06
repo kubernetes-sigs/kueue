@@ -17,6 +17,7 @@ limitations under the License.
 package preemption
 
 import (
+	"github.com/go-logr/logr"
 	"testing"
 	"time"
 
@@ -993,7 +994,7 @@ func TestFairPreemptions(t *testing.T) {
 			if tc.assignmentFlavor != "" {
 				flavorName = tc.assignmentFlavor
 			}
-			wlInfo := workload.NewInfo(tc.incoming)
+			wlInfo := workload.NewInfo(logr.Discard(), tc.incoming)
 			wlInfo.ClusterQueue = tc.targetCQ
 			targets := preemptor.GetTargets(log, *wlInfo, singlePodSetAssignment(
 				flavorassigner.ResourceAssignment{

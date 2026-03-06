@@ -18,6 +18,7 @@ package queue
 
 import (
 	"context"
+	"github.com/go-logr/logr"
 	"testing"
 	"time"
 
@@ -76,7 +77,7 @@ func Test_PushOrUpdate(t *testing.T) {
 	}{
 		"workload doesn't have re-queue state": {
 			workload:     wlBase.Clone(),
-			wantWorkload: workload.NewInfo(wlBase.Clone().ResourceVersion("1").Obj()),
+			wantWorkload: workload.NewInfo(logr.Discard(), wlBase.Clone().ResourceVersion("1").Obj()),
 		},
 		"workload is still under the backoff waiting time": {
 			workload: wlBase.Clone().
@@ -91,7 +92,7 @@ func Test_PushOrUpdate(t *testing.T) {
 					Status: metav1.ConditionFalse,
 				}),
 			wantInAdmissibleWorkloads: inadmissibleWorkloads{
-				"default/workload-1": workload.NewInfo(wlBase.Clone().
+				"default/workload-1": workload.NewInfo(logr.Discard(), wlBase.Clone().
 					ResourceVersion("1").
 					RequeueState(ptr.To[int32](10), ptr.To(metav1.NewTime(minuteLater))).
 					Condition(metav1.Condition{
@@ -118,7 +119,7 @@ func Test_PushOrUpdate(t *testing.T) {
 					Status: metav1.ConditionFalse,
 				}),
 			wantInAdmissibleWorkloads: inadmissibleWorkloads{
-				"default/workload-1": workload.NewInfo(wlBase.Clone().
+				"default/workload-1": workload.NewInfo(logr.Discard(), wlBase.Clone().
 					ResourceVersion("1").
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadEvicted,
@@ -143,7 +144,7 @@ func Test_PushOrUpdate(t *testing.T) {
 					Type:   kueue.WorkloadRequeued,
 					Status: metav1.ConditionTrue,
 				}),
-			wantWorkload: workload.NewInfo(wlBase.Clone().
+			wantWorkload: workload.NewInfo(logr.Discard(), wlBase.Clone().
 				ResourceVersion("1").
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadEvicted,
@@ -165,14 +166,14 @@ func Test_PushOrUpdate(t *testing.T) {
 			if cq.PendingTotal() != 0 {
 				t.Error("ClusterQueue should be empty")
 			}
-			cq.PushOrUpdate(workload.NewInfo(tc.workload.Clone().Obj()))
+			cq.PushOrUpdate(workload.NewInfo(logr.Discard(), tc.workload.Clone().Obj()))
 			if cq.PendingTotal() != 1 {
 				t.Error("ClusterQueue should have one workload")
 			}
 
 			// Just used to validate the update operation.
 			updatedWl := tc.workload.Clone().ResourceVersion("1").Obj()
-			cq.PushOrUpdate(workload.NewInfo(updatedWl))
+			cq.PushOrUpdate(workload.NewInfo(logr.Discard(), updatedWl))
 			newWl := cq.Pop()
 			if newWl != nil && cq.PendingTotal() != 1 {
 				t.Errorf("unexpected count of pending workloads (want=%d, got=%d)", 1, cq.PendingTotal())
@@ -191,8 +192,8 @@ func Test_Pop(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	now := time.Now()
 	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
-	wl1 := workload.NewInfo(utiltestingapi.MakeWorkload("workload-1", defaultNamespace).Creation(now).Obj())
-	wl2 := workload.NewInfo(utiltestingapi.MakeWorkload("workload-2", defaultNamespace).Creation(now.Add(time.Second)).Obj())
+	wl1 := workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("workload-1", defaultNamespace).Creation(now).Obj())
+	wl2 := workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("workload-2", defaultNamespace).Creation(now.Add(time.Second)).Obj())
 	if cq.Pop() != nil {
 		t.Error("ClusterQueue should be empty")
 	}
@@ -217,7 +218,7 @@ func TestPushOrUpdateSkipsInflightWorkload(t *testing.T) {
 	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
 
 	wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).Creation(now).Obj()
-	cq.PushOrUpdate(workload.NewInfo(wl))
+	cq.PushOrUpdate(workload.NewInfo(logr.Discard(), wl))
 
 	// Pop makes the workload inflight.
 	head := cq.Pop()
@@ -228,7 +229,7 @@ func TestPushOrUpdateSkipsInflightWorkload(t *testing.T) {
 	// Simulate a concurrent PushOrUpdate while the workload is inflight.
 	updatedWl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).
 		Creation(now).ResourceVersion("1").Obj()
-	cq.PushOrUpdate(workload.NewInfo(updatedWl))
+	cq.PushOrUpdate(workload.NewInfo(logr.Discard(), updatedWl))
 
 	// The workload should not be on the heap or in inadmissible.
 	activeWorkloads, _ := cq.Dump()
@@ -277,7 +278,7 @@ func TestPushOrUpdateGenerationChanged(t *testing.T) {
 
 			wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).
 				Creation(now).Generation(1).Obj()
-			cq.PushOrUpdate(workload.NewInfo(wl))
+			cq.PushOrUpdate(workload.NewInfo(logr.Discard(), wl))
 
 			head := cq.Pop()
 			if head == nil {
@@ -285,12 +286,12 @@ func TestPushOrUpdateGenerationChanged(t *testing.T) {
 			}
 
 			// Simulate RequeueWorkload with info.Update: inadmissible entry gets new generation.
-			updatedInfo := workload.NewInfo(tc.updatedWorkload)
+			updatedInfo := workload.NewInfo(logr.Discard(), tc.updatedWorkload)
 			updatedInfo.LastEvaluatedGeneration = head.LastEvaluatedGeneration
 			cq.requeueIfNotPresent(log, updatedInfo, false)
 
 			// PushOrUpdate from informer event with the updated workload.
-			cq.PushOrUpdate(workload.NewInfo(tc.updatedWorkload))
+			cq.PushOrUpdate(workload.NewInfo(logr.Discard(), tc.updatedWorkload))
 
 			if active, _ := cq.Dump(); len(active) != tc.wantActiveWorkloads {
 				t.Errorf("got %d active workloads, want %d", len(active), tc.wantActiveWorkloads)
@@ -307,8 +308,8 @@ func Test_Delete(t *testing.T) {
 	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()))
 	wl1 := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).Obj()
 	wl2 := utiltestingapi.MakeWorkload("workload-2", defaultNamespace).Obj()
-	cq.PushOrUpdate(workload.NewInfo(wl1))
-	cq.PushOrUpdate(workload.NewInfo(wl2))
+	cq.PushOrUpdate(workload.NewInfo(logr.Discard(), wl1))
+	cq.PushOrUpdate(workload.NewInfo(logr.Discard(), wl2))
 	if cq.PendingTotal() != 2 {
 		t.Error("ClusterQueue should have two workload")
 	}
@@ -331,7 +332,7 @@ func Test_Info(t *testing.T) {
 	if info := cq.Info(workload.Key(wl)); info != nil {
 		t.Error("Workload should not exist")
 	}
-	cq.PushOrUpdate(workload.NewInfo(wl))
+	cq.PushOrUpdate(workload.NewInfo(logr.Discard(), wl))
 	if info := cq.Info(workload.Key(wl)); info == nil {
 		t.Error("Expected workload to exist")
 	}
@@ -343,10 +344,10 @@ func Test_AddFromLocalQueue(t *testing.T) {
 	wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).Obj()
 	queue := &LocalQueue{
 		items: map[workload.Reference]*workload.Info{
-			workload.Reference(wl.Name): workload.NewInfo(wl),
+			workload.Reference(wl.Name): workload.NewInfo(logr.Discard(), wl),
 		},
 	}
-	cq.PushOrUpdate(workload.NewInfo(wl))
+	cq.PushOrUpdate(workload.NewInfo(logr.Discard(), wl))
 	if added := cq.AddFromLocalQueue(queue, nil); added {
 		t.Error("expected workload not to be added")
 	}
@@ -396,10 +397,10 @@ func TestSnapshotDeterministicOrder(t *testing.T) {
 			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
 
 			for _, w := range tc.workloads {
-				cq.PushOrUpdate(workload.NewInfo(w))
+				cq.PushOrUpdate(workload.NewInfo(logr.Discard(), w))
 			}
 			for _, w := range tc.inadmissibleWorkloads {
-				cq.requeueIfNotPresent(log, workload.NewInfo(w), false)
+				cq.requeueIfNotPresent(log, workload.NewInfo(logr.Discard(), w), false)
 			}
 
 			firstSnap := cq.Snapshot()
@@ -425,13 +426,13 @@ func Test_DeleteFromLocalQueue(t *testing.T) {
 	inadmissibleWorkloads := []*kueue.Workload{wl3, wl4}
 
 	for _, w := range admissibleworkloads {
-		wInfo := workload.NewInfo(w)
+		wInfo := workload.NewInfo(logr.Discard(), w)
 		cq.PushOrUpdate(wInfo)
 		qImpl.AddOrUpdate(wInfo)
 	}
 
 	for _, w := range inadmissibleWorkloads {
-		wInfo := workload.NewInfo(w)
+		wInfo := workload.NewInfo(logr.Discard(), w)
 		cq.requeueIfNotPresent(log, wInfo, false)
 		qImpl.AddOrUpdate(wInfo)
 	}
@@ -503,27 +504,27 @@ func TestClusterQueueImpl(t *testing.T) {
 		},
 		"re-queue inadmissible workload; workloads with requeueState can't re-queue": {
 			workloadsToAdd:                 []*kueue.Workload{workloads[0]},
-			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(workloads[1]), workload.NewInfo(workloads[3])},
+			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(logr.Discard(), workloads[1]), workload.NewInfo(logr.Discard(), workloads[3])},
 			wantActiveWorkloads:            []workload.Reference{workload.Key(workloads[0])},
 			wantPending:                    3,
 		},
 		"re-queue admissible workload that was inadmissible": {
 			workloadsToAdd:                 []*kueue.Workload{workloads[0]},
-			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(workloads[1]), workload.NewInfo(workloads[3])},
-			admissibleWorkloadsToRequeue:   []*workload.Info{workload.NewInfo(workloads[1]), workload.NewInfo(workloads[3])},
+			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(logr.Discard(), workloads[1]), workload.NewInfo(logr.Discard(), workloads[3])},
+			admissibleWorkloadsToRequeue:   []*workload.Info{workload.NewInfo(logr.Discard(), workloads[1]), workload.NewInfo(logr.Discard(), workloads[3])},
 			wantActiveWorkloads:            []workload.Reference{workload.Key(workloads[0]), workload.Key(workloads[1])},
 			wantPending:                    3,
 		},
 		"re-queue inadmissible workload and flush": {
 			workloadsToAdd:                    []*kueue.Workload{workloads[0]},
-			inadmissibleWorkloadsToRequeue:    []*workload.Info{workload.NewInfo(workloads[1]), workload.NewInfo(workloads[3])},
+			inadmissibleWorkloadsToRequeue:    []*workload.Info{workload.NewInfo(logr.Discard(), workloads[1]), workload.NewInfo(logr.Discard(), workloads[3])},
 			queueInadmissibleWorkloads:        true,
 			wantActiveWorkloads:               []workload.Reference{workload.Key(workloads[0]), workload.Key(workloads[1])},
 			wantPending:                       3,
 			wantInadmissibleWorkloadsRequeued: 1,
 		},
 		"re-queue multiple inadmissible workloads and count": {
-			inadmissibleWorkloadsToRequeue:    []*workload.Info{workload.NewInfo(workloads[0]), workload.NewInfo(workloads[1])},
+			inadmissibleWorkloadsToRequeue:    []*workload.Info{workload.NewInfo(logr.Discard(), workloads[0]), workload.NewInfo(logr.Discard(), workloads[1])},
 			queueInadmissibleWorkloads:        true,
 			wantActiveWorkloads:               []workload.Reference{workload.Key(workloads[0]), workload.Key(workloads[1])},
 			wantPending:                       2,
@@ -534,7 +535,7 @@ func TestClusterQueueImpl(t *testing.T) {
 		// stays inadmissible. Verify the count reflects only the one that moved.
 		"count only workloads that actually moved": {
 			workloadsToAdd:                    []*kueue.Workload{workloads[0]},
-			inadmissibleWorkloadsToRequeue:    []*workload.Info{workload.NewInfo(workloads[1]), workload.NewInfo(workloads[2])},
+			inadmissibleWorkloadsToRequeue:    []*workload.Info{workload.NewInfo(logr.Discard(), workloads[1]), workload.NewInfo(logr.Discard(), workloads[2])},
 			queueInadmissibleWorkloads:        true,
 			wantActiveWorkloads:               []workload.Reference{workload.Key(workloads[0]), workload.Key(workloads[1])},
 			wantPending:                       3,
@@ -545,7 +546,7 @@ func TestClusterQueueImpl(t *testing.T) {
 		// finds an empty inadmissible map and returns 0.
 		"workload already on heap is not made inadmissible": {
 			workloadsToAdd:                    []*kueue.Workload{workloads[1]},
-			inadmissibleWorkloadsToRequeue:    []*workload.Info{workload.NewInfo(workloads[1])},
+			inadmissibleWorkloadsToRequeue:    []*workload.Info{workload.NewInfo(logr.Discard(), workloads[1])},
 			queueInadmissibleWorkloads:        true,
 			wantActiveWorkloads:               []workload.Reference{workload.Key(workloads[1])},
 			wantPending:                       1,
@@ -553,38 +554,38 @@ func TestClusterQueueImpl(t *testing.T) {
 		},
 		"avoid re-queueing inadmissible workloads not matching namespace selector": {
 			workloadsToAdd:                 []*kueue.Workload{workloads[0]},
-			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(workloads[2])},
+			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(logr.Discard(), workloads[2])},
 			queueInadmissibleWorkloads:     true,
 			wantActiveWorkloads:            []workload.Reference{workload.Key(workloads[0])},
 			wantPending:                    2,
 		},
 		"update inadmissible workload": {
 			workloadsToAdd:                 []*kueue.Workload{workloads[0]},
-			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(workloads[1])},
+			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(logr.Discard(), workloads[1])},
 			workloadsToUpdate:              []*kueue.Workload{updatedWorkloads[1]},
 			wantActiveWorkloads:            []workload.Reference{workload.Key(workloads[0]), workload.Key(workloads[1])},
 			wantPending:                    2,
 		},
 		"delete inadmissible workload": {
 			workloadsToAdd:                 []*kueue.Workload{workloads[0]},
-			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(workloads[1])},
+			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(logr.Discard(), workloads[1])},
 			workloadsToDelete:              []*kueue.Workload{workloads[1]},
 			queueInadmissibleWorkloads:     true,
 			wantActiveWorkloads:            []workload.Reference{workload.Key(workloads[0])},
 			wantPending:                    1,
 		},
 		"update inadmissible workload without changes": {
-			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(workloads[1])},
+			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(logr.Discard(), workloads[1])},
 			workloadsToUpdate:              []*kueue.Workload{workloads[1]},
 			wantPending:                    1,
 		},
 		"requeue inadmissible workload twice": {
-			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(workloads[1]), workload.NewInfo(workloads[1])},
+			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(logr.Discard(), workloads[1]), workload.NewInfo(logr.Discard(), workloads[1])},
 			wantPending:                    1,
 		},
 		"update reclaimable pods in inadmissible": {
 			inadmissibleWorkloadsToRequeue: []*workload.Info{
-				workload.NewInfo(utiltestingapi.MakeWorkload("w", "").PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).Obj()),
+				workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("w", "").PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).Obj()),
 			},
 			workloadsToUpdate: []*kueue.Workload{
 				utiltestingapi.MakeWorkload("w", "").PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
@@ -615,7 +616,7 @@ func TestClusterQueueImpl(t *testing.T) {
 			}
 
 			for _, w := range test.workloadsToAdd {
-				cq.PushOrUpdate(workload.NewInfo(w))
+				cq.PushOrUpdate(workload.NewInfo(logr.Discard(), w))
 			}
 
 			for _, w := range test.inadmissibleWorkloadsToRequeue {
@@ -626,7 +627,7 @@ func TestClusterQueueImpl(t *testing.T) {
 			}
 
 			for _, w := range test.workloadsToUpdate {
-				cq.PushOrUpdate(workload.NewInfo(w))
+				cq.PushOrUpdate(workload.NewInfo(logr.Discard(), w))
 			}
 
 			for _, w := range test.workloadsToDelete {
@@ -657,7 +658,7 @@ func TestQueueInadmissibleWorkloadsDuringScheduling(t *testing.T) {
 	cq.namespaceSelector = labels.Everything()
 	wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).Obj()
 	cl := utiltesting.NewFakeClient(wl, utiltesting.MakeNamespace(defaultNamespace))
-	cq.PushOrUpdate(workload.NewInfo(wl))
+	cq.PushOrUpdate(workload.NewInfo(logr.Discard(), wl))
 
 	wantActiveWorkloads := []workload.Reference{workload.Key(wl)}
 
@@ -698,23 +699,23 @@ func TestBackoffWaitingTimeExpired(t *testing.T) {
 		want         bool
 	}{
 		"workload still have Requeued=false": {
-			workloadInfo: workload.NewInfo(utiltestingapi.MakeWorkload("wl", "ns").Condition(metav1.Condition{
+			workloadInfo: workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("wl", "ns").Condition(metav1.Condition{
 				Type:   kueue.WorkloadRequeued,
 				Status: metav1.ConditionFalse,
 			}).Obj()),
 			want: false,
 		},
 		"workload doesn't have requeueState": {
-			workloadInfo: workload.NewInfo(utiltestingapi.MakeWorkload("wl", "ns").Obj()),
+			workloadInfo: workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("wl", "ns").Obj()),
 			want:         true,
 		},
 		"workload doesn't have an evicted condition with reason=PodsReadyTimeout": {
-			workloadInfo: workload.NewInfo(utiltestingapi.MakeWorkload("wl", "ns").
+			workloadInfo: workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("wl", "ns").
 				RequeueState(ptr.To[int32](10), nil).Obj()),
 			want: true,
 		},
 		"now already has exceeded requeueAt": {
-			workloadInfo: workload.NewInfo(utiltestingapi.MakeWorkload("wl", "ns").
+			workloadInfo: workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("wl", "ns").
 				RequeueState(ptr.To[int32](10), ptr.To(metav1.NewTime(minuteAgo))).
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadEvicted,
@@ -724,7 +725,7 @@ func TestBackoffWaitingTimeExpired(t *testing.T) {
 			want: true,
 		},
 		"now hasn't yet exceeded requeueAt": {
-			workloadInfo: workload.NewInfo(utiltestingapi.MakeWorkload("wl", "ns").
+			workloadInfo: workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("wl", "ns").
 				RequeueState(ptr.To[int32](10), ptr.To(metav1.NewTime(minuteLater))).
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadEvicted,
@@ -804,7 +805,7 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 				workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
 				nil, nil, nil)
 			wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).Obj()
-			info := workload.NewInfo(wl)
+			info := workload.NewInfo(logr.Discard(), wl)
 			info.LastAssignment = tc.lastAssignment
 			if ok := cq.RequeueIfNotPresent(ctx, info, tc.reason); !ok {
 				t.Error("failed to requeue nonexistent workload")
@@ -815,7 +816,7 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 				t.Errorf("Unexpected inadmissible status (-want,+got):\n%s", diff)
 			}
 
-			if ok := cq.RequeueIfNotPresent(ctx, workload.NewInfo(wl), tc.reason); ok {
+			if ok := cq.RequeueIfNotPresent(ctx, workload.NewInfo(logr.Discard(), wl), tc.reason); ok {
 				t.Error("Re-queued a workload that was already present")
 			}
 		})
@@ -858,7 +859,7 @@ func TestFIFOClusterQueue(t *testing.T) {
 		},
 	}
 	for _, w := range ws {
-		q.PushOrUpdate(workload.NewInfo(w))
+		q.PushOrUpdate(workload.NewInfo(logr.Discard(), w))
 	}
 	got := q.Pop()
 	if got == nil {
@@ -867,7 +868,7 @@ func TestFIFOClusterQueue(t *testing.T) {
 	if got.Obj.Name != "before" {
 		t.Errorf("Popped workload %q want %q", got.Obj.Name, "before")
 	}
-	wlInfo := workload.NewInfo(&kueue.Workload{
+	wlInfo := workload.NewInfo(logr.Discard(), &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:              "after",
 			CreationTimestamp: metav1.NewTime(now.Add(-time.Minute)),
@@ -994,8 +995,8 @@ func TestStrictFIFO(t *testing.T) {
 				t.Fatalf("Failed creating ClusterQueue %v", err)
 			}
 
-			q.PushOrUpdate(workload.NewInfo(tt.w1))
-			q.PushOrUpdate(workload.NewInfo(tt.w2))
+			q.PushOrUpdate(workload.NewInfo(logr.Discard(), tt.w1))
+			q.PushOrUpdate(workload.NewInfo(logr.Discard(), tt.w2))
 
 			got := q.Pop()
 			if got == nil {
@@ -1035,7 +1036,7 @@ func TestStrictFIFORequeueIfNotPresent(t *testing.T) {
 				workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
 				nil, nil, nil)
 			wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).Obj()
-			if ok := cq.RequeueIfNotPresent(ctx, workload.NewInfo(wl), reason); !ok {
+			if ok := cq.RequeueIfNotPresent(ctx, workload.NewInfo(logr.Discard(), wl), reason); !ok {
 				t.Error("failed to requeue nonexistent workload")
 			}
 
@@ -1044,7 +1045,7 @@ func TestStrictFIFORequeueIfNotPresent(t *testing.T) {
 				t.Errorf("Got inadmissible after requeue %t, want %t", gotInadmissible, test.wantInadmissible)
 			}
 
-			if ok := cq.RequeueIfNotPresent(ctx, workload.NewInfo(wl), reason); ok {
+			if ok := cq.RequeueIfNotPresent(ctx, workload.NewInfo(logr.Discard(), wl), reason); ok {
 				t.Error("Re-queued a workload that was already present")
 			}
 		})
@@ -1213,7 +1214,7 @@ func TestFsAdmission(t *testing.T) {
 
 			cq, _ := newClusterQueue(ctx, client, tc.cq, defaultOrdering, tc.afsConfig, nil, afsConsumedResources)
 			for _, wl := range tc.wls {
-				cq.PushOrUpdate(workload.NewInfo(&wl))
+				cq.PushOrUpdate(workload.NewInfo(logr.Discard(), &wl))
 			}
 
 			gotWl := cq.Pop()
@@ -1277,7 +1278,7 @@ func TestRecordInadmissibleHash(t *testing.T) {
 				wl := utiltestingapi.MakeWorkload(wlName, defaultNamespace).
 					Creation(now.Add(time.Duration(i)*time.Second)).
 					Request(corev1.ResourceCPU, "1").Obj()
-				info := workload.NewInfo(wl)
+				info := workload.NewInfo(logr.Discard(), wl)
 				info.SchedulingHash = hash
 				cq.PushOrUpdate(info)
 				i++
@@ -1331,7 +1332,7 @@ func TestPushOrUpdateRespectsInadmissibleHashes(t *testing.T) {
 
 			wl := utiltestingapi.MakeWorkload("wl", defaultNamespace).
 				Request(corev1.ResourceCPU, "1").Obj()
-			info := workload.NewInfo(wl)
+			info := workload.NewInfo(logr.Discard(), wl)
 			info.SchedulingHash = tc.pushHash
 			cq.PushOrUpdate(info)
 
@@ -1354,7 +1355,7 @@ func TestQueueInadmissibleWorkloadsClearsHashes(t *testing.T) {
 
 	wl := utiltestingapi.MakeWorkload("wl", defaultNamespace).
 		Request(corev1.ResourceCPU, "1").Obj()
-	info := workload.NewInfo(wl)
+	info := workload.NewInfo(logr.Discard(), wl)
 	info.SchedulingHash = "test-hash"
 	cq.PushOrUpdate(info)
 	cq.handleInadmissibleHash("test-hash")
