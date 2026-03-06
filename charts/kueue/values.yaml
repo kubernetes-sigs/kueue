@@ -290,9 +290,7 @@ kueueViz:
     # -- KueueViz frontend container securityContext
     containerSecurityContext: {}
     # -- Environment variables for KueueViz frontend deployment
-    env:
-      - name: REACT_APP_WEBSOCKET_URL
-        value: "wss://backend.kueueviz.local"
+    env: []
     ingress:
       # -- Enable KueueViz dashboard frontend ingress
       enabled: true

@@ -630,6 +630,7 @@ files:
     removeComments: true
     excludes:
       - kustomization.yaml
+      - frontend-configmap.yaml
     continueOnError: true
     operations:
       - type: UPDATE
@@ -673,11 +674,10 @@ files:
       - type: UPDATE
         key: .metadata.namespace
         value: '"{{ .Release.Namespace }}"'
-      - type: UPDATE
-        key: .spec.template.spec.containers.[].env.[].value
-        value: '"wss://{{ .Values.kueueViz.backend.ingress.host | default \"backend.kueueviz.local\" }}"'
+      - type: APPEND
+        key: .spec.template.spec.volumes.[].configMap.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
         onFileCondition: '.kind == "Deployment" and .metadata.name | contains("kueueviz-frontend")'
-        onItemCondition: '.spec.template.spec.containers.[].env.[].name == "REACT_APP_WEBSOCKET_URL"'
       - type: DELETE
         key: .spec.template.spec.containers.[].resources
         onFileCondition: '.kind == "Deployment" and .metadata.name | contains("kueueviz-backend")'
@@ -768,15 +768,6 @@ files:
       - type: INSERT_TEXT
         key: .spec.template.spec.containers.[].name
         value: |
-          {{- with .Values.kueueViz.frontend.env }}
-          env:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-        indentation: 2
-        onFileCondition: '.kind == "Deployment" and  .metadata.name | contains("frontend")'
-      - type: INSERT_TEXT
-        key: .spec.template.spec.containers.[].name
-        value: |
           {{- with .Values.kueueViz.backend.env }}
           env:
             {{- toYaml . | nindent 12 }}
@@ -801,6 +792,10 @@ files:
             {{- toYaml .Values.kueueViz.frontend.resources | nindent 12 }}
           {{- with .Values.kueueViz.frontend.containerSecurityContext }}
           securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.kueueViz.frontend.env }}
+          env:
             {{- toYaml . | nindent 12 }}
           {{- end }}
         indentation: 0
