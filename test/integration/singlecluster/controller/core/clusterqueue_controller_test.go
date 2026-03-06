@@ -18,6 +18,7 @@ package core
 
 import (
 	"context"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -1083,47 +1084,35 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 		})
 
 		ginkgo.It("Should log concurrent modification errors with log level smaller than error", func() {
-			var _ = fwk.ObservedLogs.TakeAll() // clear logs
+			_ = fwk.ObservedLogs.TakeAll() // clear logs
 
 			const nGoroutines = 25
-			// We are making a buffered channel to avoid main thread blocking when
-			// one of the goroutines fails
-			stopModification := make(chan bool, nGoroutines)
 
-			// local helper that sets cq status to pending, at the same time
-			// core controller will try to set status to Active, so concurrent modification should occur
+			ctx, cancel := context.WithTimeout(ginkgo.GinkgoTB().Context(), util.LongTimeout)
+			defer cancel()
+
 			setClusterStatusPending := func() {
-				defer ginkgo.GinkgoRecover()
-
-				gomega.Eventually(func(g gomega.Gomega) bool {
+				for {
 					select {
-					case <-stopModification:
-						return true
+					case <-ctx.Done():
+						return
 					default:
 						var updatedCq kueue.ClusterQueue
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)).Should(gomega.Succeed())
+						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)).Should(gomega.Succeed())
 						apimeta.SetStatusCondition(&updatedCq.Status.Conditions, metav1.Condition{
 							Type:    kueue.ClusterQueueActive,
 							Status:  metav1.ConditionFalse,
 							Reason:  "ByTest",
 							Message: "by test",
 						})
-						// we do not expect here as status update in some of the calls is expected to fail
-						// due to concurrent modification
-						var _ = k8sClient.Status().Update(ctx, &updatedCq)
-						return false
+						gomega.Expect(util.IgnoreConflict(k8sClient.Status().Update(ctx, &updatedCq))).Should(gomega.Succeed())
+						time.Sleep(util.Interval)
 					}
-				}, util.LongTimeout, util.Interval).To(gomega.BeTrue())
+				}
 			}
 			for range nGoroutines {
 				go setClusterStatusPending()
 			}
-
-			defer func() {
-				for range nGoroutines {
-					stopModification <- true
-				}
-			}()
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				reconcileLogs := fwk.ObservedLogs
