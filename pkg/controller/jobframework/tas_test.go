@@ -24,14 +24,17 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 func TestPodSetTopologyRequestBuilder(t *testing.T) {
 	testCases := map[string]struct {
+		featureGates       map[featuregate.Feature]bool
 		meta               *metav1.ObjectMeta
 		podIndexLabel      *string
 		subGroupIndexLabel *string
@@ -192,9 +195,111 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 			},
 			wantErr: strconv.ErrSyntax,
 		},
+		"multi-layer: zero constraint layers with feature gate": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology: true,
+			},
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+					kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[]`,
+				},
+			},
+			wantErr: errTopologyConstraintsLayerCount,
+		},
+		"multi-layer: four constraint layers with feature gate": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology: true,
+			},
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+					kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","size":32},{"topology":"cloud.com/sub-rack","size":16},{"topology":"cloud.com/cluster","size":4},{"topology":"kubernetes.io/hostname","size":2}]`,
+				},
+			},
+			wantErr: errTopologyConstraintsLayerCount,
+		},
+		"multi-layer: three constraint layers with feature gate": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology: true,
+			},
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+					kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","size":16},{"topology":"cloud.com/sub-rack","size":4},{"topology":"kubernetes.io/hostname","size":2}]`,
+				},
+			},
+			wantReq: &kueue.PodSetTopologyRequest{
+				Required: ptr.To("cloud.com/block"),
+				PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+					{Topology: "cloud.com/rack", Size: 16},
+					{Topology: "cloud.com/sub-rack", Size: 4},
+					{Topology: "kubernetes.io/hostname", Size: 2},
+				},
+			},
+		},
+		"multi-layer: two constraint layers with feature gate": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology: true,
+			},
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+					kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","size":8},{"topology":"kubernetes.io/hostname","size":2}]`,
+				},
+			},
+			wantReq: &kueue.PodSetTopologyRequest{
+				Required: ptr.To("cloud.com/block"),
+				PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+					{Topology: "cloud.com/rack", Size: 8},
+					{Topology: "kubernetes.io/hostname", Size: 2},
+				},
+			},
+		},
+		"multi-layer: ignored without feature gate": {
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
+					kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/rack",
+					kueue.PodSetSliceSizeAnnotation:             "16",
+				},
+			},
+			wantReq: &kueue.PodSetTopologyRequest{
+				Required:                    ptr.To("cloud.com/block"),
+				PodSetSliceRequiredTopology: ptr.To("cloud.com/rack"),
+				PodSetSliceSize:             ptr.To[int32](16),
+			},
+		},
+		"multi-layer: invalid JSON in constraints annotation": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology: true,
+			},
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+					kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `invalid-json`,
+				},
+			},
+			wantErr: errParseTopologyConstraints,
+		},
+		"multi-layer: invalid JSON in constraints annotation - expect size as integer": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology: true,
+			},
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+					kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","size":"8"}]`,
+				},
+			},
+			wantErr: errParseTopologyConstraints,
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			for fg, enabled := range tc.featureGates {
+				features.SetFeatureGateDuringTest(t, fg, enabled)
+			}
 			b := NewPodSetTopologyRequest(tc.meta)
 			b.PodIndexLabel(tc.podIndexLabel)
 			b.SubGroup(tc.subGroupIndexLabel, tc.subGroupCount)

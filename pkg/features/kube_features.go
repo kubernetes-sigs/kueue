@@ -269,6 +269,13 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/9156
 	// Enables pod labeling with corresponding cluster and local queue names
 	AssignQueueLabelsForPods featuregate.Feature = "AssignQueueLabelsForPods"
+
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	//
+	// Enable multi-layer topology constraints for TAS, allowing up to 3 slice
+	// layers (in addition to the podset-level constraint) for fine-grained
+	// placement across deep topology hierarchies.
+	TASMultiLayerTopology featuregate.Feature = "TASMultiLayerTopology"
 )
 
 func init() {
@@ -422,6 +429,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	AssignQueueLabelsForPods: {
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
+	},
+	TASMultiLayerTopology: {
+		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

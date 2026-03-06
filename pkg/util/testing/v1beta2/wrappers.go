@@ -492,6 +492,14 @@ func (p *PodSetWrapper) SliceSizeTopologyRequest(size int32) *PodSetWrapper {
 	return p
 }
 
+func (p *PodSetWrapper) SliceRequiredTopologyConstraints(constraints ...kueue.PodsetSliceRequiredTopologyConstraint) *PodSetWrapper {
+	if p.TopologyRequest == nil {
+		p.TopologyRequest = &kueue.PodSetTopologyRequest{}
+	}
+	p.TopologyRequest.PodsetSliceRequiredTopologyConstraints = constraints
+	return p
+}
+
 func (p *PodSetWrapper) PreferredTopologyRequest(level string) *PodSetWrapper {
 	if p.TopologyRequest == nil {
 		p.TopologyRequest = &kueue.PodSetTopologyRequest{}
