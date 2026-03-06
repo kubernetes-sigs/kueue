@@ -1647,7 +1647,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 
 			ginkgo.By("await for wl1 to have QuotaReserved on flavor-1", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					gomega.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
 					g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusQuotaReserved))
 					psa := wlObj.Status.Admission.PodSetAssignments
 					g.Expect(psa).Should(gomega.HaveLen(1))
@@ -1682,7 +1682,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 
 			ginkgo.By("await for wl1 to be Admitted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					gomega.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
 					g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusAdmitted))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -1708,14 +1708,14 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 
 			ginkgo.By("await for wl2 to have QuotaReserved on flavor-2", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					gomega.Expect(k8sClient.Get(ctx, wl2Key, &wlObj)).Should(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, wl2Key, &wlObj)).Should(gomega.Succeed())
 					g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusQuotaReserved))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("await for wl1 to be Admitted on flavor-2", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					gomega.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
 					g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusAdmitted))
 					psa := wlObj.Status.Admission.PodSetAssignments
 					g.Expect(psa).Should(gomega.HaveLen(1))
@@ -1727,8 +1727,8 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 
 			ginkgo.By("await for wl1 to have status for AdmissionCheck1 cleared", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					gomega.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
-					gomega.Expect(admissioncheck.FindAdmissionCheck(wlObj.Status.AdmissionChecks, ac1Ref)).To(gomega.BeNil())
+					g.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
+					g.Expect(admissioncheck.FindAdmissionCheck(wlObj.Status.AdmissionChecks, ac1Ref)).To(gomega.BeNil())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -1782,7 +1782,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 
 			ginkgo.By("await for wl1 to have QuotaReserved on flavor-1", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					gomega.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
 					g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusQuotaReserved))
 					psa := wlObj.Status.Admission.PodSetAssignments
 					g.Expect(psa).Should(gomega.HaveLen(1))
@@ -1817,7 +1817,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 
 			ginkgo.By("await for wl1 to be Admitted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					gomega.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
 					g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusAdmitted))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -1843,7 +1843,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 
 			ginkgo.By("await for wl2 to have QuotaReserved", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					gomega.Expect(k8sClient.Get(ctx, wl2Key, &wlObj)).Should(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, wl2Key, &wlObj)).Should(gomega.Succeed())
 					g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusQuotaReserved))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -1873,14 +1873,14 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 
 			ginkgo.By("await for wl1 to be Admitted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					gomega.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
 					g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusAdmitted))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("await for wl1 to have status Ready for AdmissionCheck2", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					gomega.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
 					acs := admissioncheck.FindAdmissionCheck(wlObj.Status.AdmissionChecks, ac2Ref)
 					g.Expect(acs.State).To(gomega.Equal(kueue.CheckStateReady))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -1888,8 +1888,8 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 
 			ginkgo.By("await for wl1 to have status for AdmissionCheck1 cleared", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					gomega.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
-					gomega.Expect(admissioncheck.FindAdmissionCheck(wlObj.Status.AdmissionChecks, ac1Ref)).To(gomega.BeNil())
+					g.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
+					g.Expect(admissioncheck.FindAdmissionCheck(wlObj.Status.AdmissionChecks, ac1Ref)).To(gomega.BeNil())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -1944,7 +1944,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 
 			ginkgo.By("await for wl1 to have QuotaReserved on flavor-1", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					gomega.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
 					g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusQuotaReserved))
 					psa := wlObj.Status.Admission.PodSetAssignments
 					g.Expect(psa).Should(gomega.HaveLen(1))
@@ -1980,7 +1980,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 
 			ginkgo.By("await for wl1 to be Admitted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					gomega.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
 					g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusAdmitted))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -2000,7 +2000,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 
 			ginkgo.By("await for wl1 to be Admitted on flavor-2", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					gomega.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
 					g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusAdmitted))
 					psa := wlObj.Status.Admission.PodSetAssignments
 					g.Expect(psa).Should(gomega.HaveLen(1))

@@ -905,9 +905,7 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 			})
 
 			ginkgo.By("workload should be deleted after the retention period", func() {
-				gomega.Eventually(func() error {
-					return k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWorkload)
-				}, util.Timeout, util.Interval).ShouldNot(gomega.Succeed())
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, false)
 			})
 		})
 	})
