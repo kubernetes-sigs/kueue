@@ -945,7 +945,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Create another admissible workload in queue1")
-			createWorkloadWithPriority("cq1", "2", 9)
+			secondAdmissibleWorkload := createWorkloadWithPriority("cq1", "2", 9)
 
 			ginkgo.By("Validate pending workloads")
 			util.ExpectPendingWorkloadsMetric(cq1, 2, 0)
@@ -969,14 +969,12 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 				g.Expect(cond.Message).To(gomega.ContainSubstring("insufficient quota"))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("Validate pending workloads")
-			util.ExpectPendingWorkloadsMetric(cq1, 1, 1)
-
 			ginkgo.By("Complete preemption")
 			util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cq2, 2)
 
 			ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
 			util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 1)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, secondAdmissibleWorkload)
 			util.ExpectClusterQueueWeightedShareMetric(cq1, 1000)
 			util.ExpectClusterQueueWeightedShareMetric(cq2, 0.0)
 		})
