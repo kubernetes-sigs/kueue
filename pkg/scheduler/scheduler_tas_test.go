@@ -2887,6 +2887,9 @@ func TestScheduleForTAS(t *testing.T) {
 				topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueue.Topology) {
 					return kueue.TopologyReference(tc.topologies[i].Name), tc.topologies[i]
 				})
+				for i := range tc.nodes {
+					cqCache.TASCache().AddOrUpdateNode(&tc.nodes[i])
+				}
 				for _, ac := range tc.admissionChecks {
 					cqCache.AddOrUpdateAdmissionCheck(log, &ac)
 				}
@@ -3974,6 +3977,9 @@ func TestScheduleForTASPreemption(t *testing.T) {
 				topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueue.Topology) {
 					return kueue.TopologyReference(tc.topologies[i].Name), tc.topologies[i]
 				})
+				for i := range tc.nodes {
+					cqCache.TASCache().AddOrUpdateNode(&tc.nodes[i])
+				}
 				for _, flavor := range tc.resourceFlavors {
 					cqCache.AddOrUpdateResourceFlavor(log, &flavor)
 					if flavor.Spec.TopologyName != nil {
@@ -5930,6 +5936,9 @@ func TestScheduleForTASCohorts(t *testing.T) {
 				topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueue.Topology) {
 					return kueue.TopologyReference(tc.topologies[i].Name), tc.topologies[i]
 				})
+				for i := range tc.nodes {
+					cqCache.TASCache().AddOrUpdateNode(&tc.nodes[i])
+				}
 				for _, flavor := range tc.resourceFlavors {
 					cqCache.AddOrUpdateResourceFlavor(log, &flavor)
 					if flavor.Spec.TopologyName != nil {

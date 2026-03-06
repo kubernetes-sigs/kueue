@@ -17,19 +17,17 @@ limitations under the License.
 package scheduler
 
 import (
-	"context"
-	"fmt"
-	"maps"
 	"slices"
 	"sync"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
-	ctrl "sigs.k8s.io/controller-runtime"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -107,23 +105,6 @@ func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
 	}
 }
 
-func (c *TASFlavorCache) snapshot(ctx context.Context) (*TASFlavorSnapshot, error) {
-	log := ctrl.LoggerFrom(ctx)
-	nodes := &corev1.NodeList{}
-
-	var requiredLabels client.MatchingLabels = maps.Clone(c.flavor.NodeLabels)
-	var requiredLabelKeys client.HasLabels = slices.Clone(c.topology.Levels)
-
-	err := c.client.List(ctx, nodes, requiredLabels, requiredLabelKeys, client.MatchingFields{
-		indexer.ReadyNode:       "true",
-		indexer.SchedulableNode: "true",
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list nodes for TAS: %w", err)
-	}
-	return c.snapshotForNodes(log, nodes.Items), nil
-}
-
 func (c *TASFlavorCache) NodeLabels() map[string]string {
 	return c.flavor.NodeLabels
 }
@@ -136,10 +117,44 @@ func (c *TASFlavorCache) TopologyLevels() []string {
 	return c.topology.Levels
 }
 
-func (c *TASFlavorCache) snapshotForNodes(log logr.Logger, nodes []corev1.Node) *TASFlavorSnapshot {
+func (c *TASFlavorCache) snapshot(log logr.Logger, nodes map[string]*nodeInfo) *TASFlavorSnapshot {
 	c.RLock()
 	defer c.RUnlock()
+	return c.snapshotForNodes(log, c.filterNodes(nodes))
+}
 
+func (c *TASFlavorCache) filterNodes(nodes map[string]*nodeInfo) []*nodeInfo {
+	var reqs []labels.Requirement
+
+	// 1. Add Exact Match requirements (MatchingLabels).
+	for k, v := range c.flavor.NodeLabels {
+		req, _ := labels.NewRequirement(k, selection.Equals, []string{v})
+		reqs = append(reqs, *req)
+	}
+
+	// 2. Add Exists requirements (HasLabels).
+	for _, key := range c.topology.Levels {
+		if _, exists := c.flavor.NodeLabels[key]; !exists {
+			req, _ := labels.NewRequirement(key, selection.Exists, []string{})
+			reqs = append(reqs, *req)
+		}
+	}
+
+	// 3. Create a single selector from all combined requirements.
+	selector := labels.NewSelector().Add(reqs...)
+
+	// 4. Filter the nodes.
+	filteredNodes := make([]*nodeInfo, 0, len(nodes))
+	for _, node := range nodes {
+		if selector.Matches(labels.Set(node.Labels)) {
+			filteredNodes = append(filteredNodes, node)
+		}
+	}
+
+	return filteredNodes
+}
+
+func (c *TASFlavorCache) snapshotForNodes(log logr.Logger, nodes []*nodeInfo) *TASFlavorSnapshot {
 	log.V(3).Info("Constructing TAS snapshot", "nodeLabels", c.flavor.NodeLabels,
 		"levels", c.topology.Levels, "nodeCount", len(nodes))
 	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, c.topology.Levels, c.flavor.Tolerations)
@@ -189,5 +204,43 @@ func (c *TASFlavorCache) updateUsage(topologyRequests []workload.TopologyDomainR
 			c.usage[domainID].Add(tr.TotalRequests())
 			c.usage[domainID].Add(resources.Requests{corev1.ResourcePods: int64(tr.Count)})
 		}
+	}
+}
+
+type nodeInfo struct {
+	// Name holds the node's name, used to evaluate node affinity.
+	Name string
+
+	// Labels are used to match Topology levels and NodeSelectors.
+	Labels map[string]string
+
+	// Taints are used to check tolerations.
+	Taints []corev1.Taint
+
+	// Allocatable capacity from Status.Allocatable.
+	Allocatable corev1.ResourceList
+}
+
+func newNodeInfo(node *corev1.Node) *nodeInfo {
+	return &nodeInfo{
+		Name:        node.Name,
+		Labels:      node.Labels,
+		Taints:      node.Spec.Taints,
+		Allocatable: node.Status.Allocatable,
+	}
+}
+
+func (ni *nodeInfo) toNode() *corev1.Node {
+	return &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   ni.Name,
+			Labels: ni.Labels,
+		},
+		Spec: corev1.NodeSpec{
+			Taints: ni.Taints,
+		},
+		Status: corev1.NodeStatus{
+			Allocatable: ni.Allocatable,
+		},
 	}
 }
