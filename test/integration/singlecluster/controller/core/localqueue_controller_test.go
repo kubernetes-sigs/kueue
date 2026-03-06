@@ -25,7 +25,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -89,7 +88,6 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 	ginkgo.BeforeEach(func() {
 		ac = utiltestingapi.MakeAdmissionCheck("ac").ControllerName("ac-controller").Obj()
 		util.MustCreate(ctx, k8sClient, ac)
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 		util.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
 		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue.queue-controller").
 			ResourceGroup(
