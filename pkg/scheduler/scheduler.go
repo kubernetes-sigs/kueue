@@ -270,6 +270,12 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 
 		if mode == flavorassigner.NoFit {
 			log.V(3).Info("Skipping workload as FlavorAssigner assigned NoFit mode")
+			if features.Enabled(features.SchedulingEquivalenceHashing) && e.SchedulingHash != workload.SchedulingHashUnknown {
+				if moved := s.queues.HandleInadmissibleHash(e.ClusterQueue, e.SchedulingHash); moved > 0 {
+					log.V(2).Info("Bulk-moved equivalent workloads to inadmissible",
+						"hash", e.SchedulingHash, "movedCount", moved)
+				}
+			}
 			continue
 		}
 
