@@ -259,6 +259,17 @@ kueueViz:
       host: "backend.kueueviz.local"
       # -- KueueViz dashboard backend ingress tls secret name
       tlsSecretName: "kueueviz-backend-tls"
+    auth:
+      # -- Authentication mode: "Disabled" or "TokenReview" (Alpha, disabled by default)
+      mode: "Disabled"
+      # -- TokenReview-specific configuration (only used when mode is "TokenReview")
+      tokenReviewConfig:
+        # -- Optional comma-separated list of audiences for TokenReview
+        audiences: ""
+        # -- TTL for successful authentication cache
+        cacheTTL: "60s"
+        # -- TTL for failed authentication cache (prevents API server abuse)
+        negativeCacheTTL: "5s"
     image:
       # -- KueueViz dashboard backend image repository
       repository: "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend"
