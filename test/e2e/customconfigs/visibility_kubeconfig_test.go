@@ -26,12 +26,12 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -65,10 +65,6 @@ contexts:
     user: custom-sa
 current-context: default
 `
-
-func init() {
-	_ = visibility.AddToScheme(scheme.Scheme)
-}
 
 var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 	var ctx context.Context
@@ -168,15 +164,24 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 		util.MustCreate(ctx, k8sClient, cq)
 		defer util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 
+		// Define the GVK for the visibility API resource we want to access
+		visibilityGVK := schema.GroupVersionKind{
+			Group:   "visibility.kueue.x-k8s.io",
+			Version: "v1beta2",
+			Kind:    "ClusterQueue",
+		}
+
 		// NEGATIVE TEST: The custom SA lacks 'system:auth-delegator'. The visibility server
 		// is forced to use it, so it cannot perform SubjectAccessReviews.
 		ginkgo.By("Expecting API requests to fail due to lack of auth delegation permissions")
 		gomega.Eventually(func(g gomega.Gomega) {
-			var visCQ visibility.ClusterQueue
-			err := k8sClient.Get(ctx, types.NamespacedName{Name: cqName}, &visCQ)
+			u := &unstructured.Unstructured{}
+			u.SetGroupVersionKind(visibilityGVK)
+
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: cqName}, u)
 			g.Expect(err).To(gomega.HaveOccurred())
 
-			// Check for standard auth failures (401/403) or generic server errors (500/503)
+			// Generally surfaces as 401/403 or 500/503 when SAR fails
 			isExpectedError := k8serrors.IsUnauthorized(err) ||
 				k8serrors.IsForbidden(err) ||
 				k8serrors.IsInternalError(err) ||
@@ -196,10 +201,12 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 
 		ginkgo.By("Now the requests should pass successfully")
 		gomega.Eventually(func(g gomega.Gomega) {
-			var visCQ visibility.ClusterQueue
-			err := k8sClient.Get(ctx, types.NamespacedName{Name: cqName}, &visCQ)
+			u := &unstructured.Unstructured{}
+			u.SetGroupVersionKind(visibilityGVK)
+
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: cqName}, u)
 			g.Expect(err).NotTo(gomega.HaveOccurred())
-			g.Expect(visCQ.Name).To(gomega.Equal(cqName))
+			g.Expect(u.GetName()).To(gomega.Equal(cqName))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 })
