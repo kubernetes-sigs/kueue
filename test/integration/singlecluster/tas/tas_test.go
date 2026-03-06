@@ -3679,7 +3679,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							}
 						}
 						g.Expect(count).Should(gomega.Equal(int32(3)))
-					}, 2*util.Timeout, util.Interval).Should(gomega.Succeed())
+					}, 7*time.Second, util.Interval).Should(gomega.Succeed())
 				})
 
 				ginkgo.By("make the node Ready", func() {
