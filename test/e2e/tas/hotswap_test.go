@@ -498,6 +498,200 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 					expectPodsOnNodes(ctx, k8sClient, ns.Name, jobName, numPods, expectedNodes)
 				})
 			})
+
+			// In this test we use a job with SliceSize = 3 and SliceRequiredTopology = Block.
+			// Each pod requires 1 "extraResource" so the job will use three nodes from a Block.
+			// We simulate a node failure by making it NotReady while the pods are Pending (gated).
+			// The NodeFailureController should identify the pending pods assigned to the failed node and terminate them.
+			// The replacement mechanism should then find the available node in the same Block and replace the failed one.
+			// Note: This test verifies that NodeFailureController can act on pending pods that are assigned to the node (by the nodeSelector) but not scheduled yet.
+			ginkgo.It("Should replace a node when it becomes NotReady and pods are Pending", func() {
+				parallelism := 3
+				numPods := parallelism
+				jobName := "pending-notready-job"
+
+				// Use an artificial scheduling gate to keep pods pending
+				artificialGate := "kueue.x-k8s.io/dummy-gate"
+
+				sampleJob := testingjob.MakeJob(jobName, ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					Parallelism(int32(parallelism)).
+					Completions(int32(parallelism)).
+					Suspend(true).
+					PodLabel("job-name", jobName).
+					Obj()
+
+				sampleJob.Spec.Template.Spec.Containers = []corev1.Container{
+					{
+						Name:  "c",
+						Image: util.GetAgnHostImage(),
+						Args:  util.BehaviorWaitForDeletionFailOnExit,
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("200m"),
+								extraResource:      resource.MustParse("1"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("200m"),
+								extraResource:      resource.MustParse("1"),
+							},
+						},
+					},
+				}
+				sampleJob.Spec.Template.Annotations = map[string]string{
+					kueue.PodSetPreferredTopologyAnnotation:     utiltesting.DefaultBlockTopologyLevel,
+					kueue.PodSetSliceRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
+					kueue.PodSetSliceSizeAnnotation:             "3",
+				}
+				sampleJob.Spec.CompletionMode = ptr.To(batchv1.IndexedCompletion)
+				sampleJob.Spec.BackoffLimit = ptr.To[int32](1)
+
+				// Add the artificial scheduling gate to the pod template
+				sampleJob.Spec.Template.Spec.SchedulingGates = []corev1.PodSchedulingGate{
+					{Name: artificialGate},
+				}
+
+				util.MustCreate(ctx, k8sClient, sampleJob)
+
+				ginkgo.By("Job is unsuspended", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
+						g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				wlName := ""
+				ginkgo.By("Wait for topology assignment", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						wls := &kueue.WorkloadList{}
+						g.Expect(k8sClient.List(ctx, wls, client.InNamespace(ns.Name))).To(gomega.Succeed())
+						g.Expect(wls.Items).To(gomega.HaveLen(1))
+						g.Expect(wls.Items[0].Status.Admission).NotTo(gomega.BeNil())
+						g.Expect(wls.Items[0].Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+						g.Expect(wls.Items[0].Status.Admission.PodSetAssignments[0].TopologyAssignment).NotTo(gomega.BeNil())
+						wlName = wls.Items[0].Name
+					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				wlKey := client.ObjectKey{Name: wlName, Namespace: ns.Name}
+				initialNodes := []string{"kind-worker", "kind-worker2", "kind-worker3"}
+				ginkgo.By("Verify initial topology assignment of the workload", func() {
+					expectWorkloadTopologyAssignment(ctx, k8sClient, wlKey, numPods, initialNodes)
+				})
+
+				pods := &corev1.PodList{}
+				ginkgo.By("Wait for pods to be created and admitted (but still gated)", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels{
+							"job-name": jobName,
+						})).To(gomega.Succeed())
+						g.Expect(pods.Items).To(gomega.HaveLen(numPods))
+						for _, p := range pods.Items {
+							g.Expect(p.Spec.SchedulingGates).To(gomega.ContainElement(corev1.PodSchedulingGate{Name: artificialGate}))
+						}
+					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				initialUIDs := map[string]struct{}{}
+				for _, p := range pods.Items {
+					initialUIDs[string(p.UID)] = struct{}{}
+				}
+
+				node := &corev1.Node{}
+				nodeName := initialNodes[0]
+				ginkgo.By(fmt.Sprintf("Simulate failure of node %s", nodeName), func() {
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: nodeName}, node)).To(gomega.Succeed())
+					nodeToRestore = node.DeepCopy()
+					util.SetNodeCondition(ctx, k8sClient, node, &corev1.NodeCondition{
+						Type:   corev1.NodeReady,
+						Status: corev1.ConditionUnknown,
+					})
+				})
+
+				ginkgo.By("Removing the artificial scheduling gate from pods", func() {
+					for _, p := range pods.Items {
+						gomega.Eventually(func(g gomega.Gomega) {
+							updatedPod := &corev1.Pod{}
+							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&p), updatedPod)).To(gomega.Succeed())
+							newGates := []corev1.PodSchedulingGate{}
+							for _, g := range updatedPod.Spec.SchedulingGates {
+								if g.Name != artificialGate {
+									newGates = append(newGates, g)
+								}
+							}
+							updatedPod.Spec.SchedulingGates = newGates
+							g.Expect(k8sClient.Update(ctx, updatedPod)).To(gomega.Succeed())
+						}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					}
+				})
+
+				var replacementPodName string
+				ginkgo.By("Wait for the victim pod to be Failed and the replacement pod to be created", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels{
+							"job-name": jobName,
+						})).To(gomega.Succeed())
+
+						var victimPod *corev1.Pod
+						var replacementPod *corev1.Pod
+
+						for i := range pods.Items {
+							p := &pods.Items[i]
+							if p.Labels["batch.kubernetes.io/job-completion-index"] == "0" {
+								if _, ok := initialUIDs[string(p.UID)]; ok {
+									victimPod = p
+								} else {
+									replacementPod = p
+								}
+							}
+						}
+
+						g.Expect(victimPod).NotTo(gomega.BeNil(), "Victim pod should still exist")
+						g.Expect(victimPod.Status.Phase).To(gomega.Equal(corev1.PodFailed), "Victim pod should be Failed")
+						g.Expect(victimPod.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(corev1.PodCondition{
+							Type:   "TerminatedByKueue",
+							Status: corev1.ConditionTrue,
+							Reason: "UnschedulableOnAssignedNode",
+						}, cmpopts.IgnoreFields(corev1.PodCondition{}, "LastTransitionTime", "Message", "LastProbeTime"))), "Victim pod should have TerminatedByKueue condition with reason UnschedulableOnAssignedNode")
+
+						g.Expect(replacementPod).NotTo(gomega.BeNil(), "Replacement pod should appear")
+						replacementPodName = replacementPod.Name
+					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Removing the artificial scheduling gate from the replacement pod", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						updatedPod := &corev1.Pod{}
+						g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: replacementPodName, Namespace: ns.Name}, updatedPod)).To(gomega.Succeed())
+						foundArtificialGate := false
+						newGates := []corev1.PodSchedulingGate{}
+						for _, gate := range updatedPod.Spec.SchedulingGates {
+							if gate.Name == artificialGate {
+								foundArtificialGate = true
+							} else {
+								newGates = append(newGates, gate)
+							}
+						}
+
+						if foundArtificialGate {
+							updatedPod.Spec.SchedulingGates = newGates
+							g.Expect(k8sClient.Update(ctx, updatedPod)).To(gomega.Succeed())
+							g.Expect(foundArtificialGate).To(gomega.BeFalse(), "Still found artificial gate, retrying...")
+						}
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Check that the topology assignment is updated with the new node in the same block", func() {
+					expectedNodes := []string{}
+					for _, n := range []string{"kind-worker", "kind-worker2", "kind-worker3", "kind-worker4"} {
+						if n != node.Name {
+							expectedNodes = append(expectedNodes, n)
+						}
+					}
+					expectWorkloadTopologyAssignment(ctx, k8sClient, wlKey, numPods, expectedNodes)
+					expectPodsOnNodes(ctx, k8sClient, ns.Name, jobName, numPods, expectedNodes)
+				})
+			})
 		})
 	})
 })
