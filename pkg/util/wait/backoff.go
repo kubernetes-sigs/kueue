@@ -64,13 +64,14 @@ func UntilWithBackoff(ctx context.Context, f func(context.Context) SpeedSignal) 
 	// create and drain timer, allowing reuse of same timer via timer.Reset
 	timer := clock.RealClock{}.NewTimer(0)
 	<-timer.C()
-	untilWithBackoff(ctx, f, timer)
+	untilWithBackoff(ctx, defaultMaxBackoff, f, timer)
 }
 
-func untilWithBackoff(ctx context.Context, f func(context.Context) SpeedSignal, timer clock.Timer) {
+func untilWithBackoff(ctx context.Context, maxBackoff time.Duration, f func(context.Context) SpeedSignal, timer clock.Timer) {
 	mgr := speedyBackoffManager{
-		backoff: nil,
-		timer:   timer,
+		backoff:    nil,
+		timer:      timer,
+		maxBackoff: maxBackoff,
 	}
 	wait.BackoffUntil(func() {
 		mgr.toggleBackoff(f(ctx))
@@ -87,8 +88,8 @@ const (
 	// SlowDown signals to backoff.
 	SlowDown SpeedSignal = false
 
-	initialBackoff = time.Millisecond
-	maxBackoff     = time.Millisecond * 100
+	initialBackoff    = time.Millisecond
+	defaultMaxBackoff = time.Millisecond * 10
 )
 
 func (s *speedyBackoffManager) toggleBackoff(speedSignal SpeedSignal) {
@@ -101,15 +102,16 @@ func (s *speedyBackoffManager) toggleBackoff(speedSignal SpeedSignal) {
 				Duration: initialBackoff,
 				Factor:   2,
 				Steps:    math.MaxInt,
-				Cap:      maxBackoff,
+				Cap:      s.maxBackoff,
 			}
 		}
 	}
 }
 
 type speedyBackoffManager struct {
-	backoff *wait.Backoff
-	timer   clock.Timer
+	backoff    *wait.Backoff
+	maxBackoff time.Duration
+	timer      clock.Timer
 }
 
 var _ wait.BackoffManager = (*speedyBackoffManager)(nil)
