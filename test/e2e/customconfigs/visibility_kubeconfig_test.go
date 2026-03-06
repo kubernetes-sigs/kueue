@@ -172,7 +172,7 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 		}
 		gomega.Expect(k8sClient.Create(ctx, authReaderBinding)).To(gomega.Succeed())
 
-		// Now the requests should pass successfully
+		ginkgo.By("Now the requests should pass successfully")
 		gomega.Eventually(func(g gomega.Gomega) {
 			var visCQ visibility.ClusterQueue
 			err := k8sClient.Get(ctx, types.NamespacedName{Name: cqName}, &visCQ)
