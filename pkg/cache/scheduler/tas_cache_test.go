@@ -5962,7 +5962,7 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TASMultiLayerTopology, true)
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 
 			wl := utiltestingapi.MakeWorkload("test-wl", "test-ns").
 				Admission(utiltestingapi.MakeAdmission("test-cq", podSetName).
@@ -5997,7 +5997,6 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 			c := clientBuilder.Build()
 
 			tasCache := NewTASCache(c)
-			_, log := utiltesting.ContextWithLog(t)
 			for i := range tc.pods {
 				tasCache.Update(&tc.pods[i], log)
 			}
