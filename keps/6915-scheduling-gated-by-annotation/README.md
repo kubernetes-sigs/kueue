@@ -25,10 +25,8 @@ tags, and then generate with `hack/update-toc.sh`.
   - [Behavior](#behavior)
   - [User Stories](#user-stories)
     - [Story 1](#story-1)
-    - [Story 2](#story-2)
   - [Notes/Constraints/Caveats](#notesconstraintscaveats)
     - [batch/v1 Job readinessGates discussion](#batchv1-job-readinessgates-discussion)
-    - [Adding AdmissionGatedBy is only possible in Job creations](#adding-admissiongatedby-is-only-possible-in-job-creations)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [Implementation](#implementation)
@@ -36,12 +34,6 @@ tags, and then generate with `hack/update-toc.sh`.
       - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
     - [Integration tests](#integration-tests)
-      - [Toggle Workload Creation via Annotation Removal](#toggle-workload-creation-via-annotation-removal)
-      - [Forbid adding AdmissionGatedBy post creation](#forbid-adding-admissiongatedby-post-creation)
-      - [Forbid modifying AdmissionGatedBy to add controller names post creation](#forbid-modifying-admissiongatedby-to-add-controller-names-post-creation)
-      - [Forbid modifying AdmissionGatedBy to swap controller names post creation](#forbid-modifying-admissiongatedby-to-swap-controller-names-post-creation)
-      - [Allow removing 1 AdmissionGatedBy controller name post creation](#allow-removing-1-admissiongatedby-controller-name-post-creation)
-      - [Forbid using an AdmissionGatedBy that is not domain-like](#forbid-using-an-admissiongatedby-that-is-not-domain-like)
   - [Graduation Criteria](#graduation-criteria)
     - [Alpha](#alpha)
     - [Beta](#beta)
@@ -84,22 +76,11 @@ updates.
 [documentation style guide]: https://github.com/kubernetes/community/blob/master/contributors/guide/style-guide.md
 -->
 
-Introduce annotation `kueue.x-k8s.io/admission-gated-by` on supported Job-like
-objects to defer Kueue's admission logic. The annotation value must specify a
-controller name in a domain-prefixed path (e.g., `example.com/mygate`), similar
-to the `spec.managedBy` field in Jobs, which requires that all characters
-before the first "/" must be a valid subdomain as defined by RFC 1123 and all
-characters trailing the first "/" must follow RFC 3986. Multiple controllers
-can be listed by separating them with commas, for example: 
+Introduce the `kueue.x-k8s.io/admission-gated-by` annotation for supported Job-like 
+objects to let users delay when Kueue starts admission. While the annotation is 
+present, the Job remains "gated" and won't enter Kueue's normal admission flow. 
+Removing the annotation releases the Job to proceed through standard Kueue admission.
 
-`kueue.x-k8s.io/admission-gated-by: example.com/alpha,example.com/beta`.
-
-When present, Kueue does not create a Workload object for the Job, consistent
-with the existing `JobWithSkip` interface behavior. Removing the annotation
-enables Kueue to create the Workload and proceed with normal admission and
-scheduling flow. For the alpha release, the annotation can only be set at Job
-creation time and cannot be added later; it can only be removed or modified to
-remove 1 or more controller names.
 
 ## Motivation
 
@@ -112,28 +93,11 @@ demonstrate the interest in a KEP within the wider Kubernetes community.
 [experience reports]: https://github.com/golang/go/wiki/ExperienceReports
 -->
 
-Kueue’s mutating webhook immediately suspends any Job it manages. For Job types
-that support native suspension (e.g., `Job`, `PyTorchJob`, etc), Kueue enforces
-this by setting `spec.suspend=true`. By taking ownership of the suspension
-fields in the Job APIs it manages, Kueue ensures that all such Jobs remain
-suspended until they pass its standard admission checks. Once Kueue observes
-the creation of a managed Job, it creates the corresponding Workload object and
-begins considering the Job for admission.
+Currently, once Kueue observes the creation of a managed Job, it creates the 
+corresponding Workload and immediately starts considering it for admission.
 
-This behavior, however, stops users from creating a Job and deferring when
-Kueue should start considering it for admission. Even if a user initially
-sets `spec.suspend=true`, Kueue will still consider it for admission and 
-override it after admitting the Job. As a result, there is currently no clean 
-mechanism for users to express the following intent:
-
-> Create this Job now, but do not admit it until I explicitly release it.
-
-The proposed `AdmissionGatedBy` annotation fills this gap.
-
-`AdmissionGatedBy` enables users to declare that the Job's admission should be
-gated (i.e., ignored by Kueue for admission) while there is at least 1 gate 
-enabled. By removing the gate(s) later, users gain explicit control over when
-Kueue should begin its standard admission workflow.
+This is problematic for workflows where an external controller needs to adjust the Job 
+(for example, patch resource requests) before it should be eligible for admission.
 
 ### Goals
 
@@ -142,10 +106,10 @@ List the specific goals of the KEP. What is it trying to achieve? How will we
 know that this has succeeded?
 -->
 
-- Respect annotation at Job creation time
-- Prevent adding annotation after Job creation (validation for alpha)
-- Enforce domain-like format for annotation value (e.g., `example.com/mygate`)
-- Ensure consistent behavior without breaking queue semantics
+- When a managed Job has `kueue.x-k8s.io/admission-gated-by` set, Kueue must not start 
+  admission; once the annotation is removed, admission proceeds normally.
+
+
 
 ### Non-Goals
 
@@ -155,7 +119,7 @@ and make progress.
 -->
 
 - New CRDs or scheduler policy changes
-- Supporting adding `AdmissionGatedBy` annotations, excluding Job creation time.
+- Support for adding the `kueue.x-k8s.io/admission-gated-by` annotation after the Job creation
 
 ## Proposal
 
@@ -170,26 +134,11 @@ nitty-gritty.
 
 ### Behavior
 
-- Kueue managed Jobs can have an annotation `kueue.x-k8s.io/admission-gated-by`
-  at creation time
-- The annotation value must conform to a domain-like format 
-  (e.g., `example.com/mygate`), similar to the `spec.managedBy` field in 
-  Kubernetes Jobs
-- **Validation rules (alpha):**
-  - Adding the annotation after Job creation is prevented by validation
-  - After creation, the annotation can only be completely removed, or modified
-    to remove one or more controller names
-  - For each controller name, the characters before the first "/" must be a
-    valid subdomain as defined by RFC 1123 and all characters trailing the
-    first "/" must follow RFC 3986.
-- **When annotation is present:** Kueue does not create a Workload object for
-  the Job, consistent with the existing `JobWithSkip` interface behavior when 
-  `Skip(ctx)` returns true
-- **When annotation is removed:** Jobs follow the standard Kueue workflow 
-  (Workload created immediately)
-- Jobs without the annotation follow the standard Kueue workflow (Workload
-  created immediately)
+Kueue managed Jobs can have an annotation `kueue.x-k8s.io/admission-gated-by`
+at creation time
 
+- **When annotation is present:** Kueue does not consider the Job for admission.
+- **When annotation is not present:** Jobs follow the standard Kueue workflow 
 
 ### User Stories
 
@@ -202,52 +151,17 @@ bogged down.
 
 #### Story 1
 
-A user is preparing a Job but does not want Kueue to admit it yet. They create
-the Job with the annotation `kueue.x-k8s.io/admission-gated-by: "example.com/mygate"`.
+As a cluster administrator, I want to deploy a system that adjusts a Job’s resource requirements
+using a prediction mechanism. Jobs are created by ML researchers, who may omit resource requests
+or specify them inaccurately.
 
-Kueue detects the annotation and does not create a Workload object for this
-Job. The Job remains in a gated state, not subject to Kueue's admission checks
-or scheduling decisions.
+Because prediction takes time (e.g., ~1s per Job), I run it as a controller rather than a
+creation-time webhook. While the controller is computing and patching requests, I need to ensure
+Kueue does not begin admission prematurely.
 
-Later, when the user is ready for Kueue to manage the Job, they remove the
-annotation.
-
-Kueue detects the annotation removal, creates the Workload object, and proceeds
-with normal admission checks and scheduling. The Job now flows through the 
-standard Kueue workflow.
-
-#### Story 2
-
-A user has an AI tuning Job that will run for days or weeks. They want to
-optimize the resource requirements before the Job starts executing, but the
-optimization process itself may take time (e.g., calling a REST API that runs
-an AI model, or running a short canary job to validate recommendations).
-
-The goal of the user is to create a Job without worrying about setting its
-resource requirements accurately.
-
-The user creates the Job with:
-- Default resource requests as a starting point
-- The annotation `kueue.x-k8s.io/admission-gated-by: "example.com/resource-optimizer"`
-  to opt-in for automatic patching by their external controller
-
-Kueue detects the annotation and does not consider the job eligible for
-admission. The Job remains gated, ensuring it cannot execute before the 
-optimization is complete.
-
-An external controller picks up the Job and computes the recommended resource
-configuration. This process may take seconds or even minutes, but this is 
-acceptable since the Job itself will run for much longer.
-
-Once the optimization is complete, the controller patches the Job to:
-- Update the resource requirements with the optimized values
-- Remove the `kueue.x-k8s.io/admission-gated-by` annotation
-
-Kueue detects the annotation removal, and proceeds with normal admission checks
-and scheduling. The Job now has the updated resource requirements. The Job flows 
-through the standard Kueue workflow with the correct resource configuration,
-avoiding the risk of preemption and restart that could occur if the Job were patched
-after it had already started executing.
+The `kueue.x-k8s.io/admission-gated-by` annotation fills this gap: Jobs can be created in a gated
+state, and the prediction controller removes the gate once resource requests are set,
+allowing normal admission to proceed.
 
 ### Notes/Constraints/Caveats
 
@@ -259,6 +173,7 @@ This might be a good place to talk about core concepts and how they relate.
 -->
 
 #### batch/v1 Job readinessGates discussion
+
 In Kubernetes, we are discussing about Job level `schedulingGate` field in 
 <https://github.com/kubernetes/kubernetes/issues/121681>. But it is still 
 under discussion, and it will take lots of time to release the feature to the
@@ -266,15 +181,6 @@ production cluster (enabled by default).
 
 So, we decided to introduce `AdmissionGatedBy` annotations as a Kueue level.
 We will revisit this annotation support if job-level readiness gates are accepted.
-
-#### Adding AdmissionGatedBy is only possible in Job creations
-
-This feature enables users to defer Workload creation for their Jobs by using
-an annotation at Job creation time. The annotation acts as an admission gate,
-preventing Kueue from creating the associated Workload object until the 
-annotation is removed. 
-
-This is consistent with the existing `JobWithSkip` interface pattern in Kueue.
 
 ### Risks and Mitigations
 
@@ -305,31 +211,30 @@ required) or even code snippets. If there's any ambiguity about HOW your
 proposal will be implemented, this is the place to discuss them.
 -->
 
-- No new API fields required
+Kueue managed Jobs can have an annotation `kueue.x-k8s.io/admission-gated-by`
+at creation time.
+
+- **When annotation is present:** Kueue does not admit the job.
+- **When annotation is removed:** Jobs follow the standard Kueue admission workflow.
+- Jobs without the annotation follow the standard Kueue admission workflow.
+
+Validation enforces:
+
 - Annotation contract: `kueue.x-k8s.io/admission-gated-by` is a comma separated string of 
   controller names (e.g., `example.com/mygate,example.com/mygate2`)
-- Validation enforces:
-  - Annotation cannot be added after creation
-  - Annotation can be updated after creation to remove one or more controller names
-  - Annotation cannot be updated after creation to add new controller names
-  - Controller names are validated against a set of rules.
+- Adding the annotation after Job creation is prevented by validation
+- After creation, the annotation can only be completely removed, or modified
+  to remove one or more controller names
+- For each controller name, the characters before the first "/" must be a
+  valid subdomain as defined by RFC 1123 and all characters trailing the
+  first "/" must follow RFC 3986.
 - Feature gate: `AdmissionGatedBy` (Alpha, default off)
 
 ### Implementation
 
-When the `kueue.x-k8s.io/admission-gated-by` annotation is present on a Job,
-the reconciler skips creating the Workload object for that Job. This behavior
-is consistent with Jobs that implement the `JobWithSkip` interface, where the
-`Skip(ctx)` method returns `true`.
-
-The Kueue reconciler already continuously monitors Jobs for annotation changes.
-Therefore, when the annotation is removed:
-1. The reconciler detects the change
-2. The Workload enters the standard Kueue admission and scheduling flow because
-    the `AdmissionGatedBy` annotation is no longer present
-
-This approach leverages the existing Kueue patterns for conditional Workload creation.
-
+The Job reconciler copies the `kueue.x-k8s.io/admission-gated-by` annotation to the 
+corresponding Workload object. As long as this annotation is present on the Workload, 
+its `IsAdmissible()` method will return `false`.
 
 ### Test Plan
 
@@ -384,89 +289,14 @@ Describe what tests will be added to ensure proper quality of the enhancement.
 After the implementation PR is merged, add the names of the tests here.
 -->
 
-The `AdmissionGatedBy` mechanism configures Kueue to not consider a Job it manages as eligible
-for admission for as long as there is at least one admission gate. It should work for any kind
+The `AdmissionGatedBy` mechanism configures Kueue to not consider a Job it manages as
+admissible for as long as there is at least one admission gate. It should work for any kind
 of Job that Kueue supports.
 
-Therefore, we should repeat the tests for the following Job types:
+Therefore, we should repeat the tests for all the supported Job types (including Job, JobSet, Pod, etc).
 
-- Job
-- JobSet
-- RayCluster
-- RayJob
-- Pod
-- Deployment
-- Statefulset
-- LeaderWorkerSet
-
-##### Toggle Workload Creation via Annotation Removal
-
-1. Create Job with admission gate annotation requesting 0.1 CPU cores
-   - Create a `batch/v1 Job` manifest with annotation `kueue.x-k8s.io/admission-gated-by: "example.com/mygate"`
-2. Verify no Workload is created
-   - Confirm that no corresponding `Workload` resource exists
-   - Job remains in gated state
-3. Patch the Job
-   - Change its resource requirements to request 0.2 CPU cores
-   - Remove the `kueue.x-k8s.io/admission-gated-by` annotation from the Job object
-4. Observe Workload creation and activation
-   - Wait for corresponding `Workload` resource to be created
-   - Verify the Workload reflects the updated resource requirements
-   - Verify the Workload enters the normal Kueue admission flow
-
-
-##### Forbid adding AdmissionGatedBy post creation
-
-1. Create Job without annotation
-   - Create a `batch/v1 Job` manifest without the `AdmissionGatedBy` annotation
-2. Attempt to add annotation after creation
-   - Try to add `kueue.x-k8s.io/admission-gated-by` annotation to the existing Job
-3. Verify validation prevents addition
-   - Confirm the annotation addition is rejected by validation
-   - Verify appropriate error message is returned
-
-##### Forbid modifying AdmissionGatedBy to add controller names post creation
-
-1. Create Job without annotation
-   - Create a `batch/v1 Job` manifest with annotation `kueue.x-k8s.io/admission-gated-by: "example.com/mygate"`
-2. Attempt to add annotation after creation
-   - Try to set `kueue.x-k8s.io/admission-gated-by=example.com/mygate,example.com/mygate2` 
-     annotation to the existing Job
-3. Verify validation prevents modification
-   - Confirm the annotation modification is rejected by validation
-   - Verify appropriate error message is returned
-
-##### Forbid modifying AdmissionGatedBy to swap controller names post creation
-
-1. Create Job without annotation
-   - Create a `batch/v1 Job` manifest with annotation `kueue.x-k8s.io/admission-gated-by=example.com/mygate,example.com/mygate2`
-2. Attempt to add annotation after creation
-   - Try to set `kueue.x-k8s.io/admission-gated-by=example.com/mygate2,example.com/mygate3`
-     annotation to the existing Job
-3. Verify validation prevents modification
-   - Confirm the annotation modification is rejected by validation
-   - Verify appropriate error message is returned
-
-##### Allow removing 1 AdmissionGatedBy controller name post creation
-
-1. Create Job without annotation
-   - Create a `batch/v1 Job` manifest with annotation `kueue.x-k8s.io/admission-gated-by=example.com/mygate,example.com/mygate2`
-2. Attempt to add annotation after creation
-   - Try to set `kueue.x-k8s.io/admission-gated-by=example.com/mygate2` annotation to the existing Job
-3. Verify validation permits modification
-   - Confirm the annotation modification is applied
-   - Verify appropriate error message is returned
-4. Verify no Workload is created
-   - Confirm that no corresponding `Workload` resource exists
-   - Job remains in gated state
-
-##### Forbid using an AdmissionGatedBy that is not domain-like
-
-1. Create Job with non domain-like annotation value
-   - Try to create a `batch/v1 Job` manifest with the annotation `kueue.x-k8s.io/admission-gated-by="not a domain"`
-2. Verify validation prevents creation
-   - Confirm the object creation is rejected by validation
-   - Verify appropriate error message is returned
+1. Verify the Job/Workload is not admitted while the annotation is present
+2. Verify the Job/Workload gets admitted as soon as the annotation is released
 
 ### Graduation Criteria
 
