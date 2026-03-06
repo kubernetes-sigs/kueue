@@ -573,8 +573,23 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(tr *TASPodSetRequests, exi
 	sliceSize, _ := getSliceSizeWithSinglePodAsDefault(tr.PodSet.TopologyRequest)
 	if slicesRequested(tr.PodSet.TopologyRequest) && requiredReplacementDomain != "" && (tr.Count%sliceSize != 0) {
 		trCopy.PodSet = tr.PodSet.DeepCopy()
+		// Find the innermost constraint whose size divides the number of replacement
+		// pods to preserve leaf-level grouping
+		effectiveSliceSize := int32(1)
+		var effectiveSliceTopology *string
+		constraints := tr.PodSet.TopologyRequest.PodsetSliceRequiredTopologyConstraints
+		for i := len(constraints) - 1; i >= 0; i-- {
+			if tr.Count%constraints[i].Size == 0 {
+				effectiveSliceSize = constraints[i].Size
+				effectiveSliceTopology = ptr.To(constraints[i].Topology)
+				break
+			}
+		}
 		trCopy.PodSet.TopologyRequest.PodsetSliceRequiredTopologyConstraints = nil
-		trCopy.PodSet.TopologyRequest.PodSetSliceSize = ptr.To(int32(1))
+		// PodSetSliceSize is only read when PodSetSliceRequiredTopology is also set,
+		// so both must be configured for the slice grouping to take effect.
+		trCopy.PodSet.TopologyRequest.PodSetSliceRequiredTopology = effectiveSliceTopology
+		trCopy.PodSet.TopologyRequest.PodSetSliceSize = ptr.To(effectiveSliceSize)
 	}
 	replacementAssignment, reason := s.findTopologyAssignment(trCopy, nil, assumedUsage, false, requiredReplacementDomain)
 	if reason != "" {
@@ -627,7 +642,18 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 
 	sliceSize, _ := getSliceSizeWithSinglePodAsDefault(tr.PodSet.TopologyRequest)
 	if slicesRequested(tr.PodSet.TopologyRequest) && (tr.Count%sliceSize != 0) {
-		return s.findIncompleteSliceDomain(tr, ta, tr.Count, sliceSize)
+		// For multi-layer constraints, find the innermost broken constraint's domain.
+		// This ensures the replacement is confined to the tightest topology level
+		// that needs repair, preserving intermediate grouping invariants.
+		constraints := tr.PodSet.TopologyRequest.PodsetSliceRequiredTopologyConstraints
+		if len(constraints) > 1 {
+			for i := len(constraints) - 1; i >= 0; i-- {
+				if tr.Count%constraints[i].Size != 0 {
+					return s.findIncompleteSliceDomain(tr, ta, tr.Count, constraints[i].Size, constraints[i].Topology)
+				}
+			}
+		}
+		return s.findIncompleteSliceDomain(tr, ta, tr.Count, sliceSize, s.sliceLevelKeyWithDefault(tr.PodSet.TopologyRequest, s.lowestLevel()))
 	}
 
 	if !isRequired(tr.PodSet.TopologyRequest) {
@@ -678,10 +704,9 @@ func deleteDomain(currentTopologyAssignment *utiltas.TopologyAssignment, unhealt
 	return noAffectedPods
 }
 
-func (s *TASFlavorSnapshot) findIncompleteSliceDomain(tr *TASPodSetRequests, ta *utiltas.TopologyAssignment, missingCount int32, sliceSize int32) utiltas.TopologyDomainID {
+func (s *TASFlavorSnapshot) findIncompleteSliceDomain(tr *TASPodSetRequests, ta *utiltas.TopologyAssignment, missingCount int32, sliceSize int32, topologyKey string) utiltas.TopologyDomainID {
 	// this function assumes that all assignments are at the hostname level
-	sliceTopologyKey := s.sliceLevelKeyWithDefault(tr.PodSet.TopologyRequest, s.lowestLevel())
-	sliceLevelIdx, found := s.resolveLevelIdx(sliceTopologyKey)
+	sliceLevelIdx, found := s.resolveLevelIdx(topologyKey)
 	if !found {
 		return ""
 	}
