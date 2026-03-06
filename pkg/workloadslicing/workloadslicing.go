@@ -234,7 +234,8 @@ func EnsureWorkloadSlices(
 			// Finish the old workload slice as out of sync.
 			reason := kueue.WorkloadFinishedReasonOutOfSync
 			message := "The workload slice is out of sync with its parent job"
-			if err := workload.Finish(ctx, clnt, &oldWorkload, reason, message, clk, tracker); err != nil {
+			if err := workload.Finish(ctx, clnt, &oldWorkload, reason, message,
+				workload.FinishWithClock(clk), workload.FinishWithRoleTracker(tracker)); err != nil {
 				return nil, true, err
 			}
 		}
