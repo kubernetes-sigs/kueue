@@ -2,7 +2,8 @@ title: DRA Support in Kueue
 kep-number: 2941
 authors:
   - "@alaypatel07"
-status: provisional
+  - "@sohankunkerkar"
+status: implementable
 creation-date: 2025-05-02
 reviewers:
   - "@kannon92"
@@ -13,6 +14,7 @@ approvers:
 
 see-also:
   - "https://github.com/kubernetes/enhancements/blob/master/keps/sig-node/4381-dra-structured-parameters/README.md"
+  - "https://github.com/kubernetes/enhancements/tree/master/keps/sig-scheduling/5004-dra-extended-resource"
 replaces:
   - "https://github.com/kubernetes-sigs/kueue/pull/3071"
 
@@ -22,7 +24,7 @@ stage: alpha
 # The most recent milestone for which work toward delivery of this KEP has been
 # done. This can be the current (upcoming) milestone, if it is being actively
 # worked on.
-latest-milestone: "v0.13"
+latest-milestone: "v0.17"
 
 # The milestone at which this feature was, or is targeted to be, at each stage.
 milestone:
@@ -34,6 +36,7 @@ milestone:
 # List the feature gate name and the components for which it must be enabled
 feature-gates:
   - name: DynamicResourceAllocation
+  - name: DRAExtendedResources
 disable-supported: true
 
 # The following PRR answers are required at beta release
