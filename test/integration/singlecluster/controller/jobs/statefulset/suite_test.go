@@ -85,7 +85,7 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 			ctx,
 			mgr.GetClient(),
 			mgr.GetFieldIndexer(),
-			mgr.GetEventRecorderFor(constants.JobControllerName),
+			mgr.GetEventRecorder(constants.JobControllerName),
 			opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = reconciler.SetupWithManager(mgr)
@@ -95,7 +95,7 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 			ctx,
 			mgr.GetClient(),
 			mgr.GetFieldIndexer(),
-			mgr.GetEventRecorderFor(constants.JobControllerName),
+			mgr.GetEventRecorder(constants.JobControllerName),
 			opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = podReconciler.SetupWithManager(mgr)

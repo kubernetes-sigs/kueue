@@ -150,7 +150,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 		ctx,
 		mgr.GetClient(),
 		mgr.GetFieldIndexer(),
-		mgr.GetEventRecorderFor(constants.JobControllerName))
+		mgr.GetEventRecorder(constants.JobControllerName))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = jobReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -165,7 +165,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 		ctx,
 		mgr.GetClient(),
 		mgr.GetFieldIndexer(),
-		mgr.GetEventRecorderFor(constants.JobControllerName))
+		mgr.GetEventRecorder(constants.JobControllerName))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = jobsetReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -180,7 +180,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 		ctx,
 		mgr.GetClient(),
 		mgr.GetFieldIndexer(),
-		mgr.GetEventRecorderFor(constants.JobControllerName))
+		mgr.GetEventRecorder(constants.JobControllerName))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = tfjobReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -195,7 +195,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 		ctx,
 		mgr.GetClient(),
 		mgr.GetFieldIndexer(),
-		mgr.GetEventRecorderFor(constants.JobControllerName))
+		mgr.GetEventRecorder(constants.JobControllerName))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = paddleJobReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -210,7 +210,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 		ctx,
 		mgr.GetClient(),
 		mgr.GetFieldIndexer(),
-		mgr.GetEventRecorderFor(constants.JobControllerName))
+		mgr.GetEventRecorder(constants.JobControllerName))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = pyTorchJobReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -225,7 +225,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 		ctx,
 		mgr.GetClient(),
 		mgr.GetFieldIndexer(),
-		mgr.GetEventRecorderFor(constants.JobControllerName))
+		mgr.GetEventRecorder(constants.JobControllerName))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = xgboostJobReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -240,7 +240,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 		ctx,
 		mgr.GetClient(),
 		mgr.GetFieldIndexer(),
-		mgr.GetEventRecorderFor(constants.JobControllerName))
+		mgr.GetEventRecorder(constants.JobControllerName))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = mpiJobReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -255,7 +255,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 		ctx,
 		mgr.GetClient(),
 		mgr.GetFieldIndexer(),
-		mgr.GetEventRecorderFor(constants.JobControllerName))
+		mgr.GetEventRecorder(constants.JobControllerName))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = podReconciller.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -282,7 +282,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 		ctx,
 		mgr.GetClient(),
 		mgr.GetFieldIndexer(),
-		mgr.GetEventRecorderFor(constants.JobControllerName))
+		mgr.GetEventRecorder(constants.JobControllerName))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = rayJobReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -297,7 +297,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 		ctx,
 		mgr.GetClient(),
 		mgr.GetFieldIndexer(),
-		mgr.GetEventRecorderFor(constants.JobControllerName))
+		mgr.GetEventRecorder(constants.JobControllerName))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = rayClusterReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -312,7 +312,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 		ctx,
 		mgr.GetClient(),
 		mgr.GetFieldIndexer(),
-		mgr.GetEventRecorderFor(constants.JobControllerName))
+		mgr.GetEventRecorder(constants.JobControllerName))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = appwrapperReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -327,7 +327,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 		ctx,
 		mgr.GetClient(),
 		mgr.GetFieldIndexer(),
-		mgr.GetEventRecorderFor(constants.JobControllerName))
+		mgr.GetEventRecorder(constants.JobControllerName))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = trainjobreconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -340,7 +340,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 
 	provReconciler, err := provisioning.NewController(
 		mgr.GetClient(),
-		mgr.GetEventRecorderFor("kueue-provisioning-request-controller"), nil)
+		mgr.GetEventRecorder("kueue-provisioning-request-controller"), nil)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = provReconciler.SetupWithManager(mgr)

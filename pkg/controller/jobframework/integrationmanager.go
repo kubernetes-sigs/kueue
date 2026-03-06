@@ -31,7 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/set"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -52,7 +52,7 @@ type JobReconcilerInterface interface {
 	SetupWithManager(mgr ctrl.Manager) error
 }
 
-type ReconcilerFactory func(ctx context.Context, client client.Client, indexer client.FieldIndexer, record record.EventRecorder, opts ...Option) (JobReconcilerInterface, error)
+type ReconcilerFactory func(ctx context.Context, client client.Client, indexer client.FieldIndexer, record events.EventRecorder, opts ...Option) (JobReconcilerInterface, error)
 
 // IntegrationCallbacks groups a set of callbacks used to integrate a new framework.
 type IntegrationCallbacks struct {
