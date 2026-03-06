@@ -1415,25 +1415,28 @@ If `tolerationSeconds` is specified, Kueue waits for the duration before treatin
 only if all pods of the workload that have topology assignment to that node are terminating, in the failed state,
 or if they are unscheduled. In this case, Kueue can trigger node replacement.
 
-  While `NoSchedule` taint does not evict running pods (unlike `NoExecute`), Kueue triggers recovery for unscheduled or failed pods.
-  If a workload is assigned to a node that is tainted with `NoSchedule`, the pods will remain in a pending state because
-  the Kubernetes scheduler will not schedule them on that node.
+While `NoSchedule` taint does not evict running pods (unlike `NoExecute`), Kueue triggers recovery for unscheduled or failed pods.
+Kueue also performs node replacement if pods fail or terminate after `NoSchedule` is assigned. Since the taint may indicate
+an underlying node problem, replacement ensures the workload is not blocked by the unavailable node.
 
-  Kueue also performs node replacement if pods fail or terminate after `NoSchedule` is assigned. Since the taint may indicate
-  an underlying node problem, replacement ensures the workload is not blocked by the unavailable node.
+Pods belonging to a workload might remain in the `Pending` phase if Kueue calculates a topology assignment that includes a specific node, but that node subsequently becomes tainted with `NoSchedule` or `NoExecute`, or enters the `NotReady` state. If a Pod is created or updated with a node selector pointing to this node, the Kubernetes scheduler is unable to schedule it due to the node's condition. Consequently, the Pod remains bound to an unavailable node by its topology assignment.
 
-For workloads for which a single Node replacement is possible, and the pods bound to the node are unscheduled (no `spec.nodeName` set),
-because they cannot run due to a taint, Kueue marks the pods as `Failed` and adds the following condition to the pods:
-  ```yaml
-  type: TerminatedByKueue
-  status: True
-  reason: UnschedulableOnAssignedNode
-  message: "..."
-  ```
-  This ensures that the pods are re-created by the Job controller for placement on other nodes, while keeping the original
-  pods in Failed state for debuggability. Without this step, the pending pods would block the creation of replacement pods.
+For workloads where single Node replacement is possible, the controller remediates this scenario by reacting to Node and Pod events:
 
-  In addition, Kueue emits a Normal event with reason `PodTerminated` on the Pod to inform about the termination.
+- **On Node events:** When a node becomes unhealthy (due to a taint or the `NotReady` state), the controller evaluates the Pods on the node. If their status indicates an issue, the node is marked as unhealthy.
+- **On Pod events:** When a node is already tainted or `NotReady`, a change in a Pod's status can cause the node to fulfill the unhealthy requirements, allowing the controller to mark the node as unhealthy. Crucially, reacting to Pod events enables the controller to easily filter out Pods that were created too slowly or became stuck in the `Pending` phase. The controller transitions these Pods to the `Failed` phase so that replacement Pods are created—an event-driven approach that completely avoids polling.
+
+When transitioning these Pods, the controller appends the following condition:
+```yaml
+type: TerminatedByKueue
+status: True
+reason: UnschedulableOnAssignedNode
+message: "..."
+```
+This ensures that the pods are re-created by the Job controller for placement on other nodes, while keeping the original
+pods in Failed state for debuggability. Without this step, the pending pods would block the creation of replacement pods.
+
+In addition, Kueue emits a Normal event with reason `PodTerminated` on the Pod to inform about the termination.
 
 Nodes with `.spec.unschedulable` set to true are treated as having `NoSchedule` taint.
 
