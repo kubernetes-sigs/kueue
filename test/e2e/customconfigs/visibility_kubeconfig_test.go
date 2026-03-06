@@ -210,8 +210,8 @@ func cloneControllerRBAC(ctx context.Context) {
 	for _, crb := range crbs.Items {
 		for _, sub := range crb.Subjects {
 			if sub.Kind == "ServiceAccount" && sub.Name == "kueue-controller-manager" && sub.Namespace == kueueNamespace {
-				// We intentionally skip this so the negative test catches the missing permission
-				if crb.RoleRef.Name == "system:auth-delegator" {
+				// Skip the roles that grant SubjectAccessReview permissions
+				if crb.RoleRef.Name == "system:auth-delegator" || crb.RoleRef.Name == "kueue-metrics-auth-role" {
 					continue
 				}
 				newCRB := &rbacv1.ClusterRoleBinding{
