@@ -119,8 +119,8 @@ func managerSetup(resourceTransformations ...config.ResourceTransformation) func
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		reconciler, err := provisioning.NewController(
-		mgr.GetClient(),
-		mgr.GetEventRecorder("kueue-provisioning-request-controller"), nil)
+			mgr.GetClient(),
+			mgr.GetEventRecorder("kueue-provisioning-request-controller"), nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		err = reconciler.SetupWithManager(mgr)
