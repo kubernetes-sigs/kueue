@@ -40,6 +40,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
@@ -67,6 +68,7 @@ type Preemptor struct {
 	enabledAfs             bool
 	roleTracker            *roletracker.RoleTracker
 	preemptionExpectations *expectations.Store
+	lqMetrics              *metrics.LocalQueueMetricsConfig
 }
 
 type preemptionCtx struct {
@@ -87,6 +89,7 @@ func New(
 	fs *config.FairSharing,
 	enabledAfs bool,
 	clock clock.Clock,
+	lqMetrics *metrics.LocalQueueMetricsConfig,
 	tracker *roletracker.RoleTracker,
 	preemptionExpectations *expectations.Store,
 ) *Preemptor {
@@ -100,6 +103,7 @@ func New(
 		enabledAfs:             enabledAfs,
 		roleTracker:            tracker,
 		preemptionExpectations: preemptionExpectations,
+		lqMetrics:              lqMetrics,
 	}
 	return p
 }
@@ -197,7 +201,7 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 		message := preemptionMessage(preemptor.Obj, target.Reason, preemptorPath, preempteePath)
 		wlCopy := target.WorkloadInfo.Obj.DeepCopy()
 		err := workload.Evict(
-			ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, "", p.clock, p.roleTracker,
+			ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, "", p.clock, metrics.NewDefaultLocalQueueMetricsConfig(), p.roleTracker,
 			workload.WithCustomPrepare(func(wl *kueue.Workload) {
 				workload.SetPreemptedCondition(wl, p.clock.Now(), target.Reason, message)
 			}),

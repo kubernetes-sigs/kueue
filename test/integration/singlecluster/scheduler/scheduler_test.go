@@ -325,7 +325,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		ginkgo.It("Should admit workloads as number of pods allows it", func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			wl1 := utiltestingapi.MakeWorkload("wl1", ns.Name).
 				Queue(kueue.LocalQueueName(podsCountQueue.Name)).
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).

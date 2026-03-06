@@ -102,6 +102,13 @@ func WithRoleTracker(tracker *roletracker.RoleTracker) Option {
 	}
 }
 
+// WithLocalQueueMetrics sets the configuration for local queue metrics.
+func WithLocalQueueMetrics(value *metrics.LocalQueueMetricsConfig) Option {
+	return func(c *Cache) {
+		c.lqMetrics = value
+	}
+}
+
 // Cache keeps track of the Workloads that got admitted through ClusterQueues.
 type Cache struct {
 	sync.RWMutex
@@ -122,6 +129,7 @@ type Cache struct {
 	tasCache tasCache
 
 	roleTracker *roletracker.RoleTracker
+	lqMetrics   *metrics.LocalQueueMetricsConfig
 }
 
 func New(client client.Client, options ...Option) *Cache {
@@ -132,6 +140,7 @@ func New(client client.Client, options ...Option) *Cache {
 		workloadAssignedQueues: make(map[workload.Reference]kueue.ClusterQueueReference),
 		hm:                     hierarchy.NewManager(newCohort),
 		tasCache:               NewTASCache(client),
+		lqMetrics:              metrics.NewDefaultLocalQueueMetricsConfig(),
 	}
 	for _, option := range options {
 		option(cache)
@@ -154,6 +163,7 @@ func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clust
 		AdmissionScope:      cq.Spec.AdmissionScope,
 
 		roleTracker: c.roleTracker,
+		lqMetrics:   c.lqMetrics,
 	}
 	c.hm.AddClusterQueue(cqImpl)
 	c.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.CohortName)
@@ -414,6 +424,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 			admittedWorkloads:  0,
 			totalReserved:      make(resources.FlavorResourceQuantities),
 			admittedUsage:      make(resources.FlavorResourceQuantities),
+			labels:             q.GetLabels(),
 		}
 		qImpl.resetFlavorsAndResources(cqImpl.resourceNode.Usage, cqImpl.AdmittedUsage)
 		cqImpl.localQueues[qKey] = qImpl

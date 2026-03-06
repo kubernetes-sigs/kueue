@@ -272,10 +272,12 @@ func main() {
 	cacheOptions := []schdcache.Option{
 		schdcache.WithPodsReadyTracking(blockForPodsReady(&cfg)),
 		schdcache.WithRoleTracker(roleTracker),
+		schdcache.WithLocalQueueMetrics(metrics.NewLocalQueueMetricsConfig(cfg.Metrics.LocalQueueMetrics)),
 	}
 	queueOptions := []qcache.Option{
 		qcache.WithPodsReadyRequeuingTimestamp(podsReadyRequeuingTimestamp(&cfg)),
 		qcache.WithRoleTracker(roleTracker),
+		qcache.WithLocalQueueMetrics(metrics.NewLocalQueueMetricsConfig(cfg.Metrics.LocalQueueMetrics)),
 	}
 	if cfg.Resources != nil && len(cfg.Resources.ExcludeResourcePrefixes) > 0 {
 		cacheOptions = append(cacheOptions, schdcache.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes))
@@ -480,6 +482,7 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.C
 		jobframework.WithQueues(queues),
 		jobframework.WithObjectRetentionPolicies(cfg.ObjectRetentionPolicies),
 		jobframework.WithRoleTracker(roleTracker),
+		jobframework.WithLocalQueueMetrics(metrics.NewLocalQueueMetricsConfig(cfg.Metrics.LocalQueueMetrics)),
 	}
 	nsSelector, err := metav1.LabelSelectorAsSelector(cfg.ManagedJobsNamespaceSelector)
 	if err != nil {
@@ -534,6 +537,7 @@ func setupScheduler(mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Ma
 		scheduler.WithAdmissionFairSharing(cfg.AdmissionFairSharing),
 		scheduler.WithRoleTracker(roleTracker),
 		scheduler.WithPreemptionExpectations(preemptionExpectations),
+		scheduler.WithLocalQueueMetrics(metrics.NewLocalQueueMetricsConfig(cfg.Metrics.LocalQueueMetrics)),
 	)
 	if err := mgr.Add(sched); err != nil {
 		return fmt.Errorf("unable to add scheduler to manager: %w", err)

@@ -37,6 +37,7 @@ import (
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -95,6 +96,13 @@ func WithRoleTracker(tracker *roletracker.RoleTracker) Option {
 	}
 }
 
+// WithLocalQueueMetrics sets the configuration for local queue metrics.
+func WithLocalQueueMetrics(value *metrics.LocalQueueMetricsConfig) Option {
+	return func(m *Manager) {
+		m.lqMetrics = value
+	}
+}
+
 // SetDRAReconcileChannel sets the DRA reconcile channel after manager creation.
 func (m *Manager) SetDRAReconcileChannel(ch chan<- event.TypedGenericEvent[*kueue.Workload]) {
 	m.draReconcileChannel = ch
@@ -136,6 +144,7 @@ type Manager struct {
 
 	draReconcileChannel chan<- event.TypedGenericEvent[*kueue.Workload]
 
+	lqMetrics   *metrics.LocalQueueMetricsConfig
 	roleTracker *roletracker.RoleTracker
 
 	requeuer inadmissibleRequeuer
@@ -163,6 +172,7 @@ func NewManager(client client.Client, checker StatusChecker, requeuer inadmissib
 		AfsEntryPenalties:      queueafs.NewPenaltyMap(),
 		AfsConsumedResources:   queueafs.NewAfsConsumedResources(),
 		requeuer:               requeuer,
+		lqMetrics:              metrics.NewDefaultLocalQueueMetricsConfig(),
 	}
 	m.requeuer.setManager(m)
 

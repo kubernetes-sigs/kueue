@@ -23,6 +23,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
@@ -41,7 +42,7 @@ func SetupControllers(mgr ctrl.Manager, queues *qcache.Manager, cache *schdcache
 		return ctrlName, err
 	}
 	if features.Enabled(features.TASFailedNodeReplacement) {
-		nodeFailureReconciler := newNodeFailureReconciler(mgr.GetClient(), recorder, roleTracker)
+		nodeFailureReconciler := newNodeFailureReconciler(mgr.GetClient(), recorder, metrics.NewLocalQueueMetricsConfig(cfg.Metrics.LocalQueueMetrics), roleTracker)
 		if ctrlName, err := nodeFailureReconciler.SetupWithManager(mgr, cfg); err != nil {
 			return ctrlName, err
 		}
